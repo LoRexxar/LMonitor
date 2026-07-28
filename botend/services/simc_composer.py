@@ -24,8 +24,57 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
 from django.db import models
-from botend.models import SimcContentTemplate, SimcApl
-from botend.services.simc_player_config import SPEC_CLASS
+from botend.models import SimcContentTemplate, SimcApl, SimcProfile
+from botend.services.simc_player_config import SPEC_CLASS, canonical_simc_spec_identity
+
+
+def validate_simulation_options(params: Dict[str, Any]) -> str:
+    """Validate canonical persisted options, with request-name compatibility."""
+    def value(canonical_name, request_name, default):
+        return params[canonical_name] if canonical_name in params else params.get(request_name, default)
+
+    def integer(name, item, minimum, maximum):
+        if isinstance(item, bool) or not isinstance(item, int) or not minimum <= item <= maximum:
+            return f'{name} 必须是 {minimum} 到 {maximum} 之间的整数'
+        return ''
+
+    def bounded_number(name, item, minimum, maximum):
+        if isinstance(item, bool) or not isinstance(item, (int, float)):
+            return f'{name} 必须是数字'
+        item = float(item)
+        if not math.isfinite(item) or not minimum <= item <= maximum:
+            return f'{name} 必须在 {minimum} 到 {maximum} 之间'
+        return ''
+
+    def number(name, minimum, maximum):
+        item = params.get(name)
+        if item is None:
+            return ''
+        return bounded_number(name, item, minimum, maximum)
+
+    errors = [
+        integer('iterations', params.get('iterations', 10000), 1, 100000000),
+        bounded_number('max_time', value('max_time', 'time', 300), 1, 86400),
+        integer('desired_targets', value('desired_targets', 'target_count', 1), 1, 1000),
+        number('target_error', 0, 1),
+        number('vary_combat_length', 0, 1),
+    ]
+    # If callers submit both schemas, also validate the request-side value that
+    # Composer will render; canonical aliases must never mask an unsafe value.
+    if 'max_time' in params and 'time' in params:
+        errors.append(bounded_number('time', params['time'], 1, 86400))
+    if 'desired_targets' in params and 'target_count' in params:
+        errors.append(integer('target_count', params['target_count'], 1, 1000))
+    for error in errors:
+        if error:
+            return error
+    for name, default in (('fight_style', 'Patchwerk'), ('enemy_type', '')):
+        item = params.get(name, default)
+        if item is None and name == 'enemy_type':
+            item = ''
+        if not isinstance(item, str) or (item and not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*', item)):
+            return f'{name} 包含无效值'
+    return ''
 
 
 @dataclass
@@ -76,7 +125,7 @@ class CompositionManifest:
 
     # Composition metadata
     created_at: str = ''
-    user_id: int = 0
+    user_id: Optional[int] = None
 
     def to_json(self) -> str:
         return json.dumps(self.__dict__, ensure_ascii=False, indent=2)
@@ -85,7 +134,7 @@ class CompositionManifest:
 class SimcComposer:
     """Compose frozen SimC input from semantic slot resolution."""
 
-    def __init__(self, user_id: int):
+    def __init__(self, user_id: Optional[int]):
         self.user_id = user_id
         self.slots: Dict[str, SlotResolution] = {}
         self.manifest = CompositionManifest()
@@ -101,8 +150,10 @@ class SimcComposer:
             '{simulation_options}\n{player_identity}\n{talents}\n{equipment}\n'
             '{stat_overrides}\n{action_list}\n{output_options}'
         )
+        _, validation_spec = canonical_simc_spec_identity(profile.spec)
         request = {
-            'spec': profile.spec, 'player_import_mode': profile.player_config_mode,
+            'spec': validation_spec or profile.spec,
+            'player_import_mode': profile.player_config_mode,
             # Validation profiles are server-owned.  Carry their canonical class
             # separately so ambiguous short specs (frost/protection/holy/etc.) do
             # not fall back to SPEC_CLASS's legacy single-class interpretation.
@@ -217,11 +268,15 @@ class SimcComposer:
         NOTE: This is called AFTER equipment resolution, so we know if equipment has actor.
         """
         user_spec = (request_data.get('spec') or '').strip().lower()
+        canonical_class, canonical_spec = canonical_simc_spec_identity(user_spec)
         player_import_mode = request_data.get('player_import_mode', '').strip()
 
-        # Derive class from spec using authoritative SPEC_CLASS
+        # Dashboard resources use class-qualified keys (for example
+        # ``warrior_arms``), while executable SimC actor blocks use ``arms``.
+        # Compare and render the canonical SimC identity, not the storage key.
         trusted_class = str(request_data.get('_trusted_class_name') or '').strip().lower()
-        derived_class = trusted_class or (SPEC_CLASS.get(user_spec) if user_spec else None)
+        derived_class = trusted_class or canonical_class or (SPEC_CLASS.get(user_spec) if user_spec else None)
+        comparable_spec = canonical_spec or user_spec
 
         # For battlenet mode, prefer the frozen actor block. The Battle.net identity
         # is source metadata and is only an execution fallback for legacy rows.
@@ -231,7 +286,7 @@ class SimcComposer:
                 parsed = self._parse_player_export(player_equipment)
                 export_spec = parsed.get('spec', '').strip().lower()
                 export_class = parsed.get('class', '').strip().lower()
-                if user_spec and export_spec and user_spec != export_spec:
+                if comparable_spec and export_spec and comparable_spec != export_spec:
                     return SlotResolution(
                         slot_name='player_identity', value=None, status='conflict',
                         error=f'用户指定的专精 {user_spec} 与 Battle.net 快照专精 {export_spec} 冲突',
@@ -257,7 +312,7 @@ class SimcComposer:
             bnet_class = (bnet_char.get('class') or '').strip().lower()
 
             # Check spec conflict
-            if user_spec and bnet_spec and user_spec != bnet_spec:
+            if comparable_spec and bnet_spec and comparable_spec != bnet_spec:
                 return SlotResolution(
                     slot_name='player_identity',
                     value=None,
@@ -310,7 +365,7 @@ class SimcComposer:
                 export_class = parsed.get('class', '').strip().lower()
 
                 # Check spec conflict
-                if user_spec and export_spec and user_spec != export_spec:
+                if comparable_spec and export_spec and comparable_spec != export_spec:
                     return SlotResolution(
                         slot_name='player_identity',
                         value=None,
@@ -354,7 +409,7 @@ class SimcComposer:
                     )
 
         # No actor in equipment, generate standalone identity
-        final_spec = user_spec or 'fury'
+        final_spec = comparable_spec or 'fury'
         final_class = derived_class or 'warrior'
         player_name = request_data.get('battlenet_character') or 'Player'
 
@@ -446,11 +501,11 @@ class SimcComposer:
             spec = request_data.get('spec', 'fury')
             default_equipment = self._load_default_equipment(spec)
             if default_equipment:
-                content_hash = hashlib.sha256(default_equipment.content.encode('utf-8')).hexdigest()
+                content_hash = hashlib.sha256(default_equipment.player_equipment.encode('utf-8')).hexdigest()
                 return SlotResolution(
                     slot_name='equipment',
                     value=SlotValue(
-                        content=default_equipment.content,
+                        content=default_equipment.player_equipment,
                         source='default_template',
                         source_id=default_equipment.id,
                         source_version=default_equipment.sync_version,
@@ -471,11 +526,11 @@ class SimcComposer:
             spec = request_data.get('spec', 'fury')
             default_equipment = self._load_default_equipment(spec)
             if default_equipment:
-                content_hash = hashlib.sha256(default_equipment.content.encode('utf-8')).hexdigest()
+                content_hash = hashlib.sha256(default_equipment.player_equipment.encode('utf-8')).hexdigest()
                 return SlotResolution(
                     slot_name='equipment',
                     value=SlotValue(
-                        content=default_equipment.content,
+                        content=default_equipment.player_equipment,
                         source='default_template',
                         source_id=default_equipment.id,
                         source_version=default_equipment.sync_version,
@@ -685,6 +740,13 @@ class SimcComposer:
             options.append(f"vary_combat_length={request_data['vary_combat_length']}")
         if request_data.get('enemy_type'):
             options.append(f"enemy={request_data['enemy_type']}")
+        candidate_options = request_data.get('_candidate_simc_options')
+        if candidate_options is not None:
+            from botend.services.simc_candidate_options import normalize_controlled_simc_options
+            controlled_options = normalize_controlled_simc_options(
+                candidate_options, allow_absent=False,
+            )
+            options.extend(controlled_options or [])
         options.append('threads=4')
 
         content = '\n'.join(options)
@@ -697,40 +759,8 @@ class SimcComposer:
 
     @staticmethod
     def _validate_simulation_options(request_data: Dict[str, Any]) -> str:
-        """Reject invalid values rather than allowing persisted options to become code."""
-        def integer(name, default, minimum, maximum):
-            value = request_data.get(name, default)
-            if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
-                return f'{name} 必须是 {minimum} 到 {maximum} 之间的整数'
-            return ''
-
-        def number(name, minimum, maximum):
-            value = request_data.get(name)
-            if value is None:
-                return ''
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
-                return f'{name} 必须是数字'
-            value = float(value)
-            if not math.isfinite(value) or not minimum <= value <= maximum:
-                return f'{name} 必须在 {minimum} 到 {maximum} 之间'
-            return ''
-
-        for error in (
-            integer('iterations', 10000, 1, 100000000),
-            integer('time', 300, 1, 86400),
-            integer('target_count', 1, 1, 1000),
-            number('target_error', 0, 1),
-            number('vary_combat_length', 0, 1),
-        ):
-            if error:
-                return error
-        for name, default in (('fight_style', 'Patchwerk'), ('enemy_type', '')):
-            value = request_data.get(name, default)
-            if value is None and name == 'enemy_type':
-                value = ''
-            if not isinstance(value, str) or (value and not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*', value)):
-                return f'{name} 包含无效值'
-        return ''
+        """Compatibility entry point; policy lives in the public validator."""
+        return validate_simulation_options(request_data)
 
     def _resolve_stat_overrides(self, request_data: Dict[str, Any]) -> SlotResolution:
         """Resolve stat_overrides slot (gear_crit, gear_haste, etc)."""
@@ -776,7 +806,7 @@ class SimcComposer:
             status='resolved'
         )
 
-    def _load_template_with_access_check(self, template_id: int, template_type: int) -> Optional[SimcContentTemplate]:
+    def _load_template_with_access_check(self, template_id: int) -> Optional[SimcContentTemplate]:
         """
         Load template with owner-based access control.
 
@@ -788,8 +818,7 @@ class SimcComposer:
         try:
             template = SimcContentTemplate.objects.get(
                 id=template_id,
-                template_type=template_type,
-                is_active=True
+                is_active=True,
             )
 
             # Check access: global (owner_user_id=None) or user-owned
@@ -819,10 +848,7 @@ class SimcComposer:
         # Explicit base_template_id with access control
         base_template_id = request_data.get('base_template_id')
         if base_template_id:
-            template = self._load_template_with_access_check(
-                base_template_id,
-                SimcContentTemplate.TYPE_BASE_TEMPLATE
-            )
+            template = self._load_template_with_access_check(base_template_id)
             if template:
                 return template.content, template.id, template.sync_version
             else:
@@ -838,7 +864,6 @@ class SimcComposer:
         from django.db.models import Q
         templates = SimcContentTemplate.objects.filter(
             Q(owner_user_id=None) | Q(owner_user_id=self.user_id),
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             spec=spec_key,
             is_active=True
         )
@@ -979,18 +1004,18 @@ class SimcComposer:
 
         return count
 
-    def _load_default_equipment(self, spec: str) -> Optional[SimcContentTemplate]:
+    def _load_default_equipment(self, spec: str) -> Optional[SimcProfile]:
         """Load default equipment template by spec with proper isolation."""
         spec = spec.lower()
         class_name = SPEC_CLASS.get(spec, 'warrior')
         spec_key = f'{class_name}_{spec}'
 
         # Only load global defaults (SOURCE_SIMC_UPSTREAM), user-private equipment not supported yet
-        templates = SimcContentTemplate.objects.filter(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
+        templates = SimcProfile.objects.filter(
+            user_id__isnull=True,
             spec=spec_key,
             is_active=True,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM
+            source=SimcProfile.SOURCE_SIMC_UPSTREAM,
         )
 
         count = templates.count()

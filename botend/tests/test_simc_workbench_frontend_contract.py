@@ -9,6 +9,8 @@ HTML = (ROOT / "templates/dashboard/index.html").read_text(encoding="utf-8")
 JS = (ROOT / "static/dashboard/js/simc-workbench.js").read_text(encoding="utf-8")
 MAIN = (ROOT / "static/dashboard/js/main.js").read_text(encoding="utf-8")
 DETAIL_JS = (ROOT / "static/dashboard/js/simc-detail.js").read_text(encoding="utf-8")
+APL_EDITOR_JS = (ROOT / "static/dashboard/js/simc-apl-editor.js").read_text(encoding="utf-8")
+APL_EDITOR_CSS = (ROOT / "static/dashboard/css/simc-apl-editor.css").read_text(encoding="utf-8")
 
 # Scope safety assertions to the complete SimC surfaces. The dashboard template
 # and main.js also contain unrelated legacy modules with their own navigation UI.
@@ -23,6 +25,28 @@ SIMC_MAIN = MAIN[
 
 
 class SimcWorkbenchFrontendContractTests(unittest.TestCase):
+    def test_apl_assistant_follows_dialog_scroll_and_fills_visible_height(self):
+        desktop_css = APL_EDITOR_CSS[:APL_EDITOR_CSS.index("@media (max-width: 900px)")]
+        apl_form = JS[JS.index('<form data-apl-storage-form'):JS.index('setAplDialogLayout(true);')]
+        self.assertIn('simc-editor-form simc-apl-editor-form', apl_form)
+        self.assertIn('.simc-apl-editor-form {', desktop_css)
+        self.assertIn('grid-template-columns: minmax(0, 1fr) minmax(20rem, 24rem)', desktop_css)
+        self.assertIn('catalogPageSizeForHeight', APL_EDITOR_JS)
+        self.assertIn('new ResizeObserver', APL_EDITOR_JS)
+        self.assertIn('.simc-apl-editor-form > .simc-apl-assistant', desktop_css)
+        self.assertIn("position: sticky", desktop_css)
+        self.assertIn("top: 4.75rem", desktop_css)
+        self.assertIn("height: calc(90dvh - 5.75rem)", desktop_css)
+        self.assertIn("align-self: start", desktop_css)
+        self.assertIn(".simc-apl-assistant > div { display: flex; height: 100%;", desktop_css)
+        self.assertIn(".simc-apl-catalog { flex: 1; min-height: 0; overflow: auto;", desktop_css)
+        self.assertIn(".simc-apl-catalog__pager", desktop_css)
+
+    def test_new_frontend_uses_task_mode_vocabulary_only(self):
+        self.assertNotIn('task_type:', SIMC_MAIN)
+        self.assertNotIn('任务组', SIMC_MAIN)
+        self.assertNotIn('基于 Batch', SIMC_MAIN)
+
     def test_dashboard_shell_contains_only_layout_and_shared_dialogs_are_body_level(self):
         soup = BeautifulSoup(HTML, "html.parser")
         shell = soup.select_one("body > .dashboard-shell")
@@ -63,6 +87,36 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn('提交时即时来源会原子固化为 Profile 不可变版本', workflow)
         self.assertNotIn('id="simc-sim-attribute-search-status"', workflow)
 
+    def test_system_default_profile_is_selected_as_a_real_profile_and_renders_detail(self):
+        loader = MAIN[
+            MAIN.index('async function loadSimcSimProfileSelect'):
+            MAIN.index('async function resolveSimcPlayerSource')
+        ]
+        self.assertIn("profile.is_system === true", loader)
+        self.assertIn("select.value = String(defaultSystemProfile.id)", loader)
+        self.assertIn("await onSimcProfileSelect()", loader)
+        self.assertNotIn("select.innerHTML = '<option value=\"default\">系统默认配置</option>'", loader)
+
+    def test_resolving_a_saved_profile_does_not_request_its_detail_twice(self):
+        resolver = MAIN[
+            MAIN.index('async function resolveSimcPlayerSource'):
+            MAIN.index('async function onSimcTargetSpecChange')
+        ]
+        self.assertIn('await loadSimcSimProfileSelect', resolver)
+        self.assertNotIn('refreshSavedSimcPlayerDetail', resolver)
+
+    def test_home_creation_flow_requires_and_defaults_an_execution_backend(self):
+        workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
+        self.assertEqual(workflow.count('id="simc-sim-backend"'), 1)
+        self.assertIn("fetch('/api/simc-backend-binary/')", SIMC_MAIN)
+        self.assertIn("backend.is_default ? 'selected' : ''", SIMC_MAIN)
+        self.assertIn("selectedSimcReferenceValue('#simc-sim-backend')", SIMC_MAIN)
+        self.assertIn("if (!backend_id) throw new Error('请选择 SimC 后端')", SIMC_MAIN)
+        self.assertIn('const references = { base_template_id, selected_apl_id, backend_id,', SIMC_MAIN)
+        self.assertIn('selected_apl_id, backend_id, candidates, include_base', SIMC_MAIN)
+        self.assertIn('backend_id: references.backend_id', SIMC_MAIN)
+        self.assertIn('loadSimcBackendOptions().catch', SIMC_MAIN)
+
     def test_home_creation_flow_uses_backend_defaults_filters_profiles_and_opens_history(self):
         workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
         self.assertIn('profile.spec', MAIN)
@@ -90,7 +144,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn("throw new Error('请选择已有 Profile')", MAIN)
         self.assertEqual(workflow.count('id="simc-sim-player-detail-refresh-btn"'), 1)
         self.assertNotIn('simc-comparison-submit', MAIN)
-        self.assertNotIn('window.location.assign(`/dashboard/simc/batches/', SIMC_MAIN)
+        self.assertNotIn("batches: 'history'", SIMC_MAIN)
 
     def test_history_uses_one_task_list_without_batch_classification(self):
         history_start = HTML.index('data-simc-l1-panel="history"')
@@ -98,9 +152,10 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         history = HTML[history_start:history_end]
         self.assertIn('>任务列表<', history)
         self.assertNotIn('data-task-subtab=', history)
-        self.assertNotIn('任务与批次', history)
-        self.assertNotIn('>Batch<', history)
-        self.assertIn("resourceUrl('history')", JS)
+        self.assertNotIn('data-task-subtab="comparison"', history)
+        self.assertIn("row_type === 'benchmark_execution'", JS)
+        self.assertIn('data-benchmark-task-toggle', JS)
+        self.assertIn('查看独立任务状态', JS)
         self.assertNotIn('syncTaskSubtabs', JS)
         self.assertIn("data.ruleSubtab", MAIN)
         self.assertIn("switchRuleSubtab(model)", MAIN)
@@ -116,48 +171,49 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('<i class="fas fa-chart-line', load_tasks)
         self.assertIn('<i class="fas fa-redo-alt', load_tasks)
 
-    def test_successful_regular_tasks_can_open_rerun_editor(self):
+    def test_all_task_states_can_open_frozen_copy_rerun_dialog(self):
         load_start = JS.index('async function loadTasks')
         load_end = JS.index('function scheduleTaskRefresh', load_start)
         load_tasks = JS[load_start:load_end]
-        self.assertIn("[2, 3].includes(status)", load_tasks)
+        self.assertNotIn("[2, 3].includes(status)", load_tasks)
         self.assertIn('data-task-rerun=', load_tasks)
         self.assertNotIn('data-wb-action="rerun"', load_tasks)
         self.assertIn('renderTaskRerunForm(rerunAction.dataset.taskRerun)', JS)
 
 
-    def test_template_permissions_and_type_round_trip(self):
+    def test_template_editor_only_submits_content(self):
         form_start = JS.index("function renderTemplateForm")
         form_end = JS.index("function closeTemplateForm", form_start)
         form_body = JS[form_start:form_end]
         self.assertNotIn("default_player", form_body)
-        self.assertIn("payload.template_type", JS)
+        self.assertNotIn("payload.template_type", JS)
         self.assertIn("!readOnly", JS)
-        self.assertIn("我的模板", JS)
         self.assertIn("系统内置", JS)
         self.assertIn("上游同步", JS)
-        for template_type in ("base_template", "default_apl", "custom_apl", "custom_player"):
-            self.assertIn(f"value: '{template_type}'", form_body)
+        for field in ('name="name"', 'name="template_type"', 'name="spec"', 'name="class_name"'):
+            self.assertNotIn(field, form_body)
+        self.assertIn("content: String(formData.get('content') || '')", JS)
+        self.assertIn("method: 'PUT'", JS)
         self.assertNotIn("report_template", form_body)
         self.assertNotIn("command_fragment", form_body)
         template_panel = HTML[HTML.index('id="simc-workbench-templates-panel"'):HTML.index('id="simc-workbench-apl-panel"')]
         self.assertNotIn("can_write", template_panel)
 
-    def test_content_templates_use_filter_tabs_and_structured_table(self):
+    def test_content_templates_use_single_structured_table(self):
         template_panel = HTML[HTML.index('id="simc-workbench-templates-panel"'):HTML.index('id="simc-workbench-apl-panel"')]
         load_start = JS.index('async function loadTemplates')
         load_end = JS.index('function renderTemplateForm', load_start)
         load_body = JS[load_start:load_end]
-        self.assertIn('内容模板', template_panel)
-        self.assertIn('data-template-type=""', template_panel)
-        self.assertIn('simc-template-filter', template_panel)
+        self.assertIn('基础模板', template_panel)
+        self.assertNotIn('data-template-type=', template_panel)
+        self.assertNotIn('simc-template-filter', template_panel)
         self.assertIn('simc-template-table-wrap', load_body)
         self.assertIn('simc-template-table', load_body)
         for heading in ('模板名称', '类型', '职业', '专精', '来源', '状态', '操作'):
             self.assertIn(heading, load_body)
         self.assertNotIn('simc-template-card', load_body)
         self.assertIn('data-wb-action="template-edit"', load_body)
-        self.assertIn('aria-pressed', JS)
+        self.assertNotIn('data-inline-create="templates"', template_panel)
         self.assertIn('data-template-filter-summary', template_panel)
 
     def test_apl_import_uses_external_select_and_explicit_load_button(self):
@@ -249,7 +305,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
             "cancelDetailRequest",
         ):
             self.assertIn(token, JS)
-        for function_name in ("showTaskDetail", "showBatchComparison", "showTemplateDetail", "showManagedAplDetail"):
+        for function_name in ("showTaskDetail", "showTaskComparison", "showTemplateDetail", "showManagedAplDetail"):
             start = JS.index(f"async function {function_name}")
             body = JS[start:JS.index("\n    }", start) + 6]
             self.assertIn("beginDetailRequest", body)
@@ -364,10 +420,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
 
     def test_dedicated_api_and_inline_sections(self):
         self.assertIn("const apiRoot = '/api/simc-workbench/'", JS)
-        for template_type in ("base_template", "default_apl", "custom_apl", "custom_player"):
-            self.assertIn(f'data-template-type="{template_type}"', HTML)
-        self.assertNotIn('data-template-type="report_template"', HTML)
-        self.assertNotIn('data-template-type="command_fragment"', HTML)
+        self.assertNotIn('data-template-type=', HTML)
         self.assertIn('id="simc-unified-apl-list"', HTML)
         self.assertNotIn("AplKeywordPair", HTML)
         self.assertIn('data-rule-subtab="secondary-rules"', HTML)
@@ -379,15 +432,10 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
             start = HTML.index(marker)
             self.assertNotIn('></div>', HTML[start:start + len(marker) + 20])
 
-    def test_template_filters_include_default_player_and_default_apl(self):
-        """Template type filters must include both default_player (default player config) and default_apl."""
-        filters_start = HTML.index('id="simc-template-type-filters"')
-        filters_end = HTML.index('</div>', filters_start)
-        filters_section = HTML[filters_start:filters_end]
-        self.assertIn('data-template-type="default_player"', filters_section,
-                      "Template filters must include default_player button for default player configurations")
-        self.assertIn('data-template-type="default_apl"', filters_section,
-                      "Template filters must include default_apl button")
+    def test_content_templates_are_unfiltered_and_apl_uses_its_own_resource(self):
+        self.assertNotIn('id="simc-template-type-filters"', HTML)
+        self.assertNotIn("library: 'default_apl'", JS)
+        self.assertIn("data = await json(resourceUrl('apls')", JS)
 
     def test_workbench_controller_has_no_scripted_or_legacy_navigation(self):
         forbidden = (
@@ -502,9 +550,11 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('系统默认 APL 加载失败，已保留其他可用资源', JS)
 
     def test_default_apl_library_shows_active_selectable_templates_with_spec(self):
-        """Default APL library must show active+selectable default_apl templates with class/spec display."""
+        """Default APL library must use the independent APL resource and filter system rows."""
         self.assertIn('loadDefaultAplLibrary', JS)
-        self.assertIn("library: 'default_apl'", JS)
+        self.assertNotIn("library: 'default_apl'", JS)
+        self.assertIn("data = await json(resourceUrl('apls')", JS)
+        self.assertIn('row.is_system && row.is_active && row.is_selectable', JS)
         self.assertNotIn("template_type: 'default_apl'", JS)
         self.assertNotIn('is_active: true', JS)
         self.assertNotIn('is_selectable: true', JS)
@@ -557,9 +607,9 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('.spec', detail_body)
 
     def test_script_is_really_loaded(self):
-        self.assertIn("{% static 'dashboard/js/main.js' %}?v=20260722b", HTML)
-        self.assertIn("{% static 'dashboard/js/simc-workbench.js' %}?v=20260722c", HTML)
-        self.assertIn("{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260722a", HTML)
+        self.assertIn("{% static 'dashboard/js/main.js' %}?v=20260726c", HTML)
+        self.assertIn("{% static 'dashboard/js/simc-workbench.js' %}?v=20260727a", HTML)
+        self.assertIn("{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260726c", HTML)
         self.assertNotIn("moveSimcToolIntoWorkbench", MAIN)
 
     def test_profile_inline_form_uses_delegated_actions_not_inline_handlers(self):
@@ -574,9 +624,9 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         bind_body = MAIN[bind_start:bind_end]
         self.assertIn("closest('[data-profile-form-action]')", bind_body)
         self.assertIn("closest('[data-profile-row-action]')", bind_body)
-        self.assertIn("'/api/simc-profile/?include_inactive=1'", MAIN)
+        self.assertIn("'/api/simc-profile/'", MAIN)
         self.assertIn('data-profile-row-action="delete"', MAIN)
-        self.assertIn('data-profile-row-action="restore"', MAIN)
+        self.assertNotIn('data-profile-row-action="restore"', MAIN)
         self.assertIn("method: 'DELETE'", MAIN)
         self.assertIn('function simcWbDeleteProfile', MAIN)
 
@@ -727,17 +777,24 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("can_write", MAIN)
         self.assertIn("data-simc-inline-create", HTML)
 
-    def test_template_create_uses_shared_dialog_form(self):
-        """Templates panel keeps the entry; the form is rendered in the shared dialog."""
-        self.assertIn('data-inline-create="templates"', HTML)
+    def test_template_edit_uses_shared_dialog_form(self):
+        """The single system template can be edited in the shared dialog, but not created."""
+        self.assertNotIn('data-inline-create="templates"', HTML)
         self.assertNotIn('id="simc-wb-template-form"', HTML)
         self.assertIn("openSimcWorkbenchDialog('template-form'", JS)
+        self.assertIn('async function editTemplate(id)', JS)
+        self.assertIn("resourceUrl('templates', id)", JS)
 
 
     def test_template_click_handlers_exist(self):
-        """Template edit/archive/restore/detail handlers must exist."""
+        """Template edit and detail handlers must exist without lifecycle controls."""
         self.assertIn('data-wb-action="template-edit"', JS)
         self.assertIn('data-wb-action="template-detail"', JS)
+        load_start = JS.index('async function loadTemplates')
+        load_end = JS.index('function renderTemplateForm', load_start)
+        load_body = JS[load_start:load_end]
+        self.assertNotIn('data-wb-action="archive"', load_body)
+        self.assertNotIn('data-wb-action="restore"', load_body)
         self.assertIn('data-template-action="cancel"', JS)
         self.assertIn('function closeTemplateDetail()', JS)
 
@@ -777,8 +834,9 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
     def test_backend_panel_renders_operational_status_not_only_versions(self):
         """Backend panel must expose availability, progress, status and safe error state."""
         for field in ('available', 'need_update', 'is_updating', 'update_progress',
-                      'update_status', 'has_error', 'auto_update'):
+                      'update_status', 'has_error', 'auto_update', 'game_version'):
             self.assertIn(f'info.{field}', JS)
+        self.assertIn('魔兽世界版本', JS)
 
     def test_old_simc_task_modals_removed_from_html(self):
         """Old SimC task modals (add/edit/view) must be removed."""
@@ -884,7 +942,7 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
 
     def test_simc_reports_open_as_standalone_authenticated_pages(self):
         detail_start = JS.index('async function showTaskDetail')
-        detail_end = JS.index('async function showBatchComparison', detail_start)
+        detail_end = JS.index('async function showTaskComparison', detail_start)
         detail = JS[detail_start:detail_end]
         self.assertIn('href="${esc(artifact.preview_url)}"', detail)
         self.assertIn('查看原生报告', detail)
@@ -939,11 +997,11 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
         self.assertNotIn('<textarea name="apl_code"', apl_form)
 
 
-    def test_batch_dialog_renders_member_dps_and_delta_without_navigation(self):
-        start = JS.index('async function showBatchComparison')
+    def test_task_dialog_renders_run_dps_and_delta_without_navigation(self):
+        start = JS.index('async function showTaskComparison')
         end = JS.index('\n    async function', start + 20)
         body = JS[start:end]
-        self.assertIn("openSimcWorkbenchDialog('batch-detail'", body)
+        self.assertIn("openSimcWorkbenchDialog('task-comparison'", body)
         self.assertIn('.dps', body)
         self.assertIn('delta', body)
         self.assertNotIn('/simc-compare/', body)

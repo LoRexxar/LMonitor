@@ -10,7 +10,7 @@ from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 
 from botend.management.commands.update_simc_binary import Command
-from botend.models import SimcApl, SimcContentTemplate
+from botend.models import SimcApl, SimcProfile
 
 
 @override_settings(SIMC_CONFIG={'wow_build': '12.0.1.70000'})
@@ -133,12 +133,13 @@ class SimcGeneratedInputSyncTests(TestCase):
             content='actions=/wrath', source=SimcApl.SOURCE_SIMC_UPSTREAM,
             is_system=True, is_active=True, sync_version='a' * 40,
         )
-        SimcContentTemplate.objects.create(
-            name='Balance', spec='druid_balance', class_name='druid',
-            content=('druid="Balance"\nlevel=90\nspec=balance\ntalents=OLD\n'
-                     'head=id=1\nmain_hand=id=2\n'),
-            template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+        SimcProfile.objects.create(
+            user_id=None, name='Balance', spec='druid_balance', class_name='druid',
+            player_config_mode='manual_equipment',
+            player_equipment=('druid="Balance"\nlevel=90\nspec=balance\ntalents=OLD\n'
+                              'head=id=1\nmain_hand=id=2\n'),
+            source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:druid_balance',
             is_active=True, sync_version='a' * 40,
         )
         captured = {}
@@ -183,7 +184,7 @@ class SimcGeneratedInputSyncTests(TestCase):
 
     def test_missing_exact_baseline_derives_validation_only_same_class_profile(self):
         source = SimpleNamespace(
-            spec='druid_balance', class_name='druid', content=(
+            spec='druid_balance', class_name='druid', player_equipment=(
                 'druid="Balance"\nlevel=90\nspec=balance\ntalents=OLD\n'
                 'head=id=1\nmain_hand=id=2\n'))
         derived = self.command._validation_baseline_for_spec(
@@ -191,7 +192,7 @@ class SimcGeneratedInputSyncTests(TestCase):
         self.assertIsNotNone(derived)
         self.assertIn('spec=restoration', derived.content)
         self.assertNotIn('talents=', derived.content)
-        self.assertEqual(source.content.count('spec=balance'), 1)
+        self.assertEqual(source.player_equipment.count('spec=balance'), 1)
 
     @mock.patch('botend.management.commands.update_simc_binary.call_command')
     @mock.patch.object(Command, '_export_runtime_manifest', return_value='/tmp/manifest.json')
@@ -205,14 +206,13 @@ class SimcGeneratedInputSyncTests(TestCase):
                 from django.core.management import call_command
                 return call_command(name, **kwargs)
             if name == 'import_simc_player_templates':
-                SimcContentTemplate.objects.update_or_create(
-                    template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-                    source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-                    spec='warrior_fury',
+                SimcProfile.objects.update_or_create(
+                    system_key='simc_upstream:warrior_fury',
                     defaults={'name': 'baseline', 'class_name': 'warrior',
-                              'content': 'warrior="Baseline"\nspec=fury\n',
-                              'sync_version': kwargs['sync_version'], 'is_active': True,
-                              'is_selectable': False},
+                              'user_id': None, 'source': SimcProfile.SOURCE_SIMC_UPSTREAM,
+                              'spec': 'warrior_fury', 'player_config_mode': 'manual_equipment',
+                              'player_equipment': 'warrior="Baseline"\nspec=fury\n',
+                              'sync_version': kwargs['sync_version'], 'is_active': True},
                 )
                 return None
             if name == 'sync_simc_apl_symbols':
@@ -244,14 +244,13 @@ class SimcGeneratedInputSyncTests(TestCase):
                 from django.core.management import call_command
                 return call_command(name, **kwargs)
             if name == 'import_simc_player_templates':
-                SimcContentTemplate.objects.update_or_create(
-                    template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-                    source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-                    spec='warrior_fury',
+                SimcProfile.objects.update_or_create(
+                    system_key='simc_upstream:warrior_fury',
                     defaults={'name': 'baseline', 'class_name': 'warrior',
-                              'content': 'warrior="Baseline"\nspec=fury\n',
-                              'sync_version': kwargs['sync_version'], 'is_active': True,
-                              'is_selectable': False},
+                              'user_id': None, 'source': SimcProfile.SOURCE_SIMC_UPSTREAM,
+                              'spec': 'warrior_fury', 'player_config_mode': 'manual_equipment',
+                              'player_equipment': 'warrior="Baseline"\nspec=fury\n',
+                              'sync_version': kwargs['sync_version'], 'is_active': True},
                 )
                 return None
             return None
@@ -268,4 +267,4 @@ class SimcGeneratedInputSyncTests(TestCase):
         self.assertEqual(old.sync_version, 'old-revision')
         self.assertEqual(old.validation_status, SimcApl.VALIDATION_VALID)
         self.assertTrue(old.is_selectable)
-        self.assertFalse(SimcContentTemplate.objects.filter(sync_version='b' * 40).exists())
+        self.assertFalse(SimcProfile.objects.filter(sync_version='b' * 40).exists())

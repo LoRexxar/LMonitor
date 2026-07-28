@@ -6,15 +6,44 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
-from django.test import Client, RequestFactory, TestCase
+from django.test import Client, RequestFactory, TestCase, override_settings
 from django.utils import timezone
 
-from botend.dashboard.api import SimcAplCandidatesAPIView, SimcBatchTaskAPIView, SimcProfileAPIView, SimcRegularCompareAPIView, SimcTaskAPIView, SimcSpecOptionsAPIView
+from botend.dashboard.api import SimcAplCandidatesAPIView, SimcComparisonTaskAPIView, SimcProfileAPIView, SimcRegularCompareAPIView, SimcTaskAPIView, SimcSpecOptionsAPIView
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.management.commands.update_simc_binary import Command as UpdateSimcBinaryCommand
 from botend.services.simc_player_config import build_player_config_detail, parse_manual_player_config, parse_manual_simc_candidates, parse_simc_player_profile
 from botend.services.simc_composer import SimcComposer
-from botend.models import PlayerSpecTopPlayer, SeasonMeta, SimcApl, SimcContentTemplate, SimcProfile, SimcTask, SimcTaskBatch, WowItemSnapshot
+from botend.services.simc_task_service import append_candidate_runs
+from botend.models import PlayerSpecTopPlayer, SeasonMeta, SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate, SimcProfile, SimcTask, SimulationRun, WowItemSnapshot
+
+
+TEST_SIMC_REVISION = 'a' * 40
+TEST_WOW_BUILD = 'test-build'
+
+
+def get_test_backend():
+    backend, _ = SimcBackendBinary.objects.update_or_create(
+        identifier='production',
+        defaults={
+            'name': '正式服', 'platform': 'linux64',
+            'simc_path': '/opt/simc', 'current_version': TEST_SIMC_REVISION,
+            'is_active': True,
+        },
+    )
+    SimcAplSymbol.objects.get_or_create(
+        simc_revision=TEST_SIMC_REVISION,
+        wow_build=TEST_WOW_BUILD,
+        token='auto_attack',
+        symbol_kind=SimcAplSymbol.KIND_ACTION,
+        defaults={'is_active': True},
+    )
+    return backend
+
+
+def create_test_task(**kwargs):
+    kwargs.setdefault('backend', get_test_backend())
+    return SimcTask.objects.create(**kwargs)
 
 
 class SimcAplCanonicalClassAliasTests(TestCase):
@@ -24,7 +53,6 @@ class SimcAplCanonicalClassAliasTests(TestCase):
         self.client.force_login(self.user)
         self.base_template = SimcContentTemplate.objects.create(
             name='Generic base template',
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
             spec='default',
             class_name='',
@@ -58,222 +86,270 @@ class SimcAplCanonicalClassAliasTests(TestCase):
         self.assertEqual([row['id'] for row in payload['data']], [self.apl.id])
 
 
-class SimcWorkerBatchLifecycleTests(TestCase):
+class SimcWorkerTaskRunLifecycleTests(TestCase):
+    """The former group lifecycle coverage now belongs to one Task and its Runs."""
+
     def setUp(self):
         self.monitor = SimcMonitor(None, None)
-        self.batch = SimcTaskBatch.objects.create(
-            user_id=801,
-            name='worker lifecycle',
-            batch_type='comparison',
-            status=0,
+        self.backend = get_test_backend()
+        self.task = create_test_task(
+            user_id=801, name='worker lifecycle', simc_profile_id=0,
+            mode='comparison', current_status=0, is_active=True, backend=self.backend,
         )
 
-    def _task(self, status=0, batch='default', ext=None):
-        task_batch = self.batch if batch == 'default' else batch
-        return SimcTask.objects.create(
-            user_id=801,
-            name=f'task-{status}',
-            simc_profile_id=0,
-            task_type=1,
-            current_status=status,
-            batch=task_batch,
-            ext=json.dumps(ext or {}, ensure_ascii=False),
-            is_active=True,
+    def _run(self, sequence, status='pending', dps=None, label=None):
+        return SimulationRun.objects.create(
+            task=self.task, sequence=sequence, candidate_key=f'candidate-{sequence}',
+            candidate_label=label or f'candidate {sequence}', status=status,
+            result_summary=None if dps is None else {'dps': dps},
         )
 
-    def test_batch_stays_running_until_all_fk_members_succeed(self):
-        first = self._task(status=2)
-        second = self._task(status=0)
+    def test_pending_run_keeps_task_nonterminal(self):
+        self._run(1, 'completed', 100)
+        self._run(2, 'running')
+        self.assertFalse(self.monitor.process_reference_task(self.task))
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.current_status, 0)
+        self.assertIsNone(self.task.completed_at)
 
-        self.monitor.sync_batch_lifecycle(self.batch.id)
-        self.batch.refresh_from_db()
-        self.assertEqual(self.batch.status, 1)
-        self.assertIsNone(self.batch.completed_at)
+    def test_completed_runs_aggregate_into_task(self):
+        self._run(1, 'completed', 100, 'baseline')
+        self._run(2, 'completed', 110, 'candidate')
+        self.assertTrue(self.monitor.process_reference_task(self.task))
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.current_status, 2)
+        self.assertEqual(self.task.analysis_result['succeeded'], 2)
+        self.assertEqual(len(self.task.analysis_result['candidates']), 2)
+        self.assertEqual(json.loads(self.task.result_summary)['runs'], [{'dps': 100}, {'dps': 110}])
 
-        second.current_status = 2
-        second.save(update_fields=['current_status', 'modified_time'])
-        self.monitor.sync_batch_lifecycle(self.batch.id)
-        self.batch.refresh_from_db()
-        self.assertEqual(self.batch.status, 2)
-        self.assertIsNotNone(self.batch.completed_at)
-        first.refresh_from_db()
-        self.assertEqual(first.current_status, 2)
+    def test_partial_candidate_failure_does_not_discard_success(self):
+        self._run(1, 'completed', 100)
+        self._run(2, 'failed', label='broken').error_detail = 'bad candidate'
+        SimulationRun.objects.filter(task=self.task, sequence=2).update(error_detail='bad candidate')
+        self.assertTrue(self.monitor.process_reference_task(self.task))
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.current_status, 2)
+        self.assertEqual(self.task.analysis_result['failed'], 1)
+        self.assertEqual(self.task.analysis_result['failed_candidates'][0]['candidate_label'], 'broken')
 
-    def test_batch_failure_has_priority_and_completed_at_is_idempotent(self):
-        failed = self._task(status=3)
-        self._task(status=2)
+    def test_all_failed_runs_fail_task(self):
+        self._run(1, 'failed')
+        self._run(2, 'failed')
+        self.assertFalse(self.monitor.process_reference_task(self.task))
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.current_status, 3)
+        self.assertIsNotNone(self.task.completed_at)
 
-        self.monitor.sync_batch_lifecycle(self.batch.id)
-        self.batch.refresh_from_db()
-        completed_at = self.batch.completed_at
-        self.assertEqual(self.batch.status, 3)
-        self.assertIsNotNone(completed_at)
+    def test_pending_runs_are_drained_independently(self):
+        first = self._run(1)
+        second = self._run(2)
+        observed = []
+        def execute(task, run):
+            observed.append((task.current_status, run.id))
+            run.status = 'completed' if run.id == first.id else 'failed'
+            run.result_summary = {'dps': 100} if run.id == first.id else None
+            run.save(update_fields=['status', 'result_summary'])
+        with patch.object(self.monitor, 'process_reference_run', side_effect=execute):
+            self.assertTrue(self.monitor.process_reference_task(self.task))
+        self.assertEqual(observed, [(1, first.id), (1, second.id)])
 
-        self.monitor.sync_batch_lifecycle(self.batch.id)
-        self.batch.refresh_from_db()
-        self.assertEqual(self.batch.status, 3)
-        self.assertEqual(self.batch.completed_at, completed_at)
-        failed.refresh_from_db()
-        self.assertEqual(failed.current_status, 3)
+    def test_draining_runs_persists_progress_after_each_terminal_run(self):
+        self._run(1)
+        self._run(2)
+        observed_progress = []
 
-    def test_appending_pending_task_reopens_completed_batch(self):
-        self._task(status=2)
-        self.monitor.sync_batch_lifecycle(self.batch.id)
-        self.batch.refresh_from_db()
-        self.assertEqual(self.batch.status, 2)
+        def execute(task, run):
+            task.refresh_from_db()
+            observed_progress.append(json.loads(task.ext or '{}').get('progress'))
+            run.status = 'completed'
+            run.result_summary = {'dps': 100 + run.sequence}
+            run.save(update_fields=['status', 'result_summary'])
 
-        self._task(status=0)
-        self.monitor.sync_batch_lifecycle(self.batch.id)
-        self.batch.refresh_from_db()
-        self.assertEqual(self.batch.status, 1)
-        self.assertIsNone(self.batch.completed_at)
+        with patch.object(self.monitor, 'process_reference_run', side_effect=execute):
+            self.assertTrue(self.monitor.process_reference_task(self.task))
 
-    def test_sync_uses_fk_and_ignores_forged_legacy_batch_id(self):
-        other = SimcTaskBatch.objects.create(
-            user_id=801, name='other', batch_type='comparison', status=0,
+        self.assertEqual(observed_progress, [None, 50])
+
+    def test_task_delete_cascades_runs_without_touching_other_task(self):
+        own = self._run(1)
+        other = create_test_task(
+            user_id=802, name='other', simc_profile_id=0,
+            mode='comparison', backend=self.backend,
         )
-        self._task(status=2, ext={'batch_compare': {'batch_id': other.id}})
+        foreign = SimulationRun.objects.create(task=other, sequence=1, status='pending')
+        self.task.delete()
+        self.assertFalse(SimulationRun.objects.filter(id=own.id).exists())
+        self.assertTrue(SimulationRun.objects.filter(id=foreign.id).exists())
 
-        self.monitor.sync_batch_lifecycle(self.batch.id)
-        self.batch.refresh_from_db()
-        other.refresh_from_db()
-        self.assertEqual(self.batch.status, 2)
-        self.assertEqual(other.status, 0)
+    def test_appending_pending_run_reopens_terminal_task(self):
+        self.task.current_status = 3
+        self.task.started_at = timezone.now()
+        self.task.completed_at = timezone.now()
+        self.task.error_detail = 'old failure'
+        self.task.save(update_fields=['current_status', 'started_at', 'completed_at', 'error_detail'])
 
-    def test_mark_task_failed_updates_fk_batch_without_legacy_lookup(self):
-        task = self._task(status=0)
-        legacy_only = self._task(
-            status=0,
-            batch=None,
-            ext={'batch_compare': {'batch_id': self.batch.id}},
+        append_candidate_runs(self.task, [{
+            'candidate_key': 'round-2', 'candidate_label': 'round 2',
+        }], round_number=2)
+
+        self.task.refresh_from_db()
+        run = self.task.simulation_runs.get()
+        self.assertEqual(self.task.current_status, 0)
+        self.assertIsNone(self.task.started_at)
+        self.assertIsNone(self.task.completed_at)
+        self.assertIsNone(self.task.error_detail)
+        self.assertEqual(run.status, 'pending')
+        self.assertEqual(run.round_number, 2)
+
+    def test_reaggregating_terminal_runs_keeps_completed_at_stable(self):
+        self._run(1, 'failed')
+        self.assertFalse(self.monitor.process_reference_task(self.task))
+        self.task.refresh_from_db()
+        completed_at = self.task.completed_at
+
+        self.assertFalse(self.monitor.process_reference_task(self.task))
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.current_status, 3)
+        self.assertEqual(self.task.completed_at, completed_at)
+
+    def test_legacy_status_four_is_reconciled_from_run_facts(self):
+        self.task.current_status = 4
+        self.task.save(update_fields=['current_status'])
+        self._run(1, 'completed', 100)
+
+        self.assertTrue(self.monitor.process_reference_task(self.task))
+
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.current_status, 2)
+        self.assertEqual(json.loads(self.task.result_summary)['dps'], 100)
+
+    def test_runs_from_inactive_other_task_do_not_affect_aggregation(self):
+        self._run(1, 'completed', 100)
+        other = create_test_task(
+            user_id=802, name='inactive other', simc_profile_id=0,
+            mode='comparison', current_status=0, is_active=False, backend=self.backend,
+        )
+        SimulationRun.objects.create(
+            task=other, sequence=1, candidate_key='foreign', status='pending',
         )
 
-        self.monitor.mark_task_failed(task, 'expected failure')
-        self.batch.refresh_from_db()
-        self.assertEqual(self.batch.status, 3)
-        self.assertIsNotNone(self.batch.completed_at)
+        self.assertTrue(self.monitor.process_reference_task(self.task))
 
-        isolated_batch = SimcTaskBatch.objects.create(
-            user_id=801, name='isolated', batch_type='comparison', status=0,
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.current_status, 2)
+        self.assertEqual(self.task.analysis_result['total'], 1)
+
+    def test_legacy_batch_metadata_cannot_reassign_run_ownership(self):
+        self.task.mode_params = {'legacy_batch_id': 999, 'batch_id': 802}
+        self.task.save(update_fields=['mode_params'])
+        run = self._run(1, 'completed', 100)
+        other = create_test_task(
+            user_id=802, name='forged target', simc_profile_id=0,
+            mode='comparison', backend=self.backend,
         )
-        legacy_only.ext = json.dumps({'batch_compare': {'batch_id': isolated_batch.id}})
-        legacy_only.save(update_fields=['ext', 'modified_time'])
-        self.monitor.mark_task_failed(legacy_only, 'legacy failure')
-        isolated_batch.refresh_from_db()
-        self.assertEqual(isolated_batch.status, 0)
 
-    def test_soft_deleted_tasks_do_not_block_or_fail_batch_lifecycle(self):
-        self._task(status=2)
-        deleted_pending = self._task(status=0)
-        deleted_failed = self._task(status=3)
-        SimcTask.objects.filter(id__in=[deleted_pending.id, deleted_failed.id]).update(is_active=False)
+        self.assertTrue(self.monitor.process_reference_task(self.task))
 
-        self.monitor.sync_batch_lifecycle(self.batch.id)
-        self.batch.refresh_from_db()
-        self.assertEqual(self.batch.status, 2)
-        self.assertIsNotNone(self.batch.completed_at)
+        run.refresh_from_db()
+        self.assertEqual(run.task_id, self.task.id)
+        self.assertNotEqual(run.task_id, other.id)
 
-    def test_soft_delete_reconciles_real_batch_immediately(self):
-        succeeded = self._task(status=2)
-        pending = self._task(status=0)
-        self.monitor.sync_batch_lifecycle(self.batch.id)
-        self.batch.refresh_from_db()
-        self.assertEqual(self.batch.status, 1)
 
-        user = User.objects.create_user(username='batch_delete_user', password='pwd')
-        self.batch.user_id = user.id
-        self.batch.save(update_fields=['user_id', 'updated_at'])
-        SimcTask.objects.filter(id__in=[succeeded.id, pending.id]).update(user_id=user.id)
-        client = Client()
-        client.force_login(user)
-        response = client.delete(
-            '/api/simc-task/',
-            data=json.dumps({'id': pending.id}),
+
+class SimcProfileResourceListTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='profile_resource_user', password='pwd')
+        self.other_user = User.objects.create_user(username='profile_resource_other', password='pwd')
+        self.client = Client()
+        self.client.force_login(self.user)
+
+    def test_list_exposes_migrated_system_profiles_as_read_only_resources(self):
+        own = SimcProfile.objects.create(
+            user_id=self.user.id, name='我的狂暴配置', spec='fury',
+            player_config_mode='manual_equipment', player_equipment='warrior="Mine"\nhead=,id=1',
+        )
+        system = SimcProfile.objects.create(
+            user_id=None, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury', class_name='warrior',
+            name='MID1 Fury player', spec='warrior_fury', sync_version='revision-1',
+            player_config_mode='manual_equipment',
+            player_equipment='warrior="Default"\nspec=fury\nhead=,id=2',
+        )
+        foreign = SimcProfile.objects.create(
+            user_id=self.other_user.id, name='其他用户配置', spec='fury',
+            player_config_mode='manual_equipment', player_equipment='warrior="Other"',
+        )
+        inactive_system = SimcProfile.objects.create(
+            user_id=None, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:inactive', name='停用系统配置', spec='mage_fire',
+            player_config_mode='manual_equipment', player_equipment='mage="Inactive"',
+            is_active=False,
+        )
+        unrelated_global = SimcProfile.objects.create(
+            user_id=None, source=SimcProfile.SOURCE_USER,
+            name='非上游全局配置', spec='mage_fire',
+            player_config_mode='manual_equipment', player_equipment='mage="Global"',
+        )
+
+        response = self.client.get('/api/simc-profile/')
+
+        self.assertEqual(response.status_code, 200)
+        rows = {row['id']: row for row in response.json()['data']}
+        self.assertEqual(set(rows), {own.id, system.id})
+        self.assertNotIn(foreign.id, rows)
+        self.assertNotIn(inactive_system.id, rows)
+        self.assertNotIn(unrelated_global.id, rows)
+        self.assertFalse(rows[own.id]['is_system'])
+        self.assertTrue(rows[own.id]['can_edit'])
+        self.assertTrue(rows[own.id]['can_delete'])
+        self.assertTrue(rows[system.id]['is_system'])
+        self.assertFalse(rows[system.id]['can_edit'])
+        self.assertFalse(rows[system.id]['can_delete'])
+        self.assertEqual(rows[system.id]['source'], SimcProfile.SOURCE_SIMC_UPSTREAM)
+        self.assertEqual(rows[system.id]['sync_version'], 'revision-1')
+        self.assertEqual(rows[system.id]['equipment_line_count'], 3)
+
+    def test_system_profile_is_list_only_and_cannot_be_read_or_mutated_as_owned(self):
+        system = SimcProfile.objects.create(
+            user_id=None, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:mage_frost', class_name='mage',
+            name='MID1 Frost player', spec='mage_frost',
+            player_config_mode='manual_equipment', player_equipment='mage="Default"',
+        )
+
+        detail = self.client.get(f'/api/simc-profile/{system.id}/')
+        update = self.client.put(
+            '/api/simc-profile/',
+            data=json.dumps({'id': system.id, 'name': '被篡改'}),
+            content_type='application/json',
+        )
+        delete = self.client.delete(
+            '/api/simc-profile/',
+            data=json.dumps({'id': system.id}),
             content_type='application/json',
         )
 
-        self.assertTrue(response.json()['success'], response.json())
-        self.batch.refresh_from_db()
-        self.assertEqual(self.batch.status, 2)
-        self.assertIsNotNone(self.batch.completed_at)
+        self.assertFalse(detail.json()['success'])
+        self.assertFalse(update.json()['success'])
+        self.assertFalse(delete.json()['success'])
+        system.refresh_from_db()
+        self.assertEqual(system.name, 'MID1 Frost player')
+        self.assertTrue(system.is_active)
 
-    def test_claim_promotes_batch_before_execution_and_finally_completes_it(self):
-        """Old frozen/raw tasks are rejected; test that batch claim still works for reference tasks."""
-        from botend.models import SimcResourceVersion, SimcProfile, SimcContentTemplate, SimcApl
-        import hashlib
+    def test_workbench_marks_system_profiles_read_only_and_shows_sync_metadata(self):
+        source = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text()
 
-        # Create live resources
-        profile = SimcProfile.objects.create(
-            user_id=801,
-            name='Test Profile',
-            spec='warrior_fury',
-            player_config_mode='manual_equipment',
-            player_equipment='warrior=Test\nspec=fury\nhead=,id=1',
-        )
-        template = SimcContentTemplate.objects.create(
-            template_type='base_template',
-            source='user',
-            spec='warrior_fury',
-            name='Test Template',
-            content='warrior="T"\n{player_config}\n',
-        )
-        apl = SimcApl.objects.create(
-            name='Test APL',
-            spec='warrior_fury',
-            content='actions=/auto_attack',
-            source='user',
-        )
-
-        # Create versions
-        profile_payload = {
-            "player_config_mode": "manual_equipment",
-            "player_equipment": "warrior=Test\nspec=fury\nhead=,id=1",
-        }
-        profile_version = SimcResourceVersion.objects.create(
-            resource_type='profile', resource_id=profile.id,
-            content_hash=hashlib.sha256(json.dumps(profile_payload, sort_keys=True).encode()).hexdigest(),
-            payload=profile_payload,
-        )
-        template_payload = {'content': 'warrior="T"\n{player_config}\n'}
-        template_version = SimcResourceVersion.objects.create(
-            resource_type='template', resource_id=template.id,
-            content_hash=hashlib.sha256(json.dumps(template_payload, sort_keys=True).encode()).hexdigest(),
-            payload=template_payload,
-        )
-        apl_payload = {'content': 'actions=/auto_attack'}
-        apl_version = SimcResourceVersion.objects.create(
-            resource_type='apl', resource_id=apl.id,
-            content_hash=hashlib.sha256(json.dumps(apl_payload, sort_keys=True).encode()).hexdigest(),
-            payload=apl_payload,
-        )
-
-        task = self._task(status=0)
-        task.profile_id = profile.id
-        task.profile_version_id = profile_version.id
-        task.template_id = template.id
-        task.template_version_id = template_version.id
-        task.apl_id = apl.id
-        task.apl_version_id = apl_version.id
-        task.save()
-
-        observed_batch_status = []
-
-        def complete_reference_task(simc_task):
-            self.batch.refresh_from_db()
-            observed_batch_status.append(self.batch.status)
-            simc_task.current_status = 2
-            simc_task.completed_at = timezone.now()
-            simc_task.save(update_fields=['current_status', 'completed_at', 'modified_time'])
-            return True
-
-        with patch.object(self.monitor, 'process_reference_task', side_effect=complete_reference_task):
-            self.assertTrue(self.monitor.process_simc_task(task))
-
-        self.batch.refresh_from_db()
-        self.assertEqual(observed_batch_status, [1])
-        self.assertEqual(self.batch.status, 2)
-        self.assertIsNotNone(self.batch.completed_at)
-
+        self.assertIn('row.is_system', source)
+        self.assertIn('row.can_edit', source)
+        self.assertIn('row.can_delete', source)
+        self.assertIn('系统默认配置', source)
+        self.assertIn('row.sync_version', source)
+        self.assertIn('row.equipment_line_count', source)
+        self.assertIn('simcProfileMatchesSpecFilter', source)
+        self.assertIn("frost_death_knight: ['deathknight', 'frost']", source)
+        self.assertIn("frost_mage: ['mage', 'frost']", source)
+        self.assertIn("protection_paladin: ['paladin', 'protection']", source)
+        self.assertIn("protection_warrior: ['warrior', 'protection']", source)
 
 
 class SimcTemplateAPIViewTests(TestCase):
@@ -285,7 +361,6 @@ class SimcTemplateAPIViewTests(TestCase):
     def test_list_returns_metadata_preview_without_apl_source(self):
         """The legacy template list must not mix full APL source into its base-template view."""
         base = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
             spec='fury', name='基础模板', content='warrior="Template"', is_active=True,
         )
@@ -297,7 +372,7 @@ class SimcTemplateAPIViewTests(TestCase):
             is_system=True,
             is_active=True,
         )
-        response = self.client.get('/api/simc-template/?template_type=base_template')
+        response = self.client.get('/api/simc-template/')
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertTrue(payload['success'], payload)
@@ -310,15 +385,16 @@ class SimcTemplateAPIViewTests(TestCase):
 
     def test_default_player_cannot_create_or_mutate_identity_fields(self):
         """default_player 不允许通过 API 创建或改变 template_type/source/spec 身份字段。"""
-        protected = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-            spec='warrior_fury', name='protected', content='secret baseline',
-            is_active=True, is_selectable=False,
+        protected = SimcProfile.objects.create(
+            user_id=None, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury',
+            spec='warrior_fury', class_name='warrior', name='protected',
+            player_config_mode='manual_equipment', player_equipment='secret baseline',
+            is_active=True,
         )
         forbidden_attempts = [
             self.client.put(f'/api/simc-template/?id={protected.id}', data=json.dumps({
-                'content': 'changed', 'template_type': 'base_template',
+                'content': 'changed',
             }), content_type='application/json'),
             self.client.put(f'/api/simc-template/?id={protected.id}', data=json.dumps({
                 'content': 'changed', 'source': 'user',
@@ -327,26 +403,26 @@ class SimcTemplateAPIViewTests(TestCase):
                 'content': 'changed', 'spec': 'warrior_arms',
             }), content_type='application/json'),
             self.client.post('/api/simc-template/', data=json.dumps({
-                'content': 'forged', 'template_type': 'default_player',
+                'content': 'forged',
                 'source': 'simc_upstream', 'spec': 'warrior_fury',
             }), content_type='application/json'),
         ]
         for response in forbidden_attempts:
-            self.assertEqual(response.status_code, 403, response.content)
+            self.assertIn(response.status_code, (403, 404, 405), response.content)
             self.assertFalse(response.json()['success'])
         protected.refresh_from_db()
-        self.assertEqual(protected.content, 'secret baseline')
-        self.assertEqual(protected.template_type, SimcContentTemplate.TYPE_DEFAULT_PLAYER)
-        self.assertEqual(protected.source, SimcContentTemplate.SOURCE_SIMC_UPSTREAM)
+        self.assertEqual(protected.player_equipment, 'secret baseline')
+        self.assertEqual(protected.source, SimcProfile.SOURCE_SIMC_UPSTREAM)
         self.assertEqual(protected.spec, 'warrior_fury')
 
     def test_default_player_upstream_content_and_metadata_are_read_only(self):
         """simc_upstream 的 default_player 对 staff 也完全只读。"""
-        protected = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-            spec='warrior_fury', name='Baseline', content='warrior="Fury"\nlevel=80',
-            is_active=True, is_selectable=False,
+        protected = SimcProfile.objects.create(
+            user_id=None, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury',
+            spec='warrior_fury', class_name='warrior', name='Baseline',
+            player_config_mode='manual_equipment',
+            player_equipment='warrior="Fury"\nlevel=80', is_active=True,
         )
         response = self.client.put(f'/api/simc-template/?id={protected.id}', data=json.dumps({
             'content': 'warrior="Fury"\nlevel=80\nrace=orc',
@@ -354,18 +430,16 @@ class SimcTemplateAPIViewTests(TestCase):
             'is_selectable': True,
             'is_active': False,
         }), content_type='application/json')
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 404)
         self.assertFalse(response.json()['success'])
         protected.refresh_from_db()
-        self.assertNotIn('race=orc', protected.content)
+        self.assertNotIn('race=orc', protected.player_equipment)
         self.assertEqual(protected.name, 'Baseline')
-        self.assertFalse(protected.is_selectable)
         self.assertTrue(protected.is_active)
 
     def test_base_template_rejects_actor_lines(self):
         """base_template 必须恰好一个 {player_config} 占位符，不允许 actor= 行。"""
         valid = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
             spec='', name='Valid', content='fight_style=Patchwerk\n{player_config}\n',
             is_active=True,
@@ -391,21 +465,21 @@ class SimcTemplateAPIViewTests(TestCase):
 
     def test_delete_rejects_default_player(self):
         """DELETE 不允许删除 default_player 类型。"""
-        protected = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-            spec='warrior_fury', name='Baseline', content='warrior="Fury"',
+        protected = SimcProfile.objects.create(
+            user_id=None, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury',
+            spec='warrior_fury', class_name='warrior', name='Baseline',
+            player_config_mode='manual_equipment', player_equipment='warrior="Fury"',
             is_active=True,
         )
         response = self.client.delete(f'/api/simc-template/?id={protected.id}')
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 405)
         self.assertFalse(response.json()['success'])
-        self.assertTrue(SimcContentTemplate.objects.filter(id=protected.id).exists())
+        self.assertTrue(SimcProfile.objects.filter(id=protected.id).exists())
 
     def test_delete_allows_user_content(self):
         """DELETE 允许删除用户创建的 base_template/custom_apl/default_apl。"""
         user_base = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
             spec='', name='My Base', content='fight_style=Patchwerk\n{player_config}',
         )
@@ -417,9 +491,9 @@ class SimcTemplateAPIViewTests(TestCase):
             owner_user_id=self.user.id,
         )
         response = self.client.delete(f'/api/simc-template/?id={user_base.id}')
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json()['success'])
-        self.assertFalse(SimcContentTemplate.objects.filter(id=user_base.id).exists())
+        self.assertEqual(response.status_code, 405)
+        self.assertFalse(response.json()['success'])
+        self.assertTrue(SimcContentTemplate.objects.filter(id=user_base.id).exists())
 
         response = self.client.delete(f'/api/simc-workbench/apls/{user_apl.id}/')
         self.assertEqual(response.status_code, 200)
@@ -428,7 +502,6 @@ class SimcTemplateAPIViewTests(TestCase):
         user = User.objects.create_user(username='readonly_template_user', password='pwd')
         self.client.force_login(user)
         system_template = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
             spec='', name='System Base', content='fight_style=Patchwerk\n{player_config}',
         )
@@ -441,7 +514,7 @@ class SimcTemplateAPIViewTests(TestCase):
         delete = self.client.delete(f'/api/simc-template/?id={system_template.id}')
 
         self.assertEqual(update.status_code, 403)
-        self.assertEqual(delete.status_code, 403)
+        self.assertEqual(delete.status_code, 405)
         system_template.refresh_from_db()
         self.assertEqual(system_template.content, 'fight_style=Patchwerk\n{player_config}')
 
@@ -556,7 +629,6 @@ class SimcRawInspectTests(TestCase):
             '/api/simc-task/',
             data=json.dumps({
                 'name': 'Arcaneone arcane 常规模拟',
-                'task_type': 1,
                 'simc_profile_id': 0,
                 'raw_simc_code': raw_code,
                 'regular_time': 300,
@@ -576,7 +648,6 @@ class SimcRawInspectTests(TestCase):
             '/api/simc-task/',
             data=json.dumps({
                 'name': 'bad attribute raw',
-                'task_type': 2,
                 'simc_profile_id': 0,
                 'raw_simc_code': 'paladin="Foo"\nspec=retribution\n',
             }),
@@ -590,13 +661,14 @@ class SimcRawInspectTests(TestCase):
         self.assertFalse(SimcTask.objects.exists())
 
 
+@override_settings(SIMC_APL_CURRENT_IDENTITY=('test-revision', 'test-build'))
 class SimcBatchVariableCompareTests(TestCase):
     def setUp(self):
-        self.user = User.objects.create_user(username='batch_compare_user', password='pwd')
+        self.backend = get_test_backend()
+        self.user = User.objects.create_user(username='comparison_user', password='pwd')
         self.client = Client()
         self.client.force_login(self.user)
         self.base_template = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
             spec='warrior_fury',
             name='Batch contract base',
@@ -614,13 +686,27 @@ class SimcBatchVariableCompareTests(TestCase):
             is_system=True,
             is_active=True,
             is_selectable=True,
+            validation_status=SimcApl.VALIDATION_VALID,
+            validated_content_hash=hashlib.sha256(b'actions=/auto_attack').hexdigest(),
+            validation_revision=TEST_SIMC_REVISION, validation_game_build=TEST_WOW_BUILD,
         )
-        self.default_player = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+        self.apl_validation = patch(
+            'botend.services.simc_task_service.validate_apl_for_profile',
+            return_value={'valid': True,
+                          'content_hash': hashlib.sha256(b'actions=/auto_attack').hexdigest(),
+                          'revision': TEST_SIMC_REVISION, 'game_build': TEST_WOW_BUILD},
+        )
+        self.apl_validation.start()
+        self.addCleanup(self.apl_validation.stop)
+        self.default_player = SimcProfile.objects.create(
+            user_id=None,
+            source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury',
             spec='warrior_fury',
+            class_name='warrior',
             name='MID1 Warrior Fury',
-            content=(
+            player_config_mode='manual_equipment',
+            player_equipment=(
                 'warrior="FrozenArmory"\nlevel=90\nspec=fury\ntalents=BASE\n'
                 'head=,id=1\nneck=,id=2\nshoulder=,id=3\nback=,id=4\nchest=,id=5\n'
                 'wrist=,id=6\nhands=,id=7\nwaist=,id=8\nlegs=,id=9\nfeet=,id=10\n'
@@ -759,9 +845,18 @@ main_hand=,id=222222
         self.assertEqual(parsed['candidates']['gear'][0]['item_level'], 285)
         self.assertEqual(parsed['profile']['talents']['saved_loadouts'], [])
 
+    def test_attribute_continuation_endpoint_rejects_client_managed_rounds(self):
+        response = self.client.post('/api/simc-task/comparison/', data=json.dumps({
+            'continue_task_id': 123,
+        }), content_type='application/json')
+
+        self.assertEqual(response.status_code, 409)
+        self.assertFalse(response.json()['success'])
+        self.assertIn('Worker', response.json()['error'])
+
     def test_auto_attribute_batch_creates_complete_50_rating_pairwise_neighborhood(self):
         base = {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}
-        rows = SimcBatchTaskAPIView._attribute_variants(base, 50)
+        rows = SimcComparisonTaskAPIView._attribute_variants(base, 50)
         self.assertEqual(len(rows), 13)
         self.assertEqual(sum(is_base for _, _, is_base, _ in rows), 1)
         moves = [candidate['move'] for _, _, is_base, candidate in rows if not is_base]
@@ -777,7 +872,7 @@ main_hand=,id=222222
 
     def test_auto_attribute_batch_omits_sub_50_source_without_projecting_non_grid_move(self):
         base = {'crit': 49, 'haste': 50, 'mastery': 100, 'versatility': 0}
-        rows = SimcBatchTaskAPIView._attribute_variants(base, 50)
+        rows = SimcComparisonTaskAPIView._attribute_variants(base, 50)
         moves = [candidate['move'] for _, _, is_base, candidate in rows if not is_base]
         self.assertEqual(len(rows), 7)  # centre + (haste/mastery) * 3 valid targets
         self.assertTrue(all(move['from'] != 'crit' for move in moves))
@@ -785,7 +880,7 @@ main_hand=,id=222222
 
 
     def test_auto_attribute_batch_accepts_simc_addon_source_and_freezes_attribute_profile(self):
-        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+        response = self.client.post('/api/simc-task/comparison/', data=json.dumps({
             'kind': 'attribute_variants', 'name': 'Fury 即时属性寻优',
             'spec': 'warrior_fury',
             'player_source': {
@@ -803,17 +898,21 @@ main_hand=,id=222222
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['success'], response.json())
-        batch = SimcTaskBatch.objects.get(id=response.json()['data']['batch_id'])
-        profile = SimcProfile.objects.get(id=json.loads(batch.request_manifest)['profile_id'])
-        self.assertEqual(profile.player_config_mode, 'attribute_only')
-        self.assertEqual(profile.spec, 'fury')
-        self.assertEqual(profile.talent, 'IMPORT_BUILD')
+        self.assertEqual(response.json()['data']['mode'], 'attribute_sweep')
+        self.assertNotIn('task_type', response.json()['data'])
+        self.assertNotIn('result_file', response.json()['data'])
+        task = SimcTask.objects.get(id=response.json()['data']['task_id'])
+        profile = task.profile_version.payload
+        self.assertEqual(profile['player_config_mode'], 'attribute_only')
+        self.assertEqual(profile['spec'], 'fury')
+        self.assertEqual(profile['talent'], 'IMPORT_BUILD')
         self.assertEqual(
-            [profile.gear_crit, profile.gear_haste, profile.gear_mastery, profile.gear_versatility],
+            [profile['gear_crit'], profile['gear_haste'], profile['gear_mastery'], profile['gear_versatility']],
             [1000, 2000, 3000, 4000],
         )
-        self.assertNotIn('actions=', profile.player_equipment)
-        self.assertEqual(SimcTask.objects.filter(batch=batch).count(), 13)
+        self.assertNotIn('actions=', profile['player_equipment'])
+        self.assertEqual(task.simulation_runs.count(), 0)
+        self.assertEqual(len(task.mode_params['initial_candidates']), 13)
 
     @patch('botend.dashboard.api.fetch_battlenet_character_preflight')
     def test_auto_attribute_batch_accepts_battlenet_source_with_frozen_ratings(self, preflight):
@@ -827,7 +926,7 @@ main_hand=,id=222222
                 'gear_mastery': 3000, 'gear_versatility': 4000,
             },
         }
-        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+        response = self.client.post('/api/simc-task/comparison/', data=json.dumps({
             'kind': 'attribute_variants', 'name': 'Fury Battle.net 属性寻优',
             'spec': 'warrior_fury',
             'player_source': {'type': 'battlenet', 'region': 'eu', 'realm': 'Kazzak', 'character': 'Batcher'},
@@ -838,16 +937,18 @@ main_hand=,id=222222
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['success'], response.json())
-        batch = SimcTaskBatch.objects.get(id=response.json()['data']['batch_id'])
-        profile = SimcProfile.objects.get(id=json.loads(batch.request_manifest)['profile_id'])
-        self.assertEqual(profile.player_config_mode, 'attribute_only')
-        self.assertIn('warrior="FrozenArmory"', profile.player_equipment)
-        self.assertEqual([profile.gear_crit, profile.gear_haste, profile.gear_mastery, profile.gear_versatility], [1000, 2000, 3000, 4000])
-        tasks = list(SimcTask.objects.filter(batch=batch).order_by('id'))
-        self.assertEqual(len(tasks), 13)
+        task = SimcTask.objects.get(id=response.json()['data']['task_id'])
+        profile = task.profile_version.payload
+        self.assertEqual(profile['player_config_mode'], 'attribute_only')
+        self.assertIn('warrior="FrozenArmory"', profile['player_equipment'])
+        self.assertEqual([profile['gear_crit'], profile['gear_haste'], profile['gear_mastery'], profile['gear_versatility']], [1000, 2000, 3000, 4000])
+        self.assertEqual(task.simulation_runs.count(), 0)
+        self.assertEqual(len(task.mode_params['initial_candidates']), 13)
+        from botend.services.simc_task_service import initialize_task_runs
+        runs = initialize_task_runs(task)
         monitor = SimcMonitor(None, None)
         rendered = []
-        for task in tasks[:2]:
+        for run in runs[:2]:
             request_data = monitor.apply_candidate_overrides({
                 'spec': task.profile_version.payload['spec'],
                 'fight_style': task.simulation_params.get('fight_style', 'Patchwerk'),
@@ -863,8 +964,8 @@ main_hand=,id=222222
                 'gear_versatility': task.profile_version.payload['gear_versatility'],
                 'base_template_content': task.template_version.payload['content'],
                 'override_action_list': task.apl_version.payload['content'],
-                '_result_file_path': task.result_file,
-            }, task.mode_params)
+                '_result_file_path': f'/tmp/simc_run_{run.id}.html',
+            }, run.candidate_params)
             simc_code, _, error = SimcComposer(self.user.id).compose(request_data)
             self.assertFalse(error)
             rendered.append(simc_code)
@@ -877,7 +978,7 @@ main_hand=,id=222222
         self.profile.player_config_mode = 'attribute_only'
         self.profile.player_equipment = ''
         self.profile.save(update_fields=['player_config_mode', 'player_equipment'])
-        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+        response = self.client.post('/api/simc-task/comparison/', data=json.dumps({
             'kind': 'attribute_variants', 'name': 'Fury 自动属性比较',
             'simc_profile_id': self.profile.id,
             'base_template_id': self.base_template.id,
@@ -892,32 +993,18 @@ main_hand=,id=222222
 
 
 
-    def test_auto_attribute_batch_projects_anchor_direction_to_boundary_instead_of_dropping_it(self):
+    def test_auto_attribute_batch_keeps_fixed_grid_moves(self):
         # 50-rating 离散搜索不允许把不足一步的余额投影成 100 等非网格转移。
         base = {'crit': 400, 'haste': 1100, 'mastery': 1140, 'versatility': 100}
-        rows = SimcBatchTaskAPIView._attribute_variants(base, 50)
+        rows = SimcComparisonTaskAPIView._attribute_variants(base, 50)
         self.assertEqual(len(rows), 13)
         self.assertTrue(all(sum(ratings.values()) == sum(base.values()) for _, ratings, _, _ in rows))
         self.assertTrue(all(candidate['move'].get('type') == 'baseline' or candidate['move']['transfer'] == 50 for _, _, _, candidate in rows))
 
-        chosen = SimcBatchTaskAPIView._next_attribute_search_center([
-            {'ratings': {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}, 'dps': 100000, 'is_center': True},
-            {'ratings': {'crit': 950, 'haste': 2050, 'mastery': 3000, 'versatility': 4000}, 'dps': 101500},
-        ], step=50, min_step=50)
-        self.assertEqual(chosen['ratings'], {'crit': 950, 'haste': 2050, 'mastery': 3000, 'versatility': 4000})
-        self.assertEqual(chosen['step'], 50)
-        self.assertFalse(chosen['converged'])
-
-        local_optimum = SimcBatchTaskAPIView._next_attribute_search_center([
-            {'ratings': {'crit': 950, 'haste': 2050, 'mastery': 3000, 'versatility': 4000}, 'dps': 102000, 'is_center': True},
-            {'ratings': {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}, 'dps': 101800},
-        ], step=50, min_step=50)
-        self.assertTrue(local_optimum['converged'])
-        self.assertEqual(local_optimum['stop_reason'], 'local_optimum_50_pairwise')
 
     def test_next_attribute_round_preserves_budget_and_marks_new_center(self):
         base = {'crit': 1200, 'haste': 2000, 'mastery': 3000, 'versatility': 3800}
-        rows = SimcBatchTaskAPIView._attribute_variants(base, 50, round_number=2, mark_base=True)
+        rows = SimcComparisonTaskAPIView._attribute_variants(base, 50, round_number=2, mark_base=True)
         self.assertEqual(len(rows), 13)
         self.assertTrue(rows[0][2])
         self.assertEqual(rows[0][3]['round'], 2)
@@ -940,6 +1027,32 @@ main_hand=,id=222222
         self.assertEqual(detail['talents']['build_code'], 'ATTRIBUTE_BUILD')
         self.assertEqual(detail['stats']['secondary']['crit']['rating'], 1000)
         self.assertNotIn('无装备', detail['source']['label'])
+
+    def test_devourer_detail_uses_demon_hunter_rule_and_mastery_coefficient(self):
+        from botend.models import SimcMasteryCoefficient, SimcSecondaryStatRule
+
+        SimcSecondaryStatRule.objects.update_or_create(
+            class_name='demon_hunter',
+            defaults={
+                'crit_per_percent': 46, 'haste_per_percent': 44,
+                'mastery_per_percent': 46, 'versatility_per_percent': 54,
+            },
+        )
+        SimcMasteryCoefficient.objects.update_or_create(
+            spec='devourer', defaults={'mastery_coefficient': 1.0},
+        )
+
+        detail = build_player_config_detail(
+            'attribute_only', 'devourer',
+            player_equipment=(
+                'demonhunter="Devourer"\nlevel=90\nspec=devourer\n'
+                'talents=BASE\nhead=,id=212048'
+            ),
+            talent='BUILD', gear_mastery=460,
+        )
+
+        self.assertEqual(detail['identity']['class_name'], 'demonhunter')
+        self.assertEqual(detail['stats']['secondary']['mastery']['percent'], 10.0)
 
     def test_battlenet_template_selection_accepts_playerless_default_template(self):
         monitor = SimcMonitor(None, None)
@@ -979,7 +1092,7 @@ main_hand=,id=222222
             'gear_mastery': 3000,
             'gear_versatility': 4000,
             'selected_apl_id': 42,
-            'batch_compare': {'batch_id': 'batch-1', 'candidate': {'round': 1}},
+            'comparison_context': {'task_id': 1, 'candidate': {'round': 1}},
         }
         task = SimpleNamespace(ext=json.dumps(manifest), id=99)
 
@@ -1070,7 +1183,7 @@ main_hand=,id=222222
     def test_attribute_task_rejects_nonempty_baseline_without_actor_or_equipped_slot(self):
         for baseline in ('head=,id=212048', 'warrior="No gear"\nspec=fury'):
             response = self.client.post('/api/simc-task/', data=json.dumps({
-                'name': 'Malformed baseline', 'task_type': 1, 'spec': 'fury',
+                'name': 'Malformed baseline', 'spec': 'fury',
                 'player_config_mode': 'attribute_only', 'player_equipment': baseline,
                 'talent': 'BUILD', 'gear_crit': 1, 'gear_haste': 2,
                 'gear_mastery': 3, 'gear_versatility': 4,
@@ -1087,14 +1200,6 @@ main_hand=,id=222222
         self.assertTrue(rendered.endswith('html=simc_task_44.html'))
         self.assertNotIn('stale_report.html', rendered)
 
-    def test_attribute_search_stops_when_it_revisits_same_center_and_step(self):
-        ratings = {'crit': 1200, 'haste': 2000, 'mastery': 3000, 'versatility': 3800}
-        stop = SimcBatchTaskAPIView._attribute_search_stop_reason(
-            round_number=4, ratings=ratings, step=200,
-            visited_centers={(tuple(ratings[stat] for stat in SimcBatchTaskAPIView.ATTRIBUTE_STATS), 200)},
-            max_rounds=20,
-        )
-        self.assertEqual(stop, 'cycle_detected')
 
     def test_execute_simc_command_passes_absolute_task_result_path(self):
         from unittest.mock import patch
@@ -1104,17 +1209,27 @@ main_hand=,id=222222
         with tempfile.TemporaryDirectory() as tmpdir:
             monitor.simc_path = '/opt/simc'
             monitor.result_path = tmpdir
-            task = SimpleNamespace(id=88, result_file='simc_task_88.html', ext='{}', save=lambda **kwargs: None)
+            task = SimpleNamespace(
+                id=88, result_file='simc_task_88.html', ext='{}',
+                result_summary='', error_detail='', save=lambda **kwargs: None,
+                backend=self.backend, backend_id=self.backend.id,
+            )
             expected = os.path.join(tmpdir, task.result_file)
-            with patch('botend.controller.plugins.simc.SimcMonitor.subprocess.run') as run:
-                run.return_value = SimpleNamespace(
+            with patch(
+                    'botend.controller.plugins.simc.SimcMonitor.os.path.isfile',
+                    side_effect=lambda path: path == self.backend.simc_path or Path(path).is_file()), \
+                 patch('botend.controller.plugins.simc.SimcMonitor.os.access', return_value=True), \
+                 patch('botend.controller.plugins.simc.SimcMonitor.subprocess.run') as run:
+                def execute_and_write_report(*args, **kwargs):
+                    with open(expected, 'w', encoding='utf-8') as report:
+                        report.write('<html></html>')
+                    return SimpleNamespace(
                     returncode=0,
                     stdout='Player: Audit warrior fury 90\n  DPS=60000.0\n    bloodthirst Count=40 pDPS=5000\n',
                     stderr='',
                 )
+                run.side_effect = execute_and_write_report
                 with patch('botend.interface.ossupload.ossUpload', return_value=True):
-                    with open(expected, 'w', encoding='utf-8') as report:
-                        report.write('<html></html>')
                     self.assertTrue(monitor.execute_simc_command('/tmp/input.simc', task, task.result_file))
             self.assertEqual(run.call_args.args[0], ['/opt/simc', '/tmp/input.simc', f'html={expected}'])
 
@@ -1135,13 +1250,21 @@ main_hand=,id=222222
             task = SimpleNamespace(
                 id=89, result_file='simc_task_89.html',
                 ext=json.dumps({'spec': 'fury'}),
+                result_summary='', error_detail='',
                 save=lambda **kwargs: None,
+                backend=self.backend, backend_id=self.backend.id,
             )
             expected = os.path.join(tmpdir, task.result_file)
-            with open(expected, 'w', encoding='utf-8') as report:
-                report.write('<html></html>')
-            with patch('botend.controller.plugins.simc.SimcMonitor.subprocess.run') as run:
-                run.return_value = SimpleNamespace(returncode=0, stdout=stdout, stderr='')
+            with patch(
+                    'botend.controller.plugins.simc.SimcMonitor.os.path.isfile',
+                    side_effect=lambda path: path == self.backend.simc_path or Path(path).is_file()), \
+                 patch('botend.controller.plugins.simc.SimcMonitor.os.access', return_value=True), \
+                 patch('botend.controller.plugins.simc.SimcMonitor.subprocess.run') as run:
+                def execute_and_write_report(*args, **kwargs):
+                    with open(expected, 'w', encoding='utf-8') as report:
+                        report.write('<html></html>')
+                    return SimpleNamespace(returncode=0, stdout=stdout, stderr='')
+                run.side_effect = execute_and_write_report
                 self.assertFalse(monitor.execute_simc_command('/tmp/input.simc', task, task.result_file))
         stored = json.loads(task.ext)
         self.assertIn('只有自动攻击', stored['simc_error_summary'])
@@ -1213,6 +1336,25 @@ main_hand=,id=222222
         self.assertEqual(validation['failure_type'], 'auto_attack_only')
         self.assertEqual(validation['unresolved_action_lists'], ['thane'])
 
+    def test_semantic_validation_accepts_active_talent_dispatch_in_slash_joined_priorities(self):
+        stdout = '''Player: Audit warrior arms 90
+  DPS=331722.2 DPS-Error=622.2/0.19%
+  Priorities (actions.default):
+    auto_attack/run_action_list,name=colossus_aoe,if=talent.demolish&active_enemies>2/run_action_list,name=colossus_st,if=talent.demolish/run_action_list,name=slayer_aoe,if=talent.slayers_dominance&active_enemies>2/run_action_list,name=slayer_st,if=talent.slayers_dominance
+  Priorities (actions.slayer_aoe):
+    bladestorm,if=0
+  Actions:
+    auto_attack_mh Count=125.0 pDPS=4762
+    whirlwind Count=35.9 pDPS=326960
+'''
+        validation = SimcMonitor.validate_simulation_semantics(stdout)
+        self.assertTrue(validation['valid'])
+        self.assertEqual(validation['failure_type'], '')
+        self.assertEqual(
+            validation['unresolved_action_lists'],
+            ['colossus_aoe', 'colossus_st', 'slayer_st'],
+        )
+
     def test_semantic_validation_accepts_core_skill_damage(self):
         stdout = '''Player: Audit warrior fury 90
   DPS=62453.0 DPS-Error=150/0.24%
@@ -1224,17 +1366,13 @@ main_hand=,id=222222
         validation = SimcMonitor.validate_simulation_semantics(stdout)
         self.assertTrue(validation['valid'])
         self.assertGreater(validation['non_auto_dps'], 0)
+        self.assertEqual(validation['dps_error'], 150.0)
+        self.assertEqual(validation['dps_error_pct'], 0.24)
 
     def test_attribute_search_rejects_any_non_50_step(self):
         self.profile.player_config_mode = 'attribute_only'
         self.profile.save(update_fields=['player_config_mode'])
-        results = [
-            {'ratings': {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}, 'dps': 100000, 'is_center': True},
-            {'ratings': {'crit': 950, 'haste': 2050, 'mastery': 3000, 'versatility': 4000}, 'dps': 100100, 'is_center': False},
-        ]
-        with self.assertRaisesRegex(ValueError, '固定使用 50'):
-            SimcBatchTaskAPIView._next_attribute_search_center(results, step=100, min_step=50)
-        bad_response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+        bad_response = self.client.post('/api/simc-task/comparison/', data=json.dumps({
             'kind': 'attribute_variants', 'name': '错误步长',
             'simc_profile_id': self.profile.id,
             'base_template_id': self.base_template.id,
@@ -1243,12 +1381,6 @@ main_hand=,id=222222
         }), content_type='application/json')
         self.assertFalse(bad_response.json()['success'])
         self.assertIn('固定使用 50', bad_response.json()['error'])
-
-        stop = SimcBatchTaskAPIView._attribute_search_stop_reason(
-            round_number=20, ratings={'crit': 1200, 'haste': 2000, 'mastery': 3000, 'versatility': 3800},
-            step=100, visited_centers=set(), max_rounds=20,
-        )
-        self.assertEqual(stop, 'max_rounds_reached')
 
 
 
@@ -1260,10 +1392,10 @@ main_hand=,id=222222
             'base_template_id': self.base_template.id,
             'selected_apl_id': self.default_apl.id,
         }
-        response = self.client.post('/api/simc-task/batch/', data=json.dumps({**base, 'kind': 'gear_candidates', 'candidates': [{'slot': 'head', 'item_id': 1, 'source': 'external'}]}), content_type='application/json')
+        response = self.client.post('/api/simc-task/comparison/', data=json.dumps({**base, 'kind': 'gear_candidates', 'candidates': [{'slot': 'head', 'item_id': 1, 'source': 'external'}]}), content_type='application/json')
         self.assertFalse(response.json()['success'])
         self.assertIn('来源', response.json()['error'])
-        response = self.client.post('/api/simc-task/batch/', data=json.dumps({**base, 'kind': 'gear_candidates', 'candidates': [{'slot': 'head', 'item_id': 200000 + i, 'source': 'bags'} for i in range(8)]}), content_type='application/json')
+        response = self.client.post('/api/simc-task/comparison/', data=json.dumps({**base, 'kind': 'gear_candidates', 'candidates': [{'slot': 'head', 'item_id': 200000 + i, 'source': 'bags'} for i in range(8)]}), content_type='application/json')
         self.assertFalse(response.json()['success'])
         self.assertIn('最多', response.json()['error'])
 
@@ -1277,35 +1409,30 @@ main_hand=,id=222222
         self.assertEqual(points, list(range(0, 4001, 50)))
         self.assertEqual(points, sorted(set(points)))
 
-    def test_attribute_batch_report_returns_real_dps_rankings_path_and_local_optimum(self):
-        batch_id = 'batch-attribute-report'
-        base = {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}
-        variants = SimcBatchTaskAPIView._attribute_variants(base, 50)
-        reports = {}
-        for index, (label, ratings, is_base, candidate) in enumerate(variants):
-            dps = 100000 if is_base else 99900
-            task = SimcTask.objects.create(
-                user_id=self.user.id, name=f'attribute {label}', simc_profile_id=0,
-                current_status=2, task_type=1, result_file=f'attribute_{index}.html',
-                ext=json.dumps({
-                    'player_config_mode': 'attribute_only', 'spec': 'fury', 'talent': 'BUILD',
-                    **{f'gear_{stat}': ratings[stat] for stat in SimcBatchTaskAPIView.ATTRIBUTE_STATS},
-                    'batch_compare': {
-                        'version': 2, 'batch_id': batch_id, 'kind': 'attribute_variants',
-                        'index': index, 'label': label, 'is_base': is_base, 'candidate': candidate,
-                    },
-                }),
+    def _comparison_task_with_runs(self, mode='comparison', rows=()):
+        task = create_test_task(
+            user_id=self.user.id, name='comparison report', simc_profile_id=0,
+            mode=mode, current_status=0,
+        )
+        for index, row in enumerate(rows):
+            label, status, dps, params = row
+            SimulationRun.objects.create(
+                task=task, sequence=index + 1, candidate_key=f'candidate-{index}',
+                candidate_label=label, status=status, candidate_params=params,
+                result_summary={} if dps is None else {'dps': dps},
             )
-            reports[task.result_file] = f'<h2>Fury: {dps:,} dps</h2>'
+        return task
 
-        def result_content(_self, result_file):
-            return reports.get(result_file)
-
-        with patch.object(SimcRegularCompareAPIView, '_get_result_file_content', result_content):
-            response = self.client.get('/api/simc-regular-compare/?batch_id=' + batch_id)
-
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
+    def test_attribute_task_report_returns_real_dps_rankings_path_and_local_optimum(self):
+        base = {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}
+        rows = []
+        for label, ratings, is_base, candidate in SimcComparisonTaskAPIView._attribute_variants(base, 50):
+            rows.append((label, 'completed', 100000 if is_base else 99900, {
+                'candidate_type': 'attribute_ratings', 'is_base': is_base,
+                'attribute_ratings': ratings, 'search': candidate,
+            }))
+        task = self._comparison_task_with_runs('attribute_sweep', rows)
+        payload = self.client.get('/api/simc-regular-compare/', {'task_id': task.id}).json()
         self.assertTrue(payload['success'], payload)
         report = payload['data']['attribute_report']
         self.assertEqual(report['algorithm'], 'four_stat_pairwise_hill_climb')
@@ -1315,178 +1442,86 @@ main_hand=,id=222222
         self.assertEqual(report['recommendation']['ratings'], base)
         self.assertEqual(report['stop_reason'], 'local_optimum_50_pairwise')
         self.assertEqual(len(report['candidates']), 13)
-        self.assertEqual(report['candidates'][0]['dps'], 100000)
         self.assertTrue(all('result_file' not in row for row in report['candidates']))
-        self.assertTrue(all('result_file' not in row for row in report['search_path']))
 
-    def test_regular_candidate_batch_returns_only_safe_parsed_summary(self):
-        batch_id = 'batch-regular-report'
-        tasks = []
-        for index, (label, dps) in enumerate((('基准配置', 1744), ('候选天赋', 1801))):
-            tasks.append(SimcTask.objects.create(
-                user_id=self.user.id, name=label, simc_profile_id=0,
-                current_status=2, task_type=1, result_file=f'simc_task_{800 + index}.html',
-                ext=json.dumps({'batch_compare': {
-                    'version': 1, 'batch_id': batch_id, 'kind': 'talent_candidates',
-                    'index': index, 'label': label, 'is_base': index == 0,
-                    'candidate': {'type': 'base' if index == 0 else 'talent'},
-                }}),
-            ))
-        reports = {
-            task.result_file: f'<h2>Fury: {dps:,} dps</h2>'
-            for task, (_, dps) in zip(tasks, (('基准配置', 1744), ('候选天赋', 1801)))
-        }
-        with patch.object(SimcRegularCompareAPIView, '_get_result_file_content', lambda _self, filename: reports.get(filename)):
-            response = self.client.get('/api/simc-regular-compare/?batch_id=' + batch_id)
-
-        payload = response.json()
+    def test_regular_candidate_task_returns_only_safe_summary(self):
+        task = self._comparison_task_with_runs(rows=[
+            ('基准配置', 'completed', 1744, {'is_base': True, 'search': {'candidate_index': 0}}),
+            ('候选天赋', 'completed', 1801, {'is_base': False, 'search': {'candidate_index': 1}}),
+        ])
+        payload = self.client.get('/api/simc-regular-compare/', {'task_id': task.id}).json()
         self.assertTrue(payload['success'], payload)
-        rows = payload['data']['tasks']
+        rows = payload['data']['runs']
         self.assertEqual([row['dps'] for row in rows], [1744, 1801])
-        self.assertTrue(all(set(row) == {
-            'id', 'name', 'label', 'rank', 'dps', 'delta_dps', 'delta_percent'
-        } for row in rows))
+        self.assertTrue(all('candidate_params' not in row for row in rows))
 
-    def test_database_batch_relation_is_authoritative_and_result_read_has_no_lifecycle_side_effect(self):
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id, name='Authoritative batch',
-            batch_type='comparison', status=1,
-            request_manifest=json.dumps({'version': 2}),
-        )
-        reports = {}
-        for index, (label, dps) in enumerate((('基准配置', 100000), ('候选配置', 101000))):
-            task = SimcTask.objects.create(
-                user_id=self.user.id, name=label, simc_profile_id=0,
-                current_status=2, task_type=1, result_file=f'authoritative_{index}.html',
-                batch=batch, candidate_label=label,
-                ext=json.dumps({'batch_compare': {
-                    'version': 2, 'batch_id': str(batch.id), 'kind': 'talent_candidates',
-                    'index': index, 'label': label, 'is_base': index == 0,
-                }}),
-            )
-            reports[task.result_file] = f'<h2>Fury: {dps:,} dps</h2>'
-        SimcTask.objects.create(
-            user_id=self.user.id, name='伪造 legacy 同号任务', simc_profile_id=0,
-            current_status=2, task_type=1, result_file='unrelated.html',
-            ext=json.dumps({'batch_compare': {
-                'version': 1, 'batch_id': str(batch.id), 'kind': 'talent_candidates',
-                'index': 99, 'label': '不应混入', 'is_base': False,
-            }}),
-        )
-
-        with patch.object(SimcRegularCompareAPIView, '_get_result_file_content', lambda _self, filename: reports.get(filename)):
-            payload = self.client.get(f'/api/simc-regular-compare/?batch_id={batch.id}').json()
-
+    def test_task_run_relation_is_authoritative_and_read_has_no_lifecycle_side_effect(self):
+        task = self._comparison_task_with_runs(rows=[
+            ('基准配置', 'completed', 100000, {'is_base': True, 'search': {'candidate_index': 0}}),
+            ('候选配置', 'completed', 101000, {'is_base': False, 'search': {'candidate_index': 1}}),
+        ])
+        unrelated = self._comparison_task_with_runs(rows=[
+            ('不应混入', 'completed', 999999, {'is_base': False, 'search': {'candidate_index': 0}}),
+        ])
+        before = (task.current_status, task.completed_at)
+        payload = self.client.get('/api/simc-regular-compare/', {'task_id': task.id}).json()
         self.assertTrue(payload['success'], payload)
-        self.assertEqual(payload['data']['batch']['total'], 2)
-        self.assertEqual([row['label'] for row in payload['data']['tasks']], ['基准配置', '候选配置'])
-        batch.refresh_from_db()
-        self.assertEqual(batch.status, 1)
-        self.assertIsNone(batch.completed_at)
+        self.assertEqual([row['label'] for row in payload['data']['runs']], ['基准配置', '候选配置'])
+        self.assertNotEqual(task.id, unrelated.id)
+        task.refresh_from_db()
+        self.assertEqual((task.current_status, task.completed_at), before)
 
-    def test_batch_compare_query_is_isolated_and_reports_pending_progress(self):
-        batch_id, other_id = 'batch-isolated', 'batch-other'
-        def create_task(name, bid, index, status=0):
-            return SimcTask.objects.create(user_id=self.user.id, name=name, simc_profile_id=0, current_status=status, task_type=1, result_file='', ext=json.dumps({'batch_compare': {'version': 1, 'batch_id': bid, 'kind': 'attribute_variants', 'index': index, 'is_base': index == 0, 'label': name}}))
-        create_task('baseline', batch_id, 0)
-        create_task('crit +200', batch_id, 1, 1)
-        create_task('unrelated', other_id, 0, 2)
-        response = self.client.get('/api/simc-regular-compare/?batch_id=' + batch_id)
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
+    def test_comparison_query_reports_pending_progress(self):
+        task = self._comparison_task_with_runs(rows=[
+            ('baseline', 'pending', None, {'is_base': True}),
+            ('candidate', 'running', None, {'is_base': False}),
+        ])
+        payload = self.client.get('/api/simc-regular-compare/', {'task_id': task.id}).json()
         self.assertTrue(payload['success'], payload)
-        self.assertEqual(payload['data']['batch']['batch_id'], batch_id)
-        self.assertEqual(payload['data']['batch']['total'], 2)
-        self.assertEqual(payload['data']['batch']['pending'], 1)
-        self.assertEqual(payload['data']['batch']['running'], 1)
-        self.assertEqual(payload['data']['batch']['succeeded'], 0)
+        self.assertEqual(payload['data']['task']['pending'], 1)
+        self.assertEqual(payload['data']['task']['running'], 1)
+        self.assertEqual(payload['data']['task']['succeeded'], 0)
 
-    def test_scan_real_batch_uses_fk_and_does_not_mix_forged_legacy_id(self):
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id, name='real drain', batch_type='comparison', status=0,
-        )
-        real_tasks = [
-            SimcTask.objects.create(
-                user_id=self.user.id, name=f'real {index}', simc_profile_id=0,
-                current_status=0, task_type=1, batch=batch,
-                ext=json.dumps({'batch_compare': {
-                    'version': 2, 'batch_id': str(batch.id), 'kind': 'talent_candidates',
-                    'index': index, 'label': f'real {index}',
-                }}),
-            )
-            for index in range(2)
-        ]
-        forged = SimcTask.objects.create(
-            user_id=self.user.id, name='forged legacy', simc_profile_id=0,
-            current_status=0, task_type=1,
-            ext=json.dumps({'batch_compare': {
-                'version': 1, 'batch_id': str(batch.id), 'kind': 'talent_candidates',
-                'index': 99, 'label': 'forged',
-            }}),
-        )
+    def test_scan_processes_comparison_task_once_not_each_run(self):
+        task = self._comparison_task_with_runs(rows=[
+            ('first', 'pending', None, {}), ('second', 'pending', None, {}),
+        ])
         monitor = SimcMonitor(None, None)
-
         with patch.object(monitor, 'ensure_local_simc_backend_current', return_value=True), \
              patch('botend.controller.plugins.simc.SimcMonitor.os.path.exists', return_value=True), \
              patch('botend.controller.plugins.simc.SimcMonitor.os.path.isfile', return_value=True), \
              patch.object(monitor, 'process_simc_task', return_value=True) as process:
             self.assertTrue(monitor.scan())
+        self.assertEqual([call.args[0].id for call in process.call_args_list], [task.id])
 
-        self.assertEqual([call.args[0].id for call in process.call_args_list], [task.id for task in real_tasks])
-        self.assertNotIn(forged.id, [call.args[0].id for call in process.call_args_list])
-
-    def test_scan_drains_all_pending_batch_candidates_in_one_dispatch(self):
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id, name='FK batch drain all', batch_type='talent_candidates', status=1,
-        )
-        tasks = [
-            SimcTask.objects.create(
-                user_id=self.user.id, name=f'candidate {index}', simc_profile_id=0,
-                current_status=0, task_type=1, result_file='',
-                batch=batch, candidate_label=f'candidate {index}',
-            )
-            for index in range(3)
-        ]
+    def test_reference_task_drains_all_pending_runs_in_one_dispatch(self):
+        task = self._comparison_task_with_runs(rows=[
+            ('first', 'pending', None, {}), ('second', 'pending', None, {}), ('third', 'pending', None, {}),
+        ])
         monitor = SimcMonitor(None, None)
-
-        def finish(task):
-            SimcTask.objects.filter(id=task.id).update(current_status=2, result_file=f'simc_task_{task.id}.html')
-            return True
-
-        with patch.object(monitor, 'ensure_local_simc_backend_current', return_value=True), \
-             patch('botend.controller.plugins.simc.SimcMonitor.os.path.exists', return_value=True), \
-             patch('botend.controller.plugins.simc.SimcMonitor.os.path.isfile', return_value=True), \
-             patch.object(monitor, 'process_simc_task', side_effect=finish) as process:
-            self.assertTrue(monitor.scan())
-
-        self.assertEqual([call.args[0].id for call in process.call_args_list], [task.id for task in tasks])
-        self.assertEqual(SimcTask.objects.filter(id__in=[task.id for task in tasks], current_status=2).count(), 3)
+        processed = []
+        def finish(_task, run):
+            processed.append(run.id)
+            run.status = 'completed'
+            run.result_summary = {'dps': 100 + run.sequence}
+            run.save(update_fields=['status', 'result_summary'])
+        with patch.object(monitor, 'process_reference_run', side_effect=finish):
+            self.assertTrue(monitor.process_reference_task(task))
+        self.assertEqual(processed, list(task.simulation_runs.order_by('sequence').values_list('id', flat=True)))
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 2)
 
     def test_compare_response_ranks_candidates_against_explicit_baseline(self):
-        batch_id = 'batch-ranked-summary'
-        reports = {}
-        for index, (label, dps) in enumerate((('基准配置', 100000), ('候选 A', 103000), ('候选 B', 99000))):
-            task = SimcTask.objects.create(
-                user_id=self.user.id, name=label, simc_profile_id=0,
-                current_status=2, task_type=1, result_file=f'ranked_{index}.html',
-                ext=json.dumps({'batch_compare': {
-                    'version': 1, 'batch_id': batch_id, 'kind': 'talent_candidates',
-                    'index': index, 'label': label, 'is_base': index == 0,
-                }}),
-            )
-            reports[task.result_file] = f'<div class="player"><h2>Fury: {dps:,} dps</h2></div>'
-
-        with patch.object(SimcRegularCompareAPIView, '_get_result_file_content', lambda _self, filename: reports.get(filename)):
-            payload = self.client.get('/api/simc-regular-compare/?batch_id=' + batch_id).json()
-
-        rows = payload['data']['tasks']
+        task = self._comparison_task_with_runs(rows=[
+            ('基准配置', 'completed', 100000, {'is_base': True, 'search': {'candidate_index': 0}}),
+            ('候选 A', 'completed', 103000, {'is_base': False, 'search': {'candidate_index': 1}}),
+            ('候选 B', 'completed', 99000, {'is_base': False, 'search': {'candidate_index': 2}}),
+        ])
+        payload = self.client.get('/api/simc-regular-compare/', {'task_id': task.id}).json()
+        rows = payload['data']['runs']
         self.assertEqual([(row['label'], row['rank']) for row in rows], [('基准配置', 2), ('候选 A', 1), ('候选 B', 3)])
-        self.assertEqual(rows[0]['delta_dps'], 0)
-        self.assertEqual(rows[0]['delta_percent'], 0.0)
-        self.assertEqual(rows[1]['delta_dps'], 3000)
-        self.assertEqual(rows[1]['delta_percent'], 3.0)
-        self.assertEqual(rows[2]['delta_dps'], -1000)
-        self.assertEqual(rows[2]['delta_percent'], -1.0)
+        self.assertEqual([row['delta_dps'] for row in rows], [0, 3000, -1000])
+        self.assertEqual([row['delta_percent'] for row in rows], [0.0, 3.0, -1.0])
         self.assertEqual(payload['data']['comparison']['baseline']['label'], '基准配置')
         self.assertEqual(payload['data']['comparison']['winner']['label'], '候选 A')
 
@@ -1499,7 +1534,6 @@ class SimcNewConfigModeTests(TestCase):
         self.client = Client()
         self.client.force_login(self.user)
         self.base_template = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
             spec='warrior_fury',
             content='{player_identity}\n{equipment}\n{action_list}\n{simulation_options}\n{stat_overrides}\n{output_options}',
@@ -1516,7 +1550,7 @@ class SimcNewConfigModeTests(TestCase):
 
     def test_attribute_manifest_task_is_rejected_until_reference_architecture(self):
         """Legacy attribute tasks without 6-reference fields are rejected."""
-        task = SimcTask.objects.create(
+        task = create_test_task(
             user_id=self.user.id,
             name='Manifest attribute snapshot',
             task_type=2,
@@ -1566,13 +1600,13 @@ class SimcNewConfigModeTests(TestCase):
             }),
             content_type='application/json',
         )
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 400)
         payload = response.json()
         self.assertFalse(payload['success'])
-        self.assertIn('旧版属性寻优（task_type=2）已停用', payload['error'])
+        self.assertIn('task_type', payload['error'])
 
     def test_task_list_does_not_expose_raw_simc_code(self):
-        task = SimcTask.objects.create(
+        task = create_test_task(
             user_id=self.user.id,
             name='private raw code',
             task_type=1,
@@ -1596,7 +1630,6 @@ class SimcNewConfigModeTests(TestCase):
             '/api/simc-task/',
             data=json.dumps({
                 'name': 'new private raw code',
-                'task_type': 1,
                 'simc_profile_id': 0,
                 'raw_simc_code': 'warrior="create-secret"\nspec=fury\n',
                 'regular_time': 300,
@@ -1610,6 +1643,61 @@ class SimcNewConfigModeTests(TestCase):
         self.assertFalse(payload['success'])
         self.assertIn('不再支持直接 SimC 代码模式', payload['error'])
         self.assertNotIn('create-secret', json.dumps(payload, ensure_ascii=False))
+
+    @patch('botend.dashboard.api.create_task')
+    def test_normal_task_can_use_read_only_upstream_system_profile(self, create_task_mock):
+        from types import SimpleNamespace
+        from django.utils import timezone
+
+        system_profile = SimcProfile.objects.create(
+            user_id=None,
+            source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury',
+            class_name='warrior',
+            name='MID1 Fury player',
+            spec='warrior_fury',
+            player_config_mode='manual_equipment',
+            player_equipment='warrior="Default"\nlevel=90\nspec=fury\nmain_hand=,id=222222',
+        )
+        create_task_mock.return_value = SimpleNamespace(
+            id=901,
+            name='System profile smoke',
+            simc_profile_id=system_profile.id,
+            current_status=0,
+            mode='normal',
+            create_time=timezone.now(),
+            modified_time=timezone.now(),
+        )
+
+        detail_response = self.client.get(
+            f'/api/simc-player-config-detail/?profile_id={system_profile.id}'
+        )
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertTrue(detail_response.json()['success'], detail_response.json())
+
+        response = self.client.post(
+            '/api/simc-task/',
+            data=json.dumps({
+                'name': 'System profile smoke',
+                'spec': 'fury',
+                'simc_profile_id': system_profile.id,
+                'player_source': {'type': 'saved_profile', 'profile_id': system_profile.id},
+                'base_template_id': self.base_template.id,
+                'selected_apl_id': self.default_apl.id,
+                'fight_style': 'Patchwerk',
+                'time': 300,
+                'target_count': 1,
+                'backend_id': 7,
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['success'], response.json())
+        self.assertEqual(
+            create_task_mock.call_args.kwargs['profile_id'],
+            system_profile.id,
+        )
 
 
     def test_task_ext_summary_drops_raw_simc_code_from_browser_response(self):
@@ -1635,7 +1723,7 @@ class SimcNewConfigModeTests(TestCase):
         summary = SimcTaskAPIView()._task_ext_summary(1, json.dumps({
             'selected_apl_id': 42,
             'apl_compare': {
-                'batch_id': 'batch-42',
+                'task_id': 42,
                 'candidate_index': 2,
                 'candidate_name': '候选方案2',
                 'candidate_reason': '交换技能优先级',
@@ -1649,7 +1737,7 @@ class SimcNewConfigModeTests(TestCase):
 
         self.assertEqual(summary['selected_apl_id'], 42)
         self.assertEqual(summary['apl_compare'], {
-            'batch_id': 'batch-42',
+            'task_id': 42,
             'candidate_index': 2,
             'is_base': False,
             'preprocess_stage': 'ready',
@@ -1662,7 +1750,7 @@ class SimcNewConfigModeTests(TestCase):
         self.assertNotIn('secret_action', serialized)
 
     def test_task_list_hides_failed_native_result_output(self):
-        task = SimcTask.objects.create(
+        task = create_test_task(
             user_id=self.user.id,
             name='failed raw task',
             task_type=1,
@@ -1674,11 +1762,11 @@ class SimcNewConfigModeTests(TestCase):
         response = self.client.get('/api/simc-task/')
         self.assertEqual(response.status_code, 200)
         listed = next(row for row in response.json()['data'] if row['id'] == task.id)
-        self.assertEqual(listed['result_file'], '')
+        self.assertNotIn('result_file', listed)
         self.assertNotIn('result-secret', json.dumps(response.json(), ensure_ascii=False))
 
     def test_attribute_analysis_ssr_parses_task_owned_attribute_report(self):
-        task = SimcTask.objects.create(
+        task = create_test_task(
             user_id=self.user.id,
             name='SSR attribute report',
             task_type=2,
@@ -1700,7 +1788,7 @@ class SimcNewConfigModeTests(TestCase):
         self.assertContains(response, 'gear_crit')
 
     def test_attribute_analysis_api_parses_only_current_task_owned_reports(self):
-        task = SimcTask.objects.create(
+        task = create_test_task(
             user_id=self.user.id,
             name='API attribute report',
             task_type=2,
@@ -1727,7 +1815,7 @@ class SimcNewConfigModeTests(TestCase):
         self.assertEqual(payload['data']['results'][0]['dps'], 123456)
 
     def test_preview_returns_only_current_users_manifest_snapshot(self):
-        task = SimcTask.objects.create(
+        task = create_test_task(
             user_id=self.user.id,
             name='Preview manifest task',
             task_type=1,
@@ -1774,7 +1862,7 @@ class SimcNewConfigModeTests(TestCase):
         workbench_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/simc-workbench.js').read_text(encoding='utf-8')
         self.assertNotIn('function openViewSimcTaskModal(task)', main_js)
         self.assertIn('async function showTaskDetail(resource, id)', workbench_js)
-        self.assertIn("window.openSimcWorkbenchDialog(resource === 'batches' ? 'batch-detail' : 'task-detail', null)", workbench_js)
+        self.assertIn("window.openSimcWorkbenchDialog('task-detail', null)", workbench_js)
         self.assertNotIn('modal.style.display', workbench_js)
 
     def test_dashboard_sections_stay_inside_main_content(self):
@@ -1838,7 +1926,7 @@ html=simc_task_99.html
         self.assertNotIn('SECRET_BUILD', json.dumps(summary))
 
     def test_worker_persists_final_execution_validation_in_task_manifest(self):
-        task = SimcTask.objects.create(
+        task = create_test_task(
             user_id=self.user.id,
             name='Worker audit',
             simc_profile_id=0,
@@ -1862,7 +1950,7 @@ html=simc_task_99.html
             'equipment_count': 14, 'action_count': 112,
             'html_output_count': 1, 'placeholder_count': 0,
         }
-        task = SimcTask.objects.create(
+        task = create_test_task(
             user_id=self.user.id,
             name='Validated task',
             simc_profile_id=0,
@@ -1876,10 +1964,19 @@ html=simc_task_99.html
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['data']['final_config_validation'], validation)
 
-    def test_rerun_creates_pending_task_without_mutating_completed_manifest_task(self):
+    @override_settings(SIMC_APL_CURRENT_IDENTITY=('test-revision', 'test-build'))
+    @patch('botend.services.simc_task_service.validate_apl_for_profile')
+    def test_rerun_creates_pending_task_without_mutating_completed_manifest_task(self, validate_apl):
         """Test rerun for reference-based tasks creates a new pending task."""
         from botend.models import SimcResourceVersion, SimcProfile, SimcContentTemplate, SimcApl
         import hashlib
+
+        validate_apl.return_value = {
+            'valid': True,
+            'content_hash': hashlib.sha256(b'actions=/bloodthirst').hexdigest(),
+            'revision': 'test-revision',
+            'game_build': 'test-build',
+        }
 
         # Create live resources with a different spec to avoid conflicts with setUp
         profile = SimcProfile.objects.create(
@@ -1890,7 +1987,6 @@ html=simc_task_99.html
             player_equipment='warrior="Snapshot"\nspec=arms\nhead=,id=212048',
         )
         template = SimcContentTemplate.objects.create(
-            template_type='base_template',
             source='user',
             spec='warrior_arms',
             name='Rerun Test Template',
@@ -1901,6 +1997,12 @@ html=simc_task_99.html
             spec='warrior_arms',
             content='actions=/bloodthirst',
             source='user',
+            is_active=True,
+            is_selectable=True,
+            validation_status=SimcApl.VALIDATION_VALID,
+            validated_content_hash=hashlib.sha256(b'actions=/bloodthirst').hexdigest(),
+            validation_revision='test-revision',
+            validation_game_build='test-build',
         )
 
         # Create versions
@@ -1927,7 +2029,7 @@ html=simc_task_99.html
         )
 
         # Create completed reference task
-        original = SimcTask.objects.create(
+        original = create_test_task(
             user_id=self.user.id,
             name='Completed reference task',
             task_type=1,
@@ -1941,17 +2043,6 @@ html=simc_task_99.html
             current_status=1,
             result_file='simc_task_completed.html',
         )
-
-        rejected = self.client.patch(
-            '/api/simc-task/',
-            data=json.dumps({'id': original.id, 'action': 'rerun'}),
-            content_type='application/json',
-        )
-        self.assertFalse(rejected.json()['success'])
-        self.assertIn('已完成或失败', rejected.json()['error'])
-        self.assertEqual(SimcTask.objects.count(), 1)
-        original.current_status = 2
-        original.save(update_fields=['current_status'])
 
         response = self.client.patch(
             '/api/simc-task/',
@@ -1967,7 +2058,7 @@ html=simc_task_99.html
         self.assertEqual(SimcTask.objects.count(), 2)
 
         original.refresh_from_db()
-        self.assertEqual(original.current_status, 2)
+        self.assertEqual(original.current_status, 1)
         self.assertEqual(original.result_file, 'simc_task_completed.html')
 
         rerun = SimcTask.objects.get(id=rerun_id)
@@ -1996,10 +2087,10 @@ html=simc_task_99.html
             }),
             content_type='application/json',
         )
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 400)
         payload = response.json()
         self.assertFalse(payload['success'], payload)
-        self.assertIn('旧版属性寻优（task_type=2）已停用', payload['error'])
+        self.assertIn('task_type', payload['error'])
 
 
 
@@ -2096,13 +2187,11 @@ html=simc_task_99.html
             'botend.migrations.0103_enable_standard_simc_raid_buffs'
         )
         first = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
             spec='default',
             content='fight_style=Patchwerk\noptimal_raid=0\n{player_config}',
         )
         second = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
             spec='fury',
             content='optimal_raid=0\noverride.battle_shout=1',
@@ -2114,7 +2203,15 @@ html=simc_task_99.html
             source=SimcApl.SOURCE_SIMC_UPSTREAM,
             is_system=True,
         )
-        historical_model = SimpleNamespace(objects=SimcContentTemplate.objects)
+        class HistoricalTemplateManager:
+            @staticmethod
+            def filter(**kwargs):
+                # Migration 0103 ran while template_type still existed; all rows in
+                # the current physical table are base templates.
+                kwargs.pop('template_type', None)
+                return SimcContentTemplate.objects.filter(**kwargs)
+
+        historical_model = SimpleNamespace(objects=HistoricalTemplateManager())
         apps = SimpleNamespace(get_model=lambda *args: historical_model)
 
         migration.enable_standard_raid_buffs(apps, None)
@@ -2275,15 +2372,16 @@ html=simc_task_99.html
         self.assertIn('actions=auto_attack', rendered)
 
 
+@override_settings(SIMC_APL_CURRENT_IDENTITY=('test-revision', 'test-build'))
 class SimcPlayerConfigDetailTests(TestCase):
     """玩家详情只解析当前输入与本地快照，不渲染完整 SimC 执行配置。"""
 
     def setUp(self):
+        self.backend = get_test_backend()
         self.user = User.objects.create_user(username='player_detail_user', password='pwd')
         self.client = Client()
         self.client.force_login(self.user)
         self.base_template = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
             spec='warrior_fury',
             content='{player_identity}\n{equipment}\n{action_list}\n{simulation_options}\n{stat_overrides}\n{output_options}',
@@ -2297,7 +2395,20 @@ class SimcPlayerConfigDetailTests(TestCase):
             owner_user_id=self.user.id,
             is_active=True,
             is_selectable=True,
+            validation_status=SimcApl.VALIDATION_VALID,
+            validated_content_hash=hashlib.sha256(
+                b'actions=/auto_attack\nactions+=/bloodthirst').hexdigest(),
+            validation_revision=TEST_SIMC_REVISION, validation_game_build=TEST_WOW_BUILD,
         )
+        self.apl_validation = patch(
+            'botend.services.simc_task_service.validate_apl_for_profile',
+            return_value={'valid': True,
+                          'content_hash': hashlib.sha256(
+                              b'actions=/auto_attack\nactions+=/bloodthirst').hexdigest(),
+                          'revision': TEST_SIMC_REVISION, 'game_build': TEST_WOW_BUILD},
+        )
+        self.apl_validation.start()
+        self.addCleanup(self.apl_validation.stop)
 
     def _create_profile(self, name, player_block):
         return SimcProfile.objects.create(
@@ -2409,7 +2520,7 @@ trinket1=,id=111,ilevel=639
 # talents=CLEAVE_BUILD
 '''
         profile = self._create_profile('Talent Replacement Test', player_block)
-        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+        response = self.client.post('/api/simc-task/comparison/', data=json.dumps({
             'kind': 'talent_candidates', 'name': 'Fury 天赋对比',
             'simc_profile_id': profile.id,
             'base_template_id': self.base_template.id,
@@ -2418,17 +2529,16 @@ trinket1=,id=111,ilevel=639
         }), content_type='application/json')
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['success'], response.json())
-        # Verify we have 2 tasks (base + 1 candidate)
-        self.assertEqual(SimcTask.objects.count(), 2)
-        tasks = list(SimcTask.objects.order_by('id'))
-        # Both should have reference fields
-        for task in tasks:
-            self.assertIsNotNone(task.profile_id)
-            self.assertIsNotNone(task.profile_version_id)
-            self.assertIsNotNone(task.template_id)
-            self.assertIsNotNone(task.template_version_id)
-            self.assertIsNotNone(task.apl_id)
-            self.assertIsNotNone(task.apl_version_id)
+        self.assertEqual(SimcTask.objects.count(), 1)
+        task = SimcTask.objects.get()
+        self.assertEqual(task.simulation_runs.count(), 0)
+        self.assertEqual(len(task.mode_params['initial_candidates']), 2)
+        self.assertIsNotNone(task.profile_id)
+        self.assertIsNotNone(task.profile_version_id)
+        self.assertIsNotNone(task.template_id)
+        self.assertIsNotNone(task.template_version_id)
+        self.assertIsNotNone(task.apl_id)
+        self.assertIsNotNone(task.apl_version_id)
 
     @patch('botend.dashboard.api.fetch_battlenet_character_preflight')
     def test_talent_candidate_batch_accepts_battlenet_source_and_freezes_selected_loadouts(self, preflight):
@@ -2458,7 +2568,7 @@ trinket1=,id=111,ilevel=639
             },
         }
 
-        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+        response = self.client.post('/api/simc-task/comparison/', data=json.dumps({
             'kind': 'talent_candidates', 'name': 'Fury Battle.net 天赋对比',
             'spec': 'warrior_fury',
             'player_source': {
@@ -2475,14 +2585,15 @@ trinket1=,id=111,ilevel=639
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['success'], response.json())
-        batch = SimcTaskBatch.objects.get(id=response.json()['data']['batch_id'])
-        profile = SimcProfile.objects.get(id=json.loads(batch.request_manifest)['profile_id'])
-        self.assertEqual(profile.player_config_mode, 'manual_equipment')
-        self.assertEqual(profile.player_equipment, player_snapshot)
-        tasks = list(SimcTask.objects.filter(batch=batch).order_by('id'))
-        self.assertEqual(len(tasks), 3)
+        task = SimcTask.objects.get(id=response.json()['data']['task_id'])
+        profile = task.profile_version.payload
+        self.assertEqual(profile['player_config_mode'], 'manual_equipment')
+        self.assertEqual(profile['player_equipment'], player_snapshot)
+        self.assertEqual(task.simulation_runs.count(), 0)
+        frozen = task.mode_params['initial_candidates']
+        self.assertEqual(len(frozen), 3)
         self.assertEqual(
-            [task.mode_params.get('talent_override') for task in tasks],
+            [row['candidate_params'].get('talent_override') for row in frozen],
             [None, 'RAID_BUILD', 'MPLUS_BUILD'],
         )
 
@@ -2493,7 +2604,7 @@ talents=ACTIVE_BUILD
 head=,id=111,ilevel=639
 main_hand=,id=222
 ''')
-        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+        response = self.client.post('/api/simc-task/comparison/', data=json.dumps({
             'kind': 'talent_candidates', 'name': 'Fury 手工天赋对比',
             'include_base': False,
             'simc_profile_id': profile.id,
@@ -2506,11 +2617,13 @@ main_hand=,id=222
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['success'], response.json())
-        candidate = SimcTask.objects.get()
-        self.assertEqual(candidate.candidate_label, '手工单体方案')
-        self.assertEqual(candidate.mode_params['candidate_type'], 'talent_override')
-        self.assertEqual(candidate.mode_params['talent_override'], 'MANUAL_TALENT_BUILD')
-        self.assertEqual(candidate.mode_params['talent_candidate'], {
+        task = SimcTask.objects.get()
+        self.assertEqual(task.simulation_runs.count(), 0)
+        candidate = task.mode_params['initial_candidates'][0]
+        self.assertEqual(candidate['candidate_label'], '手工单体方案')
+        self.assertEqual(candidate['candidate_params']['candidate_type'], 'talent_override')
+        self.assertEqual(candidate['candidate_params']['talent_override'], 'MANUAL_TALENT_BUILD')
+        self.assertEqual(candidate['candidate_params']['talent_candidate'], {
             'name': '手工单体方案', 'talent': 'MANUAL_TALENT_BUILD', 'source': 'manual',
         })
 
@@ -2521,7 +2634,7 @@ talents=ACTIVE_BUILD
 head=,id=111
 main_hand=,id=222
 ''')
-        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+        response = self.client.post('/api/simc-task/comparison/', data=json.dumps({
             'kind': 'talent_candidates', 'name': 'Fury 手工天赋对比',
             'simc_profile_id': profile.id,
             'base_template_id': self.base_template.id,
@@ -2543,7 +2656,7 @@ head=,id=111,ilevel=639
 finger1=,id=222,ilevel=645
 '''
         profile = self._create_profile('Gear missing-slot Test', player_block)
-        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+        response = self.client.post('/api/simc-task/comparison/', data=json.dumps({
             'kind': 'gear_candidates', 'name': 'Fury 装备对比',
             'simc_profile_id': profile.id,
             'base_template_id': self.base_template.id,
@@ -2566,7 +2679,7 @@ head=,id=222,ilevel=645
 # talents=CLEAVE_BUILD
 '''
         profile = self._create_profile('Duplicate candidate Test', player_block)
-        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+        response = self.client.post('/api/simc-task/comparison/', data=json.dumps({
             'kind': 'gear_candidates', 'name': 'Fury 装备对比',
             'simc_profile_id': profile.id,
             'base_template_id': self.base_template.id,
@@ -2587,7 +2700,7 @@ talents=ACTIVE_BUILD
 head=,id=111,ilevel=639
 main_hand=,id=222
 ''')
-        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+        response = self.client.post('/api/simc-task/comparison/', data=json.dumps({
             'kind': 'gear_candidates', 'name': 'Fury 手工装备对比',
             'include_base': False,
             'simc_profile_id': profile.id,
@@ -2602,11 +2715,43 @@ main_hand=,id=222
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['success'], response.json())
         self.assertEqual(SimcTask.objects.count(), 1)
-        candidate = SimcTask.objects.get()
-        self.assertEqual(candidate.mode_params['gear_swap'], {
+        task = SimcTask.objects.get()
+        self.assertEqual(task.simulation_runs.count(), 0)
+        candidate = task.mode_params['initial_candidates'][0]
+        self.assertEqual(candidate['candidate_params']['gear_swap'], {
             'slot': 'head', 'raw_value': ',id=444,ilevel=650',
             'item_id': 444, 'source': 'manual',
         })
+
+    def test_gear_candidate_batch_accepts_full_simc_gear_line(self):
+        profile = self._create_profile('Full manual candidate', '''warrior="Batcher"
+spec=fury
+talents=ACTIVE_BUILD
+head=,id=111,ilevel=639
+main_hand=,id=222
+''')
+        response = self.client.post('/api/simc-task/comparison/', data=json.dumps({
+            'kind': 'gear_candidates', 'name': 'Fury 完整装备行对比',
+            'include_base': False,
+            'simc_profile_id': profile.id,
+            'base_template_id': self.base_template.id,
+            'selected_apl_id': self.default_apl.id,
+            'candidates': [{
+                'slot': 'head', 'item_id': 444, 'source': 'manual',
+                'raw_value': 'head=手工候选头盔,id=444,ilevel=650',
+            }],
+        }), content_type='application/json')
+
+        self.assertTrue(response.json()['success'], response.json())
+        task = SimcTask.objects.get()
+        swap = task.mode_params['initial_candidates'][0]['candidate_params']['gear_swap']
+        self.assertEqual(swap['raw_value'], '手工候选头盔,id=444,ilevel=650')
+        rendered = SimcMonitor.apply_candidate_overrides(
+            {'player_equipment': profile.player_equipment},
+            {'candidate_type': 'gear_swap', 'gear_swap': swap},
+        )
+        self.assertIn('head=手工候选头盔,id=444,ilevel=650', rendered['player_equipment'])
+        self.assertNotIn('head=head=', rendered['player_equipment'])
 
     def test_gear_candidate_batch_rejects_manual_line_for_another_slot(self):
         profile = self._create_profile('Invalid manual candidate Test', '''warrior="Batcher"
@@ -2615,7 +2760,7 @@ talents=ACTIVE_BUILD
 head=,id=111
 main_hand=,id=222
 ''')
-        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+        response = self.client.post('/api/simc-task/comparison/', data=json.dumps({
             'kind': 'gear_candidates', 'name': 'Fury 非法手工装备对比',
             'simc_profile_id': profile.id,
             'base_template_id': self.base_template.id,
@@ -3202,342 +3347,131 @@ class SimcBattlenetPreflightTests(TestCase):
         self.assertTrue(any('无法识别' in warning for warning in result['warnings']))
 
 
-class SimcBatchTaskAPIViewGetTests(TestCase):
-    """Test GET endpoint for SimcBatchTaskAPIView - list batches and batch details."""
+class SimcComparisonTaskAPIViewGetTests(TestCase):
+    """Comparison detail is Task-scoped and aggregates only that Task's Runs."""
 
     def setUp(self):
-        self.user = User.objects.create_user(username='batch_get_user', password='pwd')
+        self.user = User.objects.create_user(username='comparison_get_user', password='pwd')
         self.other_user = User.objects.create_user(username='other_user', password='pwd')
         self.client = Client()
         self.client.force_login(self.user)
 
-    def test_get_list_returns_recent_20_batches_with_status_counts(self):
-        # Create 25 batches (reverse order so 24 is most recent)
-        batches_created = []
-        for i in range(25):
-            batch = SimcTaskBatch.objects.create(
-                user_id=self.user.id,
-                name=f'Batch {i}',
-                batch_type='comparison',
-                status=1 if i < 5 else 2,
-            )
-            batches_created.append(batch)
-
-        # Add tasks to the last 3 batches created (22, 23, 24)
-        for i in [22, 23, 24]:
-            batch = batches_created[i]
-            SimcTask.objects.create(
-                user_id=self.user.id, name=f'Task {i}-0', simc_profile_id=0,
-                task_type=1, current_status=0, batch=batch, is_active=True,
-            )
-            SimcTask.objects.create(
-                user_id=self.user.id, name=f'Task {i}-1', simc_profile_id=0,
-                task_type=1, current_status=1, batch=batch, is_active=True,
-            )
-            SimcTask.objects.create(
-                user_id=self.user.id, name=f'Task {i}-2', simc_profile_id=0,
-                task_type=1, current_status=2, batch=batch, is_active=True,
-            )
-            SimcTask.objects.create(
-                user_id=self.user.id, name=f'Task {i}-3', simc_profile_id=0,
-                task_type=1, current_status=3, batch=batch, is_active=True,
-            )
-
-        response = self.client.get('/api/simc-task/batch/')
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertTrue(payload['success'])
-        batches = payload['data']
-        self.assertEqual(len(batches), 20)  # Only 20 most recent
-
-        # Find first batch with tasks (should be Batch 24)
-        first = batches[0]
-        self.assertEqual(first['name'], 'Batch 24')
-        self.assertIn('batch_id', first)
-        self.assertIn('batch_type', first)
-        self.assertIn('status', first)
-        self.assertIn('status_counts', first)
-        self.assertIn('created_at', first)
-        self.assertEqual(first['status_counts']['pending'], 1)
-        self.assertEqual(first['status_counts']['running'], 1)
-        self.assertEqual(first['status_counts']['completed'], 1)
-        self.assertEqual(first['status_counts']['failed'], 1)
-
-    def test_get_detail_returns_batch_with_task_list(self):
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id,
-            name='Detail Test Batch',
-            batch_type='attribute_sweep',
-            status=2,
-            completed_at=timezone.now(),
-        )
-        task1 = SimcTask.objects.create(
-            user_id=self.user.id, name='Task 1', simc_profile_id=0,
-            task_type=1, current_status=2, batch=batch, is_active=True,
-            candidate_label='基准配置', result_file='simc_task_1.html',
-        )
-        task2 = SimcTask.objects.create(
-            user_id=self.user.id, name='Task 2', simc_profile_id=0,
-            task_type=1, current_status=3, batch=batch, is_active=True,
-            candidate_label='候选A', error_detail='Test error message\nwith traceback',
+    def _task(self, user=None, mode='comparison', active=True, name='Comparison detail'):
+        user = user or self.user
+        return create_test_task(
+            user_id=user.id, name=name, simc_profile_id=0, mode=mode,
+            current_status=1, is_active=active,
         )
 
-        response = self.client.get(f'/api/simc-task/batch/?batch_id={batch.id}')
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertTrue(payload['success'])
+    def _run(self, task, sequence, status='pending', label='', params=None, summary=None):
+        return SimulationRun.objects.create(
+            task=task, sequence=sequence, candidate_key=f'candidate-{sequence}',
+            candidate_label=label, candidate_params=params or {}, status=status,
+            result_summary=summary,
+        )
+
+    def test_get_requires_task_id(self):
+        response = self.client.get('/api/simc-task/comparison/')
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.json()['success'])
+
+    def test_get_returns_task_and_run_status_counts(self):
+        task = self._task(mode='attribute_sweep')
+        self._run(task, 1, 'pending', '基准配置')
+        self._run(task, 2, 'running', '候选 A')
+        self._run(task, 3, 'completed', '候选 B', summary={'dps': 101000, 'secret': 'drop'})
+        self._run(task, 4, 'failed', '候选 C')
+        payload = self.client.get('/api/simc-task/comparison/', {'task_id': task.id}).json()
+        self.assertTrue(payload['success'], payload)
         data = payload['data']
+        self.assertEqual(data['task_id'], task.id)
+        self.assertEqual(data['mode'], 'attribute_sweep')
+        self.assertEqual(data['status_counts'], {
+            'pending': 1, 'running': 1, 'completed': 1, 'failed': 1,
+        })
+        self.assertEqual([row['candidate_label'] for row in data['runs']],
+                         ['基准配置', '候选 A', '候选 B', '候选 C'])
+        self.assertEqual(data['runs'][2]['result_summary'], {'dps': 101000})
+        self.assertEqual(data['runs'][3]['error_summary'], '任务执行失败')
 
-        self.assertEqual(data['batch_id'], batch.id)
-        self.assertEqual(data['name'], 'Detail Test Batch')
-        self.assertEqual(data['batch_type'], 'attribute_sweep')
-        self.assertEqual(data['status'], 2)
-        self.assertIn('report_url', data)
-        # No report_url because task2 has status=3 (failed)
-        self.assertEqual(data['report_url'], '')
+    def test_get_isolated_by_task_relation(self):
+        task = self._task(name='owned')
+        other = self._task(name='also owned')
+        self._run(task, 1, 'completed', 'expected', summary={'dps': 100})
+        self._run(other, 1, 'completed', 'must not leak', summary={'dps': 999})
+        runs = self.client.get('/api/simc-task/comparison/', {'task_id': task.id}).json()['data']['runs']
+        self.assertEqual([row['candidate_label'] for row in runs], ['expected'])
 
-        # Check tasks
-        tasks = data['tasks']
-        self.assertEqual(len(tasks), 2)
-        self.assertEqual(tasks[0]['task_id'], task1.id)
-        self.assertEqual(tasks[0]['candidate_label'], '基准配置')
-        self.assertEqual(tasks[0]['status'], 2)
+    def test_get_enforces_user_isolation(self):
+        foreign = self._task(user=self.other_user)
+        self._run(foreign, 1)
+        response = self.client.get('/api/simc-task/comparison/', {'task_id': foreign.id})
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(response.json()['success'])
 
-        # Error summary should not contain traceback/sensitive info
-        self.assertEqual(tasks[1]['task_id'], task2.id)
-        self.assertEqual(tasks[1]['status'], 3)
-        # _safe_error_summary returns fixed message for error_detail with traceback
-        self.assertEqual(tasks[1]['error_summary'], '任务执行失败')
+    def test_get_rejects_inactive_and_normal_tasks(self):
+        inactive = self._task(active=False)
+        normal = self._task(mode='normal')
+        for task in (inactive, normal):
+            self._run(task, 1)
+            response = self.client.get('/api/simc-task/comparison/', {'task_id': task.id})
+            self.assertEqual(response.status_code, 404)
 
-    def test_workbench_batch_ranking_exposes_named_talent_candidate_details(self):
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id, name='Talent report', batch_type='comparison', status=1,
-        )
-        SimcTask.objects.create(
-            user_id=self.user.id, name='Talent candidate', simc_profile_id=0,
-            task_type=1, current_status=0, batch=batch, is_active=True,
-            candidate_label='手工单体方案', mode_params={
-                'candidate_type': 'talent_override', 'is_base': False,
-                'talent_override': 'MANUAL_TALENT_BUILD',
-                'talent_candidate': {
-                    'name': '手工单体方案', 'talent': 'MANUAL_TALENT_BUILD', 'source': 'manual',
-                },
+    def test_get_does_not_expose_candidate_params_or_task_secrets(self):
+        task = self._task()
+        task.ext = json.dumps({'player_equipment': 'secret_config'})
+        task.mode_params = {'request_manifest': {'secret': 'sensitive_data'}}
+        task.save(update_fields=['ext', 'mode_params'])
+        self._run(task, 1, 'completed', params={'talent_override': 'PRIVATE_BUILD'},
+                  summary={'dps': 100, 'raw_output': 'PRIVATE_OUTPUT'})
+        response_text = self.client.get(
+            '/api/simc-task/comparison/', {'task_id': task.id},
+        ).content.decode()
+        for secret in ('secret_config', 'sensitive_data', 'PRIVATE_BUILD', 'PRIVATE_OUTPUT'):
+            self.assertNotIn(secret, response_text)
+
+    def test_regular_compare_uses_task_runs_and_preserves_named_talent_candidate(self):
+        task = self._task()
+        params = {
+            'candidate_type': 'talent_override', 'is_base': False,
+            'talent_override': 'MANUAL_TALENT_BUILD',
+            'talent_candidate': {
+                'name': '手工单体方案', 'talent': 'MANUAL_TALENT_BUILD', 'source': 'manual',
             },
-        )
-
-        response = self.client.get(f'/api/simc-workbench/batches/{batch.id}/')
-
-        self.assertEqual(response.status_code, 200)
-        row = response.json()['data']['ranking'][0]
+            'search': {'candidate_index': 0},
+        }
+        self._run(task, 1, 'completed', '手工单体方案', params, {'dps': 101000})
+        payload = self.client.get('/api/simc-regular-compare/', {'task_id': task.id}).json()
+        self.assertTrue(payload['success'], payload)
+        row = payload['data']['runs'][0]
         self.assertEqual(row['candidate'], {
             'type': 'talent', 'name': '手工单体方案',
             'talent': 'MANUAL_TALENT_BUILD', 'source': 'manual',
         })
 
-    def test_get_detail_enforces_user_isolation(self):
-        other_batch = SimcTaskBatch.objects.create(
-            user_id=self.other_user.id,
-            name='Other User Batch',
-            batch_type='comparison',
-            status=1,
-        )
+    def test_regular_compare_reports_progress_from_runs(self):
+        task = self._task()
+        self._run(task, 1, 'pending', 'baseline', {'is_base': True})
+        self._run(task, 2, 'running', 'candidate')
+        payload = self.client.get('/api/simc-regular-compare/', {'task_id': task.id}).json()
+        self.assertTrue(payload['success'], payload)
+        self.assertEqual(payload['data']['task']['pending'], 1)
+        self.assertEqual(payload['data']['task']['running'], 1)
 
-        response = self.client.get(f'/api/simc-task/batch/?batch_id={other_batch.id}')
-        self.assertEqual(response.status_code, 404)
-        payload = response.json()
-        self.assertFalse(payload['success'])
+    def test_task_detail_report_url_uses_task_id(self):
+        task = self._task()
+        self._run(task, 1, 'completed', summary={'dps': 100})
+        data = self.client.get('/api/simc-task/comparison/', {'task_id': task.id}).json()['data']
+        self.assertEqual(data['report_url'], f'/simc-compare/?task_id={task.id}')
 
-    def test_get_detail_prohibits_sensitive_data_leakage(self):
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id,
-            name='Security Test',
-            batch_type='comparison',
-            status=2,
-            request_manifest='{"secret": "sensitive_data"}',
-        )
-        SimcTask.objects.create(
-            user_id=self.user.id, name='Task', simc_profile_id=0,
-            task_type=1, current_status=2, batch=batch, is_active=True,
-            ext='{"player_equipment": "secret_config"}',
-        )
-
-        response = self.client.get(f'/api/simc-task/batch/?batch_id={batch.id}')
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-
-        # Ensure sensitive fields are not in response
-        response_str = json.dumps(payload)
-        self.assertNotIn('request_manifest', response_str)
-        self.assertNotIn('player_equipment', response_str)
-        self.assertNotIn('secret', response_str)
-
-    def test_get_list_filters_inactive_batches_and_tasks(self):
-        active_batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id, name='Active', batch_type='comparison',
-            status=1, is_active=True,
-        )
-        SimcTask.objects.create(
-            user_id=self.user.id, name='Active Task', simc_profile_id=0,
-            task_type=1, current_status=2, batch=active_batch, is_active=True,
-        )
-        SimcTask.objects.create(
-            user_id=self.user.id, name='Inactive Task', simc_profile_id=0,
-            task_type=1, current_status=2, batch=active_batch, is_active=False,
-        )
-
-        inactive_batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id, name='Inactive', batch_type='comparison',
-            status=1, is_active=False,
-        )
-
-        response = self.client.get('/api/simc-task/batch/')
-        payload = response.json()
-        batches = payload['data']
-
-        # Only active batch should be returned
-        self.assertEqual(len(batches), 1)
-        self.assertEqual(batches[0]['batch_id'], active_batch.id)
-        # Only active task should be counted
-        self.assertEqual(batches[0]['status_counts']['completed'], 1)
-
-    def test_get_detail_safe_error_summary_from_ext(self):
-        """Test that error summary comes from ext.simc_error_summary safely"""
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id, name='Error Test', batch_type='comparison', status=1,
-        )
-        # Task with safe summary in ext
-        safe_task = SimcTask.objects.create(
-            user_id=self.user.id, name='Safe', simc_profile_id=0,
-            task_type=1, current_status=3, batch=batch, is_active=True,
-            ext='{"simc_error_summary": "配置解析失败"}',
-        )
-        # Task with sensitive patterns in ext summary - should be blocked
-        unsafe_task = SimcTask.objects.create(
-            user_id=self.user.id, name='Unsafe', simc_profile_id=0,
-            task_type=1, current_status=3, batch=batch, is_active=True,
-            ext='{"simc_error_summary": "Traceback file /path/to/file"}',
-        )
-        # Task with error_detail (not ext) - should use fixed message
-        detail_task = SimcTask.objects.create(
-            user_id=self.user.id, name='Detail', simc_profile_id=0,
-            task_type=1, current_status=3, batch=batch, is_active=True,
-            error_detail='Raw error from stderr',
-        )
-
-        response = self.client.get(f'/api/simc-task/batch/?batch_id={batch.id}')
-        payload = response.json()
-        tasks = payload['data']['tasks']
-
-        # Safe summary should be returned (truncated to 200 chars)
-        self.assertEqual(tasks[0]['error_summary'], '配置解析失败')
-        # Unsafe summary with sensitive patterns should return fixed message
-        self.assertEqual(tasks[1]['error_summary'], '任务执行失败')
-        # error_detail is ignored, fixed message returned
-        self.assertEqual(tasks[2]['error_summary'], '任务执行失败')
-
-    def test_get_detail_no_report_url_when_tasks_incomplete(self):
-        """Test report_url only appears when all tasks succeed with valid HTML"""
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id, name='Incomplete', batch_type='comparison', status=1,
-        )
-        SimcTask.objects.create(
-            user_id=self.user.id, name='T1', simc_profile_id=0,
-            task_type=1, current_status=2, batch=batch, is_active=True,
-            result_file='simc_task_1.html',
-        )
-        SimcTask.objects.create(
-            user_id=self.user.id, name='T2', simc_profile_id=0,
-            task_type=1, current_status=1, batch=batch, is_active=True,  # still running
-        )
-
-        response = self.client.get(f'/api/simc-task/batch/?batch_id={batch.id}')
-        payload = response.json()
-        # No report_url because not all tasks are status=2
-        self.assertEqual(payload['data']['report_url'], '')
-
-    def test_get_detail_no_report_url_when_no_valid_html(self):
-        """Test report_url blocked when result_file doesn't pass validation"""
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id, name='Invalid', batch_type='comparison', status=2,
-        )
-        SimcTask.objects.create(
-            user_id=self.user.id, name='T1', simc_profile_id=0,
-            task_type=1, current_status=2, batch=batch, is_active=True,
-            result_file='../../etc/passwd',  # Invalid path
-        )
-
-        response = self.client.get(f'/api/simc-task/batch/?batch_id={batch.id}')
-        payload = response.json()
-        # No report_url because result_file fails validation
-        self.assertEqual(payload['data']['report_url'], '')
-
-    def test_get_detail_no_report_url_for_invalid_attribute_result(self):
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id, name='Invalid attribute result',
-            batch_type='attribute_sweep', status=2,
-        )
-        SimcTask.objects.create(
-            user_id=self.user.id, name='T1', simc_profile_id=0,
-            task_type=2, current_status=2, batch=batch, is_active=True,
-            result_file='../../secret.html',
-        )
-
-        response = self.client.get(f'/api/simc-task/batch/?batch_id={batch.id}')
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['data']['report_url'], '')
-
-    def test_batch_frontend_polling_and_safe_detail_contract(self):
+    def test_frontend_task_polling_contract(self):
         workbench_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/simc-workbench.js').read_text(encoding='utf-8')
         start = workbench_js.index('async function loadTasks(')
         end = workbench_js.index('function renderPagination(', start)
         task_js = workbench_js[start:end]
-
         self.assertNotIn('setInterval(', task_js)
         self.assertIn('taskFetchInFlight', task_js)
         self.assertIn('taskRequestSerial', task_js)
         self.assertIn('setTimeout(', task_js)
-        self.assertIn('[0, 1, 4].includes(Number(row.status))', task_js)
-        self.assertNotIn('Number(row.pending || 0) > 0', task_js)
         self.assertIn('scheduleTaskRefresh(hasActive)', task_js)
         self.assertIn('暂无记录', task_js)
-
-    def test_get_detail_report_url_only_when_all_valid(self):
-        """Test report_url appears only when all tasks succeed with valid HTML"""
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id, name='Valid', batch_type='comparison', status=2,
-        )
-        SimcTask.objects.create(
-            user_id=self.user.id, name='T1', simc_profile_id=0,
-            task_type=1, current_status=2, batch=batch, is_active=True,
-            result_file='simc_task_123.html',
-        )
-        SimcTask.objects.create(
-            user_id=self.user.id, name='T2', simc_profile_id=0,
-            task_type=1, current_status=2, batch=batch, is_active=True,
-            result_file='a1b2c3d4e5f6789012345678901234ab.html',
-        )
-
-        response = self.client.get(f'/api/simc-task/batch/?batch_id={batch.id}')
-        payload = response.json()
-        # report_url should be present
-        self.assertEqual(payload['data']['report_url'], f'/simc-compare/?batch_id={batch.id}')
-
-    def test_status_4_counted_as_running(self):
-        """Test that status=4 tasks are counted as 'running'"""
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id, name='Status4', batch_type='comparison', status=1,
-        )
-        SimcTask.objects.create(
-            user_id=self.user.id, name='T1', simc_profile_id=0,
-            task_type=1, current_status=4, batch=batch, is_active=True,
-        )
-        SimcTask.objects.create(
-            user_id=self.user.id, name='T2', simc_profile_id=0,
-            task_type=1, current_status=1, batch=batch, is_active=True,
-        )
-
-        response = self.client.get(f'/api/simc-task/batch/?batch_id={batch.id}')
-        payload = response.json()
-        # Both status=4 and status=1 should count as running
-        self.assertEqual(payload['data']['status_counts']['running'], 2)

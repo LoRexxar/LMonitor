@@ -10,10 +10,60 @@ Architecture:
 
 Run with: DJANGO_SETTINGS_MODULE=LMonitor.settings_test_sqlite python manage.py test botend.tests.test_simc_task_reference_slice
 """
+import hashlib
 import json
+from dataclasses import replace
+from unittest.mock import patch
 from django.test import TestCase
 from django.utils import timezone
-from botend.models import SimcTask, SimcProfile, SimcApl, SimcContentTemplate
+from botend.models import (
+    SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate,
+    SimcProfile, SimcTask,
+)
+
+
+TEST_VALIDATION_IDENTITY = ('a' * 40, 'test-game-build')
+
+
+def create_test_backend():
+    backend, _ = SimcBackendBinary.objects.update_or_create(
+        identifier='production',
+        defaults={
+            'name': '正式服', 'platform': 'linux64',
+            'simc_path': '/tmp/simc', 'current_version': TEST_VALIDATION_IDENTITY[0],
+            'is_active': True,
+        },
+    )
+    SimcAplSymbol.objects.get_or_create(
+        simc_revision=TEST_VALIDATION_IDENTITY[0], wow_build=TEST_VALIDATION_IDENTITY[1],
+        symbol_kind='action', token='auto_attack',
+        defaults={'is_active': True},
+    )
+    return backend
+
+
+def mark_apl_valid(apl):
+    values = {'validation_status': SimcApl.VALIDATION_VALID,
+              'validated_content_hash': hashlib.sha256(apl.content.encode()).hexdigest(),
+              'validation_revision': TEST_VALIDATION_IDENTITY[0],
+              'validation_game_build': TEST_VALIDATION_IDENTITY[1], 'is_selectable': True}
+    SimcApl.objects.filter(pk=apl.pk).update(**values)
+    for key, value in values.items(): setattr(apl, key, value)
+
+
+def setUpModule():
+    from django.test import override_settings
+    global _validation_settings, _validation_mock
+    _validation_settings = override_settings(SIMC_APL_CURRENT_IDENTITY=TEST_VALIDATION_IDENTITY)
+    _validation_settings.enable()
+    _validation_mock = patch('botend.services.simc_task_service.validate_apl_for_profile', side_effect=lambda _p, apl, **_kwargs: {
+        'valid': True, 'content_hash': hashlib.sha256(apl.content.encode()).hexdigest(),
+        'revision': TEST_VALIDATION_IDENTITY[0], 'game_build': TEST_VALIDATION_IDENTITY[1]})
+    _validation_mock.start()
+
+
+def tearDownModule():
+    _validation_mock.stop(); _validation_settings.disable()
 
 
 class SimcResourceVersionModelTests(TestCase):
@@ -65,6 +115,7 @@ class SimcTaskVersionFieldsTests(TestCase):
     """Test Task has version FK fields."""
 
     def setUp(self):
+        self.backend = create_test_backend()
         self.user_id = 1001
         self.profile = SimcProfile.objects.create(
             user_id=self.user_id,
@@ -89,6 +140,7 @@ class SimcTaskVersionFieldsTests(TestCase):
             name="Task",
             simc_profile_id=0,
             task_type=1,
+            backend=self.backend,
             profile=self.profile,
             profile_version_id=profile_version.id,
         )
@@ -101,6 +153,7 @@ class SimcTaskServiceTests(TestCase):
     """Test simc_task_service creates tasks with version snapshots."""
 
     def setUp(self):
+        self.backend = create_test_backend()
         self.user_id = 1001
         self.profile = SimcProfile.objects.create(
             user_id=self.user_id,
@@ -112,7 +165,6 @@ class SimcTaskServiceTests(TestCase):
         )
         self.template = SimcContentTemplate.objects.create(
             name="Template",
-            template_type="base_template",
             spec="warrior_fury",
             content="iterations=1000\ntarget_error=0.1",
             is_active=True,
@@ -124,6 +176,7 @@ class SimcTaskServiceTests(TestCase):
             is_active=True,
             owner_user_id=self.user_id,
         )
+        mark_apl_valid(self.apl)
 
     def test_task_service_validates_ownership(self):
         """RED: create_task should validate owner/system permissions."""
@@ -145,6 +198,237 @@ class SimcTaskServiceTests(TestCase):
                 apl_id=self.apl.id,
             )
         self.assertIn("belongs to user", str(ctx.exception))
+
+    def test_prepared_creation_validates_once_and_persistence_does_not_revalidate(self):
+        from botend.services.simc_task_service import (
+            create_task_from_prepared, prepare_task_creation,
+        )
+        validation = {
+            'valid': True,
+            'content_hash': hashlib.sha256(self.apl.content.encode()).hexdigest(),
+            'revision': TEST_VALIDATION_IDENTITY[0],
+            'game_build': TEST_VALIDATION_IDENTITY[1],
+        }
+        with patch('botend.services.simc_task_service.validate_apl_for_profile',
+                   return_value=validation) as validator:
+            prepared = prepare_task_creation(
+                self.user_id, self.profile.pk, self.template.pk, self.apl.pk,
+                backend_id=self.backend.pk,
+            )
+            task = create_task_from_prepared(
+                prepared=prepared, user_id=self.user_id, name='Prepared',
+                profile_id=self.profile.pk, template_id=self.template.pk,
+                apl_id=self.apl.pk, backend_id=self.backend.pk,
+            )
+        validator.assert_called_once()
+        self.assertIsNotNone(task.pk)
+        self.assertNotIn(self.backend.simc_path, repr(task.mode_params))
+
+    def test_validation_failures_are_classified_from_structured_result(self):
+        from botend.services.simc_task_service import (
+            TaskCreationError, TaskValidationUnavailable, _validation_failure_is_retryable,
+        )
+
+        for code in (
+            'stale_binary', 'binary_unavailable', 'temp_directory_error',
+            'timeout', 'output_too_large',
+        ):
+            with self.subTest(code=code):
+                result = {
+                    'valid': False,
+                    'details': {
+                        'structural_valid': True,
+                        'authoritative_valid': False,
+                        'authoritative_status': 'error',
+                        'authoritative_error': {'code': code, 'message': 'not inspected'},
+                    },
+                }
+                self.assertTrue(_validation_failure_is_retryable(result))
+
+        for error in (
+            'validation_context_unavailable', 'validation_backend_unavailable',
+            'validation_failed',
+        ):
+            with self.subTest(error=error):
+                self.assertTrue(_validation_failure_is_retryable({
+                    'valid': False, 'error': error,
+                }))
+
+        permanent = (
+            {'valid': False, 'details': {'structural_valid': False,
+                                         'authoritative_status': 'skipped_structural_errors'}},
+            {'valid': False, 'details': {'structural_valid': True,
+                                         'authoritative_status': 'invalid'}},
+            {'valid': False, 'details': {'structural_valid': True,
+                                         'authoritative_status': 'error',
+                                         'authoritative_error': {'code': 'source_too_large'}}},
+            {'valid': False, 'details': {'structural_valid': True,
+                                         'authoritative_status': 'error',
+                                         'authoritative_error': {'code': 'validation_input_too_large'}}},
+            {'valid': False, 'details': {'structural_valid': True,
+                                         'authoritative_status': 'error',
+                                         'authoritative_error': {'code': 'profile_directive_forbidden'}}},
+        )
+        for result in permanent:
+            with self.subTest(result=result):
+                self.assertFalse(_validation_failure_is_retryable(result))
+
+        # Unknown authoritative failures and malformed false results fail safe:
+        # a scheduled slot must remain available for a later retry.
+        self.assertTrue(_validation_failure_is_retryable({
+            'valid': False,
+            'details': {'structural_valid': True, 'authoritative_status': 'error',
+                        'authoritative_error': {'code': 'future_validator_failure'}},
+        }))
+        self.assertTrue(_validation_failure_is_retryable({'valid': False, 'unexpected': True}))
+        self.assertTrue(issubclass(TaskValidationUnavailable, TaskCreationError))
+
+    def test_prepare_raises_retryable_subclass_only_for_validator_unavailability(self):
+        from botend.services.simc_task_service import (
+            TaskCreationError, TaskValidationUnavailable, prepare_task_creation,
+        )
+
+        base = {
+            'valid': False,
+            'content_hash': hashlib.sha256(self.apl.content.encode()).hexdigest(),
+            'revision': TEST_VALIDATION_IDENTITY[0],
+            'game_build': TEST_VALIDATION_IDENTITY[1],
+        }
+        retryable = dict(base, details={
+            'structural_valid': True, 'authoritative_valid': False,
+            'authoritative_status': 'error',
+            'authoritative_error': {'code': 'timeout'},
+        })
+        permanent = dict(base, details={
+            'structural_valid': True, 'authoritative_valid': False,
+            'authoritative_status': 'invalid',
+        })
+        for result, exception in (
+            (retryable, TaskValidationUnavailable),
+            (permanent, TaskCreationError),
+        ):
+            with self.subTest(exception=exception.__name__), patch(
+                'botend.services.simc_task_service.validate_apl_for_profile',
+                return_value=result,
+            ):
+                with self.assertRaises(exception) as caught:
+                    prepare_task_creation(
+                        self.user_id, self.profile.pk, self.template.pk, self.apl.pk,
+                        backend_id=self.backend.pk,
+                    )
+                if exception is TaskCreationError:
+                    self.assertNotIsInstance(caught.exception, TaskValidationUnavailable)
+
+    def test_prepared_creation_rejects_forgery_and_every_stale_resource_token(self):
+        from botend.services.simc_task_service import (
+            TaskCreationError, create_task_from_prepared, prepare_task_creation,
+        )
+
+        def persist(prepared):
+            return create_task_from_prepared(
+                prepared=prepared, user_id=self.user_id, name='Prepared',
+                profile_id=self.profile.pk, template_id=self.template.pk,
+                apl_id=self.apl.pk, backend_id=self.backend.pk,
+            )
+
+        prepared = prepare_task_creation(
+            self.user_id, self.profile.pk, self.template.pk, self.apl.pk,
+            backend_id=self.backend.pk,
+        )
+        with self.assertRaisesRegex(TaskCreationError, 'stale'):
+            persist(replace(prepared, resource_token='forged'))
+
+        changes = (
+            (SimcProfile, self.profile.pk, {'player_equipment': 'warrior="Changed"'}),
+            (SimcApl, self.apl.pk, {'is_active': False}),
+            (SimcBackendBinary, self.backend.pk, {'current_version': 'b' * 40}),
+        )
+        for model, pk, values in changes:
+            with self.subTest(model=model.__name__, values=values):
+                prepared = prepare_task_creation(
+                    self.user_id, self.profile.pk, self.template.pk, self.apl.pk,
+                    backend_id=self.backend.pk,
+                )
+                original = {key: getattr(model.objects.get(pk=pk), key) for key in values}
+                model.objects.filter(pk=pk).update(**values)
+                with self.assertRaises(TaskCreationError):
+                    persist(prepared)
+                model.objects.filter(pk=pk).update(**original)
+        self.assertFalse(SimcTask.objects.exists())
+
+    def test_prepared_creation_rejects_backend_path_change_without_leaking_path(self):
+        from botend.services.simc_task_service import (
+            TaskCreationError, create_task_from_prepared, prepare_task_creation,
+        )
+        prepared = prepare_task_creation(
+            self.user_id, self.profile.pk, self.template.pk, self.apl.pk,
+            backend_id=self.backend.pk,
+        )
+        secret_path = '/srv/private/new-simc-binary'
+        SimcBackendBinary.objects.filter(pk=self.backend.pk).update(simc_path=secret_path)
+
+        with self.assertRaises(TaskCreationError) as caught:
+            create_task_from_prepared(
+                prepared=prepared, user_id=self.user_id, name='Prepared',
+                profile_id=self.profile.pk, template_id=self.template.pk,
+                apl_id=self.apl.pk, backend_id=self.backend.pk,
+            )
+
+        self.assertIn('stale', str(caught.exception))
+        self.assertNotIn(secret_path, str(caught.exception))
+        self.assertFalse(SimcTask.objects.exists())
+
+    def test_legacy_create_task_validates_exactly_once(self):
+        from botend.services.simc_task_service import create_task
+        validation = {
+            'valid': True,
+            'content_hash': hashlib.sha256(self.apl.content.encode()).hexdigest(),
+            'revision': TEST_VALIDATION_IDENTITY[0],
+            'game_build': TEST_VALIDATION_IDENTITY[1],
+        }
+        with patch('botend.services.simc_task_service.validate_apl_for_profile',
+                   return_value=validation) as validator:
+            task = create_task(
+                user_id=self.user_id, name='Compatible', profile_id=self.profile.pk,
+                template_id=self.template.pk, apl_id=self.apl.pk,
+                backend_id=self.backend.pk,
+            )
+        validator.assert_called_once()
+        self.assertIsNotNone(task.pk)
+
+    def test_backend_defaults_to_production_and_accepts_explicit_enabled_backend(self):
+        from botend.services.simc_task_service import create_task
+
+        default_task = create_task(
+            user_id=self.user_id, name='Default backend', profile_id=self.profile.id,
+            template_id=self.template.id, apl_id=self.apl.id,
+        )
+        self.assertEqual(default_task.backend_id, self.backend.id)
+
+        alternate = SimcBackendBinary.objects.create(
+            identifier='ptr', name='PTR', platform='linux64',
+            simc_path='/tmp/simc-ptr', current_version=TEST_VALIDATION_IDENTITY[0],
+            is_active=True,
+        )
+        explicit_task = create_task(
+            user_id=self.user_id, name='PTR backend', profile_id=self.profile.id,
+            template_id=self.template.id, apl_id=self.apl.id, backend_id=alternate.id,
+        )
+        self.assertEqual(explicit_task.backend_id, alternate.id)
+
+    def test_task_service_rejects_disabled_backend(self):
+        from botend.services.simc_task_service import create_task, TaskCreationError
+
+        disabled = SimcBackendBinary.objects.create(
+            identifier='disabled', name='Disabled', platform='linux64',
+            simc_path='/tmp/simc-disabled', current_version=TEST_VALIDATION_IDENTITY[0],
+            is_active=False,
+        )
+        with self.assertRaisesRegex(TaskCreationError, 'disabled'):
+            create_task(
+                user_id=self.user_id, name='Disabled backend', profile_id=self.profile.id,
+                template_id=self.template.id, apl_id=self.apl.id, backend_id=disabled.id,
+            )
 
     def test_task_service_validates_active_and_selectable(self):
         """RED: create_task should require is_active=True and is_selectable=True."""
@@ -304,28 +588,26 @@ class SimcTaskServiceTests(TestCase):
             )
         self.assertIn("complete references", str(ctx.exception).lower())
 
-    def test_task_service_requires_batch_for_candidate_modes(self):
-        """Comparison and attribute sweep tasks cannot exist outside a Batch."""
-        from botend.services.simc_task_service import create_task, TaskCreationError
+    def test_candidate_modes_freeze_default_request_without_creating_run(self):
+        """Candidate modes remain pending until backend processing starts."""
+        from botend.services.simc_task_service import create_task
 
         for mode in ('comparison', 'attribute_sweep'):
             with self.subTest(mode=mode):
-                with self.assertRaises(TaskCreationError) as ctx:
-                    create_task(
-                        user_id=self.user_id,
-                        name="Task",
-                        profile_id=self.profile.id,
-                        template_id=self.template.id,
-                        apl_id=self.apl.id,
-                        mode=mode,
-                    )
-                self.assertIn("requires batch_id", str(ctx.exception).lower())
+                task = create_task(
+                    user_id=self.user_id, name="Task", profile_id=self.profile.id,
+                    template_id=self.template.id, apl_id=self.apl.id, mode=mode,
+                )
+                self.assertEqual(task.mode, mode)
+                self.assertEqual(task.simulation_runs.count(), 0)
+                self.assertEqual(task.mode_params['initial_candidates'][0]['candidate_key'], 'normal')
 
 
 class TaskResolverWithVersionsTests(TestCase):
     """Test resolver reads version payload, not live content."""
 
     def setUp(self):
+        self.backend = create_test_backend()
         self.user_id = 1001
         self.profile = SimcProfile.objects.create(
             user_id=self.user_id,
@@ -337,7 +619,6 @@ class TaskResolverWithVersionsTests(TestCase):
         )
         self.template = SimcContentTemplate.objects.create(
             name="Template",
-            template_type="base_template",
             spec="warrior_fury",
             content="iterations=1000",
             is_active=True,
@@ -350,6 +631,7 @@ class TaskResolverWithVersionsTests(TestCase):
             is_selectable=True,
             owner_user_id=self.user_id,
         )
+        mark_apl_valid(self.apl)
 
     def test_resolver_reads_version_payload_not_live_content(self):
         """RED: resolve_task should read version payload, ignoring live resource updates."""
@@ -427,6 +709,7 @@ class TaskRerunWithVersionsTests(TestCase):
     """Test rerun copies version FK by default, generates new version on override."""
 
     def setUp(self):
+        self.backend = create_test_backend()
         self.user_id = 1001
         self.profile = SimcProfile.objects.create(
             user_id=self.user_id,
@@ -436,7 +719,6 @@ class TaskRerunWithVersionsTests(TestCase):
         )
         self.template = SimcContentTemplate.objects.create(
             name="Template",
-            template_type="base_template",
             spec="warrior_fury",
             content="iterations=1000",
             is_active=True,
@@ -449,6 +731,7 @@ class TaskRerunWithVersionsTests(TestCase):
             is_selectable=True,
             owner_user_id=self.user_id,
         )
+        mark_apl_valid(self.apl)
 
     def test_rerun_copies_version_fk_by_default(self):
         """RED: create_rerun should copy version FK, not regenerate."""
@@ -471,6 +754,7 @@ class TaskRerunWithVersionsTests(TestCase):
         self.assertEqual(rerun.profile_version_id, original.profile_version_id)
         self.assertEqual(rerun.template_version_id, original.template_version_id)
         self.assertEqual(rerun.apl_version_id, original.apl_version_id)
+        self.assertEqual(rerun.backend_id, original.backend_id)
 
     def test_rerun_allocates_a_new_task_owned_html_result_base(self):
         """A rerun must not start without a base used for immutable Run reports."""
@@ -492,39 +776,26 @@ class TaskRerunWithVersionsTests(TestCase):
         self.assertRegex(rerun.result_file, r'^[0-9a-f]{32}\.html$')
         self.assertNotEqual(rerun.result_file, original.result_file)
 
-    def test_rerun_with_override_generates_new_version(self):
-        """RED: create_rerun with override should generate new version for overridden resource."""
+    def test_rerun_rejects_resource_switch(self):
+        """Resource changes are new requests, not reruns of a frozen Task."""
         from botend.services.simc_task_service import create_task
-        from botend.services.task_rerun import create_rerun
+        from botend.services.task_rerun import create_rerun, TaskRerunError
 
         original = create_task(
-            user_id=self.user_id,
-            name="Original",
-            profile_id=self.profile.id,
-            template_id=self.template.id,
-            apl_id=self.apl.id,
+            user_id=self.user_id, name="Original", profile_id=self.profile.id,
+            template_id=self.template.id, apl_id=self.apl.id,
         )
-
         new_apl = SimcApl.objects.create(
-            name="New APL",
-            spec="warrior_fury",
-            content="actions=/new_rotation",
-            is_active=True,
-            is_selectable=True,
-            owner_user_id=self.user_id,
+            name="New APL", spec="warrior_fury", content="actions=/new_rotation",
+            is_active=True, is_selectable=True, owner_user_id=self.user_id,
         )
+        mark_apl_valid(new_apl)
 
-        original.current_status = 2
-        original.save(update_fields=['current_status'])
-        rerun = create_rerun(
-            original.id,
-            user_id=self.user_id,
-            overrides={'apl_id': new_apl.id},
-        )
-
-        # Rerun should have new APL version
-        self.assertNotEqual(rerun.apl_version_id, original.apl_version_id)
-        self.assertEqual(rerun.apl_id, new_apl.id)
+        with self.assertRaisesRegex(TaskRerunError, 'unsupported overrides'):
+            create_rerun(
+                original.id, user_id=self.user_id,
+                overrides={'apl_id': new_apl.id},
+            )
 
     def test_rerun_rejects_explicit_empty_resource_overrides(self):
         """An explicit null/zero override must not pair an old version with no live FK."""
@@ -548,9 +819,9 @@ class TaskRerunWithVersionsTests(TestCase):
                         )
         self.assertEqual(SimcTask.objects.count(), 1)
 
-    def test_profile_override_keeps_legacy_profile_id_in_sync(self):
+    def test_profile_override_is_not_part_of_rerun(self):
         from botend.services.simc_task_service import create_task
-        from botend.services.task_rerun import create_rerun
+        from botend.services.task_rerun import create_rerun, TaskRerunError
 
         original = create_task(
             user_id=self.user_id, name="Original", profile_id=self.profile.id,
@@ -559,16 +830,11 @@ class TaskRerunWithVersionsTests(TestCase):
         replacement = SimcProfile.objects.create(
             user_id=self.user_id, name='Replacement', spec='warrior_fury', is_active=True,
         )
-        original.current_status = 2
-        original.save(update_fields=['current_status'])
-
-        rerun = create_rerun(
-            original.id, user_id=self.user_id,
-            overrides={'profile_id': replacement.id},
-        )
-
-        self.assertEqual(rerun.profile_id, replacement.id)
-        self.assertEqual(rerun.simc_profile_id, replacement.id)
+        with self.assertRaisesRegex(TaskRerunError, 'unsupported overrides'):
+            create_rerun(
+                original.id, user_id=self.user_id,
+                overrides={'profile_id': replacement.id},
+            )
 
     def test_rerun_with_cross_user_apl_override_raises_error(self):
         """RED: create_rerun should reject APL override belonging to different user."""
@@ -600,7 +866,7 @@ class TaskRerunWithVersionsTests(TestCase):
                 user_id=self.user_id,
                 overrides={'apl_id': other_user_apl.id},
             )
-        self.assertIn("belongs to user", str(ctx.exception))
+        self.assertIn("unsupported overrides", str(ctx.exception))
 
     def test_rerun_with_inactive_apl_override_raises_error(self):
         """RED: create_rerun should reject inactive APL override."""
@@ -631,12 +897,12 @@ class TaskRerunWithVersionsTests(TestCase):
                 user_id=self.user_id,
                 overrides={'apl_id': inactive_apl.id},
             )
-        self.assertIn("not active", str(ctx.exception).lower())
+        self.assertIn("unsupported overrides", str(ctx.exception).lower())
 
-    def test_rerun_normalizes_simulation_params(self):
-        """RED: create_rerun should normalize simulation_params with whitelist."""
+    def test_rerun_rejects_simulation_param_override(self):
+        """Frozen Task reruns cannot change simulation parameters."""
         from botend.services.simc_task_service import create_task
-        from botend.services.task_rerun import create_rerun
+        from botend.services.task_rerun import create_rerun, TaskRerunError
 
         original = create_task(
             user_id=self.user_id,
@@ -648,19 +914,12 @@ class TaskRerunWithVersionsTests(TestCase):
 
         original.current_status = 2
         original.save(update_fields=['current_status'])
-        rerun = create_rerun(
-            original.id,
-            user_id=self.user_id,
-            overrides={
-                'simulation_params': {
-                    'iterations': 5000,
-                    'malicious_key': 'should_be_removed',
-                }
-            },
-        )
-
-        self.assertIn('iterations', rerun.simulation_params)
-        self.assertNotIn('malicious_key', rerun.simulation_params)
+        with self.assertRaises(TaskRerunError):
+            create_rerun(
+                original.id,
+                user_id=self.user_id,
+                overrides={'simulation_params': {'iterations': 5000}},
+            )
 
     def test_rerun_requires_complete_references(self):
         """create_rerun should reject tasks without complete references."""
@@ -673,6 +932,7 @@ class TaskRerunWithVersionsTests(TestCase):
             simc_profile_id=999,
             task_type=1,
             current_status=2,
+            backend=self.backend,
         )
 
         with self.assertRaises(TaskRerunError) as ctx:
@@ -680,7 +940,7 @@ class TaskRerunWithVersionsTests(TestCase):
 
         self.assertIn("complete references", str(ctx.exception).lower())
 
-    def test_rerun_rejects_pending_and_running_sources(self):
+    def test_rerun_accepts_pending_and_running_sources_as_task_copies(self):
         from botend.services.simc_task_service import create_task
         from botend.services.task_rerun import create_rerun, TaskRerunError
 
@@ -691,40 +951,47 @@ class TaskRerunWithVersionsTests(TestCase):
         for status in (0, 1):
             source.current_status = status
             source.save(update_fields=['current_status'])
-            with self.assertRaises(TaskRerunError) as ctx:
-                create_rerun(source.id, user_id=self.user_id)
-            self.assertIn("completed or failed", str(ctx.exception).lower())
+            rerun = create_rerun(source.id, user_id=self.user_id)
+            self.assertEqual(rerun.current_status, 0)
+            self.assertEqual(rerun.source_task_id, source.id)
+            self.assertEqual(rerun.simulation_runs.count(), 0)
 
-    def test_non_normal_candidate_rerun_is_normal_and_detached_from_historical_batch(self):
-        from botend.models import SimcTaskBatch
+    def test_non_normal_task_rerun_copies_frozen_request_without_runs(self):
         from botend.services.simc_task_service import create_task
-        from botend.services.task_rerun import create_rerun
+        from botend.services.task_rerun import create_rerun, TaskRerunError
 
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user_id, name='Historical comparison', batch_type='comparison', status=2,
-        )
         source = create_task(
             user_id=self.user_id, name='Candidate', profile_id=self.profile.id,
             template_id=self.template.id, apl_id=self.apl.id, mode='comparison',
             simulation_params={'iterations': 5000},
-            mode_params={'candidate_type': 'talent_override', 'talent_override': 'ABC'},
-            candidate_label='talent ABC', batch_id=batch.id,
+            mode_params={'request_manifest': {'kind': 'talent_candidates'}},
+            candidates=[{
+                'candidate_key': 'talent-abc', 'candidate_label': 'talent ABC',
+                'candidate_params': {'candidate_type': 'talent_override',
+                                     'talent_override': 'ABC'},
+            }],
         )
         source.current_status = 2
         source.save(update_fields=['current_status'])
 
         rerun = create_rerun(source.id, user_id=self.user_id)
 
-        self.assertEqual(rerun.mode, 'normal')
-        self.assertIsNone(rerun.batch_id)
+        self.assertEqual(rerun.mode, 'comparison')
         self.assertEqual(rerun.simulation_params, source.simulation_params)
         self.assertEqual(rerun.mode_params, source.mode_params)
+        self.assertEqual(rerun.simulation_runs.count(), 0)
         self.assertEqual(rerun.profile_version_id, source.profile_version_id)
         self.assertEqual(rerun.template_version_id, source.template_version_id)
         self.assertEqual(rerun.apl_version_id, source.apl_version_id)
         source.refresh_from_db()
         self.assertEqual(source.mode, 'comparison')
-        self.assertEqual(source.batch_id, batch.id)
+        self.assertEqual(source.simulation_runs.count(), 0)
+        with self.assertRaises(TaskRerunError):
+            create_rerun(
+                source.id,
+                self.user_id,
+                overrides={'mode_params': {'initial_candidates': []}},
+            )
 
 
 class SimulationRunModelTests(TestCase):

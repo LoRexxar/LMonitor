@@ -150,7 +150,7 @@
         let keywordTranslations = {};
         let keywordTranslationsLoaded = false;
         let regularCompareTasks = [];
-        let regularCompareBatchId = '';
+        let regularCompareTaskId = '';
 
         function escapeHtml(text) {
             if (text === null || text === undefined) return '';
@@ -282,7 +282,7 @@
             tbody.innerHTML = tasks.map(t => {
                 const classSpec = `${escapeHtml((t.character && t.character.class) || '')}${(t.character && t.character.spec) ? ' / ' + escapeHtml(t.character.spec) : ''}`;
                 const talents = escapeHtml((t.talents && t.talents.string) || '');
-                const viewUrl = `/simc-result/?file=${encodeURIComponent(t.result_file || '')}${regularCompareBatchId ? `&batch_id=${encodeURIComponent(regularCompareBatchId)}` : ''}`;
+                const viewUrl = `/dashboard/simc/tasks/${encodeURIComponent(regularCompareTaskId)}/`;
                 const dps = t.dps || 0;
                 const candidateLabel = escapeHtml((t.candidate_name || '').trim());
                 const taskTitle = candidateLabel ? `${escapeHtml(t.name || '')}<div class="text-xs text-violet-600 mt-1">${candidateLabel}${t.is_base_candidate ? '（基础）' : ''}</div>` : escapeHtml(t.name || '');
@@ -420,19 +420,16 @@
         }
 
         async function loadCompare() {
-            const batchId = getUrlParameter('batch_id') || '';
-            const taskIds = getUrlParameter('task_ids') || '';
-            document.getElementById('task-ids').textContent = taskIds || (batchId ? `批次 ${batchId}` : '-');
-            if (!taskIds && !batchId) {
-                showError('缺少 task_ids 或 batch_id 参数');
+            const taskId = getUrlParameter('task_id') || '';
+            document.getElementById('task-ids').textContent = taskId ? `任务 ${taskId}` : '-';
+            if (!taskId) {
+                showError('缺少 task_id 参数');
                 return;
             }
 
             try {
                 await loadKeywordTranslations();
-                const query = batchId
-                    ? `batch_id=${encodeURIComponent(batchId)}`
-                    : `task_ids=${encodeURIComponent(taskIds)}`;
+                const query = `task_id=${encodeURIComponent(taskId)}`;
                 const resp = await fetch(`/api/simc-regular-compare/?${query}`, {
                     method: 'GET',
                     credentials: 'same-origin'
@@ -449,10 +446,10 @@
                     return;
                 }
 
-                const tasks = (data.data && data.data.tasks) || [];
+                const tasks = (data.data && data.data.runs) || [];
                 const invalid = (data.data && data.data.invalid) || [];
                 const comparison = (data.data && data.data.comparison) || {};
-                regularCompareBatchId = batchId;
+                regularCompareTaskId = taskId;
 
                 if (!tasks || tasks.length < 2) {
                     showError('可用于对比的任务不足2个');

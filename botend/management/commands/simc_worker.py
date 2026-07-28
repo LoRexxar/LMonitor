@@ -16,8 +16,8 @@ class Command(BaseCommand):
         worker = SimcWorker(poll_interval=options.get('poll_interval'))
         signal.signal(signal.SIGINT, worker.request_stop)
         signal.signal(signal.SIGTERM, worker.request_stop)
-        worker.recover_stale_tasks()
         if options.get('once'):
+            worker.recover_stale_tasks()
             worker.consume_once()
             return
         worker.run()

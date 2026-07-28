@@ -3,6 +3,7 @@ import secrets
 import uuid
 
 from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
 from django.db import connection, models, transaction
 from django.utils import timezone
 
@@ -758,6 +759,11 @@ class SimcAplSymbol(models.Model):
     source = models.CharField(
         max_length=32, choices=SOURCE_CHOICES, default=SOURCE_MANIFEST,
     )
+    # Keep the catalog provenance in ``source`` and the runtime exporter's
+    # typed identity evidence separately for diagnostics and coverage audits.
+    identity_source = models.CharField(max_length=64, default='', blank=True)
+    identity_reason = models.CharField(max_length=128, default='', blank=True)
+    identity_candidates = models.JSONField(default=list, blank=True)
     aliases = models.JSONField(default=list, blank=True)
     options = models.JSONField(default=dict, blank=True)
     is_active = models.BooleanField(default=True)
@@ -863,13 +869,14 @@ class SimcAplSymbol(models.Model):
 
     @classmethod
     def sync_revision_catalog(cls, simc_revision, wow_build, facts):
-        """Atomically upsert a revision catalog and deactivate missing identities."""
+        """Atomically upsert the current build catalog for one SimC revision."""
         identity_fields = (
             'simc_revision', 'wow_build', 'class_key', 'spec_key',
             'hero_tree_key', 'token', 'symbol_kind',
         )
         fact_fields = (
             'class_name', 'spec', 'hero_tree', 'spell_id', 'trait_id', 'source',
+            'identity_source', 'identity_reason', 'identity_candidates',
             'aliases', 'options',
         )
         prepared = {}
@@ -898,7 +905,7 @@ class SimcAplSymbol(models.Model):
         update_fields = (*fact_fields, 'is_active', 'updated_at')
         with transaction.atomic():
             cls.objects.filter(
-                simc_revision=simc_revision, wow_build=wow_build,
+                simc_revision=simc_revision,
             ).update(is_active=False)
             if rows:
                 bulk_kwargs = {
@@ -1022,29 +1029,6 @@ class SimcApl(models.Model):
 
 
 
-class SimcTaskBatch(models.Model):
-    """SimC任务批次 - 用于聚合对比任务（属性/天赋/饰品/装备/APL对比）"""
-    user_id = models.IntegerField(help_text="用户ID")
-    name = models.CharField(max_length=200, help_text="批次名称")
-    batch_type = models.CharField(max_length=50, default='comparison', help_text="批次类型：comparison/attribute_sweep")
-    request_manifest = models.TextField(null=True, blank=True, help_text="冻结批次输入（JSON）")
-    status = models.IntegerField(default=0, help_text="0=待创建,1=运行中,2=完成,3=失败")
-    error_detail = models.TextField(null=True, blank=True, help_text="错误详情")
-    completed_at = models.DateTimeField(null=True, blank=True, help_text="完成时间")
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    is_active = models.BooleanField(default=True)
-
-    class Meta:
-        db_table = 'simc_task_batch'
-        verbose_name = 'SimC任务批次'
-        verbose_name_plural = 'SimC任务批次'
-        ordering = ['-created_at']
-        indexes = [
-            models.Index(fields=['user_id', '-created_at']),
-        ]
-
-
 class SimcTask(models.Model):
     """
     SimC任务模型 - Phase 2重构：引用型任务保存模块引用和参数，不保存最终正文
@@ -1056,7 +1040,6 @@ class SimcTask(models.Model):
     task_type = models.IntegerField(default=1, help_text="任务类型：1=常规模拟，2=属性模拟")
     ext = models.TextField(null=True, blank=True, help_text="扩展信息（legacy兼容）")
 
-    batch = models.ForeignKey(SimcTaskBatch, null=True, blank=True, on_delete=models.SET_NULL, help_text="所属批次")
     candidate_label = models.CharField(max_length=200, default='', blank=True, help_text="对比任务标签，如 crit+1000")
 
     # Reference-based fields (live resource FKs)
@@ -1073,9 +1056,14 @@ class SimcTask(models.Model):
     simulation_params = models.JSONField(null=True, blank=True, help_text="模拟参数：iterations, fight_style等")
     mode_params = models.JSONField(null=True, blank=True, help_text="模式参数：对比项、寻优范围等")
     source_task = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='reruns', help_text="重跑来源任务")
+    backend = models.ForeignKey(
+        'SimcBackendBinary', on_delete=models.PROTECT,
+        related_name='tasks', help_text="本任务显式指定的 SimC 执行后端",
+    )
 
     error_detail = models.TextField(null=True, blank=True, help_text="创建或执行错误详情")
     result_summary = models.TextField(null=True, blank=True, help_text="结果摘要JSON：DPS/HPS等关键指标")
+    analysis_result = models.JSONField(default=dict, blank=True, help_text="请求级分析结果")
 
     modified_time = models.DateTimeField(auto_now=True, help_text="修改时间")
     current_status = models.IntegerField(default=0, help_text="当前状态：0=待执行,1=执行中,2=完成,3=失败")
@@ -1091,7 +1079,14 @@ class SimcTask(models.Model):
         ordering = ['-modified_time']
         indexes = [
             models.Index(fields=['user_id', '-create_time']),
-            models.Index(fields=['batch', '-create_time']),
+            models.Index(
+                fields=['is_active', 'current_status', 'create_time', 'id'],
+                name='simctask_pending_q_idx',
+            ),
+            models.Index(
+                fields=['is_active', 'current_status', 'modified_time'],
+                name='simctask_stale_q_idx',
+            ),
         ]
 
 
@@ -1121,7 +1116,10 @@ class SimulationRun(models.Model):
     """
     task = models.ForeignKey(SimcTask, on_delete=models.CASCADE, related_name='simulation_runs', help_text="所属任务")
     sequence = models.IntegerField(default=1, help_text="执行序号（轮次/候选编号）")
+    candidate_key = models.CharField(max_length=200, default='', blank=True, help_text="候选稳定标识")
     candidate_label = models.CharField(max_length=200, default='', blank=True, help_text="候选标签，如 baseline/crit+1000/apl_variant_2")
+    round_number = models.PositiveIntegerField(default=1, help_text="候选轮次")
+    candidate_params = models.JSONField(default=dict, blank=True, help_text="候选参数快照")
 
     status = models.CharField(max_length=20, default='pending', help_text="状态：pending/running/completed/failed")
     input_hash = models.CharField(max_length=64, default='', blank=True, help_text="本次输入的SHA256")
@@ -1156,8 +1154,19 @@ class SimcProfile(models.Model):
     """
     SimC配置模型 - 玩家配置预设，绑定专精并保存 Battle.net 或手动装备块导入信息。
     """
-    user_id = models.IntegerField(help_text="用户ID")
+    SOURCE_USER = 'user'
+    SOURCE_SIMC_UPSTREAM = 'simc_upstream'
+    SOURCE_CHOICES = (
+        (SOURCE_USER, '用户维护'),
+        (SOURCE_SIMC_UPSTREAM, 'SimC源码同步'),
+    )
+
+    user_id = models.IntegerField(null=True, blank=True, help_text="用户ID，NULL表示系统玩家配置")
     name = models.CharField(max_length=200, help_text="配置名称")
+    source = models.CharField(max_length=32, choices=SOURCE_CHOICES, default=SOURCE_USER, help_text="配置来源")
+    system_key = models.CharField(max_length=200, null=True, blank=True, unique=True, help_text="系统配置稳定标识")
+    class_name = models.CharField(max_length=50, default='', blank=True, help_text="职业英文名，如 warrior")
+    sync_version = models.CharField(max_length=128, default='', blank=True, help_text="同步来源版本/提交")
     spec = models.CharField(max_length=100, default="fury", help_text="专精标识，如 fury/arms/fire")
     player_config_mode = models.CharField(max_length=50, default="battlenet", help_text="玩家配置来源：battlenet/manual_equipment")
     battlenet_region = models.CharField(max_length=20, default="", blank=True)
@@ -1176,6 +1185,15 @@ class SimcProfile(models.Model):
         db_table = 'simc_profile'
         verbose_name = 'SimC配置'
         verbose_name_plural = 'SimC配置'
+
+    def save(self, *args, **kwargs):
+        # The canonical key is derived rather than caller-controlled, so SQLite
+        # and MySQL both enforce one active upstream baseline per specialization.
+        if self.user_id is None and self.source == self.SOURCE_SIMC_UPSTREAM and self.is_active:
+            self.system_key = f'simc_upstream:{self.spec}'
+            if kwargs.get('update_fields') is not None:
+                kwargs['update_fields'] = set(kwargs['update_fields']) | {'system_key'}
+        super().save(*args, **kwargs)
 
 
 class SimcSecondaryStatRule(models.Model):
@@ -1211,17 +1229,11 @@ class SimcMasteryCoefficient(models.Model):
 
 class SimcContentTemplate(models.Model):
     """
-    SimC 统一内容模板：基础输入模板、默认玩家装备、个人玩家装备共用一张表。
-    APL 已迁移至 SimcApl 独立表。
+    SimC 基础输入模板。
+
+    该表只保存用于拼装最终 SimC 输入的大基础模板；玩家配置和 APL
+    分别使用 SimcProfile 与 SimcApl 表。
     """
-    TYPE_BASE_TEMPLATE = 'base_template'
-    TYPE_DEFAULT_PLAYER = 'default_player'
-    TYPE_CUSTOM_PLAYER = 'custom_player'
-    TEMPLATE_TYPE_CHOICES = (
-        (TYPE_BASE_TEMPLATE, '基础模板'),
-        (TYPE_DEFAULT_PLAYER, '默认玩家装备模板'),
-        (TYPE_CUSTOM_PLAYER, '用户自定义装备'),
-    )
     SOURCE_SIMC_UPSTREAM = 'simc_upstream'
     SOURCE_USER = 'user'
     SOURCE_CHOICES = (
@@ -1230,7 +1242,6 @@ class SimcContentTemplate(models.Model):
     )
 
     name = models.CharField(max_length=200, default='', blank=True, help_text="展示名称")
-    template_type = models.CharField(max_length=32, choices=TEMPLATE_TYPE_CHOICES, default=TYPE_BASE_TEMPLATE, help_text="内容类型")
     source = models.CharField(max_length=32, choices=SOURCE_CHOICES, default=SOURCE_USER, help_text="内容来源")
     spec = models.CharField(max_length=100, default="default", help_text="专精标识，如 warrior_fury/default")
     class_name = models.CharField(max_length=50, default='', blank=True, help_text="职业英文名，如 warrior")
@@ -1248,50 +1259,42 @@ class SimcContentTemplate(models.Model):
         verbose_name = 'SimC模板'
         verbose_name_plural = 'SimC模板'
         indexes = [
-            models.Index(fields=['template_type', 'spec', 'is_active']),
-            models.Index(fields=['source', 'template_type']),
+            models.Index(fields=['spec', 'is_active']),
+            models.Index(fields=['source']),
         ]
 
     def _normalize_name(self):
-        """Normalize name for custom_player uniqueness check (lowercase, strip whitespace)."""
+        """Normalize the optional name used by active-template uniqueness keys."""
         if not self.name:
             return ''
         return self.name.lower().strip()
 
     def _compute_active_unique_key(self):
         """
-        Compute active_unique_key based on template_type, owner, spec, and name.
+        Compute active_unique_key based on owner and spec.
         Returns None if is_active=False.
         """
         if not self.is_active:
             return None
 
-        template_type = self.template_type
         owner = 'global' if self.owner_user_id is None else self.owner_user_id
         spec = self.spec or 'default'
-
-        if template_type in (self.TYPE_BASE_TEMPLATE, self.TYPE_DEFAULT_PLAYER):
-            if owner == 'global':
-                return f'{template_type}:global:{spec}'
-            else:
-                return f'{template_type}:{owner}:{spec}'
-        elif template_type == self.TYPE_CUSTOM_PLAYER:
-            return f'{template_type}:{owner}:{spec}'
-
-        return None
+        return f'base_template:{owner}:{spec}'
 
     def save(self, *args, **kwargs):
         self.active_unique_key = self._compute_active_unique_key()
         super().save(*args, **kwargs)
 
     def __str__(self):
-        label = self.name or self.spec or self.template_type
-        return f'{self.get_template_type_display()} {label}'
+        return self.name or self.spec or f'基础模板 {self.pk}'
 
 
 class SimcBackendBinary(models.Model):
+    identifier = models.SlugField(max_length=64, unique=True, help_text="稳定标识，如 production/ptr")
+    name = models.CharField(max_length=100, help_text="展示名称，如 正式服/PTR")
     platform = models.CharField(max_length=32, default="linux64", help_text="平台标识，如 linux64/linuxarm64")
     simc_path = models.CharField(max_length=500, default="", help_text="SimC本地编译产物路径")
+    is_active = models.BooleanField(default=True, help_text="是否允许新任务选择")
     current_version = models.CharField(max_length=128, default="", help_text="当前SimC版本号/构建标识")
     latest_version = models.CharField(max_length=128, default="", blank=True, help_text="检测到的源码上游版本/提交")
     auto_update = models.BooleanField(default=True, help_text="是否自动拉取并编译更新")
@@ -1307,6 +1310,300 @@ class SimcBackendBinary(models.Model):
         verbose_name = 'SimC后端软件'
         verbose_name_plural = 'SimC后端软件'
 
+    def __str__(self):
+        return f'{self.name} ({self.identifier})'
+
+
+class SimcBenchmarkPanel(models.Model):
+    """A reusable benchmark definition; execution remains owned by SimcTask/SimulationRun."""
+
+    name = models.CharField(max_length=200)
+    slug = models.SlugField(max_length=200, unique=True)
+    description = models.TextField(default='', blank=True)
+    created_by_id = models.BigIntegerField()
+    is_active = models.BooleanField(default=True)
+    is_public = models.BooleanField(default=False)
+    schedule_enabled = models.BooleanField(default=False)
+    interval_seconds = models.PositiveIntegerField(
+        default=86400, validators=[MinValueValidator(1)],
+    )
+    next_run_at = models.DateTimeField(null=True, blank=True)
+    last_scheduled_at = models.DateTimeField(null=True, blank=True)
+    published_execution = models.ForeignKey(
+        'SimcBenchmarkExecution', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='published_by_panels',
+    )
+    active_execution = models.OneToOneField(
+        'SimcBenchmarkExecution', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='active_for_panel',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'simc_benchmark_panel'
+        ordering = ['name', 'id']
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(interval_seconds__gt=0),
+                name='simc_bench_interval_gt0_ck',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['schedule_enabled', 'is_active', 'next_run_at'],
+                name='simc_bench_due_idx',
+            ),
+            models.Index(fields=['is_active', 'is_public'], name='simc_bench_vis_idx'),
+        ]
+
+
+class SimcBenchmarkSpec(models.Model):
+    """Specialization and immutable-resource selection within a benchmark panel."""
+
+    panel = models.ForeignKey(
+        SimcBenchmarkPanel, on_delete=models.CASCADE, related_name='specs',
+    )
+    class_name = models.CharField(max_length=50)
+    spec_key = models.CharField(max_length=100)
+    label = models.CharField(max_length=200)
+    apl = models.ForeignKey(
+        SimcApl, on_delete=models.PROTECT, related_name='benchmark_specs',
+    )
+    template = models.ForeignKey(
+        SimcContentTemplate, on_delete=models.PROTECT, related_name='benchmark_specs',
+    )
+    backend = models.ForeignKey(
+        SimcBackendBinary, on_delete=models.PROTECT, related_name='benchmark_specs',
+    )
+    is_enabled = models.BooleanField(default=True)
+    display_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = 'simc_benchmark_spec'
+        ordering = ['display_order', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['panel', 'spec_key'], name='simc_bench_panel_spec_uniq',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['panel', 'is_enabled'], name='simc_bench_spec_en_idx'),
+        ]
+
+
+class SimcBenchmarkProfile(models.Model):
+    """Player profile selected for one specialization in a benchmark panel."""
+
+    panel_spec = models.ForeignKey(
+        SimcBenchmarkSpec, on_delete=models.CASCADE, related_name='profiles',
+    )
+    profile = models.ForeignKey(
+        SimcProfile, on_delete=models.PROTECT, related_name='benchmark_profiles',
+    )
+    label = models.CharField(max_length=200)
+    is_enabled = models.BooleanField(default=True)
+    display_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = 'simc_benchmark_profile'
+        ordering = ['display_order', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['panel_spec', 'profile'], name='simc_bench_spec_profile_uniq',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['panel_spec', 'is_enabled'], name='simc_bench_prof_en_idx',
+            ),
+        ]
+
+
+class SimcBenchmarkScenario(models.Model):
+    """Simulation parameter coordinate configured for a panel."""
+
+    panel = models.ForeignKey(
+        SimcBenchmarkPanel, on_delete=models.CASCADE, related_name='scenarios',
+    )
+    key = models.CharField(max_length=100)
+    name = models.CharField(max_length=200)
+    simulation_params = models.JSONField(default=dict, blank=True)
+    is_enabled = models.BooleanField(default=True)
+    display_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = 'simc_benchmark_scenario'
+        ordering = ['display_order', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['panel', 'key'], name='simc_bench_panel_scenario_uniq',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['panel', 'is_enabled'], name='simc_bench_scen_en_idx'),
+        ]
+
+
+class SimcBenchmarkCandidate(models.Model):
+    """A report candidate definition; it does not represent a SimC process run."""
+
+    panel = models.ForeignKey(
+        SimcBenchmarkPanel, on_delete=models.CASCADE, related_name='candidates',
+    )
+    key = models.CharField(max_length=100)
+    label = models.CharField(max_length=200)
+    candidate_type = models.CharField(max_length=50)
+    params = models.JSONField(default=dict, blank=True)
+    spec_keys = models.JSONField(default=list, blank=True)
+    icon_url = models.URLField(max_length=500, default='', blank=True)
+    source_label = models.CharField(max_length=200, default='', blank=True)
+    is_enabled = models.BooleanField(default=True)
+    display_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = 'simc_benchmark_candidate'
+        ordering = ['display_order', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['panel', 'key'], name='simc_bench_panel_candidate_uniq',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['panel', 'is_enabled'], name='simc_bench_cand_en_idx'),
+        ]
+
+
+class SimcBenchmarkExecution(models.Model):
+    """Independent benchmark aggregate job; Tasks are internal execution details."""
+
+    TRIGGER_MANUAL = 'manual'
+    TRIGGER_SCHEDULE = 'schedule'
+    TRIGGER_CHOICES = (
+        (TRIGGER_MANUAL, 'Manual'),
+        (TRIGGER_SCHEDULE, 'Schedule'),
+    )
+    STATUS_PENDING = 'pending'
+    STATUS_RUNNING = 'running'
+    STATUS_SUCCESS = 'success'
+    STATUS_PARTIAL = 'partial'
+    STATUS_FAILED = 'failed'
+    STATUS_CANCELLED = 'cancelled'
+    STATUS_CHOICES = tuple((value, value.title()) for value in (
+        STATUS_PENDING, STATUS_RUNNING, STATUS_SUCCESS, STATUS_PARTIAL,
+        STATUS_FAILED, STATUS_CANCELLED,
+    ))
+
+    panel = models.ForeignKey(
+        SimcBenchmarkPanel, on_delete=models.CASCADE, related_name='executions',
+    )
+    trigger = models.CharField(
+        max_length=16, choices=TRIGGER_CHOICES, default=TRIGGER_MANUAL,
+    )
+    scheduled_slot = models.DateTimeField(null=True, blank=True)
+    config_snapshot = models.JSONField(default=dict, blank=True)
+    config_hash = models.CharField(max_length=64)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    result_hash = models.CharField(max_length=64, blank=True, default='')
+    results_finalized_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'simc_benchmark_execution'
+        ordering = ['-created_at', '-id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['panel', 'scheduled_slot'], name='simc_bench_panel_slot_uniq',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(trigger='schedule', scheduled_slot__isnull=False)
+                    | models.Q(trigger='manual', scheduled_slot__isnull=True)
+                ),
+                name='simc_bench_trigger_slot_ck',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['panel', '-created_at'], name='simc_bench_exec_cr_idx'),
+            models.Index(fields=['panel', 'completed_at'], name='simc_bench_exec_co_idx'),
+            models.Index(fields=['config_hash'], name='simc_bench_cfg_hash_idx'),
+        ]
+
+
+class SimcBenchmarkCase(models.Model):
+    """Maps one benchmark coordinate to its durable SimcTask execution history."""
+
+    execution = models.ForeignKey(
+        SimcBenchmarkExecution, on_delete=models.CASCADE, related_name='cases',
+    )
+    task = models.OneToOneField(
+        SimcTask, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='benchmark_case',
+    )
+    status = models.CharField(
+        max_length=16, choices=SimcBenchmarkExecution.STATUS_CHOICES,
+        default=SimcBenchmarkExecution.STATUS_PENDING,
+    )
+    spec_key = models.CharField(max_length=100)
+    scenario_key = models.CharField(max_length=100)
+    profile_key = models.CharField(max_length=100)
+    spec_label = models.CharField(max_length=200)
+    scenario_label = models.CharField(max_length=200)
+    profile_label = models.CharField(max_length=200)
+    coordinate_hash = models.CharField(max_length=64)
+
+    class Meta:
+        db_table = 'simc_benchmark_case'
+        ordering = ['execution', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['execution', 'spec_key', 'scenario_key', 'profile_key'],
+                name='simc_bench_exec_keys_uniq',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['execution', 'spec_key'], name='simc_bench_case_spec_idx'),
+            models.Index(fields=['coordinate_hash'], name='simc_bench_coord_hash_idx'),
+        ]
+
+    def clean(self):
+        super().clean()
+        if not self.task_id:
+            return
+        try:
+            task = SimcTask.objects.only('mode').get(pk=self.task_id)
+        except (SimcTask.DoesNotExist, ValueError, TypeError):
+            raise ValidationError({
+                'task': 'The selected SimC task does not exist.',
+            })
+        if task.mode != 'comparison':
+            raise ValidationError({
+                'task': 'Benchmark cases require a task in comparison mode.',
+            })
+
+
+class SimcBenchmarkResult(models.Model):
+    """One immutable raw DPS value in a finalized benchmark aggregate."""
+
+    case = models.ForeignKey(
+        SimcBenchmarkCase, on_delete=models.CASCADE, related_name='results',
+    )
+    candidate_key = models.CharField(max_length=100)
+    dps = models.FloatField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'simc_benchmark_result'
+        ordering = ['case_id', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['case', 'candidate_key'], name='simc_bench_result_cand_uniq',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(dps__gt=0), name='simc_bench_result_dps_gt0_ck',
+            ),
+        ]
 
 class WclAnalysisTask(models.Model):
     wcl_url = models.CharField(max_length=2000, help_text="WCL原始链接")

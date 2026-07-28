@@ -1,6 +1,6 @@
 from django.test import SimpleTestCase
 
-from botend.services.simc_result_analysis import parse_simc_html_report
+from botend.services.simc_result_analysis import localize_report_summary, parse_simc_html_report
 
 
 class SimcResultAnalysisTests(SimpleTestCase):
@@ -107,3 +107,53 @@ class SimcResultAnalysisTests(SimpleTestCase):
                 'buffs': 'avatar, enrage, frenzy(3)',
             },
         ])
+
+    def test_localizes_report_with_existing_apl_pairs_and_preserves_english(self):
+        report = {
+            'character': {'class': 'Warrior', 'spec': 'Fury', 'race': 'Orc'},
+            'simulation': {'fight_style': 'Patchwerk'},
+            'abilities': [
+                {'name': 'Rampage', 'spell_id': '184367'},
+                {'name': 'Unknown Strike', 'spell_id': ''},
+            ],
+            'top_abilities': [{'name': 'Rampage'}],
+            'buffs': {
+                'dynamic': [{'name': 'Recklessness', 'spell_id': '1719'}],
+                'constant': [{'name': 'Battle Shout', 'spell_id': '6673'}],
+            },
+            'sample_sequence': [{
+                'action': 'rampage', 'action_list': 'precombat',
+                'buffs': 'avatar, enrage, frenzy(3)',
+                'resources': '79.8/130 61% rage',
+            }],
+        }
+        pairs = [
+            ('action', 'rampage', '暴怒'),
+            ('buff', 'recklessness', '鲁莽'),
+            ('buff', 'avatar', '天神下凡'),
+            ('buff', 'enrage', '激怒'),
+            ('buff', 'frenzy', '狂乱'),
+            ('action', 'battle_shout', '战斗怒吼'),
+        ]
+
+        localized = localize_report_summary(report, pairs)
+
+        self.assertEqual(localized['character'], {
+            'class': '战士', 'class_en': 'Warrior',
+            'spec': '狂怒', 'spec_en': 'Fury',
+            'race': '兽人', 'race_en': 'Orc',
+        })
+        self.assertEqual(localized['simulation']['fight_style'], '木桩战')
+        self.assertEqual(localized['simulation']['fight_style_en'], 'Patchwerk')
+        self.assertEqual(localized['abilities'][0]['name'], '暴怒')
+        self.assertEqual(localized['abilities'][0]['name_en'], 'Rampage')
+        self.assertEqual(localized['abilities'][1]['name'], 'Unknown Strike')
+        self.assertNotIn('name_en', localized['abilities'][1])
+        self.assertEqual(localized['top_abilities'][0]['name'], '暴怒')
+        self.assertEqual(localized['buffs']['dynamic'][0]['name'], '鲁莽')
+        self.assertEqual(localized['buffs']['constant'][0]['name'], '战斗怒吼')
+        self.assertEqual(localized['sample_sequence'][0]['action'], '暴怒')
+        self.assertEqual(localized['sample_sequence'][0]['action_en'], 'rampage')
+        self.assertEqual(localized['sample_sequence'][0]['action_list'], '战前')
+        self.assertEqual(localized['sample_sequence'][0]['buffs'], '天神下凡, 激怒, 狂乱(3)')
+        self.assertEqual(localized['sample_sequence'][0]['resources'], '79.8/130 61% 怒气')

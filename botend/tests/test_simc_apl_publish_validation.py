@@ -6,8 +6,11 @@ from django.contrib.auth.models import User
 from django.db.models.deletion import ProtectedError
 from django.test import TestCase, override_settings
 
-from botend.models import (SimcApl, SimcContentTemplate, SimcProfile,
+from botend.models import (SimcApl, SimcAplSymbol, SimcBackendBinary,
+                           SimcContentTemplate, SimcProfile,
                            SimcResourceVersion, SimcTask)
+from botend.services.simc_apl.publish import (current_validation_identity,
+                                              validate_apl_for_profile)
 from botend.services.simc_task_service import TaskCreationError, create_task
 
 
@@ -20,9 +23,89 @@ def digest(value):
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+@override_settings(SIMC_APL_CURRENT_IDENTITY=None)
+class SimcAplCurrentIdentityTests(TestCase):
+    def test_resolves_unique_full_revision_from_binary_version_suffix(self):
+        full_revision = "62ababb127bef2a35f96357968d455dde7de7616"
+        backend, _ = SimcBackendBinary.objects.update_or_create(
+            identifier='production',
+            defaults={
+                'name': '正式服', 'platform': 'linux64',
+                'current_version': '1205-01-62ababb', 'is_active': True,
+            },
+        )
+        SimcAplSymbol.objects.create(
+            simc_revision=full_revision, wow_build="12.0.7.68453",
+            token="bloodthirst", symbol_kind="action", is_active=True,
+        )
+
+        self.assertEqual(
+            current_validation_identity(),
+            (full_revision, "12.0.7.68453"),
+        )
+
+    @patch("botend.services.simc_apl.publish.validate_payload")
+    @patch("botend.services.simc_apl.publish.SimcComposer.compose_validation_input",
+           return_value='warrior="Player"\nspec=fury\nactions=/auto_attack')
+    def test_authoritative_validation_uses_resolved_full_binary_revision(
+            self, compose_validation_input, validate):
+        full_revision = "62ababb127bef2a35f96357968d455dde7de7616"
+        backend, _ = SimcBackendBinary.objects.update_or_create(
+            identifier='production',
+            defaults={
+                'name': '正式服', 'platform': 'linux64',
+                'current_version': '1205-01-62ababb',
+                'simc_path': '/tmp/simc', 'is_active': True,
+            },
+        )
+        SimcAplSymbol.objects.create(
+            simc_revision=full_revision, wow_build="12.0.7.68453",
+            token="bloodthirst", symbol_kind="action", is_active=True,
+        )
+        profile = SimcProfile.objects.create(
+            user_id=1, name="Player", spec="warrior_fury",
+            player_config_mode="manual_equipment",
+            player_equipment='warrior="Player"\nspec=fury\nmain_hand=,id=1',
+            is_active=True,
+        )
+        apl = SimcApl(name="APL", spec="warrior_fury", content=CONTENT)
+
+        def validation_result(content, **kwargs):
+            self.assertEqual(
+                kwargs["authoritative_validator"].binary_revision,
+                full_revision,
+            )
+            self.assertEqual(
+                kwargs["validation_context"]["binary_revision"],
+                full_revision,
+            )
+            return {
+                "structural_valid": True,
+                "authoritative_valid": True,
+                "diagnostics": [],
+            }
+
+        validate.side_effect = validation_result
+
+        self.assertTrue(validate_apl_for_profile(profile, apl)["valid"])
+
+
 @override_settings(SIMC_APL_CURRENT_IDENTITY=(REVISION, BUILD))
 class SimcAplPublishValidationTests(TestCase):
     def setUp(self):
+        self.backend, _ = SimcBackendBinary.objects.update_or_create(
+            identifier='production',
+            defaults={
+                'name': '正式服', 'platform': 'linux64',
+                'current_version': REVISION, 'simc_path': '/tmp/simc',
+                'is_active': True,
+            },
+        )
+        SimcAplSymbol.objects.get_or_create(
+            simc_revision=REVISION, wow_build=BUILD,
+            token='auto_attack', symbol_kind='action',
+            defaults={'is_active': True},
+        )
         self.user = User.objects.create_user(username="publisher", password="pwd")
         self.client.force_login(self.user)
         self.profile = SimcProfile.objects.create(
@@ -31,7 +114,7 @@ class SimcAplPublishValidationTests(TestCase):
             player_equipment='warrior="Player"\nspec=fury\nmain_hand=,id=1', is_active=True,
         )
         self.template = SimcContentTemplate.objects.create(
-            name="Base", template_type="base_template", spec="warrior_fury",
+            name="Base", spec="warrior_fury",
             content="{simulation_options}\n{player_config}\n{action_list}\n{output_options}",
             owner_user_id=self.user.id, is_active=True, is_selectable=True,
         )
@@ -219,7 +302,7 @@ class SimcAplPublishValidationTests(TestCase):
             validation_game_build=BUILD,
         )
 
-        def mutate(_profile, locked_apl):
+        def mutate(_profile, locked_apl, **_kwargs):
             SimcApl.objects.filter(pk=locked_apl.pk).update(content=CONTENT + " changed")
             return {"valid": True, "content_hash": digest(CONTENT), "revision": REVISION,
                     "game_build": BUILD, "diagnostics": []}
@@ -229,8 +312,8 @@ class SimcAplPublishValidationTests(TestCase):
             create_task(self.user.id, "Race", self.profile.id, self.template.id, apl.id)
 
     @patch("botend.services.simc_task_service.validate_apl_for_profile")
-    def test_rerun_revalidates_current_profile_apl_pair(self, validate):
-        from botend.services.task_rerun import create_rerun, TaskRerunError
+    def test_rerun_copies_frozen_versions_without_live_revalidation(self, validate):
+        from botend.services.task_rerun import create_rerun
 
         apl = SimcApl.objects.create(
             name="Published", spec="warrior_fury", content=CONTENT,
@@ -251,10 +334,11 @@ class SimcAplPublishValidationTests(TestCase):
             "valid": False, "content_hash": digest(CONTENT), "revision": REVISION,
             "game_build": BUILD, "diagnostics": [{"message": "profile changed"}],
         }
-        with self.assertRaises(TaskRerunError):
-            create_rerun(source.id, self.user.id)
-        validate.assert_called_once()
-        self.assertEqual(SimcTask.objects.count(), 1)
+        rerun = create_rerun(source.id, self.user.id)
+        validate.assert_not_called()
+        self.assertEqual(SimcTask.objects.count(), 2)
+        self.assertEqual(rerun.apl_version_id, source.apl_version_id)
+        self.assertEqual(rerun.simulation_runs.count(), 0)
 
     @patch("botend.services.simc_apl.publish.validate_apl_for_profile")
     def test_generated_candidate_must_publish_before_execution(self, validate):

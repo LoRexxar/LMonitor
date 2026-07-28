@@ -42,9 +42,8 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         creation = SIM[SIM.index("async function startSelectedSimcCandidateComparisons"):SIM.index("function bindSimcWorkbenchSimulationControls")]
         self.assertGreaterEqual(creation.count("switchSimcWorkbenchL1Tab('history')"), 3)
         self.assertNotIn("window.location.assign(`/dashboard/simc/tasks/", creation)
-        self.assertNotIn("window.location.assign(`/dashboard/simc/batches/", creation)
         self.assertNotIn("window.simcWorkbenchShowTaskDetail('tasks',", creation)
-        self.assertNotIn("window.simcWorkbenchShowTaskDetail('batches',", creation)
+        self.assertGreaterEqual(creation.count("/api/simc-task/comparison/"), 2)
         self.assertNotIn("switchSimcWorkbenchTab('artifacts')", creation)
         self.assertNotIn("loadArtifacts", creation)
 
@@ -118,12 +117,16 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertIn('data-copy-talent-code', editor)
         self.assertIn('navigator.clipboard.writeText', editor)
         self.assertIn('复制', editor)
-        self.assertIn("dashboard/js/main.js' %}?v=20260722b", HTML)
+        self.assertIn("dashboard/js/main.js' %}?v=20260723b", HTML)
 
-    def test_batch_detail_has_visual_comparison_and_attribute_analysis(self):
+    def test_task_detail_has_visual_comparison_and_attribute_analysis(self):
         for token in (
             'comparison-hero', 'comparison-winner', 'comparison-delta',
             'comparison-baseline', 'deltaPercent', '结果不完整',
+            'comparison_baseline', '实际变化', '保持不变',
+            'changeDetail', 'unchangedDetail', 'baseline-facts',
+            'baseline-content', 'baseline-stats', 'baseline-talent', 'baseline-equipment',
+            '基础属性', '基准天赋', '基准装备',
             'attribute-landscape', 'attribute-stat-delta',
             '搜索轨迹', '推荐属性',
         ):
@@ -133,31 +136,40 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertIn(': NaN;\n      const deltaPercent', DETAIL)
         self.assertNotIn("Number.isFinite(Number(delta)) ?", DETAIL)
 
-    def test_rerun_form_has_full_whitelisted_reference_and_simulation_controls(self):
+    def test_comparison_prioritizes_difference_and_dps_trend_before_baseline_details(self):
+        for token in ('comparison-line-chart', 'comparison-chart-point', 'DPS 趋势', '候选差异'):
+            self.assertIn(token, DETAIL)
+        return_block = DETAIL[DETAIL.index('return `<section class="hero ${isAttribute'):]
+        baseline_token = "${isAttribute ? '' : baselinePanel}"
+        self.assertLess(return_block.index('${isAttribute ? \'\' : comparisonChartPanel}'), return_block.index(baseline_token))
+        self.assertLess(return_block.index("card(isAttribute ? '候选测量排名' : '候选差异与 DPS 排名'"), return_block.index(baseline_token))
+        self.assertLess(return_block.index(baseline_token), return_block.index("card('任务进度'"))
+
+    def test_rerun_form_explains_frozen_task_copy_without_edit_controls(self):
         start = WB.index("async function renderTaskRerunForm")
         end = WB.index("async function submitTaskRerun", start)
         form = WB[start:end]
-        for token in ("name=\"name\"", "name=\"iterations\"", "name=\"fight_style\"", "name=\"max_time\"",
-                      "name=\"desired_targets\"", "name=\"simc_profile_id\"", "name=\"base_template_id\"",
-                      "name=\"selected_apl_id\"", "profile_version_id", "template_version_id", "apl_version_id"):
-            self.assertIn(token, form)
+        self.assertIn('完整复制该任务的冻结请求', form)
+        for token in ('name="name"', 'name="iterations"', 'name="fight_style"',
+                      'name="simc_profile_id"', 'name="base_template_id"', 'name="selected_apl_id"'):
+            self.assertNotIn(token, form)
         submit = WB[WB.index("async function submitTaskRerun"):WB.index("async function", WB.index("async function submitTaskRerun") + 20)]
-        self.assertIn("const allowedPatch", submit)
+        self.assertIn("JSON.stringify({ action: 'rerun' })", submit)
         for forbidden in ("prompt(", "alert(", "confirm(", "window.open("):
             self.assertNotIn(forbidden, WB)
 
-    def test_batch_detail_is_permanent_result_home(self):
-        for token in ("批次进度", "批次成员", "DPS 排名", "Artifact / 原生报告"):
+    def test_task_detail_is_permanent_result_home(self):
+        for token in ("任务进度", "候选 Runs", "DPS 排名", "Artifact"):
             self.assertIn(token, DETAIL)
-        self.assertIn('/dashboard/simc/tasks/${member.id}/', DETAIL)
+        self.assertIn('row.runs', DETAIL)
         self.assertNotIn("function loadArtifacts", WB)
         self.assertNotIn("artifactPage", WB)
 
-    def test_batch_structured_result_never_parses_html_report_url_as_json(self):
-        comparison = WB[WB.index("async function showBatchComparison"):WB.index("async function resourceOptions")]
-        self.assertIn("/api/simc-regular-compare/?batch_id=", comparison)
+    def test_task_structured_result_never_parses_html_report_url_as_json(self):
+        comparison = WB[WB.index("async function showTaskComparison"):WB.index("async function resourceOptions")]
+        self.assertIn("/api/simc-regular-compare/?task_id=", comparison)
         self.assertIn("summary=1", comparison)
-        self.assertIn("data.data?.tasks", comparison)
+        self.assertIn("data.data?.runs", comparison)
         self.assertIn("data.data?.attribute_report", comparison)
         self.assertIn("renderAttributeReport", comparison)
         self.assertNotIn("report_url", comparison)
@@ -165,22 +177,18 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertNotIn("response.json", comparison)
 
     def test_task_run_audit_is_complete_and_does_not_render_raw_error_detail(self):
-        detail = WB[WB.index("async function showTaskDetail"):WB.index("async function showBatchComparison")]
+        detail = WB[WB.index("async function showTaskDetail"):WB.index("async function showTaskComparison")]
         for token in ("run.sequence", "run.status", "run.result_summary?.dps", "run.input_hash",
                       "run.started_at", "run.completed_at", "safeRunErrorSummary(run)"):
             self.assertIn(token, detail)
         self.assertNotIn("run.error_detail", detail)
 
-    def test_rerun_only_sends_resource_overrides_when_the_user_changed_them(self):
+    def test_rerun_never_sends_frozen_request_overrides(self):
         form = WB[WB.index("async function renderTaskRerunForm"):WB.index("async function submitTaskRerun")]
         submit = WB[WB.index("async function submitTaskRerun"):WB.index("async function", WB.index("async function submitTaskRerun") + 20)]
-        self.assertIn("data-original-id", form)
-        for token in ("profile_id", "template_id", "apl_id"):
-            self.assertIn(f"allowedPatch.{token}", submit)
-        self.assertIn("selected !== original", submit)
-        self.assertNotIn("profile_id: intOrNull", submit)
-        self.assertNotIn("template_id: intOrNull", submit)
-        self.assertNotIn("apl_id: intOrNull", submit)
+        self.assertNotIn("data-original-id", form)
+        for token in ("allowedPatch", "simulation_params", "profile_id", "template_id", "apl_id"):
+            self.assertNotIn(token, submit)
 
     def test_profile_quick_switch_aborts_and_ignores_stale_resource_and_detail_results(self):
         profile = SIM[SIM.index("let simcProfileSwitchGeneration"):SIM.index("function renderSimcComparisonCandidates")]

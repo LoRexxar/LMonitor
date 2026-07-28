@@ -197,6 +197,87 @@ class UpdateSimcBinaryCommandTests(TestCase):
             self.assertTrue(command._apply_patches_only(threads=2))
             update_binary.assert_called_once_with(do_pull=False, threads=2, apply_patches=False)
 
+    def test_apply_patches_mode_rebuilds_when_compiled_revision_was_not_promoted(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        command = Command()
+        command.stdout = StringIO()
+        command.row = mock.Mock(current_version='old-revision')
+        with mock.patch.object(command, '_apply_local_patches', return_value=False), \
+                mock.patch.object(command, '_binary_needs_patch_rebuild', return_value=False), \
+                mock.patch.object(command, '_get_git_hash', return_value='a' * 40), \
+                mock.patch.object(command, '_update_binary') as update_binary:
+            self.assertTrue(command._apply_patches_only(threads=2))
+            update_binary.assert_called_once_with(do_pull=False, threads=2, apply_patches=False)
+
+    def test_apply_patches_mode_rebuilds_after_interrupted_catalog_publication(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        command = Command()
+        command.stdout = StringIO()
+        command.row = mock.Mock(
+            current_version='a' * 40,
+            is_updating=True,
+            update_progress=90,
+        )
+        with mock.patch.object(command, '_apply_local_patches', return_value=False), \
+                mock.patch.object(command, '_binary_needs_patch_rebuild', return_value=False), \
+                mock.patch.object(command, '_get_git_hash', return_value='a' * 40), \
+                mock.patch.object(command, '_update_binary') as update_binary:
+            self.assertTrue(command._apply_patches_only(threads=2))
+            update_binary.assert_called_once_with(do_pull=False, threads=2, apply_patches=False)
+
+    def test_apply_patches_mode_rebuilds_when_catalog_build_differs(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        revision = 'a' * 40
+        SimcAplSymbol.objects.create(
+            simc_revision=revision, wow_build='old-build', token='bloodthirst',
+        )
+        command = Command()
+        command.stdout = StringIO()
+        command.wow_build_override = 'current-build'
+        command.row = mock.Mock(
+            current_version=revision,
+            is_updating=False,
+            update_progress=100,
+        )
+        with mock.patch.object(command, '_apply_local_patches', return_value=False), \
+                mock.patch.object(command, '_binary_needs_patch_rebuild', return_value=False), \
+                mock.patch.object(command, '_get_git_hash', return_value=revision), \
+                mock.patch.object(command, '_update_binary') as update_binary:
+            self.assertTrue(command._apply_patches_only(threads=2))
+            update_binary.assert_called_once_with(do_pull=False, threads=2, apply_patches=False)
+
+    def test_apply_patches_mode_skips_when_catalog_build_matches(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        revision = 'a' * 40
+        SimcAplSymbol.objects.create(
+            simc_revision=revision, wow_build='current-build', token='bloodthirst',
+        )
+        command = Command()
+        command.stdout = StringIO()
+        command.wow_build_override = 'current-build'
+        command.row = mock.Mock(
+            current_version=revision,
+            is_updating=False,
+            update_progress=100,
+        )
+        with mock.patch.object(command, '_apply_local_patches', return_value=False), \
+                mock.patch.object(command, '_binary_needs_patch_rebuild', return_value=False), \
+                mock.patch.object(command, '_get_git_hash', return_value=revision), \
+                mock.patch.object(command, '_update_binary') as update_binary:
+            self.assertFalse(command._apply_patches_only(threads=2))
+            update_binary.assert_not_called()
+
+    def test_deploy_pins_localized_catalog_build_against_ambient_environment(self):
+        script = Path('deploy.sh').read_text(encoding='utf-8')
+
+        self.assertIn('WOW_BUILD="12.0.7.68453"', script)
+        self.assertNotIn('WOW_BUILD="${WOW_BUILD:-', script)
+        self.assertIn('--wow-build "$WOW_BUILD"', script)
+
     def test_binary_health_requires_simulationcraft_identity(self):
         from botend.management.commands.update_simc_binary import Command
 
@@ -657,7 +738,6 @@ class UpdateSimcBinaryCommandTests(TestCase):
             with override_settings(SIMC_CONFIG={'simc_template': str(template_path)}):
                 command._sync_default_template()
                 template = SimcContentTemplate.objects.get(
-                    template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
                     source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
                     spec='default',
                     name='基础模板 default',
@@ -677,7 +757,6 @@ class UpdateSimcBinaryCommandTests(TestCase):
         from botend.management.commands.update_simc_binary import Command
 
         legacy = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
             spec='fury',
             name='基础模板 fury',
@@ -698,7 +777,6 @@ class UpdateSimcBinaryCommandTests(TestCase):
 
         legacy.refresh_from_db()
         canonical = SimcContentTemplate.objects.get(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
             spec='default',
             name='基础模板 default',

@@ -63,6 +63,20 @@ class SimcAplSymbolSyncTests(TestCase):
             100,
         )
 
+    def test_new_build_deactivates_previous_build_for_same_revision(self):
+        fact = {
+            'class_name': 'warrior', 'spec': 'fury', 'hero_tree': None,
+            'token': 'bloodthirst', 'symbol_kind': 'action', 'spell_id': 23881,
+            'source': 'runtime_manifest', 'aliases': [], 'options': {},
+        }
+        SimcAplSymbol.sync_revision_catalog('sha1', 'b1', [fact])
+        SimcAplSymbol.sync_revision_catalog('sha1', 'b2', [fact])
+
+        self.assertFalse(SimcAplSymbol.objects.get(
+            simc_revision='sha1', wow_build='b1', token='bloodthirst').is_active)
+        self.assertTrue(SimcAplSymbol.objects.get(
+            simc_revision='sha1', wow_build='b2', token='bloodthirst').is_active)
+
     def test_build_or_validation_failure_does_not_deactivate(self):
         SimcAplSymbol.objects.create(simc_revision='sha1', wow_build='b1', token='old')
         with mock.patch('botend.services.simc_apl.symbol_sync.build_symbol_facts',

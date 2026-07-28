@@ -9,27 +9,29 @@ from django.test import TestCase
 from botend.models import (
     SimulationRun,
 
+    SimcBackendBinary,
     SimcContentTemplate,
     SimcProfile,
     SimcTask,
     SimcTaskArtifact,
-    SimcTaskBatch,
 )
 
 
 class SimcWorkbenchTemplateResourceTests(TestCase):
+    BASE_CONTENT = 'iterations=100\n{player_config}\n'
+
     def setUp(self):
         self.owner = User.objects.create_user(username='wb-owner', password='pwd')
-        self.other = User.objects.create_user(username='wb-other', password='pwd')
         self.staff = User.objects.create_user(username='wb-staff', password='pwd', is_staff=True)
-        self.client.force_login(self.owner)
-
-    def _template(self, *, owner_id, name, template_type='custom_player', source='user', content='warrior="Test"'):
-        return SimcContentTemplate.objects.create(
-            owner_user_id=owner_id, name=name, template_type=template_type,
-            source=source, spec=name.lower().replace(' ', '_'), content=content,
+        self.system = SimcContentTemplate.objects.create(
+            owner_user_id=None,
+            name='System Base',
+            source=SimcContentTemplate.SOURCE_USER,
+            spec='default',
+            content=self.BASE_CONTENT,
             is_active=True,
         )
+        self.client.force_login(self.owner)
 
     def _post(self, path, payload):
         return self.client.post(path, json.dumps(payload), content_type='application/json')
@@ -37,112 +39,109 @@ class SimcWorkbenchTemplateResourceTests(TestCase):
     def _put(self, path, payload):
         return self.client.put(path, json.dumps(payload), content_type='application/json')
 
-    def test_row_permissions_and_owner_isolation(self):
-        own = self._template(owner_id=self.owner.id, name='Own')
-        foreign = self._template(owner_id=self.other.id, name='Foreign')
-        system = self._template(owner_id=None, name='System')
-        upstream = self._template(owner_id=None, name='Upstream', source='simc_upstream')
-        default_player = self._template(
-            owner_id=None, name='Default Player', template_type='default_player', content='warrior="Base"')
+    def test_list_exposes_only_global_base_template(self):
+        private = SimcContentTemplate.objects.create(
+            owner_user_id=self.owner.id, name='Legacy Private',
+            source='user', spec='legacy', content='warrior="Private"', is_active=True,
+        )
+        default_player = SimcProfile.objects.create(
+            user_id=None, name='Default Player', source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury', class_name='warrior',
+            spec='warrior_fury', player_config_mode='manual_equipment',
+            player_equipment='warrior="Base"', is_active=True,
+        )
 
         payload = self.client.get('/api/simc-workbench/templates/').json()
-        rows = {row['id']: row for row in payload['data']}
-        self.assertFalse(rows[own.id]['read_only'])
-        self.assertTrue(rows[system.id]['read_only'])
-        self.assertTrue(rows[upstream.id]['read_only'])
-        self.assertTrue(rows[default_player.id]['read_only'])
-        self.assertNotIn(foreign.id, rows)
+        self.assertEqual([row['id'] for row in payload['data']], [self.system.id])
+        self.assertTrue(payload['data'][0]['read_only'])
+        self.assertFalse(payload['can_write'])
+        self.assertNotIn(private.id, [row['id'] for row in payload['data']])
+
+        self.client.force_login(self.staff)
+        payload = self.client.get('/api/simc-workbench/templates/').json()
+        self.assertEqual([row['id'] for row in payload['data']], [self.system.id])
+        self.assertFalse(payload['data'][0]['read_only'])
         self.assertTrue(payload['can_write'])
 
+    def test_create_archive_restore_and_delete_are_disabled(self):
         self.client.force_login(self.staff)
-        rows = {row['id']: row for row in self.client.get('/api/simc-workbench/templates/').json()['data']}
-        self.assertFalse(rows[system.id]['read_only'])
-        self.assertTrue(rows[upstream.id]['read_only'])
-        self.assertTrue(rows[default_player.id]['read_only'])
-        self.assertNotIn(foreign.id, rows)
-        self.assertEqual(self._put(
-            f'/api/simc-workbench/templates/{foreign.id}/', {'name': 'stolen'}).status_code, 404)
-
-    def test_regular_owner_create_edit_archive_restore_and_type_validation(self):
-        response = self._post('/api/simc-workbench/templates/', {
-            'name': 'Personal Base', 'template_type': 'base_template',
-            'spec': 'fury', 'content': 'iterations=100\n{player_config}\n',
-            'owner_user_id': None,
-        })
-        self.assertEqual(response.status_code, 200, response.content)
-        template = SimcContentTemplate.objects.get(id=response.json()['data']['id'])
-        self.assertEqual(template.owner_user_id, self.owner.id)
-        self.assertEqual(template.source, SimcContentTemplate.SOURCE_USER)
-
-        invalid = self._put(f'/api/simc-workbench/templates/{template.id}/', {
-            'template_type': 'base_template', 'content': 'iterations=200',
-        })
-        self.assertEqual(invalid.status_code, 400)
-        template.refresh_from_db()
-        self.assertIn('{player_config}', template.content)
-
-        update = self._put(f'/api/simc-workbench/templates/{template.id}/', {
-            'name': 'Personal Player', 'template_type': 'custom_player', 'content': 'warrior="test"',
-        })
-        self.assertEqual(update.status_code, 200, update.content)
-        template.refresh_from_db()
-        self.assertEqual(template.template_type, SimcContentTemplate.TYPE_CUSTOM_PLAYER)
-        self.assertEqual(template.content, 'warrior="test"')
-
-        for action, expected in (('archive', False), ('restore', True)):
-            response = self._post(
-                f'/api/simc-workbench/templates/{template.id}/', {'action': action})
-            self.assertEqual(response.status_code, 200, response.content)
-            template.refresh_from_db()
-            self.assertEqual(template.is_active, expected)
-
-    def test_protected_templates_and_invalid_types_are_rejected(self):
-        owned = self._template(owner_id=self.owner.id, name='Mutable')
-        upstream = self._template(owner_id=self.owner.id, name='Readonly Upstream', source='simc_upstream')
-        default_player = self._template(
-            owner_id=self.owner.id, name='Readonly Player', template_type='default_player', content='warrior="X"')
-
-        for template in (upstream, default_player):
-            self.assertEqual(self._put(
-                f'/api/simc-workbench/templates/{template.id}/', {'content': 'changed'}).status_code, 403)
-            self.assertEqual(self._post(
-                f'/api/simc-workbench/templates/{template.id}/', {'action': 'archive'}).status_code, 403)
-
         self.assertEqual(self._post('/api/simc-workbench/templates/', {
-            'name': 'Forbidden', 'template_type': 'default_player', 'content': 'warrior="X"'}).status_code, 403)
-        self.assertEqual(self._put(f'/api/simc-workbench/templates/{owned.id}/', {
-            'template_type': 'default_player', 'content': 'warrior="X"'}).status_code, 403)
-        self.assertEqual(self._put(f'/api/simc-workbench/templates/{owned.id}/', {
-            'template_type': 'not-real', 'content': 'actions=/x'}).status_code, 400)
+            'name': 'Extra', 'content': self.BASE_CONTENT,
+        }).status_code, 405)
+        for action in ('archive', 'restore'):
+            self.assertEqual(self._post(
+                f'/api/simc-workbench/templates/{self.system.id}/', {'action': action},
+            ).status_code, 405)
+        self.assertEqual(self.client.delete(
+            f'/api/simc-workbench/templates/{self.system.id}/',
+        ).status_code, 405)
+        self.system.refresh_from_db()
+        self.assertTrue(self.system.is_active)
 
-    def test_staff_can_manage_global_but_not_private_template(self):
-        system = self._template(owner_id=None, name='Managed System')
-        private = self._template(owner_id=self.other.id, name='Private')
+    def test_regular_user_cannot_edit_system_template(self):
+        response = self._put(
+            f'/api/simc-workbench/templates/{self.system.id}/',
+            {'content': 'iterations=200\n{player_config}\n'},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.system.refresh_from_db()
+        self.assertEqual(self.system.content, self.BASE_CONTENT)
+
+    def test_staff_can_edit_only_system_template_content(self):
         self.client.force_login(self.staff)
-        self.assertEqual(self._put(
-            f'/api/simc-workbench/templates/{system.id}/', {'content': 'actions=/system'}).status_code, 200)
-        self.assertEqual(self._post(
-            f'/api/simc-workbench/templates/{system.id}/', {'action': 'archive'}).status_code, 200)
-        self.assertEqual(self._put(
-            f'/api/simc-workbench/templates/{private.id}/', {'content': 'actions=/stolen'}).status_code, 404)
+        updated_content = 'iterations=200\n{player_config}\n'
+        response = self._put(
+            f'/api/simc-workbench/templates/{self.system.id}/',
+            {'content': updated_content},
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.system.refresh_from_db()
+        self.assertEqual(self.system.content, updated_content)
 
-    def test_foreign_protected_templates_are_indistinguishable_from_missing(self):
-        foreign_upstream = self._template(
-            owner_id=self.other.id, name='Foreign Upstream', source='simc_upstream')
-        foreign_default_player = self._template(
-            owner_id=self.other.id, name='Foreign Default Player',
-            template_type='default_player', content='warrior="Foreign"')
+        for field, value in (
+            ('name', 'Renamed'),
+            ('spec', 'warrior_fury'),
+            ('class_name', 'warrior'),
+            ('source', 'simc_upstream'),
+        ):
+            response = self._put(
+                f'/api/simc-workbench/templates/{self.system.id}/',
+                {'content': updated_content, field: value},
+            )
+            self.assertEqual(response.status_code, 400, field)
 
-        for template in (foreign_upstream, foreign_default_player):
-            path = f'/api/simc-workbench/templates/{template.id}/'
-            self.assertEqual(self._put(path, {'content': 'actions=/stolen'}).status_code, 404)
-            self.assertEqual(self._post(path, {'action': 'archive'}).status_code, 404)
-
+    def test_internal_or_private_templates_are_not_workbench_resources(self):
+        private = SimcContentTemplate.objects.create(
+            owner_user_id=self.owner.id, name='Legacy Private',
+            source='user', spec='legacy', content='warrior="Private"', is_active=True,
+        )
+        default_player = SimcProfile.objects.create(
+            user_id=None, name='Default Player', source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury', class_name='warrior',
+            spec='warrior_fury', player_config_mode='manual_equipment',
+            player_equipment='warrior="Base"', is_active=True,
+        )
         self.client.force_login(self.staff)
-        for template in (foreign_upstream, foreign_default_player):
-            path = f'/api/simc-workbench/templates/{template.id}/'
-            self.assertEqual(self._put(path, {'content': 'actions=/stolen'}).status_code, 404)
-            self.assertEqual(self._post(path, {'action': 'archive'}).status_code, 404)
+        path = f'/api/simc-workbench/templates/{private.id}/'
+        self.assertEqual(self.client.get(path).status_code, 404)
+        self.assertEqual(self._put(path, {'content': self.BASE_CONTENT}).status_code, 404)
+        self.assertTrue(SimcProfile.objects.filter(pk=default_player.id).exists())
+
+    def test_split_resource_tables_keep_system_base_and_internal_players(self):
+        duplicate = SimcContentTemplate.objects.create(
+            owner_user_id=None, name='Old Base',
+            source='user', spec='legacy', content=self.BASE_CONTENT, is_active=False,
+        )
+        default_player = SimcProfile.objects.create(
+            user_id=None, name='Default Player', source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury', class_name='warrior',
+            spec='warrior_fury', player_config_mode='manual_equipment',
+            player_equipment='warrior="Base"', is_active=True,
+        )
+
+        self.assertTrue(SimcContentTemplate.objects.filter(pk=self.system.pk).exists())
+        self.assertTrue(SimcContentTemplate.objects.filter(pk=duplicate.pk).exists())
+        self.assertTrue(SimcProfile.objects.filter(pk=default_player.pk).exists())
 
 
 class SimcWorkbenchHistoryResourceTests(TestCase):
@@ -150,6 +149,9 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
         self.user = User.objects.create_user(username='history-owner', password='pwd')
         self.other = User.objects.create_user(username='history-other', password='pwd')
         self.client.force_login(self.user)
+        self.backend = SimcBackendBinary.objects.create(
+            identifier='test-history', name='Test History', simc_path='/tmp/simc',
+        )
         self.profile = SimcProfile.objects.create(
             user_id=self.user.id, name='Inactive Profile', spec='fury', is_active=False)
 
@@ -166,31 +168,40 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
         self.assertFalse(SimcTask.objects.filter(name='must fail').exists())
 
     def test_batch_detail_has_only_safe_owned_member_summaries(self):
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id, name='Owned Batch', request_manifest='SECRET MANIFEST',
-            error_detail='SECRET TRACEBACK', status=1)
         task = SimcTask.objects.create(
-            user_id=self.user.id, batch=batch, name='Safe Task', simc_profile_id=0,
-            current_status=3, task_type=2,
+            user_id=self.user.id, name='Safe Task', simc_profile_id=0,
+            current_status=3, task_type=1, mode='comparison',
             error_detail='SECRET ERROR', ext='{"diagnostic":"SECRET EXT"}',
             result_file='/secret/server/path.html')
-        foreign_member = SimcTask.objects.create(
-            user_id=self.other.id, batch=batch, name='Foreign Member', simc_profile_id=0)
-        response = self.client.get(f'/api/simc-workbench/batches/{batch.id}/')
+        run = SimulationRun.objects.create(
+            task=task, sequence=1, candidate_key='safe', candidate_label='Safe candidate',
+            status='failed', candidate_params={
+                'candidate_type': 'talent', 'is_base': True,
+                'request_manifest': 'SECRET MANIFEST', 'apl_override': 'SECRET APL',
+            }, resource_manifest={'path': 'SECRET RESOURCE PATH'},
+            error_detail='SECRET TRACEBACK', result_summary={'dps': 123, 'raw': 'SECRET RAW'},
+        )
+        foreign_task = SimcTask.objects.create(
+            user_id=self.other.id, name='Foreign Task', simc_profile_id=0, mode='comparison')
+        SimulationRun.objects.create(
+            task=foreign_task, sequence=1, candidate_label='Foreign Member', status='completed',
+            result_summary={'dps': 999999},
+        )
+        response = self.client.get(f'/api/simc-workbench/tasks/{task.id}/')
         self.assertEqual(response.status_code, 200)
         payload = response.json()['data']
-        self.assertEqual([row['id'] for row in payload['tasks']], [task.id])
-        member = payload['tasks'][0]
-        for field in ('id', 'name', 'status', 'status_label', 'task_type', 'updated_at', 'can_view'):
+        self.assertEqual([row['id'] for row in payload['runs']], [run.id])
+        member = payload['runs'][0]
+        for field in ('id', 'sequence', 'status', 'candidate_label', 'result_summary', 'error_summary'):
             self.assertIn(field, member)
         serialized = json.dumps(payload, ensure_ascii=False)
-        for secret in ('SECRET MANIFEST', 'SECRET TRACEBACK', 'SECRET ERROR', 'SECRET EXT', '/secret/server/path.html'):
+        for secret in ('SECRET MANIFEST', 'SECRET TRACEBACK', 'SECRET ERROR', 'SECRET EXT',
+                       'SECRET APL', 'SECRET RESOURCE PATH', 'SECRET RAW', '/secret/server/path.html'):
             self.assertNotIn(secret, serialized)
-        self.assertNotIn(foreign_member.id, [row['id'] for row in payload['tasks']])
+        self.assertNotIn('Foreign Member', serialized)
 
-        foreign_batch = SimcTaskBatch.objects.create(user_id=self.other.id, name='Foreign Batch')
         self.assertEqual(self.client.get(
-            f'/api/simc-workbench/batches/{foreign_batch.id}/').status_code, 404)
+            f'/api/simc-workbench/tasks/{foreign_task.id}/').status_code, 404)
 
     def test_artifact_list_is_paginated_filtered_and_owner_isolated(self):
         owner_task = SimcTask.objects.create(
@@ -268,6 +279,7 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
     def test_task_detail_parses_summary_from_latest_run_bound_artifact(self):
         task = SimcTask.objects.create(
             user_id=self.user.id, name='Detailed report', simc_profile_id=0,
+            backend=self.backend,
             current_status=2, result_file='latest-task-pointer.html')
         old_run = SimulationRun.objects.create(
             task=task, sequence=1, status='completed', result_summary={'dps': 111})
@@ -297,7 +309,10 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
             with patch(
                 'botend.services.simc_artifacts._validated_result',
                 return_value=(report_path, 'simc_results/current_run_2.html'),
-            ) as validated:
+            ) as validated, patch(
+                'botend.dashboard.api.ConvertTextAPIView.bilingual_pairs',
+                return_value=([('action', 'rampage', '暴怒')], []),
+            ) as bilingual_pairs:
                 response = self.client.get(f'/api/simc-workbench/tasks/{task.id}/')
 
         self.assertEqual(response.status_code, 200)
@@ -305,10 +320,14 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
         detail = payload['report_summary']
         self.assertEqual(detail['dps'], 95132)
         self.assertEqual(detail['character'], {
-            'name': 'Zornfalte', 'race': 'Orc', 'class': 'Warrior',
-            'spec': 'Fury', 'level': '90'})
-        self.assertEqual(detail['simulation']['fight_style'], 'Patchwerk')
-        self.assertEqual(detail['top_abilities'][0]['name'], 'Rampage')
+            'name': 'Zornfalte', 'race': '兽人', 'race_en': 'Orc',
+            'class': '战士', 'class_en': 'Warrior',
+            'spec': '狂怒', 'spec_en': 'Fury', 'level': '90'})
+        self.assertEqual(detail['simulation']['fight_style'], '木桩战')
+        self.assertEqual(detail['simulation']['fight_style_en'], 'Patchwerk')
+        self.assertEqual(detail['top_abilities'][0]['name'], '暴怒')
+        self.assertEqual(detail['top_abilities'][0]['name_en'], 'Rampage')
+        bilingual_pairs.assert_called_once_with('warrior_fury')
         validated.assert_called_once_with(task, 'current_run_2.html', run=latest_run)
         self.assertEqual(payload['report_artifact_id'], latest_artifact.id)
 

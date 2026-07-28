@@ -124,11 +124,17 @@ def load_runtime_manifest(path, simc_revision, wow_build):
         trait_id = symbol.get('trait_id', symbol.get('trait_node_entry_id'))
         options = symbol.get('options')
         aliases = symbol.get('aliases')
+        candidates = symbol.get('candidates', [])
+        reason = symbol.get('reason')
         if (scope not in MANIFEST_SCOPES or kind not in valid_kinds or
                 (spell_id is not None and (not isinstance(spell_id, int) or
                                            isinstance(spell_id, bool) or spell_id <= 0)) or
                 (trait_id is not None and (not isinstance(trait_id, int) or
                                            isinstance(trait_id, bool) or trait_id <= 0)) or
+                not isinstance(candidates, list) or
+                not all(isinstance(value, int) and not isinstance(value, bool) and value > 0
+                        for value in candidates) or
+                (reason is not None and (not isinstance(reason, str) or not reason.strip())) or
                 not isinstance(options, list) or
                 not all(isinstance(value, str) and value.strip() for value in options) or
                 not isinstance(aliases, list) or
@@ -147,7 +153,6 @@ def load_runtime_manifest(path, simc_revision, wow_build):
         # token must remain English, not malformed catalog facts.  Drop only
         # those unresolved talent diagnostics; a talent with an ID is imported
         # normally, and an ID-less talent without a diagnostic is invalid.
-        reason = symbol.get('reason')
         if kind == 'talent' and trait_id is None and isinstance(reason, str) and reason.strip():
             continue
         if kind == 'talent' and trait_id is None:
@@ -168,6 +173,9 @@ def load_runtime_manifest(path, simc_revision, wow_build):
             'token': token, 'symbol_kind': kind, 'spell_id': spell_id,
             'trait_id': trait_id,
             'source': SimcAplSymbol.SOURCE_SIMC_MANIFEST,
+            'identity_source': symbol['source'].strip(),
+            'identity_reason': reason.strip() if isinstance(reason, str) else '',
+            'identity_candidates': sorted(set(candidates)),
             'options': sorted(set(value.strip().lower() for value in options)),
             'aliases': sorted(set(value.strip().lower() for value in aliases)),
         }
@@ -318,7 +326,8 @@ def build_symbol_facts(simc_revision, wow_build, apl_queryset=None, bindings=Non
 
 def _snapshot(revision, build):
     fields = ('class_key', 'spec_key', 'hero_tree_key', 'token', 'symbol_kind',
-              'class_name', 'spec', 'hero_tree', 'spell_id', 'trait_id', 'source', 'aliases',
+              'class_name', 'spec', 'hero_tree', 'spell_id', 'trait_id', 'source',
+              'identity_source', 'identity_reason', 'identity_candidates', 'aliases',
               'options', 'is_active')
     return {tuple(row[:5]): tuple(row[5:]) for row in
             SimcAplSymbol.objects.filter(simc_revision=revision, wow_build=build)

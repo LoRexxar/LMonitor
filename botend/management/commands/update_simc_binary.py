@@ -24,7 +24,8 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
-from botend.models import (SimcApl, SimcBackendBinary, SimcContentTemplate,
+from botend.models import (SimcApl, SimcAplSymbol, SimcBackendBinary,
+                           SimcContentTemplate, SimcProfile,
                            WowSpellSnapshotState, WowTalentVersion)
 from botend.services.simc_apl.authoritative_validator import RestrictedSimcValidator
 from botend.services.simc_apl.publish import content_hash
@@ -94,8 +95,10 @@ class Command(BaseCommand):
 
     def _get_row(self):
         row, _ = SimcBackendBinary.objects.get_or_create(
-            platform=self.platform,
+            identifier='production',
             defaults={
+                'name': '正式服',
+                'platform': self.platform,
                 'simc_path': self._stored_simc_path(),
                 'current_version': '',
                 'latest_version': '',
@@ -216,7 +219,6 @@ class Command(BaseCommand):
             return
 
         template, created = SimcContentTemplate.objects.update_or_create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
             spec='default',
             name='基础模板 default',
@@ -228,7 +230,6 @@ class Command(BaseCommand):
             }
         )
         SimcContentTemplate.objects.filter(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
         ).exclude(id=template.id).update(is_active=False, is_selectable=False)
         action = '创建' if created else '更新'
@@ -288,13 +289,16 @@ class Command(BaseCommand):
     def _validation_baseline_for_spec(spec, baselines):
         exact = baselines.get(spec)
         if exact is not None:
-            return exact
+            return type('ValidationBaseline', (), {
+                'content': exact.player_equipment, 'spec': exact.spec,
+                'class_name': exact.class_name,
+            })()
         class_name, short_spec = canonical_simc_spec_identity(spec)
         source = next((row for row in baselines.values()
                        if row.class_name == class_name), None)
         if source is None:
             return None
-        content = re.sub(r'(?m)^spec\s*=.*$', f'spec={short_spec}', source.content, count=1)
+        content = re.sub(r'(?m)^spec\s*=.*$', f'spec={short_spec}', source.player_equipment, count=1)
         content = re.sub(r'(?m)^talents\s*=.*\n?', '', content)
         return type('ValidationBaseline', (), {
             'content': content, 'spec': spec, 'class_name': class_name,
@@ -308,9 +312,9 @@ class Command(BaseCommand):
         if not apls:
             raise CommandError('本次 revision 没有可发布的系统 APL')
         baselines = {
-            row.spec: row for row in SimcContentTemplate.objects.filter(
-                template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-                source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+            row.spec: row for row in SimcProfile.objects.filter(
+                user_id__isnull=True,
+                source=SimcProfile.SOURCE_SIMC_UPSTREAM,
                 is_active=True, sync_version=git_hash,
             )
         }
@@ -405,9 +409,9 @@ class Command(BaseCommand):
                     f'未找到可初始化的 MID1 profile: {profile_dir}',
                     progress=92,
                 )
-            baseline_rows = list(SimcContentTemplate.objects.filter(
-                template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-                source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+            baseline_rows = list(SimcProfile.objects.filter(
+                user_id__isnull=True,
+                source=SimcProfile.SOURCE_SIMC_UPSTREAM,
                 is_active=True, sync_version=git_hash,
             ))
             baselines = {row.spec: row for row in baseline_rows}
@@ -949,7 +953,34 @@ class Command(BaseCommand):
 
     def _apply_patches_only(self, threads=2):
         changed = self._apply_local_patches()
-        if not changed and not self._binary_needs_patch_rebuild():
+        binary_stale = self._binary_needs_patch_rebuild()
+        revision_unpromoted = False
+        publication_incomplete = False
+        catalog_build_differs = False
+        if not changed and not binary_stale:
+            row = getattr(self, 'row', None)
+            current_version = getattr(row, 'current_version', None)
+            target_build = str(getattr(self, 'wow_build_override', '') or '').strip()
+            git_hash = (
+                self._get_git_hash()
+                if isinstance(current_version, str) or target_build else ''
+            )
+            revision_unpromoted = (
+                isinstance(current_version, str)
+                and not self._revision_matches_git_hash(current_version, git_hash)
+            )
+            update_progress = getattr(row, 'update_progress', None)
+            publication_incomplete = (
+                getattr(row, 'is_updating', None) is True
+                or (isinstance(update_progress, int) and update_progress < 100)
+            )
+            if target_build and re.fullmatch(r'[0-9a-fA-F]{40}', str(git_hash or '')):
+                active_builds = set(SimcAplSymbol.objects.filter(
+                    simc_revision=git_hash, is_active=True,
+                ).values_list('wow_build', flat=True).distinct())
+                catalog_build_differs = active_builds != {target_build}
+        if (not changed and not binary_stale and not revision_unpromoted
+                and not publication_incomplete and not catalog_build_differs):
             self.stdout.write('SimC 本地补丁已存在，无需重新编译')
             return False
         self._update_binary(do_pull=False, threads=threads, apply_patches=False)

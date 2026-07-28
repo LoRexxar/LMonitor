@@ -88,6 +88,7 @@ SPEC_CN = {
     "Unholy":         "邪恶",
     "Havoc":          "浩劫",
     "Vengeance":      "复仇",
+    "Devourer":       "噬灭",
     "Balance":        "平衡",
     "Feral":          "野性",
     "Guardian":       "守护",

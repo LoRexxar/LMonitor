@@ -10,25 +10,122 @@ Responsibilities:
 """
 import hashlib
 import json
+from copy import deepcopy
+from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
 from django.db import transaction
 from botend.models import (
     SimcTask,
+    SimulationRun,
     SimcProfile,
     SimcContentTemplate,
     SimcApl,
     SimcResourceVersion,
+    SimcBackendBinary,
 )
 from botend.services.simc_apl.publish import (
     content_hash as apl_content_hash,
     current_validation_identity,
     validate_apl_for_profile,
 )
+from botend.services.simc_composer import validate_simulation_options
 
 
 class TaskCreationError(Exception):
     """Raised when task creation fails validation."""
     pass
+
+
+class TaskValidationUnavailable(TaskCreationError):
+    """Authoritative validation could not currently produce a reliable verdict."""
+
+
+class TaskPreparedResourceChanged(TaskCreationError):
+    """A valid preflight token became stale because a locked resource changed."""
+
+
+_PREPARED_SEAL = object()
+
+_VALIDATION_TOP_LEVEL_RETRYABLE = frozenset({
+    'validation_context_unavailable',
+    'validation_backend_unavailable',
+    'validation_failed',
+})
+_AUTHORITATIVE_CONTENT_FAILURES = frozenset({
+    'source_too_large',
+    'validation_input_too_large',
+    'profile_directive_forbidden',
+})
+_AUTHORITATIVE_RETRYABLE_FAILURES = frozenset({
+    'stale_binary',
+    'binary_unavailable',
+    'temp_directory_error',
+    'timeout',
+    'output_too_large',
+})
+
+
+def _validation_failure_is_retryable(validation):
+    """Classify a failed validator result using fields, never diagnostic text.
+
+    Definite content/input rejection is permanent. Unknown or malformed failed
+    results are retryable so a scheduled slot is not lost merely because a newer or
+    broken validator response could not be classified.
+    """
+    if not isinstance(validation, dict):
+        return True
+
+    if validation.get('error') in _VALIDATION_TOP_LEVEL_RETRYABLE:
+        return True
+
+    details = validation.get('details')
+    if not isinstance(details, dict):
+        return True
+
+    # Structural parsing is local and deterministic, so it is authoritative even if
+    # the remainder of a malformed response contains contradictory fields.
+    if details.get('structural_valid') is False:
+        return False
+
+    status = details.get('authoritative_status')
+    authoritative_error = details.get('authoritative_error')
+    code = authoritative_error.get('code') if isinstance(authoritative_error, dict) else None
+    if code in _AUTHORITATIVE_CONTENT_FAILURES:
+        return False
+    if code in _AUTHORITATIVE_RETRYABLE_FAILURES:
+        return True
+    if status == 'invalid':
+        return False
+    if status == 'error':
+        # Unknown authoritative errors deliberately fail safe as retryable.
+        return True
+
+    # A structural skip is a definite content failure even if structural_valid was
+    # omitted by an older validator response.
+    if status == 'skipped_structural_errors':
+        return False
+
+    return True
+
+
+@dataclass(frozen=True)
+class PreparedTaskCreation:
+    """Opaque, process-local proof that executable resources passed preflight.
+
+    Persistence re-locks and re-derives every execution-affecting token. Canonical
+    JSON strings keep the prepared payload deeply immutable.
+    """
+    user_id: int
+    backend_id: int
+    profile_id: int
+    apl_id: int
+    template_id: int
+    profile_payload_json: str
+    apl_payload_json: str
+    template_payload_json: str
+    resource_token: str
+    validation_identity: tuple
+    seal: object = field(repr=False, compare=False)
 
 
 # Whitelist for simulation_params
@@ -45,15 +142,14 @@ SIMULATION_PARAMS_WHITELIST = {
 # Candidate differences for comparison / attribute-sweep tasks.  Values remain
 # structured JSON, but unknown top-level keys are discarded at task creation.
 MODE_PARAMS_WHITELIST = {
-    'candidate_type',
-    'is_base',
-    'batch_index',
-    'gear_swap',
-    'talent_override',
-    'talent_candidate',
-    'apl_override',
-    'attribute_ratings',
     'search',
+    'request_manifest',
+}
+
+CANDIDATE_PARAMS_WHITELIST = {
+    'candidate_type', 'is_base', 'gear_swap', 'talent_override',
+    'talent_candidate', 'apl_override', 'attribute_ratings', 'search',
+    'simc_options',
 }
 
 
@@ -63,7 +159,7 @@ def _compute_content_hash(payload: dict) -> str:
     return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
 
 
-def _validate_resource_ownership(
+def validate_resource_ownership(
     resource,
     resource_type: str,
     user_id: int,
@@ -78,7 +174,12 @@ def _validate_resource_ownership(
     if resource_type == 'profile':
         if not isinstance(resource, SimcProfile):
             raise TaskCreationError(f"Invalid profile resource")
-        if resource.user_id != user_id:
+        is_system_default = (
+            resource.user_id is None
+            and resource.source == SimcProfile.SOURCE_SIMC_UPSTREAM
+            and bool(resource.system_key)
+        )
+        if resource.user_id != user_id and not is_system_default:
             raise TaskCreationError(
                 f"Profile {resource.id} belongs to user {resource.user_id}, not {user_id}"
             )
@@ -109,6 +210,12 @@ def _validate_resource_ownership(
             raise TaskCreationError(f"APL {resource.id} is not active")
         if not resource.is_selectable:
             raise TaskCreationError(f"APL {resource.id} is not selectable")
+
+
+# Compatibility for existing imports/call sites. Keep forwarding dynamically so
+# monkeypatches and future fixes to the public policy are consistently observed.
+def _validate_resource_ownership(resource, resource_type: str, user_id: int) -> None:
+    return validate_resource_ownership(resource, resource_type, user_id)
 
 
 def _create_or_reuse_version(
@@ -185,7 +292,6 @@ def _build_template_payload(template: SimcContentTemplate) -> dict:
     """Build immutable payload from SimcContentTemplate."""
     return {
         'name': template.name,
-        'template_type': template.template_type,
         'spec': template.spec,
         'content': template.content,
     }
@@ -208,6 +314,92 @@ def _normalize_params(params: Optional[Dict[str, Any]], whitelist: set) -> Optio
     return {k: v for k, v in params.items() if k in whitelist}
 
 
+def _normalize_candidates(candidates, round_number=1):
+    """Freeze only the controlled candidate fields needed by backend execution."""
+    candidates = list(candidates or [])
+    if not candidates:
+        candidates = [{'candidate_key': 'normal', 'candidate_label': 'normal'}]
+    frozen = []
+    for index, candidate in enumerate(candidates, 1):
+        if not isinstance(candidate, dict):
+            raise TaskCreationError('candidate must be an object')
+        params = _normalize_params(
+            candidate.get('candidate_params') or candidate.get('params') or {},
+            CANDIDATE_PARAMS_WHITELIST,
+        ) or {}
+        if 'simc_options' in params:
+            from botend.services.simc_candidate_options import normalize_controlled_simc_options
+            try:
+                params['simc_options'] = normalize_controlled_simc_options(
+                    params['simc_options'], allow_absent=False,
+                )
+            except ValueError as exc:
+                raise TaskCreationError(str(exc)) from exc
+        key = str(candidate.get('candidate_key') or candidate.get('key') or f'candidate-{index}')[:200]
+        frozen.append({
+            'candidate_key': key,
+            'candidate_label': str(candidate.get('candidate_label') or candidate.get('label') or key)[:200],
+            'round_number': max(1, int(candidate.get('round_number') or round_number)),
+            'candidate_params': params,
+        })
+    return frozen
+
+
+def initialize_task_runs(task, expected_started_at=None):
+    """Create initial Runs when backend processing actually starts a Task."""
+    with transaction.atomic():
+        locked = SimcTask.objects.select_for_update().get(pk=task.pk)
+        if expected_started_at is not None and (
+            locked.current_status != 1 or locked.started_at != expected_started_at
+        ):
+            raise ValueError('SimC Task 执行租约已失效')
+        existing = list(SimulationRun.objects.filter(task=locked).order_by('sequence'))
+        if existing:
+            return existing
+        mode_params = locked.mode_params if isinstance(locked.mode_params, dict) else {}
+        candidates = _normalize_candidates(mode_params.get('initial_candidates'))
+        rows = [SimulationRun(
+            task=locked,
+            sequence=index,
+            candidate_key=candidate['candidate_key'],
+            candidate_label=candidate['candidate_label'],
+            round_number=candidate['round_number'],
+            candidate_params=candidate['candidate_params'],
+            status='pending',
+        ) for index, candidate in enumerate(candidates, 1)]
+        SimulationRun.objects.bulk_create(rows)
+        return rows
+
+
+def append_candidate_runs(task, candidates, round_number=1, expected_started_at=None):
+    """Append later-round candidate executions to a Task already being processed."""
+    candidates = _normalize_candidates(candidates, round_number=round_number)
+    with transaction.atomic():
+        locked = SimcTask.objects.select_for_update().get(pk=task.pk)
+        if expected_started_at is not None and (
+            locked.current_status != 1 or locked.started_at != expected_started_at
+        ):
+            raise ValueError('属性寻优执行租约已失效')
+        next_sequence = (SimulationRun.objects.filter(task=locked).order_by('-sequence')
+                         .values_list('sequence', flat=True).first() or 0) + 1
+        rows = []
+        for offset, candidate in enumerate(candidates):
+            rows.append(SimulationRun(
+                task=locked, sequence=next_sequence + offset,
+                candidate_key=candidate['candidate_key'],
+                candidate_label=candidate['candidate_label'],
+                round_number=candidate['round_number'],
+                candidate_params=candidate['candidate_params'], status='pending',
+            ))
+        SimulationRun.objects.bulk_create(rows)
+        if locked.current_status in (2, 3):
+            locked.current_status = 0
+            locked.started_at = locked.completed_at = None
+            locked.error_detail = None
+            locked.save(update_fields=['current_status', 'started_at', 'completed_at', 'error_detail', 'modified_time'])
+    return rows
+
+
 def create_task_from_request(
     user_id: int,
     profile_fields: Dict[str, Any],
@@ -215,6 +407,10 @@ def create_task_from_request(
     selected_apl_id: int,
     simulation_params: Optional[Dict[str, Any]] = None,
     name: Optional[str] = None,
+    mode: str = 'normal',
+    mode_params: Optional[Dict[str, Any]] = None,
+    candidates: Optional[list] = None,
+    backend_id: Optional[int] = None,
 ) -> SimcTask:
     """
     Unified entry for homepage "auto-save/update player config and create Task" atomic operation.
@@ -326,176 +522,237 @@ def create_task_from_request(
             profile_id=profile.id,
             template_id=base_template_id,
             apl_id=selected_apl_id,
-            mode='normal',
+            mode=mode,
             simulation_params=normalized_simulation_params,
+            mode_params=mode_params,
+            candidates=candidates,
+            backend_id=backend_id,
         )
 
         return task
 
 
-@transaction.atomic
-def create_task(
-    user_id: int,
-    name: str,
-    profile_id: Optional[int] = None,
-    template_id: Optional[int] = None,
-    apl_id: Optional[int] = None,
-    mode: str = 'normal',
-    simulation_params: Optional[Dict[str, Any]] = None,
-    mode_params: Optional[Dict[str, Any]] = None,
-    candidate_label: str = '',
-    batch_id: Optional[int] = None,
-) -> SimcTask:
-    """
-    Create a reference-based SimC task with immutable version snapshots.
+def _canonical_json(value):
+    return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
 
-    Args:
-        user_id: User creating the task
-        name: Task name
-        profile_id: SimcProfile FK
-        template_id: SimcContentTemplate FK
-        apl_id: SimcApl FK
-        mode: Task mode (normal/comparison/attribute_sweep)
-        simulation_params: Simulation options (will be normalized)
-        mode_params: Mode-specific params (will be normalized)
-        candidate_label: Label for comparison tasks
-        batch_id: Optional batch FK
 
-    Returns:
-        Created SimcTask with version FKs set
+def _resource_token(user_id, backend, profile, apl, template, identity):
+    """Bind all fields which can change executable content or selection policy."""
+    return _compute_content_hash({
+        'user_id': user_id,
+        'backend': {
+            'id': backend.pk, 'active': backend.is_active,
+            'identifier': backend.identifier, 'platform': backend.platform,
+            'path': backend.simc_path, 'version': backend.current_version,
+        },
+        'profile': {
+            'id': profile.pk, 'owner': profile.user_id, 'active': profile.is_active,
+            'payload': _build_profile_payload(profile),
+        },
+        'apl': {
+            'id': apl.pk, 'owner': apl.owner_user_id, 'system': apl.is_system,
+            'active': apl.is_active, 'selectable': apl.is_selectable,
+            'payload': _build_apl_payload(apl),
+            'validation_status': apl.validation_status,
+            'validated_content_hash': apl.validated_content_hash,
+            'validation_revision': apl.validation_revision,
+            'validation_game_build': apl.validation_game_build,
+        },
+        'template': {
+            'id': template.pk, 'owner': template.owner_user_id,
+            'active': template.is_active, 'selectable': template.is_selectable,
+            'payload': _build_template_payload(template),
+        },
+        'validation_identity': list(identity),
+    })
 
-    Raises:
-        TaskCreationError: If validation fails
-    """
-    # Validate mode
+
+def _check_resource_specs(profile, apl, template):
+    from botend.services.simc_player_config import canonical_simc_spec_identity
+    profile_class, profile_spec = canonical_simc_spec_identity(profile.spec)
+    canonical_spec = f'{profile_class}_{profile_spec}' if profile_class and profile_spec else ''
+    template_class, template_spec = canonical_simc_spec_identity(template.spec)
+    generic = str(template.spec or '').strip().lower() in ('', 'default', 'all', '*')
+    if canonical_spec and not generic and (
+            template_spec != profile_spec
+            or (profile_class and template_class and template_class != profile_class)):
+        raise TaskCreationError('基础模板专精与玩家配置专精不一致')
+    apl_class, apl_spec = canonical_simc_spec_identity(apl.spec)
+    if canonical_spec and (
+            apl_spec != profile_spec
+            or (profile_class and apl_class and apl_class != profile_class)):
+        raise TaskCreationError('APL 专精与玩家配置专精不一致')
+
+
+def _load_resources(user_id, profile_id, template_id, apl_id, backend_id, *, lock=False):
+    if not profile_id or not template_id or not apl_id:
+        raise TaskCreationError(
+            'Complete references required: profile_id, template_id, and apl_id must all be provided'
+        )
+    backend_qs = SimcBackendBinary.objects
+    profile_qs = SimcProfile.objects
+    apl_qs = SimcApl.objects
+    template_qs = SimcContentTemplate.objects
+    if lock:
+        # Global task-persistence lock order. Do not use select_related here: on
+        # PostgreSQL that can implicitly lock joined resources out of order.
+        backend_qs = backend_qs.select_for_update()
+        profile_qs = profile_qs.select_for_update()
+        apl_qs = apl_qs.select_for_update()
+        template_qs = template_qs.select_for_update()
+    if backend_id:
+        backend = backend_qs.filter(pk=backend_id, is_active=True).first()
+        backend_error = 'Selected SimC backend does not exist or is disabled'
+    else:
+        backend = backend_qs.filter(identifier='production', is_active=True).first()
+        backend_error = 'Default production SimC backend is unavailable'
+    if backend is None:
+        raise TaskCreationError(backend_error)
+    try:
+        profile = profile_qs.get(pk=profile_id)
+    except SimcProfile.DoesNotExist:
+        raise TaskCreationError(f'Profile {profile_id} does not exist')
+    try:
+        apl = apl_qs.get(pk=apl_id)
+    except SimcApl.DoesNotExist:
+        raise TaskCreationError(f'APL {apl_id} does not exist')
+    try:
+        template = template_qs.get(pk=template_id)
+    except SimcContentTemplate.DoesNotExist:
+        raise TaskCreationError(f'Template {template_id} does not exist')
+    validate_resource_ownership(profile, 'profile', user_id)
+    validate_resource_ownership(apl, 'apl', user_id)
+    validate_resource_ownership(template, 'template', user_id)
+    _check_resource_specs(profile, apl, template)
+    return backend, profile, apl, template
+
+
+def prepare_task_creation(user_id: int, profile_id: int, template_id: int,
+                          apl_id: int, backend_id: Optional[int] = None):
+    """Perform authoritative binary preflight without holding database row locks."""
+    backend, profile, apl, template = _load_resources(
+        user_id, profile_id, template_id, apl_id, backend_id, lock=False,
+    )
+    identity = current_validation_identity(backend=backend)
+    stale_reason = apl.validation_staleness(identity)
+    if stale_reason:
+        raise TaskCreationError(f'APL validation is stale: {stale_reason}')
+    before = _resource_token(user_id, backend, profile, apl, template, identity)
+    validation = validate_apl_for_profile(profile, apl, backend=backend)
+
+    # Re-read after the external process. This is an optimistic check only; the
+    # definitive check occurs under locks in create_task_from_prepared.
+    current = _load_resources(user_id, profile_id, template_id, apl_id, backend.pk, lock=False)
+    final_identity = current_validation_identity(backend=current[0])
+    if not final_identity:
+        raise TaskPreparedResourceChanged(
+            'Profile, APL, Template, or Backend changed during authoritative validation'
+        )
+    after = _resource_token(user_id, *current, final_identity)
+    if before != after or final_identity != identity:
+        raise TaskPreparedResourceChanged(
+            'Profile, APL, Template, or Backend changed during authoritative validation'
+        )
+    backend, profile, apl, template = current
+    if not isinstance(validation, dict) or not validation.get('valid'):
+        error_class = (
+            TaskValidationUnavailable
+            if _validation_failure_is_retryable(validation)
+            else TaskCreationError
+        )
+        raise error_class('APL failed authoritative validation for the selected Profile')
+    if (validation.get('content_hash') != apl_content_hash(apl.content)
+            or validation.get('revision') != identity[0]
+            or validation.get('game_build') != identity[1]):
+        # A successful verdict which is not bound to this exact request is unusable,
+        # not proof that the APL content is invalid.
+        raise TaskValidationUnavailable(
+            'Authoritative validation returned a mismatched result'
+        )
+    return PreparedTaskCreation(
+        user_id=user_id, backend_id=backend.pk, profile_id=profile.pk,
+        apl_id=apl.pk, template_id=template.pk,
+        profile_payload_json=_canonical_json(_build_profile_payload(profile)),
+        apl_payload_json=_canonical_json(_build_apl_payload(apl)),
+        template_payload_json=_canonical_json(_build_template_payload(template)),
+        resource_token=after, validation_identity=tuple(identity), seal=_PREPARED_SEAL,
+    )
+
+
+def create_task_from_prepared(*, prepared, user_id: int, name: str,
+                              profile_id: int, template_id: int, apl_id: int,
+                              mode='normal', simulation_params=None, mode_params=None,
+                              candidates=None, backend_id=None):
+    """Persist a preflighted Task in a short transaction, failing closed if stale."""
+    if not isinstance(prepared, PreparedTaskCreation) or prepared.seal is not _PREPARED_SEAL:
+        raise TaskCreationError('Invalid prepared task creation token')
+    requested_ids = (user_id, backend_id or prepared.backend_id, profile_id, apl_id, template_id)
+    prepared_ids = (prepared.user_id, prepared.backend_id, prepared.profile_id,
+                    prepared.apl_id, prepared.template_id)
+    if requested_ids != prepared_ids:
+        raise TaskCreationError('Prepared task creation token does not match request')
     allowed_modes = {'normal', 'comparison', 'attribute_sweep'}
     if mode not in allowed_modes:
         raise TaskCreationError(f"Invalid mode '{mode}'. Allowed: {allowed_modes}")
+    normalized_simulation_params = _normalize_params(simulation_params, SIMULATION_PARAMS_WHITELIST)
+    options_error = validate_simulation_options(normalized_simulation_params or {})
+    if options_error:
+        raise TaskCreationError(options_error)
+    normalized_mode_params = _normalize_params(mode_params, MODE_PARAMS_WHITELIST) or {}
+    normalized_mode_params['initial_candidates'] = _normalize_candidates(candidates)
 
-    # Every executable mode is a complete reference task. Candidate-specific
-    # differences live only in mode_params; resources and immutable versions
-    # are still mandatory for comparison and attribute-sweep tasks.
-    if not profile_id or not template_id or not apl_id:
-        raise TaskCreationError(
-            f"Mode '{mode}' requires complete references: profile_id, template_id, and apl_id must all be provided"
+    with transaction.atomic():
+        try:
+            backend, profile, apl, template = _load_resources(
+                user_id, profile_id, template_id, apl_id, prepared.backend_id, lock=True,
+            )
+        except TaskCreationError as exc:
+            # The opaque token proves these resources were valid at preflight time.
+            # A locked re-read failure is therefore concurrent drift, not bad input.
+            raise TaskPreparedResourceChanged('Prepared task creation is stale') from exc
+        identity = current_validation_identity(backend=backend)
+        if not identity:
+            raise TaskPreparedResourceChanged('Prepared task creation is stale')
+        token = _resource_token(user_id, backend, profile, apl, template, identity)
+        payloads = (
+            _canonical_json(_build_profile_payload(profile)),
+            _canonical_json(_build_apl_payload(apl)),
+            _canonical_json(_build_template_payload(template)),
+        )
+        if (token != prepared.resource_token
+                or tuple(identity) != prepared.validation_identity
+                or payloads != (prepared.profile_payload_json, prepared.apl_payload_json,
+                                prepared.template_payload_json)):
+            raise TaskPreparedResourceChanged('Prepared task creation is stale')
+        profile_payload, apl_payload, template_payload = map(json.loads, payloads)
+        profile_version = _create_or_reuse_version('profile', profile.pk, profile_payload)
+        apl_version = _create_or_reuse_version('apl', apl.pk, apl_payload)
+        template_version = _create_or_reuse_version('template', template.pk, template_payload)
+        import uuid
+        return SimcTask.objects.create(
+            user_id=user_id, name=name, simc_profile_id=profile.pk, task_type=1,
+            profile=profile, template=template, apl=apl, backend=backend,
+            profile_version=profile_version, template_version=template_version,
+            apl_version=apl_version, mode=mode,
+            simulation_params=deepcopy(normalized_simulation_params),
+            mode_params=deepcopy(normalized_mode_params), candidate_label='',
+            result_file=f'{uuid.uuid4().hex}.html', current_status=0, is_active=True,
         )
 
-    if mode != 'normal' and not batch_id:
-        raise TaskCreationError(f"Mode '{mode}' requires batch_id")
 
-    # Resolve and validate resources
-    profile = None
-    profile_version = None
-    if profile_id:
-        try:
-            profile = SimcProfile.objects.select_for_update().get(pk=profile_id)
-        except SimcProfile.DoesNotExist:
-            raise TaskCreationError(f"Profile {profile_id} does not exist")
-
-        _validate_resource_ownership(profile, 'profile', user_id)
-        payload = _build_profile_payload(profile)
-        profile_version = _create_or_reuse_version('profile', profile.id, payload)
-
-    from botend.services.simc_player_config import canonical_simc_spec_identity
-    profile_class, profile_spec = canonical_simc_spec_identity(profile.spec if profile else '')
-    canonical_resource_spec = f'{profile_class}_{profile_spec}' if profile_class and profile_spec else ''
-
-    template = None
-    template_version = None
-    if template_id:
-        try:
-            template = SimcContentTemplate.objects.get(pk=template_id)
-        except SimcContentTemplate.DoesNotExist:
-            raise TaskCreationError(f"Template {template_id} does not exist")
-
-        _validate_resource_ownership(template, 'template', user_id)
-        template_class, template_spec = canonical_simc_spec_identity(template.spec)
-        template_is_generic = str(template.spec or '').strip().lower() in ('', 'default', 'all', '*')
-        if canonical_resource_spec and not template_is_generic and (
-            template_spec != profile_spec
-            or (profile_class and template_class and template_class != profile_class)
-        ):
-            raise TaskCreationError('基础模板专精与玩家配置专精不一致')
-        payload = _build_template_payload(template)
-        template_version = _create_or_reuse_version('template', template.id, payload)
-
-    apl = None
-    apl_version = None
-    if apl_id:
-        try:
-            apl = SimcApl.objects.select_for_update().get(pk=apl_id)
-        except SimcApl.DoesNotExist:
-            raise TaskCreationError(f"APL {apl_id} does not exist")
-
-        _validate_resource_ownership(apl, 'apl', user_id)
-        identity = current_validation_identity()
-        stale_reason = apl.validation_staleness(identity)
-        if stale_reason:
-            raise TaskCreationError(f'APL validation is stale: {stale_reason}')
-        # is_selectable and stored metadata are only a publication cache. Every
-        # new Task gets a final authoritative check against the actual persisted
-        # Profile; no client-provided validation result is accepted.
-        validation = validate_apl_for_profile(profile, apl)
-        final_identity = current_validation_identity()
-        current_apl = SimcApl.objects.select_for_update().get(pk=apl.pk)
-        current_profile = SimcProfile.objects.select_for_update().get(pk=profile.pk)
-        if (_build_profile_payload(current_profile) != _build_profile_payload(profile)
-                or current_apl.spec != apl.spec
-                or current_apl.content != apl.content
-                or final_identity != identity):
-            raise TaskCreationError('Profile or APL changed during authoritative validation')
-        profile = current_profile
-        apl = current_apl
-        if (not validation.get('valid')
-                or validation.get('content_hash') != apl_content_hash(apl.content)
-                or validation.get('revision') != identity[0]
-                or validation.get('game_build') != identity[1]):
-            raise TaskCreationError('APL failed authoritative validation for the selected Profile')
-        apl_class, apl_spec = canonical_simc_spec_identity(apl.spec)
-        if canonical_resource_spec and (
-            apl_spec != profile_spec
-            or (profile_class and apl_class and apl_class != profile_class)
-        ):
-            raise TaskCreationError('APL 专精与玩家配置专精不一致')
-        payload = _build_apl_payload(apl)
-        apl_version = _create_or_reuse_version('apl', apl.id, payload)
-
-    # Normalize params
-    normalized_simulation_params = _normalize_params(simulation_params, SIMULATION_PARAMS_WHITELIST)
-    normalized_mode_params = _normalize_params(mode_params, MODE_PARAMS_WHITELIST)
-
-    # Generate result_file name (UUID-based for reference tasks)
-    import uuid
-    result_file = f'{uuid.uuid4().hex}.html'
-
-    # Create task with live FK + version FK
-    task = SimcTask.objects.create(
-        user_id=user_id,
-        name=name,
-        simc_profile_id=profile.id if profile else 0,  # Set to actual profile.id for reference tasks
-        task_type=1,
-
-        # Live resource FKs
-        profile=profile,
-        template=template,
-        apl=apl,
-
-        # Version FKs
-        profile_version=profile_version,
-        template_version=template_version,
-        apl_version=apl_version,
-
-        # Mode and params
-        mode=mode,
-        simulation_params=normalized_simulation_params,
-        mode_params=normalized_mode_params,
-
-        # Task metadata
-        candidate_label=candidate_label,
-        batch_id=batch_id,
-        result_file=result_file,
-        current_status=0,  # pending
-        is_active=True,
+def create_task(user_id: int, name: str, profile_id: Optional[int] = None,
+                template_id: Optional[int] = None, apl_id: Optional[int] = None,
+                mode: str = 'normal', simulation_params=None, mode_params=None,
+                candidates=None, backend_id: Optional[int] = None,
+                prepared=None) -> SimcTask:
+    """Compatibility entry point; unprepared calls retain authoritative validation."""
+    if prepared is None:
+        prepared = prepare_task_creation(
+            user_id, profile_id, template_id, apl_id, backend_id=backend_id,
+        )
+    return create_task_from_prepared(
+        prepared=prepared, user_id=user_id, name=name, profile_id=profile_id,
+        template_id=template_id, apl_id=apl_id, backend_id=backend_id,
+        mode=mode, simulation_params=simulation_params, mode_params=mode_params,
+        candidates=candidates,
     )
-
-    return task

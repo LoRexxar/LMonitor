@@ -1,25 +1,55 @@
-"""Reference-based SimC Batch workflow contracts.
+"""Reference-based SimC multi-run workflow contracts.
 
-Each test is introduced RED-first. Batch candidates must remain reference tasks;
+One request is one reference Task; candidate executions are immutable Runs.
 Task rows never store a composed/frozen SimC body.
 """
+import hashlib
 import json
 
 from django.contrib.auth.models import User
 from unittest.mock import patch
 
 from django.test import Client, RequestFactory, TestCase
+from django.utils import timezone
 
 from botend.models import (
     SimcApl,
     SimcContentTemplate,
     SimcProfile,
     SimcTask,
-    SimcTaskBatch,
+    SimulationRun,
 )
-from botend.services.simc_task_service import create_task
+from botend.services.simc_attribute_search import advance_attribute_search
+from botend.services.simc_task_service import append_candidate_runs, create_task
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.services.simc_composer import SimcComposer
+
+
+TEST_VALIDATION_IDENTITY = ('test-simc-revision', 'test-game-build')
+
+
+def mark_apl_valid(apl):
+    values = {'validation_status': SimcApl.VALIDATION_VALID,
+              'validated_content_hash': hashlib.sha256(apl.content.encode()).hexdigest(),
+              'validation_revision': TEST_VALIDATION_IDENTITY[0],
+              'validation_game_build': TEST_VALIDATION_IDENTITY[1], 'is_selectable': True}
+    SimcApl.objects.filter(pk=apl.pk).update(**values)
+    for key, value in values.items(): setattr(apl, key, value)
+
+
+def setUpModule():
+    from django.test import override_settings
+    global _validation_settings, _validation_mock
+    _validation_settings = override_settings(SIMC_APL_CURRENT_IDENTITY=TEST_VALIDATION_IDENTITY)
+    _validation_settings.enable()
+    _validation_mock = patch('botend.services.simc_task_service.validate_apl_for_profile', side_effect=lambda _p, apl: {
+        'valid': True, 'content_hash': hashlib.sha256(apl.content.encode()).hexdigest(),
+        'revision': TEST_VALIDATION_IDENTITY[0], 'game_build': TEST_VALIDATION_IDENTITY[1]})
+    _validation_mock.start()
+
+
+def tearDownModule():
+    _validation_mock.stop(); _validation_settings.disable()
 
 
 class ReferenceBatchTaskCreationServiceTests(TestCase):
@@ -44,7 +74,6 @@ class ReferenceBatchTaskCreationServiceTests(TestCase):
         )
         self.template = SimcContentTemplate.objects.create(
             name='Batch Base Template',
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             spec='fury',
             content='{simulation_options}\n{player_config}\n{stat_overrides}\n{action_list}\n{output_options}',
             is_active=True,
@@ -58,13 +87,9 @@ class ReferenceBatchTaskCreationServiceTests(TestCase):
             is_active=True,
             is_selectable=True,
         )
-        self.batch = SimcTaskBatch.objects.create(
-            user_id=self.user_id,
-            name='Reference comparison',
-            batch_type='gear_candidates',
-        )
+        mark_apl_valid(self.apl)
 
-    def test_comparison_task_uses_complete_references_and_keeps_candidate_params(self):
+    def test_comparison_task_freezes_candidates_without_creating_runs(self):
         task = create_task(
             user_id=self.user_id,
             name='Reference comparison · helm',
@@ -77,35 +102,32 @@ class ReferenceBatchTaskCreationServiceTests(TestCase):
                 'max_time': 300,
                 'desired_targets': 1,
             },
-            mode_params={
-                'candidate_type': 'gear_swap',
-                'is_base': False,
-                'batch_index': 1,
-                'gear_swap': {
-                    'slot': 'head',
-                    'raw_value': ',id=299001,ilevel=650',
-                    'item_id': 299001,
-                    'source': 'bags',
+            mode_params={'request_manifest': {'kind': 'gear_candidates'}},
+            candidates=[{
+                'candidate_key': 'head-299001', 'candidate_label': 'head #299001',
+                'candidate_params': {
+                    'candidate_type': 'gear_swap', 'is_base': False,
+                    'gear_swap': {'slot': 'head', 'raw_value': ',id=299001,ilevel=650',
+                                  'item_id': 299001, 'source': 'bags'},
+                    'untrusted_extra': 'drop-me',
                 },
-                'untrusted_extra': 'drop-me',
-            },
-            candidate_label='head #299001',
-            batch_id=self.batch.id,
+            }],
         )
 
         self.assertEqual(task.mode, 'comparison')
-        self.assertEqual(task.batch_id, self.batch.id)
         self.assertEqual(task.profile_id, self.profile.id)
         self.assertEqual(task.template_id, self.template.id)
         self.assertEqual(task.apl_id, self.apl.id)
         self.assertIsNotNone(task.profile_version_id)
         self.assertIsNotNone(task.template_version_id)
         self.assertIsNotNone(task.apl_version_id)
-        self.assertEqual(task.mode_params['candidate_type'], 'gear_swap')
-        self.assertEqual(task.mode_params['gear_swap']['slot'], 'head')
-        self.assertNotIn('untrusted_extra', task.mode_params)
+        self.assertEqual(task.simulation_runs.count(), 0)
+        frozen = task.mode_params['initial_candidates'][0]
+        self.assertEqual(frozen['candidate_params']['candidate_type'], 'gear_swap')
+        self.assertEqual(frozen['candidate_params']['gear_swap']['slot'], 'head')
+        self.assertNotIn('untrusted_extra', frozen['candidate_params'])
 
-    def test_attribute_sweep_task_keeps_only_candidate_ratings_and_metadata(self):
+    def test_attribute_sweep_task_freezes_candidates_without_creating_runs(self):
         task = create_task(
             user_id=self.user_id,
             name='Reference attributes · crit -50 / haste +50',
@@ -113,25 +135,55 @@ class ReferenceBatchTaskCreationServiceTests(TestCase):
             template_id=self.template.id,
             apl_id=self.apl.id,
             mode='attribute_sweep',
-            mode_params={
-                'candidate_type': 'attribute_ratings',
-                'is_base': False,
-                'batch_index': 2,
-                'attribute_ratings': {
-                    'crit': 950,
-                    'haste': 2050,
-                    'mastery': 3000,
-                    'versatility': 4000,
+            candidates=[{
+                'candidate_key': 'crit-to-haste',
+                'candidate_label': 'crit -50 / haste +50',
+                'candidate_params': {
+                    'candidate_type': 'attribute_ratings', 'is_base': False,
+                    'attribute_ratings': {'crit': 950, 'haste': 2050,
+                                          'mastery': 3000, 'versatility': 4000},
+                    'search': {'round': 1, 'step': 50},
                 },
-                'search': {'round': 1, 'step': 50},
-            },
-            candidate_label='crit -50 / haste +50',
-            batch_id=self.batch.id,
+            }],
         )
 
         self.assertEqual(task.mode, 'attribute_sweep')
-        self.assertEqual(task.mode_params['attribute_ratings']['crit'], 950)
-        self.assertEqual(task.mode_params['search'], {'round': 1, 'step': 50})
+        self.assertEqual(task.simulation_runs.count(), 0)
+        frozen = task.mode_params['initial_candidates'][0]
+        self.assertEqual(frozen['candidate_params']['attribute_ratings']['crit'], 950)
+        self.assertEqual(frozen['candidate_params']['search'], {'round': 1, 'step': 50})
+
+    def test_backend_processing_initializes_frozen_runs_then_executes_them(self):
+        candidates = [{
+            'candidate_key': 'base', 'candidate_label': '基准配置',
+            'candidate_params': {'candidate_type': 'base', 'is_base': True},
+        }, {
+            'candidate_key': 'candidate-a', 'candidate_label': '候选 A',
+            'candidate_params': {
+                'candidate_type': 'gear_swap', 'is_base': False,
+                'gear_swap': {'slot': 'head', 'item_id': 299001, 'source': 'bags'},
+            },
+        }]
+        task = create_task(
+            user_id=self.user_id, name='backend-owned runs',
+            profile_id=self.profile.id, template_id=self.template.id, apl_id=self.apl.id,
+            mode='comparison', candidates=candidates,
+        )
+        self.assertEqual(task.simulation_runs.count(), 0)
+
+        def complete_run(_task, run):
+            run.status = 'completed'
+            run.result_summary = {'dps': 1000 + run.sequence}
+            run.save(update_fields=['status', 'result_summary'])
+            return True
+
+        monitor = SimcMonitor(None, task)
+        with patch.object(monitor, 'process_reference_run', side_effect=complete_run) as execute:
+            self.assertTrue(monitor.process_reference_task(task))
+
+        runs = list(task.simulation_runs.order_by('sequence'))
+        self.assertEqual([run.candidate_key for run in runs], ['base', 'candidate-a'])
+        self.assertEqual(execute.call_count, 2)
 
 
 class ReferenceBatchAPIViewTests(TestCase):
@@ -154,7 +206,6 @@ class ReferenceBatchAPIViewTests(TestCase):
         )
         self.template = SimcContentTemplate.objects.create(
             name='API Batch Base Template',
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             spec='fury',
             content='{simulation_options}\n{player_config}\n{stat_overrides}\n{action_list}\n{output_options}',
             is_active=True,
@@ -168,9 +219,10 @@ class ReferenceBatchAPIViewTests(TestCase):
             is_active=True,
             is_selectable=True,
         )
+        mark_apl_valid(self.apl)
 
-    def test_gear_batch_api_creates_shared_reference_tasks(self):
-        response = self.client.post('/api/simc-task/batch/', data=json.dumps({
+    def test_gear_batch_api_creates_one_shared_reference_task_with_runs(self):
+        response = self.client.post('/api/simc-task/comparison/', data=json.dumps({
             'kind': 'gear_candidates',
             'name': 'Reference gear batch',
             'simc_profile_id': self.profile.id,
@@ -181,26 +233,23 @@ class ReferenceBatchAPIViewTests(TestCase):
 
         payload = response.json()
         self.assertTrue(payload['success'], payload)
-        batch = SimcTaskBatch.objects.get(id=payload['data']['batch_id'])
-        tasks = list(SimcTask.objects.filter(batch=batch).order_by('id'))
-        self.assertEqual(len(tasks), 2)
-        self.assertEqual({task.mode for task in tasks}, {'comparison'})
-        self.assertEqual(len({task.profile_id for task in tasks}), 1)
-        self.assertEqual(len({task.profile_version_id for task in tasks}), 1)
-        self.assertEqual(len({task.template_version_id for task in tasks}), 1)
-        self.assertEqual(len({task.apl_version_id for task in tasks}), 1)
-        self.assertTrue(all(task.profile_id and task.template_id and task.apl_id for task in tasks))
-        self.assertEqual(tasks[0].mode_params['candidate_type'], 'base')
-        self.assertEqual(tasks[1].mode_params['candidate_type'], 'gear_swap')
-        self.assertEqual(tasks[1].mode_params['gear_swap']['item_id'], 299001)
+        task = SimcTask.objects.get(id=payload['data']['task_id'])
+        frozen = task.mode_params['initial_candidates']
+        self.assertEqual(SimcTask.objects.count(), 1)
+        self.assertEqual(task.simulation_runs.count(), 0)
+        self.assertEqual(len(frozen), 2)
+        self.assertEqual(task.mode, 'comparison')
+        self.assertTrue(task.profile_id and task.template_id and task.apl_id)
+        self.assertEqual(frozen[0]['candidate_params']['candidate_type'], 'base')
+        self.assertEqual(frozen[1]['candidate_params']['candidate_type'], 'gear_swap')
+        self.assertEqual(frozen[1]['candidate_params']['gear_swap']['item_id'], 299001)
         self.profile.refresh_from_db()
         self.assertIn('### Gear from Bags', self.profile.player_equipment)
-        frozen_player_block = tasks[0].profile_version.payload['player_equipment']
+        frozen_player_block = task.profile_version.payload['player_equipment']
         self.assertNotIn('### Gear from Bags', frozen_player_block)
         self.assertNotIn('id=299001', frozen_player_block)
         self.assertIn('head=,id=212048', frozen_player_block)
-        self.assertEqual(tasks[0].profile_version_id, tasks[1].profile_version_id)
-        self.assertFalse(any(hasattr(task, 'final_simc_content') for task in tasks))
+        self.assertFalse(hasattr(task, 'final_simc_content'))
 
     def test_attribute_continuation_reuses_exact_resource_versions_without_ext(self):
         profile = SimcProfile.objects.create(
@@ -220,47 +269,37 @@ class ReferenceBatchAPIViewTests(TestCase):
             gear_versatility=4000,
             is_active=True,
         )
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id,
-            name='Attribute reference batch',
-            batch_type='attribute_sweep',
-            status=1,
-        )
-        api = __import__('botend.dashboard.api', fromlist=['SimcBatchTaskAPIView']).SimcBatchTaskAPIView()
+        from botend.dashboard.api import SimcComparisonTaskAPIView
+        api = SimcComparisonTaskAPIView()
         rows = api._attribute_variants(
             {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000},
             50,
         )
-        source_tasks = []
+        candidates = []
         for index, (label, ratings, is_base, candidate) in enumerate(rows):
-            task = create_task(
-                user_id=self.user.id,
-                name=f'Attribute reference batch · {label}',
-                profile_id=profile.id,
-                template_id=self.template.id,
-                apl_id=self.apl.id,
-                mode='attribute_sweep',
-                simulation_params={
-                    'fight_style': 'Patchwerk', 'max_time': 300, 'desired_targets': 1,
-                },
-                mode_params={
+            candidates.append({
+                'candidate_key': f'round-1-candidate-{index}',
+                'candidate_label': label, 'round_number': 1,
+                'candidate_params': {
                     'candidate_type': 'attribute_ratings',
-                    'is_base': is_base,
-                    'batch_index': index,
-                    'attribute_ratings': ratings,
-                    'search': candidate,
+                    'is_base': is_base, 'attribute_ratings': ratings, 'search': candidate,
                 },
-                candidate_label=label,
-                batch_id=batch.id,
-            )
-            task.current_status = 2
-            task.result_file = f'attribute_{task.id}.html'
-            task.save(update_fields=['current_status', 'result_file'])
-            source_tasks.append(task)
-
-        source_profile_version_id = source_tasks[0].profile_version_id
-        source_template_version_id = source_tasks[0].template_version_id
-        source_apl_version_id = source_tasks[0].apl_version_id
+            })
+        task = create_task(
+            user_id=self.user.id, name='Attribute reference request', profile_id=profile.id,
+            template_id=self.template.id, apl_id=self.apl.id, mode='attribute_sweep',
+            simulation_params={'fight_style': 'Patchwerk', 'max_time': 300, 'desired_targets': 1},
+            candidates=candidates,
+        )
+        source_profile_version_id = task.profile_version_id
+        source_template_version_id = task.template_version_id
+        source_apl_version_id = task.apl_version_id
+        from botend.services.simc_task_service import initialize_task_runs
+        initialize_task_runs(task)
+        for index, run in enumerate(task.simulation_runs.order_by('sequence')):
+            run.status = 'completed'
+            run.result_summary = {'dps': [100000, 101500][index] if index < 2 else 100100}
+            run.save(update_fields=['status', 'result_summary'])
         profile.player_equipment = profile.player_equipment.replace('id=212048', 'id=999999')
         profile.save(update_fields=['player_equipment'])
         self.template.content = '# changed after round one\n{player_config}\n{action_list}'
@@ -268,81 +307,119 @@ class ReferenceBatchAPIViewTests(TestCase):
         self.apl.content = 'actions=/changed_after_round_one'
         self.apl.save(update_fields=['content'])
 
-        request = RequestFactory().post('/api/simc-task/batch/', data='{}', content_type='application/json')
-        request.user = self.user
-        dps_values = iter([100000, 101500] + [100100] * (len(source_tasks) - 2))
-        with patch('botend.dashboard.api.SimcRegularCompareAPIView._get_result_file_content', return_value='<html></html>'), \
-                patch('botend.dashboard.api.SimcRegularCompareAPIView._parse_regular_result', side_effect=lambda _html: {'dps': next(dps_values)}):
-            result = api._continue_attribute_search(request, {}, str(batch.id))
-
-        next_tasks = list(SimcTask.objects.filter(id__in=result['task_ids']).order_by('id'))
-        self.assertEqual(result['accepted'], len(rows))
-        self.assertEqual({task.batch_id for task in next_tasks}, {batch.id})
-        self.assertEqual({task.mode for task in next_tasks}, {'attribute_sweep'})
-        self.assertEqual({task.profile_id for task in next_tasks}, {profile.id})
-        self.assertEqual({task.profile_version_id for task in next_tasks}, {source_profile_version_id})
-        self.assertEqual({task.template_version_id for task in next_tasks}, {source_template_version_id})
-        self.assertEqual({task.apl_version_id for task in next_tasks}, {source_apl_version_id})
-        self.assertEqual({task.mode_params['search']['round'] for task in next_tasks}, {2})
-        self.assertTrue(all(task.ext in (None, '') for task in next_tasks))
+        lease = timezone.now()
+        task.current_status = 1
+        task.started_at = lease
+        task.save(update_fields=['current_status', 'started_at'])
+        task.refresh_from_db()
+        result = advance_attribute_search(task.id, expected_started_at=lease)
+        next_runs = list(SimulationRun.objects.filter(id__in=result['run_ids']).order_by('sequence'))
+        self.assertEqual(result['appended'], len(rows))
+        self.assertEqual({run.task_id for run in next_runs}, {task.id})
+        self.assertEqual({run.round_number for run in next_runs}, {2})
+        task.refresh_from_db()
+        self.assertEqual(task.profile_version_id, source_profile_version_id)
+        self.assertEqual(task.template_version_id, source_template_version_id)
+        self.assertEqual(task.apl_version_id, source_apl_version_id)
+        self.assertEqual(task.simulation_runs.count(), len(rows) * 2)
 
         # Only the highest round gates continuation. A historical failed row must
         # neither poison the current round nor enter its DPS recommendation.
-        source_tasks[0].current_status = 3
-        source_tasks[0].save(update_fields=['current_status'])
-        for task in next_tasks:
-            task.current_status = 2
-            task.result_file = f'attribute_{task.id}.html'
-            task.save(update_fields=['current_status', 'result_file'])
-        round_two_dps = iter([100000, 101500] + [100100] * (len(next_tasks) - 2))
-        with patch('botend.dashboard.api.SimcRegularCompareAPIView._get_result_file_content', return_value='<html></html>'), \
-                patch('botend.dashboard.api.SimcRegularCompareAPIView._parse_regular_result', side_effect=lambda _html: {'dps': next(round_two_dps)}):
-            third = api._continue_attribute_search(request, {}, str(batch.id))
-        self.assertEqual({
-            task.mode_params['search']['round']
-            for task in SimcTask.objects.filter(id__in=third['task_ids'])
-        }, {3})
+        historical = task.simulation_runs.filter(round_number=1).first()
+        historical.status = 'failed'
+        historical.save(update_fields=['status'])
+        for index, run in enumerate(next_runs):
+            run.status = 'completed'
+            run.result_summary = {'dps': [100000, 101500][index] if index < 2 else 100100}
+            run.save(update_fields=['status', 'result_summary'])
+        third = advance_attribute_search(task.id, expected_started_at=lease)
+        self.assertEqual(set(SimulationRun.objects.filter(id__in=third['run_ids']).values_list(
+            'round_number', flat=True)), {3})
+
+    def test_attribute_search_converges_when_gain_is_within_combined_dps_error(self):
+        from botend.dashboard.api import SimcComparisonTaskAPIView
+        rows = SimcComparisonTaskAPIView()._attribute_variants(
+            {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}, 50,
+        )
+        candidates = [{
+            'candidate_key': f'candidate-{index}', 'candidate_label': label,
+            'candidate_params': {
+                'candidate_type': 'attribute_ratings', 'is_base': is_base,
+                'attribute_ratings': ratings, 'search': candidate,
+            },
+        } for index, (label, ratings, is_base, candidate) in enumerate(rows)]
+        task = create_task(
+            user_id=self.user.id, name='error-aware convergence', profile_id=self.profile.id,
+            template_id=self.template.id, apl_id=self.apl.id,
+            mode='attribute_sweep', candidates=candidates,
+        )
+        from botend.services.simc_task_service import initialize_task_runs
+        runs = initialize_task_runs(task)
+        for index, run in enumerate(runs):
+            run.status = 'completed'
+            run.result_summary = {
+                'dps': 100250 if index == 1 else 100000,
+                'dps_error': 150,
+            }
+            run.save(update_fields=['status', 'result_summary'])
+        lease = timezone.now()
+        task.current_status = 1
+        task.started_at = lease
+        task.save(update_fields=['current_status', 'started_at'])
+
+        result = advance_attribute_search(task.id, expected_started_at=lease)
+
+        self.assertTrue(result['converged'])
+        self.assertEqual(result['appended'], 0)
+        task.refresh_from_db()
+        recommendation = task.analysis_result['attribute_search']
+        self.assertEqual(recommendation['ratings'], {
+            'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000,
+        })
 
     def test_attribute_continuation_requires_success_parseable_dps_and_consistent_current_versions(self):
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id, name='Guarded continuation', batch_type='attribute_sweep', status=1,
-        )
-        api = __import__('botend.dashboard.api', fromlist=['SimcBatchTaskAPIView']).SimcBatchTaskAPIView()
+        from botend.dashboard.api import SimcComparisonTaskAPIView
+        api = SimcComparisonTaskAPIView()
         rows = api._attribute_variants(
             {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}, 50,
-        )[:2]
-        tasks = []
+        )
+        candidates = []
         for index, (label, ratings, is_base, candidate) in enumerate(rows):
-            task = create_task(
-                user_id=self.user.id, name=label, profile_id=self.profile.id,
-                template_id=self.template.id, apl_id=self.apl.id,
-                mode='attribute_sweep', batch_id=batch.id, candidate_label=label,
-                mode_params={'candidate_type': 'attribute_ratings', 'is_base': is_base,
-                             'batch_index': index, 'attribute_ratings': ratings, 'search': candidate},
-            )
-            task.current_status = 2
-            task.result_file = f'attribute_{task.id}.html'
-            task.save(update_fields=['current_status', 'result_file'])
-            tasks.append(task)
-        request = RequestFactory().post('/api/simc-task/batch/', data='{}', content_type='application/json')
-        request.user = self.user
+            candidates.append({
+                'candidate_key': f'candidate-{index}', 'candidate_label': label,
+                'candidate_params': {'candidate_type': 'attribute_ratings', 'is_base': is_base,
+                                     'attribute_ratings': ratings, 'search': candidate},
+            })
+        task = create_task(
+            user_id=self.user.id, name='guarded', profile_id=self.profile.id,
+            template_id=self.template.id, apl_id=self.apl.id,
+            mode='attribute_sweep', candidates=candidates,
+        )
+        from botend.services.simc_task_service import initialize_task_runs
+        runs = initialize_task_runs(task)
+        for run in runs:
+            run.status = 'completed'; run.result_summary = {'dps': 100000}
+            run.save(update_fields=['status', 'result_summary'])
+        lease = timezone.now()
+        task.current_status = 1
+        task.started_at = lease
+        task.save(update_fields=['current_status', 'started_at'])
 
-        tasks[1].current_status = 3
-        tasks[1].save(update_fields=['current_status'])
+        runs[1].status = 'failed'; runs[1].save(update_fields=['status'])
         with self.assertRaisesRegex(ValueError, '全部成功'):
-            api._continue_attribute_search(request, {}, str(batch.id))
-        tasks[1].current_status = 2
-        tasks[1].save(update_fields=['current_status'])
+            advance_attribute_search(task.id, expected_started_at=lease)
+        runs[1].status = 'completed'; runs[1].result_summary = {}
+        runs[1].save(update_fields=['status', 'result_summary'])
 
         with patch('botend.dashboard.api.SimcRegularCompareAPIView._get_result_file_content', return_value='<html></html>'), \
                 patch('botend.dashboard.api.SimcRegularCompareAPIView._parse_regular_result', return_value={}):
             with self.assertRaisesRegex(ValueError, 'DPS'):
-                api._continue_attribute_search(request, {}, str(batch.id))
+                advance_attribute_search(task.id, expected_started_at=lease)
 
-        tasks[1].profile_version_id = tasks[0].template_version_id
-        tasks[1].save(update_fields=['profile_version'])
+        task.profile_version_id = task.template_version_id
+        task.save(update_fields=['profile_version'])
         with self.assertRaisesRegex(ValueError, '资源版本不一致'):
-            api._continue_attribute_search(request, {}, str(batch.id))
+            advance_attribute_search(task.id, expected_started_at=lease)
 
     def test_complete_reference_task_put_only_renames_and_cannot_reset_status_or_inputs(self):
         task = create_task(
@@ -365,7 +442,7 @@ class ReferenceBatchAPIViewTests(TestCase):
         self.assertEqual(task.profile_id, self.profile.id)
         self.assertEqual(task.simulation_params, {'iterations': 100})
 
-    def test_complete_reference_task_post_rerun_creates_new_edited_execution(self):
+    def test_complete_reference_task_post_rerun_copies_frozen_execution(self):
         task = create_task(
             user_id=self.user.id, name='Immutable source', profile_id=self.profile.id,
             template_id=self.template.id, apl_id=self.apl.id,
@@ -375,8 +452,7 @@ class ReferenceBatchAPIViewTests(TestCase):
         task.save(update_fields=['current_status'])
 
         response = self.client.post('/api/simc-task/', data=json.dumps({
-            'id': task.id, 'action': 'rerun', 'name': 'Edited rerun',
-            'simulation_params': {'iterations': 200},
+            'id': task.id, 'action': 'rerun',
         }), content_type='application/json')
 
         payload = response.json()
@@ -384,7 +460,7 @@ class ReferenceBatchAPIViewTests(TestCase):
         rerun = SimcTask.objects.get(id=payload['data']['id'])
         self.assertNotEqual(rerun.id, task.id)
         self.assertEqual(rerun.source_task_id, task.id)
-        self.assertEqual(rerun.simulation_params, {'iterations': 200})
+        self.assertEqual(rerun.simulation_params, {'iterations': 100})
         self.assertEqual(rerun.profile_version_id, task.profile_version_id)
         self.assertEqual(rerun.template_version_id, task.template_version_id)
         self.assertEqual(rerun.apl_version_id, task.apl_version_id)
@@ -402,13 +478,14 @@ class ReferenceBatchAPIViewTests(TestCase):
             is_active=True,
         )
         template = SimcContentTemplate.objects.create(
-            name='Preview Template', template_type='base_template', spec='warrior_fury',
+            name='Preview Template', spec='warrior_fury',
             content='iterations=100', is_active=True, is_selectable=True,
         )
         apl = SimcApl.objects.create(
             name='Preview APL', spec='warrior_fury', content='actions=/auto_attack',
             is_active=True, is_selectable=True, owner_user_id=self.user.id,
         )
+        mark_apl_valid(apl)
         task = create_task(
             user_id=self.user.id, name='Reference preview', profile_id=profile.id,
             template_id=template.id, apl_id=apl.id, mode='normal',
@@ -426,8 +503,8 @@ class ReferenceBatchAPIViewTests(TestCase):
         self.assertEqual(payload['data']['simulation_params']['iterations'], 100)
         self.assertNotIn('content', payload['data'])
 
-    def test_reference_task_rerun_accepts_component_overrides_without_mutating_source(self):
-        """Task rerun is a new task with validated component/parameter overrides."""
+    def test_reference_task_rerun_is_exact_copy_without_mutating_source(self):
+        """Task rerun copies frozen request and immutable versions exactly."""
         from botend.services.simc_task_service import create_task
         from botend.services.task_rerun import create_rerun
         profile = SimcProfile.objects.create(
@@ -435,13 +512,14 @@ class ReferenceBatchAPIViewTests(TestCase):
             player_config_mode='manual_equipment', player_equipment='warrior="Rerun"', is_active=True,
         )
         template = SimcContentTemplate.objects.create(
-            name='Rerun Template', template_type='base_template', spec='warrior_fury',
+            name='Rerun Template', spec='warrior_fury',
             content='iterations=100', is_active=True, is_selectable=True,
         )
         apl = SimcApl.objects.create(
             name='Rerun APL', spec='warrior_fury', content='actions=/auto_attack',
             is_active=True, is_selectable=True, owner_user_id=self.user.id,
         )
+        mark_apl_valid(apl)
         source = create_task(
             user_id=self.user.id, name='Source', profile_id=profile.id,
             template_id=template.id, apl_id=apl.id, mode='normal',
@@ -449,16 +527,13 @@ class ReferenceBatchAPIViewTests(TestCase):
         )
         source.current_status = 2
         source.save(update_fields=['current_status'])
-        rerun = create_rerun(source.id, self.user.id, {
-            'name': 'Edited rerun', 'simulation_params': {'iterations': 200},
-            'mode_params': {'candidate_type': 'base', 'search': {'round': 2}},
-        })
+        rerun = create_rerun(source.id, self.user.id)
         source.refresh_from_db()
         self.assertNotEqual(rerun.id, source.id)
         self.assertEqual(rerun.profile_version_id, source.profile_version_id)
         self.assertEqual(rerun.template_version_id, source.template_version_id)
         self.assertEqual(rerun.apl_version_id, source.apl_version_id)
-        self.assertEqual(rerun.simulation_params['iterations'], 200)
+        self.assertEqual(rerun.simulation_params['iterations'], 100)
         self.assertEqual(source.simulation_params['iterations'], 100)
 class ReferenceBatchWorkerOverrideTests(TestCase):
     def test_candidate_composition_preserves_addon_omnium_metadata(self):

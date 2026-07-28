@@ -13,6 +13,10 @@ const VALIDATION_URL = '/api/simc-workbench/apl-validation/';
 const COMPLETION_URL = '/api/simc-workbench/apl-completions/';
 const SYMBOLS_URL = '/api/simc-workbench/apl-symbols/';
 const SPELLS_URL = '/api/simc-workbench/apl-spells/';
+const CATALOG_DEFAULT_PAGE_SIZE = 10;
+const CATALOG_MIN_PAGE_SIZE = 8;
+const CATALOG_MAX_PAGE_SIZE = 30;
+const CATALOG_ROW_HEIGHT = 36;
 
 const BILINGUAL_URL = '/api/convert-text/';
 
@@ -27,6 +31,15 @@ function catalogCategory(item) {
     if (item.scope === 'spec') return 'spec';
     if (item.scope === 'class') return 'class';
     return 'global';
+}
+
+export function catalogPageSizeForHeight(height) {
+    const availableHeight = Number(height) || 0;
+    if (availableHeight <= 0) return CATALOG_DEFAULT_PAGE_SIZE;
+    return Math.max(
+        CATALOG_MIN_PAGE_SIZE,
+        Math.min(CATALOG_MAX_PAGE_SIZE, Math.floor(availableHeight / CATALOG_ROW_HEIGHT)),
+    );
 }
 
 function tokenAt(state, position) {
@@ -46,16 +59,23 @@ function createCatalogAssistant(options) {
     let controller = null;
     let searchTimer = null;
     let destroyed = false;
-    let page = 1;
-    let totalPages = 1;
     let query = '';
+    let page = 1;
+    let pageSize = CATALOG_DEFAULT_PAGE_SIZE;
+    let resizeTimer = null;
 
     host.innerHTML = `<div class="simc-apl-assistant__mobile-heading"><strong>技能列表</strong><button type="button" data-apl-assistant-close>关闭</button></div><div class="simc-apl-assistant__toolbar">
         <label class="simc-apl-assistant__search"><span class="sr-only">搜索技能</span><input type="search" data-apl-catalog-query placeholder="搜索英文或中文技能名"></label>
-    </div><div class="simc-apl-catalog" data-apl-catalog-list></div>
-    <div class="simc-apl-catalog__pager"><button type="button" data-page-action="previous">上一页</button><span data-page-summary>第 1 页</span><button type="button" data-page-action="next">下一页</button></div>`;
+    </div><div class="simc-apl-catalog" data-apl-catalog-list></div><nav class="simc-apl-catalog__pager" aria-label="技能列表分页">
+        <button type="button" data-page-action="prev">上一页</button>
+        <span data-page-summary>第 1/1 页</span>
+        <button type="button" data-page-action="next">下一页</button>
+    </nav>`;
     const list = host.querySelector('[data-apl-catalog-list]');
-    const summary = host.querySelector('[data-page-summary]');
+    const pager = host.querySelector('.simc-apl-catalog__pager');
+    const pageSummary = host.querySelector('[data-page-summary]');
+    const previousButton = host.querySelector('[data-page-action="prev"]');
+    const nextButton = host.querySelector('[data-page-action="next"]');
     host.querySelector('[data-apl-assistant-close]').addEventListener('click', () => options.close?.());
 
     function render(items) {
@@ -75,20 +95,27 @@ function createCatalogAssistant(options) {
             row.addEventListener('click', () => options.insert(item.token));
             list.append(row);
         });
-        summary.textContent = `第 ${page}/${Math.max(1, totalPages)} 页`;
-        host.querySelector('[data-page-action="previous"]').disabled = page <= 1;
-        host.querySelector('[data-page-action="next"]').disabled = page >= totalPages;
     }
 
-    async function load(resetPage = false) {
+    function renderPagination(pagination = {}) {
+        const total = Math.max(0, Number(pagination.total) || 0);
+        const totalPages = Math.max(1, Number(pagination.total_pages) || 1);
+        page = Math.min(totalPages, Math.max(1, Number(pagination.page) || page));
+        pageSummary.textContent = total ? `第 ${page}/${totalPages} 页 · 每页 ${pageSize} 项 · 共 ${total} 项` : '第 1/1 页';
+        previousButton.disabled = page <= 1;
+        nextButton.disabled = page >= totalPages;
+        pager.hidden = totalPages <= 1;
+    }
+
+    async function load() {
         if (destroyed) return;
-        if (resetPage) page = 1;
         controller?.abort();
         controller = new AbortController();
         const activeController = controller;
         replaceTextMessage(list, '列表加载中…');
         const params = new URLSearchParams({
-            spec: String(options.getSpec?.() || ''), page: String(page), page_size: '50',
+            spec: String(options.getSpec?.() || ''),
+            page: String(page), page_size: String(pageSize),
         });
         if (query) params.set('query', query);
         try {
@@ -98,8 +125,8 @@ function createCatalogAssistant(options) {
             const body = await response.json();
             if (!response.ok || body.success !== true) throw new Error(body.error?.message || '技能列表不可用');
             if (destroyed || controller !== activeController) return;
-            totalPages = body.data?.pagination?.total_pages || 1;
             render(body.data?.items || []);
+            renderPagination(body.data?.pagination || {});
         } catch (error) {
             if (error.name !== 'AbortError' && !destroyed && controller === activeController) {
                 replaceTextMessage(list, error.message || '技能列表暂不可用');
@@ -109,18 +136,44 @@ function createCatalogAssistant(options) {
 
     host.querySelector('[data-apl-catalog-query]').addEventListener('input', event => {
         query = event.target.value.trim();
+        page = 1;
         clearTimeout(searchTimer);
-        searchTimer = setTimeout(() => load(true), 250);
+        searchTimer = setTimeout(() => load(), 250);
     });
-    host.querySelector('[data-page-action="previous"]').addEventListener('click', () => { if (page > 1) { page -= 1; load(); } });
-    host.querySelector('[data-page-action="next"]').addEventListener('click', () => { if (page < totalPages) { page += 1; load(); } });
+    previousButton.addEventListener('click', () => {
+        if (page <= 1) return;
+        page -= 1;
+        load();
+    });
+    nextButton.addEventListener('click', () => {
+        if (nextButton.disabled) return;
+        page += 1;
+        load();
+    });
+    pageSize = catalogPageSizeForHeight(list.clientHeight);
+    const resizeObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(() => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+            const nextPageSize = catalogPageSizeForHeight(list.clientHeight);
+            if (destroyed || nextPageSize === pageSize) return;
+            pageSize = nextPageSize;
+            page = 1;
+            load();
+        }, 120);
+    }) : null;
+    resizeObserver?.observe(list);
     load();
     return {
-        reload: () => load(true),
+        reload: () => {
+            page = 1;
+            return load();
+        },
         updateContext() {},
         destroy() {
             destroyed = true;
             clearTimeout(searchTimer);
+            clearTimeout(resizeTimer);
+            resizeObserver?.disconnect();
             controller?.abort();
             host.replaceChildren();
         },

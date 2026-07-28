@@ -3,7 +3,7 @@ from collections import Counter
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from botend.models import SimcProfile, SimcTask, SimcTaskBatch
+from botend.models import SimcProfile, SimcTask
 from botend.services.simc_player_config import validate_player_baseline
 
 
@@ -82,12 +82,10 @@ class Command(BaseCommand):
             if task.current_status not in (0, 1) and not self._has_trustworthy_task_state(task)
         ]
         deletable_task_ids = [task.id for task in deletable_tasks]
-        affected_batch_ids = sorted({task.batch_id for task in deletable_tasks if task.batch_id})
-
         mode = 'APPLY' if apply_changes else 'DRY-RUN'
         self.stdout.write(
             f'{mode} invalid_profiles={len(invalid_profile_ids)} '
-            f'deletable_tasks={len(deletable_task_ids)} candidate_batches={len(affected_batch_ids)}'
+            f'deletable_tasks={len(deletable_task_ids)}'
         )
         for reason, count in sorted(reasons.items()):
             self.stdout.write(f'  {reason}={count}')
@@ -112,20 +110,9 @@ class Command(BaseCommand):
             if final_profile_ids:
                 SimcProfile.objects.filter(id__in=final_profile_ids).delete()
 
-            empty_batches = SimcTaskBatch.objects.filter(id__in=affected_batch_ids).select_for_update()
-            if user_id is not None:
-                empty_batches = empty_batches.filter(user_id=user_id)
-            empty_batch_ids = [
-                batch.id for batch in empty_batches
-                if not batch.simctask_set.exists()
-            ]
-            if empty_batch_ids:
-                SimcTaskBatch.objects.filter(id__in=empty_batch_ids).delete()
-
         self.stdout.write(
             self.style.SUCCESS(
                 f'deleted_profiles={len(final_profile_ids)} '
-                f'deleted_tasks={len(final_deletable)} '
-                f'deleted_batches={len(empty_batch_ids)}'
+                f'deleted_tasks={len(final_deletable)}'
             )
         )

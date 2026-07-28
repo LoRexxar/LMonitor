@@ -16,12 +16,15 @@ class SimcWorkbenchSecurityContractTests(TestCase):
         client.force_login(self.user)
         requests = (
             ("post", "/api/simc-task/", {"name": "csrf-task"}),
-            ("post", "/api/simc-task/batch/", {"name": "csrf-batch"}),
+            ("post", "/api/simc-task/comparison/", {"name": "csrf-comparison"}),
             ("post", "/api/simc-profile/", {"name": "csrf-profile"}),
             ("post", "/api/simc-player-config-detail/", {"player_config_mode": "manual_equipment"}),
             ("post", "/api/simc-battlenet-preflight/", {"region": "us", "realm": "x", "character": "y"}),
             ("post", "/api/simc-apl-candidates/", {"spec": "fury"}),
             ("post", "/api/simc-template/", {"name": "csrf-template"}),
+            ("post", "/api/simc-benchmarks/panels/", {}),
+            ("post", "/api/simc-benchmarks/panels/1/run/", {}),
+            ("post", "/api/simc-benchmarks/executions/1/reconcile/", {}),
         )
         for method, path, payload in requests:
             with self.subTest(path=path):
@@ -35,24 +38,23 @@ class SimcWorkbenchSecurityContractTests(TestCase):
     def test_old_template_api_never_mutates_upstream_rows_even_for_staff(self):
         staff = User.objects.create_user(username="simc-staff", password="test-password", is_staff=True)
         upstream = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
             spec="warrior_fury", name="Upstream", content="iterations=10000",
             is_active=True,
         )
         self.client.force_login(staff)
         requests = (
-            ("put", {"name": "Changed", "content": "iterations=5000"}),
-            ("patch", {"is_active": False}),
-            ("delete", {}),
+            ("put", {"name": "Changed", "content": "iterations=5000"}, 403),
+            ("patch", {"is_active": False}, 405),
+            ("delete", {}, 405),
         )
-        for method, payload in requests:
+        for method, payload, expected_status in requests:
             with self.subTest(method=method):
                 response = getattr(self.client, method)(
                     f"/api/simc-template/?id={upstream.id}",
                     data=json.dumps(payload), content_type="application/json",
                 )
-                self.assertEqual(response.status_code, 403)
+                self.assertEqual(response.status_code, expected_status)
                 upstream.refresh_from_db()
                 self.assertEqual(upstream.name, "Upstream")
                 self.assertEqual(upstream.content, "iterations=10000")
@@ -89,9 +91,12 @@ class SimcWorkbenchSecurityContractTests(TestCase):
     def test_generic_dashboard_cannot_read_any_simc_resource(self):
         self.client.force_login(self.user)
         simc_models = (
-            "SimcTask", "SimcTaskBatch", "SimcTaskArtifact", "SimcProfile",
+            "SimcTask", "SimcTaskArtifact", "SimcProfile",
             "SimcContentTemplate", "SimcSecondaryStatRule", "SimcMasteryCoefficient",
             "SimcApl", "SimcBackendBinary",
+            "SimcBenchmarkPanel", "SimcBenchmarkSpec", "SimcBenchmarkProfile",
+            "SimcBenchmarkScenario", "SimcBenchmarkCandidate",
+            "SimcBenchmarkExecution", "SimcBenchmarkCase", "SimcBenchmarkResult",
         )
         for model_name in simc_models:
             with self.subTest(model_name=model_name):
@@ -111,7 +116,10 @@ class SimcWorkbenchSecurityContractTests(TestCase):
         self.assertEqual(response.status_code, 200)
         visible_tables = {row["name"] for row in response.context["tables_info"]}
         self.assertTrue(visible_tables.isdisjoint({
-            "SimcTask", "SimcTaskBatch", "SimcTaskArtifact", "SimcProfile",
+            "SimcTask", "SimcTaskArtifact", "SimcProfile",
             "SimcContentTemplate", "SimcSecondaryStatRule", "SimcMasteryCoefficient",
             "SimcBackendBinary",
+            "SimcBenchmarkPanel", "SimcBenchmarkSpec", "SimcBenchmarkProfile",
+            "SimcBenchmarkScenario", "SimcBenchmarkCandidate",
+            "SimcBenchmarkExecution", "SimcBenchmarkCase", "SimcBenchmarkResult",
         }))

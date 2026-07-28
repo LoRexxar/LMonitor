@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import re
 
+from botend.constants.wow import CLASS_SPEC_MAP
 from botend.models import SimcMasteryCoefficient, SimcSecondaryStatRule, WowItemSnapshot
 
 
@@ -47,6 +48,17 @@ BATTLETNET_CLASS_SLUGS = {
 }
 
 
+SECONDARY_RULE_CLASS_ALIASES = {
+    'deathknight': 'death_knight',
+    'demonhunter': 'demon_hunter',
+}
+
+
+def secondary_rule_class_key(value):
+    key = str(value or '').strip().lower()
+    return SECONDARY_RULE_CLASS_ALIASES.get(key, key)
+
+
 def normalize_battlenet_class_name(value):
     normalized = ' '.join(str(value or '').strip().lower().replace('_', ' ').split())
     return BATTLETNET_CLASS_SLUGS.get(normalized, normalized.replace(' ', ''))
@@ -63,8 +75,46 @@ SUPPORTED_ACTORS = {
     'warrior', 'paladin', 'hunter', 'rogue', 'priest', 'deathknight', 'shaman',
     'mage', 'warlock', 'monk', 'druid', 'demonhunter', 'evoker',
 }
+
+
+def _simc_spec_slug(value):
+    """Convert display tokens such as BeastMastery to SimC's beast_mastery."""
+    return re.sub(r'(?<!^)(?=[A-Z])', '_', str(value or '')).lower()
+
+
+# Single legal specialization set derived from the maintained product catalog.
+# The normalization helper remains permissive for legacy stored values.
+SUPPORTED_SIMC_SPEC_IDENTITIES = frozenset(
+    (class_name.lower(), _simc_spec_slug(spec_name))
+    for class_name, spec_names in CLASS_SPEC_MAP.items()
+    for spec_name in spec_names
+)
 SECONDARY = ('crit', 'haste', 'mastery', 'versatility')
 PRIMARY = ('strength', 'agility', 'intellect', 'stamina')
+
+
+def normalize_gear_candidate_value(slot, raw_value):
+    """Normalize a manual SimC gear candidate to the value after ``slot=``."""
+    canonical_slot = EQUIPMENT_SLOT_ALIASES.get(
+        str(slot or '').strip().lower(), str(slot or '').strip().lower(),
+    )
+    value = str(raw_value or '').strip()
+    if not canonical_slot or not value or '\n' in value or '\r' in value:
+        raise ValueError('手工候选的槽位或 SimC 装备配置无效')
+    full_line_match = re.match(r'^([a-z][a-z0-9_]*)\s*=(.*)$', value, re.IGNORECASE)
+    if full_line_match and full_line_match.group(1).lower() not in ('id',):
+        submitted_slot = EQUIPMENT_SLOT_ALIASES.get(
+            full_line_match.group(1).lower(), full_line_match.group(1).lower(),
+        )
+        if submitted_slot != canonical_slot:
+            raise ValueError('手工候选的槽位与 SimC 装备行不一致')
+        value = full_line_match.group(2).strip()
+    if not re.match(r'^(?:[^,=]+,)?\s*,?\s*id=\d+(?:\s*,.*)?$', value, re.IGNORECASE):
+        raise ValueError('手工候选的槽位或 SimC 装备配置无效')
+    value = value.strip()
+    if re.match(r'^id=', value, re.IGNORECASE):
+        value = f',{value}'
+    return value
 
 
 def _number(value):
@@ -170,6 +220,11 @@ def canonical_simc_spec_identity(spec):
     return '', value
 
 
+def is_supported_simc_spec_identity(spec):
+    """Return whether a key/short spec resolves to a real supported class/spec."""
+    return canonical_simc_spec_identity(spec) in SUPPORTED_SIMC_SPEC_IDENTITIES
+
+
 def validate_default_player_baseline(spec, player_equipment):
     """Validate the stricter, complete level-90 baseline used as a default."""
     baseline = validate_player_baseline(player_equipment)
@@ -204,23 +259,23 @@ def resolve_attribute_player_baseline(spec, player_equipment=''):
     if explicit:
         return validate_player_baseline(explicit)
 
-    from botend.models import SimcContentTemplate
+    from botend.models import SimcProfile
     spec_value = str(spec or '').strip().lower()
     class_name, canonical_spec = canonical_simc_spec_identity(spec_value)
     template_key = f'{class_name}_{canonical_spec}' if class_name else spec_value
-    queryset = SimcContentTemplate.objects.filter(
-        template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-        source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+    queryset = SimcProfile.objects.filter(
+        user_id__isnull=True,
+        source=SimcProfile.SOURCE_SIMC_UPSTREAM,
         is_active=True,
     )
     matches = list(queryset.filter(spec=template_key).order_by('id')[:2])
     if len(matches) > 1:
         raise ValueError(f'专精 {spec_value or "未知"} 存在重复的默认玩家装备模板，请先修复模板数据')
-    template = matches[0] if matches else None
-    if not template:
+    profile = matches[0] if matches else None
+    if not profile:
         raise ValueError(f'专精 {spec_value or "未知"} 未配置启用的默认玩家装备模板，无法生成玩家装备基线')
     try:
-        return validate_default_player_baseline(template_key, template.content)
+        return validate_default_player_baseline(template_key, profile.player_equipment)
     except ValueError as exc:
         raise ValueError(f'专精 {spec_value or "未知"} 的默认玩家装备模板无效: {exc}') from exc
 
@@ -466,7 +521,9 @@ def build_player_config_detail(mode, spec, player_equipment='', battlenet_region
     if mode == 'attribute_only':
         detail = parse_manual_player_config(player_equipment, spec)
         class_name = detail['identity']['class_name'] or SPEC_CLASS.get(spec, '')
-        rule = SimcSecondaryStatRule.objects.filter(class_name=class_name).first()
+        rule = SimcSecondaryStatRule.objects.filter(
+            class_name=secondary_rule_class_key(class_name),
+        ).first()
         mastery = SimcMasteryCoefficient.objects.filter(spec=detail['identity']['spec'] or spec).first()
         conversion = {
             'crit': getattr(rule, 'crit_per_percent', None),
@@ -505,7 +562,9 @@ def build_player_config_detail(mode, spec, player_equipment='', battlenet_region
         'talents': semantic_profile['candidates']['talents'],
     }
     class_name = detail['identity']['class_name'] or SPEC_CLASS.get(spec, '')
-    rule = SimcSecondaryStatRule.objects.filter(class_name=class_name).first()
+    rule = SimcSecondaryStatRule.objects.filter(
+        class_name=secondary_rule_class_key(class_name),
+    ).first()
     mastery = SimcMasteryCoefficient.objects.filter(spec=detail['identity']['spec'] or spec).first()
     conversion = {
         'crit': getattr(rule, 'crit_per_percent', None),

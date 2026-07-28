@@ -4,7 +4,7 @@ import os
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
-from botend.models import SimcContentTemplate
+from botend.models import SimcProfile
 from botend.services.simc_player_config import validate_default_player_baseline, validate_player_baseline
 
 
@@ -88,6 +88,8 @@ class Command(BaseCommand):
             raise CommandError(f'MID1 目录不存在: {source_dir}')
         imported = skipped = errors = 0
         validated = []
+        expected = {(class_name, spec) for class_name, specs in KNOWN_SPECS.items() for spec in specs}
+        seen = set()
         for filename in sorted(os.listdir(source_dir)):
             parsed = self._parse_filename(filename)
             if not parsed:
@@ -95,6 +97,11 @@ class Command(BaseCommand):
                     skipped += 1
                 continue
             class_name, spec = parsed
+            if parsed in seen:
+                errors += 1
+                self.stderr.write(self.style.ERROR(f'{filename}: 重复专精基线'))
+                continue
+            seen.add(parsed)
             try:
                 with open(os.path.join(source_dir, filename), encoding='utf-8') as source:
                     baseline = self._extract_baseline(source.read())
@@ -109,23 +116,31 @@ class Command(BaseCommand):
                 self.stdout.write(f'[DRY] {spec_key}: {len(baseline.splitlines())} 行')
             imported += 1
 
+        if seen != expected:
+            missing = ', '.join(f'{class_name}_{spec}' for class_name, spec in sorted(expected - seen))
+            errors += len(expected - seen)
+            self.stderr.write(f'缺少专精基线: {missing}')
         if not options['dry_run'] and errors == 0:
-            active_specs = [row[0] for row in validated]
+            active_keys = [f'simc_upstream:{row[0]}' for row in validated]
             with transaction.atomic():
-                SimcContentTemplate.objects.filter(
-                    template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-                    source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-                ).exclude(spec__in=active_specs).update(is_active=False)
+                SimcProfile.objects.filter(
+                    user_id__isnull=True,
+                    source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+                    system_key__startswith='simc_upstream:',
+                ).exclude(system_key__in=active_keys).update(is_active=False)
                 for spec_key, class_name, baseline in validated:
-                    SimcContentTemplate.objects.update_or_create(
-                        template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-                        source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-                        spec=spec_key,
+                    SimcProfile.objects.update_or_create(
+                        system_key=f'simc_upstream:{spec_key}',
                         defaults={
+                            'user_id': None,
+                            'source': SimcProfile.SOURCE_SIMC_UPSTREAM,
                             'name': f'MID1 默认玩家 {spec_key}', 'class_name': class_name,
-                            'content': baseline, 'sync_version': options['sync_version'],
-                            'is_active': True, 'is_selectable': False,
+                            'spec': spec_key, 'player_config_mode': 'manual_equipment',
+                            'player_equipment': baseline, 'talent': '',
+                            'sync_version': options['sync_version'], 'is_active': True,
                         },
                     )
         action = '预览' if options['dry_run'] else '导入'
+        if errors:
+            raise CommandError(f'{action}失败: {imported} 成功, {skipped} 跳过, {errors} 错误')
         self.stdout.write(self.style.SUCCESS(f'{action}完成: {imported} 成功, {skipped} 跳过, {errors} 错误'))

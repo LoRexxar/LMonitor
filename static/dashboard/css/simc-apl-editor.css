@@ -3,34 +3,48 @@
     max-width: none;
 }
 
-.simc-apl-workspace {
+.simc-apl-editor-form {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(26rem, 32rem);
-    min-height: 34rem;
+    grid-template-columns: minmax(0, 1fr) minmax(20rem, 24rem);
+    align-items: start;
+    gap: 1rem;
 }
 
+.simc-apl-editor-main,
 .simc-apl-editor-column { min-width: 0; }
 
-.simc-apl-assistant {
-    overflow: visible;
-    border-left: 1px solid #dbe3ef;
+.simc-apl-workspace { min-height: 34rem; }
+
+.simc-apl-editor-form > .simc-apl-assistant {
+    position: sticky;
+    top: 4.75rem;
+    height: calc(90dvh - 5.75rem);
+    align-self: start;
+    min-height: 0;
+    overflow: hidden;
+    border: 1px solid #dbe3ef;
+    border-radius: 1rem;
     background: #f8fafc;
 }
 
-.simc-apl-assistant > div { display: flex; min-height: 100%; flex-direction: column; }
+.simc-apl-assistant > div { display: flex; height: 100%; min-height: 0; flex-direction: column; }
 .simc-apl-assistant__mobile-heading { display: none; }
 .simc-apl-assistant__toolbar { padding: .75rem; border-bottom: 1px solid #e2e8f0; }
 .simc-apl-assistant__search input { width: 100%; border: 1px solid #cbd5e1; border-radius: .6rem; padding: .55rem .7rem; background: #fff; font-size: .8rem; }
 .simc-apl-assistant__categories { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .55rem; }
-.simc-apl-assistant__categories button,
-.simc-apl-catalog__pager button { border: 1px solid #cbd5e1; border-radius: 999px; padding: .25rem .55rem; color: #475569; background: #fff; font-size: .7rem; }
+.simc-apl-assistant__categories button { border: 1px solid #cbd5e1; border-radius: 999px; padding: .25rem .55rem; color: #475569; background: #fff; font-size: .7rem; }
 .simc-apl-assistant__categories button.is-active { border-color: #2563eb; color: #fff; background: #2563eb; }
 .simc-apl-context { display: grid; gap: .2rem; padding: .65rem .75rem; border-bottom: 1px solid #e2e8f0; color: #475569; background: #eff6ff; font-size: .72rem; }
 .simc-apl-context strong { color: #0f172a; font-size: .8rem; }
 .simc-apl-context code { width: fit-content; color: #1d4ed8; }
 .simc-apl-context small { color: #64748b; }
-.simc-apl-catalog { flex: 1; overflow: auto; padding: .35rem 0; }
+.simc-apl-catalog { flex: 1; min-height: 0; overflow: auto; padding: .35rem 0; }
 .simc-apl-catalog__empty { padding: 1rem; color: #64748b; text-align: center; font-size: .75rem; }
+.simc-apl-catalog__pager { display: flex; align-items: center; justify-content: space-between; gap: .65rem; padding: .65rem .75rem; border-top: 1px solid #e2e8f0; color: #64748b; background: #fff; font-size: .72rem; }
+.simc-apl-catalog__pager[hidden] { display: none; }
+.simc-apl-catalog__pager button { border: 1px solid #cbd5e1; border-radius: .5rem; padding: .35rem .6rem; color: #1d4ed8; background: #fff; font-size: .72rem; font-weight: 600; }
+.simc-apl-catalog__pager button:hover:not(:disabled) { border-color: #2563eb; background: #eff6ff; }
+.simc-apl-catalog__pager button:disabled { color: #94a3b8; background: #f8fafc; cursor: not-allowed; }
 .simc-apl-skill {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -48,8 +62,6 @@
 .simc-apl-skill:focus-visible { background: #eaf2ff; outline: none; }
 .simc-apl-skill__english { overflow: hidden; color: #0f172a; font-size: .75rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .simc-apl-skill__chinese { overflow: hidden; color: #475569; font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
-.simc-apl-catalog__pager { display: flex; align-items: center; justify-content: space-between; padding: .55rem .75rem; border-top: 1px solid #e2e8f0; color: #64748b; font-size: .7rem; }
-.simc-apl-catalog__pager button:disabled { opacity: .4; }
 .simc-apl-assistant-toggle { display: none; }
 
 .simc-apl-editor-heading-actions {
@@ -194,6 +206,7 @@
     [data-apl-storage-form] .simc-apl-diagnostics { max-height: 3rem; padding: .35rem .6rem; }
     [data-apl-storage-form] .simc-code-editor-toolbar { padding: .35rem .75rem; }
     [data-apl-storage-form] .simc-editor-actions { margin-top: .5rem; padding: .35rem .75rem; }
+    .simc-apl-editor-form > .simc-apl-assistant { height: calc(100dvh - 6.75rem); }
 }
 
 @media (max-width: 900px) {
@@ -203,13 +216,15 @@
     [data-apl-storage-form] .simc-editor-section,
     [data-apl-storage-form] .simc-apl-workspace,
     [data-apl-storage-form] .simc-apl-editor-column { min-width: 0; max-width: 100%; }
+    .simc-apl-editor-form { display: block; }
     .simc-apl-workspace { display: block; }
     .simc-apl-import-picker { align-items: stretch; flex-direction: column; gap: .65rem; }
     .simc-apl-import-picker__controls { width: 100%; min-width: 0; }
     .simc-apl-assistant-toggle { display: block; width: 100%; padding: .65rem; border-top: 1px solid #dbe3ef; color: #1d4ed8; background: #eff6ff; font-size: .8rem; font-weight: 600; }
-    .simc-apl-assistant { position: fixed; z-index: 80; right: 0; bottom: 0; left: 0; visibility: hidden; max-height: 72dvh; border: 0; border-radius: 1rem 1rem 0 0; box-shadow: 0 -12px 40px rgba(15, 23, 42, .28); pointer-events: none; transform: translateY(105%); transition: transform .2s ease, visibility 0s linear .2s; }
+    .simc-apl-editor-form > .simc-apl-assistant { position: fixed; z-index: 80; top: auto; right: 0; bottom: 0; left: 0; visibility: hidden; width: auto; height: 72dvh; max-height: 72dvh; border: 0; border-radius: 1rem 1rem 0 0; box-shadow: 0 -12px 40px rgba(15, 23, 42, .28); pointer-events: none; transform: translateY(105%); transition: transform .2s ease, visibility 0s linear .2s; }
     .simc-apl-assistant.is-open { visibility: visible; pointer-events: auto; transform: translateY(0); transition-delay: 0s; }
     .simc-apl-assistant > div { height: 72dvh; }
+    .simc-apl-catalog { flex: 1; overflow: auto; }
     .simc-apl-assistant__mobile-heading { display: flex; align-items: center; justify-content: space-between; padding: .7rem .8rem; border-bottom: 1px solid #e2e8f0; }
     .simc-apl-assistant__mobile-heading button { border-radius: .5rem; padding: .35rem .6rem; color: #1d4ed8; background: #dbeafe; font-size: .75rem; }
     .simc-apl-editor-mount,

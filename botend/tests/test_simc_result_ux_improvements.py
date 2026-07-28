@@ -2,7 +2,7 @@ from django.contrib.auth.models import User
 from django.test import Client, TestCase
 from django.template.loader import render_to_string
 
-from botend.models import SimcTask, SimcTaskBatch
+from botend.models import SimcTask, SimulationRun
 
 
 class SimcResultUXTests(TestCase):
@@ -12,25 +12,22 @@ class SimcResultUXTests(TestCase):
         self.client.force_login(self.user)
 
     def _render_attribute_batch(self, name, candidates):
-        """Render the result UX from real attribute-sweep batch members.
-
-        Attribute searches are batches of normal reference tasks now; the old
-        task_type=2 row with a comma-separated result_file is not created.
-        """
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id, name=name, batch_type='attribute_sweep', status=2,
+        """Render the result UX from one attribute task's candidate Runs."""
+        task = SimcTask.objects.create(
+            user_id=self.user.id, name=name, simc_profile_id=0,
+            task_type=1, mode='attribute_sweep', current_status=2,
         )
         results = []
         for index, (crit, haste, dps) in enumerate(candidates, 1):
-            task = SimcTask.objects.create(
-                user_id=self.user.id, name=f'{name} · 候选 {index}',
-                simc_profile_id=0, task_type=1, mode='attribute_sweep', batch=batch,
-                candidate_label=f'crit={crit}, haste={haste}', current_status=2,
-                mode_params={'ratings': {'crit': crit, 'haste': haste}},
+            run = SimulationRun.objects.create(
+                task=task, sequence=index, status='completed',
+                candidate_key=f'candidate-{index}',
+                candidate_label=f'crit={crit}, haste={haste}',
+                candidate_params={'attribute_ratings': {'crit': crit, 'haste': haste}},
                 result_summary={'dps': dps},
             )
             results.append({
-                'task_id': task.id, 'attr1_name': '暴击', 'attr1_value': crit,
+                'task_id': task.id, 'run_id': run.id, 'attr1_name': '暴击', 'attr1_value': crit,
                 'attr2_name': '急速', 'attr2_value': haste, 'dps': dps,
             })
         max_dps = max(row['dps'] for row in results)
@@ -52,7 +49,7 @@ class SimcResultUXTests(TestCase):
             'spread_narrow': (max_dps - min_dps) * 100 / min_dps <= 0.5,
         }
         return render_to_string('simc_attribute_analysis_ssr.html', {
-            'task_id': batch.id, 'task_name': batch.name, 'results': results,
+            'task_id': task.id, 'task_name': task.name, 'results': results,
             'results_by_dps': sorted(results, key=lambda row: row['dps'], reverse=True),
             'stats': stats,
         })

@@ -72,6 +72,46 @@ class SimcAplTranslationTests(SimpleTestCase):
         self.assertEqual(mapping, {})
         self.assertIn(('action', 'use_item', 'control_action'), failures)
 
+    def test_plural_item_and_external_buff_actions_are_dsl_controls(self):
+        demands = extract_translation_demands(
+            "actions=/use_items\nactions+=/invoke_external_buff,name=power_infusion\n"
+        )
+        facts = [
+            {'symbol_kind': 'action', 'token': 'use_items', 'spell_id': 123},
+            {'symbol_kind': 'action', 'token': 'invoke_external_buff', 'spell_id': 456},
+        ]
+        mapping, failures = resolve_demand_mappings(
+            demands, facts,
+            {('spell', 123): '不应使用', ('spell', 456): '不应使用'},
+        )
+        self.assertEqual(mapping, {})
+        self.assertIn(('action', 'use_items', 'control_action'), failures)
+        self.assertIn(('action', 'invoke_external_buff', 'control_action'), failures)
+
+    def test_setup_and_runtime_control_actions_never_resolve_as_spells(self):
+        tokens = (
+            'apply_poison', 'summon_pet', 'retarget_auto_attack', 'cancel_buff',
+        )
+        demands = extract_translation_demands(
+            ''.join(f'actions+=/{token}\n' for token in tokens)
+        )
+        facts = [
+            {'symbol_kind': 'action', 'token': token, 'spell_id': index}
+            for index, token in enumerate(tokens, start=100)
+        ]
+        localized = {
+            ('spell', index): '不应使用'
+            for index in range(100, 100 + len(tokens))
+        }
+
+        mapping, failures = resolve_demand_mappings(demands, facts, localized)
+
+        self.assertEqual(mapping, {})
+        self.assertEqual(
+            failures,
+            tuple(('action', token, 'control_action') for token in tokens),
+        )
+
     def test_typed_identity_resolution_does_not_conflate_spell_and_trait_ids(self):
         demands = (
             TranslationDemand('buff', 'enrage'),

@@ -1,12 +1,14 @@
+import hashlib
 import json
 import tempfile
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.db import IntegrityError, transaction
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 
 from botend.models import SimcApl, SimcContentTemplate, SimcProfile, SimcTask
 
@@ -61,20 +63,23 @@ class ImportSimcPlayerTemplatesTests(TestCase):
 
             call_command('import_simc_player_templates', source_dir=tmp, sync_version='abc123')
 
-        rows = SimcContentTemplate.objects.filter(template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER)
+        rows = SimcProfile.objects.filter(
+            user_id__isnull=True,
+            source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+        )
         self.assertEqual(rows.count(), 2)
         fury = rows.get(spec='warrior_fury')
         self.assertEqual(fury.sync_version, 'abc123')
-        self.assertIn('warrior="Upstream Fury"', fury.content)
+        self.assertIn('warrior="Upstream Fury"', fury.player_equipment)
         for forbidden in ('actions=', 'iterations=', 'Gear Summary', 'Hero Override'):
-            self.assertNotIn(forbidden, fury.content)
+            self.assertNotIn(forbidden, fury.player_equipment)
 
     def test_dry_run_does_not_write(self):
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, 'MID1_Warrior_Fury.simc').write_text(DEFAULT_PLAYER, encoding='utf-8')
             out = StringIO()
             call_command('import_simc_player_templates', source_dir=tmp, sync_version='abc123', dry_run=True, stdout=out)
-        self.assertFalse(SimcContentTemplate.objects.exists())
+        self.assertFalse(SimcProfile.objects.exists())
         self.assertIn('DRY', out.getvalue())
 
     def test_rejects_profile_whose_actor_or_spec_does_not_match_filename(self):
@@ -84,7 +89,7 @@ class ImportSimcPlayerTemplatesTests(TestCase):
                 encoding='utf-8',
             )
             call_command('import_simc_player_templates', source_dir=tmp)
-        self.assertFalse(SimcContentTemplate.objects.exists())
+        self.assertFalse(SimcProfile.objects.exists())
 
     def test_rejects_default_profile_below_level_90_or_with_incomplete_combat_gear(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -97,7 +102,7 @@ class ImportSimcPlayerTemplatesTests(TestCase):
                 encoding='utf-8',
             )
             call_command('import_simc_player_templates', source_dir=tmp)
-        self.assertFalse(SimcContentTemplate.objects.exists())
+        self.assertFalse(SimcProfile.objects.exists())
 
     def test_rejects_non_integer_or_future_level(self):
         for level in ('90.9', '91'):
@@ -106,9 +111,10 @@ class ImportSimcPlayerTemplatesTests(TestCase):
                     DEFAULT_PLAYER.replace('level=90', f'level={level}'), encoding='utf-8',
                 )
                 call_command('import_simc_player_templates', source_dir=tmp)
-                self.assertFalse(SimcContentTemplate.objects.exists())
+                self.assertFalse(SimcProfile.objects.exists())
 
 
+@override_settings(SIMC_APL_CURRENT_IDENTITY=('a' * 40, '12.0.1.70000'))
 class DefaultPlayerReferenceContractTests(TestCase):
     """Default-player imports remain source material; Tasks only use explicit resources."""
 
@@ -119,7 +125,6 @@ class DefaultPlayerReferenceContractTests(TestCase):
         self.default_player = self.add_default_player()
         # Edited temporary text is persisted as selectable resources before Task creation.
         self.template = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
             owner_user_id=self.user.id,
             spec='warrior_fury', name='Saved base template', content=BASE_TEMPLATE,
@@ -130,7 +135,30 @@ class DefaultPlayerReferenceContractTests(TestCase):
             owner_user_id=self.user.id,
             spec='warrior_fury', name='Saved APL', content=APL_CONTENT,
             is_active=True, is_selectable=True,
+            validation_status=SimcApl.VALIDATION_VALID,
+            validated_content_hash=hashlib.sha256(APL_CONTENT.encode()).hexdigest(),
+            validation_revision='a' * 40,
+            validation_game_build='12.0.1.70000',
         )
+        validation = {
+            'valid': True,
+            'content_hash': hashlib.sha256(APL_CONTENT.encode()).hexdigest(),
+            'revision': 'a' * 40,
+            'game_build': '12.0.1.70000',
+            'diagnostics': [],
+        }
+        validator = patch(
+            'botend.services.simc_task_service.validate_apl_for_profile',
+            return_value=validation,
+        )
+        validator.start()
+        self.addCleanup(validator.stop)
+        identity = patch(
+            'botend.services.simc_task_service.current_validation_identity',
+            return_value=('a' * 40, '12.0.1.70000'),
+        )
+        identity.start()
+        self.addCleanup(identity.stop)
         self.profile = SimcProfile.objects.create(
             user_id=self.user.id,
             name='Fury explicit profile',
@@ -142,18 +170,19 @@ class DefaultPlayerReferenceContractTests(TestCase):
         )
 
     def add_default_player(self, content=DEFAULT_PLAYER):
-        return SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER,
-            source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
+        return SimcProfile.objects.create(
+            user_id=None,
+            source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury',
             spec='warrior_fury', class_name='warrior', name='MID1 Fury player',
-            content=content, sync_version='v1', is_active=True, is_selectable=False,
+            player_config_mode='manual_equipment', player_equipment=content,
+            sync_version='v1', is_active=True,
         )
 
     def task_payload(self, **overrides):
         payload = {
             'name': 'Fury reference task',
             'simc_profile_id': self.profile.id,
-            'task_type': 1,
             'base_template_id': self.template.id,
             'selected_apl_id': self.apl.id,
         }
@@ -221,12 +250,13 @@ class DefaultPlayerReferenceContractTests(TestCase):
         self.assertFalse(SimcTask.objects.exists())
         self.assertEqual(SimcProfile.objects.filter(user_id=self.user.id).count(), 1)
 
-    def test_duplicate_active_default_templates_are_rejected_by_unique_constraint(self):
+    def test_duplicate_system_default_profiles_are_rejected_by_unique_constraint(self):
         with self.assertRaises(IntegrityError), transaction.atomic():
             self.add_default_player()
         self.assertEqual(
-            SimcContentTemplate.objects.filter(
-                template_type=SimcContentTemplate.TYPE_DEFAULT_PLAYER
+            SimcProfile.objects.filter(
+                user_id__isnull=True,
+                source=SimcProfile.SOURCE_SIMC_UPSTREAM,
             ).count(),
             1,
         )

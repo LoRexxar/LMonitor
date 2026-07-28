@@ -1,4 +1,4 @@
-/* SimC 十模型内联工作台：专用 API、事件委托和安全结果预览。version: 20260716e */
+/* SimC 十模型内联工作台：专用 API、事件委托和安全结果预览。version: 20260716f */
 (() => {
     'use strict';
     const apiRoot = '/api/simc-workbench/';
@@ -7,7 +7,7 @@
         taskRequestSerial: 0, taskPollTimer: null, taskAbortController: null,
         detailRequestSerial: 0, detailAbortController: null, detailRequestKey: '',
         dialogStack: [],
-        templateType: '', rows: Object.create(null),
+        rows: Object.create(null),
         aplQuery: '',
         aplLoadState: {
             personal: { loading: false, error: '' },
@@ -129,13 +129,25 @@
         const active = row.is_active !== false;
         return `<button data-wb-action="detail" data-resource="${esc(resource)}" data-id="${id}" class="text-blue-700">详情</button> <button data-wb-action="${active ? 'archive' : 'restore'}" data-resource="${esc(resource)}" data-id="${id}" class="text-amber-700">${active ? '停用' : '恢复'}</button>`;
     };
-    async function loadTasks(page = 1) {
+    async function loadTasks(page = 1, { background = false } = {}) {
         state.taskPage = Number.isSafeInteger(Number(page)) && Number(page) > 0 ? Number(page) : 1;
         const requestedPage = state.taskPage;
-        const requestSerial = ++state.taskRequestSerial;
         const host = document.getElementById('simc-wb-task-list');
         if (!host) return;
-        renderState(host, 'loading', '正在加载任务…');
+        if (background && state.taskFetchInFlight) {
+            scheduleTaskRefresh(true);
+            return;
+        }
+        const requestSerial = ++state.taskRequestSerial;
+        const expandedExecutionState = new Map(
+            Array.from(host.querySelectorAll('[data-benchmark-task-toggle][aria-expanded="true"]')).map(button => {
+                const executionId = idOf(button.dataset.benchmarkTaskToggle);
+                const cases = document.getElementById(button.getAttribute('aria-controls'));
+                return [executionId, { scrollTop: cases?.scrollTop || 0 }];
+            }).filter(([executionId]) => Boolean(executionId))
+        );
+        const expandedExecutionIds = new Set(expandedExecutionState.keys());
+        if (!background) renderState(host, 'loading', '正在加载任务…');
         if (state.taskAbortController) state.taskAbortController.abort();
         const controller = new AbortController();
         state.taskAbortController = controller;
@@ -145,7 +157,10 @@
             data = await json(`${resourceUrl('history')}?page=${requestedPage}&page_size=20`, { signal: controller.signal });
         } catch (error) {
             if (error.name === 'AbortError') return;
-            if (requestSerial === state.taskRequestSerial && state.activePanel === 'tasks') renderState(host, 'error', '加载失败，请稍后重试', 'tasks');
+            if (requestSerial === state.taskRequestSerial && state.activePanel === 'tasks') {
+                if (background) scheduleTaskRefresh(true);
+                else renderState(host, 'error', '加载失败，请稍后重试', 'tasks');
+            }
             return;
         } finally {
             if (requestSerial === state.taskRequestSerial) {
@@ -157,16 +172,35 @@
         state.rows.history = data.data || [];
 
         host.innerHTML = data.data.length ? `<div class="simc-task-list">${data.data.map(row => {
+            if (row.row_type === 'benchmark_execution') {
+                const executionId = idOf(row.execution_id);
+                const expanded = expandedExecutionIds.has(executionId);
+                const taskCounts = row.task_counts || {};
+                const count = key => Math.max(0, Number(taskCounts[key]) || 0);
+                const statusSummary = `独立任务：完成 ${count('success')} / ${Number(row.case_count) || 0} · 运行中 ${count('running')} · 待运行 ${count('pending')}`
+                    + (count('failed') ? ` · 失败 ${count('failed')}` : '')
+                    + (count('cancelled') ? ` · 已取消 ${count('cancelled')}` : '');
+                const cases = (row.cases || []).map(item => {
+                    const itemProgress = Number.isFinite(Number(item.progress))
+                        ? Math.max(0, Math.min(100, Number(item.progress))) : null;
+                    const itemStatus = ['pending', 'running', 'success', 'failed', 'cancelled'].includes(item.status)
+                        ? item.status : 'pending';
+                    const title = `${esc(item.labels?.spec || item.coordinate?.spec_key || '—')} / ${esc(item.labels?.scenario || item.coordinate?.scenario_key || '—')} / ${esc(item.labels?.profile || item.coordinate?.profile_key || '—')}`;
+                    return `<div class="simc-benchmark-task-case" data-status="${itemStatus}"><div class="simc-benchmark-task-case__header"><span class="simc-benchmark-task-case__title"><span class="simc-task-id">Task #${idOf(item.task_id)}</span>${title}</span><span class="simc-task-status is-${itemStatus}">${esc(item.status_label || '未知')}</span></div>${itemProgress == null ? '<div class="simc-benchmark-task-case__progress is-unknown">等待 Worker 上报进度</div>' : `<div class="simc-benchmark-task-case__progress"><div class="simc-task-progress__track"><div class="simc-task-progress__fill" style="width:${itemProgress}%"></div></div><strong>${itemProgress}%</strong></div>`}</div>`;
+                }).join('');
+                return `<article class="simc-task-card simc-benchmark-task-group"><div class="simc-benchmark-task-summary"><div class="simc-task-card__main"><div class="simc-task-card__eyebrow"><span class="simc-task-type">基准面板</span><span class="simc-task-id">执行 #${executionId}</span></div><h4 class="simc-task-card__title">${esc(row.name)}</h4><div class="simc-task-card__meta"><span class="simc-task-status is-${esc(row.status)}">${esc(row.status_label)}</span><span>${esc(statusSummary)}</span></div>${row.progress == null ? '' : `<div class="simc-task-progress"><div class="simc-task-progress__track"><div class="simc-task-progress__fill" style="width:${row.progress}%"></div></div><span>总进度 ${row.progress}%</span></div>`}</div><button type="button" data-benchmark-task-toggle="${executionId}" aria-expanded="${expanded}" aria-controls="simc-benchmark-task-cases-${executionId}" class="simc-touch-action">${expanded ? '收起子任务进度' : '展开子任务进度'}</button></div><div id="simc-benchmark-task-cases-${executionId}" class="simc-benchmark-task-cases" data-benchmark-task-cases="${executionId}"${expanded ? '' : ' hidden'}>${cases || '暂无独立任务'}</div></article>`;
+            }
             const status = Number(row.status);
             const isActive = [0, 1, 4].includes(status);
             const hasProgress = isActive && row.progress !== null && row.progress !== '' && Number.isFinite(Number(row.progress));
             const progress = hasProgress ? Math.max(0, Math.min(100, Number(row.progress))) : 0;
             const progressBar = hasProgress ? `<div class="simc-task-progress"><div class="simc-task-progress__track"><div class="simc-task-progress__fill" style="width:${progress}%"></div></div><span>${progress}%</span></div>` : '';
-            const resource = row.detail_resource === 'batches' ? 'batches' : 'tasks';
-            const statusClass = status === 2 ? 'is-success' : status === 3 ? 'is-failed' : status === 1 ? 'is-running' : 'is-pending';
-            const statusIcon = status === 2 ? 'fa-check-circle' : status === 3 ? 'fa-exclamation-circle' : status === 1 ? 'fa-spinner fa-spin' : 'fa-clock';
-            const typeLabel = resource === 'batches' ? '批次任务' : '普通模拟';
-            const rerunButton = resource === 'tasks' && [2, 3].includes(status) ? `<button type="button" data-task-rerun="${idOf(row.id)}" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-redo-alt" aria-hidden="true"></i><span>重跑</span></button>` : '';
+            const resource = 'tasks';
+            const statusClass = status === 2 ? 'is-success' : [3, 5].includes(status) ? 'is-failed' : status === 1 ? 'is-running' : 'is-pending';
+            const statusIcon = status === 2 ? 'fa-check-circle' : status === 3 ? 'fa-exclamation-circle' : status === 5 ? 'fa-ban' : status === 1 ? 'fa-spinner fa-spin' : 'fa-clock';
+            const typeLabel = row.mode === 'comparison' ? '候选对比' : row.mode === 'attribute_sweep' ? '属性寻优' : '普通模拟';
+            const rerunButton = `<button type="button" data-task-rerun="${idOf(row.id)}" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-redo-alt" aria-hidden="true"></i><span>重跑</span></button>`;
+            const pendingActions = status === 0 ? `<button type="button" data-task-status="5" data-task-id="${idOf(row.id)}" title="取消任务" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-ban" aria-hidden="true"></i><span>取消</span></button><button type="button" data-task-status="3" data-task-id="${idOf(row.id)}" title="标记失败" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-exclamation-circle" aria-hidden="true"></i><span>失败</span></button>` : '';
             return `<article class="simc-task-card simc-responsive-row">
                 <div class="simc-task-card__main">
                     <div class="simc-task-card__eyebrow"><span class="simc-task-type">${typeLabel}</span><span class="simc-task-id">#${idOf(row.id)}</span></div>
@@ -174,12 +208,16 @@
                     <div class="simc-task-card__meta"><span class="simc-task-status ${statusClass}"><i class="fas ${statusIcon}" aria-hidden="true"></i>${esc(row.status_label)}</span><time><i class="far fa-calendar-alt" aria-hidden="true"></i>${esc(row.created_at)}</time></div>
                     ${progressBar}
                 </div>
-                <div class="simc-task-card__actions"><a href="/dashboard/simc/${resource}/${idOf(row.id)}/" target="_blank" rel="noopener noreferrer" class="simc-touch-action simc-task-primary-action"><i class="fas fa-chart-line" aria-hidden="true"></i><span>查看结果</span></a>${rerunButton}</div>
+                <div class="simc-task-card__actions"><a href="/dashboard/simc/${resource}/${idOf(row.id)}/" target="_blank" rel="noopener noreferrer" class="simc-touch-action simc-task-primary-action"><i class="fas fa-chart-line" aria-hidden="true"></i><span>查看结果</span></a>${pendingActions}${rerunButton}</div>
             </article>`;
         }).join('')}</div>` : empty('暂无记录');
 
+        expandedExecutionState.forEach((saved, executionId) => {
+            const cases = document.querySelector(`[data-benchmark-task-cases="${executionId}"]`);
+            if (cases) cases.scrollTop = saved.scrollTop;
+        });
         renderPagination(data.pagination || {}, requestedPage);
-        const hasActive = data.data.some(row => [0, 1, 4].includes(Number(row.status)));
+        const hasActive = data.data.some(row => row.row_type === 'benchmark_execution' ? ['pending', 'running'].includes(row.status) : [0, 1, 4].includes(Number(row.status)));
         scheduleTaskRefresh(hasActive);
     }
 
@@ -193,7 +231,7 @@
         state.taskPollTimer = setTimeout(() => {
             state.taskPollTimer = null;
             if (state.activePanel !== 'tasks' || page !== state.taskPage) return;
-            loadTasks(page).catch(() => scheduleTaskRefresh(true));
+            loadTasks(page, { background: true }).catch(() => scheduleTaskRefresh(true));
         }, 3000);
     }
 
@@ -225,7 +263,7 @@
 
         paginationHost.innerHTML = `<div class="flex items-center justify-between mt-3 text-sm"><div class="text-gray-600">共 ${total} 条记录，第 ${page}/${total_pages} 页</div><div class="flex gap-2">${buttons.join('')}</div></div>`;
     }
-    function renderBatchRanking(rows) {
+    function renderTaskRanking(rows) {
         const ranking = Array.isArray(rows) ? rows : [];
         if (!ranking.length) return '<p class="mt-2 text-sm text-gray-500">暂无可排名的 DPS 结果</p>';
         const best = Math.max(...ranking.map(row => Number(row.dps)).filter(Number.isFinite));
@@ -238,7 +276,7 @@
     }
 
     function renderAttributeReport(report) {
-        if (!report || typeof report !== 'object') return '<p class="mt-2 text-sm text-gray-500">本批次没有 attribute_report</p>';
+        if (!report || typeof report !== 'object') return '<p class="mt-2 text-sm text-gray-500">此任务没有 attribute_report</p>';
         const candidates = Array.isArray(report.candidates) ? report.candidates : [];
         const candidateRows = candidates.map(candidate => `<tr class="border-t"><td class="p-2">${esc(candidate.round ?? '-')}</td><td class="p-2">${esc(candidate.label || `#${candidate.id || '-'}`)}</td><td class="p-2">${esc(JSON.stringify(candidate.ratings || {}))}</td><td class="p-2 text-right">${esc(candidate.dps ?? '-')}</td></tr>`).join('');
         const safePath = (Array.isArray(report.search_path) ? report.search_path : []).map(point => ({
@@ -258,7 +296,8 @@
     }
 
     async function showTaskDetail(resource, id) {
-        window.openSimcWorkbenchDialog(resource === 'batches' ? 'batch-detail' : 'task-detail', null);
+        resource = 'tasks';
+        window.openSimcWorkbenchDialog('task-detail', null);
         const host = document.getElementById('simc-dialog-body');
         if (!host) return;
         const detailRequest = beginDetailRequest(`task:${resource}:${id}`);
@@ -274,21 +313,11 @@
         const row = data.data || {};
         const artifacts = Array.isArray(row.artifacts) ? row.artifacts : [];
         const artifactList = artifacts.length ? artifacts.map(artifact => `<div class="mt-2 text-sm">${esc(artifact.file_name || artifact.artifact_type || '产物')}${artifact.can_preview === true ? ` <a href="${esc(artifact.preview_url)}" class="text-blue-700">打开报告</a>` : ''}</div>`).join('') : '<p class="mt-2 text-sm text-gray-500">暂无结果产物</p>';
-        if (resource === 'batches') {
-            const members = Array.isArray(row.tasks) ? row.tasks : [];
-            const memberList = members.length ? members.map(member => `<article class="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3"><div><b>${esc(member.name || `任务 #${member.id}`)}</b><div class="text-xs text-gray-500">${esc(member.status_label || member.status)} · ${esc(member.updated_at)}</div></div><a href="/dashboard/simc/tasks/${idOf(member.id)}/" target="_blank" rel="noopener noreferrer" class="text-blue-700">查看结果</a></article>`).join('') : empty('此批次暂无成员');
-            const compareButton = row.report_url ? `<button data-wb-action="compare" data-resource="batches" data-id="${idOf(row.id || id)}" class="rounded-lg border px-3 py-2 text-purple-700">查看对比结果</button>` : '';
-            host.innerHTML = `<div class="flex justify-between gap-3"><h4 class="font-bold">任务详情：${esc(row.name || `#${id}`)}</h4><div>${compareButton}<button class="ml-2" data-wb-close-detail>关闭</button></div></div>
-                <section class="mt-4"><h5 class="font-semibold">批次进度</h5><div class="mt-2 h-2 rounded bg-gray-200"><div class="h-2 rounded bg-blue-600" style="width:${Number(row.percent || 0)}%"></div></div><p class="mt-1 text-xs text-gray-500">${Number(row.succeeded || 0)}/${Number(row.total || 0)} 成功 · ${Number(row.running || 0)} 运行 · ${Number(row.pending || 0)} 等待 · ${Number(row.failed || 0)} 失败</p></section>
-                <section class="mt-4"><h5 class="font-semibold">DPS 排名 · 距最佳 · 候选任务</h5>${renderBatchRanking(row.ranking)}</section>
-                <section class="mt-4"><h5 class="font-semibold">批次成员</h5>${memberList}</section>
-                <section class="mt-4"><h5 class="font-semibold">结果产物</h5>${artifactList}</section>
-                <section class="mt-4"><h5 class="font-semibold">attribute_report</h5>${renderAttributeReport(row.attribute_report)}</section>`;
-            return;
-        }
+
         const params = row.simulation_params || {};
         const editable = row.profile_id && row.template_id && row.apl_id && row.profile_version_id && row.template_version_id && row.apl_version_id;
         const rerunButton = editable ? `<button data-task-rerun="${idOf(row.id)}" class="rounded-lg border px-3 py-2 text-blue-700">编辑后重跑</button>` : '';
+        const compareButton = row.report_url ? `<button data-wb-action="compare" data-resource="tasks" data-id="${idOf(row.id || id)}" class="rounded-lg border px-3 py-2 text-purple-700">查看对比结果</button>` : '';
         const runs = Array.isArray(row.runs) ? row.runs : [];
         const runList = runs.length ? runs.map(run => {
             const errorSummary = safeRunErrorSummary(run);
@@ -302,23 +331,24 @@
         const abilityRows = abilities.length ? abilities.map(ability => `<tr class="border-t"><td class="p-2">${esc(ability.name)}</td><td class="p-2 text-right">${esc(ability.dps || '-')}</td><td class="p-2 text-right">${esc(ability.dps_percent || '-')}</td></tr>`).join('') : '<tr><td colspan="3" class="p-3 text-center text-gray-500">报告中未解析到技能明细</td></tr>';
         const nativeReportButton = reportArtifact?.can_preview === true ? `<a href="${esc(reportArtifact.preview_url)}" class="rounded border px-3 py-2 text-blue-700">查看原生报告</a>` : '';
         const analysisDocument = report ? `<section class="mt-4 rounded-lg border bg-white p-4"><div class="flex flex-wrap items-center justify-between gap-2"><div><h5 class="font-semibold">结果分析文档</h5><p class="text-xs text-gray-500">只读解析精确 Run 的原始 SimC Artifact；原始文件未做任何改动。</p></div>${nativeReportButton}</div><dl class="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4"><div><span class="text-gray-500">角色</span><div class="font-medium">${esc(character.name || '-')}</div></div><div><span class="text-gray-500">职业 / 专精</span><div class="font-medium">${esc(character.class || '-')} / ${esc(character.spec || '-')}</div></div><div><span class="text-gray-500">种族 / 等级</span><div class="font-medium">${esc(character.race || '-')} / ${esc(character.level || '-')}</div></div><div><span class="text-gray-500">DPS</span><div class="font-medium">${esc(report.dps ?? '-')}</div></div><div><span class="text-gray-500">战斗模型</span><div>${esc(simulation.fight_style || '-')}</div></div><div><span class="text-gray-500">战斗时长</span><div>${esc(simulation.fight_length || '-')}</div></div><div><span class="text-gray-500">迭代次数</span><div>${esc(simulation.iterations || '-')}</div></div><div><span class="text-gray-500">时间戳</span><div>${esc(simulation.timestamp || '-')}</div></div></dl><div class="mt-4 overflow-x-auto"><h6 class="mb-2 text-sm font-semibold">主要技能</h6><table class="w-full min-w-[420px] text-sm"><thead><tr class="text-left text-gray-500"><th class="p-2">技能</th><th class="p-2 text-right">DPS</th><th class="p-2 text-right">占比</th></tr></thead><tbody>${abilityRows}</tbody></table></div></section>` : '<section class="mt-4 rounded-lg border p-4 text-sm text-gray-500">暂无可用的结果分析文档；原生 Artifact 仍可在结果产物中查看。</section>';
-        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2"><h4 class="font-bold">任务详情：${esc(row.name || `#${id}`)}</h4><div>${rerunButton}<button class="ml-2" data-wb-close-detail>关闭</button></div></div><dl class="mt-3 grid gap-2 text-sm md:grid-cols-3"><div>状态：${esc(row.status_label)}</div><div>DPS：${esc(row.result_summary?.dps ?? '-')}</div><div>更新时间：${esc(row.updated_at)}</div></dl>${analysisDocument}${editable ? `<div class="mt-4 rounded-lg border bg-gray-50 p-3 text-sm"><div>Profile #${esc(row.profile_id)} · v${esc(row.profile_version_id)}</div><div>模板 #${esc(row.template_id)} · v${esc(row.template_version_id)}</div><div>APL #${esc(row.apl_id)} · v${esc(row.apl_version_id)}</div><pre class="mt-2 overflow-auto text-xs">${esc(JSON.stringify(params, null, 2))}</pre></div>` : ''}<section class="mt-4"><h5 class="font-semibold">执行轮次</h5>${runList}</section><section class="mt-4"><h5 class="font-semibold">结果产物</h5>${artifactList}</section>`;
+        const comparisonSections = row.mode === 'comparison' || row.mode === 'attribute_sweep' ? `<section class="mt-4"><h5 class="font-semibold">DPS 排名 · 距最佳 · 候选 Run</h5>${renderTaskRanking(row.ranking)}</section><section class="mt-4"><h5 class="font-semibold">属性分析</h5>${renderAttributeReport(row.attribute_report)}</section>` : '';
+        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2"><h4 class="font-bold">任务详情：${esc(row.name || `#${id}`)}</h4><div>${compareButton}${rerunButton}<button class="ml-2" data-wb-close-detail>关闭</button></div></div><dl class="mt-3 grid gap-2 text-sm md:grid-cols-3"><div>状态：${esc(row.status_label)}</div><div>DPS：${esc(row.result_summary?.dps ?? '-')}</div><div>更新时间：${esc(row.updated_at)}</div></dl>${analysisDocument}${editable ? `<div class="mt-4 rounded-lg border bg-gray-50 p-3 text-sm"><div>Profile #${esc(row.profile_id)} · v${esc(row.profile_version_id)}</div><div>模板 #${esc(row.template_id)} · v${esc(row.template_version_id)}</div><div>APL #${esc(row.apl_id)} · v${esc(row.apl_version_id)}</div><pre class="mt-2 overflow-auto text-xs">${esc(JSON.stringify(params, null, 2))}</pre></div>` : ''}${comparisonSections}<section class="mt-4"><h5 class="font-semibold">执行轮次</h5>${runList}</section><section class="mt-4"><h5 class="font-semibold">结果产物</h5>${artifactList}</section>`;
     }
-    async function showBatchComparison(id) {
-        window.openSimcWorkbenchDialog('batch-detail', null);
+    async function showTaskComparison(id) {
+        window.openSimcWorkbenchDialog('task-comparison', null);
         const host = document.getElementById('simc-dialog-body');
         if (!host) return;
-        renderState(host, 'loading', '正在加载批次比较…');
+        renderState(host, 'loading', '正在加载任务比较…');
         const detailRequest = beginDetailRequest(`comparison:${id}`);
         let data;
         try {
-            data = await json(`/api/simc-regular-compare/?batch_id=${id}&summary=1`, { signal: detailRequest.controller.signal });
+            data = await json(`/api/simc-regular-compare/?task_id=${id}&summary=1`, { signal: detailRequest.controller.signal });
         } catch (error) {
             if (error.name === 'AbortError') return;
             throw error;
         }
         if (!isCurrentDetailRequest(detailRequest)) return;
-        const rows = Array.isArray(data.data?.tasks) ? data.data.tasks : [];
+        const rows = Array.isArray(data.data?.runs) ? data.data.runs : [];
         const attributeReport = data.data?.attribute_report || null;
         const tableRows = rows.map(row => {
             const validDps = row.dps != null && Number.isFinite(Number(row.dps));
@@ -341,49 +371,16 @@
         window.openSimcWorkbenchDialog('task-rerun', null);
         const host = document.getElementById('simc-dialog-body');
         if (!host) return;
-        renderState(host, 'loading', '正在加载重跑表单…');
-        const task = (await json(resourceUrl('tasks', taskId))).data || {};
-        const [profiles, templates, apls] = await Promise.all([
-            resourceOptions('profiles', task.profile_id),
-            resourceOptions('templates', task.template_id),
-            resourceOptions('apls', task.apl_id),
-        ]);
-        const params = task.simulation_params || {};
         host.innerHTML = `<form data-task-rerun-form data-task-id="${idOf(taskId)}" class="space-y-4">
-            <div><h4 class="font-bold">编辑后重跑</h4><p class="text-sm text-gray-500">提交 allowedPatch，创建新 Task，不修改旧 Task。</p></div>
-            <label class="block text-sm">名称<input name="name" required value="${esc(task.name || '')} (rerun)" class="mt-1 w-full rounded border px-3 py-2"></label>
-            <div class="grid gap-3 md:grid-cols-2"><label class="text-sm">iterations<input name="iterations" type="number" min="1" value="${esc(params.iterations || '')}" class="mt-1 w-full rounded border px-3 py-2"></label><label class="text-sm">fight_style<input name="fight_style" value="${esc(params.fight_style || 'Patchwerk')}" class="mt-1 w-full rounded border px-3 py-2"></label><label class="text-sm">max_time<input name="max_time" type="number" min="1" value="${esc(params.max_time || 300)}" class="mt-1 w-full rounded border px-3 py-2"></label><label class="text-sm">desired_targets<input name="desired_targets" type="number" min="1" value="${esc(params.desired_targets || 1)}" class="mt-1 w-full rounded border px-3 py-2"></label></div>
-            <div class="grid gap-3 md:grid-cols-3"><label class="text-sm">Profile<select name="simc_profile_id" data-original-id="${idOf(task.profile_id)}" class="mt-1 w-full rounded border px-3 py-2">${profiles}</select><span class="block text-xs text-gray-500">未改选时复用 profile_version_id ${esc(task.profile_version_id)}</span></label><label class="text-sm">基础模板<select name="base_template_id" data-original-id="${idOf(task.template_id)}" class="mt-1 w-full rounded border px-3 py-2">${templates}</select><span class="block text-xs text-gray-500">未改选时复用 template_version_id ${esc(task.template_version_id)}</span></label><label class="text-sm">APL<select name="selected_apl_id" data-original-id="${idOf(task.apl_id)}" class="mt-1 w-full rounded border px-3 py-2">${apls}</select><span class="block text-xs text-gray-500">未改选时复用 apl_version_id ${esc(task.apl_version_id)}</span></label></div>
-            <div class="flex gap-2"><button type="submit" class="rounded bg-blue-600 px-4 py-2 text-white">创建新 Task</button><button type="button" data-task-rerun-cancel class="rounded border px-4 py-2">取消</button></div>
+            <div><h4 class="font-bold">复制任务重跑</h4><p class="mt-2 text-sm text-gray-500">完整复制该任务的冻结请求，创建一个新的 pending Task；不会读取、复制或追加旧 Run。</p></div>
+            <div class="flex gap-2"><button type="submit" class="rounded bg-blue-600 px-4 py-2 text-white">确认重跑</button><button type="button" data-task-rerun-cancel class="rounded border px-4 py-2">取消</button></div>
         </form>`;
     }
 
     async function submitTaskRerun(form) {
-        const values = new FormData(form);
-        const intOrNull = name => { const value = Number.parseInt(String(values.get(name) || ''), 10); return Number.isSafeInteger(value) && value > 0 ? value : null; };
-        const allowedPatch = {
-            name: String(values.get('name') || '').trim(),
-            simulation_params: {
-                iterations: intOrNull('iterations'), fight_style: String(values.get('fight_style') || '').trim(),
-                max_time: intOrNull('max_time'), desired_targets: intOrNull('desired_targets'),
-            },
-        };
-        const changedResource = inputName => {
-            const select = form.elements.namedItem(inputName);
-            const selected = intOrNull(inputName);
-            const original = idOf(select?.dataset.originalId);
-            return selected && selected !== original ? selected : null;
-        };
-        const profileOverride = changedResource('simc_profile_id');
-        const templateOverride = changedResource('base_template_id');
-        const aplOverride = changedResource('selected_apl_id');
-        if (profileOverride) allowedPatch.profile_id = profileOverride;
-        if (templateOverride) allowedPatch.template_id = templateOverride;
-        if (aplOverride) allowedPatch.apl_id = aplOverride;
-        Object.keys(allowedPatch.simulation_params).forEach(key => { if (allowedPatch.simulation_params[key] == null || allowedPatch.simulation_params[key] === '') delete allowedPatch.simulation_params[key]; });
         const result = await json(resourceUrl('tasks', idOf(form.dataset.taskId)), {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
-            body: JSON.stringify({ action: 'rerun', ...allowedPatch }),
+            body: JSON.stringify({ action: 'rerun' }),
         });
         window.showMessage('已创建新的引用型任务', 'success');
         state.dialogStack = [];
@@ -404,13 +401,9 @@
         }
         if (!isCurrentResourceRequest(request)) return;
         state.rows.templates = data.data || [];
-        state.canWriteTemplates = data.can_write === true;
-        const rows = state.templateType ? data.data.filter(row => row.template_type === state.templateType) : data.data;
-        document.querySelectorAll('[data-template-type]').forEach(button => {
-            button.setAttribute('aria-pressed', String((button.dataset.templateType || '') === state.templateType));
-        });
         const summary = document.querySelector('[data-template-filter-summary]');
-        if (summary) summary.textContent = state.templateType ? `共 ${data.data.length} 个模板 · 当前筛选 ${rows.length} 个` : `共 ${rows.length} 个模板`;
+        if (summary) summary.textContent = `共 ${data.data.length} 个基础模板`;
+        const rows = data.data;
         host.innerHTML = rows.length ? `<div class="simc-template-table-wrap"><table class="simc-template-table">
             <thead><tr><th>模板名称</th><th>类型</th><th class="simc-template-class-col">职业</th><th class="simc-template-spec-col">专精</th><th>来源</th><th>状态</th><th class="simc-template-actions-col">操作</th></tr></thead>
             <tbody>${rows.map(row => {
@@ -426,34 +419,23 @@
                     <td data-label="专精" class="simc-template-spec-col"><span class="simc-template-scope-value">${esc(row.spec || 'default')}</span></td>
                     <td data-label="来源"><span class="simc-template-badge ${sourceClass}">${esc(ownership)}</span></td>
                     <td data-label="状态"><span class="simc-template-badge ${statusClass}">${active ? '启用' : '已停用'}</span></td>
-                    <td data-label="操作" class="simc-template-actions-col"><div class="simc-template-row-actions">${!readOnly ? `<button data-wb-action="template-edit" data-resource="templates" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50"><i class="fas fa-pen mr-1"></i>编辑</button><button data-wb-action="${active ? 'archive' : 'restore'}" data-resource="templates" data-id="${idOf(row.id)}" class="simc-touch-action ${active ? 'text-amber-700 hover:bg-amber-50' : 'text-emerald-700 hover:bg-emerald-50'}"><i class="fas fa-${active ? 'pause' : 'play'} mr-1"></i>${active ? '停用' : '恢复'}</button>` : ''}<button data-wb-action="template-detail" data-resource="templates" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700 hover:bg-slate-100"><i class="fas fa-code mr-1"></i>查看</button></div></td>
+                    <td data-label="操作" class="simc-template-actions-col"><div class="simc-template-row-actions">${!readOnly ? `<button data-wb-action="template-edit" data-resource="templates" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50"><i class="fas fa-pen mr-1"></i>编辑</button>` : ''}<button data-wb-action="template-detail" data-resource="templates" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700 hover:bg-slate-100"><i class="fas fa-code mr-1"></i>查看</button></div></td>
                 </tr>`;
             }).join('')}</tbody>
         </table></div>` : empty('此类型暂无模板');
-        document.querySelector('[data-inline-create="templates"]')?.classList.toggle('hidden', !state.canWriteTemplates);
+
     }
     function renderTemplateForm(row = null) {
         window.openSimcWorkbenchDialog('template-form', null);
         const host = document.getElementById('simc-dialog-body');
         if (!host) return;
-        const typeOptions = [
-            { value: 'base_template', label: '基础模板' },
-            { value: 'default_apl', label: '默认 APL' },
-            { value: 'custom_apl', label: '自定义 APL' },
-            { value: 'custom_player', label: '用户自定义装备' },
-        ].map(opt => `<option value="${esc(opt.value)}" ${row?.template_type === opt.value ? 'selected' : ''}>${esc(opt.label)}</option>`).join('');
+
         const content = row?.content || '';
         host.innerHTML = `<form data-template-form class="simc-editor-form space-y-4">
             <input type="hidden" name="id" value="${idOf(row?.id)}">
-            <div class="rounded-2xl bg-gradient-to-br from-slate-900 to-indigo-950 p-4 text-white"><h4 class="text-lg font-bold">${row?.id ? '编辑内容模板' : '新建内容模板'}</h4><p class="mt-1 text-xs leading-5 text-indigo-100">模板按引用和不可变版本参与新任务；修改不会回写历史任务。</p></div>
+            <div class="rounded-2xl bg-gradient-to-br from-slate-900 to-indigo-950 p-4 text-white"><h4 class="text-lg font-bold">编辑基础模板</h4><p class="mt-1 text-xs leading-5 text-indigo-100">模板按引用和不可变版本参与新任务；修改不会回写历史任务。</p></div>
             <section class="simc-editor-section">
-                <div class="simc-editor-section__heading"><div><h5 class="text-sm font-bold text-slate-900">身份与适用范围</h5><p class="mt-1 text-xs text-slate-500">明确模板名称、类型和职业专精边界。</p></div><span class="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">ContentTemplate</span></div>
-                <div class="grid gap-4 p-4 sm:grid-cols-2">
-                    <label class="simc-editor-label sm:col-span-2">名称<input name="name" required maxlength="200" value="${esc(row?.name)}" class="simc-editor-input" placeholder="例如：通用基础模拟模板"></label>
-                    <label class="simc-editor-label">类型<select name="template_type" required class="simc-editor-input">${typeOptions}</select><span class="simc-editor-help">默认玩家配置由上游同步维护，不在此手工创建。</span></label>
-                    <label class="simc-editor-label">专精标识<input name="spec" maxlength="100" value="${esc(row?.spec || 'default')}" class="simc-editor-input" placeholder="default 或 warrior_fury"></label>
-                    <label class="simc-editor-label sm:col-span-2">职业<input name="class_name" maxlength="50" value="${esc(row?.class_name)}" class="simc-editor-input" placeholder="留空表示通用"></label>
-                </div>
+                <div class="simc-editor-section__heading"><div><h5 class="text-sm font-bold text-slate-900">系统基础模板</h5><p class="mt-1 text-xs text-slate-500">${esc(row?.name || '基础运行框架')} · 全局通用</p></div><span class="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">ContentTemplate</span></div>
             </section>
             <section class="simc-editor-section">
                 <div class="simc-editor-section__heading"><div><h5 class="text-sm font-bold text-slate-900">模板内容</h5><p class="mt-1 text-xs text-slate-500">支持 Tab 缩进；按原始换行保存，不在浏览器端重排。</p></div><span class="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700">SimC</span></div>
@@ -475,20 +457,22 @@
         const formData = new FormData(form);
         const id = idOf(formData.get('id'));
         const payload = {
-            name: String(formData.get('name') || '').trim(),
-            spec: String(formData.get('spec') || 'default').trim(),
-            class_name: String(formData.get('class_name') || '').trim(),
-            content: String(formData.get('content') || '').trim(),
+            content: String(formData.get('content') || ''),
         };
-        payload.template_type = String(formData.get('template_type') || '').trim();
         await json(resourceUrl('templates', id), {
-            method: id ? 'PUT' : 'POST',
+            method: 'PUT',
             headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
             body: JSON.stringify(payload),
         });
         closeTemplateForm();
         await loadTemplates();
-        window.showMessage(id ? '模板已更新' : '模板已创建', 'success');
+        window.showMessage('模板已更新', 'success');
+    }
+    async function editTemplate(id) {
+        const detailRequest = beginDetailRequest(`template-edit:${id}`);
+        const data = await json(resourceUrl('templates', id), { signal: detailRequest.controller.signal });
+        if (!isCurrentDetailRequest(detailRequest)) return;
+        renderTemplateForm(data.data || {});
     }
     async function showTemplateDetail(id) {
         window.openSimcWorkbenchDialog('template-detail', null);
@@ -525,30 +509,32 @@
         const specOptions = state.specOptions.length ? state.specOptions : [{ value: row?.spec || '', label: row?.spec || '请选择专精' }];
         const specHtml = specOptions.map(option => `<option value="${esc(option.value)}" ${option.value === row?.spec ? 'selected' : ''}>${esc(option.label)}</option>`).join('');
         const content = row?.apl_code || '';
-        host.innerHTML = `<form data-apl-storage-form data-managed-apl="${row?.id ? '1' : '0'}" data-system-apl="${row?.is_system ? '1' : '0'}" class="simc-editor-form space-y-4">
-            <input type="hidden" name="id" value="${idOf(row?.id)}">
-            <div class="rounded-2xl bg-gradient-to-br from-slate-900 to-indigo-950 p-4 text-white"><h4 class="text-lg font-bold">${row?.id ? '编辑 APL' : '新建 APL'}</h4><p class="mt-1 text-xs leading-5 text-indigo-100">维护名称、适用专精和完整 action priority list。历史 Task 继续绑定原资源版本。</p></div>
-            <section class="simc-editor-section">
-                <div class="grid gap-4 p-4 sm:grid-cols-2">
-                    <label class="simc-editor-label">名称<input name="title" required maxlength="200" value="${esc(row?.title)}" class="simc-editor-input" placeholder="例如：Fury 单目标"></label>
-                    <label class="simc-editor-label">适用专精<select name="spec" required class="simc-editor-input">${specHtml}</select><span class="simc-editor-help">统一使用“职业_专精”标识，便于任务引用与筛选。</span></label>
-                </div>
-            </section>
-            <section class="simc-apl-import-picker" data-apl-import-picker>
-                <div class="simc-apl-import-picker__copy"><strong>加载其他 APL 内容</strong><span data-apl-import-summary>请选择专精后选择可用 APL；仅点击“加载”后才会替换编辑区正文。</span></div>
-                <div class="simc-apl-import-picker__controls"><select data-apl-import-select class="simc-editor-input" aria-label="选择要加载的 APL"><option value="">请选择 APL</option></select><button type="button" data-apl-import-load disabled>加载</button></div>
-            </section>
-            <section class="simc-editor-section">
-                <div class="simc-editor-section__heading"><div><h5 class="text-sm font-bold text-slate-900">APL 内容</h5><p class="mt-1 text-xs text-slate-500">APL/中文共用一个可编辑正文；保存时会自动转换为权威 APL。</p></div><div class="simc-apl-editor-heading-actions"><div class="simc-apl-language-switch" role="group" aria-label="正文语言"><button type="button" data-apl-language="apl" aria-pressed="true">APL</button><button type="button" data-apl-language="cn" aria-pressed="false">中文</button></div><button type="button" data-apl-validate-now>立即结构检查</button></div></div>
-                <input type="hidden" name="apl_code" value="">
-                <div class="simc-apl-workspace">
-                    <div class="simc-apl-editor-column"><div class="simc-apl-editor-shell"><div class="simc-apl-editor-mount" data-apl-editor-mount></div><div class="simc-apl-diagnostics" data-apl-editor-diagnostics aria-live="polite"></div></div></div>
-                    <aside class="simc-apl-assistant" data-apl-assistant aria-label="技能与 Buff 助手"><div data-apl-assistant-host></div></aside>
-                </div>
-                <button type="button" class="simc-apl-assistant-toggle" data-apl-assistant-toggle>技能与 Buff 助手</button>
-                <div class="simc-code-editor-toolbar"><span data-code-editor-stats>${codeStats(content)}</span><span data-apl-editor-status>准备检查</span></div>
-            </section>
-            <div class="simc-editor-actions"><span class="mr-auto hidden text-xs text-gray-500 sm:block">保存后，新任务将引用新的不可变版本。</span><button type="button" data-apl-action="cancel" class="rounded-lg border bg-white px-4 py-2 text-sm text-slate-700">取消</button><button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"><i class="fas fa-save mr-1"></i>保存 APL</button></div>
+        host.innerHTML = `<form data-apl-storage-form data-managed-apl="${row?.id ? '1' : '0'}" data-system-apl="${row?.is_system ? '1' : '0'}" class="simc-editor-form simc-apl-editor-form">
+            <div class="simc-apl-editor-main space-y-4">
+                <input type="hidden" name="id" value="${idOf(row?.id)}">
+                <div class="rounded-2xl bg-gradient-to-br from-slate-900 to-indigo-950 p-4 text-white"><h4 class="text-lg font-bold">${row?.id ? '编辑 APL' : '新建 APL'}</h4><p class="mt-1 text-xs leading-5 text-indigo-100">维护名称、适用专精和完整 action priority list。历史 Task 继续绑定原资源版本。</p></div>
+                <section class="simc-editor-section">
+                    <div class="grid gap-4 p-4 sm:grid-cols-2">
+                        <label class="simc-editor-label">名称<input name="title" required maxlength="200" value="${esc(row?.title)}" class="simc-editor-input" placeholder="例如：Fury 单目标"></label>
+                        <label class="simc-editor-label">适用专精<select name="spec" required class="simc-editor-input">${specHtml}</select><span class="simc-editor-help">统一使用“职业_专精”标识，便于任务引用与筛选。</span></label>
+                    </div>
+                </section>
+                <section class="simc-apl-import-picker" data-apl-import-picker>
+                    <div class="simc-apl-import-picker__copy"><strong>加载其他 APL 内容</strong><span data-apl-import-summary>请选择专精后选择可用 APL；仅点击“加载”后才会替换编辑区正文。</span></div>
+                    <div class="simc-apl-import-picker__controls"><select data-apl-import-select class="simc-editor-input" aria-label="选择要加载的 APL"><option value="">请选择 APL</option></select><button type="button" data-apl-import-load disabled>加载</button></div>
+                </section>
+                <section class="simc-editor-section">
+                    <div class="simc-editor-section__heading"><div><h5 class="text-sm font-bold text-slate-900">APL 内容</h5><p class="mt-1 text-xs text-slate-500">APL/中文共用一个可编辑正文；保存时会自动转换为权威 APL。</p></div><div class="simc-apl-editor-heading-actions"><div class="simc-apl-language-switch" role="group" aria-label="正文语言"><button type="button" data-apl-language="apl" aria-pressed="true">APL</button><button type="button" data-apl-language="cn" aria-pressed="false">中文</button></div><button type="button" data-apl-validate-now>立即结构检查</button></div></div>
+                    <input type="hidden" name="apl_code" value="">
+                    <div class="simc-apl-workspace">
+                        <div class="simc-apl-editor-column"><div class="simc-apl-editor-shell"><div class="simc-apl-editor-mount" data-apl-editor-mount></div><div class="simc-apl-diagnostics" data-apl-editor-diagnostics aria-live="polite"></div></div></div>
+                    </div>
+                    <button type="button" class="simc-apl-assistant-toggle" data-apl-assistant-toggle>技能与 Buff 助手</button>
+                    <div class="simc-code-editor-toolbar"><span data-code-editor-stats>${codeStats(content)}</span><span data-apl-editor-status>准备检查</span></div>
+                </section>
+                <div class="simc-editor-actions"><span class="mr-auto hidden text-xs text-gray-500 sm:block">保存后，新任务将引用新的不可变版本。</span><button type="button" data-apl-action="cancel" class="rounded-lg border bg-white px-4 py-2 text-sm text-slate-700">取消</button><button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"><i class="fas fa-save mr-1"></i>保存 APL</button></div>
+            </div>
+            <aside class="simc-apl-assistant" data-apl-assistant aria-label="技能与 Buff 助手"><div data-apl-assistant-host></div></aside>
         </form>`;
         setAplDialogLayout(true);
         const hiddenInput = host.querySelector('input[name="apl_code"]');
@@ -767,9 +753,8 @@
         state.aplLoadState.default = { loading: true, error: '' };
         renderUnifiedAplList();
         let data;
-        const params = new URLSearchParams({ library: 'default_apl' });
         try {
-            data = await json(`${resourceUrl('templates')}?${params.toString()}`, { signal: request.controller.signal });
+            data = await json(resourceUrl('apls'), { signal: request.controller.signal });
         } catch (error) {
             if (error.name === 'AbortError') return;
             if (isCurrentResourceRequest(request)) {
@@ -779,7 +764,7 @@
             return;
         }
         if (!isCurrentResourceRequest(request)) return;
-        state.rows['default-apl'] = data.data || [];
+        state.rows['default-apl'] = (data.data || []).filter(row => row.is_system && row.is_active && row.is_selectable);
         state.aplLoadState.default = { loading: false, error: '' };
         renderUnifiedAplList();
     }
@@ -910,6 +895,7 @@
         const progress = Number.isFinite(Number(info.update_progress)) ? Math.max(0, Math.min(100, Number(info.update_progress))) : 0;
         host.innerHTML = `<dl class="grid gap-3 md:grid-cols-3">
             <div class="rounded bg-slate-50 p-3">平台<br><b>${esc(info.platform)}</b></div>
+            <div class="rounded bg-slate-50 p-3">魔兽世界版本<br><b>${esc(info.game_version || '-')}</b></div>
             <div class="rounded bg-slate-50 p-3">本地源码版本<br><b>${esc(info.current_version || '-')}</b></div>
             <div class="rounded bg-slate-50 p-3">上游源码版本<br><b>${esc(info.latest_version || '-')}</b></div>
             <div class="rounded bg-slate-50 p-3">本地二进制<br><b>${esc(info.binary_name || '-')} · ${esc(availableLabel)}</b></div>
@@ -938,9 +924,21 @@
     }
     async function lifecycle(resource, id, action) {
         await json(resourceUrl(resource, id), { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() }, body: JSON.stringify({ action }) });
-        if (resource === 'tasks' || resource === 'batches') await loadTasks(state.taskPage);
+        if (resource === 'tasks') await loadTasks(state.taskPage);
         else if (resource === 'apl-storage') await loadApl(resource, 'simc-unified-apl-list');
         else if (resource === 'templates') await loadTemplates();
+    }
+    async function updatePendingTaskStatus(id, currentStatus) {
+        const row = (state.rows.history || []).find(item => idOf(item.id) === id);
+        if (!row) throw new Error('任务不存在或列表已刷新');
+        const label = currentStatus === 5 ? '取消' : '标记为失败';
+        if (!window.confirm(`确认${label}任务 #${id}？`)) return;
+        await json('/api/simc-task/', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
+            body: JSON.stringify({ id, name: row.name || `任务 #${id}`, current_status: currentStatus }),
+        });
+        await loadTasks(state.taskPage);
     }
     async function fetchManagedAplDetail(id, options = {}) {
         const row = (await json(resourceUrl('apls', id), options)).data || {};
@@ -1039,8 +1037,6 @@
         document.addEventListener('click', async event => {
             const aplCreate = event.target.closest('[data-inline-create="apl-storage"]');
             if (aplCreate) openNewAplStorageForm().catch(notify);
-            const templateCreate = event.target.closest('[data-inline-create="templates"]');
-            if (templateCreate) renderTemplateForm();
 
             const myAplAction = event.target.closest('[data-my-apl-action]');
             if (myAplAction) {
@@ -1137,15 +1133,30 @@
             if (event.target.closest('[data-wb-close-detail]')) {
                 if (!restoreDialogState()) closeDialog();
             }
-            const type = event.target.closest('[data-template-type]');
-            if (type) { state.templateType = type.dataset.templateType || ''; loadTemplates().catch(notify); }
+
             const rerunAction = event.target.closest('[data-task-rerun]');
             if (rerunAction) {
                 renderTaskRerunForm(rerunAction.dataset.taskRerun);
                 return;
             }
+            const taskStatusAction = event.target.closest('[data-task-status]');
+            if (taskStatusAction) {
+                const id = idOf(taskStatusAction.dataset.taskId);
+                const status = Number.parseInt(taskStatusAction.dataset.taskStatus, 10);
+                if (id && [3, 5].includes(status)) updatePendingTaskStatus(id, status).catch(notify);
+                return;
+            }
             if (event.target.closest('[data-task-rerun-cancel]')) {
                 if (!restoreDialogState()) closeDialog();
+                return;
+            }
+            const benchmarkToggle = event.target.closest('[data-benchmark-task-toggle]');
+            if (benchmarkToggle) {
+                const cases = document.getElementById(benchmarkToggle.getAttribute('aria-controls'));
+                const expanded = benchmarkToggle.getAttribute('aria-expanded') === 'true';
+                benchmarkToggle.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+                benchmarkToggle.textContent = expanded ? '展开子任务进度' : '收起子任务进度';
+                if (cases) cases.hidden = expanded;
                 return;
             }
             const action = event.target.closest('[data-wb-action]');
@@ -1156,13 +1167,10 @@
                     if (action.closest('#simc-dialog-body')) pushDialogState();
                     showTaskDetail(resource, id).catch(notify);
                 }
-                else if (name === 'compare' && resource === 'batches') showBatchComparison(id).catch(notify);
+                else if (name === 'compare' && resource === 'tasks') showTaskComparison(id).catch(notify);
                 else if (name === 'template-detail') showTemplateDetail(id).catch(notify);
 
-                else if (name === 'template-edit') {
-                    const row = (state.rows.templates || []).find(item => idOf(item.id) === id);
-                    if (row) renderTemplateForm(row);
-                }
+                else if (name === 'template-edit') editTemplate(id).catch(notify);
                 else if (name === 'archive' || name === 'restore' || name === 'rerun') lifecycle(resource, id, name).catch(notify);
             }
             const backendAction = event.target.closest('[data-backend-action]');

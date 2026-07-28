@@ -85,7 +85,6 @@ class SimcTaskReferenceContracts(TestCase):
         self.client.force_login(self.user)
         # Temporary editor bodies must be saved as resources before creating a Task.
         self.template = SimcContentTemplate.objects.create(
-            template_type=SimcContentTemplate.TYPE_BASE_TEMPLATE,
             source=SimcContentTemplate.SOURCE_USER,
             owner_user_id=self.user.id,
             spec='warrior_fury', name='Saved edited template', content=BASE_CONTENT,
@@ -114,7 +113,6 @@ class SimcTaskReferenceContracts(TestCase):
         payload = {
             'name': 'Reference task',
             'simc_profile_id': self.profile.id,
-            'task_type': 1,
             'base_template_id': self.template.id,
             'selected_apl_id': self.apl.id,
         }

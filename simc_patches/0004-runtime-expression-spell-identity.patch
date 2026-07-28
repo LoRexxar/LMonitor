@@ -1,0 +1,148 @@
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+index 3dffada7ae..ed026f9eda 100644
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -5,6 +5,7 @@
+ 
+ #include "class_modules/class_module.hpp"
+ #include "dbc/dbc.hpp"
++#include "dbc/racial_spells.hpp"
+ #include "dbc/spell_query/spell_data_expr.hpp"
+ #include "interfaces/bcp_api.hpp"
+ #include "interfaces/sc_http.hpp"
+@@ -239,6 +240,27 @@ void upsert_apl_metadata_symbol( std::set<apl_metadata_symbol_t>& symbols, apl_m
+   symbols.insert( std::move( merged ) );
+ }
+ 
++unsigned apl_metadata_action_spell_id( const action_t& action )
++{
++  if ( action.data().ok() && action.data().id() ) return action.data().id();
++  if ( action.data_reporting().ok() && action.data_reporting().id() )
++    return action.data_reporting().id();
++  if ( action.id > 1 )
++  {
++    const spell_data_t* spell = action.player->find_spell( action.id );
++    if ( spell && spell->ok() ) return action.id;
++  }
++  return 0;
++}
++
++const action_t* apl_metadata_find_action( const player_t& player, const std::string& token )
++{
++  if ( const action_t* action = player.find_action( token ) ) return action;
++  for ( const action_t* action : player.action_list )
++    if ( action && util::str_compare_ci( action->name_str, token ) ) return action;
++  return nullptr;
++}
++
+ void add_apl_expression_symbols( std::set<apl_metadata_symbol_t>& symbols, const player_t& player,
+                                  const std::string& class_name, const std::string& spec,
+                                  const std::string& expression )
+@@ -257,12 +279,17 @@ void add_apl_expression_symbols( std::set<apl_metadata_symbol_t>& symbols, const
+     apl_metadata_symbol_t object{ class_name, spec, token, kind, "runtime_expression_resolver" };
+     if ( kind == "buff" )
+     {
+-      if ( auto* buff = buff_t::find( const_cast<player_t*>( &player ), token ) )
++      auto* mutable_player = const_cast<player_t*>( &player );
++      mutable_player->get_target_data( mutable_player );
++      buff_t* buff = buff_t::find_expressable( mutable_player->buff_list, token, mutable_player );
++      if ( !buff ) buff = buff_t::find( mutable_player, token, mutable_player );
++      if ( buff && !buff->is_fallback )
+       {
+-        object.spell_id = buff->data_reporting().id();
+-        if ( !object.spell_id ) object.reason = "fallback_or_unbound_buff";
++        object.spell_id = buff->data().id()
++          ? buff->data().id() : buff->data_reporting().id();
++        if ( !object.spell_id ) object.reason = "unbound_buff";
+       }
+-      else object.reason = "buff_not_found";
++      else object.reason = buff ? "fallback_buff_no_spell_data" : "buff_not_found";
+     }
+     else if ( kind == "debuff" )
+     {
+@@ -276,10 +303,12 @@ void add_apl_expression_symbols( std::set<apl_metadata_symbol_t>& symbols, const
+       {
+         if ( !target || !target->is_enemy() ) continue;
+         mutable_player->get_target_data( target );
+-        if ( auto* debuff = buff_t::find( target, token, mutable_player ); debuff )
++        buff_t* debuff = buff_t::find( target, token, mutable_player );
++        if ( !debuff ) debuff = buff_t::find( target, token, target );
++        if ( debuff && !debuff->is_fallback )
+         {
+-          const unsigned spell_id = debuff->data_reporting().id()
+-            ? debuff->data_reporting().id() : debuff->data().id();
++          const unsigned spell_id = debuff->data().id()
++            ? debuff->data().id() : debuff->data_reporting().id();
+           if ( spell_id ) object.candidates.insert( spell_id );
+         }
+       }
+@@ -291,20 +320,36 @@ void add_apl_expression_symbols( std::set<apl_metadata_symbol_t>& symbols, const
+       // Match dot expression construction: identity belongs to the initialized
+       // APL action. Do not require periodic fields on proxy actions such as
+       // moonfire/rake, and do not infer an ID from their damage children.
+-      if ( const action_t* action = player.find_action( token );
+-           action && action->data().id() )
+-        object.candidates.insert( action->data().id() );
++      if ( const action_t* action = apl_metadata_find_action( player, token ) )
++      {
++        object.spell_id = apl_metadata_action_spell_id( *action );
++        if ( object.spell_id ) object.candidates.insert( object.spell_id );
++      }
+       if ( object.candidates.size() == 1 ) object.spell_id = *object.candidates.begin();
+       else object.reason = "action_dot_not_found";
+     }
+     else if ( kind == "cooldown" )
+     {
+-      if ( const cooldown_t* cooldown = player.find_cooldown( token );
+-           cooldown && cooldown->action && cooldown->action->data().id() )
+-        object.candidates.insert( cooldown->action->data().id() );
+-      for ( const action_t* action : player.action_list )
+-        if ( action->cooldown && action->cooldown->name_str == token && action->data().id() )
+-          object.candidates.insert( action->data().id() );
++      if ( const action_t* direct = apl_metadata_find_action( player, token ) )
++      {
++        object.spell_id = apl_metadata_action_spell_id( *direct );
++        if ( object.spell_id ) object.candidates.insert( object.spell_id );
++      }
++      if ( !object.spell_id )
++      {
++        if ( const cooldown_t* cooldown = player.find_cooldown( token );
++             cooldown && cooldown->action )
++        {
++          const unsigned spell_id = apl_metadata_action_spell_id( *cooldown->action );
++          if ( spell_id ) object.candidates.insert( spell_id );
++        }
++        for ( const action_t* action : player.action_list )
++          if ( action->cooldown && action->cooldown->name_str == token )
++          {
++            const unsigned spell_id = apl_metadata_action_spell_id( *action );
++            if ( spell_id ) object.candidates.insert( spell_id );
++          }
++      }
+       if ( object.candidates.size() == 1 ) object.spell_id = *object.candidates.begin();
+       else object.reason = object.candidates.empty() ? "no_action_bound_spell" : "ambiguous_action_bound_spells";
+     }
+@@ -387,7 +432,22 @@ void export_apl_metadata( const sim_t& sim )
+     for ( const action_t* action : player->action_list )
+     {
+       apl_metadata_symbol_t action_symbol{ class_name, spec, action->name_str, "action", "runtime_action",
+-                                           action->data().id() };
++                                           apl_metadata_action_spell_id( *action ) };
++      if ( !action_symbol.spell_id )
++      {
++        const auto class_mask = util::class_id_mask( player->type );
++        for ( const auto& racial : racial_spell_entry_t::data( player->is_ptr() ) )
++          if ( util::tokenize_fn( racial.name ) == action->name_str &&
++               ( racial.mask_class == 0 || ( racial.mask_class & class_mask ) ) )
++            action_symbol.candidates.insert( racial.spell_id );
++        if ( action_symbol.candidates.size() == 1 )
++        {
++          action_symbol.spell_id = *action_symbol.candidates.begin();
++          action_symbol.source = "runtime_racial_dbc";
++        }
++        else if ( action_symbol.candidates.size() > 1 )
++          action_symbol.reason = "ambiguous_class_racial_spells";
++      }
+       for ( const auto& option : action->apl_metadata_option_names() )
+       {
+         action_symbol.options.insert( option );

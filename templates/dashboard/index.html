@@ -12,7 +12,8 @@
     <!-- Font Awesome for icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Custom styles -->
-    <link rel="stylesheet" href="{% static 'dashboard/css/simc-apl-editor.css' %}?v=20260723d">
+    <link rel="stylesheet" href="{% static 'dashboard/css/simc-apl-editor.css' %}?v=20260727b">
+    <link rel="stylesheet" href="{% static 'dashboard/css/simc-benchmark-dashboard.css' %}?v=20260727a">
     <style>
         .sidebar-transition { transition: all 0.3s ease; }
         .card-hover:hover { transform: translateY(-2px); }
@@ -143,10 +144,7 @@
         /* SimC 紧凑响应式：操作保持可达，窄屏不产生横向滚动。 */
         .simc-compact-panel { padding: .75rem; }
         .simc-touch-action { min-height: 36px; padding: .4rem .65rem; border-radius: .375rem; }
-        .simc-template-filters { display: flex; flex-wrap: wrap; gap: .5rem; }
-        .simc-template-filter { min-height: 38px; border: 1px solid #e2e8f0; border-radius: 999px; background: #fff; padding: .45rem .8rem; color: #475569; font-size: .75rem; font-weight: 800; transition: border-color .16s, background .16s, color .16s, box-shadow .16s; }
-        .simc-template-filter:hover { border-color: #bfdbfe; color: #1d4ed8; }
-        .simc-template-filter[aria-pressed="true"] { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; box-shadow: 0 0 0 3px rgba(37, 99, 235, .08); }
+
         .simc-template-table-wrap { overflow-x: auto; border: 1px solid #e2e8f0; border-radius: .9rem; background: #fff; }
         .simc-template-table { width: 100%; min-width: 960px; border-collapse: collapse; table-layout: fixed; }
         .simc-template-table th { background: #f8fafc; padding: .75rem .8rem; color: #64748b; font-size: .7rem; font-weight: 800; letter-spacing: .04em; text-align: left; white-space: nowrap; }
@@ -199,6 +197,34 @@
         .simc-task-progress__track { height: .38rem; flex: 1; overflow: hidden; border-radius: 999px; background: #e2e8f0; }
         .simc-task-progress__fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, #2563eb, #60a5fa); }
         .simc-task-card__actions { display: flex; align-items: center; justify-content: flex-end; gap: .55rem; }
+        /* 历史任务采用紧凑单行布局，避免每条任务占用过宽的纵向空间。 */
+        #simc-workbench .simc-task-card { grid-template-columns: minmax(0, 1fr) auto; gap: .75rem; padding: .55rem .75rem; border-radius: .75rem; }
+        #simc-workbench .simc-task-card__main { display: flex; min-width: 0; align-items: center; gap: .65rem; }
+        #simc-workbench .simc-task-card__eyebrow { flex: 0 0 auto; margin-bottom: 0; }
+        #simc-workbench .simc-task-card__title { flex: 1 1 14rem; min-width: 5rem; font-size: .86rem; }
+        #simc-workbench .simc-task-card__meta { flex: 0 0 auto; margin-top: 0; gap: .45rem; white-space: nowrap; }
+        #simc-workbench .simc-task-progress { flex: 0 1 9rem; min-width: 5rem; margin-top: 0; }
+        #simc-workbench .simc-task-card__actions { flex: 0 0 auto; gap: .35rem; }
+        #simc-workbench .simc-task-card__actions .simc-touch-action { min-height: 32px; padding: .35rem .55rem; font-size: .7rem; }
+        #simc-workbench .simc-benchmark-task-group { display: block; padding: .75rem; }
+        #simc-workbench .simc-benchmark-task-summary { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+        #simc-workbench .simc-benchmark-task-summary > .simc-task-card__main { flex: 1 1 auto; }
+        #simc-workbench .simc-benchmark-task-cases { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem; max-height: 34rem; margin-top: .7rem; overflow-y: auto; border-top: 1px solid #e2e8f0; padding-top: .7rem; }
+        #simc-workbench .simc-benchmark-task-cases[hidden] { display: none !important; }
+        #simc-workbench .simc-benchmark-task-case { min-width: 0; border: 1px solid #e2e8f0; border-left: 3px solid #f59e0b; border-radius: .65rem; background: #fff; padding: .55rem .65rem; }
+        #simc-workbench .simc-benchmark-task-case[data-status="running"] { border-left-color: #2563eb; background: #f8fbff; }
+        #simc-workbench .simc-benchmark-task-case[data-status="success"] { border-left-color: #10b981; }
+        #simc-workbench .simc-benchmark-task-case[data-status="failed"], #simc-workbench .simc-benchmark-task-case[data-status="cancelled"] { border-left-color: #ef4444; }
+        #simc-workbench .simc-benchmark-task-case__header { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+        #simc-workbench .simc-benchmark-task-case__title { min-width: 0; overflow: hidden; color: #334155; font-size: .72rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+        #simc-workbench .simc-benchmark-task-case__title .simc-task-id { margin-right: .45rem; }
+        #simc-workbench .simc-benchmark-task-case__header .simc-task-status { flex: 0 0 auto; font-size: .66rem; }
+        #simc-workbench .simc-benchmark-task-case__progress { display: flex; align-items: center; gap: .5rem; margin-top: .45rem; color: #64748b; font-size: .68rem; }
+        #simc-workbench .simc-benchmark-task-case__progress .simc-task-progress__track { height: .32rem; }
+        #simc-workbench .simc-benchmark-task-case__progress strong { width: 2.4rem; color: #334155; text-align: right; }
+        #simc-workbench .simc-benchmark-task-case__progress.is-unknown { color: #94a3b8; }
+        .simc-task-status.is-cancelled { background: #f1f5f9; color: #64748b; }
+        .simc-task-status.is-partial { background: #fff7ed; color: #c2410c; }
         .simc-task-primary-action, .simc-task-secondary-action { display: inline-flex; min-height: 40px; align-items: center; justify-content: center; gap: .45rem; border-radius: .7rem; padding: .55rem .85rem; font-size: .78rem; font-weight: 800; transition: background .16s, border-color .16s, color .16s, box-shadow .16s; }
         .simc-task-primary-action { border: 1px solid #2563eb; background: #2563eb; color: #fff; box-shadow: 0 5px 14px rgba(37, 99, 235, .2); }
         .simc-task-primary-action:hover { border-color: #1d4ed8; background: #1d4ed8; color: #fff; }
@@ -246,11 +272,22 @@
             #simc-workbench .simc-template-table { min-width: 860px; }
             #simc-workbench .simc-template-row-actions .simc-touch-action { min-height: 38px; }
             .simc-template-detail-meta { grid-template-columns: minmax(0, 1fr); }
-            #simc-workbench .simc-task-card { gap: .85rem; padding: .9rem; }
-            #simc-workbench .simc-task-card__title { white-space: normal; overflow-wrap: anywhere; }
-            #simc-workbench .simc-task-card__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
-            #simc-workbench .simc-task-card__actions > :only-child { grid-column: 1 / -1; }
-            #simc-workbench .simc-task-primary-action, #simc-workbench .simc-task-secondary-action { width: 100%; min-height: 42px; }
+            #simc-workbench .simc-task-card { grid-template-columns: minmax(0, 1fr) auto; gap: .4rem; padding: .45rem .5rem; }
+            #simc-workbench .simc-task-card__main { gap: .35rem; }
+            #simc-workbench .simc-task-card__eyebrow { display: none; }
+            #simc-workbench .simc-task-card__title { flex-basis: 8rem; font-size: .78rem; }
+            #simc-workbench .simc-task-card__meta { display: none; }
+            #simc-workbench .simc-task-progress { display: none; }
+            #simc-workbench .simc-task-card__actions { display: flex; width: auto; }
+            #simc-workbench .simc-task-card__actions .simc-touch-action { width: auto; min-height: 32px; padding: .3rem .4rem; }
+            #simc-workbench .simc-task-card__actions .simc-touch-action span { display: none; }
+            #simc-workbench .simc-benchmark-task-group { display: block; padding: .6rem; }
+            #simc-workbench .simc-benchmark-task-summary { align-items: flex-start; }
+            #simc-workbench .simc-benchmark-task-summary > .simc-task-card__main { display: grid; gap: .25rem; }
+            #simc-workbench .simc-benchmark-task-summary .simc-task-card__meta { display: flex; white-space: normal; }
+            #simc-workbench .simc-benchmark-task-summary .simc-task-progress { display: flex; width: 100%; }
+            #simc-workbench .simc-benchmark-task-cases { grid-template-columns: minmax(0, 1fr); }
+            #simc-workbench .simc-benchmark-task-case__title { white-space: normal; }
             #simc-workbench .simc-responsive-table thead { display: none; }
             #simc-workbench .simc-responsive-table, #simc-workbench .simc-responsive-table tbody,
             #simc-workbench .simc-responsive-table tr, #simc-workbench .simc-responsive-table td { display: block; width: 100%; }
@@ -262,9 +299,10 @@
     </style>
     {% block dashboard_extra_head %}{% endblock %}
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script>window.SIMC_APL_EDITOR_MODULE_URL = "{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260722a";</script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260723b"></script>
-    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260722c"></script>
+    <script>window.SIMC_APL_EDITOR_MODULE_URL = "{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260727b";</script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260727d"></script>
+    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260727a"></script>
+    <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260728a"></script>
 </head>
 <body class="bg-gray-50 font-sans dashboard-page">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -412,11 +450,28 @@
                             </li>
                         </ul>
                     </li>
-                    <li class="nav-item" data-section="simc-workbench">
-                        <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                    <li class="nav-item has-submenu" data-section="simc">
+                        <a href="#" aria-expanded="false" aria-controls="simc-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-microchip mr-3"></i>
-                            SimC工具台
+                            SimC
+                            <i class="fas fa-chevron-down ml-auto text-xs"></i>
                         </a>
+                        <ul id="simc-sidebar-submenu" class="submenu mt-2 ml-6 space-y-1 max-h-0 overflow-hidden transition-all duration-300">
+                            <li class="submenu-item" data-dashboard-section="simc-workbench">
+                                <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
+                                    <i class="fas fa-screwdriver-wrench mr-2 text-xs"></i>
+                                    SimC 工具台
+                                </a>
+                            </li>
+                            {% if user.is_staff or user.is_superuser %}
+                            <li class="submenu-item" data-dashboard-section="simc-benchmarks">
+                                <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
+                                    <i class="fas fa-gauge-high mr-2 text-xs"></i>
+                                    基准面板
+                                </a>
+                            </li>
+                            {% endif %}
+                        </ul>
                     </li>
                     <li class="nav-item has-submenu" data-section="tools">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
@@ -879,25 +934,6 @@
                     <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
                         <div>
                             <h2 class="text-3xl font-bold text-gray-800 mb-2">SimC工具台</h2>
-                            <p class="text-gray-600">集中管理 SimulationCraft 导入、任务发起、任务结果、配置模板、APL 翻译和后端编译。</p>
-                        </div>
-                        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                            <div class="rounded-xl bg-white border border-gray-200 shadow-sm px-4 py-3">
-                                <div class="text-xs text-gray-500">导入入口</div>
-                                <div class="font-semibold text-gray-900">Raw .simc</div>
-                            </div>
-                            <div class="rounded-xl bg-white border border-gray-200 shadow-sm px-4 py-3">
-                                <div class="text-xs text-gray-500">任务链路</div>
-                                <div class="font-semibold text-gray-900">识别 → 勾选 → 创建</div>
-                            </div>
-                            <div class="rounded-xl bg-white border border-gray-200 shadow-sm px-4 py-3">
-                                <div class="text-xs text-gray-500">后端</div>
-                                <div class="font-semibold text-gray-900">本地 Linux SimC</div>
-                            </div>
-                            <div class="rounded-xl bg-white border border-gray-200 shadow-sm px-4 py-3">
-                                <div class="text-xs text-gray-500">结果</div>
-                                <div class="font-semibold text-gray-900">任务列表直达</div>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -1022,13 +1058,18 @@
                                                 <label class="block text-xs font-semibold text-gray-600 mb-1">时长与目标预设</label>
                                                 <select id="simc-sim-fight-preset" class="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white">
                                                     <option value="300,1">300 秒 / 1 目标</option>
-                                                    <option value="300,2">300 秒 / 2 目标</option>
-                                                    <option value="300,5">300 秒 / 5 目标</option>
-                                                    <option value="1800,5">1800 秒 / 5 目标</option>
+                                                    <option value="40,5">40 秒 / 5 目标</option>
+                                                    <option value="40,20">40 秒 / 20 目标</option>
                                                     <option value="custom">自定义时长与目标</option>
                                                 </select>
                                             </div>
-                                            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                            <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                                <div>
+                                                    <label class="block text-xs font-semibold text-gray-600 mb-1">SimC 后端</label>
+                                                    <select id="simc-sim-backend" class="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white">
+                                                        <option value="">正在加载...</option>
+                                                    </select>
+                                                </div>
                                                 <div>
                                                     <label class="block text-xs font-semibold text-gray-600 mb-1">SimC 战斗模型</label>
                                                     <select id="simc-sim-fight-style" class="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
@@ -1140,7 +1181,7 @@
                                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                                     <div>
                                         <h3 class="text-xl font-bold text-gray-900">SimC 配置管理</h3>
-                                        <p class="text-sm text-gray-500 mt-1">管理 SimC 角色配置（profile）：专精、天赋、装备属性。</p>
+                                        <p class="text-sm text-gray-500 mt-1">统一查看个人配置与迁移后的 SimC 系统默认玩家；系统配置只读，由上游同步维护。</p>
                                     </div>
                                     <div class="flex items-center gap-2">
                                         <button type="button" id="simc-wb-profile-add" data-profile-form-action="create" class="px-3 py-1.5 text-sm rounded-lg bg-blue-600 hover:bg-blue-700 text-white">
@@ -1235,19 +1276,10 @@
                         <div class="simc-workbench-panel hidden" id="simc-workbench-templates-panel" data-simc-panel="templates">
                             <div class="rounded-2xl border bg-white p-5">
                                 <div class="flex flex-wrap items-start justify-between gap-3">
-                                    <div><h3 class="text-xl font-bold text-slate-900">内容模板</h3><p class="mt-1 text-sm text-slate-500">管理基础模拟片段和历史兼容内容；系统及上游模板保持只读。</p></div>
-                                    <button type="button" data-inline-create="templates" class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"><i class="fas fa-plus mr-1"></i>新增模板</button>
+                                    <div><h3 class="text-xl font-bold text-slate-900">基础模板</h3><p class="mt-1 text-sm text-slate-500">管理 SimC 输入框架；玩家配置和 APL 分别在各自资源库中维护。</p></div>
                                 </div>
                                 <div class="mt-4 border-t border-slate-100 pt-4">
-                                    <div id="simc-template-type-filters" class="simc-template-filters" aria-label="模板类型筛选">
-                                        <button type="button" class="simc-template-filter" data-template-type="" aria-pressed="true">全部</button>
-                                        <button type="button" class="simc-template-filter" data-template-type="base_template" aria-pressed="false">基础模板</button>
-                                        <button type="button" class="simc-template-filter" data-template-type="default_player" aria-pressed="false">默认玩家配置</button>
-                                        <button type="button" class="simc-template-filter" data-template-type="default_apl" aria-pressed="false">默认 APL</button>
-                                        <button type="button" class="simc-template-filter" data-template-type="custom_apl" aria-pressed="false">自定义 APL</button>
-                                        <button type="button" class="simc-template-filter" data-template-type="custom_player" aria-pressed="false">用户自定义装备</button>
-                                    </div>
-                                    <p class="mt-3 text-xs text-slate-500" data-template-filter-summary>正在加载模板…</p>
+                                    <p class="mt-3 text-xs text-slate-500" data-template-filter-summary>正在加载基础模板…</p>
                                 </div>
                                 <div id="simc-wb-template-list" class="mt-4"></div>
                             </div>
@@ -1403,6 +1435,10 @@
                     </div>
                 </div>
             </div>
+
+            {% if user.is_staff or user.is_superuser %}
+            {% include "dashboard/_simc_benchmark.html" %}
+            {% endif %}
 
             <!-- Tools内容区域 -->
             <div class="content-section" id="tools" style="display: none;">

@@ -28,7 +28,8 @@ from django.conf import settings
 from utils.log import logger
 from botend.models import (MonitorTask, TargetAuth, MonitorWebhook, WechatAccountTask,
                           WechatArticle, VulnMonitorTask, VulnData, RssMonitorTask,
-                          RssArticle, WowArticle, SimcTask, SimcTaskBatch, SimcProfile, SimcSecondaryStatRule, WclAnalysisTask, SimcApl)
+                          RssArticle, WowArticle, SimcTask, SimcProfile, SimcSecondaryStatRule, WclAnalysisTask, SimcApl,
+                          SimcBenchmarkPanel)
 
 from botend.services.simc_attribute_results import parse_attribute_result_filename
 
@@ -167,14 +168,18 @@ class DashboardView(View):
         return {model.__name__: model for model in apps.get_app_config('botend').get_models()}
 
     SIMC_DEDICATED_API_MODELS = {
-        'SimcTask', 'SimcTaskBatch', 'SimcTaskArtifact', 'SimcProfile',
+        'SimcTask', 'SimcTaskArtifact', 'SimcProfile',
         'SimcContentTemplate', 'SimcSecondaryStatRule',
         'SimcMasteryCoefficient',
         'SimcApl', 'SimcBackendBinary',
         'MythicDungeonDataVersion', 'MythicDungeon', 'MythicDungeonFloor',
         'MythicDungeonEnemy', 'MythicDungeonSpell', 'MythicDungeonAbility',
-        'MythicDungeonSpawn',
-        'MythicDungeonPoi', 'MythicDungeonRoute', 'MythicPlannerConfig',
+        'MythicDungeonSpawn', 'MythicDungeonPoi',
+        'MythicDungeonSelectionGroup', 'MythicDungeonSelectionMembership',
+        'MythicDungeonRoute', 'MythicDungeonRouteShare', 'MythicPlannerConfig',
+        'SimcBenchmarkPanel', 'SimcBenchmarkSpec', 'SimcBenchmarkProfile',
+        'SimcBenchmarkScenario', 'SimcBenchmarkCandidate',
+        'SimcBenchmarkExecution', 'SimcBenchmarkCase', 'SimcBenchmarkResult',
     }
 
     def get_context_data(self, *, title='后台', page_name='dashboard', include_stats=True):
@@ -973,7 +978,7 @@ class DashboardView(View):
 class SimcWorkbenchDetailPageView(View):
     """Owner-scoped HTML shell; safe details are loaded through the existing API."""
 
-    model_by_kind = {'tasks': SimcTask, 'batches': SimcTaskBatch}
+    model_by_kind = {'tasks': SimcTask}
 
     def get(self, request, kind, object_id):
         model = self.model_by_kind.get(kind)
@@ -984,6 +989,20 @@ class SimcWorkbenchDetailPageView(View):
             'detail_kind': kind,
             'detail_id': obj.id,
             'detail_title': obj.name,
+        })
+
+
+@method_decorator(login_required, name='dispatch')
+class SimcBenchmarkConfigPageView(View):
+    """Staff-only full-page editor shell for every Benchmark Panel detail."""
+
+    def get(self, request, panel_id):
+        if not (request.user.is_staff or request.user.is_superuser):
+            return HttpResponse(status=403)
+        panel = get_object_or_404(SimcBenchmarkPanel, pk=panel_id)
+        return render(request, 'dashboard/simc_benchmark_config.html', {
+            'panel_id': panel.pk,
+            'panel_name': panel.name,
         })
 
 

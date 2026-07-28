@@ -21,10 +21,10 @@ from django.views.generic.base import RedirectView
 
 from botend.webhook.hexagram import GetHexagramView
 from botend.webhook.gewechat import GeWechatWebhookView
-from botend.dashboard.dashboard import DashboardView, SimcWorkbenchDetailPageView, SimcResultView, SimcAttributeAnalysisView, SimcRegularCompareView, SimcAttributeAnalysisSSRView, WclAnalysisPageView, WclAnalysisReportView
+from botend.dashboard.dashboard import DashboardView, SimcWorkbenchDetailPageView, SimcBenchmarkConfigPageView, SimcResultView, SimcAttributeAnalysisView, SimcRegularCompareView, SimcAttributeAnalysisSSRView, WclAnalysisPageView, WclAnalysisReportView
 from botend.dashboard.api import (
     ConvertTextAPIView, AplStorageAPIView, AplDetailAPIView,
-    SimcTaskAPIView, SimcBatchTaskAPIView, SimcProfileAPIView, SimcPlayerConfigDetailAPIView,
+    SimcTaskAPIView, SimcComparisonTaskAPIView, SimcProfileAPIView, SimcPlayerConfigDetailAPIView,
     SimcTemplateAPIView, SimcAplCandidatesAPIView, SimcSpecOptionsAPIView,
     OssConfigAPIView, SimcResultProxyAPIView, SimcTaskPreviewAPIView, SimcAttributeAnalysisAPIView, SimcRegularCompareAPIView,
     SimcBattlenetPreflightAPIView, SimcBattlenetTopPlayersAPIView,
@@ -32,6 +32,10 @@ from botend.dashboard.api import (
     WowDailyReportListAPIView, WowDailyReportContentAPIView, WowDailyReportDownloadAPIView,
     WowDailyReportGenerateAPIView, WagoHotfixReportListAPIView, WagoSkillDiffRerunAPIView,
     SimcAplValidationAPIView, SimcAplSymbolsAPIView, SimcAplSpellsAPIView, SimcAplCompletionsAPIView,
+    SimcBenchmarkPanelListAPIView, SimcBenchmarkPanelDetailAPIView,
+    SimcBenchmarkPanelRunAPIView, SimcBenchmarkPanelExecutionListAPIView,
+    SimcBenchmarkExecutionDetailAPIView, SimcBenchmarkExecutionReconcileAPIView,
+    SimcBenchmarkOptionsAPIView, SimcBenchmarkPanelOptionsAPIView,
 )
 from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, ChangePasswordView
 from botend.portal.views import PortalHomeView
@@ -74,6 +78,10 @@ from botend.mythic_planner.views import (
     DashboardMythicPlannerView,
     PortalMythicPlannerView,
 )
+from botend.portal.simc_benchmark_api import (
+    PortalSimcBenchmarkPanelListAPIView,
+    PortalSimcBenchmarkPanelDetailAPIView,
+)
 from django.http import HttpResponse, JsonResponse
 
 urlpatterns = [
@@ -102,7 +110,7 @@ urlpatterns = [
     path('dashboard/mythic-planner/', DashboardMythicPlannerView.as_view(), name='dashboard_mythic_planner'),
     path('dashboard/mythic-planner/routes/', DashboardMythicPlannerRoutesView.as_view(), name='dashboard_mythic_planner_routes'),
     path('dashboard/simc/tasks/<int:object_id>/', SimcWorkbenchDetailPageView.as_view(), {'kind': 'tasks'}, name='simc_task_detail_page'),
-    path('dashboard/simc/batches/<int:object_id>/', SimcWorkbenchDetailPageView.as_view(), {'kind': 'batches'}, name='simc_batch_detail_page'),
+    path('dashboard/simc/benchmarks/<int:panel_id>/config/', SimcBenchmarkConfigPageView.as_view(), name='simc_benchmark_config_page'),
 
     # Portal API
     path('portal/api/blueposts/', csrf_exempt(PortalBluepostsAPIView.as_view()), name="portal_blueposts"),
@@ -125,6 +133,8 @@ urlpatterns = [
     path('portal/api/hotfix-reports/', csrf_exempt(PortalHotfixReportsAPIView.as_view()), name="portal_hotfix_reports"),
     path('portal/api/daily-report/latest/', csrf_exempt(PortalDailyReportLatestAPIView.as_view()), name="portal_daily_report_latest"),
     path('portal/api/article/<int:article_id>/', csrf_exempt(PortalArticleDetailAPIView.as_view()), name="portal_article_detail"),
+    path('portal/api/simc-benchmarks/panels/', PortalSimcBenchmarkPanelListAPIView.as_view(), name='portal_simc_benchmark_panels'),
+    path('portal/api/simc-benchmarks/panels/<slug:slug>/', PortalSimcBenchmarkPanelDetailAPIView.as_view(), name='portal_simc_benchmark_panel_detail'),
     path('portal/api/talents/simulator/', csrf_exempt(PortalTalentSimulatorAPIView.as_view()), name="portal_talent_simulator_api"),
     path('portal/api/talents/simulator/encode/', csrf_exempt(PortalTalentSimulatorEncodeAPIView.as_view()), name="portal_talent_simulator_encode"),
     path('portal/api/mythic-planner/catalog/', MythicPlannerCatalogAPIView.as_view(), name='mythic_planner_catalog'),
@@ -145,7 +155,7 @@ urlpatterns = [
     path('api/apl-storage/', AplStorageAPIView.as_view(), name="apl_storage"),
     path('api/apl-storage/<int:apl_id>/', AplDetailAPIView.as_view(), name="apl_detail"),
     path('api/simc-task/', SimcTaskAPIView.as_view(), name="simc_task"),
-    path('api/simc-task/batch/', SimcBatchTaskAPIView.as_view(), name="simc_task_batch"),
+    path('api/simc-task/comparison/', SimcComparisonTaskAPIView.as_view(), name="simc_task_comparison"),
     path('api/simc-task/preview/', SimcTaskPreviewAPIView.as_view(), name="simc_task_preview"),
     path('api/simc-profile/', SimcProfileAPIView.as_view(), name="simc_profile"),
 
@@ -165,6 +175,14 @@ urlpatterns = [
     path('api/simc-workbench/<str:resource>/<int:object_id>/', SimcWorkbenchAPIView.as_view(), name="simc_workbench_detail"),
     path('api/simc-workbench/tasks/<int:object_id>/report-preview/', SimcTaskReportPreviewAPIView.as_view(), name="simc_task_report_preview"),
     path('api/simc-workbench/artifacts/<int:object_id>/preview/', SimcArtifactPreviewAPIView.as_view(), name="simc_artifact_preview"),
+    path('api/simc-benchmarks/panels/', SimcBenchmarkPanelListAPIView.as_view(), name='simc_benchmark_panels'),
+    path('api/simc-benchmarks/options/', SimcBenchmarkOptionsAPIView.as_view(), name='simc_benchmark_options'),
+    path('api/simc-benchmarks/panels/<int:panel_id>/options/', SimcBenchmarkPanelOptionsAPIView.as_view(), name='simc_benchmark_panel_options'),
+    path('api/simc-benchmarks/panels/<int:panel_id>/', SimcBenchmarkPanelDetailAPIView.as_view(), name='simc_benchmark_panel_detail'),
+    path('api/simc-benchmarks/panels/<int:panel_id>/run/', SimcBenchmarkPanelRunAPIView.as_view(), name='simc_benchmark_panel_run'),
+    path('api/simc-benchmarks/panels/<int:panel_id>/executions/', SimcBenchmarkPanelExecutionListAPIView.as_view(), name='simc_benchmark_panel_executions'),
+    path('api/simc-benchmarks/executions/<int:execution_id>/', SimcBenchmarkExecutionDetailAPIView.as_view(), name='simc_benchmark_execution_detail'),
+    path('api/simc-benchmarks/executions/<int:execution_id>/reconcile/', SimcBenchmarkExecutionReconcileAPIView.as_view(), name='simc_benchmark_execution_reconcile'),
     path('api/system-alert/', csrf_exempt(SystemAlertAPIView.as_view()), name="system_alert"),
     path('api/portal/peak/refresh/', csrf_exempt(PortalPeakSpecRankRefreshAPIView.as_view()), name="portal_peak_refresh"),
     path('api/wow-daily-report/list/', csrf_exempt(WowDailyReportListAPIView.as_view()), name="wow_daily_report_list"),

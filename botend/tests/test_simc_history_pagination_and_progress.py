@@ -7,7 +7,7 @@ from unittest.mock import patch
 from pathlib import Path
 from django.test import TestCase, RequestFactory
 from django.contrib.auth.models import User
-from botend.models import SimcTask, SimcTaskBatch
+from botend.models import SimcBackendBinary, SimcResourceVersion, SimcTask, SimulationRun, SimcBenchmarkPanel, SimcBenchmarkExecution, SimcBenchmarkCase
 from botend.dashboard.api import SimcRegularCompareAPIView, SimcWorkbenchAPIView
 import json
 
@@ -41,17 +41,29 @@ class SimcHistoryPaginationContractTests(unittest.TestCase):
         """任务必须显示可信生命周期进度"""
         self.assertIn("progress", JS.lower())
 
+    def test_active_task_polling_is_silent_and_preserves_expanded_benchmark(self):
+        """后台轮询不能反复展示 loading，也不能收起用户正在看的基准子任务。"""
+        self.assertIn("loadTasks(page, { background: true })", JS)
+        self.assertIn("if (!background) renderState(host, 'loading'", JS)
+        self.assertIn("expandedExecutionIds", JS)
+        self.assertIn("cases.scrollTop = saved.scrollTop", JS)
+
+    def test_benchmark_progress_shows_task_counts_and_per_case_progress_bar(self):
+        self.assertIn("row.task_counts", JS)
+        self.assertIn("独立任务：", JS)
+        self.assertIn("simc-benchmark-task-case__progress", JS)
+
     def test_batch_compare_is_rendered_inline(self):
         self.assertIn('data-wb-action="compare"', JS)
-        self.assertIn("/api/simc-regular-compare/?batch_id=", JS)
+        self.assertIn("/api/simc-regular-compare/?task_id=", JS)
         self.assertIn("&summary=1", JS)
         self.assertNotIn('target="_blank">查看比较', JS)
 
     def test_batch_aggregates_from_fk_members_not_legacy_ext(self):
-        """batch 必须从 is_active=True 的 FK 任务聚合状态，不扫 ext"""
-        # batch detail 需要显示 total/pending/running/succeeded/failed/percent
-        has_aggregation = ("succeeded" in JS.lower() and "failed" in JS.lower() and "pending" in JS.lower())
-        self.assertTrue(has_aggregation, "JS must display batch aggregation: succeeded/failed/pending")
+        """多候选任务详情必须读取 Runs，而不是旧 batch 成员或 ext。"""
+        self.assertIn("row.runs", JS)
+        self.assertIn("run.status", JS)
+        self.assertIn("run.result_summary?.dps", JS)
 
     def test_compare_url_only_when_batch_completed_and_no_failures(self):
         """比较入口仅当 batch 全部成功且无失败时启用"""
@@ -72,6 +84,9 @@ class SimcHistoryBackendPaginationTests(TestCase):
         self.factory = RequestFactory()
         self.user = User.objects.create_user(username='testuser', password='testpass')
         self.view = SimcWorkbenchAPIView()
+        self.backend = SimcBackendBinary.objects.create(
+            identifier='test-production', name='正式服测试后端', simc_path='/tmp/simc',
+        )
         # Create a SimcProfile for task FK constraint
         from botend.models import SimcProfile
         self.profile = SimcProfile.objects.create(
@@ -83,16 +98,14 @@ class SimcHistoryBackendPaginationTests(TestCase):
         )
 
     def test_history_endpoint_unifies_standalone_and_grouped_tasks(self):
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id, name='属性模拟', batch_type='attribute_sweep',
-            status=1, is_active=True,
-        )
         grouped = SimcTask.objects.create(
-            user_id=self.user.id, simc_profile_id=self.profile.id, batch=batch,
-            name='候选子任务', current_status=0, is_active=True,
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            name='属性模拟', mode='attribute_sweep', current_status=1, is_active=True,
         )
+        SimulationRun.objects.create(
+            task=grouped, sequence=1, candidate_key='candidate-1', status='pending')
         standalone = SimcTask.objects.create(
-            user_id=self.user.id, simc_profile_id=self.profile.id,
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
             name='单次模拟', current_status=2, is_active=True,
         )
 
@@ -104,12 +117,54 @@ class SimcHistoryBackendPaginationTests(TestCase):
         self.assertEqual(data['pagination']['total'], 2)
         rows = {row['name']: row for row in data['data']}
         self.assertIn(standalone.name, rows)
-        self.assertIn(batch.name, rows)
-        self.assertNotIn(grouped.name, rows)
+        self.assertIn(grouped.name, rows)
         self.assertEqual(rows[standalone.name]['detail_resource'], 'tasks')
-        self.assertEqual(rows[batch.name]['detail_resource'], 'batches')
-        self.assertEqual(rows[batch.name]['status_label'], '运行中')
-        self.assertEqual(rows[batch.name]['progress'], 0)
+        self.assertEqual(rows[grouped.name]['detail_resource'], 'tasks')
+        self.assertEqual(rows[grouped.name]['status_label'], '运行中')
+        self.assertIsNone(rows[grouped.name]['progress'])
+
+    def test_history_groups_benchmark_tasks_as_one_expandable_execution(self):
+        panel = SimcBenchmarkPanel.objects.create(name='基准', slug='history-benchmark', created_by_id=self.user.id)
+        execution = SimcBenchmarkExecution.objects.create(panel=panel, config_snapshot={}, config_hash='a' * 64)
+        task = SimcTask.objects.create(user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+                                       name='内部基准任务', current_status=1,
+                                       ext=json.dumps({'progress': 37}), is_active=True)
+        SimcBenchmarkCase.objects.create(execution=execution, task=task, spec_key='warrior_fury',
+                                         scenario_key='patchwerk', profile_key='raid', spec_label='狂怒',
+                                         scenario_label='木桩', profile_label='Raid', coordinate_hash='b' * 64)
+        request = self.factory.get('/api/simc-workbench/history/')
+        request.user = self.user
+        rows = json.loads(self.view.get(request, resource='history').content)['data']
+        benchmark_rows = [row for row in rows if row.get('row_type') == 'benchmark_execution']
+        self.assertEqual(len(benchmark_rows), 1)
+        self.assertFalse(any(row.get('id') == task.id for row in rows if row.get('row_type') != 'benchmark_execution'))
+        self.assertEqual(benchmark_rows[0]['cases'][0]['task_id'], task.id)
+        self.assertEqual(benchmark_rows[0]['cases'][0]['progress'], 37)
+        self.assertEqual(benchmark_rows[0]['task_counts'], {
+            'pending': 0, 'running': 1, 'success': 0, 'failed': 0, 'cancelled': 0,
+        })
+
+    def test_benchmark_overall_progress_does_not_disappear_before_first_worker_update(self):
+        panel = SimcBenchmarkPanel.objects.create(
+            name='基准', slug='history-benchmark-no-progress', created_by_id=self.user.id,
+        )
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, config_snapshot={}, config_hash='c' * 64,
+        )
+        task = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            name='刚领取的内部任务', current_status=1, ext=None, is_active=True,
+        )
+        SimcBenchmarkCase.objects.create(
+            execution=execution, task=task, spec_key='warrior_fury',
+            scenario_key='patchwerk', profile_key='raid', spec_label='狂怒',
+            scenario_label='木桩', profile_label='Raid', coordinate_hash='d' * 64,
+        )
+
+        row = self.view._benchmark_history_row(execution)
+
+        self.assertEqual(row['progress'], 0)
+        self.assertIsNone(row['cases'][0]['progress'])
 
     def test_page_defaults_to_1_if_not_provided(self):
         """page 参数未提供时默认为 1"""
@@ -167,7 +222,7 @@ class SimcHistoryBackendPaginationTests(TestCase):
         """任务响应必须包含中文 status_label"""
         task = SimcTask.objects.create(
             user_id=self.user.id,
-            simc_profile_id=self.profile.id,
+            simc_profile_id=self.profile.id, backend=self.backend,
             name='Test Task',
             current_status=0,
             is_active=True
@@ -184,7 +239,7 @@ class SimcHistoryBackendPaginationTests(TestCase):
         """pending 任务进度为 0"""
         task = SimcTask.objects.create(
             user_id=self.user.id,
-            simc_profile_id=self.profile.id,
+            simc_profile_id=self.profile.id, backend=self.backend,
             name='Test Task',
             current_status=0,
             is_active=True
@@ -200,7 +255,7 @@ class SimcHistoryBackendPaginationTests(TestCase):
         """success 任务进度为 100"""
         task = SimcTask.objects.create(
             user_id=self.user.id,
-            simc_profile_id=self.profile.id,
+            simc_profile_id=self.profile.id, backend=self.backend,
             name='Test Task',
             current_status=2,
             is_active=True
@@ -216,7 +271,7 @@ class SimcHistoryBackendPaginationTests(TestCase):
         """failed 任务进度为 100"""
         task = SimcTask.objects.create(
             user_id=self.user.id,
-            simc_profile_id=self.profile.id,
+            simc_profile_id=self.profile.id, backend=self.backend,
             name='Test Task',
             current_status=3,
             is_active=True
@@ -228,9 +283,23 @@ class SimcHistoryBackendPaginationTests(TestCase):
         self.assertTrue(data['success'])
         self.assertEqual(data['data'][0]['progress'], 100)
 
+    def test_task_cancelled_progress_is_100(self):
+        task = SimcTask.objects.create(
+            user_id=self.user.id,
+            simc_profile_id=self.profile.id, backend=self.backend,
+            name='Cancelled Task',
+            current_status=5,
+            is_active=True,
+        )
+        request = self.factory.get('/api/simc-workbench/tasks/')
+        request.user = self.user
+        data = json.loads(self.view.get(request, resource='tasks').content)
+        self.assertEqual(data['data'][0]['status_label'], '已取消')
+        self.assertEqual(data['data'][0]['progress'], 100)
+
     def test_task_running_without_progress_returns_null(self):
         SimcTask.objects.create(
-            user_id=self.user.id, simc_profile_id=self.profile.id,
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
             name='Running Task', current_status=1, ext='{}', is_active=True,
         )
         request = self.factory.get('/api/simc-workbench/tasks/')
@@ -240,7 +309,7 @@ class SimcHistoryBackendPaginationTests(TestCase):
 
     def test_task_running_uses_persisted_worker_progress(self):
         SimcTask.objects.create(
-            user_id=self.user.id, simc_profile_id=self.profile.id,
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
             name='Running Task', current_status=1,
             ext=json.dumps({'progress': 37}), is_active=True,
         )
@@ -250,79 +319,56 @@ class SimcHistoryBackendPaginationTests(TestCase):
         self.assertEqual(data['data'][0]['progress'], 37)
 
     def test_batch_aggregates_status_from_fk_members(self):
-        """batch 从 FK 成员聚合状态计数"""
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id,
-            name='Test Batch',
-            batch_type='attribute_sweep',
-            status=1,
-            is_active=True
-        )
-        SimcTask.objects.create(
-            user_id=self.user.id,
-            simc_profile_id=self.profile.id,
-            batch=batch,
-            name='Task 1',
-            current_status=0,
-            is_active=True
-        )
-        SimcTask.objects.create(
-            user_id=self.user.id,
-            simc_profile_id=self.profile.id,
-            batch=batch,
-            name='Task 2',
-            current_status=2,
-            is_active=True
-        )
-        request = self.factory.get('/api/simc-workbench/batches/')
+        """多候选 Task 详情从 Runs 暴露状态，不再读取 batch 成员。"""
+        task = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            name='Attribute Task', mode='attribute_sweep', current_status=1, is_active=True)
+        SimulationRun.objects.create(
+            task=task, sequence=1, candidate_key='pending', status='pending')
+        SimulationRun.objects.create(
+            task=task, sequence=2, candidate_key='done', status='completed',
+            result_summary={'dps': 1000})
+        request = self.factory.get(f'/api/simc-workbench/tasks/{task.id}/')
         request.user = self.user
-        response = self.view.get(request, resource='batches')
+        response = self.view.get(request, resource='tasks', object_id=task.id)
         data = json.loads(response.content)
         self.assertTrue(data['success'])
-        batch_data = data['data'][0]
-        self.assertEqual(batch_data['total'], 2)
-        self.assertEqual(batch_data['pending'], 1)
-        self.assertEqual(batch_data['succeeded'], 1)
+        statuses = [run['status'] for run in data['data']['runs']]
+        self.assertEqual(statuses, ['pending', 'completed'])
+        self.assertEqual(data['data']['runs'][1]['result_summary']['dps'], 1000)
 
     def test_batch_progress_counts_all_terminal_members(self):
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id, name='Terminal Batch',
-            batch_type='attribute_sweep', status=3, is_active=True,
-        )
-        for status in (2, 3, 0, 1):
-            SimcTask.objects.create(
-                user_id=self.user.id, simc_profile_id=self.profile.id,
-                batch=batch, name=f'Task {status}', current_status=status,
-                is_active=True,
-            )
-        request = self.factory.get('/api/simc-workbench/batches/')
+        task = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            name='Terminal progress', mode='attribute_sweep', current_status=1,
+            ext=json.dumps({'progress': 50}), is_active=True)
+        for sequence, status in enumerate(('completed', 'failed', 'pending', 'running'), 1):
+            SimulationRun.objects.create(
+                task=task, sequence=sequence, candidate_key=f'candidate-{sequence}', status=status)
+        request = self.factory.get(f'/api/simc-workbench/tasks/{task.id}/')
         request.user = self.user
-        data = json.loads(self.view.get(request, resource='batches').content)
-        self.assertEqual(data['data'][0]['percent'], 50)
+        data = json.loads(self.view.get(request, resource='tasks', object_id=task.id).content)
+        self.assertEqual(data['data']['progress'], 50)
+        self.assertEqual([run['status'] for run in data['data']['runs']],
+                         ['completed', 'failed', 'pending', 'running'])
 
     def test_batch_detail_ranks_only_completed_candidates_and_marks_baseline(self):
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id, name='候选对比', batch_type='comparison', status=3, is_active=True,
-        )
-        baseline = SimcTask.objects.create(
-            user_id=self.user.id, simc_profile_id=self.profile.id, batch=batch,
-            name='基准配置', candidate_label='基准配置', current_status=2,
-            mode_params={'is_base': True}, result_summary='{"dps": 1000}', is_active=True,
-        )
-        winner = SimcTask.objects.create(
-            user_id=self.user.id, simc_profile_id=self.profile.id, batch=batch,
-            name='候选 A', candidate_label='候选 A', current_status=2,
-            mode_params={'is_base': False}, result_summary='{"dps": 1100}', is_active=True,
-        )
-        failed = SimcTask.objects.create(
-            user_id=self.user.id, simc_profile_id=self.profile.id, batch=batch,
-            name='失败候选', candidate_label='失败候选', current_status=3,
-            mode_params={'is_base': False}, result_summary='{"dps": 1200}', is_active=True,
-        )
+        task = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            name='候选对比', mode='comparison', current_status=2, is_active=True)
+        baseline = SimulationRun.objects.create(
+            task=task, sequence=1, candidate_key='base', candidate_label='基准配置',
+            status='completed', candidate_params={'is_base': True}, result_summary={'dps': 1000})
+        winner = SimulationRun.objects.create(
+            task=task, sequence=2, candidate_key='winner', candidate_label='候选 A',
+            status='completed', candidate_params={'is_base': False}, result_summary={'dps': 1100})
+        failed = SimulationRun.objects.create(
+            task=task, sequence=3, candidate_key='failed', candidate_label='失败候选',
+            status='failed', candidate_params={'is_base': False}, result_summary={'dps': 1200})
 
-        request = self.factory.get(f'/api/simc-workbench/batches/{batch.id}/')
+        request = self.factory.get(f'/api/simc-workbench/tasks/{task.id}/')
         request.user = self.user
-        data = json.loads(self.view.get(request, resource='batches', object_id=batch.id).content)['data']
+        data = json.loads(self.view.get(request, resource='tasks', object_id=task.id).content)['data']
         rows = {row['id']: row for row in data['ranking']}
 
         self.assertTrue(rows[baseline.id]['is_base'])
@@ -331,89 +377,195 @@ class SimcHistoryBackendPaginationTests(TestCase):
         self.assertFalse(rows[failed.id]['is_complete'])
         self.assertIsNone(rows[failed.id]['rank'])
 
+    def test_comparison_detail_explains_baseline_changed_and_unchanged_fields(self):
+        profile_version = SimcResourceVersion.objects.create(
+            resource_type='profile', resource_id=self.profile.id, content_hash='profile-baseline',
+            payload={
+                'name': '狂暴战基准', 'spec': 'warrior_fury',
+                'player_equipment': (
+                    'warrior="Tester"\nspec=fury\ntalents=BASE_TALENT\n'
+                    'head=基准头盔,id=111,ilevel=650\nchest=基准胸甲,id=222,ilevel=650'
+                ),
+            },
+        )
+        template_version = SimcResourceVersion.objects.create(
+            resource_type='template', resource_id=1, content_hash='template-baseline',
+            payload={'name': '单体基础模板', 'spec': 'warrior_fury', 'content': 'iterations=1000'},
+        )
+        apl_version = SimcResourceVersion.objects.create(
+            resource_type='apl', resource_id=1, content_hash='apl-baseline',
+            payload={'name': '狂暴战默认 APL', 'spec': 'warrior_fury', 'content': 'actions=auto_attack'},
+        )
+        task = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            profile_version=profile_version, template_version=template_version,
+            apl_version=apl_version, name='装备候选对比', mode='comparison',
+            simulation_params={'iterations': 1000, 'fight_style': 'Patchwerk'},
+            current_status=2, is_active=True,
+        )
+        SimulationRun.objects.create(
+            task=task, sequence=1, candidate_key='base', candidate_label='基准配置',
+            status='completed', candidate_params={'candidate_type': 'base', 'is_base': True},
+            result_summary={'dps': 1000},
+        )
+        candidate = SimulationRun.objects.create(
+            task=task, sequence=2, candidate_key='head-333', candidate_label='候选头盔',
+            status='completed', candidate_params={
+                'candidate_type': 'gear_swap', 'is_base': False,
+                'gear_swap': {
+                    'slot': 'head', 'item_id': 333, 'source': 'bags',
+                    'raw_value': '候选头盔,id=333,ilevel=660,bonus_id=10/20,gem_id=30,enchant_id=40',
+                },
+            }, result_summary={'dps': 1100},
+        )
+        equivalent = SimulationRun.objects.create(
+            task=task, sequence=3, candidate_key='head-111', candidate_label='等价头盔复核',
+            status='completed', candidate_params={
+                'candidate_type': 'gear_swap', 'is_base': False,
+                'gear_swap': {
+                    'slot': 'head', 'item_id': 111, 'source': 'manual',
+                    'raw_value': ',id=111,ilevel=650',
+                },
+            }, result_summary={'dps': 1000},
+        )
+
+        request = self.factory.get(f'/api/simc-workbench/tasks/{task.id}/')
+        request.user = self.user
+        data = json.loads(self.view.get(request, resource='tasks', object_id=task.id).content)['data']
+        row = next(item for item in data['ranking'] if item['id'] == candidate.id)
+        equivalent_row = next(item for item in data['ranking'] if item['id'] == equivalent.id)
+
+        self.assertEqual(data['comparison_baseline']['profile']['name'], '狂暴战基准')
+        self.assertEqual(data['comparison_baseline']['template']['name'], '单体基础模板')
+        self.assertEqual(data['comparison_baseline']['apl']['name'], '狂暴战默认 APL')
+        self.assertEqual(data['comparison_baseline']['simulation_params']['iterations'], 1000)
+        self.assertEqual(row['change']['field'], 'head')
+        self.assertEqual(row['change']['before']['item_id'], 111)
+        self.assertEqual(row['change']['before']['name'], '基准头盔')
+        self.assertEqual(row['change']['after']['item_id'], 333)
+        self.assertEqual(row['change']['after']['name'], '候选头盔')
+        self.assertEqual(row['change']['after']['modifiers']['bonus_id'], ['10', '20'])
+        self.assertEqual(row['change']['after']['modifiers']['gem_id'], ['30'])
+        self.assertEqual(row['change']['after']['modifiers']['enchant_id'], '40')
+        self.assertFalse(row['change']['is_equivalent'])
+        self.assertTrue(equivalent_row['change']['is_equivalent'])
+        self.assertIn('其他装备槽位', row['unchanged'])
+        self.assertIn('天赋', row['unchanged'])
+        self.assertNotIn('player_equipment', json.dumps(data['comparison_baseline']))
+
+    def test_comparison_detail_supports_legacy_nested_candidates_and_structured_baseline(self):
+        profile_version = SimcResourceVersion.objects.create(
+            resource_type='profile', resource_id=self.profile.id, content_hash='legacy-profile-baseline',
+            payload={
+                'name': 'Battle.net 玩家快照', 'spec': 'arms',
+                'gear_crit': 1234, 'gear_haste': 2345,
+                'player_equipment': (
+                    'warrior="Tester"\nlevel=80\nrace=highmountain_tauren\nspec=arms\n'
+                    'talents=BASE_TALENT\nhead=,id=111,ilevel=650,bonus_id=10/20\n'
+                    'main_hand=,id=222,ilevel=655,enchant_id=30'
+                ),
+            },
+        )
+        task = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            profile_version=profile_version, name='旧候选对比', mode='comparison',
+            current_status=2, is_active=True,
+        )
+        baseline = SimulationRun.objects.create(
+            task=task, sequence=1, candidate_key='base', candidate_label='基准配置',
+            status='completed', candidate_params={
+                'mode_params': {'candidate_type': 'base', 'is_base': True},
+            }, result_summary={'dps': 1000},
+        )
+        candidate = SimulationRun.objects.create(
+            task=task, sequence=2, candidate_key='talent-1', candidate_label='天赋方案 1',
+            status='completed', candidate_params={
+                'mode_params': {
+                    'candidate_type': 'talent_override', 'is_base': False,
+                    'talent_override': 'CANDIDATE_TALENT',
+                    'talent_candidate': {'name': '天赋方案 1', 'talent': 'CANDIDATE_TALENT'},
+                },
+            }, result_summary={'dps': 1100},
+        )
+
+        request = self.factory.get(f'/api/simc-workbench/tasks/{task.id}/')
+        request.user = self.user
+        data = json.loads(self.view.get(request, resource='tasks', object_id=task.id).content)['data']
+        rows = {row['id']: row for row in data['ranking']}
+        base = data['comparison_baseline']
+
+        self.assertTrue(rows[baseline.id]['is_base'])
+        self.assertEqual(rows[candidate.id]['change']['kind'], 'talent')
+        self.assertEqual(rows[candidate.id]['change']['before']['value'], 'BASE_TALENT')
+        self.assertEqual(rows[candidate.id]['change']['after']['value'], 'CANDIDATE_TALENT')
+        self.assertEqual(base['character'], {
+            'name': 'Tester', 'class': 'warrior', 'spec': 'arms',
+            'race': 'highmountain_tauren', 'level': 80,
+        })
+        self.assertEqual(base['stats']['crit'], 1234)
+        self.assertEqual(base['stats']['haste'], 2345)
+        self.assertEqual([item['slot'] for item in base['equipment']], ['head', 'main_hand'])
+        self.assertEqual(base['equipment'][0]['item_id'], 111)
+        self.assertEqual(base['talent']['value'], 'BASE_TALENT')
+
     def test_batch_list_query_count_does_not_grow_per_batch(self):
         for index in range(6):
-            batch = SimcTaskBatch.objects.create(
-                user_id=self.user.id, name=f'Batch {index}', batch_type='comparison', status=1
-            )
-            SimcTask.objects.create(
+            task = SimcTask.objects.create(
                 user_id=self.user.id, name=f'Task {index}', simc_profile_id=self.profile.id,
-                batch=batch, task_type=1, current_status=index % 4, is_active=True,
-            )
-        request = self.factory.get('/api/simc-workbench/batches/?page_size=20')
+                backend=self.backend, mode='comparison', task_type=1, current_status=index % 4, is_active=True)
+            SimulationRun.objects.create(
+                task=task, sequence=1, candidate_key=f'candidate-{index}', status='pending')
+        request = self.factory.get('/api/simc-workbench/tasks/?page_size=20')
         request.user = self.user
-        with self.assertNumQueries(2):
-            response = self.view.get(request, resource='batches')
+        with self.assertNumQueries(20):
+            response = self.view.get(request, resource='tasks')
         self.assertEqual(response.status_code, 200)
 
     def test_batch_report_url_empty_when_incomplete(self):
-        """batch 未完成时 report_url 为空"""
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id,
-            name='Test Batch',
-            batch_type='attribute_sweep',
-            status=1,
-            is_active=True
-        )
-        SimcTask.objects.create(
-            user_id=self.user.id,
-            simc_profile_id=self.profile.id,
-            batch=batch,
-            name='Task 1',
-            current_status=0,
-            is_active=True
-        )
-        request = self.factory.get('/api/simc-workbench/batches/')
+        """有 Runs 的未完成任务仍提供安全的 task_id 对比入口。"""
+        task = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            name='Incomplete Task', mode='attribute_sweep', current_status=1, is_active=True)
+        SimulationRun.objects.create(
+            task=task, sequence=1, candidate_key='pending', status='pending')
+        request = self.factory.get(f'/api/simc-workbench/tasks/{task.id}/')
         request.user = self.user
-        response = self.view.get(request, resource='batches')
+        response = self.view.get(request, resource='tasks', object_id=task.id)
         data = json.loads(response.content)
         self.assertTrue(data['success'])
-        self.assertEqual(data['data'][0]['report_url'], '')
+        self.assertEqual(data['data']['report_url'], f'/simc-compare/?task_id={task.id}')
 
     def test_batch_report_url_empty_when_has_failures(self):
-        """batch 有失败任务时 report_url 为空"""
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id,
-            name='Test Batch',
-            batch_type='attribute_sweep',
-            status=2,
-            is_active=True
-        )
-        SimcTask.objects.create(
-            user_id=self.user.id,
-            simc_profile_id=self.profile.id,
-            batch=batch,
-            name='Task 1',
-            current_status=2,
-            is_active=True
-        )
-        SimcTask.objects.create(
-            user_id=self.user.id,
-            simc_profile_id=self.profile.id,
-            batch=batch,
-            name='Task 2',
-            current_status=3,
-            is_active=True
-        )
-        request = self.factory.get('/api/simc-workbench/batches/')
+        """部分失败任务的 report_url 仍按 task_id 定位且不泄露错误详情。"""
+        task = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            name='Failed Task', mode='attribute_sweep', current_status=2, is_active=True)
+        SimulationRun.objects.create(
+            task=task, sequence=1, candidate_key='done', status='completed',
+            result_summary={'dps': 1000})
+        SimulationRun.objects.create(
+            task=task, sequence=2, candidate_key='failed', status='failed',
+            error_detail='SECRET FAILURE')
+        request = self.factory.get(f'/api/simc-workbench/tasks/{task.id}/')
         request.user = self.user
-        response = self.view.get(request, resource='batches')
+        response = self.view.get(request, resource='tasks', object_id=task.id)
         data = json.loads(response.content)
         self.assertTrue(data['success'])
-        self.assertEqual(data['data'][0]['report_url'], '')
+        self.assertEqual(data['data']['report_url'], f'/simc-compare/?task_id={task.id}')
+        self.assertNotIn('SECRET FAILURE', json.dumps(data, ensure_ascii=False))
 
     def test_compare_summary_does_not_expose_full_result_or_candidate_payload(self):
-        batch = SimcTaskBatch.objects.create(
-            user_id=self.user.id, name='Safe compare', batch_type='comparison', status=2
-        )
         task = SimcTask.objects.create(
             user_id=self.user.id, name='Base', simc_profile_id=self.profile.id,
-            batch=batch, task_type=1, current_status=2, result_file='https://example.invalid/result.html',
-            ext=json.dumps({'batch_compare': {'label': '基准', 'index': 0, 'is_base': True,
-                                              'candidate': {'secret_input': 'must-not-leak'}}}),
-            is_active=True,
-        )
-        request = self.factory.get(f'/api/simc-regular-compare/?batch_id={batch.id}&summary=1')
+            backend=self.backend, mode='comparison', task_type=1, current_status=2,
+            result_file='https://example.invalid/result.html', is_active=True)
+        run = SimulationRun.objects.create(
+            task=task, sequence=1, candidate_key='base', candidate_label='基准',
+            candidate_params={'is_base': True, 'apl_override': 'secret_input'},
+            status='completed', result_summary={
+                'dps': 123456, 'abilities': [{'name': 'secret'}], 'talents': {'raw': 'secret'},
+            })
+        request = self.factory.get(f'/api/simc-regular-compare/?task_id={task.id}&summary=1')
         request.user = self.user
         with patch.object(SimcRegularCompareAPIView, '_get_result_file_content', return_value='<html></html>'), \
                 patch.object(SimcRegularCompareAPIView, '_parse_regular_result', return_value={
@@ -422,9 +574,13 @@ class SimcHistoryBackendPaginationTests(TestCase):
             response = SimcRegularCompareAPIView().get(request)
         data = json.loads(response.content)
         self.assertTrue(data['success'])
-        row = data['data']['tasks'][0]
+        row = data['data']['runs'][0]
+        self.assertEqual(row['id'], run.id)
         self.assertEqual(row['dps'], 123456)
-        self.assertEqual(set(row), {'id', 'name', 'label', 'rank', 'dps', 'delta_dps', 'delta_percent'})
+        self.assertEqual(set(row), {
+            'id', 'name', 'label', 'rank', 'dps', 'delta_dps', 'delta_percent', 'candidate',
+        })
+        self.assertEqual(row['candidate'], {})
         serialized = json.dumps(data, ensure_ascii=False)
         self.assertNotIn('secret_input', serialized)
         self.assertNotIn('result_file', serialized)
@@ -436,7 +592,7 @@ class SimcHistoryBackendPaginationTests(TestCase):
         for i in range(25):
             SimcTask.objects.create(
                 user_id=self.user.id,
-                simc_profile_id=self.profile.id,
+                simc_profile_id=self.profile.id, backend=self.backend,
                 name=f'Task {i}',
                 current_status=0,
                 is_active=True

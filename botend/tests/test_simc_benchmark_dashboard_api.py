@@ -1,0 +1,387 @@
+"""TDD API contracts for the staff-only SimC Benchmark Dashboard."""
+import json
+from unittest.mock import patch
+
+from django.contrib.auth.models import User
+from django.test import Client, TestCase
+from django.utils import timezone
+
+from botend.models import (
+    SimcApl, SimcBackendBinary, SimcBenchmarkCase, SimcBenchmarkExecution,
+    SimcBenchmarkPanel, SimcContentTemplate, SimcProfile, SimcTask,
+)
+from botend.services.simc_benchmark_execution import BenchmarkExecutionConflict
+
+
+class SimcBenchmarkDashboardApiTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            username='benchmark-staff', password='password', is_staff=True,
+        )
+        self.other_staff = User.objects.create_user(
+            username='benchmark-other-staff', password='password', is_staff=True,
+        )
+        self.regular = User.objects.create_user(
+            username='benchmark-regular', password='password',
+        )
+        self.backend = SimcBackendBinary.objects.create(
+            identifier='dashboard-api', name='Dashboard API', is_active=True,
+        )
+        self.apl = SimcApl.objects.create(
+            name='Fury APL', spec='warrior_fury', content='actions=/auto_attack',
+            owner_user_id=self.staff.id, is_active=True, is_selectable=True,
+        )
+        self.template = SimcContentTemplate.objects.create(
+            name='Fury template', spec='warrior_fury', content='iterations=1000',
+            owner_user_id=self.staff.id, is_active=True, is_selectable=True,
+        )
+        self.profile = SimcProfile.objects.create(
+            user_id=self.staff.id, name='Fury profile', class_name='warrior',
+            spec='warrior_fury', is_active=True,
+        )
+        self.payload = {
+            'name': 'Weekly benchmark', 'slug': 'weekly-dashboard-api',
+            'description': 'Dashboard API fixture', 'is_active': True,
+            'is_public': False, 'schedule_enabled': False,
+            'interval_seconds': 3600, 'next_run_at': None,
+            'specs': [{
+                'class_name': 'warrior', 'spec_key': 'warrior_fury',
+                'label': 'Fury', 'apl_id': self.apl.id,
+                'template_id': self.template.id, 'backend_id': self.backend.id,
+                'profiles': [{'profile_id': self.profile.id, 'label': 'Raid'}],
+            }],
+            'scenarios': [{
+                'key': 'patchwerk', 'name': 'Patchwerk',
+                'simulation_params': {'iterations': 1000},
+            }],
+            'candidates': [],
+        }
+        self.client.force_login(self.staff)
+
+    @staticmethod
+    def _json(client, method, path, payload):
+        return getattr(client, method)(
+            path, data=json.dumps(payload), content_type='application/json',
+        )
+
+    def _create_panel(self):
+        response = self._json(self.client, 'post', '/api/simc-benchmarks/panels/', self.payload)
+        self.assertEqual(response.status_code, 201, response.content)
+        return SimcBenchmarkPanel.objects.get(pk=response.json()['data']['id'])
+
+    def test_login_and_admin_permissions_are_consistent_json(self):
+        anonymous = Client().get('/api/simc-benchmarks/panels/')
+        self.assertEqual(anonymous.status_code, 302)
+        regular = Client()
+        regular.force_login(self.regular)
+        for method, path, payload in (
+            ('get', '/api/simc-benchmarks/panels/', None),
+            ('post', '/api/simc-benchmarks/panels/', {}),
+            ('get', '/api/simc-benchmarks/panels/1/', None),
+            ('put', '/api/simc-benchmarks/panels/1/', {}),
+            ('delete', '/api/simc-benchmarks/panels/1/', None),
+            ('post', '/api/simc-benchmarks/panels/1/run/', {}),
+            ('get', '/api/simc-benchmarks/panels/1/executions/', None),
+            ('get', '/api/simc-benchmarks/executions/1/', None),
+            ('post', '/api/simc-benchmarks/executions/1/reconcile/', {}),
+        ):
+            with self.subTest(method=method, path=path):
+                kwargs = {}
+                if payload is not None:
+                    kwargs = {'data': json.dumps(payload), 'content_type': 'application/json'}
+                response = getattr(regular, method)(path, **kwargs)
+                self.assertEqual(response.status_code, 403)
+                self.assertEqual(response.json(), {'success': False, 'error': 'forbidden'})
+
+    def test_crud_list_counts_and_creator_cannot_be_reassigned(self):
+        panel = self._create_panel()
+        response = self.client.get('/api/simc-benchmarks/panels/')
+        self.assertEqual(response.status_code, 200)
+        row = response.json()['data'][0]
+        self.assertEqual(row['counts'], {
+            'specs': 1, 'scenarios': 1, 'profiles': 1, 'candidates': 0,
+        })
+        self.assertEqual(row['published_execution_id'], None)
+
+        other = Client()
+        other.force_login(self.other_staff)
+        updated = dict(self.payload, name='Maintained by another admin')
+        response = self._json(
+            other, 'put', f'/api/simc-benchmarks/panels/{panel.id}/', updated,
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        panel.refresh_from_db()
+        self.assertEqual(panel.created_by_id, self.staff.id)
+        self.assertEqual(panel.name, 'Maintained by another admin')
+
+        reassignment = dict(updated, created_by_id=self.other_staff.id)
+        response = self._json(
+            other, 'put', f'/api/simc-benchmarks/panels/{panel.id}/', reassignment,
+        )
+        self.assertEqual(response.status_code, 400)
+        panel.refresh_from_db()
+        self.assertEqual(panel.created_by_id, self.staff.id)
+        self.assertEqual(response.json()['error'], 'validation_error')
+
+    def test_body_must_be_valid_json_object_and_errors_are_stable(self):
+        for body in (' ', '[]', '{broken'):
+            with self.subTest(body=body):
+                response = self.client.post(
+                    '/api/simc-benchmarks/panels/', data=body,
+                    content_type='application/json',
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json()['error'], 'validation_error')
+                self.assertIn('body', response.json()['fields'])
+
+        with patch(
+            'botend.dashboard.api.replace_panel_config',
+            side_effect=RuntimeError('/srv/private/config traceback secret'),
+        ):
+            response = self._json(
+                self.client, 'post', '/api/simc-benchmarks/panels/', self.payload,
+            )
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json(), {'success': False, 'error': 'internal_error'})
+        self.assertNotIn('/srv/private', response.content.decode())
+
+    def test_json_writes_require_json_media_type_and_empty_command_object(self):
+        panel = SimcBenchmarkPanel.objects.create(
+            name='JSON contract', slug='json-contract', created_by_id=self.staff.id,
+        )
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, config_snapshot={}, config_hash='8' * 64,
+        )
+        writes = (
+            ('post', '/api/simc-benchmarks/panels/', json.dumps(self.payload)),
+            ('put', f'/api/simc-benchmarks/panels/{panel.id}/', json.dumps(self.payload)),
+            ('post', f'/api/simc-benchmarks/panels/{panel.id}/run/', '{}'),
+            ('post', f'/api/simc-benchmarks/executions/{execution.id}/reconcile/', '{}'),
+        )
+        for method, path, body in writes:
+            with self.subTest(method=method, path=path):
+                response = getattr(self.client, method)(
+                    path, data=body, content_type='text/plain',
+                )
+                self.assertEqual(response.status_code, 415)
+                self.assertEqual(response.json(), {
+                    'success': False, 'error': 'unsupported_media_type',
+                })
+
+        # Media type parameters are accepted.
+        with patch('botend.dashboard.api.create_execution', return_value=execution) as create:
+            response = self.client.post(
+                f'/api/simc-benchmarks/panels/{panel.id}/run/', data='{}',
+                content_type='application/json; charset=utf-8',
+            )
+        self.assertNotEqual(response.status_code, 415)
+        create.assert_called_once()
+
+        for path in (
+            f'/api/simc-benchmarks/panels/{panel.id}/run/',
+            f'/api/simc-benchmarks/executions/{execution.id}/reconcile/',
+        ):
+            for body in (' ', '{"unexpected": true}'):
+                with self.subTest(path=path, body=body):
+                    response = self.client.post(
+                        path, data=body, content_type='application/json',
+                    )
+                    self.assertEqual(response.status_code, 400)
+                    expected = ('unknown_fields' if body.startswith('{') else 'validation_error')
+                    self.assertEqual(response.json()['error'], expected)
+
+    def test_method_not_allowed_is_json_and_preserves_allow_header(self):
+        panel = SimcBenchmarkPanel.objects.create(
+            name='Methods', slug='method-contract', created_by_id=self.staff.id,
+        )
+        detail = self.client.patch(
+            f'/api/simc-benchmarks/panels/{panel.id}/', data='{}',
+            content_type='application/json',
+        )
+        self.assertEqual(detail.status_code, 405)
+        self.assertEqual(detail.json(), {
+            'success': False, 'error': 'method_not_allowed',
+        })
+        self.assertEqual(
+            set(detail['Allow'].split(', ')),
+            {'GET', 'HEAD', 'PUT', 'DELETE', 'OPTIONS'},
+        )
+
+        run = self.client.get(f'/api/simc-benchmarks/panels/{panel.id}/run/')
+        self.assertEqual(run.status_code, 405)
+        self.assertEqual(run.json(), {
+            'success': False, 'error': 'method_not_allowed',
+        })
+        self.assertEqual(set(run['Allow'].split(', ')), {'POST', 'OPTIONS'})
+
+    def test_physical_delete_removes_config_execution_and_case_but_keeps_task(self):
+        panel = self._create_panel()
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, config_snapshot={}, config_hash='a' * 64,
+        )
+        task = SimcTask.objects.create(
+            user_id=self.staff.id, name='surviving task', mode='comparison',
+            simc_profile_id=self.profile.id, backend=self.backend,
+        )
+        SimcBenchmarkCase.objects.create(
+            execution=execution, task=task, spec_key='warrior_fury',
+            scenario_key='patchwerk', profile_key=str(self.profile.id),
+            spec_label='Fury', scenario_label='Patchwerk', profile_label='Raid',
+            coordinate_hash='b' * 64,
+        )
+        response = self.client.delete(f'/api/simc-benchmarks/panels/{panel.id}/')
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(SimcBenchmarkPanel.objects.filter(pk=panel.id).exists())
+        self.assertFalse(SimcBenchmarkExecution.objects.filter(pk=execution.id).exists())
+        self.assertTrue(SimcTask.objects.filter(pk=task.id).exists())
+
+    def test_manual_run_is_async_active_only_and_maps_conflict(self):
+        panel = self._create_panel()
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, config_snapshot={'case_count': 2, 'run_count': 3},
+            config_hash='c' * 64,
+        )
+        with patch('botend.dashboard.api.create_execution', return_value=execution) as mocked:
+            response = self._json(
+                self.client, 'post',
+                f'/api/simc-benchmarks/panels/{panel.id}/run/', {},
+            )
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json()['data']['case_count'], 2)
+        self.assertEqual(response.json()['data']['run_count'], 3)
+        mocked.assert_called_once_with(panel, requested_by=self.staff)
+
+        with patch('botend.dashboard.api.create_execution',
+                   side_effect=BenchmarkExecutionConflict('private drift')):
+            response = self._json(
+                self.client, 'post',
+                f'/api/simc-benchmarks/panels/{panel.id}/run/', {},
+            )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()['error'], 'execution_conflict')
+
+        panel.is_active = False
+        panel.save(update_fields=['is_active'])
+        response = self._json(
+            self.client, 'post', f'/api/simc-benchmarks/panels/{panel.id}/run/', {},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_execution_pagination_is_panel_scoped_ordered_and_capped(self):
+        panel = self._create_panel()
+        other = SimcBenchmarkPanel.objects.create(
+            name='Other', slug='other-dashboard-panel', created_by_id=self.staff.id,
+        )
+        SimcBenchmarkExecution.objects.create(
+            panel=other, config_snapshot={}, config_hash='e' * 64,
+        )
+        for index in range(55):
+            SimcBenchmarkExecution.objects.create(
+                panel=panel,
+                config_snapshot={'case_count': index, 'run_count': index + 1},
+                config_hash=f'{index:064x}',
+                status=('failed' if index % 2 else 'cancelled'),
+                completed_at=timezone.now(),
+            )
+        response = self.client.get(
+            f'/api/simc-benchmarks/panels/{panel.id}/executions/?page=1&size=100',
+        )
+        data = response.json()['data']
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(data['pagination']['size'], 50)
+        self.assertEqual(data['pagination']['total'], 55)
+        self.assertEqual(len(data['items']), 50)
+        ids = [row['id'] for row in data['items']]
+        self.assertEqual(ids, sorted(ids, reverse=True))
+        self.assertTrue(all(row['panel_id'] == panel.id for row in data['items']))
+        self.assertEqual({row['status'] for row in data['items']}, {'failed', 'cancelled'})
+
+    def test_detail_and_reconcile_use_safe_summary_projection(self):
+        panel = self._create_panel()
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, config_snapshot={'secret': '/tmp/raw.simc'},
+            config_hash='f' * 64,
+        )
+        summary = {
+            'id': execution.id, 'status': 'failed',
+            'created_at': execution.created_at, 'completed_at': timezone.now(),
+            'total_cases': 1, 'total_runs': 1, 'pending': 0, 'running': 0,
+            'success': 0, 'partial': 0, 'failed': 1, 'cancelled': 0,
+            'run_counts': {'pending': 0, 'failed': 1, 'secret': 999},
+            'top_secret': '/srv/top-secret', 'cases': [{
+                'spec_key': 'warrior_fury', 'scenario_key': 'patchwerk',
+                'profile_key': '1',
+                'labels': {'spec': 'Fury', 'scenario': 'Patchwerk', 'profile': 'Raid',
+                           'secret': '/srv/label-secret'},
+                'status': 'failed', 'task_id': 123, 'task_status': 'failed',
+                'error': '/srv/private/input.simc traceback secret',
+                'runs': [{
+                    'key': 'baseline', 'label': 'Baseline', 'status': 'failed',
+                    'dps': None, 'error': '/tmp/result.simc traceback secret',
+                    'secret': '/srv/run-secret',
+                }], 'mode_params': {'secret': True},
+            }],
+        }
+        with patch('botend.dashboard.api.summarize_execution', return_value=summary):
+            response = self.client.get(
+                f'/api/simc-benchmarks/executions/{execution.id}/',
+            )
+        serialized = response.content.decode()
+        self.assertEqual(response.status_code, 200)
+        data = response.json()['data']
+        case = data['cases'][0]
+        self.assertEqual(set(case), {
+            'coordinate', 'labels', 'status', 'task_id', 'task_status',
+            'task_status_label', 'task_progress', 'error', 'runs',
+        })
+        self.assertEqual(set(case['coordinate']), {
+            'spec_key', 'scenario_key', 'profile_key',
+        })
+        self.assertEqual(set(case['labels']), {'spec', 'scenario', 'profile'})
+        self.assertEqual(set(case['runs'][0]), {
+            'key', 'label', 'status', 'dps', 'error',
+        })
+        self.assertEqual(set(data['run_counts']), {
+            'pending', 'running', 'success', 'failed', 'cancelled',
+        })
+        self.assertEqual(case['task_status'], 'failed')
+        self.assertIsNone(case['task_status_label'])
+        self.assertIsNone(case['task_progress'])
+        for forbidden in (
+            'config_snapshot', 'mode_params', 'top_secret',
+            '/tmp/raw.simc', '/srv/', '/tmp/', 'traceback', 'secret',
+        ):
+            self.assertNotIn(forbidden, serialized)
+
+        with patch('botend.dashboard.api.reconcile_execution', return_value=execution) as reconcile, \
+                patch('botend.dashboard.api.summarize_execution', return_value=summary) as summarize:
+            response = self._json(
+                self.client, 'post',
+                f'/api/simc-benchmarks/executions/{execution.id}/reconcile/', {},
+            )
+        self.assertEqual(response.status_code, 200)
+        reconcile.assert_called_once()
+        summarize.assert_called_once()
+
+    def test_all_benchmark_writes_require_csrf(self):
+        panel = SimcBenchmarkPanel.objects.create(
+            name='CSRF', slug='csrf-benchmark', created_by_id=self.staff.id,
+        )
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, config_snapshot={}, config_hash='9' * 64,
+        )
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.staff)
+        for method, path in (
+            ('post', '/api/simc-benchmarks/panels/'),
+            ('put', f'/api/simc-benchmarks/panels/{panel.id}/'),
+            ('delete', f'/api/simc-benchmarks/panels/{panel.id}/'),
+            ('post', f'/api/simc-benchmarks/panels/{panel.id}/run/'),
+            ('post', f'/api/simc-benchmarks/executions/{execution.id}/reconcile/'),
+        ):
+            with self.subTest(method=method):
+                response = getattr(client, method)(
+                    path, data=json.dumps({}), content_type='application/json',
+                )
+                self.assertEqual(response.status_code, 403)
+        self.assertTrue(SimcBenchmarkPanel.objects.filter(pk=panel.id).exists())

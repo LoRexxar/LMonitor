@@ -28,6 +28,7 @@ class SimcBackendManagementSecurityTests(unittest.TestCase):
     def test_get_returns_can_write_false_for_regular_user(self, mock_objects):
         """Regular users GET can_write=false."""
         mock_row = Mock()
+        mock_row.simc_path = ''
         mock_row.platform = 'linux64'
         mock_row.current_version = '11.0.1'
         mock_row.latest_version = '11.0.2'
@@ -51,10 +52,43 @@ class SimcBackendManagementSecurityTests(unittest.TestCase):
         self.assertIn('can_write', data['data'])
         self.assertFalse(data['data']['can_write'])
 
+    @patch('botend.dashboard.api.SimcBackendBinaryAPIView._get_game_version', return_value='12.0.1.70000')
+    @patch('botend.dashboard.api.SimcBackendBinary.objects')
+    def test_get_returns_supported_wow_version(self, mock_objects, _mock_game_version):
+        mock_row = Mock()
+        mock_row.simc_path = ''
+        mock_row.platform = 'linux64'
+        mock_row.current_version = 'simc-revision'
+        mock_row.latest_version = 'simc-revision'
+        mock_row.auto_update = True
+        mock_row.is_updating = False
+        mock_row.update_progress = 100
+        mock_row.update_status = 'idle'
+        mock_row.last_error = ''
+        mock_row.last_checked_at = None
+        mock_row.last_updated_at = None
+        mock_objects.filter.return_value.first.return_value = mock_row
+
+        request = self.factory.get('/api/simc-backend-binary/')
+        request.user = self.regular_user
+        response = self.view_class().get(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(response.content)['data']['game_version'], '12.0.1.70000')
+
+    @patch('botend.dashboard.api.current_validation_identity', return_value=('a' * 40, '12.0.1.70000'))
+    def test_supported_wow_version_uses_backend_catalog_identity(self, mock_identity):
+        backend = Mock()
+        version = self.view_class()._get_game_version(backend)
+
+        self.assertEqual(version, '12.0.1.70000')
+        mock_identity.assert_called_once_with(backend=backend)
+
     @patch('botend.dashboard.api.SimcBackendBinary.objects')
     def test_get_returns_can_write_true_for_staff(self, mock_objects):
         """Staff users GET can_write=true."""
         mock_row = Mock()
+        mock_row.simc_path = ''
         mock_row.platform = 'linux64'
         mock_row.current_version = '11.0.1'
         mock_row.latest_version = '11.0.2'
@@ -82,6 +116,7 @@ class SimcBackendManagementSecurityTests(unittest.TestCase):
     def test_get_never_returns_simc_path(self, mock_objects):
         """GET response must not contain simc_path field."""
         mock_row = Mock()
+        mock_row.simc_path = ''
         mock_row.platform = 'linux64'
         mock_row.current_version = '11.0.1'
         mock_row.latest_version = '11.0.2'
@@ -105,6 +140,7 @@ class SimcBackendManagementSecurityTests(unittest.TestCase):
     def test_get_never_returns_last_error_raw(self, mock_objects):
         """GET response must not contain last_error field."""
         mock_row = Mock()
+        mock_row.simc_path = ''
         mock_row.platform = 'linux64'
         mock_row.current_version = '11.0.1'
         mock_row.latest_version = '11.0.2'
@@ -128,6 +164,7 @@ class SimcBackendManagementSecurityTests(unittest.TestCase):
     def test_get_returns_has_error_boolean_only(self, mock_objects):
         """GET returns has_error boolean instead of raw error text."""
         mock_row = Mock()
+        mock_row.simc_path = ''
         mock_row.platform = 'linux64'
         mock_row.current_version = '11.0.1'
         mock_row.latest_version = '11.0.2'
@@ -228,6 +265,7 @@ class SimcBackendManagementSecurityTests(unittest.TestCase):
     def test_staff_post_set_auto_update_action_toggles_flag(self, mock_objects):
         """Staff POST action=set_auto_update updates auto_update field."""
         mock_row = Mock()
+        mock_row.simc_path = ''
         mock_row.platform = 'linux64'
         mock_row.auto_update = True
         mock_row.current_version = '11.0.1'
@@ -264,6 +302,7 @@ class SimcBackendManagementSecurityTests(unittest.TestCase):
     def test_post_response_never_contains_simc_path_or_last_error(self, mock_objects):
         """POST action=set_auto_update response must not leak simc_path or last_error."""
         mock_row = Mock()
+        mock_row.simc_path = ''
         mock_row.platform = 'linux64'
         mock_row.auto_update = True
         mock_row.current_version = '11.0.1'

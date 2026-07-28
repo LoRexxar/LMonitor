@@ -1,16 +1,45 @@
+import hashlib
 import json
 import os
 from unittest.mock import MagicMock, patch
 
 from django.db import IntegrityError
 from django.test import TestCase
+from django.utils import timezone
 
 from botend.services.simc_task_service import _build_profile_payload
 
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
-from botend.models import SimcApl, SimcContentTemplate, SimcProfile, SimcTaskBatch, SimulationRun
+from botend.models import SimcApl, SimcContentTemplate, SimcProfile, SimulationRun
 from botend.services.simc_composer import SimcComposer
 from botend.services.simc_task_service import create_task
+
+
+TEST_VALIDATION_IDENTITY = ('test-simc-revision', 'test-game-build')
+
+
+def mark_apl_valid(apl):
+    values = {'validation_status': SimcApl.VALIDATION_VALID,
+              'validated_content_hash': hashlib.sha256(apl.content.encode()).hexdigest(),
+              'validation_revision': TEST_VALIDATION_IDENTITY[0],
+              'validation_game_build': TEST_VALIDATION_IDENTITY[1], 'is_selectable': True}
+    SimcApl.objects.filter(pk=apl.pk).update(**values)
+    for key, value in values.items(): setattr(apl, key, value)
+
+
+def setUpModule():
+    from django.test import override_settings
+    global _validation_settings, _validation_mock
+    _validation_settings = override_settings(SIMC_APL_CURRENT_IDENTITY=TEST_VALIDATION_IDENTITY)
+    _validation_settings.enable()
+    _validation_mock = patch('botend.services.simc_task_service.validate_apl_for_profile', side_effect=lambda _p, apl: {
+        'valid': True, 'content_hash': hashlib.sha256(apl.content.encode()).hexdigest(),
+        'revision': TEST_VALIDATION_IDENTITY[0], 'game_build': TEST_VALIDATION_IDENTITY[1]})
+    _validation_mock.start()
+
+
+def tearDownModule():
+    _validation_mock.stop(); _validation_settings.disable()
 
 
 class SimcReferenceRunContractTests(TestCase):
@@ -55,7 +84,7 @@ class SimcReferenceRunContractTests(TestCase):
             is_active=True,
         )
         self.template = SimcContentTemplate.objects.create(
-            name='contract template', template_type='base_template', spec='fury',
+            name='contract template', spec='fury',
             content='{simulation_options}\n{player_config}\n{action_list}\n{output_options}',
             is_active=True, is_selectable=True,
         )
@@ -63,6 +92,7 @@ class SimcReferenceRunContractTests(TestCase):
             name='contract apl', spec='fury', content='actions=/bloodthirst',
             is_system=True, is_active=True, is_selectable=True,
         )
+        mark_apl_valid(self.apl)
 
     def make_task(self, **kwargs):
         values = {
@@ -93,6 +123,27 @@ class SimcReferenceRunContractTests(TestCase):
             mapped = {'max_time': 'time', 'desired_targets': 'target_count'}.get(key, key)
             self.assertEqual(captured[mapped], expected)
 
+    def test_real_run_completion_cannot_resurrect_a_recovered_task(self):
+        task = self.make_task()
+
+        def finish_after_recovery(_path, executing_task, _result):
+            from botend.models import SimcTask
+            SimcTask.objects.filter(pk=executing_task.pk).update(
+                current_status=3,
+                error_detail='stale execution recovered',
+            )
+            return True
+
+        with patch.object(SimcMonitor, 'execute_simc_command', side_effect=finish_after_recovery):
+            monitor = SimcMonitor(None, task)
+            monitor.result_path = '/tmp/simc_contract_results'
+            os.makedirs(monitor.result_path, exist_ok=True)
+            self.assertFalse(monitor.process_simc_task(task))
+
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 3)
+        self.assertEqual(task.error_detail, 'stale execution recovered')
+
     def test_composer_renders_supported_options_and_rejects_invalid_values(self):
         request = {
             'spec': 'fury', 'player_import_mode': 'manual_equipment',
@@ -115,21 +166,156 @@ class SimcReferenceRunContractTests(TestCase):
         self.assertIn('iterations', error)
 
     def test_batch_does_not_finish_until_every_member_is_terminal(self):
-        batch = SimcTaskBatch.objects.create(user_id=self.user_id, name='batch', status=1)
-        failed = self.make_task(name='failed', batch_id=batch.id)
-        pending = self.make_task(name='pending', batch_id=batch.id)
-        failed.current_status = 3
-        failed.save(update_fields=['current_status'])
-        SimcMonitor(None, failed).sync_batch_lifecycle(batch.id)
-        batch.refresh_from_db()
-        self.assertEqual(batch.status, 1)
-        self.assertIsNone(batch.completed_at)
-        pending.current_status = 2
-        pending.save(update_fields=['current_status'])
-        SimcMonitor(None, pending).sync_batch_lifecycle(batch.id)
-        batch.refresh_from_db()
-        self.assertEqual(batch.status, 3)
-        self.assertIsNotNone(batch.completed_at)
+        """The request Task lifecycle is aggregated from all of its Runs."""
+        task = self.make_task(name='multi-run request')
+        from botend.services.simc_task_service import initialize_task_runs
+        initialize_task_runs(task)
+        first = task.simulation_runs.get(sequence=1)
+        first.status = 'failed'
+        first.error_detail = 'candidate failed'
+        first.save(update_fields=['status', 'error_detail'])
+        pending = SimulationRun.objects.create(
+            task=task, sequence=2, candidate_key='second', status='pending',
+        )
+        monitor = SimcMonitor(None, task)
+
+        with patch.object(monitor, 'process_reference_run', return_value=False):
+            self.assertFalse(monitor.process_reference_task(task))
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 0)
+        self.assertIsNone(task.completed_at)
+
+        pending.status = 'completed'
+        pending.result_summary = {'dps': 42}
+        pending.save(update_fields=['status', 'result_summary'])
+        self.assertTrue(monitor.process_reference_task(task))
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 2)
+        self.assertIsNotNone(task.completed_at)
+        self.assertEqual(task.analysis_result['total'], 2)
+
+    def test_attribute_worker_appends_and_drains_search_rounds_without_client_callback(self):
+        """One queued attribute Task owns its complete server-side search lifecycle."""
+        from botend.dashboard.api import SimcComparisonTaskAPIView
+
+        rows = SimcComparisonTaskAPIView._attribute_variants(
+            {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}, 50,
+        )
+        candidates = [{
+            'candidate_key': f'round-1-candidate-{index}',
+            'candidate_label': label,
+            'round_number': 1,
+            'candidate_params': {
+                'candidate_type': 'attribute_ratings', 'is_base': is_base,
+                'attribute_ratings': ratings, 'search': candidate,
+            },
+        } for index, (label, ratings, is_base, candidate) in enumerate(rows)]
+        task = self.make_task(
+            name='automatic attribute search', mode='attribute_sweep', candidates=candidates,
+        )
+        monitor = SimcMonitor(None, task)
+
+        def complete_run(_task, run):
+            # Round one moves to its first neighbor; round two is already a local optimum.
+            run.status = 'completed'
+            run.result_summary = {
+                'dps': (101500 if run.sequence == 2 else 100000)
+                if run.round_number == 1 else (101500 if run.candidate_params.get('is_base') else 101000),
+            }
+            run.save(update_fields=['status', 'result_summary'])
+            return True
+
+        with patch.object(monitor, 'process_reference_run', side_effect=complete_run):
+            self.assertTrue(monitor.process_reference_task(task))
+
+        task.refresh_from_db()
+        self.assertEqual(task.simulation_runs.filter(round_number=1).count(), len(rows))
+        self.assertEqual(task.simulation_runs.filter(round_number=2).count(), len(rows))
+        self.assertFalse(task.simulation_runs.filter(status='pending').exists())
+        self.assertTrue(task.analysis_result['attribute_search']['converged'])
+        self.assertEqual(
+            task.analysis_result['attribute_search']['stop_reason'],
+            'local_optimum_50_pairwise',
+        )
+
+    def _make_completed_attribute_round(self, task, center, round_number, winner_index=1):
+        from botend.services.simc_attribute_search import attribute_variants
+
+        created = []
+        sequence = task.simulation_runs.count() + 1
+        for index, (label, ratings, is_base, search) in enumerate(
+            attribute_variants(center, round_number=round_number)
+        ):
+            created.append(SimulationRun.objects.create(
+                task=task,
+                sequence=sequence + index,
+                candidate_key=f'round-{round_number}-candidate-{index}',
+                candidate_label=label,
+                round_number=round_number,
+                candidate_params={
+                    'candidate_type': 'attribute_ratings',
+                    'is_base': is_base,
+                    'attribute_ratings': ratings,
+                    'search': search,
+                },
+                status='completed',
+                result_summary={'dps': 101500 if index == winner_index else 100000},
+            ))
+        return created
+
+    def test_attribute_search_stops_when_best_center_was_already_visited(self):
+        from botend.services.simc_attribute_search import advance_attribute_search, attribute_variants
+
+        center = {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}
+        winner = attribute_variants(center, round_number=2)[1][1]
+        task = self.make_task(name='cycle search', mode='attribute_sweep')
+        SimulationRun.objects.create(
+            task=task,
+            sequence=1,
+            candidate_key='round-1-base',
+            candidate_label='visited center',
+            round_number=1,
+            candidate_params={
+                'candidate_type': 'attribute_ratings',
+                'is_base': True,
+                'attribute_ratings': winner,
+                'search': {'round': 1, 'step': 50},
+            },
+            status='completed',
+            result_summary={'dps': 99000},
+        )
+        self._make_completed_attribute_round(task, center, round_number=2)
+        lease = timezone.now()
+        task.current_status = 1
+        task.started_at = lease
+        task.save(update_fields=['current_status', 'started_at'])
+
+        result = advance_attribute_search(task.id, expected_started_at=lease)
+
+        task.refresh_from_db()
+        self.assertTrue(result['converged'])
+        self.assertEqual(result['recommendation']['stop_reason'], 'cycle_detected')
+        self.assertEqual(task.analysis_result['attribute_search']['stop_reason'], 'cycle_detected')
+        self.assertEqual(task.simulation_runs.count(), 14)
+
+    def test_attribute_search_stops_at_max_round_without_appending_runs(self):
+        from botend.services.simc_attribute_search import advance_attribute_search
+
+        center = {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}
+        task = self.make_task(name='max round search', mode='attribute_sweep')
+        self._make_completed_attribute_round(task, center, round_number=20)
+        lease = timezone.now()
+        task.current_status = 1
+        task.started_at = lease
+        task.save(update_fields=['current_status', 'started_at'])
+
+        result = advance_attribute_search(task.id, expected_started_at=lease)
+
+        task.refresh_from_db()
+        self.assertTrue(result['converged'])
+        self.assertEqual(result['recommendation']['stop_reason'], 'max_rounds_reached')
+        self.assertEqual(task.analysis_result['attribute_search']['stop_reason'], 'max_rounds_reached')
+        self.assertEqual(task.simulation_runs.count(), 13)
 
     def test_success_persists_semantic_summary_on_run_and_task(self):
         task = self.make_task()
@@ -171,7 +357,9 @@ class SimcReferenceRunContractTests(TestCase):
 
     def test_run_sequence_is_unique_per_task(self):
         task = self.make_task()
-        SimulationRun.objects.create(task=task, sequence=1)
+        from botend.services.simc_task_service import initialize_task_runs
+        initialize_task_runs(task)
+        self.assertTrue(SimulationRun.objects.filter(task=task, sequence=1).exists())
         with self.assertRaises(IntegrityError):
             with __import__('django.db', fromlist=['transaction']).transaction.atomic():
                 SimulationRun.objects.create(task=task, sequence=1)
