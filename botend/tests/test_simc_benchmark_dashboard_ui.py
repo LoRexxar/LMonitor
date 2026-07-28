@@ -30,6 +30,13 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         )
         self.assertEqual(len(soup.select('.nav-item[data-section="simc-workbench"]')), 0)
         self.assertEqual(len(soup.select('.nav-item[data-section="simc-benchmarks"]')), 0)
+
+        parent_link = cast(Tag, cast(Tag, group).select_one(':scope > a'))
+        submenu = cast(Tag, cast(Tag, group).select_one(':scope > .submenu'))
+        self.assertIn('open', ' '.join(cast(Tag, group).get_attribute_list('class')))
+        self.assertEqual(parent_link.get('aria-expanded'), 'true')
+        self.assertNotIn('max-h-0', ' '.join(submenu.get_attribute_list('class')))
+
         self.assertIn("dashboard-section-changed", (ROOT / "static/dashboard/js/main.js").read_text(encoding="utf-8"))
         self.assertIn("dashboard-section-changed", JS)
         self.assertIn("e.detail?.section==='simc-benchmarks'", JS)
