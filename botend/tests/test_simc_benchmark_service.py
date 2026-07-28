@@ -89,7 +89,7 @@ class SimcBenchmarkConfigServiceTests(TestCase):
             {'key': 'a', 'label': 'A', 'candidate_type': 'gear_swap',
              'params': 'trinket1=id=123,ilevel=700', 'spec_keys': []},
             {'key': 'b', 'label': 'B', 'candidate_type': 'gear_swap',
-             'params': {'slot': 'trinket2', 'raw_value': 'id=456'}, 'spec_keys': []},
+             'params': {'slot': 'trinket2', 'raw_value': 'id=456,ilevel=700'}, 'spec_keys': []},
         ]
         result = normalize_panel_payload(payload, self.user_id)
         self.assertEqual(result['candidates'][0]['params'], {
@@ -100,20 +100,79 @@ class SimcBenchmarkConfigServiceTests(TestCase):
             },
         })
         self.assertEqual(result['candidates'][1]['params']['gear_swap'], {
-            'slot': 'trinket2', 'raw_value': ',id=456',
+            'slot': 'trinket2', 'raw_value': ',id=456,ilevel=700',
             'item_id': 456, 'source': 'manual',
         })
+
+    def test_derives_spec_and_candidate_display_metadata_from_identity(self):
+        spec = dict(self.payload['specs'][0])
+        spec.pop('label')
+        candidate = {
+            'candidate_type': 'gear_swap',
+            'params': 'trinket1=id=123,ilevel=700',
+            'spec_keys': ['warrior_fury'],
+        }
+
+        result = normalize_panel_payload(
+            dict(self.payload, specs=[spec], candidates=[candidate]), self.user_id,
+        )
+
+        self.assertEqual(result['specs'][0]['label'], '狂怒')
+        self.assertEqual(result['candidates'][0]['key'], 'item-123-ilvl-700')
+        self.assertEqual(result['candidates'][0]['label'], '物品 123 · 700')
+
+    def test_generated_keys_distinguish_execution_relevant_gear_params(self):
+        candidates = [
+            {'candidate_type': 'gear_swap',
+             'params': 'trinket1=id=123,ilevel=700,bonus_id=1', 'spec_keys': []},
+            {'candidate_type': 'gear_swap',
+             'params': 'trinket2=id=123,ilevel=700,bonus_id=2', 'spec_keys': []},
+        ]
+
+        result = normalize_panel_payload(
+            dict(self.payload, candidates=candidates), self.user_id,
+        )
+
+        keys = [candidate['key'] for candidate in result['candidates']]
+        self.assertEqual(len(set(keys)), 2)
+        self.assertTrue(all(key.startswith('item-123-ilvl-700-') for key in keys))
+
+    def test_rejects_duplicate_item_identity_tokens(self):
+        ambiguous_lines = [
+            'trinket1=id=123,ilevel=700,id=456',
+            'trinket1=id=123,ilevel=700,item_level=701',
+        ]
+
+        for params in ambiguous_lines:
+            candidate = {'candidate_type': 'gear_swap', 'params': params, 'spec_keys': []}
+            with self.subTest(params=params), self.assertRaisesMessage(
+                    ValidationError, '只能包含一个'):
+                normalize_panel_payload(
+                    dict(self.payload, candidates=[candidate]), self.user_id,
+                )
+
+    def test_requires_item_level_for_benchmark_gear_candidates(self):
+        candidate = {
+            'candidate_type': 'gear_swap',
+            'params': 'trinket1=id=123',
+            'spec_keys': [],
+        }
+
+        with self.assertRaisesMessage(ValidationError, '装等'):
+            normalize_panel_payload(
+                dict(self.payload, candidates=[candidate]), self.user_id,
+            )
 
     def test_simc_options_are_exact_allowlisted_assignments(self):
         allowed = 'midnight.crucible_of_erratic_energies_predation=1'
         candidate = dict(self.payload['candidates'][0], params={
-            'slot': 'trinket1', 'raw_value': 'id=264507', 'simc_options': [allowed],
+            'slot': 'trinket1', 'raw_value': 'id=264507,ilevel=700', 'simc_options': [allowed],
         })
         normalized = normalize_panel_payload(dict(self.payload, candidates=[candidate]), self.user_id)
         self.assertEqual(normalized['candidates'][0]['params']['simc_options'], [allowed])
         for options in (["iterations=1"], [allowed + '\nactions=/kill'], [allowed, allowed], []):
             candidate = dict(candidate, params={
-                'slot': 'trinket1', 'raw_value': 'id=264507', 'simc_options': options,
+                'slot': 'trinket1', 'raw_value': 'id=264507,ilevel=700', 'simc_options': options,
             })
             with self.subTest(options=options), self.assertRaises(ValidationError):
                 normalize_panel_payload(dict(self.payload, candidates=[candidate]), self.user_id)
@@ -245,7 +304,7 @@ class SimcBenchmarkConfigServiceTests(TestCase):
             return {
                 'key': f'gear-{index}', 'label': f'Gear {index}',
                 'candidate_type': 'gear_swap',
-                'params': {'slot': 'trinket1', 'raw_value': f'id={1000 + index}'},
+                'params': {'slot': 'trinket1', 'raw_value': f'id={1000 + index},ilevel=700'},
                 'spec_keys': [],
             }
 

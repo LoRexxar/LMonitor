@@ -5,8 +5,9 @@ metadata. Executable resource bodies remain behind the existing task/version ser
 """
 from __future__ import annotations
 
-import math
+import hashlib
 import json
+import math
 import re
 from copy import deepcopy
 from typing import NoReturn
@@ -16,6 +17,7 @@ from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
 from django.db.models import Prefetch, Q
 
+from botend.constants.wow import SPEC_CN
 from botend.models import (
     SimcApl, SimcBackendBinary, SimcBenchmarkCandidate, SimcBenchmarkPanel,
     SimcBenchmarkProfile, SimcBenchmarkScenario, SimcBenchmarkSpec,
@@ -331,6 +333,42 @@ def _normalize_candidate_params(candidate_type, params):
     return result
 
 
+def _benchmark_item_identity(params):
+    swap = params['gear_swap']
+    item_id = swap['item_id']
+    options = []
+    for fragment in swap['raw_value'].split(','):
+        if '=' not in fragment:
+            continue
+        key, value = fragment.split('=', 1)
+        options.append((key.strip().lower(), value.strip()))
+    ids = [value for key, value in options if key == 'id']
+    levels = [value for key, value in options if key in {'ilevel', 'item_level'}]
+    if len(ids) != 1:
+        _error('装备候选只能包含一个 id', 'params')
+    if len(levels) != 1:
+        if not levels:
+            _error('装备候选必须填写有效装等', 'params')
+        _error('装备候选只能包含一个装等', 'params')
+    if not levels[0].isdigit() or int(levels[0]) <= 0:
+        _error('装备候选必须填写有效装等', 'params')
+    if int(ids[0]) != item_id:
+        _error('装备候选 id 解析不一致', 'params')
+    return item_id, int(levels[0]), options
+
+
+def _derived_candidate_key(params, item_id, item_level, options):
+    base = f'item-{item_id}-ilvl-{item_level}'
+    simple_options = {key for key, _value in options} == {'id', 'ilevel'}
+    swap = params['gear_swap']
+    if swap['slot'] == 'trinket1' and simple_options and not params.get('simc_options'):
+        return base
+    fingerprint = hashlib.sha256(json.dumps(
+        params, sort_keys=True, separators=(',', ':'), ensure_ascii=True,
+    ).encode('utf-8')).hexdigest()[:10]
+    return f'{base}-{fingerprint}'
+
+
 def _default_profile(spec_key):
     matches = list(SimcProfile.objects.filter(
         user_id__isnull=True, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
@@ -430,7 +468,9 @@ def normalize_panel_payload(payload, user_id, panel=None):
             })
         normalized['specs'].append({
             'class_name': class_name, 'spec_key': spec_key,
-            'label': _text(raw.get('label'), 'spec.label', max_length=200),
+            'label': SPEC_CN.get(
+                ''.join(part.capitalize() for part in expected_spec.split('_')), expected_spec,
+            ),
             'apl_id': apl.pk, 'template_id': template.pk, 'backend_id': backend.pk,
             'profiles': normalized_profiles,
             'is_enabled': _strict_bool(raw.get('is_enabled'), 'spec.is_enabled', True),
@@ -460,10 +500,17 @@ def normalize_panel_payload(payload, user_id, panel=None):
             'source_label', 'is_enabled', 'display_order',
         }
         if unknown: _error('candidate 包含未知字段', 'candidates')
-        key = _candidate_key(raw.get('key'), 'candidate.key')
+        candidate_type = _text(raw.get('candidate_type'), 'candidate_type')
+        params = _normalize_candidate_params(candidate_type, raw.get('params', {}))
+        item_id, item_level, item_options = _benchmark_item_identity(params)
+        key = _candidate_key(
+            raw.get('key') or _derived_candidate_key(
+                params, item_id, item_level, item_options,
+            ),
+            'candidate.key',
+        )
         if key in seen_candidates: _error(f'重复 candidate key: {key}', 'candidates')
         seen_candidates.add(key)
-        candidate_type = _text(raw.get('candidate_type'), 'candidate_type')
         spec_keys = _require_list(raw.get('spec_keys', []), 'spec_keys')
         if any(not isinstance(item, str) for item in spec_keys):
             _error('spec_keys 只能包含字符串', 'spec_keys')
@@ -478,9 +525,9 @@ def normalize_panel_payload(payload, user_id, panel=None):
                 _error('icon_url 必须是有效 URL', 'icon_url')
         normalized['candidates'].append({
             'key': key,
-            'label': _text(raw.get('label'), 'candidate.label', max_length=200),
+            'label': f'物品 {item_id} · {item_level}',
             'candidate_type': candidate_type,
-            'params': _normalize_candidate_params(candidate_type, raw.get('params', {})),
+            'params': params,
             'spec_keys': spec_keys,
             'icon_url': icon_url,
             'source_label': _text(raw.get('source_label', ''), 'source_label',

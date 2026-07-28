@@ -134,8 +134,15 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn("historyDetailController?.abort()", JS)
         self.assertIn("historyReconcileController?.abort()", JS)
 
-    def test_gear_line_preserves_canonical_slot_and_raw_value_shape(self):
-        self.assertIn("`${swap.slot}=${swap.raw_value}`", JS)
+    def test_compact_gear_fields_preserve_canonical_slot_in_payload(self):
+        self.assertIn("slot:swap?.slot||slotMatch?.[1]||'trinket1'", JS)
+        self.assertIn("fallback=`${meta.slot||'trinket1'}=id=${itemId},ilevel=${itemLevel}`", JS)
+
+    def test_compact_gear_fields_preserve_hidden_candidate_identity_and_params(self):
+        self.assertIn("key:data.key||''", JS)
+        self.assertIn("params:data.params", JS)
+        self.assertIn('candidateParams(meta,itemId,itemLevel)', JS)
+        self.assertIn("if(meta.key)candidate.key=meta.key", JS)
 
     def test_create_is_lightweight_and_defers_detailed_fields_to_configuration(self):
         soup = BeautifulSoup(PARTIAL, "html.parser")
@@ -204,9 +211,26 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
     def test_nested_resources_and_simulation_metadata_are_collapsed_per_card(self):
         self.assertIn("advancedGroup('资源与 Profiles'", JS)
         self.assertIn("advancedGroup('SimC 参数'", JS)
-        self.assertIn("advancedGroup('展示与适用范围'", JS)
         self.assertIn("class:'config-card-primary'", JS)
         self.assertIn("class:'config-card-advanced'", JS)
+
+    def test_spec_cards_only_expose_spec_and_enabled_before_expansion(self):
+        segment = JS[JS.index('function addSpec('):JS.index('function updateSpecResources(')]
+        self.assertIn("selectField('专精 *','spec_key'", segment)
+        self.assertIn("checkbox('启用','is_enabled'", segment)
+        self.assertNotIn("field('显示名", segment)
+        self.assertIn("advancedGroup('资源与 Profiles'", segment)
+        self.assertIn("spec?.spec_label||spec?.label", JS)
+
+    def test_candidate_cards_only_ask_for_item_id_and_item_level(self):
+        segment = JS[JS.index('function addCandidate('):JS.index('function localDate(')]
+        self.assertIn("field('装备 ID *','item_id','number'", segment)
+        self.assertIn("field('装等 *','item_level','number'", segment)
+        for removed_field in (
+            "field('key", "field('label", "field('单条装备行",
+            "field('来源标签", "field('图标 URL", 'candidateSpecPicker(',
+        ):
+            self.assertNotIn(removed_field, segment)
 
     def test_panel_name_does_not_collide_with_nested_scenario_names(self):
         for markup in (PARTIAL, CONFIG_PAGE):
