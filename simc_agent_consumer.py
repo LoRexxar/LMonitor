@@ -7,7 +7,9 @@ opens the LMonitor database; all coordination goes through the control-plane API
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
+import ipaddress
 import json
 import math
 import os
@@ -30,7 +32,15 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 VERSION = '1.0.0'
 PROTOCOL_VERSION = 1
 MAX_REPORT_BYTES = 20 * 1024 * 1024
+COMPLETION_TEXT_MAX_BYTES = 256 * 1024
 COMPLETION_ATTEMPTS = 3
+
+
+def _utf8_tail(value: str, max_bytes: int) -> str:
+    encoded = value.encode('utf-8', errors='replace')
+    if len(encoded) <= max_bytes:
+        return encoded.decode('utf-8')
+    return encoded[-max_bytes:].decode('utf-8', errors='ignore')
 
 
 class ConfigError(ValueError):
@@ -175,42 +185,32 @@ class HTTPTransport:
             raise APIError('control plane returned a non-object JSON response')
         return result
 
-    def multipart(self, *, path: str, metadata: dict[str, Any], report_bytes: bytes | None,
-                  report_name: str | None, authorization: str) -> dict[str, Any] | None:
-        if report_bytes is not None and len(report_bytes) > MAX_REPORT_BYTES:
-            raise APIError('SimC report exceeds the 20 MiB client limit')
-        boundary = '----LMonitorSimcAgent' + uuid.uuid4().hex
-        chunks = [
-            f'--{boundary}\r\nContent-Disposition: form-data; name="metadata"\r\n'
-            'Content-Type: application/json; charset=utf-8\r\n\r\n'.encode(),
-            json.dumps(metadata, separators=(',', ':'), ensure_ascii=False,
-                       allow_nan=False).encode('utf-8'), b'\r\n',
-        ]
-        if report_bytes is not None:
-            safe_name = Path(report_name or 'report.html').name.replace('"', '')
-            chunks.extend([
-                f'--{boundary}\r\nContent-Disposition: form-data; name="report"; '
-                f'filename="{safe_name}"\r\nContent-Type: text/html\r\n\r\n'.encode(),
-                report_bytes, b'\r\n',
-            ])
-        chunks.append(f'--{boundary}--\r\n'.encode())
-        request = Request(urljoin(self.server_url, path.lstrip('/')), data=b''.join(chunks),
-                          method='POST', headers={
-                              'Authorization': authorization,
-                              'Content-Type': f'multipart/form-data; boundary={boundary}',
-                              'Accept': 'application/json',
-                              'User-Agent': f'LMonitor-SimC-Agent/{VERSION}',
-                          })
-        raw = self._request(request)
-        if raw is None:
-            raise APIError('control plane returned an empty multipart response')
+    def put_bytes(self, *, url: str, body: bytes, headers: dict[str, str]) -> None:
+        parsed = urlparse(url)
+        if (parsed.scheme != 'https' or not parsed.netloc or parsed.username or parsed.password
+                or parsed.fragment or not parsed.hostname):
+            raise APIError('control plane returned an unsafe OSS upload URL')
         try:
-            result = json.loads(raw.decode('utf-8'))
-        except (UnicodeError, json.JSONDecodeError) as exc:
-            raise APIError('control plane returned malformed JSON') from exc
-        if not isinstance(result, dict):
-            raise APIError('control plane returned a non-object JSON response')
-        return result
+            address = ipaddress.ip_address(parsed.hostname)
+        except ValueError:
+            address = None
+        if address and (address.is_private or address.is_loopback or address.is_link_local
+                        or address.is_reserved or address.is_unspecified):
+            raise APIError('control plane returned an unsafe OSS upload URL')
+        forbidden_headers = {
+            'authorization', 'cookie', 'proxy-authorization', 'host', 'content-length',
+            'transfer-encoding', 'connection', 'proxy-connection', 'upgrade', 'te', 'trailer',
+        }
+        if type(headers) is not dict or any(
+            type(key) is not str or type(value) is not str
+            or key.lower() in forbidden_headers
+            for key, value in headers.items()
+        ):
+            raise APIError('control plane returned unsafe OSS upload headers')
+        request = Request(url, data=body, method='PUT', headers={
+            **headers, 'User-Agent': f'LMonitor-SimC-Agent/{VERSION}',
+        })
+        self._request(request)
 
 
 class SimcAgentConsumer:
@@ -401,30 +401,93 @@ class SimcAgentConsumer:
             return value.decode('utf-8', errors='replace')
         return value if isinstance(value, str) else str(value or '')
 
+    def _completion_json(self, run_id: int, metadata: dict[str, Any]) -> bool:
+        for attempt in range(COMPLETION_ATTEMPTS):
+            try:
+                self.transport.json(
+                    path=f'/api/simc-agent/v1/jobs/{run_id}/complete/',
+                    payload=metadata, authorization=self.authorization,
+                )
+                return True
+            except Exception as exc:
+                if (isinstance(exc, APIError) and exc.status is not None
+                        and 400 <= exc.status < 500):
+                    return False
+                if attempt + 1 == COMPLETION_ATTEMPTS:
+                    return False
+                self.stop_event.wait(0.25 * (2 ** attempt))
+        return False
+
+    def _upload_report(self, run_id: int, lease_token: str,
+                       report_bytes: bytes, report_name: str) -> dict[str, Any]:
+        sha256 = hashlib.sha256(report_bytes).hexdigest()
+        content_md5 = base64.b64encode(
+            hashlib.md5(report_bytes, usedforsecurity=False).digest()
+        ).decode('ascii')
+        payload = {
+            'lease_token': lease_token, 'instance_id': self.instance_id,
+            'size': len(report_bytes), 'sha256': sha256, 'content_md5': content_md5,
+        }
+        last_error: Exception | None = None
+        descriptor: dict[str, Any] | None = None
+        for attempt in range(COMPLETION_ATTEMPTS):
+            try:
+                ticket = self.transport.json(
+                    path=f'/api/simc-agent/v1/jobs/{run_id}/report-upload/',
+                    payload=payload, authorization=self.authorization,
+                )
+                if not isinstance(ticket, dict):
+                    raise APIError('control plane returned an invalid OSS upload ticket')
+                object_key = ticket.get('object_key')
+                expected_key = 'simc_agent_results/' + report_name
+                if object_key != expected_key or ticket.get('method') != 'PUT':
+                    raise APIError('control plane returned an invalid OSS report identity')
+                url, headers = ticket.get('url'), ticket.get('headers')
+                if type(url) is not str or type(headers) is not dict:
+                    raise APIError('control plane returned an invalid OSS upload ticket')
+                descriptor = {'object_key': object_key, 'size': len(report_bytes), 'sha256': sha256}
+                self.transport.put_bytes(url=url, body=report_bytes, headers=headers)
+                return descriptor
+            except Exception as exc:
+                last_error = exc
+                if isinstance(exc, APIError) and exc.status in (403, 404):
+                    break
+                if attempt + 1 < COMPLETION_ATTEMPTS:
+                    self.stop_event.wait(0.25 * (2 ** attempt))
+        # A PUT response can be lost after OSS persisted the object. Returning the
+        # descriptor lets completion's authoritative HEAD check resolve that case.
+        if descriptor is not None:
+            return descriptor
+        raise APIError(f'OSS report upload failed: {last_error}')
+
     def _complete(self, run_id: int, lease_token: str, completion_id: str,
                   status: str, stdout: str, stderr: str,
                   report_bytes: bytes | None, report_name: str | None) -> None:
+        report = None
+        if status == 'completed':
+            try:
+                if report_bytes is None or not report_name:
+                    raise APIError('completed SimC run has no report')
+                report = self._upload_report(
+                    run_id, lease_token, report_bytes, report_name,
+                )
+            except Exception as exc:
+                status = 'failed'
+                stderr = (stderr + f'\n{exc}').strip()
+
         metadata = {
             'lease_token': lease_token, 'instance_id': self.instance_id,
             'completion_id': completion_id, 'status': status,
-            'stdout': stdout[-1024 * 1024:], 'stderr': stderr[-1024 * 1024:],
+            'stdout': _utf8_tail(stdout, COMPLETION_TEXT_MAX_BYTES),
+            'stderr': _utf8_tail(stderr, COMPLETION_TEXT_MAX_BYTES),
+            'report': report if status == 'completed' else None,
         }
-        for attempt in range(COMPLETION_ATTEMPTS):
-            try:
-                self.transport.multipart(
-                    path=f'/api/simc-agent/v1/jobs/{run_id}/complete/', metadata=metadata,
-                    report_bytes=report_bytes if status == 'completed' else None,
-                    report_name=report_name if status == 'completed' else None,
-                    authorization=self.authorization,
-                )
-                return
-            except Exception as exc:
-                if isinstance(exc, APIError) and exc.status in (403, 404, 409):
-                    return
-                if attempt + 1 == COMPLETION_ATTEMPTS:
-                    print(f'[simc-agent] completion upload failed after retries: {exc}', flush=True)
-                    return
-                self.stop_event.wait(0.25 * (2 ** attempt))
+        if self._completion_json(run_id, metadata):
+            return
+        # A completed completion may have committed even when its response was lost.
+        # Never race it with an opposite failed terminal state; leave an unresolved
+        # Run to the authoritative lease-expiry/stale-recovery workflow.
+        print('[simc-agent] completion result is uncertain after retries', flush=True)
 
     def execute_job(self, job: dict[str, Any]) -> None:
         # A valid run identity is the minimum needed to report malformed claims.
@@ -441,6 +504,8 @@ class SimcAgentConsumer:
         output_name: str | None = None
         status = 'failed'
         lease_lost = threading.Event()
+        heartbeat_stop: threading.Event | None = None
+        heartbeat_thread: threading.Thread | None = None
 
         try:
             output_name = job.get('output_filename')
@@ -483,16 +548,12 @@ class SimcAgentConsumer:
                 )
                 heartbeat_thread.start()
                 try:
-                    try:
-                        raw_stdout, raw_stderr = process.communicate(timeout=timeout)
-                    except subprocess.TimeoutExpired:
-                        self._stop_process(process)
-                        raw_stdout, raw_stderr = process.communicate()
-                        raw_stderr = self._text(raw_stderr) + '\nSimC execution timed out'
-                    stdout, stderr = self._text(raw_stdout), self._text(raw_stderr)
-                finally:
-                    heartbeat_stop.set()
-                    heartbeat_thread.join(timeout=3)
+                    raw_stdout, raw_stderr = process.communicate(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    self._stop_process(process)
+                    raw_stdout, raw_stderr = process.communicate()
+                    raw_stderr = self._text(raw_stderr) + '\nSimC execution timed out'
+                stdout, stderr = self._text(raw_stdout), self._text(raw_stderr)
                 if lease_lost.is_set():
                     return  # Never complete work after losing its fencing lease.
 
@@ -516,8 +577,14 @@ class SimcAgentConsumer:
         except Exception as exc:
             stderr = (stderr + f'\nSimC agent error: {exc}').strip()
 
-        self._complete(run_id, lease_token, completion_id, status, stdout, stderr,
-                       report_bytes, output_name)
+        try:
+            self._complete(run_id, lease_token, completion_id, status, stdout, stderr,
+                           report_bytes, output_name)
+        finally:
+            if heartbeat_stop is not None:
+                heartbeat_stop.set()
+            if heartbeat_thread is not None:
+                heartbeat_thread.join(timeout=3)
 
     def run(self, once: bool = False) -> None:
         self.register()

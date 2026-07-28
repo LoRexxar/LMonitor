@@ -4,13 +4,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import re
 import secrets
-import tempfile
 from dataclasses import asdict, is_dataclass
 from datetime import timedelta
-from pathlib import Path
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
@@ -286,11 +283,91 @@ def heartbeat_run(run_id, payload, authorization):
         return run
 
 
+SHA256_RE = re.compile(r'^[0-9a-f]{64}$')
+CONTENT_MD5_RE = re.compile(r'^[A-Za-z0-9+/]{22}==$')
+MAX_REPORT_BYTES = 20 * 1024 * 1024
+COMPLETION_TEXT_MAX_BYTES = 256 * 1024
+
+
+def _validate_report_identity(payload):
+    if set(payload) != {'size', 'sha256', 'content_md5'}:
+        raise AgentAPIError('Report upload fields are invalid')
+    size = payload.get('size')
+    sha256 = payload.get('sha256')
+    content_md5 = payload.get('content_md5')
+    if type(size) is not int or size < 13 or size > MAX_REPORT_BYTES:
+        raise AgentAPIError('report size is invalid', 413 if type(size) is int and size > MAX_REPORT_BYTES else 400)
+    if type(sha256) is not str or not SHA256_RE.fullmatch(sha256):
+        raise AgentAPIError('report sha256 is invalid')
+    if type(content_md5) is not str or not CONTENT_MD5_RE.fullmatch(content_md5):
+        raise AgentAPIError('report content_md5 is invalid')
+    return {'size': size, 'sha256': sha256, 'content_md5': content_md5}
+
+
+def request_report_upload(run_id, payload, authorization):
+    allowed = {'lease_token', 'instance_id', 'size', 'sha256', 'content_md5'}
+    if set(payload) != allowed:
+        raise AgentAPIError('Report upload fields are invalid')
+    identity = _validate_report_identity({key: payload[key] for key in ('size', 'sha256', 'content_md5')})
+    discovered_agent = authenticate_bearer(authorization, lock=False)
+    task_id = SimulationRun.objects.filter(pk=run_id).values_list('task_id', flat=True).first()
+    if task_id is None:
+        raise AgentAPIError('Run not found', 404)
+    with transaction.atomic():
+        task = SimcTask.objects.select_for_update().get(pk=task_id)
+        run = SimulationRun.objects.select_for_update().select_related('task').get(pk=run_id, task=task)
+        agent = authenticate_bearer(authorization, lock=True)
+        if agent.pk != discovered_agent.pk:
+            raise AgentAPIError('Agent identity changed during report upload request', 409)
+        if task.execution_owner != SimcTask.EXECUTION_OWNER_AGENT or run.status != 'running':
+            raise AgentAPIError('Run is not running', 409)
+        now = timezone.now()
+        _validate_fence(run, agent, payload.get('lease_token'), payload.get('instance_id'), now)
+        lease_fence = run.lease_token_hash
+        lease_expires_at = run.lease_expires_at
+    try:
+        from botend.services.simc_agent_oss import (
+            issue_upload_ticket, object_key_for_run, public_report_url,
+        )
+        # Fail before signing/uploading if the immutable report cannot later be
+        # exposed from a separate HTTPS origin.
+        public_report_url(object_key_for_run(run))
+        return issue_upload_ticket(
+            run, **identity, lease_fence=lease_fence,
+            lease_expires_at=lease_expires_at,
+        )
+    except Exception as exc:
+        from botend.services.simc_agent_oss import ReportLeaseExpiredError, ReportStorageError
+        if isinstance(exc, ReportLeaseExpiredError):
+            raise AgentAPIError(str(exc), 409) from exc
+        if isinstance(exc, ReportStorageError):
+            raise AgentAPIError(str(exc), 503) from exc
+        logger.exception('OSS report upload ticket failed for Run %s', run_id)
+        raise AgentAPIError('OSS report upload service is unavailable', 503) from exc
+
+
+def _validate_completion_report(report):
+    if not isinstance(report, dict) or set(report) != {'object_key', 'size', 'sha256'}:
+        raise AgentAPIError('Completion report fields are invalid')
+    size = report.get('size')
+    sha256 = report.get('sha256')
+    object_key = report.get('object_key')
+    if type(size) is not int or size < 13 or size > MAX_REPORT_BYTES:
+        raise AgentAPIError('report size is invalid', 413 if type(size) is int and size > MAX_REPORT_BYTES else 400)
+    if type(sha256) is not str or not SHA256_RE.fullmatch(sha256):
+        raise AgentAPIError('report sha256 is invalid')
+    if type(object_key) is not str or not object_key.startswith('simc_agent_results/'):
+        raise AgentAPIError('report object_key is invalid')
+    return report
+
+
 def validate_completion_metadata(payload):
-    allowed = {'lease_token', 'instance_id', 'completion_id', 'status', 'stdout', 'stderr'}
+    allowed = {'lease_token', 'instance_id', 'completion_id', 'status', 'stdout', 'stderr', 'report'}
     if set(payload) != allowed:
         raise AgentAPIError('Completion metadata fields are invalid')
-    for field, limit in (('instance_id', 128), ('completion_id', 64), ('stdout', 1024 * 1024), ('stderr', 1024 * 1024)):
+    for field, limit in (('instance_id', 128), ('completion_id', 64),
+                         ('stdout', COMPLETION_TEXT_MAX_BYTES),
+                         ('stderr', COMPLETION_TEXT_MAX_BYTES)):
         value = payload.get(field)
         if not isinstance(value, str) or (field in ('instance_id', 'completion_id') and not value) or len(value.encode('utf-8')) > limit:
             raise AgentAPIError(f'{field} is invalid', 413 if field in ('stdout', 'stderr') else 400)
@@ -298,15 +375,11 @@ def validate_completion_metadata(payload):
         raise AgentAPIError('status has invalid value')
     if not COMPLETION_RE.fullmatch(payload['completion_id']):
         raise AgentAPIError('completion_id has invalid format')
+    if payload['status'] == 'completed':
+        _validate_completion_report(payload['report'])
+    elif payload['report'] is not None:
+        raise AgentAPIError('failed status must not include report')
     return payload
-
-
-def _result_root():
-    # Agent output is untrusted remote-node content. Keep it outside the public
-    # static tree; it is exposed only through the authenticated Artifact preview
-    # endpoint, which attaches the report CSP/sandbox headers.
-    configured = getattr(settings, 'SIMC_AGENT_RESULT_ROOT', '')
-    return Path(configured or (Path(settings.BASE_DIR) / 'var' / 'simc_agent_results')).resolve()
 
 
 def _finalize_task(task, now):
@@ -353,116 +426,100 @@ def _finalize_task(task, now):
                              'result_file', 'analysis_result', 'modified_time'])
 
 
-def complete_run(run_id, metadata, report, authorization):
-    # Reject unauthenticated callers before consuming/spooling their upload. The
-    # transaction below authenticates again under lock before mutating state.
+def complete_run(run_id, metadata, authorization):
     discovered_agent = authenticate_bearer(authorization, lock=False)
-    task_id = SimulationRun.objects.filter(pk=run_id).values_list('task_id', flat=True).first()
-    if task_id is None:
-        raise AgentAPIError('Run not found', 404)
     metadata = validate_completion_metadata(metadata)
     status = metadata['status']
-    if status == 'completed' and report is None:
-        raise AgentAPIError('completed status requires report')
-    if status == 'failed' and report is not None:
-        raise AgentAPIError('failed status must not include report')
 
-    temp_path = None
-    final_path = None
-    if report is not None:
-        content_type = str(getattr(report, 'content_type', '') or '').lower().split(';', 1)[0]
-        if content_type not in {'text/html', 'application/xhtml+xml'}:
-            raise AgentAPIError('report Content-Type is not allowed')
-        if int(getattr(report, 'size', 0) or 0) > 20 * 1024 * 1024:
-            raise AgentAPIError('report is too large', 413)
-        root = _result_root()
-        root.mkdir(parents=True, exist_ok=True)
-        fd, temp_path = tempfile.mkstemp(prefix='.agent-upload-', suffix='.tmp', dir=root)
-        size = 0
+    # Authenticate and validate the Run fence before any OSS request. The locked
+    # transaction below repeats this check before committing authoritative state.
+    run_for_key = SimulationRun.objects.select_related('task', 'lease_agent').filter(pk=run_id).first()
+    if run_for_key is None:
+        raise AgentAPIError('Run not found', 404)
+    task_id = run_for_key.task_id
+    if run_for_key.task.execution_owner != SimcTask.EXECUTION_OWNER_AGENT:
+        raise AgentAPIError('Task is not agent-owned', 409)
+    _validate_fence(
+        run_for_key, discovered_agent, metadata['lease_token'], metadata['instance_id'],
+        timezone.now(), require_unexpired=run_for_key.status == 'running',
+    )
+    if run_for_key.status in TERMINAL:
+        if (run_for_key.completion_id == metadata['completion_id']
+                and run_for_key.status == status):
+            return {'run_id': run_for_key.pk, 'status': run_for_key.status, 'idempotent': True}
+        raise AgentAPIError('Completion conflict', 409)
+    if run_for_key.status != 'running':
+        raise AgentAPIError('Run is not running', 409)
+
+    report = metadata['report']
+    if status == 'completed':
+        from botend.services.simc_agent_oss import (
+            ReportStorageError, ReportValidationError, object_key_for_run,
+            public_report_url, verify_uploaded_report,
+        )
+        expected_key = object_key_for_run(run_for_key)
+        if report['object_key'] != expected_key:
+            raise AgentAPIError('Report object does not belong to this Run', 409)
         try:
-            with os.fdopen(fd, 'wb') as target:
-                prefix = b''
-                for chunk in report.chunks():
-                    size += len(chunk)
-                    if size > 20 * 1024 * 1024:
-                        raise AgentAPIError('report is too large', 413)
-                    if len(prefix) < 512:
-                        prefix += chunk[:512 - len(prefix)]
-                    target.write(chunk)
-            if size < 13 or not re.match(br'\s*(?:<!doctype\s+html\b|<html\b)', prefix, re.IGNORECASE):
-                raise AgentAPIError('report content is not HTML')
-        except Exception:
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
-            raise
+            public_report_url(expected_key)
+            verify_uploaded_report(
+                object_key=expected_key, size=report['size'], sha256=report['sha256'],
+                lease_fence=run_for_key.lease_token_hash,
+            )
+        except ReportValidationError as exc:
+            raise AgentAPIError(str(exc), 422) from exc
+        except ReportStorageError as exc:
+            raise AgentAPIError(str(exc), 503) from exc
 
+    with transaction.atomic():
+        try:
+            task = SimcTask.objects.select_for_update().get(pk=task_id)
+            run = SimulationRun.objects.select_for_update().get(pk=run_id, task=task)
+        except (SimcTask.DoesNotExist, SimulationRun.DoesNotExist):
+            raise AgentAPIError('Run not found', 404)
+        agent = authenticate_bearer(authorization, lock=True)
+        if agent.pk != discovered_agent.pk:
+            raise AgentAPIError('Agent identity changed during completion', 409)
+        if task.execution_owner != SimcTask.EXECUTION_OWNER_AGENT:
+            raise AgentAPIError('Task is not agent-owned', 409)
+        now = timezone.now()
+        _validate_fence(run, agent, metadata['lease_token'], metadata['instance_id'], now,
+                        require_unexpired=run.status == 'running')
+        if run.status in TERMINAL:
+            if (run.completion_id == metadata['completion_id']
+                    and run.status == status):
+                return {'run_id': run.pk, 'status': run.status, 'idempotent': True}
+            raise AgentAPIError('Completion conflict', 409)
+        if run.status != 'running':
+            raise AgentAPIError('Run is not running', 409)
+
+        if status == 'completed':
+            from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
+            summary = SimcMonitor.validate_simulation_semantics(metadata['stdout'])
+            if summary.get('dps') is None or not re.search(r'\bDPS=', metadata['stdout']):
+                raise AgentAPIError('SimC result does not contain DPS')
+            SimcTaskArtifact.objects.update_or_create(
+                task=task, run=run, artifact_type='html_report',
+                defaults={'file_path': report['object_key'], 'file_size': report['size']},
+            )
+            run.result_summary = summary
+            run.error_detail = None
+        else:
+            detail = (metadata['stderr'].strip() or metadata['stdout'].strip()
+                      or 'Agent execution failed')
+            run.error_detail = detail[:8000]
+            run.result_summary = None
+        run.status = status
+        run.completed_at = now
+        run.completion_id = metadata['completion_id']
+        run.save(update_fields=['status', 'completed_at', 'completion_id',
+                                'result_summary', 'error_detail'])
+        _finalize_task(task, now)
+        agent.last_seen_at = now
+        agent.status = agent.STATUS_ONLINE
+        agent.save(update_fields=['last_seen_at', 'status', 'updated_at'])
     try:
-        with transaction.atomic():
-            now = timezone.now()
-            try:
-                task = SimcTask.objects.select_for_update().get(pk=task_id)
-                run = SimulationRun.objects.select_for_update().get(pk=run_id, task=task)
-            except (SimcTask.DoesNotExist, SimulationRun.DoesNotExist):
-                raise AgentAPIError('Run not found', 404)
-            agent = authenticate_bearer(authorization, lock=True)
-            if agent.pk != discovered_agent.pk:
-                raise AgentAPIError('Agent identity changed during completion', 409)
-            if task.execution_owner != SimcTask.EXECUTION_OWNER_AGENT:
-                raise AgentAPIError('Task is not agent-owned', 409)
-            _validate_fence(run, agent, metadata['lease_token'], metadata['instance_id'], now,
-                            require_unexpired=run.status == 'running')
-            if run.status in TERMINAL:
-                if run.completion_id == metadata['completion_id']:
-                    return {'run_id': run.pk, 'status': run.status, 'idempotent': True}
-                raise AgentAPIError('Completion conflict', 409)
-            if run.status != 'running':
-                raise AgentAPIError('Run is not running', 409)
-
-            if status == 'completed':
-                from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
-                summary = SimcMonitor.validate_simulation_semantics(metadata['stdout'])
-                # Preserve existing parsing semantics but require at least a parseable DPS.
-                if summary.get('dps') is None or not re.search(r'\bDPS=', metadata['stdout']):
-                    raise AgentAPIError('SimC result does not contain DPS')
-                root = _result_root()
-                filename = _output_filename(run)
-                final_path = (root / filename).resolve()
-                try:
-                    final_path.relative_to(root)
-                except ValueError:
-                    raise AgentAPIError('Invalid report destination', 500)
-                final_path.parent.mkdir(parents=True, exist_ok=True)
-                os.replace(temp_path, final_path)
-                temp_path = None
-                SimcTaskArtifact.objects.update_or_create(
-                    task=task, run=run, artifact_type='html_report',
-                    defaults={'file_path': f'simc_agent_results/{filename}',
-                              'file_size': final_path.stat().st_size},
-                )
-                run.result_summary = summary
-                run.error_detail = None
-            else:
-                detail = (metadata['stderr'].strip() or metadata['stdout'].strip() or 'Agent execution failed')
-                run.error_detail = detail[:8000]
-                run.result_summary = None
-            run.status = status
-            run.completed_at = now
-            run.completion_id = metadata['completion_id']
-            run.save(update_fields=['status', 'completed_at', 'completion_id', 'result_summary', 'error_detail'])
-            _finalize_task(task, now)
-            agent.last_seen_at = now
-            agent.status = agent.STATUS_ONLINE
-            agent.save(update_fields=['last_seen_at', 'status', 'updated_at'])
-        try:
-            reconcile_execution_for_task(task.pk)
-        except (IntegrityError, ValueError):
-            # Projection is derived and retryable; never invalidate authoritative completion.
-            logger.exception('Benchmark projection reconcile failed for completed task %s', task.pk)
-        return {'run_id': run.pk, 'status': run.status, 'idempotent': False}
-    except Exception:
-        if final_path is not None and final_path.exists():
-            final_path.unlink()
-        raise
-    finally:
-        if temp_path and os.path.exists(temp_path):
-            os.unlink(temp_path)
+        reconcile_execution_for_task(task.pk)
+    except (IntegrityError, ValueError):
+        logger.exception('Benchmark projection reconcile failed for completed task %s', task.pk)
+    return {'run_id': run.pk, 'status': run.status, 'idempotent': False}

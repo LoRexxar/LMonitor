@@ -1,12 +1,10 @@
 import hashlib
 import json
-import os
 from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import RequestFactory, TestCase, override_settings
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from botend.models import (
@@ -20,7 +18,12 @@ from botend.services.simc_agent_control import _issue_token
 CLAIM = '/api/simc-agent/v1/jobs/claim/'
 
 
-@override_settings(SIMC_AGENT_ONLINE_TIMEOUT_SECONDS=90, SIMC_AGENT_LEASE_SECONDS=60)
+@override_settings(
+    SIMC_AGENT_ONLINE_TIMEOUT_SECONDS=90,
+    SIMC_AGENT_LEASE_SECONDS=60,
+    OSS_CONFIG={'base_url': 'https://reports.example'},
+    ALLOWED_HOSTS=['testserver'],
+)
 class SimcAgentJobAPITests(TestCase):
     def setUp(self):
         self.backend, self.agent, self.token = self.backend_row('primary')
@@ -252,16 +255,28 @@ class SimcAgentJobAPITests(TestCase):
         return self.claim().json()
 
     def complete(self, job, status='completed', completion_id='completion-1',
-                 report=b'<html>DPS=1234</html>', token=None, instance='instance-a'):
-        metadata = {'lease_token': job['lease_token'], 'instance_id': instance,
-                    'completion_id': completion_id, 'status': status,
-                    'stdout': 'Player: Agent\nDPS=1234 DPS-Error=1/0.1%\n  bloodthirst Count=10 pDPS= 1234',
-                    'stderr': ''}
-        data = {'metadata': json.dumps(metadata)}
-        if report is not None:
-            data['report'] = SimpleUploadedFile('../../evil.html', report, content_type='text/html')
-        return self.client.post(f"/api/simc-agent/v1/jobs/{job['run_id']}/complete/", data,
-                                HTTP_AUTHORIZATION='Bearer ' + (token or self.token))
+                 report=b'<html>DPS=1234</html>', token=None, instance='instance-a',
+                 verify_report=True):
+        report_identity = None
+        if status == 'completed' and report is not None:
+            report_identity = {
+                'object_key': (
+                    f"simc_agent_results/simc_task_{job['task_id']}_run_{job['run_id']}.html"
+                ),
+                'size': len(report),
+                'sha256': hashlib.sha256(report).hexdigest(),
+            }
+        metadata = {
+            'lease_token': job['lease_token'], 'instance_id': instance,
+            'completion_id': completion_id, 'status': status,
+            'stdout': 'Player: Agent\nDPS=1234 DPS-Error=1/0.1%\n  bloodthirst Count=10 pDPS= 1234',
+            'stderr': '', 'report': report_identity,
+        }
+        path = f"/api/simc-agent/v1/jobs/{job['run_id']}/complete/"
+        if not verify_report:
+            return self.post_json(path, metadata, token)
+        with patch('botend.services.simc_agent_oss.verify_uploaded_report'):
+            return self.post_json(path, metadata, token)
 
     def test_complete_success_artifact_dps_and_idempotency(self):
         job = self.claim_after_task()
@@ -271,83 +286,164 @@ class SimcAgentJobAPITests(TestCase):
         self.assertEqual(run.status, 'completed')
         self.assertEqual(run.result_summary['dps'], 1234.0)
         artifact = SimcTaskArtifact.objects.get(run=run, artifact_type='html_report')
-        self.assertTrue(artifact.file_path.startswith('simc_agent_results/'))
-        self.assertNotIn('evil', artifact.file_path)
-        self.assertNotIn('/task-', artifact.file_path)
-        from botend.services.simc_artifacts import _validated_result
-        validated = _validated_result(run.task, os.path.basename(artifact.file_path), run=run)
-        self.assertIsNotNone(validated)
-        self.assertNotIn('/static/', str(validated[0]).replace('\\\\', '/'))
-        self.assertEqual(validated[1], artifact.file_path)
-        self.assertIn('var/simc_agent_results', str(validated[0]))
+        self.assertEqual(
+            artifact.file_path,
+            f"simc_agent_results/simc_task_{job['task_id']}_run_{job['run_id']}.html",
+        )
         self.assertEqual(self.complete(job).status_code, 200)
         self.assertEqual(SimcTaskArtifact.objects.filter(run=run).count(), 1)
+        self.assertEqual(self.complete(job, status='failed').status_code, 409)
         self.assertEqual(self.complete(job, completion_id='different').status_code, 409)
 
-        run.lease_agent = None
-        run.save(update_fields=['lease_agent'])
-        validated_after_recovery = _validated_result(
-            run.task, os.path.basename(artifact.file_path), run=run)
-        self.assertIsNotNone(validated_after_recovery)
-        self.assertEqual(validated_after_recovery[1], artifact.file_path)
-        self.assertIn('var/simc_agent_results', str(validated_after_recovery[0]))
-
-        owner = get_user_model().objects.create_user(username='artifact-owner')
-        self.assertEqual(owner.pk, run.task.user_id)
-        self.client.force_login(owner)
-        preview = self.client.get(f'/api/simc-workbench/artifacts/{artifact.pk}/preview/')
-        self.assertEqual(preview.status_code, 200)
-        self.assertIn(b'DPS=1234', b''.join(preview.streaming_content))
-        self.assertIn('sandbox', preview['Content-Security-Policy'])
-
-    def test_completion_rejects_obviously_oversized_request_before_multipart_parse(self):
-        job = self.claim_after_task()
-        request = RequestFactory().generic(
-            'POST', f"/api/simc-agent/v1/jobs/{job['run_id']}/complete/",
-            '', content_type='multipart/form-data; boundary=unused',
+        from botend.dashboard.api import SimcWorkbenchAPIView
+        with override_settings(OSS_CONFIG={'base_url': 'https://reports.example'}):
+            row = SimcWorkbenchAPIView._artifact_row(artifact)
+            task_row = SimcWorkbenchAPIView._task_row(run.task)
+        expected_url = 'https://reports.example/' + artifact.file_path
+        self.assertEqual(row['preview_url'], expected_url)
+        self.assertTrue(row['is_external'])
+        self.assertTrue(task_row['has_report'])
+        self.assertEqual(task_row['report_preview_url'], expected_url)
+        owner = get_user_model().objects.create_user(
+            id=run.task.user_id, username='artifact-owner', password='x',
         )
-        request.META['CONTENT_TYPE'] = 'multipart/form-data; boundary=unused'
-        request.content_type = 'multipart/form-data'
-        request.content_params = {'boundary': 'unused'}
-        request.META['CONTENT_LENGTH'] = str(24 * 1024 * 1024)
-        from botend.simc_agent_api import SimcAgentJobCompleteAPIView
-        with patch('botend.simc_agent_api.authenticate_bearer', return_value=self.agent), \
-                patch('django.http.multipartparser.MultiPartParser.parse',
-                      side_effect=AssertionError('multipart parser must not run')):
-            response = SimcAgentJobCompleteAPIView.as_view()(request, run_id=job['run_id'])
-        self.assertEqual(response.status_code, 413, response.content)
+        self.client.force_login(owner)
+        with override_settings(
+            OSS_CONFIG={'base_url': 'https://reports.example'},
+            ALLOWED_HOSTS=['testserver'],
+        ):
+            preview = self.client.get(
+                f'/api/simc-workbench/artifacts/{artifact.id}/preview/',
+            )
+        self.assertEqual(preview.status_code, 302)
+        self.assertEqual(preview['Location'], expected_url)
+        from botend.services.simc_result_analysis import analyze_run_artifact
+        with patch('botend.services.simc_result_analysis.simc_artifacts._validated_result') as validated:
+            self.assertIsNone(analyze_run_artifact(run.task, artifact))
+        validated.assert_not_called()
 
-    def test_completion_stream_aborts_report_over_20_mib(self):
+    def test_report_upload_ticket_is_bound_to_run_and_lease(self):
         job = self.claim_after_task()
-        with patch('botend.simc_agent_api.complete_run',
-                   side_effect=AssertionError('service must not receive oversized report')):
-            response = self.complete(job, report=b'x' * (20 * 1024 * 1024 + 1))
-        self.assertEqual(response.status_code, 413, response.content)
-        self.assertEqual(SimulationRun.objects.get(pk=job['run_id']).status, 'running')
-
-    def test_completion_stream_aborts_cumulative_multiple_file_parts(self):
-        job = self.claim_after_task()
-        metadata = {
-            'instance_id': 'instance-a', 'lease_token': job['lease_token'],
-            'completion_id': 'multi-part-limit', 'status': 'completed',
-            'stdout': 'DPS=1234', 'stderr': '',
+        payload = {
+            'lease_token': job['lease_token'], 'instance_id': 'instance-a',
+            'size': 16, 'sha256': 'a' * 64,
+            'content_md5': 'MDEyMzQ1Njc4OUFCQ0RFRg==',
         }
-        reports = [
-            SimpleUploadedFile(
-                f'report-{index}.html', b'<html>' + (b'x' * (11 * 1024 * 1024)),
-                content_type='text/html',
+        ticket = {
+            'object_key': f"simc_agent_results/simc_task_{job['task_id']}_run_{job['run_id']}.html",
+            'url': 'https://bucket.example/signed', 'method': 'PUT', 'headers': {},
+        }
+        with patch('botend.services.simc_agent_oss.issue_upload_ticket', return_value=ticket) as issue:
+            response = self.post_json(
+                f"/api/simc-agent/v1/jobs/{job['run_id']}/report-upload/", payload,
             )
-            for index in range(2)
-        ]
-        with patch('botend.simc_agent_api.complete_run',
-                   side_effect=AssertionError('service must not receive cumulative oversized files')):
-            response = self.client.post(
-                f"/api/simc-agent/v1/jobs/{job['run_id']}/complete/",
-                data={'metadata': json.dumps(metadata), 'report': reports},
-                HTTP_AUTHORIZATION='Bea' + 'rer ' + self.token,
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json(), ticket)
+        issue.assert_called_once()
+        issue_kwargs = issue.call_args.kwargs
+        run = SimulationRun.objects.get(pk=job['run_id'])
+        self.assertEqual(issue_kwargs['lease_fence'], run.lease_token_hash)
+        self.assertEqual(issue_kwargs['lease_expires_at'], run.lease_expires_at)
+        bad = self.post_json(
+            f"/api/simc-agent/v1/jobs/{job['run_id']}/report-upload/",
+            {**payload, 'lease_token': 'wrong'},
+        )
+        self.assertEqual(bad.status_code, 409)
+
+    def test_report_upload_returns_conflict_if_lease_expires_before_presign(self):
+        from botend.services.simc_agent_oss import ReportLeaseExpiredError
+
+        job = self.claim_after_task()
+        payload = {
+            'lease_token': job['lease_token'], 'instance_id': 'instance-a',
+            'size': 16, 'sha256': 'a' * 64,
+            'content_md5': 'MDEyMzQ1Njc4OUFCQ0RFRg==',
+        }
+        with patch(
+            'botend.services.simc_agent_oss.issue_upload_ticket',
+            side_effect=ReportLeaseExpiredError('Run lease expired before upload signing'),
+        ):
+            response = self.post_json(
+                f"/api/simc-agent/v1/jobs/{job['run_id']}/report-upload/", payload,
+            )
+        self.assertEqual(response.status_code, 409, response.content)
+
+    @override_settings(
+        OSS_CONFIG={'base_url': 'https://testserver'},
+        ALLOWED_HOSTS=['testserver'],
+    )
+    def test_report_upload_rejects_same_origin_report_configuration(self):
+        job = self.claim_after_task()
+        payload = {
+            'lease_token': job['lease_token'], 'instance_id': 'instance-a',
+            'size': 16, 'sha256': 'a' * 64,
+            'content_md5': 'MDEyMzQ1Njc4OUFCQ0RFRg==',
+        }
+        with patch('botend.services.simc_agent_oss.issue_upload_ticket') as issue:
+            response = self.post_json(
+                f"/api/simc-agent/v1/jobs/{job['run_id']}/report-upload/",
+                payload, self.token,
+            )
+        self.assertEqual(response.status_code, 503, response.content)
+        issue.assert_not_called()
+
+    def test_report_upload_rejects_oversized_identity_before_signing(self):
+        job = self.claim_after_task()
+        payload = {
+            'lease_token': job['lease_token'], 'instance_id': 'instance-a',
+            'size': 20 * 1024 * 1024 + 1, 'sha256': 'a' * 64,
+            'content_md5': 'MDEyMzQ1Njc4OUFCQ0RFRg==',
+        }
+        with patch('botend.services.simc_agent_oss.issue_upload_ticket') as issue:
+            response = self.post_json(
+                f"/api/simc-agent/v1/jobs/{job['run_id']}/report-upload/", payload,
             )
         self.assertEqual(response.status_code, 413, response.content)
+        issue.assert_not_called()
+
+    def test_completion_validation_mismatch_is_422_and_does_not_mark_successful(self):
+        from botend.services.simc_agent_oss import ReportValidationError
+        job = self.claim_after_task()
+        with patch('botend.services.simc_agent_oss.verify_uploaded_report',
+                   side_effect=ReportValidationError('OSS report size mismatch')):
+            response = self.complete(job, verify_report=False)
+        self.assertEqual(response.status_code, 422, response.content)
         self.assertEqual(SimulationRun.objects.get(pk=job['run_id']).status, 'running')
+
+    def test_completion_head_failure_does_not_mark_run_successful(self):
+        from botend.services.simc_agent_oss import ReportStorageError
+        job = self.claim_after_task()
+        with patch('botend.services.simc_agent_oss.verify_uploaded_report',
+                   side_effect=ReportStorageError('OSS report size mismatch')):
+            response = self.complete(job, verify_report=False)
+        self.assertEqual(response.status_code, 503, response.content)
+        self.assertEqual(SimulationRun.objects.get(pk=job['run_id']).status, 'running')
+
+    def test_completion_rechecks_expiry_after_locked_agent_authentication(self):
+        from botend.services.simc_run_control import authenticate_bearer as real_authenticate
+
+        job = self.claim_after_task()
+        run = SimulationRun.objects.get(pk=job['run_id'])
+        before_expiry = run.lease_expires_at - timedelta(seconds=1)
+        after_expiry = run.lease_expires_at + timedelta(seconds=1)
+        clock = {'now': before_expiry}
+
+        def authenticate_then_advance(authorization, lock=False):
+            agent = real_authenticate(authorization, lock=lock)
+            if lock:
+                clock['now'] = after_expiry
+            return agent
+
+        with patch('botend.services.simc_run_control.timezone.now',
+                   side_effect=lambda: clock['now']), patch(
+                       'botend.services.simc_run_control.authenticate_bearer',
+                       side_effect=authenticate_then_advance,
+                   ), patch('botend.services.simc_agent_oss.verify_uploaded_report'):
+            response = self.complete(job, verify_report=False)
+
+        self.assertEqual(response.status_code, 409, response.content)
+        run.refresh_from_db()
+        self.assertEqual(run.status, 'running')
 
     def test_failed_does_not_require_report(self):
         job = self.claim_after_task()
@@ -357,16 +453,22 @@ class SimcAgentJobAPITests(TestCase):
         self.assertEqual(run.status, 'failed')
         self.assertTrue(run.error_detail)
 
-    def test_completed_requires_html_report(self):
+    def test_completed_requires_bound_report_identity(self):
         job = self.claim_after_task()
         self.assertEqual(self.complete(job, report=None).status_code, 400)
-        bad = SimpleUploadedFile('x.txt', b'bad', content_type='text/plain')
-        metadata = json.dumps({'lease_token': job['lease_token'], 'instance_id': 'instance-a',
-                               'completion_id': 'x', 'status': 'completed', 'stdout': '', 'stderr': ''})
-        response = self.client.post(f"/api/simc-agent/v1/jobs/{job['run_id']}/complete/",
-                                    {'metadata': metadata, 'report': bad},
-                                    HTTP_AUTHORIZATION='Bearer ' + self.token)
-        self.assertEqual(response.status_code, 400)
+        metadata = {
+            'lease_token': job['lease_token'], 'instance_id': 'instance-a',
+            'completion_id': 'wrong-key', 'status': 'completed',
+            'stdout': 'DPS=1234', 'stderr': '',
+            'report': {
+                'object_key': 'simc_agent_results/other-run.html',
+                'size': 16, 'sha256': 'a' * 64,
+            },
+        }
+        response = self.post_json(
+            f"/api/simc-agent/v1/jobs/{job['run_id']}/complete/", metadata,
+        )
+        self.assertEqual(response.status_code, 409)
 
     def test_benchmark_reconcile_called_after_completion(self):
         job = self.claim_after_task()
@@ -421,37 +523,83 @@ class SimcAgentJobAPITests(TestCase):
         }).status_code, 409)
         self.assertEqual(SimulationRun.objects.get(pk=run.pk).lease_expires_at, expired)
 
-    def test_completed_rejects_forged_html_content_type(self):
+    def test_expired_upload_ticket_cannot_become_authoritative(self):
         job = self.claim_after_task()
-        self.assertEqual(self.complete(job, report=b'not html at all').status_code, 400)
+        run = SimulationRun.objects.get(pk=job['run_id'])
+        SimulationRun.objects.filter(pk=run.pk).update(
+            lease_expires_at=timezone.now() - timedelta(seconds=1),
+        )
+        report = b'<html>DPS=1234</html>'
+        metadata = {
+            'lease_token': job['lease_token'], 'instance_id': 'instance-a',
+            'completion_id': 'expired-ticket', 'status': 'completed',
+            'stdout': 'DPS=1234', 'stderr': '', 'report': {
+                'object_key': f"simc_agent_results/simc_task_{job['task_id']}_run_{job['run_id']}.html",
+                'size': len(report), 'sha256': hashlib.sha256(report).hexdigest(),
+            },
+        }
+        with patch('botend.services.simc_agent_oss.verify_uploaded_report') as verify:
+            response = self.post_json(
+                f"/api/simc-agent/v1/jobs/{job['run_id']}/complete/", metadata,
+            )
+        self.assertEqual(response.status_code, 409, response.content)
+        verify.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.status, 'running')
+        self.assertFalse(SimcTaskArtifact.objects.filter(run=run).exists())
+
+    def test_completed_rejects_report_for_another_run(self):
+        job = self.claim_after_task()
+        metadata = {
+            'lease_token': job['lease_token'], 'instance_id': 'instance-a',
+            'completion_id': 'forged', 'status': 'completed',
+            'stdout': 'DPS=1234', 'stderr': '',
+            'report': {
+                'object_key': 'simc_agent_results/simc_task_999_run_999.html',
+                'size': 16, 'sha256': 'b' * 64,
+            },
+        }
+        self.assertEqual(self.post_json(
+            f"/api/simc-agent/v1/jobs/{job['run_id']}/complete/", metadata,
+        ).status_code, 409)
 
     def test_completion_metadata_larger_than_64k_is_accepted(self):
         job = self.claim_after_task()
-        metadata = {'lease_token': job['lease_token'], 'instance_id': 'instance-a',
-                    'completion_id': 'large-output', 'status': 'completed',
-                    'stdout': ('x' * 70000) + '\nPlayer: Agent\nDPS=1234 DPS-Error=1/0.1%',
-                    'stderr': ''}
-        response = self.client.post(
-            f"/api/simc-agent/v1/jobs/{job['run_id']}/complete/",
-            {'metadata': json.dumps(metadata), 'report': SimpleUploadedFile(
-                'report.html', b'<!doctype html><html></html>', content_type='text/html')},
-            HTTP_AUTHORIZATION='Bearer ' + self.token,
-        )
+        report = b'<!doctype html><html></html>'
+        metadata = {
+            'lease_token': job['lease_token'], 'instance_id': 'instance-a',
+            'completion_id': 'large-output', 'status': 'completed',
+            'stdout': ('x' * 70000) + '\nPlayer: Agent\nDPS=1234 DPS-Error=1/0.1%',
+            'stderr': '',
+            'report': {
+                'object_key': f"simc_agent_results/simc_task_{job['task_id']}_run_{job['run_id']}.html",
+                'size': len(report), 'sha256': hashlib.sha256(report).hexdigest(),
+            },
+        }
+        with patch('botend.services.simc_agent_oss.verify_uploaded_report'):
+            response = self.post_json(
+                f"/api/simc-agent/v1/jobs/{job['run_id']}/complete/", metadata,
+            )
         self.assertEqual(response.status_code, 200, response.content)
 
-    def test_unauthenticated_upload_is_rejected_before_service_tempfile(self):
+    def test_unauthenticated_completion_is_rejected_before_oss_head(self):
         job = self.claim_after_task()
-        metadata = {'lease_token': job['lease_token'], 'instance_id': 'instance-a',
-                    'completion_id': 'unauth', 'status': 'completed', 'stdout': '', 'stderr': ''}
-        with patch('botend.services.simc_run_control.tempfile.mkstemp') as mkstemp:
-            response = self.client.post(
+        report = b'<html>DPS=1234</html>'
+        metadata = {
+            'lease_token': job['lease_token'], 'instance_id': 'instance-a',
+            'completion_id': 'unauth', 'status': 'completed', 'stdout': 'DPS=1234',
+            'stderr': '', 'report': {
+                'object_key': f"simc_agent_results/simc_task_{job['task_id']}_run_{job['run_id']}.html",
+                'size': len(report), 'sha256': hashlib.sha256(report).hexdigest(),
+            },
+        }
+        with patch('botend.services.simc_agent_oss.verify_uploaded_report') as verify:
+            response = self.post_json(
                 f"/api/simc-agent/v1/jobs/{job['run_id']}/complete/",
-                {'metadata': json.dumps(metadata), 'report': SimpleUploadedFile(
-                    'large.html', b'<html>' + b'x' * 70000 + b'</html>', content_type='text/html')},
-                HTTP_AUTHORIZATION='Bearer invalid.invalid',
+                metadata, token='invalid.invalid',
             )
         self.assertEqual(response.status_code, 401)
-        mkstemp.assert_not_called()
+        verify.assert_not_called()
 
     def test_claim_composition_failure_rolls_back_task_and_runs(self):
         task = self.task()

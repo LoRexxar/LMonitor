@@ -154,6 +154,15 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.write_token(values, token)
             config = AgentConfig.from_dict(values)
             transport = MagicMock()
+            report = b'<html>ok</html>'
+            transport.json.side_effect = [
+                {
+                    'object_key': 'simc_agent_results/simc_task_1_run_17.html',
+                    'url': 'https://bucket.oss.example/signed', 'method': 'PUT',
+                    'headers': {'Content-Type': 'text/html; charset=utf-8'},
+                },
+                {'run_id': 17, 'status': 'completed'},
+            ]
             process = MagicMock()
             process.communicate.return_value = ('Player: A\nDPS=1234', '')
             process.returncode = 0
@@ -176,14 +185,141 @@ class SimcAgentConsumerTests(SimpleTestCase):
                 consumer.agent_token = token
                 consumer.execute_job(job)
 
-            upload = transport.multipart.call_args.kwargs
-            self.assertEqual(upload['path'], '/api/simc-agent/v1/jobs/17/complete/')
-            self.assertEqual(upload['authorization'], 'Bearer ' + token)
-            self.assertEqual(upload['metadata']['status'], 'completed')
-            self.assertEqual(upload['metadata']['instance_id'], consumer.instance_id)
-            self.assertEqual(upload['metadata']['stdout'], 'Player: A\nDPS=1234')
-            self.assertEqual(upload['report_bytes'], b'<html>ok</html>')
-            self.assertEqual(upload['report_name'], 'simc_task_1_run_17.html')
+            transport.put_bytes.assert_called_once_with(
+                url='https://bucket.oss.example/signed', body=report,
+                headers={'Content-Type': 'text/html; charset=utf-8'},
+            )
+            completion = transport.json.call_args_list[1].kwargs
+            self.assertEqual(completion['path'], '/api/simc-agent/v1/jobs/17/complete/')
+            self.assertEqual(completion['authorization'], 'Bearer ' + token)
+            self.assertEqual(completion['payload']['status'], 'completed')
+            self.assertEqual(completion['payload']['instance_id'], consumer.instance_id)
+            self.assertEqual(completion['payload']['stdout'], 'Player: A\nDPS=1234')
+            self.assertEqual(completion['payload']['report']['size'], len(report))
+
+    def test_execute_job_keeps_lease_heartbeat_alive_through_upload_and_completion(self):
+        from simc_agent_consumer import AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            token = 'token-id.' + ('h' * 43)
+            self.write_token(values, token)
+            process = MagicMock(returncode=0)
+            process.communicate.return_value = ('Player: A\nDPS=1234', '')
+            captured = {}
+
+            class CapturingThread:
+                def __init__(self, *, target, args, **kwargs):
+                    captured['stop'] = args[1]
+                    captured['joined'] = False
+
+                def start(self):
+                    return None
+
+                def join(self, timeout=None):
+                    captured['joined'] = True
+
+            job = {
+                'run_id': 17, 'task_id': 1, 'sequence': 1,
+                'lease_token': 'lease-secret',
+                'input': 'warrior="A"\nhtml=simc_task_1_run_17.html',
+                'input_hash': hashlib.sha256(
+                    b'warrior="A"\nhtml=simc_task_1_run_17.html').hexdigest(),
+                'output_filename': 'simc_task_1_run_17.html',
+                'timeout_seconds': 600,
+                'lease_expires_at': '2999-01-01T00:00:00+00:00',
+            }
+
+            def create_report(*args, **kwargs):
+                (Path(kwargs['cwd']) / job['output_filename']).write_text(
+                    '<html>ok</html>', encoding='utf-8',
+                )
+                return process
+
+            observed = []
+            consumer = SimcAgentConsumer(
+                AgentConfig.from_dict(values), transport=MagicMock(),
+            )
+            consumer.agent_token = token
+            consumer._upload_report = MagicMock(side_effect=lambda *args: (
+                observed.append(captured['stop'].is_set()) or {
+                    'object_key': 'simc_agent_results/simc_task_1_run_17.html',
+                    'size': 15, 'sha256': 'a' * 64,
+                }
+            ))
+            consumer._completion_json = MagicMock(side_effect=lambda *args: (
+                observed.append(captured['stop'].is_set()) or True
+            ))
+            with patch('simc_agent_consumer.subprocess.Popen', side_effect=create_report), patch(
+                'simc_agent_consumer.threading.Thread', CapturingThread,
+            ):
+                consumer.execute_job(job)
+
+            self.assertEqual(observed, [False, False])
+            self.assertTrue(captured['stop'].is_set())
+            self.assertTrue(captured['joined'])
+
+    def test_execute_job_uploads_report_directly_to_oss_and_completes_with_json_only(self):
+        from simc_agent_consumer import AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            token = 'token-id.' + ('o' * 43)
+            self.write_token(values, token)
+            transport = MagicMock()
+            transport.json.side_effect = [
+                {
+                    'object_key': 'simc_agent_results/simc_task_1_run_17.html',
+                    'url': 'https://bucket.oss.example/signed',
+                    'method': 'PUT',
+                    'headers': {
+                        'Content-Type': 'text/html; charset=utf-8',
+                        'x-oss-meta-sha256': hashlib.sha256(b'<html>ok</html>').hexdigest(),
+                    },
+                },
+                {'run_id': 17, 'status': 'completed', 'idempotent': False},
+            ]
+            process = MagicMock(returncode=0)
+            process.communicate.return_value = ('Player: A\nDPS=1234', '')
+            job = {
+                'run_id': 17, 'task_id': 9, 'sequence': 2,
+                'lease_token': 'lease-secret',
+                'input': 'warrior="A"\nhtml=simc_task_1_run_17.html',
+                'input_hash': hashlib.sha256(
+                    b'warrior="A"\nhtml=simc_task_1_run_17.html').hexdigest(),
+                'output_filename': 'simc_task_1_run_17.html',
+                'timeout_seconds': 600,
+                'lease_expires_at': '2999-01-01T00:00:00+00:00',
+            }
+
+            def create_report(*args, **kwargs):
+                (Path(kwargs['cwd']) / job['output_filename']).write_bytes(b'<html>ok</html>')
+                return process
+
+            with patch('simc_agent_consumer.subprocess.Popen', side_effect=create_report):
+                consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=transport)
+                consumer.agent_token = token
+                consumer.execute_job(job)
+
+            ticket = transport.json.call_args_list[0].kwargs
+            self.assertEqual(ticket['path'], '/api/simc-agent/v1/jobs/17/report-upload/')
+            self.assertEqual(ticket['payload']['size'], len(b'<html>ok</html>'))
+            self.assertEqual(ticket['payload']['sha256'], hashlib.sha256(b'<html>ok</html>').hexdigest())
+            transport.put_bytes.assert_called_once_with(
+                url='https://bucket.oss.example/signed', body=b'<html>ok</html>',
+                headers={
+                    'Content-Type': 'text/html; charset=utf-8',
+                    'x-oss-meta-sha256': hashlib.sha256(b'<html>ok</html>').hexdigest(),
+                },
+            )
+            completion = transport.json.call_args_list[1].kwargs
+            self.assertEqual(completion['path'], '/api/simc-agent/v1/jobs/17/complete/')
+            self.assertEqual(completion['payload']['report']['object_key'],
+                             'simc_agent_results/simc_task_1_run_17.html')
+            self.assertEqual(completion['payload']['report']['size'], len(b'<html>ok</html>'))
+            self.assertEqual(completion['payload']['report']['sha256'],
+                             hashlib.sha256(b'<html>ok</html>').hexdigest())
+            transport.multipart.assert_not_called()
 
     def test_failed_process_reports_failure_without_html(self):
         from simc_agent_consumer import AgentConfig, SimcAgentConsumer
@@ -204,10 +340,10 @@ class SimcAgentConsumerTests(SimpleTestCase):
                     'input_hash': hashlib.sha256(b'bad input').hexdigest(),
                     'output_filename': 'simc_task_1_run_18.html', 'timeout_seconds': 600, 'lease_expires_at': '2999-01-01T00:00:00+00:00',
                 })
-            upload = transport.multipart.call_args.kwargs
-            self.assertEqual(upload['metadata']['status'], 'failed')
-            self.assertIn('simc failed', upload['metadata']['stderr'])
-            self.assertIsNone(upload['report_bytes'])
+            completion = transport.json.call_args.kwargs
+            self.assertEqual(completion['payload']['status'], 'failed')
+            self.assertIn('simc failed', completion['payload']['stderr'])
+            self.assertIsNone(completion['payload']['report'])
 
     def test_config_rejects_coercible_types_and_non_finite_numbers(self):
         from simc_agent_consumer import AgentConfig, ConfigError
@@ -242,18 +378,29 @@ class SimcAgentConsumerTests(SimpleTestCase):
         self.assertIsNone(handler.redirect_request(
             request, None, 302, 'Found', {}, 'http://other.example/stolen'))
 
-    def test_multipart_requires_object_json_and_enforces_report_limit(self):
-        from simc_agent_consumer import APIError, HTTPTransport, MAX_REPORT_BYTES
+    def test_oss_put_rejects_unsafe_url_and_sensitive_headers(self):
+        from simc_agent_consumer import APIError, HTTPTransport
 
         transport = HTTPTransport('https://control.example', 1)
-        with patch.object(transport, '_request', return_value=b'[]'):
-            with self.assertRaises(APIError):
-                transport.multipart(path='/complete', metadata={}, report_bytes=None,
-                                    report_name=None, authorization='Bearer token')
         with self.assertRaises(APIError):
-            transport.multipart(path='/complete', metadata={},
-                                report_bytes=b'x' * (MAX_REPORT_BYTES + 1),
-                                report_name='run.html', authorization='Bearer token')
+            transport.put_bytes(url='http://bucket.example/signed', body=b'x', headers={})
+        with self.assertRaises(APIError):
+            transport.put_bytes(url='https://bucket.example/signed', body=b'x',
+                                headers={'Authorization': 'secret'})
+        for url in ('https://bucket.example/signed#fragment', 'https://127.0.0.1/signed'):
+            with self.subTest(url=url), self.assertRaises(APIError):
+                transport.put_bytes(url=url, body=b'x', headers={})
+        for header in ('Host', 'Content-Length', 'Transfer-Encoding', 'Connection'):
+            with self.subTest(header=header), self.assertRaises(APIError):
+                transport.put_bytes(url='https://bucket.example/signed', body=b'x',
+                                    headers={header: 'unsafe'})
+
+    def test_completion_log_tail_is_bounded_by_utf8_bytes(self):
+        from simc_agent_consumer import COMPLETION_TEXT_MAX_BYTES, _utf8_tail
+
+        value = _utf8_tail('前' * COMPLETION_TEXT_MAX_BYTES, COMPLETION_TEXT_MAX_BYTES)
+        self.assertLessEqual(len(value.encode('utf-8')), COMPLETION_TEXT_MAX_BYTES)
+        self.assertTrue(value)
 
     def test_invalid_hash_and_popen_error_report_failed_completion(self):
         from simc_agent_consumer import AgentConfig, SimcAgentConsumer
@@ -269,13 +416,13 @@ class SimcAgentConsumerTests(SimpleTestCase):
                 'lease_expires_at': '2999-01-01T00:00:00+00:00',
             }
             consumer.execute_job({**base, 'input_hash': 'A' * 64})
-            self.assertIn('input_hash', transport.multipart.call_args.kwargs['metadata']['stderr'])
+            self.assertIn('input_hash', transport.json.call_args.kwargs['payload']['stderr'])
             transport.reset_mock()
             with patch('simc_agent_consumer.subprocess.Popen', side_effect=OSError('cannot spawn')):
                 consumer.execute_job({**base, 'input_hash': hashlib.sha256(b'input').hexdigest()})
-            upload = transport.multipart.call_args.kwargs
-            self.assertEqual(upload['metadata']['status'], 'failed')
-            self.assertIn('cannot spawn', upload['metadata']['stderr'])
+            completion = transport.json.call_args.kwargs
+            self.assertEqual(completion['payload']['status'], 'failed')
+            self.assertIn('cannot spawn', completion['payload']['stderr'])
 
     def test_claim_timeout_is_capped_and_strictly_validated(self):
         from simc_agent_consumer import AgentConfig, SimcAgentConsumer
@@ -298,7 +445,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
             consumer.transport.reset_mock()
             consumer.execute_job({**job, 'timeout_seconds': True})
             self.assertIn('positive finite number',
-                          consumer.transport.multipart.call_args.kwargs['metadata']['stderr'])
+                          consumer.transport.json.call_args.kwargs['payload']['stderr'])
 
     def test_completion_retries_with_one_fixed_completion_id(self):
         from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
@@ -307,13 +454,41 @@ class SimcAgentConsumerTests(SimpleTestCase):
             values = self.config(root)
             self.write_token(values, 'token')
             transport = MagicMock()
-            transport.multipart.side_effect = [APIError('temporary'), APIError('temporary'), {}]
+            transport.json.side_effect = [APIError('temporary'), APIError('temporary'), {}]
             consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=transport)
             with patch.object(consumer.stop_event, 'wait', return_value=False):
                 consumer._complete(22, 'lease', 'fixed-id', 'failed', '', 'error', None, None)
-            self.assertEqual(transport.multipart.call_count, 3)
-            self.assertEqual({call.kwargs['metadata']['completion_id']
-                              for call in transport.multipart.call_args_list}, {'fixed-id'})
+            self.assertEqual(transport.json.call_count, 3)
+            self.assertEqual({call.kwargs['payload']['completion_id']
+                              for call in transport.json.call_args_list}, {'fixed-id'})
+
+    def test_uncertain_success_completion_never_falls_back_to_failed_terminal_state(self):
+        from simc_agent_consumer import AgentConfig, APIError, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            Path(values['token_path']).write_text('token', encoding='ascii')
+            os.chmod(values['token_path'], 0o600)
+            transport = MagicMock()
+            transport.json.side_effect = APIError('completion response lost')
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=transport)
+            with patch.object(consumer, '_upload_report', return_value={
+                    'object_key': 'simc_agent_results/simc_task_1_run_22.html',
+                    'size': 16, 'sha256': 'a' * 64,
+                 }), patch.object(consumer.stop_event, 'wait', return_value=False):
+                consumer._complete(
+                    22, 'lease', 'fixed-id', 'completed', 'Player: A\nDPS=1234', '',
+                    b'<html>ok</html>', 'simc_task_1_run_22.html',
+                )
+            completion_calls = [
+                call for call in transport.json.call_args_list
+                if call.kwargs['path'].endswith('/complete/')
+            ]
+            self.assertEqual(len(completion_calls), 3)
+            self.assertTrue(all(
+                call.kwargs['payload']['status'] == 'completed'
+                for call in completion_calls
+            ))
 
     def test_oversized_report_is_rejected_before_reading_file(self):
         from simc_agent_consumer import AgentConfig, MAX_REPORT_BYTES, SimcAgentConsumer
@@ -345,10 +520,10 @@ class SimcAgentConsumerTests(SimpleTestCase):
                     patch.object(Path, 'read_bytes', side_effect=AssertionError('must not read')):
                 consumer.execute_job(job)
 
-            upload = transport.multipart.call_args.kwargs
-            self.assertEqual(upload['metadata']['status'], 'failed')
-            self.assertIsNone(upload['report_bytes'])
-            self.assertIn('20 MiB', upload['metadata']['stderr'])
+            completion = transport.json.call_args.kwargs
+            self.assertEqual(completion['payload']['status'], 'failed')
+            self.assertIsNone(completion['payload']['report'])
+            self.assertIn('20 MiB', completion['payload']['stderr'])
 
     def test_lease_deadline_terminates_process(self):
         from simc_agent_consumer import AgentConfig, SimcAgentConsumer

@@ -491,7 +491,12 @@ def analyze_run_artifact(task, artifact):
     """Analyze one exact Run-bound HTML artifact without modifying its bytes."""
     if not artifact or artifact.task_id != task.id or artifact.artifact_type != "html_report" or not artifact.run_id:
         return None
-    filename = str(artifact.file_path or "").rsplit("/", 1)[-1]
+    artifact_path = str(artifact.file_path or '').replace('\\', '/')
+    # Standalone Agent reports are OSS-only. Never parse a same-named local
+    # leftover as if it were the immutable object that completion verified.
+    if artifact_path.startswith('simc_agent_results/'):
+        return None
+    filename = artifact_path.rsplit('/', 1)[-1]
     validated = simc_artifacts._validated_result(task, filename, run=artifact.run)
     if not validated:
         return None

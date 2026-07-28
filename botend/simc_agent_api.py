@@ -1,7 +1,6 @@
 """HTTP endpoints for independent SimC agents (machine authentication only)."""
 
 from django.conf import settings
-from django.core.files.uploadhandler import FileUploadHandler, StopUpload
 from django.db import IntegrityError
 from django.http import JsonResponse
 from django.utils.decorators import method_decorator
@@ -20,32 +19,14 @@ from botend.services.simc_agent_control import (
     revoke_enrollment_code,
 )
 from botend.services.simc_run_control import (
-    claim_run, complete_run, heartbeat_run, validate_completion_metadata,
+    claim_run, complete_run, heartbeat_run, request_report_upload,
+    validate_completion_metadata,
 )
 
 
-REPORT_MAX_BYTES = 20 * 1024 * 1024
-METADATA_MAX_BYTES = 2 * 1024 * 1024 + 4096
-MULTIPART_MAX_BYTES = REPORT_MAX_BYTES + METADATA_MAX_BYTES + 1024 * 1024
-
-
-class _ReportSizeUploadHandler(FileUploadHandler):
-    """Abort multipart parsing before an oversized Agent report reaches disk."""
-
-    def __init__(self, request):
-        super().__init__(request)
-        self.bytes_received = 0
-        self.exceeded = False
-
-    def receive_data_chunk(self, raw_data, start):
-        self.bytes_received += len(raw_data)
-        if self.bytes_received > REPORT_MAX_BYTES:
-            self.exceeded = True
-            raise StopUpload(connection_reset=True)
-        return raw_data
-
-    def file_complete(self, file_size):
-        return None
+# Two 256 KiB output fields remain below this independent JSON cap even
+# under worst-case six-byte JSON escaping; HTML is categorically excluded.
+METADATA_MAX_BYTES = 3 * 1024 * 1024 + 8192
 
 
 def _error_response(exc):
@@ -69,14 +50,14 @@ def _agent_response(agent):
     }
 
 
-def _parse_request_json(request):
+def _parse_request_json(request, *, max_bytes=65536):
     if request.content_type != 'application/json':
         raise AgentAPIError('Content-Type must be application/json')
     content_length = request.META.get('CONTENT_LENGTH', '')
     if isinstance(content_length, str) and content_length.isdigit():
-        if int(content_length) > 65536:
+        if int(content_length) > max_bytes:
             raise AgentAPIError('JSON payload is too large', 413)
-    return parse_json_object(request.body)
+    return parse_json_object(request.body, max_bytes=max_bytes)
 
 
 @method_decorator(csrf_exempt, name='dispatch')
@@ -147,35 +128,31 @@ class SimcAgentJobHeartbeatAPIView(View):
 
 
 @method_decorator(csrf_exempt, name='dispatch')
+class SimcAgentJobReportUploadAPIView(View):
+    http_method_names = ['post', 'options']
+
+    def post(self, request, run_id):
+        try:
+            result = request_report_upload(
+                run_id, _parse_request_json(request),
+                request.headers.get('Authorization', ''),
+            )
+        except AgentAPIError as exc:
+            return _error_response(exc)
+        return _no_store(JsonResponse(result))
+
+
+@method_decorator(csrf_exempt, name='dispatch')
 class SimcAgentJobCompleteAPIView(View):
     http_method_names = ['post', 'options']
 
     def post(self, request, run_id):
         try:
-            if not str(request.content_type or '').startswith('multipart/form-data'):
-                raise AgentAPIError('Content-Type must be multipart/form-data')
-            # Authenticate before request.POST/request.FILES triggers multipart
-            # parsing and upload-handler temporary-file creation.
-            authenticate_bearer(request.headers.get('Authorization', ''), lock=False)
-            content_length = request.META.get('CONTENT_LENGTH', '')
-            if isinstance(content_length, str) and content_length.isdigit():
-                if int(content_length) > MULTIPART_MAX_BYTES:
-                    raise AgentAPIError('multipart payload is too large', 413)
-            limiter = _ReportSizeUploadHandler(request)
-            request.upload_handlers.insert(0, limiter)
-            post = request.POST
-            files = request.FILES
-            if limiter.exceeded:
-                raise AgentAPIError('report is too large', 413)
-            if set(post) != {'metadata'} or set(files) - {'report'}:
-                raise AgentAPIError('Multipart fields are invalid')
-            raw = post.get('metadata', '')
-            if not isinstance(raw, str) or len(raw.encode('utf-8')) > METADATA_MAX_BYTES:
-                raise AgentAPIError('metadata is too large', 413)
-            metadata = parse_json_object(raw.encode('utf-8'), max_bytes=METADATA_MAX_BYTES)
+            metadata = _parse_request_json(request, max_bytes=METADATA_MAX_BYTES)
             validate_completion_metadata(metadata)
-            result = complete_run(run_id, metadata, files.get('report'),
-                                  request.headers.get('Authorization', ''))
+            result = complete_run(
+                run_id, metadata, request.headers.get('Authorization', ''),
+            )
         except AgentAPIError as exc:
             return _error_response(exc)
         return _no_store(JsonResponse(result))

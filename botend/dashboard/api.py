@@ -9,7 +9,7 @@
 '''
 
 from django.views import View
-from django.http import JsonResponse, HttpResponse, FileResponse
+from django.http import JsonResponse, HttpResponse, FileResponse, HttpResponseRedirect
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.contrib.auth.decorators import login_required
@@ -5678,7 +5678,18 @@ class SimcWorkbenchAPIView(View):
                 summary = SimcWorkbenchAPIView._safe_summary(parsed) if isinstance(parsed, dict) else {}
             except (TypeError, ValueError):
                 pass
-        has_report = task.artifacts.filter(artifact_type='html_report').exists()
+        report_artifact = task.artifacts.filter(artifact_type='html_report').order_by('-id').first()
+        report_preview_url = ''
+        if report_artifact is not None:
+            if report_artifact.file_path.startswith('simc_agent_results/'):
+                from botend.services.simc_agent_oss import ReportStorageError, public_report_url
+                try:
+                    report_preview_url = public_report_url(report_artifact.file_path)
+                except ReportStorageError:
+                    report_preview_url = ''
+            else:
+                report_preview_url = f'/api/simc-workbench/tasks/{task.id}/report-preview/'
+        has_report = bool(report_preview_url)
         return {
             'id': task.id, 'name': task.name, 'status': task.current_status,
             'status_label': SimcWorkbenchAPIView._task_status_label(task.current_status),
@@ -5690,7 +5701,7 @@ class SimcWorkbenchAPIView(View):
                 for run in task.simulation_runs.order_by('sequence')[:100]
             ],
             'has_report': has_report,
-            'report_preview_url': f'/api/simc-workbench/tasks/{task.id}/report-preview/' if has_report else '',
+            'report_preview_url': report_preview_url,
             'is_active': task.is_active,
             'created_at': _fmt_dt(task.create_time), 'updated_at': _fmt_dt(task.modified_time),
         }
@@ -5710,7 +5721,17 @@ class SimcWorkbenchAPIView(View):
         if include_task:
             row['task_name'] = artifact.task.name
         if can_preview:
-            row['preview_url'] = f'/api/simc-workbench/artifacts/{artifact.id}/preview/'
+            if artifact.file_path.startswith('simc_agent_results/'):
+                from botend.services.simc_agent_oss import ReportStorageError, public_report_url
+                try:
+                    row['preview_url'] = public_report_url(artifact.file_path)
+                except ReportStorageError:
+                    row['can_preview'] = False
+                else:
+                    row['is_external'] = True
+            else:
+                row['preview_url'] = f'/api/simc-workbench/artifacts/{artifact.id}/preview/'
+                row['is_external'] = False
         return row
 
     def get(self, request, resource, object_id=None):
@@ -6481,6 +6502,12 @@ class SimcArtifactPreviewAPIView(View):
         if (not artifact or artifact.artifact_type != 'html_report'
                 or not artifact_path.startswith(allowed_prefixes)):
             return JsonResponse({'success': False, 'error': '产物不存在'}, status=404)
+        if artifact_path.startswith('simc_agent_results/'):
+            from botend.services.simc_agent_oss import ReportStorageError, public_report_url
+            try:
+                return HttpResponseRedirect(public_report_url(artifact_path))
+            except ReportStorageError:
+                return JsonResponse({'success': False, 'error': '产物链接不可用'}, status=503)
         from botend.services.simc_artifacts import _validated_result
         validated = _validated_result(
             artifact.task, os.path.basename(artifact_path), run=artifact.run,
