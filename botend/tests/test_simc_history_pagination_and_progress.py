@@ -7,6 +7,7 @@ from unittest.mock import patch
 from pathlib import Path
 from django.test import TestCase, RequestFactory
 from django.contrib.auth.models import User
+from django.utils import timezone
 from botend.models import SimcBackendBinary, SimcResourceVersion, SimcTask, SimulationRun, SimcBenchmarkPanel, SimcBenchmarkExecution, SimcBenchmarkCase
 from botend.dashboard.api import SimcRegularCompareAPIView, SimcWorkbenchAPIView
 import json
@@ -47,6 +48,11 @@ class SimcHistoryPaginationContractTests(unittest.TestCase):
         self.assertIn("if (!background) renderState(host, 'loading'", JS)
         self.assertIn("expandedExecutionIds", JS)
         self.assertIn("cases.scrollTop = saved.scrollTop", JS)
+
+    def test_active_task_polling_is_throttled_and_skips_unchanged_dom_rebuilds(self):
+        self.assertIn("const TASK_POLL_MS = 10000", JS)
+        self.assertIn("taskResponseSignature", JS)
+        self.assertIn("background && responseSignature === state.taskResponseSignature", JS)
 
     def test_benchmark_progress_shows_task_counts_and_per_case_progress_bar(self):
         self.assertIn("row.task_counts", JS)
@@ -143,6 +149,99 @@ class SimcHistoryBackendPaginationTests(TestCase):
         self.assertEqual(benchmark_rows[0]['task_counts'], {
             'pending': 0, 'running': 1, 'success': 0, 'failed': 0, 'cancelled': 0,
         })
+
+    def test_history_expands_only_benchmark_executions_on_requested_page(self):
+        panel = SimcBenchmarkPanel.objects.create(
+            name='分页基准', slug='history-benchmark-page-first', created_by_id=self.user.id,
+        )
+        executions = []
+        for index in range(2):
+            execution = SimcBenchmarkExecution.objects.create(
+                panel=panel, config_snapshot={}, config_hash=str(index + 1) * 64,
+            )
+            task = SimcTask.objects.create(
+                user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+                name=f'内部基准任务 {index}', current_status=0, is_active=True,
+            )
+            SimcBenchmarkCase.objects.create(
+                execution=execution, task=task, spec_key='warrior_fury',
+                scenario_key=f'patchwerk-{index}', profile_key='raid', spec_label='狂怒',
+                scenario_label='木桩', profile_label='Raid', coordinate_hash=str(index + 2) * 64,
+            )
+            executions.append(execution)
+        SimcBenchmarkExecution.objects.filter(pk=executions[0].pk).update(
+            created_at=timezone.now() - timezone.timedelta(days=1),
+        )
+        request = self.factory.get('/api/simc-workbench/history/?page=1&page_size=1')
+        request.user = self.user
+
+        with patch.object(
+            self.view, '_benchmark_history_row', wraps=self.view._benchmark_history_row,
+        ) as row_builder:
+            response = self.view.get(request, resource='history')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(row_builder.call_count, 1)
+        data = json.loads(response.content)
+        self.assertEqual(data['pagination']['total'], 2)
+        self.assertEqual(len(data['data']), 1)
+
+    def test_active_benchmark_case_without_task_stays_at_zero_progress(self):
+        panel = SimcBenchmarkPanel.objects.create(
+            name='等待调度基准', slug='history-benchmark-taskless', created_by_id=self.user.id,
+        )
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, status=SimcBenchmarkExecution.STATUS_RUNNING,
+            config_snapshot={}, config_hash='f' * 64,
+        )
+        SimcBenchmarkCase.objects.create(
+            execution=execution, task=None, status=SimcBenchmarkExecution.STATUS_PENDING,
+            spec_key='warrior_fury', scenario_key='patchwerk', profile_key='raid',
+            spec_label='狂怒', scenario_label='木桩', profile_label='Raid',
+            coordinate_hash='e' * 64,
+        )
+
+        row = self.view._benchmark_history_row(execution)
+
+        self.assertIsNone(row['cases'][0]['progress'])
+        self.assertEqual(row['progress'], 0)
+        self.assertEqual(row['task_counts']['pending'], 1)
+
+    def test_history_tie_breaker_keeps_cross_type_page_boundaries_stable(self):
+        timestamp = timezone.now().replace(microsecond=0)
+        ordinary = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            name='同时间普通任务', current_status=2, is_active=True,
+        )
+        panel = SimcBenchmarkPanel.objects.create(
+            name='同时间基准', slug='history-benchmark-tie', created_by_id=self.user.id,
+        )
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, config_snapshot={}, config_hash='d' * 64,
+        )
+        internal = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            name='同时间内部任务', current_status=0, is_active=True,
+        )
+        SimcBenchmarkCase.objects.create(
+            execution=execution, task=internal, spec_key='warrior_fury',
+            scenario_key='patchwerk', profile_key='raid', spec_label='狂怒',
+            scenario_label='木桩', profile_label='Raid', coordinate_hash='c' * 64,
+        )
+        SimcTask.objects.filter(pk=ordinary.pk).update(modified_time=timestamp)
+        SimcBenchmarkExecution.objects.filter(pk=execution.pk).update(created_at=timestamp)
+
+        page_ids = []
+        for page in (1, 2):
+            request = self.factory.get(f'/api/simc-workbench/history/?page={page}&page_size=1')
+            request.user = self.user
+            row = json.loads(self.view.get(request, resource='history').content)['data'][0]
+            page_ids.append((row.get('row_type', 'task'), row['id']))
+
+        self.assertEqual(page_ids, [
+            ('benchmark_execution', execution.id),
+            ('task', ordinary.id),
+        ])
 
     def test_benchmark_overall_progress_does_not_disappear_before_first_worker_update(self):
         panel = SimcBenchmarkPanel.objects.create(

@@ -1219,6 +1219,7 @@ main_hand=,id=222222
                     'botend.controller.plugins.simc.SimcMonitor.os.path.isfile',
                     side_effect=lambda path: path == self.backend.simc_path or Path(path).is_file()), \
                  patch('botend.controller.plugins.simc.SimcMonitor.os.access', return_value=True), \
+                 patch('botend.controller.plugins.simc.SimcMonitor.os.sched_getaffinity', return_value={0, 1}), \
                  patch('botend.controller.plugins.simc.SimcMonitor.subprocess.run') as run:
                 def execute_and_write_report(*args, **kwargs):
                     with open(expected, 'w', encoding='utf-8') as report:
@@ -1231,7 +1232,20 @@ main_hand=,id=222222
                 run.side_effect = execute_and_write_report
                 with patch('botend.interface.ossupload.ossUpload', return_value=True):
                     self.assertTrue(monitor.execute_simc_command('/tmp/input.simc', task, task.result_file))
-            self.assertEqual(run.call_args.args[0], ['/opt/simc', '/tmp/input.simc', f'html={expected}'])
+            self.assertEqual(
+                run.call_args.args[0],
+                ['/opt/simc', '/tmp/input.simc', f'html={expected}', 'threads=1'],
+            )
+
+    def test_execute_simc_command_caps_requested_threads_to_leave_one_cpu_for_web(self):
+        task = SimpleNamespace(simulation_params={'threads': 4})
+        with patch('os.sched_getaffinity', return_value={0, 1}):
+            self.assertEqual(SimcMonitor.runtime_threads(task), 1)
+
+    def test_runtime_threads_uses_available_capacity_when_task_has_no_override(self):
+        task = SimpleNamespace(simulation_params={})
+        with patch('os.sched_getaffinity', return_value=set(range(8))):
+            self.assertEqual(SimcMonitor.runtime_threads(task), 7)
 
     def test_execute_simc_command_rejects_auto_attack_only_semantic_result(self):
         from unittest.mock import patch
@@ -1259,6 +1273,7 @@ main_hand=,id=222222
                     'botend.controller.plugins.simc.SimcMonitor.os.path.isfile',
                     side_effect=lambda path: path == self.backend.simc_path or Path(path).is_file()), \
                  patch('botend.controller.plugins.simc.SimcMonitor.os.access', return_value=True), \
+                 patch('botend.controller.plugins.simc.SimcMonitor.os.sched_getaffinity', return_value={0, 1}), \
                  patch('botend.controller.plugins.simc.SimcMonitor.subprocess.run') as run:
                 def execute_and_write_report(*args, **kwargs):
                     with open(expected, 'w', encoding='utf-8') as report:

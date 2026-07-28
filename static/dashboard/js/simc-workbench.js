@@ -2,9 +2,11 @@
 (() => {
     'use strict';
     const apiRoot = '/api/simc-workbench/';
+    const TASK_POLL_MS = 10000;
     const state = {
         activePanel: '', taskPage: 1, taskFetchInFlight: false,
         taskRequestSerial: 0, taskPollTimer: null, taskAbortController: null,
+        taskResponseSignature: '',
         detailRequestSerial: 0, detailAbortController: null, detailRequestKey: '',
         dialogStack: [],
         rows: Object.create(null),
@@ -169,6 +171,13 @@
             }
         }
         if (requestSerial !== state.taskRequestSerial || state.activePanel !== 'tasks') return;
+        const hasActive = data.data.some(row => row.row_type === 'benchmark_execution' ? ['pending', 'running'].includes(row.status) : [0, 1, 4].includes(Number(row.status)));
+        const responseSignature = JSON.stringify({ data: data.data, pagination: data.pagination || {} });
+        if (background && responseSignature === state.taskResponseSignature) {
+            scheduleTaskRefresh(hasActive);
+            return;
+        }
+        state.taskResponseSignature = responseSignature;
         state.rows.history = data.data || [];
 
         host.innerHTML = data.data.length ? `<div class="simc-task-list">${data.data.map(row => {
@@ -217,7 +226,6 @@
             if (cases) cases.scrollTop = saved.scrollTop;
         });
         renderPagination(data.pagination || {}, requestedPage);
-        const hasActive = data.data.some(row => row.row_type === 'benchmark_execution' ? ['pending', 'running'].includes(row.status) : [0, 1, 4].includes(Number(row.status)));
         scheduleTaskRefresh(hasActive);
     }
 
@@ -232,7 +240,7 @@
             state.taskPollTimer = null;
             if (state.activePanel !== 'tasks' || page !== state.taskPage) return;
             loadTasks(page, { background: true }).catch(() => scheduleTaskRefresh(true));
-        }, 3000);
+        }, TASK_POLL_MS);
     }
 
     function renderPagination(pagination) {

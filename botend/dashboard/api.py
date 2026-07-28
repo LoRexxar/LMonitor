@@ -5594,18 +5594,36 @@ class SimcWorkbenchAPIView(View):
 
     @staticmethod
     def _benchmark_history_row(execution):
-        summary = summarize_execution(execution)
-        status = summary.get('status', execution.status)
         status_labels = {
             'pending': '待运行', 'running': '运行中', 'success': '成功',
             'partial': '部分完成', 'failed': '失败', 'cancelled': '已取消',
         }
+        task_status_names = {0: 'pending', 1: 'running', 2: 'success', 3: 'failed', 4: 'running', 5: 'cancelled'}
+        active = execution.status in {
+            SimcBenchmarkExecution.STATUS_PENDING,
+            SimcBenchmarkExecution.STATUS_RUNNING,
+        }
+        # History is a lightweight lifecycle list: terminal rows trust the frozen
+        # Execution/Case state. Full result/seal validation belongs to the detail API
+        # and must not prefetch every SimcBenchmarkResult on each polling request.
+        case_rows = getattr(execution, '_history_cases', None)
+        if case_rows is None:
+            case_rows = list(SimcBenchmarkCase.objects.filter(execution_id=execution.pk).select_related(
+                'task',
+            ).only(
+                'id', 'execution_id', 'task_id', 'status',
+                'spec_key', 'scenario_key', 'profile_key',
+                'spec_label', 'scenario_label', 'profile_label',
+                'task__id', 'task__current_status', 'task__ext',
+            ).order_by('id'))
+
         cases = []
         progress_values = []
         task_counts = {key: 0 for key in ('pending', 'running', 'success', 'failed', 'cancelled')}
-        for case in summary.get('cases') or []:
-            progress = case.get('task_progress')
-            task_status = case.get('task_status', case.get('status'))
+        for case in case_rows:
+            task = case.task if active else None
+            task_status = task_status_names.get(task.current_status, 'failed') if task else case.status
+            progress = task_progress(task) if task else (None if active else 100)
             effective_progress = progress
             if effective_progress is None:
                 effective_progress = 100 if task_status in {'success', 'failed', 'cancelled'} else 0
@@ -5613,25 +5631,38 @@ class SimcWorkbenchAPIView(View):
             if task_status in task_counts:
                 task_counts[task_status] += 1
             cases.append({
-                'case_id': case.get('_case_id'), 'task_id': case.get('task_id'),
-                'coordinate': {key: case.get(key) for key in ('spec_key', 'scenario_key', 'profile_key')},
-                'labels': case.get('labels') or {}, 'status': task_status,
-                'status_label': case.get('task_status_label', status_labels.get(task_status, '未知')),
+                'case_id': case.pk, 'task_id': case.task_id,
+                'coordinate': {
+                    'spec_key': case.spec_key,
+                    'scenario_key': case.scenario_key,
+                    'profile_key': case.profile_key,
+                },
+                'labels': {
+                    'spec': case.spec_label,
+                    'scenario': case.scenario_label,
+                    'profile': case.profile_label,
+                },
+                'status': task_status,
+                'status_label': status_labels.get(task_status, '未知'),
                 'progress': progress,
-                'case_status': case.get('status'),
+                'case_status': case.status,
             })
-        progress = (int(sum(progress_values) / len(progress_values))
-                    if progress_values and len(progress_values) == len(cases) else None)
+        progress = int(sum(progress_values) / len(progress_values)) if progress_values else None
+        snapshot = execution.config_snapshot if isinstance(execution.config_snapshot, dict) else {}
+        run_count = snapshot.get('run_count')
+        if type(run_count) is not int or run_count < 0:
+            run_count = 0
         return {
             'row_type': 'benchmark_execution', 'id': execution.pk,
             'execution_id': execution.pk, 'panel_id': execution.panel_id,
             'name': f'{execution.panel.name} · 执行 #{execution.pk}',
-            'status': status, 'status_label': status_labels.get(status, '未知'),
+            'status': execution.status,
+            'status_label': status_labels.get(execution.status, '未知'),
             'progress': progress, 'case_count': len(cases),
             'task_counts': task_counts,
             'created_at': execution.created_at,
             'detail_resource': 'benchmark_executions',
-            'run_count': summary.get('total_runs', 0), 'cases': cases,
+            'run_count': run_count, 'cases': cases,
         }
 
     @staticmethod
@@ -5691,36 +5722,75 @@ class SimcWorkbenchAPIView(View):
             page = max(1, page)
             page_size = max(1, min(50, page_size))
 
-            rows = []
-            benchmark_task_ids = set(
-                SimcBenchmarkCase.objects.filter(task__user_id=request.user.id).values_list('task_id', flat=True)
+            ordinary_refs = [
+                ('task', task_id, modified_time)
+                for task_id, modified_time in SimcTask.objects.filter(
+                    user_id=request.user.id,
+                    benchmark_case__isnull=True,
+                ).values_list('id', 'modified_time')
+            ]
+            execution_refs = [
+                ('benchmark_execution', execution_id, created_at)
+                for execution_id, created_at in SimcBenchmarkExecution.objects.filter(
+                    cases__task__user_id=request.user.id,
+                ).distinct().values_list('id', 'created_at')
+            ]
+            refs = ordinary_refs + execution_refs
+            # Stable page boundaries even when MySQL timestamps have identical precision.
+            refs.sort(
+                key=lambda item: (item[2], item[0] == 'benchmark_execution', item[1]),
+                reverse=True,
             )
-            # Benchmark executions are already grouped into one history row; their
-            # individual Case/Task status is exposed through the expandable payload.
-            for task in SimcTask.objects.filter(user_id=request.user.id).exclude(
-                id__in=benchmark_task_ids
-            ).order_by('-modified_time'):
-                rows.append({
-                    'id': task.id,
-                    'name': task.name,
-                    'status': task.current_status,
-                    'status_label': self._task_status_label(task.current_status),
-                    'progress': self._task_progress(task),
-                    'created_at': task.modified_time,
-                    'detail_resource': 'tasks',
-                })
-
-
-            for execution in SimcBenchmarkExecution.objects.filter(
-                cases__task__user_id=request.user.id
-            ).select_related('panel').distinct():
-                rows.append(self._benchmark_history_row(execution))
-
-            rows.sort(key=lambda row: row['created_at'], reverse=True)
-            total = len(rows)
+            total = len(refs)
             total_pages = (total + page_size - 1) // page_size
             offset = (page - 1) * page_size
-            page_rows = rows[offset:offset + page_size]
+            page_refs = refs[offset:offset + page_size]
+
+            task_ids = [object_id for row_type, object_id, _created_at in page_refs if row_type == 'task']
+            execution_ids = [
+                object_id for row_type, object_id, _created_at in page_refs
+                if row_type == 'benchmark_execution'
+            ]
+            tasks = {
+                task.pk: task for task in SimcTask.objects.filter(pk__in=task_ids).only(
+                    'id', 'name', 'current_status', 'ext', 'modified_time',
+                )
+            }
+            history_cases = SimcBenchmarkCase.objects.select_related('task').only(
+                'id', 'execution_id', 'task_id', 'status',
+                'spec_key', 'scenario_key', 'profile_key',
+                'spec_label', 'scenario_label', 'profile_label',
+                'task__id', 'task__current_status', 'task__ext',
+            ).order_by('id')
+            executions = {
+                execution.pk: execution
+                for execution in SimcBenchmarkExecution.objects.filter(
+                    pk__in=execution_ids,
+                ).select_related('panel').only(
+                    'id', 'panel_id', 'panel__name', 'status', 'created_at', 'config_snapshot',
+                ).prefetch_related(
+                    models.Prefetch('cases', queryset=history_cases, to_attr='_history_cases'),
+                )
+            }
+
+            page_rows = []
+            for row_type, object_id, _created_at in page_refs:
+                if row_type == 'benchmark_execution':
+                    execution = executions.get(object_id)
+                    if execution is not None:
+                        page_rows.append(self._benchmark_history_row(execution))
+                    continue
+                task = tasks.get(object_id)
+                if task is not None:
+                    page_rows.append({
+                        'id': task.id,
+                        'name': task.name,
+                        'status': task.current_status,
+                        'status_label': self._task_status_label(task.current_status),
+                        'progress': self._task_progress(task),
+                        'created_at': task.modified_time,
+                        'detail_resource': 'tasks',
+                    })
             return JsonResponse({
                 'success': True,
                 'data': [{**row, 'created_at': _fmt_dt(row['created_at'])} for row in page_rows],

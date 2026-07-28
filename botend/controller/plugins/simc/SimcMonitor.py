@@ -1039,6 +1039,28 @@ class SimcMonitor(BaseScan):
         simc_task.result_summary = json.dumps(validation, ensure_ascii=False)
         return self._save_task_fields(simc_task, ['ext', 'result_summary'])
 
+    @staticmethod
+    def runtime_threads(simc_task):
+        """Cap one SimC process while reserving at least one available CPU for web/DB."""
+        params = getattr(simc_task, 'simulation_params', None)
+        try:
+            available = len(os.sched_getaffinity(0))
+        except (AttributeError, OSError):
+            available = os.cpu_count() or 1
+        hardware_limit = max(1, available - 1)
+        raw_requested = params.get('threads') if isinstance(params, dict) else None
+        try:
+            requested = int(raw_requested) if raw_requested is not None else hardware_limit
+        except (TypeError, ValueError):
+            requested = 1
+        requested = max(1, requested)
+        configured_limit = (getattr(settings, 'SIMC_CONFIG', {}) or {}).get('runtime_max_threads')
+        try:
+            configured_limit = int(configured_limit) if configured_limit is not None else hardware_limit
+        except (TypeError, ValueError):
+            configured_limit = hardware_limit
+        return min(requested, hardware_limit, max(1, configured_limit))
+
     def execute_simc_command(self, simc_file_path, simc_task, result_file_name=None, run=None):
         """
         执行SimC命令
@@ -1077,7 +1099,12 @@ class SimcMonitor(BaseScan):
             binary_path = str(backend.simc_path or '').strip()
             if not binary_path or not os.path.isfile(binary_path) or not os.access(binary_path, os.X_OK):
                 raise RuntimeError(f'SimC后端不可用: {backend.identifier}')
-            cmd = [binary_path, simc_file_path, f'html={result_file_path}']
+            cmd = [
+                binary_path,
+                simc_file_path,
+                f'html={result_file_path}',
+                f'threads={self.runtime_threads(simc_task)}',
+            ]
             
             logger.info(f"[SimC Monitor] Executing command: {' '.join(cmd)}")
             
