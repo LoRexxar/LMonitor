@@ -249,14 +249,27 @@
         };
     }
 
-    function defaultPull(index) {
+    function defaultPull(index, color = PULL_COLORS[index % PULL_COLORS.length]) {
         const pull = {
             id: randomId(),
             name: `第 ${index + 1} 波`,
-            color: PULL_COLORS[index % PULL_COLORS.length],
+            color,
             spawn_uids: [],
         };
         return pull;
+    }
+
+    function nextPullColor(pulls) {
+        const rows = Array.isArray(pulls) ? pulls : [];
+        const usedColors = new Set(rows.map((pull) => String(pull.color || '').toLowerCase()));
+        const lastColor = String(rows[rows.length - 1]?.color || '').toLowerCase();
+        const lastColorIndex = PULL_COLORS.findIndex((color) => color.toLowerCase() === lastColor);
+        const startIndex = lastColorIndex >= 0 ? lastColorIndex + 1 : rows.length;
+        for (let offset = 0; offset < PULL_COLORS.length; offset += 1) {
+            const color = PULL_COLORS[(startIndex + offset) % PULL_COLORS.length];
+            if (!usedColors.has(color.toLowerCase())) return color;
+        }
+        return PULL_COLORS[startIndex % PULL_COLORS.length];
     }
 
     function ensureRoute() {
@@ -347,6 +360,31 @@
         return true;
     }
 
+    function sharedRouteRequest() {
+        const params = new URLSearchParams(location.search);
+        const shareToken = String(document.body.dataset.shareToken || '').trim();
+        const legacyShareId = String(params.get('share') || '').trim();
+        if (!shareToken && !legacyShareId) return null;
+        return {
+            shareToken,
+            legacyShareId,
+            sourceKey: shareToken
+                ? `short-link:${shareToken}`
+                : `legacy-share:${legacyShareId}`,
+        };
+    }
+
+    function replaceSharedRouteUrl(dungeonKey) {
+        const url = new URL('/portal/mythic-planner/', location.origin);
+        if (dungeonKey) url.searchParams.set('dungeon', dungeonKey);
+        window.history.replaceState(
+            {mythicPlannerLocalImport: true},
+            '',
+            `${url.pathname}${url.search}`,
+        );
+        document.body.dataset.shareToken = '';
+    }
+
     function normalizeRoute(route) {
         const normalized = {...defaultRoute(route?.dungeon_key || state.dungeon?.key || ''), ...(route || {})};
         normalized.local_id = normalized.local_id || randomId();
@@ -422,7 +460,11 @@
             selectGroupForDungeon(initial.key);
             renderCatalogSelectors(initial.key);
             configureLevelSlider();
-            await loadDungeon(initial.key, {restore: true});
+            const shareRequest = sharedRouteRequest();
+            await loadDungeon(initial.key, {
+                restore: !shareRequest,
+                persist: !shareRequest,
+            });
             await maybeLoadSharedRoute();
             setStatus(`已加载 ${state.catalog.version.label}。`);
         } catch (error) {
@@ -449,7 +491,10 @@
         setStatus(message || '请先运行数据初始化命令。');
     }
 
-    async function loadDungeon(dungeonKey, {restore = false, route = null} = {}) {
+    async function loadDungeon(
+        dungeonKey,
+        {restore = false, route = null, persist = true} = {},
+    ) {
         closeEnemyDetail();
         setBusy(true);
         try {
@@ -486,7 +531,7 @@
             renderCatalogSelectors(dungeon.key);
             els.mapEmpty.hidden = true;
             els.mapContent.hidden = false;
-            persistRoute();
+            if (persist) persistRoute();
             renderAll();
         } catch (error) {
             toast(error.message, true);
@@ -911,7 +956,7 @@
 
     function addPull() {
         mutateRoute((route) => {
-            const pull = defaultPull(route.pulls.length);
+            const pull = defaultPull(route.pulls.length, nextPullColor(route.pulls));
             route.pulls.push(pull);
             route.current_pull_id = pull.id;
         });
@@ -1321,7 +1366,7 @@
                     <label>站内短链接
                         <input id="public-route-link" readonly value="${escapeHtml(shortUrl)}">
                     </label>
-                    <p>任何拿到该链接的人都可以打开这份只读路线快照。</p>
+                    <p>打开链接后会导入当前浏览器成为可编辑副本；后续修改不会影响原分享快照。</p>
                 ` : ''}
                 ${shortError ? `<p class="mdt-share-error">短链接生成失败：${escapeHtml(shortError)}。字符串仍可正常分享。</p>` : ''}
             `,
@@ -1391,10 +1436,22 @@
         if (state.dungeon?.key !== payload.dungeon_key) {
             const exists = state.catalog?.dungeons?.some((dungeon) => dungeon.key === payload.dungeon_key);
             if (!exists) throw new Error('当前数据版本没有该路线所属地下城。');
-            await loadDungeon(payload.dungeon_key, {restore: false});
+            await loadDungeon(payload.dungeon_key, {
+                restore: false,
+                persist: false,
+            });
         }
         const route = defaultRoute(payload.dungeon_key);
         route.local_id = routeMeta.local_id || randomId();
+        route.source_share_key = (
+            routeMeta.source_share_key
+            || (
+                routeMeta.local_id === state.route?.local_id
+                    ? state.route?.source_share_key
+                    : ''
+            )
+            || ''
+        );
         route.name = payload.name || routeMeta.name || '导入路线';
         route.dungeon_level = Number(payload.dungeon_level || 10);
         route.pulls = Array.isArray(payload.pulls) ? payload.pulls : [];
@@ -1555,19 +1612,36 @@
     }
 
     async function maybeLoadSharedRoute() {
-        const params = new URLSearchParams(location.search);
-        const shareToken = String(document.body.dataset.shareToken || '').trim();
-        const legacyShareId = params.get('share');
-        if (!shareToken && !legacyShareId) return;
+        const shareRequest = sharedRouteRequest();
+        if (!shareRequest) return;
+        const {
+            shareToken,
+            legacyShareId,
+            sourceKey,
+        } = shareRequest;
         try {
+            const storedRoute = loadStoredRoutes().find(
+                (route) => route.source_share_key === sourceKey,
+            );
+            const storedDungeonExists = storedRoute && state.catalog?.dungeons?.some(
+                (dungeon) => dungeon.key === storedRoute.dungeon_key,
+            );
+            if (storedDungeonExists) {
+                await loadDungeon(storedRoute.dungeon_key, {route: storedRoute});
+                replaceSharedRouteUrl(storedRoute.dungeon_key);
+                toast(`已打开当前浏览器中的路线“${storedRoute.name}”。`);
+                return;
+            }
             const endpoint = shareToken
                 ? `/portal/api/mythic-planner/share-links/${encodeURIComponent(shareToken)}/`
                 : `/portal/api/mythic-planner/shared/${encodeURIComponent(legacyShareId)}/`;
             const data = await fetchJson(endpoint);
             await applyImportedPayload(data.route_data, {
                 name: data.name,
+                source_share_key: sourceKey,
             });
-            toast(`已载入分享路线“${data.name}”。`);
+            replaceSharedRouteUrl(data.route_data.dungeon_key);
+            toast(`已将分享路线“${data.name}”导入当前浏览器，可继续编辑。`);
         } catch (error) {
             toast(error.message, true);
         }

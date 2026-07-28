@@ -1295,17 +1295,25 @@ class MythicPlannerPageContractTests(SimpleTestCase):
             '/portal/api/mythic-planner/share-links/',
             'stripAccountMetadata',
             '复制短链接',
+            'sharedRouteRequest',
+            'source_share_key',
+            'replaceSharedRouteUrl',
+            'window.history.replaceState',
+            '导入当前浏览器成为可编辑副本',
+            '已打开当前浏览器中的路线',
             'mdt-spawn-initial',
             'dungeonsForSelectionGroup',
             'shouldStartMapPan',
             'mdt-ability-icon',
             'openEnemyDetail',
             'closeEnemyDetail',
+            'nextPullColor',
             "addEventListener('contextmenu'",
         ):
             self.assertIn(token, portal_js)
         self.assertIn('进度 · ${forcesPercent.toFixed(2)}%', portal_js)
         self.assertNotIn('${formatNumber(stats.health)} HP', portal_js)
+        self.assertNotIn('打开这份只读路线快照', portal_js)
         self.assertIn('reorderPull', portal_js)
         self.assertIn('onPullPointerMove', portal_js)
         self.assertIn(
@@ -1319,6 +1327,10 @@ class MythicPlannerPageContractTests(SimpleTestCase):
         self.assertNotIn('data-pull-action="rename"', portal_js)
         self.assertNotIn(
             "els.spawnLayer.addEventListener('pointerover'",
+            portal_js,
+        )
+        self.assertIn(
+            'defaultPull(route.pulls.length, nextPullColor(route.pulls))',
             portal_js,
         )
         for token in (
