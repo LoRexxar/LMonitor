@@ -41,6 +41,18 @@ class SimcHistoryPaginationContractTests(unittest.TestCase):
         """任务必须显示可信生命周期进度"""
         self.assertIn("progress", JS.lower())
 
+    def test_active_task_polling_is_silent_and_preserves_expanded_benchmark(self):
+        """后台轮询不能反复展示 loading，也不能收起用户正在看的基准子任务。"""
+        self.assertIn("loadTasks(page, { background: true })", JS)
+        self.assertIn("if (!background) renderState(host, 'loading'", JS)
+        self.assertIn("expandedExecutionIds", JS)
+        self.assertIn("cases.scrollTop = saved.scrollTop", JS)
+
+    def test_benchmark_progress_shows_task_counts_and_per_case_progress_bar(self):
+        self.assertIn("row.task_counts", JS)
+        self.assertIn("独立任务：", JS)
+        self.assertIn("simc-benchmark-task-case__progress", JS)
+
     def test_batch_compare_is_rendered_inline(self):
         self.assertIn('data-wb-action="compare"', JS)
         self.assertIn("/api/simc-regular-compare/?task_id=", JS)
@@ -128,6 +140,9 @@ class SimcHistoryBackendPaginationTests(TestCase):
         self.assertFalse(any(row.get('id') == task.id for row in rows if row.get('row_type') != 'benchmark_execution'))
         self.assertEqual(benchmark_rows[0]['cases'][0]['task_id'], task.id)
         self.assertEqual(benchmark_rows[0]['cases'][0]['progress'], 37)
+        self.assertEqual(benchmark_rows[0]['task_counts'], {
+            'pending': 0, 'running': 1, 'success': 0, 'failed': 0, 'cancelled': 0,
+        })
 
     def test_page_defaults_to_1_if_not_provided(self):
         """page 参数未提供时默认为 1"""

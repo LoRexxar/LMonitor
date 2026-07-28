@@ -5602,15 +5602,19 @@ class SimcWorkbenchAPIView(View):
         }
         cases = []
         progress_values = []
+        task_counts = {key: 0 for key in ('pending', 'running', 'success', 'failed', 'cancelled')}
         for case in summary.get('cases') or []:
             progress = case.get('task_progress')
+            task_status = case.get('task_status', case.get('status'))
             if progress is not None:
                 progress_values.append(progress)
+            if task_status in task_counts:
+                task_counts[task_status] += 1
             cases.append({
                 'case_id': case.get('_case_id'), 'task_id': case.get('task_id'),
                 'coordinate': {key: case.get(key) for key in ('spec_key', 'scenario_key', 'profile_key')},
-                'labels': case.get('labels') or {}, 'status': case.get('task_status', case.get('status')),
-                'status_label': case.get('task_status_label', status_labels.get(case.get('task_status'), '未知')),
+                'labels': case.get('labels') or {}, 'status': task_status,
+                'status_label': case.get('task_status_label', status_labels.get(task_status, '未知')),
                 'progress': progress,
                 'case_status': case.get('status'),
             })
@@ -5622,6 +5626,7 @@ class SimcWorkbenchAPIView(View):
             'name': f'{execution.panel.name} · 执行 #{execution.pk}',
             'status': status, 'status_label': status_labels.get(status, '未知'),
             'progress': progress, 'case_count': len(cases),
+            'task_counts': task_counts,
             'created_at': execution.created_at,
             'detail_resource': 'benchmark_executions',
             'run_count': summary.get('total_runs', 0), 'cases': cases,
@@ -5706,9 +5711,7 @@ class SimcWorkbenchAPIView(View):
 
             for execution in SimcBenchmarkExecution.objects.filter(
                 cases__task__user_id=request.user.id
-            ).select_related('panel').prefetch_related(
-                'cases__task__simulation_runs'
-            ).distinct():
+            ).select_related('panel').distinct():
                 rows.append(self._benchmark_history_row(execution))
 
             rows.sort(key=lambda row: row['created_at'], reverse=True)

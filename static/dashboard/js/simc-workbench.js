@@ -1,4 +1,4 @@
-/* SimC 十模型内联工作台：专用 API、事件委托和安全结果预览。version: 20260716e */
+/* SimC 十模型内联工作台：专用 API、事件委托和安全结果预览。version: 20260716f */
 (() => {
     'use strict';
     const apiRoot = '/api/simc-workbench/';
@@ -129,13 +129,25 @@
         const active = row.is_active !== false;
         return `<button data-wb-action="detail" data-resource="${esc(resource)}" data-id="${id}" class="text-blue-700">详情</button> <button data-wb-action="${active ? 'archive' : 'restore'}" data-resource="${esc(resource)}" data-id="${id}" class="text-amber-700">${active ? '停用' : '恢复'}</button>`;
     };
-    async function loadTasks(page = 1) {
+    async function loadTasks(page = 1, { background = false } = {}) {
         state.taskPage = Number.isSafeInteger(Number(page)) && Number(page) > 0 ? Number(page) : 1;
         const requestedPage = state.taskPage;
-        const requestSerial = ++state.taskRequestSerial;
         const host = document.getElementById('simc-wb-task-list');
         if (!host) return;
-        renderState(host, 'loading', '正在加载任务…');
+        if (background && state.taskFetchInFlight) {
+            scheduleTaskRefresh(true);
+            return;
+        }
+        const requestSerial = ++state.taskRequestSerial;
+        const expandedExecutionState = new Map(
+            Array.from(host.querySelectorAll('[data-benchmark-task-toggle][aria-expanded="true"]')).map(button => {
+                const executionId = idOf(button.dataset.benchmarkTaskToggle);
+                const cases = document.getElementById(button.getAttribute('aria-controls'));
+                return [executionId, { scrollTop: cases?.scrollTop || 0 }];
+            }).filter(([executionId]) => Boolean(executionId))
+        );
+        const expandedExecutionIds = new Set(expandedExecutionState.keys());
+        if (!background) renderState(host, 'loading', '正在加载任务…');
         if (state.taskAbortController) state.taskAbortController.abort();
         const controller = new AbortController();
         state.taskAbortController = controller;
@@ -145,7 +157,10 @@
             data = await json(`${resourceUrl('history')}?page=${requestedPage}&page_size=20`, { signal: controller.signal });
         } catch (error) {
             if (error.name === 'AbortError') return;
-            if (requestSerial === state.taskRequestSerial && state.activePanel === 'tasks') renderState(host, 'error', '加载失败，请稍后重试', 'tasks');
+            if (requestSerial === state.taskRequestSerial && state.activePanel === 'tasks') {
+                if (background) scheduleTaskRefresh(true);
+                else renderState(host, 'error', '加载失败，请稍后重试', 'tasks');
+            }
             return;
         } finally {
             if (requestSerial === state.taskRequestSerial) {
@@ -158,8 +173,22 @@
 
         host.innerHTML = data.data.length ? `<div class="simc-task-list">${data.data.map(row => {
             if (row.row_type === 'benchmark_execution') {
-                const cases = (row.cases || []).map(item => `<div class="simc-benchmark-task-case"><span>${esc(item.labels?.spec || item.coordinate?.spec_key || '—')} / ${esc(item.labels?.scenario || item.coordinate?.scenario_key || '—')} / ${esc(item.labels?.profile || item.coordinate?.profile_key || '—')}</span><span>${esc(item.status_label || '未知')}</span>${item.progress == null ? '' : `<span>${item.progress}%</span>`}</div>`).join('');
-                return `<article class="simc-task-card simc-benchmark-task-group"><div class="simc-task-card__main"><div class="simc-task-card__eyebrow"><span class="simc-task-type">基准面板</span><span class="simc-task-id">#${idOf(row.execution_id)}</span></div><h4 class="simc-task-card__title">${esc(row.name)}</h4><div class="simc-task-card__meta"><span class="simc-task-status">${esc(row.status_label)}</span><span>${esc(row.case_count)} 个独立任务</span></div>${row.progress == null ? '' : `<div class="simc-task-progress"><div class="simc-task-progress__track"><div class="simc-task-progress__fill" style="width:${row.progress}%"></div></div><span>${row.progress}%</span></div>`}</div><button type="button" data-benchmark-task-toggle="${idOf(row.execution_id)}" aria-expanded="false" aria-controls="simc-benchmark-task-cases-${idOf(row.execution_id)}" class="simc-touch-action">查看独立任务状态</button><div id="simc-benchmark-task-cases-${idOf(row.execution_id)}" data-benchmark-task-cases="${idOf(row.execution_id)}" hidden>${cases || '暂无独立任务'}</div></article>`;
+                const executionId = idOf(row.execution_id);
+                const expanded = expandedExecutionIds.has(executionId);
+                const taskCounts = row.task_counts || {};
+                const count = key => Math.max(0, Number(taskCounts[key]) || 0);
+                const statusSummary = `独立任务：完成 ${count('success')} / ${Number(row.case_count) || 0} · 运行中 ${count('running')} · 待运行 ${count('pending')}`
+                    + (count('failed') ? ` · 失败 ${count('failed')}` : '')
+                    + (count('cancelled') ? ` · 已取消 ${count('cancelled')}` : '');
+                const cases = (row.cases || []).map(item => {
+                    const itemProgress = Number.isFinite(Number(item.progress))
+                        ? Math.max(0, Math.min(100, Number(item.progress))) : null;
+                    const itemStatus = ['pending', 'running', 'success', 'failed', 'cancelled'].includes(item.status)
+                        ? item.status : 'pending';
+                    const title = `${esc(item.labels?.spec || item.coordinate?.spec_key || '—')} / ${esc(item.labels?.scenario || item.coordinate?.scenario_key || '—')} / ${esc(item.labels?.profile || item.coordinate?.profile_key || '—')}`;
+                    return `<div class="simc-benchmark-task-case" data-status="${itemStatus}"><div class="simc-benchmark-task-case__header"><span class="simc-benchmark-task-case__title"><span class="simc-task-id">Task #${idOf(item.task_id)}</span>${title}</span><span class="simc-task-status is-${itemStatus}">${esc(item.status_label || '未知')}</span></div>${itemProgress == null ? '<div class="simc-benchmark-task-case__progress is-unknown">等待 Worker 上报进度</div>' : `<div class="simc-benchmark-task-case__progress"><div class="simc-task-progress__track"><div class="simc-task-progress__fill" style="width:${itemProgress}%"></div></div><strong>${itemProgress}%</strong></div>`}</div>`;
+                }).join('');
+                return `<article class="simc-task-card simc-benchmark-task-group"><div class="simc-benchmark-task-summary"><div class="simc-task-card__main"><div class="simc-task-card__eyebrow"><span class="simc-task-type">基准面板</span><span class="simc-task-id">执行 #${executionId}</span></div><h4 class="simc-task-card__title">${esc(row.name)}</h4><div class="simc-task-card__meta"><span class="simc-task-status is-${esc(row.status)}">${esc(row.status_label)}</span><span>${esc(statusSummary)}</span></div>${row.progress == null ? '' : `<div class="simc-task-progress"><div class="simc-task-progress__track"><div class="simc-task-progress__fill" style="width:${row.progress}%"></div></div><span>总进度 ${row.progress}%</span></div>`}</div><button type="button" data-benchmark-task-toggle="${executionId}" aria-expanded="${expanded}" aria-controls="simc-benchmark-task-cases-${executionId}" class="simc-touch-action">${expanded ? '收起子任务进度' : '展开子任务进度'}</button></div><div id="simc-benchmark-task-cases-${executionId}" class="simc-benchmark-task-cases" data-benchmark-task-cases="${executionId}"${expanded ? '' : ' hidden'}>${cases || '暂无独立任务'}</div></article>`;
             }
             const status = Number(row.status);
             const isActive = [0, 1, 4].includes(status);
@@ -183,6 +212,10 @@
             </article>`;
         }).join('')}</div>` : empty('暂无记录');
 
+        expandedExecutionState.forEach((saved, executionId) => {
+            const cases = document.querySelector(`[data-benchmark-task-cases="${executionId}"]`);
+            if (cases) cases.scrollTop = saved.scrollTop;
+        });
         renderPagination(data.pagination || {}, requestedPage);
         const hasActive = data.data.some(row => row.row_type === 'benchmark_execution' ? ['pending', 'running'].includes(row.status) : [0, 1, 4].includes(Number(row.status)));
         scheduleTaskRefresh(hasActive);
@@ -198,7 +231,7 @@
         state.taskPollTimer = setTimeout(() => {
             state.taskPollTimer = null;
             if (state.activePanel !== 'tasks' || page !== state.taskPage) return;
-            loadTasks(page).catch(() => scheduleTaskRefresh(true));
+            loadTasks(page, { background: true }).catch(() => scheduleTaskRefresh(true));
         }, 3000);
     }
 
@@ -1122,6 +1155,7 @@
                 const cases = document.getElementById(benchmarkToggle.getAttribute('aria-controls'));
                 const expanded = benchmarkToggle.getAttribute('aria-expanded') === 'true';
                 benchmarkToggle.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+                benchmarkToggle.textContent = expanded ? '展开子任务进度' : '收起子任务进度';
                 if (cases) cases.hidden = expanded;
                 return;
             }
