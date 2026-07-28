@@ -17,6 +17,11 @@ class SimcWorkerIntegrationTests(SimpleTestCase):
         self.assertEqual(_composer_identity('fury'), ('fury', 'warrior'))
         self.assertEqual(_composer_identity('paladin_protection'), ('protection', 'paladin'))
 
+    def test_deploy_ignores_runtime_simc_results_during_collectstatic(self):
+        with open('deploy.sh', 'r', encoding='utf-8') as handle:
+            script = handle.read()
+        self.assertIn("collectstatic --no-input --ignore='simc_results/*'", script)
+
     def test_deploy_manages_dedicated_lmsimc_screen(self):
         with open('deploy.sh', 'r', encoding='utf-8') as handle:
             script = handle.read()

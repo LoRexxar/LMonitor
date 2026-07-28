@@ -43,7 +43,7 @@ else
 fi
 
 echo "=== 4. Collectstatic ==="
-"$PYTHON_BIN" manage.py collectstatic --no-input
+"$PYTHON_BIN" manage.py collectstatic --no-input --ignore='simc_results/*'
 
 echo "=== 5. 应用 SimC 本地补丁 ==="
 "$PYTHON_BIN" manage.py update_simc_binary --apply-patches --threads 2 --wow-build "$WOW_BUILD"
