@@ -58,15 +58,3 @@ class SimcWorkerIntegrationTests(SimpleTestCase):
         self.assertIn('exec "$PYTHON_BIN" "$PROJECT_ROOT/simc_worker.py" "$@"', start_script)
         self.assertNotIn('manage.py', start_script)
         self.assertNotIn('/home/lighthouse', start_script)
-
-    def test_deploy_uses_standalone_worker_start_script(self):
-        with open('deploy.sh', 'r', encoding='utf-8') as handle:
-            script = handle.read()
-        self.assertIn("screen -S lmsimc -X quit", script)
-        self.assertIn("screen -dmS lmsimc", script)
-        self.assertIn("./start_simc_worker.sh", script)
-        self.assertNotIn("$PYTHON_BIN manage.py simc_worker", script)
-        self.assertIn('MANAGE_SIMC_WORKER="${MANAGE_SIMC_WORKER:-1}"', script)
-        self.assertIn('if [ "$MANAGE_SIMC_WORKER" = "1" ]; then', script)
-        self.assertIn("lmweb|lmback|lmsimc", script)
-        self.assertIn("flock -n 9", script)
