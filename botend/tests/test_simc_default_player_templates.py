@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.db import IntegrityError, transaction
 from django.test import Client, TestCase, override_settings
 
@@ -45,6 +46,22 @@ APL_CONTENT = 'actions=/auto_attack\nactions+=/bloodthirst'
 
 
 class ImportSimcPlayerTemplatesTests(TestCase):
+    def test_required_mid1_profiles_match_the_supported_32_spec_execution_scope(self):
+        from botend.management.commands.import_simc_player_templates import REQUIRED_PROFILE_SPECS
+
+        self.assertEqual(len(REQUIRED_PROFILE_SPECS), 32)
+        for unsupported in {
+            ('druid', 'restoration'), ('evoker', 'augmentation'),
+            ('evoker', 'preservation'), ('monk', 'mistweaver'),
+            ('paladin', 'holy'), ('priest', 'discipline'),
+            ('priest', 'holy'), ('shaman', 'restoration'),
+        }:
+            self.assertNotIn(unsupported, REQUIRED_PROFILE_SPECS)
+
+    @patch(
+        'botend.management.commands.import_simc_player_templates.REQUIRED_PROFILE_SPECS',
+        {('warrior', 'fury'), ('hunter', 'beast_mastery')},
+    )
     def test_imports_only_base_mid1_profiles_and_sanitizes_executable_content(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp)
@@ -74,6 +91,10 @@ class ImportSimcPlayerTemplatesTests(TestCase):
         for forbidden in ('actions=', 'iterations=', 'Gear Summary', 'Hero Override'):
             self.assertNotIn(forbidden, fury.player_equipment)
 
+    @patch(
+        'botend.management.commands.import_simc_player_templates.REQUIRED_PROFILE_SPECS',
+        {('warrior', 'fury')},
+    )
     def test_dry_run_does_not_write(self):
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, 'MID1_Warrior_Fury.simc').write_text(DEFAULT_PLAYER, encoding='utf-8')
@@ -88,7 +109,8 @@ class ImportSimcPlayerTemplatesTests(TestCase):
                 DEFAULT_PLAYER.replace('warrior=', 'mage=').replace('spec=fury', 'spec=fire'),
                 encoding='utf-8',
             )
-            call_command('import_simc_player_templates', source_dir=tmp)
+            with self.assertRaises(CommandError):
+                call_command('import_simc_player_templates', source_dir=tmp)
         self.assertFalse(SimcProfile.objects.exists())
 
     def test_rejects_default_profile_below_level_90_or_with_incomplete_combat_gear(self):
@@ -101,7 +123,8 @@ class ImportSimcPlayerTemplatesTests(TestCase):
                 'mage="Incomplete"\nlevel=90\nspec=fire\nhead=,id=1\nmain_hand=,id=2\n',
                 encoding='utf-8',
             )
-            call_command('import_simc_player_templates', source_dir=tmp)
+            with self.assertRaises(CommandError):
+                call_command('import_simc_player_templates', source_dir=tmp)
         self.assertFalse(SimcProfile.objects.exists())
 
     def test_rejects_non_integer_or_future_level(self):
@@ -110,7 +133,8 @@ class ImportSimcPlayerTemplatesTests(TestCase):
                 Path(tmp, 'MID1_Warrior_Fury.simc').write_text(
                     DEFAULT_PLAYER.replace('level=90', f'level={level}'), encoding='utf-8',
                 )
-                call_command('import_simc_player_templates', source_dir=tmp)
+                with self.assertRaises(CommandError):
+                    call_command('import_simc_player_templates', source_dir=tmp)
                 self.assertFalse(SimcProfile.objects.exists())
 
 

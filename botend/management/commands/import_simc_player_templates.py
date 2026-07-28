@@ -24,6 +24,17 @@ KNOWN_SPECS = {
     'warlock': {'affliction', 'demonology', 'destruction'},
     'warrior': {'arms', 'fury', 'protection'},
 }
+MID1_UNSUPPORTED_PROFILE_SPECS = {
+    ('druid', 'restoration'), ('evoker', 'augmentation'),
+    ('evoker', 'preservation'), ('monk', 'mistweaver'),
+    ('paladin', 'holy'), ('priest', 'discipline'),
+    ('priest', 'holy'), ('shaman', 'restoration'),
+}
+REQUIRED_PROFILE_SPECS = {
+    (class_name, spec)
+    for class_name, specs in KNOWN_SPECS.items()
+    for spec in specs
+} - MID1_UNSUPPORTED_PROFILE_SPECS
 CLASS_NAMES = sorted(KNOWN_SPECS, key=len, reverse=True)
 ALLOWED_SCALARS = {
     'level', 'race', 'region', 'server', 'realm', 'role', 'position', 'professions',
@@ -88,7 +99,6 @@ class Command(BaseCommand):
             raise CommandError(f'MID1 目录不存在: {source_dir}')
         imported = skipped = errors = 0
         validated = []
-        expected = {(class_name, spec) for class_name, specs in KNOWN_SPECS.items() for spec in specs}
         seen = set()
         for filename in sorted(os.listdir(source_dir)):
             parsed = self._parse_filename(filename)
@@ -116,9 +126,10 @@ class Command(BaseCommand):
                 self.stdout.write(f'[DRY] {spec_key}: {len(baseline.splitlines())} 行')
             imported += 1
 
-        if seen != expected:
-            missing = ', '.join(f'{class_name}_{spec}' for class_name, spec in sorted(expected - seen))
-            errors += len(expected - seen)
+        missing_specs = REQUIRED_PROFILE_SPECS - seen
+        if missing_specs:
+            missing = ', '.join(f'{class_name}_{spec}' for class_name, spec in sorted(missing_specs))
+            errors += len(missing_specs)
             self.stderr.write(f'缺少专精基线: {missing}')
         if not options['dry_run'] and errors == 0:
             active_keys = [f'simc_upstream:{row[0]}' for row in validated]
