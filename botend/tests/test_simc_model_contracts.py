@@ -40,6 +40,7 @@ class SimcResourceTableBoundaryTests(TestCase):
         )
         self.assertIsNone(profile.user_id)
         self.assertEqual(profile.system_key, 'simc_upstream:warrior_fury')
+        self.assertEqual(profile.version, '12.0')
 
     def test_active_system_default_player_key_is_derived_from_spec(self):
         SimcProfile.objects.create(

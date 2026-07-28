@@ -3336,6 +3336,7 @@ class SimcProfileAPIView(View):
                         'id': profile.id,
                         'name': profile.name,
                         'spec': profile.spec,
+                        'version': profile.version,
                         'class_name': getattr(profile, 'class_name', '') or '',
                         'player_config_mode': self._profile_mode(profile),
                         'battlenet_region': getattr(profile, 'battlenet_region', '') or '',

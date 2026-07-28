@@ -306,6 +306,7 @@ class SimcProfileResourceListTests(TestCase):
         self.assertFalse(rows[system.id]['can_edit'])
         self.assertFalse(rows[system.id]['can_delete'])
         self.assertEqual(rows[system.id]['source'], SimcProfile.SOURCE_SIMC_UPSTREAM)
+        self.assertEqual(rows[system.id]['version'], '12.0')
         self.assertEqual(rows[system.id]['sync_version'], 'revision-1')
         self.assertEqual(rows[system.id]['equipment_line_count'], 3)
 
@@ -343,6 +344,7 @@ class SimcProfileResourceListTests(TestCase):
         self.assertIn('row.can_edit', source)
         self.assertIn('row.can_delete', source)
         self.assertIn('系统默认配置', source)
+        self.assertIn('版本 ${row.version}', source)
         self.assertIn('row.sync_version', source)
         self.assertIn('row.equipment_line_count', source)
         self.assertIn('simcProfileMatchesSpecFilter', source)

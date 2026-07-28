@@ -1766,9 +1766,10 @@ function loadSimcWorkbenchProfiles(page) {
             const mode = row.player_config_mode || 'battlenet';
             const isSystem = row.is_system === true;
             const equipmentLineCount = Number(row.equipment_line_count || 0);
+            const versionLabel = row.version ? ` · 版本 ${row.version}` : '';
             const syncLabel = row.sync_version ? ` · 同步 ${row.sync_version}` : '';
             const sourceText = isSystem
-                ? `系统默认配置${syncLabel}${equipmentLineCount ? ` · ${equipmentLineCount} 行` : ''}`
+                ? `系统默认配置${versionLabel}${syncLabel}${equipmentLineCount ? ` · ${equipmentLineCount} 行` : ''}`
                 : mode === 'manual_equipment'
                     ? ('手动配置 ' + (row.player_equipment ? ('(' + String(row.player_equipment).split('\n').filter(Boolean).length + ' 行)') : ''))
                     : mode === 'attribute_only'
