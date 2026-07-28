@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import os
 import stat
 import tempfile
@@ -65,6 +66,119 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertEqual(config.token_path, str(Path(root) / 'agent.token'))
             self.assertEqual(config.enrollment_token, 'enroll-secret')
             self.assertEqual(config.backend_identifier, '')
+
+    def test_report_contains_real_simc_revision_and_binary_availability(self):
+        from simc_agent_consumer import AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            marker = Path(values['simc_path'] + '.lmonitor-build.json')
+            marker.write_text(json.dumps({'revision': 'abc123def456'}), encoding='utf-8')
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=MagicMock())
+
+            report = consumer._report()
+
+            self.assertTrue(report['binary_available'])
+            self.assertEqual(report['current_version'], 'abc123def456')
+            Path(values['simc_path']).unlink()
+            self.assertFalse(consumer._report()['binary_available'])
+
+    def test_idle_maintenance_pulls_compiles_verifies_and_atomically_replaces_simc(self):
+        from simc_agent_consumer import AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            source = Path(root) / 'simc-source'
+            source.mkdir()
+            (source / '.git').mkdir()
+            values = self.config(root)
+            values.update({
+                'simc_source_path': str(source),
+                'simc_update_interval_seconds': 60,
+            })
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=MagicMock())
+
+            def command_result(command, **_kwargs):
+                stdout = ''
+                if command[-3:] == ['config', '--get', 'remote.origin.url']:
+                    stdout = 'https://github.com/simulationcraft/simc.git\n'
+                elif command[-2:] == ['branch', '--show-current']:
+                    stdout = 'midnight\n'
+                elif command[-2:] == ['rev-parse', 'HEAD']:
+                    stdout = ('a' * 40) + '\n' if not any(
+                        call.args[0][-4:-1] == ['pull', '--ff-only', 'origin']
+                        for call in run_command.call_args_list
+                    ) else ('b' * 40) + '\n'
+                elif command[-2:] == ['rev-parse', 'origin/midnight']:
+                    stdout = ('b' * 40) + '\n'
+                elif command[:2] == ['cmake', '--build']:
+                    build_dir = Path(command[2])
+                    candidate = build_dir / 'simc'
+                    candidate.write_text('#!/bin/sh\nexit 0\n', encoding='utf-8')
+                    candidate.chmod(0o755)
+                elif command[0].endswith('/simc') and command[-1] == '--version':
+                    stdout = 'SimulationCraft 1200-01\n'
+                return MagicMock(returncode=0, stdout=stdout, stderr='')
+
+            with patch('simc_agent_consumer.subprocess.run', side_effect=command_result) as run_command:
+                changed = consumer._maintain_simc(force=True)
+
+            self.assertTrue(changed)
+            self.assertEqual(
+                json.loads(Path(values['simc_path'] + '.lmonitor-build.json').read_text(encoding='utf-8')),
+                {'revision': 'b' * 40},
+            )
+            self.assertTrue(os.access(values['simc_path'], os.X_OK))
+            commands = [call.args[0] for call in run_command.call_args_list]
+            self.assertIn(['git', '-C', str(source), 'pull', '--ff-only', 'origin', 'midnight'], commands)
+            self.assertTrue(any(command[:2] == ['cmake', '--build'] for command in commands))
+
+    def test_simc_maintenance_is_skipped_while_run_lease_may_be_live(self):
+        from simc_agent_consumer import AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            values['simc_source_path'] = str(Path(root) / 'missing-source')
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values))
+            consumer._lease_block_until = 10**20
+
+            self.assertFalse(consumer._maintain_simc(force=True))
+
+    def test_simc_maintenance_refuses_symlink_binary_entry(self):
+        from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            source = Path(root) / 'simc-source'
+            (source / '.git').mkdir(parents=True)
+            real_binary = Path(root) / 'real-simc'
+            real_binary.write_text('#!/bin/sh\n', encoding='utf-8')
+            real_binary.chmod(0o755)
+            link = Path(root) / 'simc'
+            link.symlink_to(real_binary)
+            values = self.config(root)
+            values.update({'simc_path': str(link), 'simc_source_path': str(source)})
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values))
+
+            with self.assertRaisesRegex(APIError, 'symlink'):
+                consumer._maintain_simc(force=True)
+            self.assertEqual(real_binary.read_text(encoding='utf-8'), '#!/bin/sh\n')
+
+    def test_agent_writes_rotating_local_log_with_runtime_errors(self):
+        from simc_agent_consumer import configure_logging
+
+        with tempfile.TemporaryDirectory() as root:
+            log_path = Path(root) / 'logs' / 'agent.log'
+            logger = configure_logging(str(log_path), max_bytes=4096, backup_count=2)
+            logger.error('simc compile failed for test')
+            for handler in logger.handlers:
+                handler.flush()
+
+            content = log_path.read_text(encoding='utf-8')
+            self.assertIn('ERROR', content)
+            self.assertIn('simc compile failed for test', content)
+            self.assertEqual(stat.S_IMODE(log_path.stat().st_mode), 0o600)
+            for handler in list(logger.handlers):
+                handler.close()
+                logger.removeHandler(handler)
 
     def test_minimal_config_registration_does_not_send_redundant_backend_identifier(self):
         from simc_agent_consumer import AgentConfig, SimcAgentConsumer
@@ -541,10 +655,11 @@ class SimcAgentConsumerTests(SimpleTestCase):
                     'object_key': 'simc_agent_results/simc_task_1_run_22.html',
                     'size': 16, 'sha256': 'a' * 64,
                  }), patch.object(consumer.stop_event, 'wait', return_value=False):
-                consumer._complete(
-                    22, 'lease', 'fixed-id', 'completed', 'Player: A\nDPS=1234', '',
-                    b'<html>ok</html>', 'simc_task_1_run_22.html',
-                )
+                with self.assertRaisesRegex(APIError, 'uncertain'):
+                    consumer._complete(
+                        22, 'lease', 'fixed-id', 'completed', 'Player: A\nDPS=1234', '',
+                        b'<html>ok</html>', 'simc_task_1_run_22.html',
+                    )
             completion_calls = [
                 call for call in transport.json.call_args_list
                 if call.kwargs['path'].endswith('/complete/')

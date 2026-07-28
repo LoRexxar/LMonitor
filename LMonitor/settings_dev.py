@@ -1,7 +1,10 @@
 """
 LMonitor 开发环境配置 — 用于连接服务器数据库做验证
 """
+import json
 import os
+
+from django.core.exceptions import ImproperlyConfigured
 
 try:
     import pymysql
@@ -10,6 +13,18 @@ except ImportError:
     pass
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+SIMC_AGENT_ENROLLMENT_TOKEN = os.getenv('SIMC_AGENT_ENROLLMENT_TOKEN', '')
+_simc_agent_enrollment_tokens_json = os.getenv('SIMC_AGENT_ENROLLMENT_TOKENS_JSON', '')
+try:
+    SIMC_AGENT_ENROLLMENT_TOKENS = (
+        json.loads(_simc_agent_enrollment_tokens_json)
+        if _simc_agent_enrollment_tokens_json else {}
+    )
+except json.JSONDecodeError as exc:
+    raise ImproperlyConfigured('SIMC_AGENT_ENROLLMENT_TOKENS_JSON must be valid JSON') from exc
+if not isinstance(SIMC_AGENT_ENROLLMENT_TOKENS, dict):
+    raise ImproperlyConfigured('SIMC_AGENT_ENROLLMENT_TOKENS_JSON must contain a JSON object')
 
 SECRET_KEY = 'dev-key-not-for-production'
 DEBUG = True

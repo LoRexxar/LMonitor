@@ -11,6 +11,7 @@ import base64
 import hashlib
 import ipaddress
 import json
+import logging
 import math
 import os
 import platform as platform_module
@@ -25,13 +26,14 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-VERSION = '1.1.0'
+VERSION = '1.2.0'
 PROTOCOL_VERSION = 1
 MAX_REPORT_BYTES = 20 * 1024 * 1024
 COMPLETION_TEXT_MAX_BYTES = 256 * 1024
@@ -41,6 +43,35 @@ TRUSTED_REPOSITORY_URLS = {
     'https://github.com/LoRexxar/LMonitor.git',
 }
 UPDATE_BRANCH = 'master'
+TRUSTED_SIMC_REPOSITORY_URLS = {
+    'git@github.com:simulationcraft/simc.git',
+    'https://github.com/simulationcraft/simc.git',
+}
+LOGGER_NAME = 'lmonitor.simc_agent'
+
+
+def configure_logging(log_path: str, *, max_bytes: int = 10 * 1024 * 1024,
+                      backup_count: int = 5) -> logging.Logger:
+    """Create a process-local rotating log without exposing Agent credentials."""
+    path = Path(log_path).expanduser().resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    logger = logging.getLogger(LOGGER_NAME)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    for handler in list(logger.handlers):
+        handler.close()
+        logger.removeHandler(handler)
+    file_handler = RotatingFileHandler(
+        path, maxBytes=max_bytes, backupCount=backup_count, encoding='utf-8',
+    )
+    os.chmod(path, 0o600)
+    formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+    file_handler.setFormatter(formatter)
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    logger.addHandler(stream_handler)
+    return logger
 
 
 def _utf8_tail(value: str, max_bytes: int) -> str:
@@ -90,6 +121,11 @@ class AgentConfig:
     allow_insecure_http: bool = False
     auto_update: bool = True
     repository_path: str = ''
+    simc_source_path: str = ''
+    auto_update_simc: bool = True
+    simc_update_interval_seconds: float = 1800.0
+    simc_compile_threads: int = 2
+    log_path: str = ''
 
     @classmethod
     def from_dict(cls, values: dict[str, Any]) -> 'AgentConfig':
@@ -106,19 +142,29 @@ class AgentConfig:
         string_fields = {
             'server_url', 'backend_identifier', 'simc_path', 'token_path',
             'enrollment_token', 'name', 'platform', 'host_identifier', 'repository_path',
+            'simc_source_path', 'log_path',
         }
         for field in string_fields & set(values):
             if type(values[field]) is not str:
                 raise ConfigError(f'{field} must be a string')
-        for field in ('allow_insecure_http', 'auto_update'):
+        for field in ('allow_insecure_http', 'auto_update', 'auto_update_simc'):
             if field in values and type(values[field]) is not bool:
                 raise ConfigError(f'{field} must be a boolean')
-        for field in ('poll_interval_seconds', 'request_timeout_seconds', 'max_run_seconds'):
+        for field in ('poll_interval_seconds', 'request_timeout_seconds', 'max_run_seconds',
+                      'simc_update_interval_seconds'):
             if field in values:
                 value = values[field]
                 if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
                     raise ConfigError(f'{field} must be a positive finite number')
+        if ('simc_compile_threads' in values
+                and (type(values['simc_compile_threads']) is not int
+                     or values['simc_compile_threads'] < 1 or values['simc_compile_threads'] > 64)):
+            raise ConfigError('simc_compile_threads must be an integer between 1 and 64')
         config = cls(**values)
+        if not config.simc_source_path:
+            inferred_source = Path(config.simc_path).expanduser().resolve().parent.parent
+            if (inferred_source / '.git').exists():
+                config = cls(**{**config.__dict__, 'simc_source_path': str(inferred_source)})
         if not config.token_path:
             config = cls(**{
                 **config.__dict__,
@@ -131,7 +177,8 @@ class AgentConfig:
             raise ConfigError('server_url is invalid')
         if len(config.backend_identifier) > 64:
             raise ConfigError('backend_identifier is invalid')
-        if not Path(config.simc_path).is_file() or not os.access(config.simc_path, os.X_OK):
+        if ((not Path(config.simc_path).is_file() or not os.access(config.simc_path, os.X_OK))
+                and not config.simc_source_path):
             raise ConfigError('simc_path must be an executable file')
         host = config.host_identifier or _stable_host_identifier()
         if len(host) < 32 or len(host) > 128 or any(ch not in '0123456789abcdef' for ch in host):
@@ -150,6 +197,8 @@ class AgentConfig:
             raise ConfigError('configuration root must be a JSON object')
         if 'token_path' not in raw:
             raw['token_path'] = str(Path(path).resolve().with_suffix('.token'))
+        if 'log_path' not in raw:
+            raw['log_path'] = str(Path(path).resolve().with_suffix('.log'))
         return cls.from_dict(raw)
 
 
@@ -242,6 +291,9 @@ class SimcAgentConsumer:
         self.heartbeat_interval = 30.0
         self.lease_seconds = 90.0
         self.stop_event = threading.Event()
+        self.logger = logging.getLogger(LOGGER_NAME)
+        self._last_simc_check = 0.0
+        self._lease_block_until = 0.0
 
     @property
     def authorization(self) -> str:
@@ -307,13 +359,134 @@ class SimcAgentConsumer:
                 pass
 
     def _report(self, status: str = 'online') -> dict[str, Any]:
+        binary = Path(self.config.simc_path)
+        binary_available = binary.is_file() and os.access(binary, os.X_OK)
+        current_version = ''
+        marker = Path(str(binary) + '.lmonitor-build.json')
+        if binary_available:
+            try:
+                metadata = json.loads(marker.read_text(encoding='utf-8'))
+                revision = metadata.get('revision') if isinstance(metadata, dict) else None
+                if isinstance(revision, str) and re.fullmatch(r'[0-9a-fA-F]{7,64}', revision):
+                    current_version = revision.lower()
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                pass
         return {
             'status': status, 'platform': self.config.platform,
             'agent_version': VERSION, 'protocol_version': PROTOCOL_VERSION,
             'capabilities': {'max_concurrent_runs': 1},
-            'instance_id': self.instance_id, 'current_version': '',
-            'binary_available': True,
+            'instance_id': self.instance_id, 'current_version': current_version,
+            'binary_available': binary_available,
         }
+
+    @staticmethod
+    def _command(command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+        try:
+            result = subprocess.run(
+                command, capture_output=True, text=True, timeout=timeout, check=False,
+                stdin=subprocess.DEVNULL,
+                env={**os.environ, 'GIT_TERMINAL_PROMPT': '0'},
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise APIError(f'command failed: {exc}') from exc
+        if result.returncode != 0:
+            detail = _utf8_tail((result.stderr or result.stdout).strip(), 4000)
+            raise APIError(f'command failed ({command[0]}): {detail or "unsuccessful exit"}')
+        return result
+
+    def _maintain_simc(self, *, force: bool = False) -> bool:
+        """Check upstream and build a verified replacement while no Run lease is held."""
+        if time.monotonic() < self._lease_block_until:
+            self.logger.info('skipping SimC maintenance while a Run lease may still be live')
+            return False
+        if not self.config.auto_update_simc or not self.config.simc_source_path:
+            return False
+        now = time.monotonic()
+        if not force and now - self._last_simc_check < self.config.simc_update_interval_seconds:
+            return False
+        self._last_simc_check = now
+        binary_entry = Path(self.config.simc_path).expanduser()
+        if binary_entry.is_symlink():
+            raise APIError('SimC automatic update refused for a symlink binary entry')
+        source_entry = Path(self.config.simc_source_path).expanduser()
+        if source_entry.is_symlink():
+            raise APIError('SimC automatic update refused for a symlink source checkout')
+        source = source_entry.resolve()
+        if not source.is_dir() or not (source / '.git').exists() or (source / '.git').is_symlink():
+            raise APIError('SimC automatic update requires a local Git checkout')
+
+        def git(*arguments: str, timeout: float = 60) -> subprocess.CompletedProcess[str]:
+            return self._command(['git', '-C', str(source), *arguments], timeout=timeout)
+
+        if git('status', '--porcelain').stdout.strip():
+            raise APIError('SimC automatic update refused because the source working tree is not clean')
+        remote = git('config', '--get', 'remote.origin.url').stdout.strip()
+        if remote not in TRUSTED_SIMC_REPOSITORY_URLS:
+            raise APIError('SimC automatic update refused because origin is not trusted')
+        branch = git('branch', '--show-current').stdout.strip()
+        if not re.fullmatch(r'[0-9A-Za-z._/-]{1,100}', branch) or branch.startswith(('/', '-')):
+            raise APIError('SimC automatic update requires a named safe branch')
+        git('fetch', '--prune', 'origin', branch, timeout=300)
+        local_revision = git('rev-parse', 'HEAD').stdout.strip().lower()
+        upstream_revision = git('rev-parse', f'origin/{branch}').stdout.strip().lower()
+        if not re.fullmatch(r'[0-9a-f]{7,64}', upstream_revision):
+            raise APIError('SimC upstream returned an invalid revision')
+
+        report = self._report()
+        if (local_revision == upstream_revision and report['binary_available']
+                and report['current_version'] == upstream_revision):
+            self.logger.info('SimC is current at %s', upstream_revision)
+            return False
+        if local_revision != upstream_revision:
+            self.logger.info('updating SimC source %s -> %s', local_revision, upstream_revision)
+            git('pull', '--ff-only', 'origin', branch, timeout=300)
+        revision = git('rev-parse', 'HEAD').stdout.strip().lower()
+        if revision != upstream_revision:
+            raise APIError('SimC source update did not reach the fetched revision')
+
+        target = Path(self.config.simc_path).expanduser().resolve()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        self.logger.info('compiling SimC revision %s', revision)
+        with tempfile.TemporaryDirectory(prefix='.lmonitor-simc-build-', dir=str(source)) as build:
+            self._command([
+                'cmake', '-S', str(source), '-B', build, '-G', 'Ninja',
+                '-DBUILD_GUI=OFF', '-DCMAKE_BUILD_TYPE=Release',
+                '-DCMAKE_CXX_FLAGS_RELEASE=-O1 -DNDEBUG',
+            ], timeout=300)
+            self._command([
+                'cmake', '--build', build, '--target', 'simc', '-j',
+                str(self.config.simc_compile_threads),
+            ], timeout=3600)
+            candidate = Path(build) / 'simc'
+            if not candidate.is_file() or not os.access(candidate, os.X_OK):
+                raise APIError('SimC build did not produce an executable binary')
+            probe = self._command([str(candidate), '--version'], timeout=30)
+            if 'SimulationCraft' not in (probe.stdout + probe.stderr):
+                raise APIError('compiled SimC binary failed its version probe')
+            fd, temporary = tempfile.mkstemp(prefix=f'.{target.name}.', dir=str(target.parent))
+            try:
+                with os.fdopen(fd, 'wb') as output, candidate.open('rb') as source_binary:
+                    while True:
+                        chunk = source_binary.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        output.write(chunk)
+                    output.flush()
+                    os.fsync(output.fileno())
+                os.chmod(temporary, 0o755)
+                os.replace(temporary, target)
+            finally:
+                try:
+                    os.unlink(temporary)
+                except FileNotFoundError:
+                    pass
+        marker = Path(str(target) + '.lmonitor-build.json')
+        marker_tmp = marker.with_name(f'.{marker.name}.{uuid.uuid4().hex}')
+        marker_tmp.write_text(json.dumps({'revision': revision}), encoding='utf-8')
+        os.chmod(marker_tmp, 0o600)
+        os.replace(marker_tmp, marker)
+        self.logger.info('SimC revision %s compiled and activated', revision)
+        return True
 
     def register(self) -> None:
         payload = {**self._report(), 'host_identifier': self.config.host_identifier,
@@ -407,7 +580,7 @@ class SimcAgentConsumer:
         branch = git('branch', '--show-current', timeout=30).stdout.strip()
         if branch != UPDATE_BRANCH:
             raise APIError(f'automatic Agent update requires the {UPDATE_BRANCH} branch')
-        print(f'[simc-agent] updating {VERSION} -> {required_version}', flush=True)
+        self.logger.info('updating Agent %s -> %s', VERSION, required_version)
         git('pull', '--ff-only', 'origin', UPDATE_BRANCH, timeout=120)
         try:
             source = target.read_text(encoding='utf-8')
@@ -419,7 +592,7 @@ class SimcAgentConsumer:
             raise APIError(
                 f'Git update completed but Agent version is {actual}, expected {required_version}',
             )
-        print('[simc-agent] update verified; restarting', flush=True)
+        self.logger.info('Agent update verified; restarting')
         try:
             os.execv(sys.executable, [sys.executable, str(target), *sys.argv[1:]])
         except OSError as exc:
@@ -575,9 +748,9 @@ class SimcAgentConsumer:
         if self._completion_json(run_id, metadata):
             return
         # A completed completion may have committed even when its response was lost.
-        # Never race it with an opposite failed terminal state; leave an unresolved
-        # Run to the authoritative lease-expiry/stale-recovery workflow.
-        print('[simc-agent] completion result is uncertain after retries', flush=True)
+        # Never race it with an opposite failed terminal state or update binaries
+        # before the lease expires; the run loop enters its conservative lease fence.
+        raise APIError('completion result is uncertain after retries')
 
     def execute_job(self, job: dict[str, Any]) -> None:
         # A valid run identity is the minimum needed to report malformed claims.
@@ -676,22 +849,74 @@ class SimcAgentConsumer:
             if heartbeat_thread is not None:
                 heartbeat_thread.join(timeout=3)
 
+    def _maintain_simc_with_heartbeats(self) -> bool:
+        stopped = threading.Event()
+
+        def report_while_building() -> None:
+            while not stopped.wait(max(1.0, self.heartbeat_interval)):
+                try:
+                    self.heartbeat('degraded')
+                except Exception as exc:
+                    self.logger.warning('status heartbeat failed during SimC maintenance: %s', exc)
+
+        thread = threading.Thread(
+            target=report_while_building, name='simc-maintenance-heartbeat', daemon=True,
+        )
+        thread.start()
+        try:
+            return self._maintain_simc()
+        finally:
+            stopped.set()
+            thread.join(timeout=2)
+
     def run(self, once: bool = False) -> None:
         self.register()
+        self.logger.info(
+            'Agent %s registered; instance=%s backend=%s',
+            VERSION, self.instance_id, self.config.backend_identifier or 'enrollment-bound',
+        )
         while not self.stop_event.is_set():
+            lease_wait = self._lease_block_until - time.monotonic()
+            if lease_wait > 0:
+                try:
+                    self.heartbeat('busy')
+                except Exception as exc:
+                    self.logger.warning('status heartbeat failed while waiting for lease expiry: %s', exc)
+                if once:
+                    return
+                self.stop_event.wait(min(self.config.poll_interval_seconds, lease_wait))
+                continue
+            maintenance_error = None
             try:
-                self.heartbeat('online')
+                self._maintain_simc_with_heartbeats()
+            except Exception as exc:
+                maintenance_error = exc
+                self.logger.exception('SimC maintenance failed: %s', exc)
+            try:
+                self.heartbeat('degraded' if maintenance_error else 'online')
                 job = self.claim()
                 if job:
+                    self.logger.info('claimed Task %s Run %s', job.get('task_id'), job.get('run_id'))
                     self.heartbeat('busy')
-                    self.execute_job(job)
+                    try:
+                        self.execute_job(job)
+                    except Exception:
+                        self._lease_block_until = time.monotonic() + self.lease_seconds
+                        raise
+                    else:
+                        self._lease_block_until = 0.0
+                    self.logger.info('finished Task %s Run %s', job.get('task_id'), job.get('run_id'))
                     self.heartbeat('online')
                 elif once:
                     return
             except APIError as exc:
-                print(f'[simc-agent] {exc}', flush=True)
+                self.logger.error('control-plane operation failed: %s', exc)
                 if exc.status == 426 and exc.details.get('code') == 'agent_update_required':
                     self._self_update(exc.details.get('required_version'))
+                if once:
+                    raise
+            except Exception:
+                self.logger.exception('unexpected Agent runtime failure')
                 if once:
                     raise
             if once:
@@ -708,12 +933,21 @@ def main() -> int:
     parser.add_argument('--once', action='store_true', help='Claim at most one Run and exit')
     args = parser.parse_args()
     try:
-        consumer = SimcAgentConsumer(AgentConfig.load(args.config))
+        config = AgentConfig.load(args.config)
+        log_path = config.log_path or str(
+            Path(config.token_path).with_name('simc-agent.log')
+        )
+        logger = configure_logging(log_path)
+        consumer = SimcAgentConsumer(config)
         signal.signal(signal.SIGINT, consumer.stop)
         signal.signal(signal.SIGTERM, consumer.stop)
         consumer.run(once=args.once)
     except (ConfigError, APIError) as exc:
-        print(f'[simc-agent] fatal: {exc}', flush=True)
+        active_logger = logging.getLogger(LOGGER_NAME)
+        if active_logger.handlers:
+            active_logger.exception('fatal Agent error: %s', exc)
+        else:
+            print(f'[simc-agent] fatal: {exc}', flush=True)
         return 1
     return 0
 

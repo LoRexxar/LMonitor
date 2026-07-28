@@ -44,6 +44,14 @@ def _check_agent_ready(agent, now):
         raise AgentAPIError('Agent is disabled', 403)
     if not agent.binary_available:
         raise AgentAPIError('Agent binary is unavailable', 403)
+    required_simc_version = str(agent.backend.current_version or '').strip().lower()
+    agent_simc_version = str(agent.current_version or '').strip().lower()
+    if required_simc_version and agent_simc_version != required_simc_version:
+        raise AgentAPIError('Agent SimC update required', 409, {
+            'code': 'simc_update_required',
+            'current_version': agent_simc_version,
+            'required_version': required_simc_version,
+        })
     timeout = max(1, int(getattr(settings, 'SIMC_AGENT_ONLINE_TIMEOUT_SECONDS', 90)))
     if not agent.is_online(timeout_seconds=timeout, now=now):
         raise AgentAPIError('Agent is offline', 403)
@@ -143,7 +151,7 @@ def claim_run(payload, authorization):
     # updater-capable Agents always send both fields and are strictly gated.
     if (agent_version is None) != (protocol_version is None):
         raise AgentAPIError('agent_version and protocol_version must be sent together')
-    required_version = str(getattr(settings, 'SIMC_AGENT_REQUIRED_VERSION', '1.1.0'))
+    required_version = str(getattr(settings, 'SIMC_AGENT_REQUIRED_VERSION', '1.2.0'))
     required_protocol = int(getattr(settings, 'SIMC_AGENT_PROTOCOL_VERSION', 1))
     mismatch = None
     if agent_version is not None and agent_version != required_version:
