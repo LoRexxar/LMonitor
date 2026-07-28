@@ -828,6 +828,9 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('name="backend_identifier"', backend_panel)
         self.assertIn('name="expires_in_seconds"', backend_panel)
         self.assertIn('value="1800"', backend_panel)
+        self.assertIn('首次注册窗口', backend_panel)
+        self.assertIn('不会限制 Agent 的运行时间', backend_panel)
+        self.assertIn('注册成功后使用长期凭据', backend_panel)
         self.assertIn('id="simc-agent-enrollment-reveal"', backend_panel)
         self.assertIn('id="simc-agent-enrollment-list"', backend_panel)
         for token in (

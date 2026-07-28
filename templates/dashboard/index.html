@@ -1341,14 +1341,19 @@
                             <section class="mt-5 rounded-2xl border bg-white p-5" aria-labelledby="simc-agent-enrollment-heading">
                                 <div>
                                     <h3 id="simc-agent-enrollment-heading" class="text-xl font-bold">Agent 一次性注册码</h3>
-                                    <p class="mt-1 text-sm text-gray-500">为指定 Backend 生成一次性注册码。明文仅在生成成功后显示一次，不会出现在后续列表请求中。</p>
+                                    <p class="mt-1 text-sm text-gray-500">为指定 Backend 生成一次性首次注册凭证。这里只控制注册码可以等待多久，注册成功后使用长期凭据，不会限制 Agent 的运行时间。</p>
                                 </div>
                                 <form id="simc-agent-enrollment-form" class="simc-form-grid mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(10rem,14rem)_auto] md:items-end">
                                     <label class="text-sm font-medium text-slate-700">Backend
                                         <select name="backend_identifier" required class="mt-1 w-full rounded-lg border bg-white px-3 py-2"></select>
                                     </label>
-                                    <label class="text-sm font-medium text-slate-700">有效期（秒）
-                                        <input name="expires_in_seconds" type="number" required min="300" max="86400" step="1" value="1800" class="mt-1 w-full rounded-lg border px-3 py-2">
+                                    <label class="text-sm font-medium text-slate-700">首次注册窗口
+                                        <select name="expires_in_seconds" required class="mt-1 w-full rounded-lg border bg-white px-3 py-2">
+                                            <option value="1800">30 分钟（推荐）</option>
+                                            <option value="3600">1 小时</option>
+                                            <option value="21600">6 小时</option>
+                                            <option value="86400">24 小时</option>
+                                        </select>
                                     </label>
                                     <button type="submit" class="simc-touch-action rounded-lg bg-blue-600 px-4 py-2 text-white disabled:opacity-50">生成注册码</button>
                                 </form>
