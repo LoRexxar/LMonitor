@@ -921,6 +921,45 @@
             <button data-backend-action="check" ${disabled} class="rounded border bg-white px-4 py-2 text-slate-700 disabled:opacity-50">检查版本</button>
             <button data-backend-action="update" ${disabled} class="rounded bg-blue-600 px-4 py-2 text-white disabled:opacity-50">更新并编译</button>`;
     }
+    async function loadAgents() {
+        const host = document.getElementById('simc-agent-list');
+        if (!host) return;
+        const request = beginResourceRequest('agents');
+        renderState(host, 'loading', '正在加载 Agent 节点…');
+        let payload;
+        try {
+            payload = await json(resourceUrl('agents'), { signal: request.controller.signal });
+        } catch (error) {
+            if (error.name === 'AbortError') return;
+            if (isCurrentResourceRequest(request)) renderState(host, 'error', 'Agent 节点加载失败', 'agents');
+            return;
+        }
+        if (!isCurrentResourceRequest(request)) return;
+        const rows = Array.isArray(payload.data) ? payload.data : [];
+        if (!rows.length) {
+            host.innerHTML = empty('暂无已注册 Agent');
+            return;
+        }
+        const timeText = value => {
+            if (!value) return '—';
+            const date = new Date(value);
+            return Number.isNaN(date.getTime()) ? String(value) : new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'medium' }).format(date);
+        };
+        const statusMeta = {
+            online: ['空闲', 'bg-emerald-50 text-emerald-700'],
+            busy: ['运行中', 'bg-blue-50 text-blue-700'],
+            degraded: ['异常', 'bg-amber-50 text-amber-700'],
+            unregistered: ['未注册', 'bg-slate-100 text-slate-600'],
+        };
+        host.innerHTML = `<div class="overflow-x-auto"><table class="simc-responsive-table w-full min-w-[980px] text-sm">
+            <thead><tr class="border-b text-left text-slate-500"><th class="p-2">Agent</th><th class="p-2">Backend</th><th class="p-2">连接</th><th class="p-2">运行状态</th><th class="p-2">SimC</th><th class="p-2">当前任务</th><th class="p-2">最后心跳</th></tr></thead>
+            <tbody>${rows.map(row => {
+                const status = statusMeta[row.status] || [row.status || '未知', 'bg-slate-100 text-slate-600'];
+                const lease = row.lease;
+                return `<tr class="border-b last:border-0"><td data-label="Agent" class="p-2"><div class="font-medium text-slate-900">${esc(row.name || `Agent #${idOf(row.id)}`)}</div><div class="text-xs text-slate-500">${esc(row.platform || '—')} · Agent ${esc(row.agent_version || '—')}</div></td><td data-label="Backend" class="p-2"><div class="font-medium">${esc(row.backend?.name || row.backend?.identifier || '—')}</div><div class="text-xs text-slate-500">${esc(row.backend?.identifier || '')}</div></td><td data-label="连接" class="p-2"><span class="rounded-full px-2 py-1 text-xs font-medium ${row.online ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}">${row.online ? '在线' : '离线'}</span>${row.is_active ? '' : '<span class="ml-1 rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">已停用</span>'}</td><td data-label="运行状态" class="p-2"><span class="rounded-full px-2 py-1 text-xs font-medium ${status[1]}">${esc(status[0])}</span></td><td data-label="SimC" class="p-2"><div>${esc(row.current_version || '—')}</div><div class="text-xs ${row.binary_available ? 'text-emerald-700' : 'text-red-700'}">${row.binary_available ? '二进制可用' : '二进制不可用'}</div></td><td data-label="当前任务" class="p-2">${lease ? `<div>Task #${idOf(lease.task_id)} · Run #${idOf(lease.run_id)}</div><div class="text-xs text-slate-500">租约至 ${esc(timeText(lease.expires_at))}</div>` : '—'}</td><td data-label="最后心跳" class="p-2">${esc(timeText(row.last_seen_at))}</td></tr>`;
+            }).join('')}</tbody>
+        </table></div>`;
+    }
     async function loadAgentEnrollmentCodes() {
         const host = document.getElementById('simc-agent-enrollment-list');
         const form = document.getElementById('simc-agent-enrollment-form');
@@ -1096,6 +1135,7 @@
 
         if (tab === 'backend') {
             loadBackend().catch(notify);
+            loadAgents().catch(notify);
             loadAgentEnrollmentCodes().catch(notify);
         }
     }
@@ -1276,6 +1316,8 @@
                     runBackendAction({ action: actionName }).catch(notify);
                 }
             }
+            const agentAction = event.target.closest('[data-agent-action]');
+            if (agentAction && agentAction.dataset.agentAction === 'refresh') loadAgents().catch(notify);
             const enrollmentAction = event.target.closest('[data-agent-enrollment-action]');
             if (enrollmentAction && !enrollmentAction.disabled) {
                 const actionName = enrollmentAction.dataset.agentEnrollmentAction;
@@ -1297,6 +1339,7 @@
                 const target = retry.dataset.wbRetry;
                 if (target === 'tasks') loadTasks(state.taskPage);
                 else if (target === 'templates') loadTemplates();
+                else if (target === 'agents') loadAgents();
                 else if (target === 'agent-enrollment-codes') loadAgentEnrollmentCodes();
                 else if (target === 'apl-storage') loadApl(target, 'simc-unified-apl-list');
             }

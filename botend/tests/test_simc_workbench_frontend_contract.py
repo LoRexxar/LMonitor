@@ -851,6 +851,20 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn('localStorage', JS)
         self.assertNotIn('sessionStorage', JS)
 
+    def test_backend_panel_loads_and_renders_registered_agent_instances(self):
+        """Backend page must consume the Agent management projection, not stop at enrollment codes."""
+        backend_start = HTML.index('id="simc-workbench-backend-panel"')
+        backend_end = HTML.index('id="simc-workbench-rules-panel"', backend_start)
+        backend_panel = HTML[backend_start:backend_end]
+        self.assertIn('id="simc-agent-list"', backend_panel)
+        self.assertIn("simc-workbench.js' %}?v=20260728a", HTML)
+        self.assertIn('async function loadAgents()', JS)
+        self.assertIn("resourceUrl('agents')", JS)
+        self.assertIn('loadAgents().catch(notify)', JS)
+        for field in ('row.backend', 'row.online', 'row.status', 'row.current_version',
+                      'row.binary_available', 'row.last_seen_at', 'row.lease'):
+            self.assertIn(field, JS)
+
     def test_backend_controls_post_real_actions_with_csrf(self):
         """Backend check/update/auto-update controls must POST to the dedicated API."""
         self.assertIn('async function runBackendAction(', JS)

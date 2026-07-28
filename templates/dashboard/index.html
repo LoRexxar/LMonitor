@@ -302,7 +302,7 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>window.SIMC_APL_EDITOR_MODULE_URL = "{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260727b";</script>
     <script src="{% static 'dashboard/js/main.js' %}?v=20260728e"></script>
-    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260727a"></script>
+    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260728a"></script>
     <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260728b"></script>
     {% else %}
     <script src="{% static 'dashboard/js/dashboard_shell.js' %}?v=20260728b" defer></script>
@@ -1338,6 +1338,13 @@
                                 <div id="simc-wb-backend-actions" class="mt-4"></div>
                             </div>
                             {% if request.user.is_staff %}
+                            <section class="mt-5 rounded-2xl border bg-white p-5" aria-labelledby="simc-agent-list-heading">
+                                <div class="flex items-center justify-between gap-3">
+                                    <div><h3 id="simc-agent-list-heading" class="text-xl font-bold">已注册 Agent</h3><p class="mt-1 text-sm text-gray-500">Agent 是执行节点；每个节点绑定一个 Backend，多个节点可共享同一 Backend。</p></div>
+                                    <button type="button" data-agent-action="refresh" class="simc-touch-action rounded-lg border bg-white px-3 py-2 text-sm text-slate-700">刷新节点</button>
+                                </div>
+                                <div id="simc-agent-list" class="mt-4"></div>
+                            </section>
                             <section class="mt-5 rounded-2xl border bg-white p-5" aria-labelledby="simc-agent-enrollment-heading">
                                 <div>
                                     <h3 id="simc-agent-enrollment-heading" class="text-xl font-bold">Agent 一次性注册码</h3>
