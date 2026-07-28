@@ -818,6 +818,36 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         detail_handler = JS[JS.index('data-wb-action'):JS.index('data-wb-action') + 1000]
         self.assertIn('showTemplateDetail', JS)
 
+    def test_agent_enrollment_codes_are_staff_only_one_time_ui(self):
+        """Staff can create/copy/revoke codes, while list rendering never expects plaintext."""
+        backend_start = HTML.index('id="simc-workbench-backend-panel"')
+        backend_end = HTML.index('id="simc-workbench-rules-panel"', backend_start)
+        backend_panel = HTML[backend_start:backend_end]
+        self.assertIn('{% if request.user.is_staff %}', backend_panel)
+        self.assertIn('id="simc-agent-enrollment-form"', backend_panel)
+        self.assertIn('name="backend_identifier"', backend_panel)
+        self.assertIn('name="expires_in_seconds"', backend_panel)
+        self.assertIn('value="1800"', backend_panel)
+        self.assertIn('id="simc-agent-enrollment-reveal"', backend_panel)
+        self.assertIn('id="simc-agent-enrollment-list"', backend_panel)
+        for token in (
+            "resourceUrl('agent-enrollment-codes')",
+            "backend_identifier: backendIdentifier",
+            "expires_in_seconds: expiresInSeconds",
+            "payload.data?.enrollment_code",
+            "data-agent-enrollment-action=\"copy\"",
+            "data-agent-enrollment-action=\"revoke\"",
+            "}revoke/`",
+            "'X-CSRFToken': window.getCSRFToken()",
+        ):
+            self.assertIn(token, JS)
+        list_start = JS.index('async function loadAgentEnrollmentCodes()')
+        create_start = JS.index('async function createAgentEnrollmentCode(', list_start)
+        list_body = JS[list_start:create_start]
+        self.assertNotIn('enrollment_code', list_body)
+        self.assertNotIn('localStorage', JS)
+        self.assertNotIn('sessionStorage', JS)
+
     def test_backend_controls_post_real_actions_with_csrf(self):
         """Backend check/update/auto-update controls must POST to the dedicated API."""
         self.assertIn('async function runBackendAction(', JS)

@@ -8,13 +8,16 @@ from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
-from botend.models import SimcAgent, SimulationRun
+from botend.models import SimcAgent, SimcAgentEnrollmentCode, SimcBackendBinary, SimulationRun
 from botend.services.simc_agent_control import (
     AgentAPIError,
     authenticate_bearer,
+    create_enrollment_code,
+    enrollment_code_state,
     heartbeat_agent,
     parse_json_object,
     register_agent,
+    revoke_enrollment_code,
 )
 from botend.services.simc_run_control import (
     claim_run, complete_run, heartbeat_run, validate_completion_metadata,
@@ -230,3 +233,88 @@ class SimcAgentManagementActiveAPIView(View):
         agent.save(update_fields=['is_active', 'updated_at'])
         return _no_store(JsonResponse({'success': True, 'id': agent.pk,
                                        'is_active': agent.is_active}))
+
+
+def _staff_required(request):
+    return request.user.is_authenticated and request.user.is_staff
+
+
+def _serialize_enrollment_code(row):
+    return {
+        'id': row.pk,
+        'backend': {
+            'id': row.backend_id,
+            'identifier': row.backend.identifier,
+            'name': row.backend.name,
+        },
+        'status': enrollment_code_state(row),
+        'created_by': row.created_by.get_username() if row.created_by else None,
+        'created_at': row.created_at.isoformat(),
+        'expires_at': row.expires_at.isoformat(),
+        'consumed_at': row.consumed_at.isoformat() if row.consumed_at else None,
+        'consumed_by_agent_id': row.consumed_by_agent_id,
+        'revoked_at': row.revoked_at.isoformat() if row.revoked_at else None,
+    }
+
+
+class SimcAgentEnrollmentCodeListAPIView(View):
+    http_method_names = ['get', 'post']
+
+    def get(self, request):
+        if not _staff_required(request):
+            return _no_store(JsonResponse({'success': False, 'error': 'Staff access required'}, status=403))
+        rows = SimcAgentEnrollmentCode.objects.select_related(
+            'backend', 'created_by', 'consumed_by_agent',
+        ).order_by('-created_at', '-id')[:100]
+        return _no_store(JsonResponse({
+            'success': True,
+            'data': [_serialize_enrollment_code(row) for row in rows],
+            'backends': [
+                {'id': row.pk, 'identifier': row.identifier, 'name': row.name}
+                for row in SimcBackendBinary.objects.filter(is_active=True).order_by('id')
+            ],
+        }))
+
+    def post(self, request):
+        if not _staff_required(request):
+            return _no_store(JsonResponse({'success': False, 'error': 'Staff access required'}, status=403))
+        try:
+            payload = _parse_request_json(request)
+            if set(payload) != {'backend_identifier', 'expires_in_seconds'}:
+                raise AgentAPIError('JSON payload fields are invalid')
+            identifier = payload['backend_identifier']
+            if not isinstance(identifier, str) or not identifier:
+                raise AgentAPIError('backend_identifier is required')
+            try:
+                backend = SimcBackendBinary.objects.get(identifier=identifier, is_active=True)
+            except SimcBackendBinary.DoesNotExist:
+                raise AgentAPIError('Backend not found')
+            row, plaintext = create_enrollment_code(
+                backend=backend,
+                created_by=request.user,
+                expires_in_seconds=payload['expires_in_seconds'],
+            )
+        except AgentAPIError as exc:
+            return _error_response(exc)
+        data = _serialize_enrollment_code(row)
+        data['enrollment_code'] = plaintext
+        return _no_store(JsonResponse({'success': True, 'data': data}, status=201))
+
+
+class SimcAgentEnrollmentCodeRevokeAPIView(View):
+    http_method_names = ['post']
+
+    def post(self, request, code_id):
+        if not _staff_required(request):
+            return _no_store(JsonResponse({'success': False, 'error': 'Staff access required'}, status=403))
+        try:
+            payload = _parse_request_json(request)
+            if payload:
+                raise AgentAPIError('JSON payload must be empty')
+            row = revoke_enrollment_code(code_id)
+            row = SimcAgentEnrollmentCode.objects.select_related(
+                'backend', 'created_by', 'consumed_by_agent',
+            ).get(pk=row.pk)
+        except AgentAPIError as exc:
+            return _error_response(exc)
+        return _no_store(JsonResponse({'success': True, 'data': _serialize_enrollment_code(row)}))

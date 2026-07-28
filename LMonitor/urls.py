@@ -88,6 +88,7 @@ from botend.simc_agent_api import (
     SimcAgentJobClaimAPIView, SimcAgentJobHeartbeatAPIView,
     SimcAgentJobCompleteAPIView,
     SimcAgentManagementListAPIView, SimcAgentManagementActiveAPIView,
+    SimcAgentEnrollmentCodeListAPIView, SimcAgentEnrollmentCodeRevokeAPIView,
 )
 from django.http import HttpResponse, JsonResponse
 
@@ -163,6 +164,8 @@ urlpatterns = [
     path('api/simc-agent/v1/jobs/<int:run_id>/complete/', SimcAgentJobCompleteAPIView.as_view(), name='simc_agent_job_complete'),
     path('api/simc-workbench/agents/', SimcAgentManagementListAPIView.as_view(), name='simc_agent_management_list'),
     path('api/simc-workbench/agents/<int:agent_id>/active/', SimcAgentManagementActiveAPIView.as_view(), name='simc_agent_management_active'),
+    path('api/simc-workbench/agent-enrollment-codes/', SimcAgentEnrollmentCodeListAPIView.as_view(), name='simc_agent_enrollment_codes'),
+    path('api/simc-workbench/agent-enrollment-codes/<int:code_id>/revoke/', SimcAgentEnrollmentCodeRevokeAPIView.as_view(), name='simc_agent_enrollment_code_revoke'),
     path('api/convert-text/', csrf_exempt(ConvertTextAPIView.as_view()), name="convert_text"),
     path('api/mythic-planner/manage/', DashboardMythicPlannerAPIView.as_view(), name='dashboard_mythic_planner_api'),
     path('api/mythic-planner/manage/<int:object_id>/', DashboardMythicPlannerAPIView.as_view(), name='dashboard_mythic_planner_detail_api'),

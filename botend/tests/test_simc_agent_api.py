@@ -9,6 +9,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from botend.models import SimcAgent, SimcBackendBinary
+from botend.services.simc_agent_control import create_enrollment_code
 
 
 REGISTER_URL = '/api/simc-agent/v1/register/'
@@ -20,8 +21,6 @@ HOST_B = 'b' * 64
 
 
 @override_settings(
-    SIMC_AGENT_ENROLLMENT_TOKEN=ENROLLMENT,
-    SIMC_AGENT_ENROLLMENT_TOKENS={},
     SIMC_AGENT_HEARTBEAT_INTERVAL_SECONDS=30,
     SIMC_AGENT_LEASE_SECONDS=90,
 )
@@ -51,10 +50,22 @@ class SimcAgentAPITests(TestCase):
             HTTP_AUTHORIZATION=authorization,
         )
 
+    def enrollment_code(self, backend_identifier='production'):
+        backend, _ = SimcBackendBinary.objects.get_or_create(
+            identifier=backend_identifier,
+            defaults={
+                'name': backend_identifier, 'simc_path': '',
+                'auto_update': False, 'is_active': True,
+            },
+        )
+        _, plaintext = create_enrollment_code(backend=backend, created_by=None)
+        return plaintext
+
     def enroll(self, **overrides):
+        backend_identifier = overrides.get('backend_identifier', 'production')
         return self.post_json(
             REGISTER_URL, self.register_payload(**overrides),
-            f'Enrollment {ENROLLMENT}',
+            f'Enrollment {self.enrollment_code(backend_identifier)}',
         )
 
     def test_first_registration_creates_logical_backend_and_agent_returns_token_once(self):
@@ -159,15 +170,15 @@ class SimcAgentAPITests(TestCase):
         self.assertEqual(self.enroll(backend_identifier='production').status_code, 201)
         response = self.enroll(backend_identifier='ptr')
         self.assertEqual(response.status_code, 409, response.content)
-        self.assertFalse(SimcBackendBinary.objects.filter(identifier='ptr').exists())
+        self.assertTrue(SimcBackendBinary.objects.filter(identifier='ptr').exists())
+        self.assertEqual(SimcAgent.objects.count(), 1)
 
-    def test_wrong_or_unconfigured_enrollment_is_rejected(self):
+    def test_invalid_or_legacy_enrollment_is_rejected(self):
         wrong = self.post_json(REGISTER_URL, self.register_payload(), 'Enrollment wrong-token')
         self.assertEqual(wrong.status_code, 401)
-        with override_settings(SIMC_AGENT_ENROLLMENT_TOKEN=''):
-            missing = self.enroll()
-        self.assertEqual(missing.status_code, 503)
-        self.assertFalse(SimcBackendBinary.objects.exists())
+        legacy = self.post_json(REGISTER_URL, self.register_payload(), f'Enrollment {ENROLLMENT}')
+        self.assertEqual(legacy.status_code, 401)
+        self.assertFalse(SimcAgent.objects.exists())
 
     def test_heartbeat_updates_only_authenticated_agent_report(self):
         token_a = self.enroll(host_identifier=HOST_A, name='Node A').json()['agent_token']
@@ -302,7 +313,10 @@ class SimcAgentAPITests(TestCase):
             self.assertEqual(response.status_code, 400, response.content)
 
     def test_authorization_scheme_case_and_strict_whitespace(self):
-        enrolled = self.post_json(REGISTER_URL, self.register_payload(), f'eNrOlLmEnT {ENROLLMENT}')
+        enrollment_code = self.enrollment_code()
+        enrolled = self.post_json(
+            REGISTER_URL, self.register_payload(), f'eNrOlLmEnT {enrollment_code}',
+        )
         self.assertEqual(enrolled.status_code, 201, enrolled.content)
         token = enrolled.json()['agent_token']
         valid = self.post_json(HEARTBEAT_URL, {'status': 'online'}, f'bEaReR {token}')
@@ -312,16 +326,18 @@ class SimcAgentAPITests(TestCase):
             response = self.post_json(HEARTBEAT_URL, {'status': 'online'}, authorization)
             self.assertEqual(response.status_code, 401, response.content)
 
-    @override_settings(
-        SIMC_AGENT_ENROLLMENT_TOKEN='legacy-secret',
-        SIMC_AGENT_ENROLLMENT_TOKENS={'production': 'production-secret', 'ptr': 'ptr-secret'},
-    )
-    def test_scoped_enrollment_secret_cannot_register_another_backend(self):
-        rejected = self.post_json(REGISTER_URL, self.register_payload(backend_identifier='ptr'),
-                                  'Enrollment production-secret')
+    def test_backend_bound_enrollment_code_cannot_register_another_backend(self):
+        production_code = self.enrollment_code('production')
+        rejected = self.post_json(
+            REGISTER_URL, self.register_payload(backend_identifier='ptr'),
+            f'Enrollment {production_code}',
+        )
         self.assertEqual(rejected.status_code, 401)
-        accepted = self.post_json(REGISTER_URL, self.register_payload(backend_identifier='ptr'),
-                                  'Enrollment ptr-secret')
+        ptr_code = self.enrollment_code('ptr')
+        accepted = self.post_json(
+            REGISTER_URL, self.register_payload(backend_identifier='ptr'),
+            f'Enrollment {ptr_code}',
+        )
         self.assertEqual(accepted.status_code, 201)
 
     def test_agent_status_defaults_and_online_is_derived(self):

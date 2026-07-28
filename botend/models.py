@@ -3,6 +3,7 @@ import secrets
 import uuid
 from datetime import timedelta
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import connection, models, transaction
@@ -1401,6 +1402,34 @@ class SimcAgent(models.Model):
         if self.status not in {self.STATUS_ONLINE, self.STATUS_BUSY, self.STATUS_DEGRADED} or not self.last_seen_at:
             return False
         return self.last_seen_at >= (now or timezone.now()) - timedelta(seconds=timeout_seconds)
+
+
+class SimcAgentEnrollmentCode(models.Model):
+    code_id = models.CharField(max_length=32, unique=True)
+    secret_hash = models.CharField(max_length=255)
+    backend = models.ForeignKey(
+        SimcBackendBinary, on_delete=models.PROTECT, related_name='agent_enrollment_codes',
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='created_simc_agent_enrollment_codes',
+    )
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    consumed_by_agent = models.ForeignKey(
+        SimcAgent, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='consumed_enrollment_codes',
+    )
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'simc_agent_enrollment_code'
+        ordering = ['-created_at', '-id']
+        indexes = [
+            models.Index(fields=['backend', 'expires_at'], name='simc_agcode_back_exp_idx'),
+            models.Index(fields=['consumed_at', 'revoked_at'], name='simc_agcode_state_idx'),
+        ]
 
 
 class SimcBenchmarkPanel(models.Model):

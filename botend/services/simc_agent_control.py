@@ -4,13 +4,13 @@ import json
 import re
 import secrets
 from dataclasses import dataclass
+from datetime import timedelta
 
-from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from django.utils.crypto import constant_time_compare
 
-from botend.models import SimcAgent, SimcBackendBinary
+from botend.models import SimcAgent, SimcAgentEnrollmentCode
 
 HOST_RE = re.compile(r'^[0-9a-f]{32,128}$')
 SLUG_RE = re.compile(r'^[-a-zA-Z0-9_]+$')
@@ -172,13 +172,69 @@ def authenticate_bearer(authorization, *, lock=False):
     return agent
 
 
-def _authenticate_enrollment(authorization, identifier):
-    scoped = getattr(settings, 'SIMC_AGENT_ENROLLMENT_TOKENS', {})
-    configured = scoped.get(identifier, '') if scoped else getattr(settings, 'SIMC_AGENT_ENROLLMENT_TOKEN', '')
-    if not configured:
-        raise AgentAPIError('Agent enrollment is not configured', 503)
-    if not constant_time_compare(str(configured), _parse_authorization(authorization, 'Enrollment')):
-        raise AgentAPIError('Invalid enrollment token', 401)
+def create_enrollment_code(*, backend, created_by, expires_in_seconds=1800):
+    if (not isinstance(expires_in_seconds, int) or isinstance(expires_in_seconds, bool)
+            or not 300 <= expires_in_seconds <= 86400):
+        raise AgentAPIError('expires_in_seconds must be an integer between 300 and 86400')
+    code_id, secret = secrets.token_urlsafe(18), secrets.token_urlsafe(32)
+    row = SimcAgentEnrollmentCode.objects.create(
+        code_id=code_id,
+        secret_hash=_token_digest(secret),
+        backend=backend,
+        created_by=created_by,
+        expires_at=timezone.now() + timedelta(seconds=expires_in_seconds),
+    )
+    return row, f'lmsa_enroll_{code_id}.{secret}'
+
+
+def enrollment_code_state(row, now=None):
+    now = now or timezone.now()
+    if row.consumed_at:
+        return 'consumed'
+    if row.revoked_at:
+        return 'revoked'
+    if row.expires_at <= now:
+        return 'expired'
+    return 'active'
+
+
+def revoke_enrollment_code(code_pk):
+    with transaction.atomic():
+        try:
+            row = SimcAgentEnrollmentCode.objects.select_for_update().get(pk=code_pk)
+        except SimcAgentEnrollmentCode.DoesNotExist:
+            raise AgentAPIError('Enrollment code not found', 404)
+        if row.consumed_at:
+            raise AgentAPIError('Consumed enrollment code cannot be revoked', 409)
+        if row.revoked_at is None:
+            row.revoked_at = timezone.now()
+            row.save(update_fields=['revoked_at'])
+        return row
+
+
+def _authenticate_enrollment(authorization, identifier, now):
+    token = _parse_authorization(authorization, 'Enrollment')
+    if not token.startswith('lmsa_enroll_') or token.count('.') != 1:
+        raise AgentAPIError('Invalid enrollment code', 401)
+    code_id, secret = token[len('lmsa_enroll_'):].split('.', 1)
+    if not TOKEN_ID_RE.fullmatch(code_id) or not TOKEN_SECRET_RE.fullmatch(secret):
+        raise AgentAPIError('Invalid enrollment code', 401)
+    try:
+        row = SimcAgentEnrollmentCode.objects.select_for_update().select_related('backend').get(code_id=code_id)
+    except SimcAgentEnrollmentCode.DoesNotExist:
+        constant_time_compare(_token_digest(secret), DUMMY_TOKEN_HASH)
+        raise AgentAPIError('Invalid enrollment code', 401)
+    if not constant_time_compare(_token_digest(secret), row.secret_hash or DUMMY_TOKEN_HASH):
+        raise AgentAPIError('Invalid enrollment code', 401)
+    if row.revoked_at:
+        raise AgentAPIError('Invalid enrollment code', 401)
+    if row.consumed_at:
+        raise AgentAPIError('Invalid enrollment code', 401)
+    if row.expires_at <= now:
+        raise AgentAPIError('Invalid enrollment code', 401)
+    if row.backend.identifier != identifier:
+        raise AgentAPIError('Invalid enrollment code', 401)
+    return row
 
 
 def _issue_token(agent):
@@ -201,10 +257,9 @@ def _apply_report(agent, values, now, registration=False):
 def register_agent(payload, authorization):
     values = validate_registration_payload(payload)
     bearer = isinstance(authorization, str) and authorization.split(' ', 1)[0].lower() == 'bearer'
-    if not bearer:
-        _authenticate_enrollment(authorization, values['backend_identifier'])
     with transaction.atomic():
         now = timezone.now()
+        enrollment_code = None
         if bearer:
             agent = authenticate_bearer(authorization, lock=True)
             if agent.host_identifier != values['host_identifier']:
@@ -213,10 +268,10 @@ def register_agent(payload, authorization):
                 raise AgentAPIError('Host is bound to a different backend_identifier', 409)
             token, first = None, False
         else:
-            backend, _ = SimcBackendBinary.objects.select_for_update().get_or_create(
-                identifier=values['backend_identifier'],
-                defaults={'name': values['backend_identifier'], 'simc_path': '', 'auto_update': False, 'is_active': True},
+            enrollment_code = _authenticate_enrollment(
+                authorization, values['backend_identifier'], now,
             )
+            backend = enrollment_code.backend
             agent = SimcAgent.objects.select_for_update().filter(host_identifier=values['host_identifier']).first()
             if agent:
                 if agent.backend_id != backend.pk:
@@ -233,6 +288,10 @@ def register_agent(payload, authorization):
             agent.name = values['name']
         _apply_report(agent, values, now, registration=True)
         agent.save()
+        if enrollment_code is not None:
+            enrollment_code.consumed_at = now
+            enrollment_code.consumed_by_agent = agent
+            enrollment_code.save(update_fields=['consumed_at', 'consumed_by_agent'])
         return RegistrationResult(agent, token, first)
 
 

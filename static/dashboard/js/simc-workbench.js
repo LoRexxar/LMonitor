@@ -921,6 +921,91 @@
             <button data-backend-action="check" ${disabled} class="rounded border bg-white px-4 py-2 text-slate-700 disabled:opacity-50">检查版本</button>
             <button data-backend-action="update" ${disabled} class="rounded bg-blue-600 px-4 py-2 text-white disabled:opacity-50">更新并编译</button>`;
     }
+    async function loadAgentEnrollmentCodes() {
+        const host = document.getElementById('simc-agent-enrollment-list');
+        const form = document.getElementById('simc-agent-enrollment-form');
+        if (!host || !form) return;
+        const request = beginResourceRequest('agent-enrollment-codes');
+        renderState(host, 'loading', '正在加载 Agent 注册码…');
+        let payload;
+        try {
+            payload = await json(resourceUrl('agent-enrollment-codes'), { signal: request.controller.signal });
+        } catch (error) {
+            if (error.name === 'AbortError') return;
+            if (isCurrentResourceRequest(request)) renderState(host, 'error', 'Agent 注册码加载失败', 'agent-enrollment-codes');
+            return;
+        }
+        if (!isCurrentResourceRequest(request)) return;
+
+        const select = form.elements.backend_identifier;
+        const previousBackend = select?.value || '';
+        const backends = Array.isArray(payload.backends) ? payload.backends : [];
+        if (select) {
+            select.innerHTML = backends.map(backend => `<option value="${esc(backend.identifier)}">${esc(backend.name || backend.identifier)} (${esc(backend.identifier)})</option>`).join('');
+            if (backends.some(backend => backend.identifier === previousBackend)) select.value = previousBackend;
+            select.disabled = backends.length === 0;
+            const submit = form.querySelector('button[type="submit"]');
+            if (submit) submit.disabled = backends.length === 0;
+        }
+
+        const rows = Array.isArray(payload.data) ? payload.data : [];
+        if (!rows.length) {
+            host.innerHTML = empty('暂无 Agent 注册码');
+            return;
+        }
+        const statusMeta = {
+            active: ['可使用', 'bg-emerald-50 text-emerald-700'],
+            consumed: ['已使用', 'bg-blue-50 text-blue-700'],
+            expired: ['已过期', 'bg-slate-100 text-slate-600'],
+            revoked: ['已撤销', 'bg-red-50 text-red-700'],
+        };
+        const timeText = value => {
+            if (!value) return '—';
+            const date = new Date(value);
+            return Number.isNaN(date.getTime()) ? String(value) : new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'medium' }).format(date);
+        };
+        host.innerHTML = `<div class="overflow-x-auto"><table class="simc-responsive-table w-full min-w-[920px] text-sm">
+            <thead><tr class="border-b text-left text-slate-500"><th class="p-2">Backend</th><th class="p-2">状态</th><th class="p-2">创建时间</th><th class="p-2">过期时间</th><th class="p-2">使用时间</th><th class="p-2">使用 Agent</th><th class="p-2 text-right">操作</th></tr></thead>
+            <tbody>${rows.map(row => {
+                const status = statusMeta[row.status] || [row.status || '未知', 'bg-slate-100 text-slate-600'];
+                const agentId = idOf(row.consumed_by_agent_id);
+                return `<tr class="border-b last:border-0"><td data-label="Backend" class="p-2"><div class="font-medium text-slate-900">${esc(row.backend?.name || row.backend?.identifier || '—')}</div><div class="text-xs text-slate-500">${esc(row.backend?.identifier || '')}</div></td><td data-label="状态" class="p-2"><span class="rounded-full px-2 py-1 text-xs font-medium ${status[1]}">${esc(status[0])}</span></td><td data-label="创建时间" class="p-2">${esc(timeText(row.created_at))}</td><td data-label="过期时间" class="p-2">${esc(timeText(row.expires_at))}</td><td data-label="使用时间" class="p-2">${esc(timeText(row.consumed_at))}</td><td data-label="使用 Agent" class="p-2">${agentId ? `Agent #${agentId}` : '—'}</td><td data-label="操作" class="p-2 text-right">${row.status === 'active' ? `<button type="button" data-agent-enrollment-action="revoke" data-id="${idOf(row.id)}" class="simc-touch-action rounded-lg border border-red-200 px-3 py-2 text-red-700">撤销</button>` : '—'}</td></tr>`;
+            }).join('')}</tbody>
+        </table></div>`;
+    }
+    async function createAgentEnrollmentCode(form) {
+        const submit = form.querySelector('button[type="submit"]');
+        const backendIdentifier = String(form.elements.backend_identifier?.value || '');
+        const expiresInSeconds = Number.parseInt(String(form.elements.expires_in_seconds?.value || ''), 10);
+        if (!backendIdentifier) throw new Error('请选择 Backend');
+        if (!Number.isSafeInteger(expiresInSeconds) || expiresInSeconds < 300 || expiresInSeconds > 86400) throw new Error('有效期必须为 300 至 86400 秒');
+        if (submit) submit.disabled = true;
+        try {
+            const payload = await json(resourceUrl('agent-enrollment-codes'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
+                body: JSON.stringify({ backend_identifier: backendIdentifier, expires_in_seconds: expiresInSeconds }),
+            });
+            const code = String(payload.data?.enrollment_code || '');
+            if (!code) throw new Error('服务端未返回注册码明文');
+            const reveal = document.getElementById('simc-agent-enrollment-reveal');
+            if (reveal) reveal.innerHTML = `<div class="rounded-xl border border-amber-300 bg-amber-50 p-4"><div class="font-bold text-amber-900"><i class="fas fa-exclamation-triangle mr-1" aria-hidden="true"></i>请立即保存：此注册码明文仅显示一次</div><p class="mt-1 text-sm text-amber-800">离开或刷新页面后无法再次查看，只能撤销并重新生成。</p><div class="mt-3 flex flex-col gap-2 sm:flex-row"><input data-agent-enrollment-code readonly aria-label="新生成的 Agent 注册码" value="${esc(code)}" class="min-w-0 flex-1 rounded-lg border bg-white px-3 py-2 font-mono text-sm"><button type="button" data-agent-enrollment-action="copy" class="simc-touch-action rounded-lg bg-amber-700 px-4 py-2 text-white">复制注册码</button></div></div>`;
+            window.showMessage('一次性 Agent 注册码已生成', 'success');
+            await loadAgentEnrollmentCodes();
+        } finally {
+            if (submit) submit.disabled = form.elements.backend_identifier?.disabled === true;
+        }
+    }
+    async function revokeAgentEnrollmentCode(id) {
+        if (!idOf(id)) throw new Error('注册码无效');
+        await json(`${resourceUrl('agent-enrollment-codes', idOf(id))}revoke/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
+            body: JSON.stringify({}),
+        });
+        window.showMessage('Agent 注册码已撤销', 'success');
+        await loadAgentEnrollmentCodes();
+    }
     async function runBackendAction(payload) {
         const result = await json('/api/simc-backend-binary/', {
             method: 'POST',
@@ -1009,7 +1094,10 @@
             loadSpecOptions().catch(notify);
         }
 
-        if (tab === 'backend') loadBackend().catch(notify);
+        if (tab === 'backend') {
+            loadBackend().catch(notify);
+            loadAgentEnrollmentCodes().catch(notify);
+        }
     }
     function deactivate(nextPanel) {
         state.activePanel = nextPanel || '';
@@ -1188,6 +1276,20 @@
                     runBackendAction({ action: actionName }).catch(notify);
                 }
             }
+            const enrollmentAction = event.target.closest('[data-agent-enrollment-action]');
+            if (enrollmentAction && !enrollmentAction.disabled) {
+                const actionName = enrollmentAction.dataset.agentEnrollmentAction;
+                if (actionName === 'refresh') loadAgentEnrollmentCodes().catch(notify);
+                else if (actionName === 'revoke') revokeAgentEnrollmentCode(enrollmentAction.dataset.id).catch(notify);
+                else if (actionName === 'copy') {
+                    const codeInput = document.querySelector('#simc-agent-enrollment-reveal [data-agent-enrollment-code]');
+                    if (codeInput?.value) {
+                        navigator.clipboard.writeText(codeInput.value).then(() => {
+                            window.showMessage('注册码已复制到剪贴板', 'success');
+                        }).catch(notify);
+                    }
+                }
+            }
             const refresh = event.target.closest('[data-simc-refresh]');
             if (refresh) activate(refresh.dataset.simcRefresh === 'backend' ? 'backend' : refresh.dataset.simcRefresh);
             const retry = event.target.closest('[data-wb-retry]');
@@ -1195,7 +1297,7 @@
                 const target = retry.dataset.wbRetry;
                 if (target === 'tasks') loadTasks(state.taskPage);
                 else if (target === 'templates') loadTemplates();
-
+                else if (target === 'agent-enrollment-codes') loadAgentEnrollmentCodes();
                 else if (target === 'apl-storage') loadApl(target, 'simc-unified-apl-list');
             }
         });
@@ -1251,6 +1353,12 @@
             if (aplSpec && state.aplEditor) state.aplEditor.revalidate();
         });
         document.addEventListener('submit', event => {
+            const enrollmentForm = event.target.closest('#simc-agent-enrollment-form');
+            if (enrollmentForm) {
+                event.preventDefault();
+                createAgentEnrollmentCode(enrollmentForm).catch(notify);
+                return;
+            }
             const taskRerunForm = event.target.closest('[data-task-rerun-form]');
             if (taskRerunForm) {
                 event.preventDefault();
