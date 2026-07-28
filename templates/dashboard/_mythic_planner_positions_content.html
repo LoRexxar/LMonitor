@@ -1,0 +1,131 @@
+<section class="mp-dashboard-embedded">
+    <div class="mp-dashboard-page-header">
+        <div>
+            <span class="mp-dashboard-page-kicker">大秘境规划器</span>
+            <h2>地图点位编辑</h2>
+            <p>在原 MDT 地图上拖动怪物刷新点；人工保存的坐标会在后续导入时保留。</p>
+        </div>
+        <div class="mp-admin-actions">
+            <a href="/dashboard/mythic-planner/">数据与配置</a>
+            <a href="/dashboard/mythic-planner/routes/">账号路线 / MDT 字符串</a>
+            <button id="refresh-positions" type="button">刷新点位</button>
+            <a href="/portal/mythic-planner/" target="_blank" rel="noopener">打开规划器预览 ↗</a>
+        </div>
+    </div>
+
+    <main class="mp-position-admin-page">
+        <div class="mp-admin-filters mp-position-admin-filters">
+            <label>
+                <span>数据版本</span>
+                <select id="position-version-filter"><option value="">请选择数据版本</option></select>
+            </label>
+            <label>
+                <span>地下城</span>
+                <select id="position-dungeon-filter"><option value="">请选择地下城</option></select>
+            </label>
+            <label>
+                <span>楼层</span>
+                <select id="spawn-map-floor"><option value="">请选择楼层</option></select>
+            </label>
+            <label class="mp-admin-search">
+                <span>搜索怪物</span>
+                <input id="position-search" type="search" placeholder="怪物名称、NPC ID、刷新点 key">
+            </label>
+            <label class="mp-admin-toggle">
+                <input id="position-show-inactive" type="checkbox">
+                <span>显示已停用点位</span>
+            </label>
+        </div>
+
+        <div id="position-summary" class="mp-admin-summary"></div>
+
+        <section id="spawn-map-editor" class="mp-spawn-map-editor mp-spawn-map-editor-standalone">
+            <header>
+                <div>
+                    <strong>刷新点地图</strong>
+                    <span>点击圆点进行编辑；添加时选怪后直接点击地图。</span>
+                </div>
+                <button id="spawn-map-create" type="button" class="is-primary">＋ 开始添加怪物</button>
+            </header>
+            <div class="mp-spawn-map-layout">
+                <div
+                    id="spawn-map-canvas"
+                    class="mp-spawn-map-canvas"
+                    role="application"
+                    aria-label="怪物刷新点地图编辑器"
+                >
+                    <div id="spawn-map-empty" class="mp-spawn-map-empty">
+                        请选择数据版本、地下城和楼层。
+                    </div>
+                    <div id="spawn-map-layer" class="mp-spawn-map-layer"></div>
+                </div>
+                <aside id="spawn-map-inspector" class="mp-spawn-map-inspector">
+                    <div class="mp-spawn-map-selection">
+                        <span>当前选中</span>
+                        <strong id="spawn-map-enemy-name">尚未选择怪物</strong>
+                        <small id="spawn-map-selection-meta">点击地图上的圆点开始编辑</small>
+                    </div>
+                    <label class="mp-spawn-map-field">
+                        <span>关联怪物原型</span>
+                        <select id="spawn-map-enemy" disabled>
+                            <option value="">请选择怪物</option>
+                        </select>
+                    </label>
+                    <label id="spawn-map-key-field" class="mp-spawn-map-field">
+                        <span>刷新点 key</span>
+                        <input id="spawn-map-key" type="text" maxlength="100" disabled>
+                    </label>
+                    <div class="mp-spawn-map-properties">
+                        <label class="mp-spawn-map-field">
+                            <span>怪群联动 key</span>
+                            <input id="spawn-map-group-key" type="text" maxlength="100" placeholder="留空表示不联动" disabled>
+                        </label>
+                        <label class="mp-spawn-map-field">
+                            <span>缩放</span>
+                            <input id="spawn-map-scale" type="number" min="0.25" max="5" step="0.05" disabled>
+                        </label>
+                    </div>
+                    <div id="spawn-map-coordinates" class="mp-spawn-map-coordinates">
+                        <span class="mp-spawn-map-coordinates-title">精确坐标（高级微调）</span>
+                        <label>
+                            <span>横向 X（0–100）</span>
+                            <input id="spawn-map-x" type="number" min="0" max="100" step="0.01" disabled>
+                        </label>
+                        <label>
+                            <span>纵向 Y（0–100）</span>
+                            <input id="spawn-map-y" type="number" min="0" max="100" step="0.01" disabled>
+                        </label>
+                    </div>
+                    <p id="spawn-map-position-help">拖动只会修改当前圆点；点击保存后才写入数据库。</p>
+                    <div class="mp-spawn-map-actions">
+                        <button id="spawn-map-cancel" type="button" hidden>结束添加</button>
+                        <button id="spawn-map-reset" type="button" disabled>恢复上游坐标</button>
+                        <button id="spawn-map-save" type="button" class="is-primary" disabled>保存点位</button>
+                    </div>
+                </aside>
+            </div>
+        </section>
+
+        <div class="mp-admin-table-wrap mp-position-table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>怪物</th>
+                        <th>刷新点 key</th>
+                        <th>NPC ID</th>
+                        <th>进度</th>
+                        <th>坐标</th>
+                        <th>来源</th>
+                        <th>状态</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="position-table-body">
+                    <tr><td colspan="8" class="mp-admin-loading">正在加载点位数据…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </main>
+</section>
+
+<div id="admin-toast" class="mp-admin-toast" role="status" hidden></div>

@@ -1,6 +1,8 @@
 (() => {
     'use strict';
 
+    const ROUTE_SNAPSHOT_RESOURCES = ['versions', 'dungeons', 'routes'];
+
     const $ = (selector, root = document) => root.querySelector(selector);
     const escapeHtml = (value) => String(value ?? '')
         .replaceAll('&', '&amp;')
@@ -262,7 +264,11 @@
         try {
             const payload = await request(`/api/mythic-planner/manage/${routeId}/`, {
                 method: 'PATCH',
-                body: JSON.stringify({resource: 'routes', data}),
+                body: JSON.stringify({
+                    resource: 'routes',
+                    snapshot_resources: ROUTE_SNAPSHOT_RESOURCES,
+                    data,
+                }),
             });
             state.snapshot = payload.snapshot;
             renderFilters();
@@ -293,7 +299,10 @@
             try {
                 const payload = await request(`/api/mythic-planner/manage/${routeId}/`, {
                     method: 'DELETE',
-                    body: JSON.stringify({resource: 'routes'}),
+                    body: JSON.stringify({
+                        resource: 'routes',
+                        snapshot_resources: ROUTE_SNAPSHOT_RESOURCES,
+                    }),
                 });
                 state.snapshot = payload.snapshot;
                 renderFilters();
@@ -313,7 +322,9 @@
             els.tableBody.innerHTML = '<tr><td colspan="9" class="mp-admin-loading">正在刷新账号路线…</td></tr>';
         }
         try {
-            const payload = await request('/api/mythic-planner/manage/');
+            const payload = await request(
+                `/api/mythic-planner/manage/?resources=${ROUTE_SNAPSHOT_RESOURCES.join(',')}`,
+            );
             state.snapshot = payload.data;
             renderFilters();
             renderTable();

@@ -74,6 +74,7 @@ from botend.mythic_planner.api import (
     MythicPlannerSharedRouteAPIView,
 )
 from botend.mythic_planner.views import (
+    DashboardMythicPlannerPositionsView,
     DashboardMythicPlannerRoutesView,
     DashboardMythicPlannerView,
     PortalMythicPlannerView,
@@ -108,6 +109,7 @@ urlpatterns = [
     # Dashboard路由
     path('dashboard/', DashboardView.as_view(), name="dashboard"),
     path('dashboard/mythic-planner/', DashboardMythicPlannerView.as_view(), name='dashboard_mythic_planner'),
+    path('dashboard/mythic-planner/positions/', DashboardMythicPlannerPositionsView.as_view(), name='dashboard_mythic_planner_positions'),
     path('dashboard/mythic-planner/routes/', DashboardMythicPlannerRoutesView.as_view(), name='dashboard_mythic_planner_routes'),
     path('dashboard/simc/tasks/<int:object_id>/', SimcWorkbenchDetailPageView.as_view(), {'kind': 'tasks'}, name='simc_task_detail_page'),
     path('dashboard/simc/benchmarks/<int:panel_id>/config/', SimcBenchmarkConfigPageView.as_view(), name='simc_benchmark_config_page'),

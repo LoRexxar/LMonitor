@@ -254,6 +254,7 @@
                 ['enemy_name', '怪物'],
                 ['floor_name', '楼层'],
                 ['position', '坐标'],
+                ['position_source', '坐标来源'],
                 ['group_key', '编队'],
                 ['is_active', '状态'],
             ],
@@ -297,6 +298,25 @@
         },
     };
 
+    const CONFIG_RESOURCE_DEPENDENCIES = {
+        versions: ['versions'],
+        configs: ['versions', 'dungeons', 'configs'],
+        selection_groups: ['versions', 'selection_groups'],
+        selection_memberships: [
+            'versions',
+            'dungeons',
+            'selection_groups',
+            'selection_memberships',
+        ],
+        dungeons: ['versions', 'dungeons'],
+        floors: ['versions', 'dungeons', 'floors'],
+        enemies: ['versions', 'dungeons', 'enemies'],
+        spells: ['versions', 'spells'],
+        abilities: ['versions', 'dungeons', 'enemies', 'spells', 'abilities'],
+        spawns: ['versions', 'dungeons', 'floors', 'enemies', 'spawns'],
+        pois: ['versions', 'dungeons', 'floors', 'pois'],
+    };
+
     const requestedResource = new URLSearchParams(window.location.search).get('resource');
     const state = {
         snapshot: null,
@@ -307,6 +327,7 @@
         editingId: null,
         routeDetail: null,
         toastTimer: null,
+        loadedResources: new Set(),
     };
 
     const els = {};
@@ -335,11 +356,35 @@
         return payload;
     }
 
-    async function loadSnapshot({quiet = false} = {}) {
+    function snapshotResources(resource = state.resource) {
+        return Array.from(new Set([
+            ...(CONFIG_RESOURCE_DEPENDENCIES[resource] || [resource]),
+            'counts',
+        ]));
+    }
+
+    function mergeSnapshot(snapshot, resources) {
+        if (!state.snapshot) state.snapshot = {};
+        resources
+            .filter((resource) => resource !== 'counts')
+            .forEach((resource) => {
+                state.snapshot[resource] = snapshot[resource] || [];
+                state.loadedResources.add(resource);
+            });
+        state.snapshot.counts = {
+            ...(state.snapshot.counts || {}),
+            ...(snapshot.counts || {}),
+        };
+        state.loadedResources.add('counts');
+    }
+
+    async function loadSnapshot({quiet = false, resources = snapshotResources()} = {}) {
         if (!quiet) els.tableBody.innerHTML = '<tr><td class="mp-admin-loading">正在加载数据…</td></tr>';
         try {
-            const payload = await request('/api/mythic-planner/manage/');
-            state.snapshot = payload.data;
+            const payload = await request(
+                `/api/mythic-planner/manage/?resources=${resources.join(',')}`,
+            );
+            mergeSnapshot(payload.data, resources);
             renderAll();
             if (!quiet) toast('大秘境规划器数据已刷新。');
         } catch (error) {
@@ -393,7 +438,11 @@
             ? [active.game_version, active.season].filter(Boolean).join(' · ') || `版本 key：${active.key}`
             : '运行初始化命令或导入数据包';
         Object.keys(RESOURCE_CONFIG).forEach((resource) => {
-            const count = state.snapshot?.[resource]?.length || 0;
+            const count = (
+                state.snapshot?.counts?.[resource]
+                ?? state.snapshot?.[resource]?.length
+                ?? 0
+            );
             const counter = $(`#count-${resource}`);
             if (counter) counter.textContent = String(count);
         });
@@ -439,7 +488,28 @@
         }
         if (!showInactive) rows = rows.filter((row) => row.is_active !== false);
         if (search) {
-            rows = rows.filter((row) => JSON.stringify(row).toLowerCase().includes(search));
+            rows = rows.filter((row) => {
+                const relatedRows = [
+                    dungeonForRow(state.resource, row),
+                    versionForRow(state.resource, row),
+                ];
+                if (state.resource === 'spawns') {
+                    relatedRows.push(
+                        rowBy('enemies', row.enemy_id),
+                        rowBy('floors', row.floor_id),
+                    );
+                }
+                if (state.resource === 'abilities') {
+                    relatedRows.push(rowBy('enemies', row.enemy_id));
+                }
+                return [row, ...relatedRows]
+                    .filter(Boolean)
+                    .some(
+                        (item) => JSON.stringify(item)
+                            .toLowerCase()
+                            .includes(search),
+                    );
+            });
         }
         return rows;
     }
@@ -522,6 +592,11 @@
         if (key === 'floor_name') return escapeHtml(displayName(rowBy('floors', row.floor_id)));
         if (key === 'map_size') return `${Number(row.map_width || 0)} × ${Number(row.map_height || 0)}`;
         if (key === 'position') return `${Number(row.x || 0).toFixed(1)}, ${Number(row.y || 0).toFixed(1)}`;
+        if (key === 'position_source') {
+            return row.is_position_manual
+                ? '<span class="mp-admin-status is-manual">人工锁定</span>'
+                : '<span class="mp-admin-status is-active">上游导入</span>';
+        }
         if (key === 'level_range') return `${row.min_dungeon_level} – ${row.max_dungeon_level}`;
         if (key === 'is_active') return `<span class="mp-admin-status ${row.is_active ? 'is-active' : ''}">${row.is_active ? '启用' : '停用'}</span>`;
         if (key === 'is_boss') return row.is_boss ? '首领' : '普通怪物';
@@ -666,9 +741,13 @@
                 : '/api/mythic-planner/manage/';
             const payload = await request(url, {
                 method: state.editingId ? 'PATCH' : 'POST',
-                body: JSON.stringify({resource: state.resource, data}),
+                body: JSON.stringify({
+                    resource: state.resource,
+                    snapshot_resources: snapshotResources(),
+                    data,
+                }),
             });
-            state.snapshot = payload.snapshot;
+            mergeSnapshot(payload.snapshot, snapshotResources());
             closeEditor();
             renderAll();
             toast(`${config.singular}已保存。`);
@@ -684,9 +763,12 @@
         try {
             const payload = await request(`/api/mythic-planner/manage/${id}/`, {
                 method: 'DELETE',
-                body: JSON.stringify({resource: state.resource}),
+                body: JSON.stringify({
+                    resource: state.resource,
+                    snapshot_resources: snapshotResources(),
+                }),
             });
-            state.snapshot = payload.snapshot;
+            mergeSnapshot(payload.snapshot, snapshotResources());
             renderAll();
             toast(`${config.singular}已停用。`);
         } catch (error) {
@@ -859,6 +941,7 @@
                 method: 'POST',
                 body: JSON.stringify({
                     resource: 'import',
+                    snapshot_resources: snapshotResources(),
                     data: {
                         payload: parsed,
                         activate: els.importActivate.checked,
@@ -866,7 +949,7 @@
                     },
                 }),
             });
-            state.snapshot = payload.snapshot;
+            mergeSnapshot(payload.snapshot, snapshotResources());
             closeImport();
             renderAll();
             toast(`数据包 ${payload.data.version_key} 导入完成：新增 ${payload.data.created}，更新 ${payload.data.updated}。`);
@@ -991,7 +1074,12 @@
             const url = new URL(window.location.href);
             url.searchParams.set('resource', state.resource);
             window.history.replaceState({}, '', url);
-            renderAll();
+            const resources = snapshotResources();
+            if (resources.every((resource) => state.loadedResources.has(resource))) {
+                renderAll();
+            } else {
+                loadSnapshot({quiet: true, resources});
+            }
         });
         els.addResource.addEventListener('click', () => openEditor());
         els.versionFilter.addEventListener('change', () => { renderFilters(); renderResource(); });

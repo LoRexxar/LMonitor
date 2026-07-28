@@ -34,6 +34,7 @@ class DashboardMythicPlannerView(View):
             title='MDT 数据与配置',
             page_name='mythic-planner',
             include_stats=False,
+            include_table_counts=False,
         )
         return render(request, 'dashboard/mythic_planner.html', context)
 
@@ -46,5 +47,19 @@ class DashboardMythicPlannerRoutesView(DashboardMythicPlannerView):
             title='账号路线 / MDT 字符串',
             page_name='mythic-planner-routes',
             include_stats=False,
+            include_table_counts=False,
         )
         return render(request, 'dashboard/mythic_planner_routes.html', context)
+
+
+class DashboardMythicPlannerPositionsView(DashboardMythicPlannerView):
+    """怪物刷新点的独立可视化维护页。"""
+
+    def get(self, request):
+        context = DashboardView().get_context_data(
+            title='地图点位编辑',
+            page_name='mythic-planner-positions',
+            include_stats=False,
+            include_table_counts=False,
+        )
+        return render(request, 'dashboard/mythic_planner_positions.html', context)

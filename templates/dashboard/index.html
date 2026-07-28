@@ -298,13 +298,17 @@
         }
     </style>
     {% block dashboard_extra_head %}{% endblock %}
+    {% if page_name == 'dashboard' %}
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>window.SIMC_APL_EDITOR_MODULE_URL = "{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260727b";</script>
     <script src="{% static 'dashboard/js/main.js' %}?v=20260728e"></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260727a"></script>
     <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260728b"></script>
+    {% else %}
+    <script src="{% static 'dashboard/js/dashboard_shell.js' %}?v=20260728b" defer></script>
+    {% endif %}
 </head>
-<body class="bg-gray-50 font-sans dashboard-page">
+<body class="bg-gray-50 font-sans dashboard-page" data-dashboard-page="{{ page_name }}">
     <!-- 添加CSRF令牌隐藏字段 -->
     <form id="csrf-form" style="display:none;">
         {% csrf_token %}
@@ -440,6 +444,12 @@
                                 <a href="/dashboard/mythic-planner/" class="block px-3 py-2 text-sm rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200 {% if page_name == 'mythic-planner' %}bg-blue-50 text-blue-700 font-semibold{% else %}text-gray-600{% endif %}">
                                     <i class="fas fa-database mr-2 text-xs"></i>
                                     数据与配置
+                                </a>
+                            </li>
+                            <li>
+                                <a href="/dashboard/mythic-planner/positions/" class="block px-3 py-2 text-sm rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200 {% if page_name == 'mythic-planner-positions' %}bg-blue-50 text-blue-700 font-semibold{% else %}text-gray-600{% endif %}">
+                                    <i class="fas fa-map-location-dot mr-2 text-xs"></i>
+                                    地图点位编辑
                                 </a>
                             </li>
                             <li>

@@ -5,7 +5,11 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
-from botend.models import MythicDungeonDataVersion, WowSpellSnapshot
+from botend.models import (
+    MythicDungeonDataVersion,
+    MythicDungeonSpell,
+    WowSpellSnapshot,
+)
 from botend.mythic_planner.importer import import_mythic_dungeon_payload
 from botend.mythic_planner.mdt_converter import (
     SOURCE_TAG,
@@ -104,19 +108,90 @@ class Command(BaseCommand):
                 for enemy in dungeon['enemies']
                 for ability in enemy['abilities']
             }
+            existing_version = MythicDungeonDataVersion.objects.filter(
+                key=payload['data_version']['key'],
+            ).first()
+            existing_metadata = (
+                existing_version.metadata
+                if existing_version and isinstance(existing_version.metadata, dict)
+                else {}
+            )
+            snapshot_metadata = (
+                existing_metadata.get('spell_snapshot')
+                if isinstance(existing_metadata.get('spell_snapshot'), dict)
+                else {}
+            )
+            supplement_metadata = payload['data_version']['metadata'].get(
+                'ability_supplement',
+            )
+            supplement_target = (
+                supplement_metadata.get('target')
+                if isinstance(supplement_metadata, dict)
+                and isinstance(supplement_metadata.get('target'), dict)
+                else {}
+            )
+            snapshot_branch = str(
+                snapshot_metadata.get('source_branch')
+                or supplement_target.get('branch')
+                or 'wow'
+            ).strip()
+            snapshot_build = str(
+                snapshot_metadata.get('snapshot_build')
+                or supplement_target.get('game_build')
+                or ''
+            ).strip()
+            snapshot_queryset = WowSpellSnapshot.objects.filter(
+                branch=snapshot_branch,
+                locale='zhCN',
+                spell_id__in=spell_ids,
+            )
+            if snapshot_build:
+                snapshot_queryset = snapshot_queryset.filter(
+                    snapshot_build=snapshot_build,
+                )
             snapshots = {
                 int(row['spell_id']): row
-                for row in WowSpellSnapshot.objects.filter(
-                    branch='wow',
-                    locale='zhCN',
-                    spell_id__in=spell_ids,
-                ).values(
+                for row in snapshot_queryset.values(
                     'spell_id',
                     'name',
                     'name_zh',
                     'description',
                 )
             }
+            version_spell_hits = 0
+            if existing_version:
+                for row in MythicDungeonSpell.objects.filter(
+                    data_version=existing_version,
+                    spell_id__in=spell_ids,
+                    is_active=True,
+                ).values(
+                    'spell_id',
+                    'name',
+                    'name_zh',
+                    'description_zh',
+                ):
+                    spell_id = int(row['spell_id'])
+                    current = dict(snapshots.get(spell_id) or {})
+                    preferred = {
+                        'spell_id': spell_id,
+                        'name': str(row.get('name') or current.get('name') or ''),
+                        'name_zh': str(
+                            row.get('name_zh')
+                            or current.get('name_zh')
+                            or ''
+                        ),
+                        'description': str(
+                            row.get('description_zh')
+                            or current.get('description')
+                            or ''
+                        ),
+                    }
+                    if any(
+                        preferred[field]
+                        for field in ('name', 'name_zh', 'description')
+                    ):
+                        snapshots[spell_id] = preferred
+                        version_spell_hits += 1
             if snapshots:
                 payload = build_payload(
                     source_dir,
@@ -183,7 +258,9 @@ class Command(BaseCommand):
             self.style.SUCCESS(
                 f'MDT 转换完成：地下城 {dungeon_count}，怪物 {enemy_count}，'
                 f'刷新点 {spawn_count}，技能 {ability_count}，'
-                f'本地法术快照命中 {len(snapshots)}，地图 {len(map_manifest)}，'
+                f'本地法术快照 {snapshot_branch}/{snapshot_build or "未限定"} '
+                f'命中 {len(snapshots)}（同版本最终资料 {version_spell_hits}），'
+                f'地图 {len(map_manifest)}，'
                 f'界面贴图 {len(ui_asset_manifest)}。'
             )
         )

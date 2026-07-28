@@ -25,6 +25,7 @@ UI_ASSET_FILES = {
     'triangle.tga': 'triangle.png',
     'line.tga': 'line.png',
 }
+ABILITY_OVERRIDE_RELATIVE_PATH = Path('LMonitor/ability_overrides.json')
 
 MARKER_COLORS = (
     '#d6a84b', '#67b7dc', '#9ac56b', '#c47ae0', '#dc7b6d',
@@ -425,13 +426,103 @@ def _enemy_key(source_enemy, source_index, used_keys):
     return key
 
 
-def _convert_enemies(source_table, locale_zh, spell_snapshots=None):
+def _load_ability_overrides(source_root):
+    source_root = Path(source_root)
+    override_path = source_root / ABILITY_OVERRIDE_RELATIVE_PATH
+    if not override_path.is_file():
+        return {}, {}, None
+    try:
+        raw = json.loads(override_path.read_text(encoding='utf-8'))
+    except json.JSONDecodeError as exc:
+        raise LuaParseError(f'技能补充表不是有效 JSON：{override_path}。') from exc
+    if not isinstance(raw, dict) or raw.get('schema_version') != 1:
+        raise LuaParseError('技能补充表 schema_version 必须为 1。')
+    target = raw.get('target')
+    if not isinstance(target, dict):
+        raise LuaParseError('技能补充表缺少 target。')
+    if target.get('source_tag') != SOURCE_TAG:
+        raise LuaParseError(
+            f'技能补充表目标标签 {target.get("source_tag")!r} 与 {SOURCE_TAG!r} 不一致。'
+        )
+    if target.get('source_commit') != SOURCE_COMMIT:
+        raise LuaParseError('技能补充表目标提交与固定 MDT 快照不一致。')
+
+    raw_dungeons = raw.get('dungeons')
+    if not isinstance(raw_dungeons, dict):
+        raise LuaParseError('技能补充表 dungeons 必须为对象。')
+    normalized = {}
+    for dungeon_key, dungeon_data in raw_dungeons.items():
+        if not isinstance(dungeon_data, dict) or not isinstance(
+            dungeon_data.get('enemies'),
+            dict,
+        ):
+            raise LuaParseError(f'技能补充表地下城 {dungeon_key!r} 缺少 enemies 对象。')
+        enemies = {}
+        for raw_npc_id, raw_spell_ids in dungeon_data['enemies'].items():
+            try:
+                npc_id = int(raw_npc_id)
+            except (TypeError, ValueError) as exc:
+                raise LuaParseError(
+                    f'技能补充表地下城 {dungeon_key!r} 包含无效 NPC ID。'
+                ) from exc
+            if npc_id <= 0 or not isinstance(raw_spell_ids, list) or not raw_spell_ids:
+                raise LuaParseError(
+                    f'技能补充表 NPC {npc_id} 的技能列表必须为非空数组。'
+                )
+            spell_ids = []
+            for raw_spell_id in raw_spell_ids:
+                try:
+                    spell_id = int(raw_spell_id)
+                except (TypeError, ValueError) as exc:
+                    raise LuaParseError(
+                        f'技能补充表 NPC {npc_id} 包含无效技能 ID。'
+                    ) from exc
+                if spell_id <= 0:
+                    raise LuaParseError(f'技能补充表 NPC {npc_id} 的技能 ID 必须大于 0。')
+                spell_ids.append(spell_id)
+            if len(spell_ids) != len(set(spell_ids)):
+                raise LuaParseError(f'技能补充表 NPC {npc_id} 包含重复技能 ID。')
+            enemies[npc_id] = sorted(spell_ids)
+        normalized[str(dungeon_key)] = enemies
+
+    raw_descriptions = raw.get('spell_descriptions_zh', {})
+    if not isinstance(raw_descriptions, dict):
+        raise LuaParseError('技能补充表 spell_descriptions_zh 必须为对象。')
+    spell_descriptions_zh = {}
+    for raw_spell_id, raw_description in raw_descriptions.items():
+        try:
+            spell_id = int(raw_spell_id)
+        except (TypeError, ValueError) as exc:
+            raise LuaParseError('技能补充表包含无效的说明技能 ID。') from exc
+        description = str(raw_description or '').strip()
+        if spell_id <= 0 or not description:
+            raise LuaParseError('技能补充表的简中技能说明不能为空。')
+        spell_descriptions_zh[spell_id] = description
+
+    metadata = {
+        'relative_path': ABILITY_OVERRIDE_RELATIVE_PATH.as_posix(),
+        'target': target,
+        'sources': raw.get('sources', []),
+        'notes_zh': str(raw.get('notes_zh') or ''),
+    }
+    return normalized, spell_descriptions_zh, metadata
+
+
+def _convert_enemies(
+    source_table,
+    locale_zh,
+    spell_snapshots=None,
+    ability_overrides=None,
+):
     enemies = []
     used_keys = set()
+    ability_overrides = ability_overrides or {}
+    seen_override_npc_ids = set()
     for source_index, source_enemy in enumerate(_ordered_values(source_table), start=1):
         if not isinstance(source_enemy, dict):
             continue
         key = _enemy_key(source_enemy, source_index, used_keys)
+        npc_id = int(source_enemy.get('id') or 0)
         source_name = str(source_enemy.get('name') or f'Enemy {source_index}')
         characteristics = (
             source_enemy.get('characteristics')
@@ -448,6 +539,14 @@ def _convert_enemies(source_table, locale_zh, spell_snapshots=None):
             if isinstance(source_enemy.get('spells'), dict)
             else {}
         )
+        ability_source = 'MythicDungeonTools'
+        if npc_id in ability_overrides:
+            source_spells = {
+                spell_id: {}
+                for spell_id in ability_overrides[npc_id]
+            }
+            seen_override_npc_ids.add(npc_id)
+            ability_source = 'LMonitorAbilitySupplement'
         for ability_order, (spell_id, flags) in enumerate(
             sorted(source_spells.items(), key=lambda item: int(item[0])),
             start=1,
@@ -473,7 +572,7 @@ def _convert_enemies(source_table, locale_zh, spell_snapshots=None):
                 'order': ability_order,
                 'metadata': {
                     'source_flags': _json_safe(flags),
-                    'source': 'MythicDungeonTools',
+                    'source': ability_source,
                 },
             })
 
@@ -523,7 +622,7 @@ def _convert_enemies(source_table, locale_zh, spell_snapshots=None):
 
         enemies.append({
             'key': key,
-            'npc_id': int(source_enemy.get('id') or 0) or None,
+            'npc_id': npc_id or None,
             'name': source_name,
             'name_zh': locale_zh.get(source_name, ''),
             'enemy_forces': int(source_enemy.get('count') or 0),
@@ -543,6 +642,13 @@ def _convert_enemies(source_table, locale_zh, spell_snapshots=None):
                 'source_characteristics': _json_safe(characteristics),
             },
         })
+    unknown_npc_ids = sorted(set(ability_overrides) - seen_override_npc_ids)
+    if unknown_npc_ids:
+        raise LuaParseError(
+            '技能补充表包含当前地下城不存在的 NPC：'
+            + '、'.join(str(npc_id) for npc_id in unknown_npc_ids)
+            + '。'
+        )
     return enemies
 
 
@@ -559,6 +665,9 @@ def _source_digest(source_root):
     relative_paths.extend(
         sorted(path.relative_to(source_root) for path in (source_root / 'Midnight').glob('*.lua'))
     )
+    override_path = source_root / ABILITY_OVERRIDE_RELATIVE_PATH
+    if override_path.is_file():
+        relative_paths.append(ABILITY_OVERRIDE_RELATIVE_PATH)
     for relative_path in relative_paths:
         digest.update(relative_path.as_posix().encode('utf-8'))
         digest.update(b'\0')
@@ -601,6 +710,19 @@ def build_payload(source_root, *, version_key=None, spell_snapshots=None):
     locale_en = _load_locale(source_root / 'Locales' / 'enUS.lua')
     locale_zh = _load_locale(source_root / 'Locales' / 'zhCN.lua')
     selection_groups = _load_selection_groups(source_root, locale_zh)
+    (
+        ability_overrides,
+        spell_descriptions_zh,
+        ability_override_metadata,
+    ) = _load_ability_overrides(source_root)
+    effective_spell_snapshots = {
+        int(spell_id): dict(snapshot)
+        for spell_id, snapshot in (spell_snapshots or {}).items()
+    }
+    for spell_id, description_zh in spell_descriptions_zh.items():
+        snapshot = dict(effective_spell_snapshots.get(spell_id) or {})
+        snapshot['description'] = description_zh
+        effective_spell_snapshots[spell_id] = snapshot
     group_memberships = {}
     for group in selection_groups:
         for dungeon_order, dungeon_index in enumerate(group['dungeon_indexes'], start=1):
@@ -699,7 +821,8 @@ def build_payload(source_root, *, version_key=None, spell_snapshots=None):
             'enemies': _convert_enemies(
                 source_enemies,
                 locale_zh,
-                spell_snapshots=spell_snapshots,
+                spell_snapshots=effective_spell_snapshots,
+                ability_overrides=ability_overrides.get(dungeon_key),
             ),
         })
 
@@ -714,8 +837,8 @@ def build_payload(source_root, *, version_key=None, spell_snapshots=None):
             'source_reference': SOURCE_URL,
             'notes': (
                 '由固定上游快照的 Lua 副本数据离线转换生成；地图由原始 15×10 PNG '
-                '切片无损拼接。技能名称在原插件中由魔兽世界客户端 API 提供，未匹配到'
-                '本地法术快照时保留技能 ID。'
+                '切片无损拼接。三个上游暂缺技能表的旧副本使用版本化补充关系；技能名称'
+                '未匹配到本地法术快照时保留技能 ID。'
             ),
             'metadata': {
                 'license': 'GPL-2.0-only',
@@ -726,6 +849,7 @@ def build_payload(source_root, *, version_key=None, spell_snapshots=None):
                 'locale': ['enUS', 'zhCN'],
                 'generated': True,
                 'dungeon_selection_groups': selection_groups,
+                'ability_supplement': ability_override_metadata,
             },
         },
         'dungeons': dungeons,

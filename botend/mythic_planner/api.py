@@ -385,39 +385,125 @@ def _management_route(row, owner=None, include_payload=False):
     return result
 
 
-def management_snapshot():
-    versions = list(MythicDungeonDataVersion.objects.all())
-    dungeons = list(MythicDungeon.objects.select_related('data_version').all())
+def management_snapshot(resources=None, dungeon_id=None):
+    if resources is None:
+        requested_resources = None
+    elif isinstance(resources, str):
+        requested_resources = {
+            item.strip()
+            for item in resources.split(',')
+            if item.strip()
+        }
+    else:
+        requested_resources = {
+            str(item).strip()
+            for item in resources
+            if str(item).strip()
+        }
+
+    def wants(resource):
+        return requested_resources is None or resource in requested_resources
+
+    try:
+        dungeon_filter_id = int(dungeon_id) if dungeon_id not in (None, '') else None
+    except (TypeError, ValueError):
+        dungeon_filter_id = None
+
+    versions = (
+        list(MythicDungeonDataVersion.objects.all())
+        if wants('versions')
+        else []
+    )
+    dungeons = (
+        list(MythicDungeon.objects.select_related('data_version').all())
+        if wants('dungeons')
+        else []
+    )
     selection_groups = list(
         MythicDungeonSelectionGroup.objects.select_related('data_version').all()
-    )
+    ) if wants('selection_groups') else []
     selection_memberships = list(
         MythicDungeonSelectionMembership.objects.select_related(
             'selection_group',
             'dungeon',
         ).all()
+    ) if wants('selection_memberships') else []
+    floor_query = MythicDungeonFloor.objects.select_related('dungeon')
+    enemy_query = MythicDungeonEnemy.objects.select_related('dungeon')
+    if dungeon_filter_id:
+        floor_query = floor_query.filter(dungeon_id=dungeon_filter_id)
+        enemy_query = enemy_query.filter(dungeon_id=dungeon_filter_id)
+    floors = list(floor_query.all()) if wants('floors') else []
+    enemies = list(enemy_query.all()) if wants('enemies') else []
+    spells = (
+        list(MythicDungeonSpell.objects.select_related('data_version').all())
+        if wants('spells')
+        else []
     )
-    floors = list(MythicDungeonFloor.objects.select_related('dungeon').all())
-    enemies = list(MythicDungeonEnemy.objects.select_related('dungeon').all())
-    spells = list(MythicDungeonSpell.objects.select_related('data_version').all())
     abilities = list(
         MythicDungeonAbility.objects.select_related('enemy', 'spell_record').all()
-    )
-    spawns = list(MythicDungeonSpawn.objects.select_related('enemy', 'floor').all())
-    pois = list(MythicDungeonPoi.objects.select_related('floor').all())
+    ) if wants('abilities') else []
+    spawn_query = MythicDungeonSpawn.objects.select_related('enemy', 'floor')
+    poi_query = MythicDungeonPoi.objects.select_related('floor')
+    if dungeon_filter_id:
+        spawn_query = spawn_query.filter(enemy__dungeon_id=dungeon_filter_id)
+        poi_query = poi_query.filter(floor__dungeon_id=dungeon_filter_id)
+    spawns = list(spawn_query.all()) if wants('spawns') else []
+    pois = list(poi_query.all()) if wants('pois') else []
     routes = list(
         MythicDungeonRoute.objects.select_related(
             'dungeon',
             'dungeon__data_version',
         ).all()
-    )
+    ) if wants('routes') else []
     owner_ids = {
         row.owner_user_id
         for row in routes
         if row.owner_user_id is not None
     }
     owners = get_user_model().objects.in_bulk(owner_ids)
-    configs = list(MythicPlannerConfig.objects.all())
+    configs = (
+        list(MythicPlannerConfig.objects.all())
+        if wants('configs')
+        else []
+    )
+
+    count_models = {
+        'versions': MythicDungeonDataVersion,
+        'dungeons': MythicDungeon,
+        'selection_groups': MythicDungeonSelectionGroup,
+        'selection_memberships': MythicDungeonSelectionMembership,
+        'floors': MythicDungeonFloor,
+        'enemies': MythicDungeonEnemy,
+        'spells': MythicDungeonSpell,
+        'abilities': MythicDungeonAbility,
+        'spawns': MythicDungeonSpawn,
+        'pois': MythicDungeonPoi,
+        'routes': MythicDungeonRoute,
+        'configs': MythicPlannerConfig,
+    }
+    loaded_rows = {
+        'versions': versions,
+        'dungeons': dungeons,
+        'selection_groups': selection_groups,
+        'selection_memberships': selection_memberships,
+        'floors': floors,
+        'enemies': enemies,
+        'spells': spells,
+        'abilities': abilities,
+        'spawns': spawns,
+        'pois': pois,
+        'routes': routes,
+        'configs': configs,
+    }
+
+    def resource_count(resource):
+        if wants(resource):
+            return len(loaded_rows[resource])
+        if wants('counts'):
+            return count_models[resource].objects.count()
+        return 0
+
     return {
         'versions': [
             {
@@ -561,6 +647,17 @@ def management_snapshot():
                 'patrol': row.patrol or [],
                 'is_active': row.is_active,
                 'metadata': row.metadata or {},
+                'is_position_manual': bool(
+                    (row.metadata or {}).get('manual_position_override')
+                ),
+                'imported_position': (
+                    (row.metadata or {}).get('imported_position')
+                    if isinstance(
+                        (row.metadata or {}).get('imported_position'),
+                        dict,
+                    )
+                    else None
+                ),
             }
             for row in spawns
         ],
@@ -602,17 +699,8 @@ def management_snapshot():
             for row in configs
         ],
         'counts': {
-            'versions': len(versions),
-            'dungeons': len(dungeons),
-            'selection_groups': len(selection_groups),
-            'selection_memberships': len(selection_memberships),
-            'floors': len(floors),
-            'enemies': len(enemies),
-            'spells': len(spells),
-            'abilities': len(abilities),
-            'spawns': len(spawns),
-            'pois': len(pois),
-            'routes': len(routes),
+            resource: resource_count(resource)
+            for resource in count_models
         },
     }
 
@@ -803,7 +891,10 @@ class DashboardMythicPlannerAPIView(View):
                     pk=route.owner_user_id,
                 ).first()
             return success(_management_route(route, owner, include_payload=True))
-        return success(management_snapshot())
+        return success(management_snapshot(
+            request.GET.get('resources'),
+            request.GET.get('dungeon_id'),
+        ))
 
     def post(self, request):
         return self._save(request, object_id=None)
@@ -815,6 +906,8 @@ class DashboardMythicPlannerAPIView(View):
         try:
             body = parse_body(request)
             resource = str(body.get('resource') or '')
+            snapshot_resources = body.get('snapshot_resources')
+            snapshot_dungeon_id = body.get('snapshot_dungeon_id')
             if resource == 'import':
                 import_data = body.get('data')
                 if not isinstance(import_data, dict):
@@ -830,7 +923,13 @@ class DashboardMythicPlannerAPIView(View):
                     activate=bool(import_data.get('activate', False)),
                     replace=bool(import_data.get('replace', False)),
                 )
-                return success(result, snapshot=management_snapshot())
+                return success(
+                    result,
+                    snapshot=management_snapshot(
+                        snapshot_resources,
+                        snapshot_dungeon_id,
+                    ),
+                )
             if resource == 'routes':
                 if not object_id:
                     raise ValueError('用户路线不能通过后台新建。')
@@ -865,7 +964,65 @@ class DashboardMythicPlannerAPIView(View):
                     route.save(update_fields=[*changed_fields, 'updated_at'])
                 return success(
                     {'id': route.id, 'resource': resource},
-                    snapshot=management_snapshot(),
+                    snapshot=management_snapshot(
+                        snapshot_resources,
+                        snapshot_dungeon_id,
+                    ),
+                )
+            if resource == 'spawn_position_reset':
+                if not object_id:
+                    raise ValueError('缺少刷新点 ID。')
+                with transaction.atomic():
+                    spawn = get_object_or_404(
+                        MythicDungeonSpawn.objects.select_related(
+                            'enemy__dungeon',
+                            'floor',
+                        ),
+                        id=object_id,
+                    )
+                    metadata = dict(spawn.metadata or {})
+                    imported_position = metadata.get('imported_position')
+                    if not isinstance(imported_position, dict):
+                        raise ValueError('该刷新点没有可恢复的上游坐标。')
+                    floor_key = str(
+                        imported_position.get('floor_key') or ''
+                    ).strip()
+                    target_floor = (
+                        MythicDungeonFloor.objects.filter(
+                            dungeon=spawn.enemy.dungeon,
+                            key=floor_key,
+                        ).first()
+                    )
+                    if not target_floor:
+                        raise ValueError('上游坐标引用的楼层已经不存在。')
+                    try:
+                        source_x = float(imported_position.get('x'))
+                        source_y = float(imported_position.get('y'))
+                    except (TypeError, ValueError) as exc:
+                        raise ValueError('上游坐标格式无效。') from exc
+                    if not 0 <= source_x <= 100 or not 0 <= source_y <= 100:
+                        raise ValueError('上游坐标超出地图范围。')
+                    spawn.floor = target_floor
+                    spawn.x = source_x
+                    spawn.y = source_y
+                    for key in list(metadata):
+                        if key.startswith('manual_position_'):
+                            metadata.pop(key, None)
+                    spawn.metadata = metadata
+                    spawn.full_clean()
+                    spawn.save(update_fields=[
+                        'floor',
+                        'x',
+                        'y',
+                        'metadata',
+                        'updated_at',
+                    ])
+                return success(
+                    {'id': spawn.id, 'resource': 'spawns', 'restored': True},
+                    snapshot=management_snapshot(
+                        snapshot_resources,
+                        snapshot_dungeon_id,
+                    ),
                 )
             spec = RESOURCE_SPECS.get(resource)
             if not spec:
@@ -876,6 +1033,10 @@ class DashboardMythicPlannerAPIView(View):
             if object_id is None:
                 object_id = body.get('id')
             clean = _coerce_resource_data(spec, data)
+            if resource == 'spawns':
+                for field in ('x', 'y'):
+                    if field in clean and not 0 <= clean[field] <= 100:
+                        raise ValueError(f'{field} 必须在 0 到 100 之间。')
             model = spec['model']
             with transaction.atomic():
                 if resource == 'abilities':
@@ -930,19 +1091,88 @@ class DashboardMythicPlannerAPIView(View):
                     })
                     metadata['manual_override_fields'] = sorted(override_fields)
                     clean['metadata'] = metadata
+                if resource == 'spawns':
+                    existing_spawn = None
+                    if object_id:
+                        existing_spawn = model.objects.filter(
+                            id=object_id,
+                        ).first()
+                    enemy_id = clean.get(
+                        'enemy_id',
+                        getattr(existing_spawn, 'enemy_id', None),
+                    )
+                    floor_id = clean.get(
+                        'floor_id',
+                        getattr(existing_spawn, 'floor_id', None),
+                    )
+                    enemy = get_object_or_404(
+                        MythicDungeonEnemy,
+                        id=enemy_id,
+                    )
+                    floor = get_object_or_404(
+                        MythicDungeonFloor,
+                        id=floor_id,
+                    )
+                    if enemy.dungeon_id != floor.dungeon_id:
+                        raise ValueError('关联怪物和楼层必须属于同一个地下城。')
                 if object_id:
                     row = get_object_or_404(model, id=object_id)
+                    if resource == 'spawns' and {
+                        'x',
+                        'y',
+                        'floor_id',
+                    }.intersection(data):
+                        metadata = dict(row.metadata or {})
+                        if isinstance(clean.get('metadata'), dict):
+                            metadata.update(clean['metadata'])
+                        if not isinstance(
+                            metadata.get('imported_position'),
+                            dict,
+                        ):
+                            metadata['imported_position'] = {
+                                'floor_key': row.floor.key,
+                                'x': row.x,
+                                'y': row.y,
+                            }
+                        metadata.update({
+                            'manual_position_override': True,
+                            'manual_position_updated_at': (
+                                timezone.now().isoformat()
+                            ),
+                            'manual_position_updated_by_user_id': (
+                                request.user.id
+                            ),
+                        })
+                        clean['metadata'] = metadata
                     for field, value in clean.items():
                         setattr(row, field, value)
                 else:
                     row = model(**clean)
+                    if isinstance(row, MythicDungeonSpawn):
+                        metadata = dict(row.metadata or {})
+                        metadata.update({
+                            'manual_position_override': True,
+                            'manual_position_updated_at': (
+                                timezone.now().isoformat()
+                            ),
+                            'manual_position_updated_by_user_id': (
+                                request.user.id
+                            ),
+                        })
+                        row.metadata = metadata
                 if isinstance(row, MythicPlannerConfig):
                     row.updated_by_user_id = request.user.id
                 row.full_clean()
                 row.save()
                 if isinstance(row, MythicDungeonDataVersion) and row.is_active:
                     MythicDungeonDataVersion.objects.exclude(id=row.id).filter(is_active=True).update(is_active=False)
-            return success({'id': row.id, 'resource': resource}, snapshot=management_snapshot())
+            return success(
+                {'id': row.id, 'resource': resource},
+                snapshot=management_snapshot(
+                    snapshot_resources,
+                    snapshot_dungeon_id,
+                ),
+            )
         except (TypeError, ValueError, ValidationError) as exc:
             if isinstance(exc, ValidationError):
                 message = '；'.join(
@@ -957,6 +1187,8 @@ class DashboardMythicPlannerAPIView(View):
         try:
             body = parse_body(request)
             resource = str(body.get('resource') or '')
+            snapshot_resources = body.get('snapshot_resources')
+            snapshot_dungeon_id = body.get('snapshot_dungeon_id')
             spec = RESOURCE_SPECS.get(resource)
             if not spec or resource == 'configs':
                 raise ValueError('该资源不能停用。')
@@ -970,6 +1202,12 @@ class DashboardMythicPlannerAPIView(View):
             if isinstance(row, MythicDungeonDataVersion):
                 row.imported_at = row.imported_at or timezone.now()
             row.save(update_fields=['is_active', 'updated_at'])
-            return success({'id': row.id, 'resource': resource, 'archived': True}, snapshot=management_snapshot())
+            return success(
+                {'id': row.id, 'resource': resource, 'archived': True},
+                snapshot=management_snapshot(
+                    snapshot_resources,
+                    snapshot_dungeon_id,
+                ),
+            )
         except (TypeError, ValueError) as exc:
             return error(exc)

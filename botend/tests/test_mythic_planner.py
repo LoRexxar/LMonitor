@@ -293,6 +293,88 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             for enemy in murder_row['enemies']
             for spawn in enemy['spawns']
         ))
+        ability_supplement = payload['data_version']['metadata']['ability_supplement']
+        self.assertEqual(ability_supplement['target']['branch'], 'wowt')
+        self.assertEqual(ability_supplement['target']['game_build'], '12.1.0.68914')
+        self.assertEqual(
+            ability_supplement['relative_path'],
+            'LMonitor/ability_overrides.json',
+        )
+        expected_ability_counts = {
+            'ruby-life-pools': 93,
+            'temple-of-sethraliss': 108,
+            'kings-rest': 77,
+        }
+        excluded_non_dungeon_spells = {
+            181089,
+            205276,
+            209859,
+            224729,
+            228318,
+            240443,
+            260792,
+            277242,
+            277485,
+            277564,
+            288865,
+            317898,
+            346202,
+            454782,
+        }
+        for dungeon_key, expected_count in expected_ability_counts.items():
+            dungeon = next(
+                row for row in payload['dungeons'] if row['key'] == dungeon_key
+            )
+            abilities = [
+                ability
+                for enemy in dungeon['enemies']
+                for ability in enemy['abilities']
+            ]
+            self.assertEqual(len(abilities), expected_count, dungeon_key)
+            self.assertTrue(all(
+                ability['metadata']['source'] == 'LMonitorAbilitySupplement'
+                for ability in abilities
+            ))
+            self.assertFalse(
+                excluded_non_dungeon_spells
+                & {ability['spell_id'] for ability in abilities},
+                dungeon_key,
+            )
+
+        temple = next(
+            row
+            for row in payload['dungeons']
+            if row['key'] == 'temple-of-sethraliss'
+        )
+        tormentor = next(
+            enemy for enemy in temple['enemies'] if enemy['npc_id'] == 268317
+        )
+        self.assertEqual(
+            [ability['spell_id'] for ability in tormentor['abilities']],
+            [1300714],
+        )
+        kings_rest = next(
+            row for row in payload['dungeons'] if row['key'] == 'kings-rest'
+        )
+        shadow_barrage = next(
+            ability
+            for enemy in kings_rest['enemies']
+            for ability in enemy['abilities']
+            if ability['spell_id'] == 272388
+        )
+        self.assertEqual(
+            shadow_barrage['description_zh'],
+            '对一名敌人造成3495点暗影伤害。\n'
+            '每2秒对一名敌人造成2330点暗影伤害，持续8秒。',
+        )
+        self.assertEqual(
+            sum(
+                len(enemy['abilities'])
+                for dungeon in payload['dungeons']
+                for enemy in dungeon['enemies']
+            ),
+            1648,
+        )
 
     def test_lua_parser_does_not_execute_identifiers_or_function_calls(self):
         with self.assertRaises(LuaParseError):
@@ -327,6 +409,29 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
                 1236731,
             ),
             [1236709],
+        )
+
+    def test_spell_sync_prefers_chinese_db2_text_over_english_tooltip(self):
+        self.assertEqual(
+            SyncMythicDungeonSpellsCommand._localized_description(
+                'Inflicts 3789 Shadow damage to an enemy.',
+                '对一名敌人造成3789点暗影伤害。',
+            ),
+            '对一名敌人造成3789点暗影伤害。',
+        )
+        self.assertEqual(
+            SyncMythicDungeonSpellsCommand._localized_description(
+                '召唤一个原始雷云协助施法者战斗。',
+                'DB2 说明',
+            ),
+            '召唤一个原始雷云协助施法者战斗。',
+        )
+        self.assertEqual(
+            SyncMythicDungeonSpellsCommand._localized_description(
+                'English fallback',
+                '',
+            ),
+            'English fallback',
         )
 
 
@@ -532,6 +637,10 @@ class MythicPlannerDashboardTests(TestCase):
             self.client.get('/dashboard/mythic-planner/routes/').status_code,
             403,
         )
+        self.assertEqual(
+            self.client.get('/dashboard/mythic-planner/positions/').status_code,
+            403,
+        )
         self.assertEqual(self.client.get('/api/mythic-planner/manage/').status_code, 403)
         self.assertEqual(
             self.client.get('/api/mythic-planner/manage/1/?resource=routes').status_code,
@@ -549,6 +658,10 @@ class MythicPlannerDashboardTests(TestCase):
         self.assertNotContains(page, 'class="mp-admin-header"')
         self.assertNotContains(page, 'data-resource="routes"')
         self.assertNotContains(page, 'id="import-builtin-mdt"')
+        self.assertNotContains(page, 'id="spawn-map-editor"')
+        self.assertContains(page, 'dashboard/js/dashboard_shell.js')
+        self.assertNotContains(page, 'dashboard/js/main.js')
+        self.assertNotContains(page, 'dashboard/js/simc-workbench.js')
         config_html = page.content.decode('utf-8')
         config_link = re.search(
             r'href="/dashboard/mythic-planner/" class="(?P<classes>[^"]+)"',
@@ -556,6 +669,29 @@ class MythicPlannerDashboardTests(TestCase):
         )
         self.assertIsNotNone(config_link)
         self.assertIn('bg-blue-50', config_link.group('classes'))
+        position_page = self.client.get('/dashboard/mythic-planner/positions/')
+        self.assertEqual(position_page.status_code, 200)
+        self.assertContains(position_page, '地图点位编辑')
+        self.assertContains(position_page, 'id="spawn-map-editor"')
+        self.assertContains(position_page, 'id="spawn-map-canvas"')
+        self.assertContains(position_page, 'id="spawn-map-create"')
+        self.assertContains(position_page, 'id="spawn-map-enemy"')
+        self.assertContains(position_page, 'id="spawn-map-group-key"')
+        self.assertContains(position_page, 'id="spawn-map-coordinates"')
+        self.assertContains(position_page, 'id="spawn-map-save"')
+        self.assertContains(position_page, '＋ 开始添加怪物')
+        self.assertContains(position_page, '精确坐标（高级微调）')
+        self.assertContains(position_page, 'id="sidebar"')
+        self.assertContains(position_page, 'class="dashboard-shell')
+        self.assertEqual(position_page.content.count(b'<!DOCTYPE html>'), 1)
+        self.assertNotContains(position_page, 'class="mp-admin-header"')
+        position_html = position_page.content.decode('utf-8')
+        position_link = re.search(
+            r'href="/dashboard/mythic-planner/positions/" class="(?P<classes>[^"]+)"',
+            position_html,
+        )
+        self.assertIsNotNone(position_link)
+        self.assertIn('bg-blue-50', position_link.group('classes'))
         route_page = self.client.get('/dashboard/mythic-planner/routes/')
         self.assertEqual(route_page.status_code, 200)
         self.assertContains(route_page, '账号路线 / MDT 字符串')
@@ -580,6 +716,49 @@ class MythicPlannerDashboardTests(TestCase):
         self.assertEqual(snapshot.json()['data']['counts']['dungeons'], 2)
         self.assertGreater(snapshot.json()['data']['counts']['spells'], 0)
         self.assertTrue(snapshot.json()['data']['abilities'][0]['display_name'])
+
+        scoped_snapshot = self.client.get(
+            '/api/mythic-planner/manage/'
+            '?resources=versions,dungeons,floors,enemies,spawns',
+        )
+        self.assertEqual(scoped_snapshot.status_code, 200)
+        scoped_data = scoped_snapshot.json()['data']
+        self.assertEqual(scoped_data['spells'], [])
+        self.assertEqual(scoped_data['abilities'], [])
+        self.assertEqual(scoped_data['routes'], [])
+        self.assertGreater(len(scoped_data['spawns']), 0)
+        self.assertLess(len(scoped_snapshot.content), len(snapshot.content))
+
+        dungeon_id = scoped_data['dungeons'][0]['id']
+        dungeon_snapshot = self.client.get(
+            '/api/mythic-planner/manage/'
+            f'?resources=floors,enemies,spawns&dungeon_id={dungeon_id}',
+        )
+        self.assertEqual(dungeon_snapshot.status_code, 200)
+        dungeon_data = dungeon_snapshot.json()['data']
+        self.assertTrue(dungeon_data['floors'])
+        self.assertTrue(dungeon_data['enemies'])
+        enemy_ids = {row['id'] for row in dungeon_data['enemies']}
+        self.assertTrue(all(
+            row['dungeon_id'] == dungeon_id
+            for row in dungeon_data['floors']
+        ))
+        self.assertTrue(all(
+            row['dungeon_id'] == dungeon_id
+            for row in dungeon_data['enemies']
+        ))
+        self.assertTrue(all(
+            row['enemy_id'] in enemy_ids
+            for row in dungeon_data['spawns']
+        ))
+        self.assertLess(
+            len(dungeon_snapshot.content),
+            len(scoped_snapshot.content),
+        )
+
+        dashboard_home = self.client.get('/dashboard/')
+        self.assertContains(dashboard_home, 'dashboard/js/main.js')
+        self.assertNotContains(dashboard_home, 'dashboard/js/dashboard_shell.js')
 
     def test_planner_frontend_does_not_expose_management_entry(self):
         anonymous = self.client.get('/portal/mythic-planner/')
@@ -732,6 +911,177 @@ class MythicPlannerDashboardTests(TestCase):
         self.assertTrue(MythicDungeonDataVersion.objects.get(key='lmonitor-demo-2').is_active)
         self.assertFalse(MythicDungeonDataVersion.objects.get(key='lmonitor-demo-1').is_active)
 
+    def test_staff_can_lock_restore_and_reimport_spawn_position(self):
+        self.client.force_login(self.staff)
+        spawn = MythicDungeonSpawn.objects.select_related(
+            'enemy__dungeon',
+            'floor',
+        ).get(
+            enemy__dungeon__key='gloamvault',
+            enemy__key='vault-guardian',
+            key='guardian-01',
+        )
+        original_position = {
+            'floor_key': spawn.floor.key,
+            'x': spawn.x,
+            'y': spawn.y,
+        }
+
+        patched = self.client.patch(
+            f'/api/mythic-planner/manage/{spawn.id}/',
+            data=json.dumps({
+                'resource': 'spawns',
+                'data': {
+                    'floor_id': spawn.floor_id,
+                    'x': 42.25,
+                    'y': 63.75,
+                },
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(patched.status_code, 200, patched.content)
+        spawn.refresh_from_db()
+        self.assertEqual(spawn.x, 42.25)
+        self.assertEqual(spawn.y, 63.75)
+        self.assertTrue(spawn.metadata['manual_position_override'])
+        self.assertEqual(spawn.metadata['imported_position'], original_position)
+        returned = next(
+            row
+            for row in patched.json()['snapshot']['spawns']
+            if row['id'] == spawn.id
+        )
+        self.assertTrue(returned['is_position_manual'])
+        self.assertEqual(returned['imported_position'], original_position)
+
+        updated_payload = demo_payload()
+        source_spawn = next(
+            spawn_data
+            for dungeon_data in updated_payload['dungeons']
+            if dungeon_data['key'] == 'gloamvault'
+            for enemy_data in dungeon_data['enemies']
+            if enemy_data['key'] == 'vault-guardian'
+            for spawn_data in enemy_data['spawns']
+            if spawn_data['key'] == 'guardian-01'
+        )
+        source_spawn['x'] = 81.5
+        source_spawn['y'] = 27.25
+        import_mythic_dungeon_payload(updated_payload, activate=True)
+        spawn.refresh_from_db()
+        self.assertEqual(spawn.x, 42.25)
+        self.assertEqual(spawn.y, 63.75)
+        self.assertEqual(
+            spawn.metadata['imported_position'],
+            {
+                'floor_key': original_position['floor_key'],
+                'x': 81.5,
+                'y': 27.25,
+            },
+        )
+
+        restored = self.client.patch(
+            f'/api/mythic-planner/manage/{spawn.id}/',
+            data=json.dumps({'resource': 'spawn_position_reset'}),
+            content_type='application/json',
+        )
+        self.assertEqual(restored.status_code, 200, restored.content)
+        spawn.refresh_from_db()
+        self.assertEqual(spawn.x, 81.5)
+        self.assertEqual(spawn.y, 27.25)
+        self.assertNotIn('manual_position_override', spawn.metadata)
+        reset_row = next(
+            row
+            for row in restored.json()['snapshot']['spawns']
+            if row['id'] == spawn.id
+        )
+        self.assertFalse(reset_row['is_position_manual'])
+
+    def test_spawn_position_rejects_coordinates_outside_map(self):
+        self.client.force_login(self.staff)
+        spawn = MythicDungeonSpawn.objects.first()
+        rejected = self.client.patch(
+            f'/api/mythic-planner/manage/{spawn.id}/',
+            data=json.dumps({
+                'resource': 'spawns',
+                'data': {'x': 100.1, 'y': -0.1},
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(rejected.status_code, 400, rejected.content)
+        self.assertIn('必须在 0 到 100 之间', rejected.json()['message'])
+
+    def test_staff_can_create_spawn_and_change_linked_enemy(self):
+        self.client.force_login(self.staff)
+        dungeon = MythicDungeon.objects.get(key='gloamvault')
+        floor = MythicDungeonFloor.objects.filter(dungeon=dungeon).first()
+        enemies = list(
+            MythicDungeonEnemy.objects.filter(dungeon=dungeon).order_by('id')[:2],
+        )
+        self.assertGreaterEqual(len(enemies), 2)
+
+        created = self.client.post(
+            '/api/mythic-planner/manage/',
+            data=json.dumps({
+                'resource': 'spawns',
+                'data': {
+                    'enemy_id': enemies[0].id,
+                    'floor_id': floor.id,
+                    'key': 'manual-linked-spawn',
+                    'x': 32.5,
+                    'y': 47.25,
+                    'group_key': 'manual-pack-a',
+                    'scale': 1.15,
+                    'patrol': [],
+                    'is_active': True,
+                },
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(created.status_code, 200, created.content)
+        spawn = MythicDungeonSpawn.objects.get(
+            enemy=enemies[0],
+            key='manual-linked-spawn',
+        )
+        self.assertTrue(spawn.metadata['manual_position_override'])
+        self.assertEqual(spawn.group_key, 'manual-pack-a')
+
+        relinked = self.client.patch(
+            f'/api/mythic-planner/manage/{spawn.id}/',
+            data=json.dumps({
+                'resource': 'spawns',
+                'data': {
+                    'enemy_id': enemies[1].id,
+                    'floor_id': floor.id,
+                    'key': spawn.key,
+                    'x': spawn.x,
+                    'y': spawn.y,
+                    'group_key': 'manual-pack-b',
+                    'scale': 0.9,
+                    'patrol': [],
+                    'is_active': True,
+                },
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(relinked.status_code, 200, relinked.content)
+        spawn.refresh_from_db()
+        self.assertEqual(spawn.enemy_id, enemies[1].id)
+        self.assertEqual(spawn.group_key, 'manual-pack-b')
+        self.assertEqual(spawn.scale, 0.9)
+
+        other_enemy = MythicDungeonEnemy.objects.exclude(
+            dungeon=dungeon,
+        ).first()
+        rejected = self.client.patch(
+            f'/api/mythic-planner/manage/{spawn.id}/',
+            data=json.dumps({
+                'resource': 'spawns',
+                'data': {'enemy_id': other_enemy.id},
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(rejected.status_code, 400, rejected.content)
+        self.assertIn('必须属于同一个地下城', rejected.json()['message'])
+
     def test_staff_can_edit_shared_spell_library(self):
         self.client.force_login(self.staff)
         spell = MythicDungeonSpell.objects.first()
@@ -865,6 +1215,11 @@ class MythicPlannerPageContractTests(SimpleTestCase):
             'href="/dashboard/mythic-planner/routes/"',
             dashboard_template,
         )
+        self.assertIn(
+            'href="/dashboard/mythic-planner/positions/"',
+            dashboard_template,
+        )
+        self.assertIn('地图点位编辑', dashboard_template)
         self.assertIn('账号路线 / MDT 字符串', dashboard_template)
 
         planner_dashboard_template = (
@@ -879,6 +1234,14 @@ class MythicPlannerPageContractTests(SimpleTestCase):
             planner_dashboard_template,
         )
         self.assertNotIn('data-resource="routes"', planner_dashboard_template)
+
+        position_dashboard_template = (
+            Path(settings.BASE_DIR)
+            / 'templates'
+            / 'dashboard'
+            / 'mythic_planner_positions.html'
+        ).read_text(encoding='utf-8')
+        self.assertIn('dashboard/js/mythic_planner_positions.js', position_dashboard_template)
 
         route_dashboard_template = (
             Path(settings.BASE_DIR)
@@ -907,6 +1270,20 @@ class MythicPlannerPageContractTests(SimpleTestCase):
             / 'dashboard'
             / 'js'
             / 'mythic_planner_routes.js'
+        ).read_text(encoding='utf-8')
+        position_dashboard_js = (
+            Path(settings.BASE_DIR)
+            / 'static'
+            / 'dashboard'
+            / 'js'
+            / 'mythic_planner_positions.js'
+        ).read_text(encoding='utf-8')
+        dashboard_shell_js = (
+            Path(settings.BASE_DIR)
+            / 'static'
+            / 'dashboard'
+            / 'js'
+            / 'dashboard_shell.js'
         ).read_text(encoding='utf-8')
         for token in (
             'toggleSpawn',
@@ -955,6 +1332,41 @@ class MythicPlannerPageContractTests(SimpleTestCase):
             "dungeon_keys: ['dungeon-key']",
         ):
             self.assertIn(token, dashboard_js)
+        for token in (
+            'beginCreate',
+            'beginDrag',
+            'createPositionAt',
+            'nextManualKey',
+            'savePosition',
+            'resetPosition',
+            "resource: 'spawn_position_reset'",
+            "resource: 'spawns'",
+            'spawn-map-enemy',
+            'spawn-map-group-key',
+            'els.coordinates.hidden = creating',
+            'els.save.hidden = creating',
+            'createPositionAt(positionOnMap(event))',
+        ):
+            self.assertIn(token, position_dashboard_js)
+        self.assertIn(
+            "if (state.mode === 'create') {\n"
+            "                createPositionAt(positionOnMap(event));\n"
+            "            }",
+            position_dashboard_js,
+        )
+        for token in (
+            'bindDashboardLinks',
+            'bindSubmenus',
+            'bindMobileSidebar',
+            'bindUserMenu',
+            '/dashboard/?',
+        ):
+            self.assertIn(token, dashboard_shell_js)
+        self.assertIn('POSITION_DIRECTORY_RESOURCES', position_dashboard_js)
+        self.assertIn('POSITION_DUNGEON_RESOURCES', position_dashboard_js)
+        self.assertIn('ROUTE_SNAPSHOT_RESOURCES', route_dashboard_js)
+        self.assertIn('CONFIG_RESOURCE_DEPENDENCIES', dashboard_js)
+        self.assertIn('snapshot_resources', dashboard_js)
         for token in (
             'openRouteDetail',
             'toggleRoutePublic',

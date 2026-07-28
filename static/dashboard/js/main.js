@@ -100,6 +100,8 @@ document.addEventListener('DOMContentLoaded', function() {
             chevron.classList.add('rotate-180');
         }
     }
+
+    activateDashboardLocation();
 });
 
 /**
@@ -295,6 +297,38 @@ function showDashboardSection(sectionId) {
             navItem.click();
         }
     }
+}
+
+/**
+ * 从站内独立子页面返回 Dashboard 时，恢复用户点击的原侧栏目标。
+ */
+function activateDashboardLocation() {
+    const params = new URLSearchParams(window.location.search);
+    const section = params.get('section');
+    const tool = params.get('tool');
+    const table = params.get('table');
+    let target = null;
+
+    if (table) {
+        target = Array.from(document.querySelectorAll('.submenu-item[data-table]'))
+            .find(item => item.dataset.table === table);
+    } else if (tool) {
+        target = Array.from(document.querySelectorAll('.submenu-item[data-tool]'))
+            .find(item => item.dataset.tool === tool);
+    } else if (section) {
+        target = Array.from(document.querySelectorAll('[data-dashboard-section]'))
+            .find(item => item.dataset.dashboardSection === section);
+        if (!target) {
+            target = Array.from(document.querySelectorAll('.nav-item[data-section]'))
+                .find(item => item.dataset.section === section);
+        }
+    }
+    if (!target) return;
+
+    window.requestAnimationFrame(() => {
+        const link = target.querySelector('a');
+        if (link) link.click();
+    });
 }
 
 /**
@@ -5706,7 +5740,7 @@ function initSimcAplConverter() {
     const aplInput = document.getElementById('apl-input');
 
     if (!modeSelect || !switchBtn || !execBtn || !statusText || !sourceLabel || !targetLabel || !clearAllBtn || !copyResultBtn || !simcInput || !aplInput) {
-
+        return;
     }
 
     function setStatus(text, level) {

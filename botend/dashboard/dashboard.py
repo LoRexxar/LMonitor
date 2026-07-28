@@ -182,7 +182,14 @@ class DashboardView(View):
         'SimcBenchmarkExecution', 'SimcBenchmarkCase', 'SimcBenchmarkResult',
     }
 
-    def get_context_data(self, *, title='后台', page_name='dashboard', include_stats=True):
+    def get_context_data(
+        self,
+        *,
+        title='后台',
+        page_name='dashboard',
+        include_stats=True,
+        include_table_counts=True,
+    ):
         """构建可供 Dashboard 主页面和站内子页面复用的统一外壳上下文。"""
         tables_info = []
         models = list(self._get_model_map().values())
@@ -193,10 +200,12 @@ class DashboardView(View):
         ]
         for model in visible_models:
             model_name = model.__name__
-            try:
-                record_count = model.objects.count()
-            except (OperationalError, ProgrammingError):
-                record_count = 0
+            record_count = 0
+            if include_table_counts:
+                try:
+                    record_count = model.objects.count()
+                except (OperationalError, ProgrammingError):
+                    record_count = 0
             total_records += record_count
             tables_info.append({
                 'name': model_name,

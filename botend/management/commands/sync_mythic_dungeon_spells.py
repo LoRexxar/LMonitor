@@ -36,6 +36,7 @@ ICON_PATH_RE = re.compile(
     r'filename&quot;:&quot;([^&]+[.]blp)&quot;',
     re.IGNORECASE,
 )
+CJK_RE = re.compile(r'[\u3400-\u9fff]')
 TABLE_DOWNLOADS = (
     ('SpellName_enUS.csv', 'SpellName', 'enUS'),
     ('SpellName_zhCN.csv', 'SpellName', 'zhCN'),
@@ -596,6 +597,14 @@ class Command(BaseCommand):
         return not text or '$' in text
 
     @staticmethod
+    def _localized_description(tooltip, db2_description):
+        tooltip = str(tooltip or '').strip()
+        db2_description = str(db2_description or '').strip()
+        if CJK_RE.search(tooltip):
+            return tooltip
+        return db2_description or tooltip
+
+    @staticmethod
     def _fetch_wowhead_tooltip(
         spell_id,
         delay,
@@ -706,7 +715,10 @@ class Command(BaseCommand):
         ))
         updated = []
         for record in records:
-            description = wowhead_tooltips.get(record.spell_id)
+            description = self._localized_description(
+                wowhead_tooltips.get(record.spell_id),
+                record.description_zh,
+            )
             if not description:
                 continue
             metadata = dict(record.metadata or {})
@@ -915,9 +927,9 @@ class Command(BaseCommand):
                 else ''
             )
             description = resolver_en.resolve(row.get('description'), spell_id)
-            description_zh = (
-                wowhead_tooltips.get(spell_id)
-                or resolver_zh.resolve(row.get('description_zh'), spell_id)
+            description_zh = self._localized_description(
+                wowhead_tooltips.get(spell_id),
+                resolver_zh.resolve(row.get('description_zh'), spell_id),
             )
             aura_description = resolver_en.resolve(
                 row.get('aura_description'),
