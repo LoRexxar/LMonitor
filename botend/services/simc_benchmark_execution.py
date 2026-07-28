@@ -538,10 +538,44 @@ def _snapshot_layout(execution):
     return layout
 
 
+def _summarize_active_lifecycle(execution):
+    """Project active progress from Case/Task lifecycle without exposing Run results."""
+    cases = list(SimcBenchmarkCase.objects.filter(
+        execution_id=execution.pk,
+    ).select_related('task').order_by('id'))
+    names = ('pending', 'running', 'success', 'partial', 'failed', 'cancelled')
+    counts = {name: 0 for name in names}
+    rows = []
+    for case in cases:
+        status = case.status if case.status in counts else 'failed'
+        counts[status] += 1
+        task = case.task
+        task_status = TASK_STATUS_NAMES.get(task.current_status, 'failed') if task else None
+        rows.append({
+            'spec_key': case.spec_key, 'scenario_key': case.scenario_key,
+            'profile_key': case.profile_key, '_case_id': case.pk,
+            'labels': {'spec': case.spec_label, 'scenario': case.scenario_label,
+                       'profile': case.profile_label},
+            'status': status, 'task_id': case.task_id,
+            'task_status': task_status,
+            'task_status_label': TASK_STATUS_LABELS.get(task_status, '未知'),
+            'task_progress': task_progress(task),
+            'error': None, 'runs': [],
+        })
+    return {
+        'id': execution.pk, 'status': execution.status,
+        'created_at': execution.created_at, 'completed_at': execution.completed_at,
+        'total_cases': len(cases), 'total_runs': 0,
+        **counts,
+        'run_counts': {name: 0 for name in ('pending', 'running', 'success', 'failed', 'cancelled')},
+        'cases': rows,
+    }
+
+
 def _summarize_persisted_execution(execution):
     """Build terminal output solely from Execution/Case/Result aggregate tables."""
     result_qs = SimcBenchmarkResult.objects.order_by('case_id', 'id')
-    cases = list(SimcBenchmarkCase.objects.filter(execution_id=execution.pk).select_related('task').prefetch_related(
+    cases = list(SimcBenchmarkCase.objects.filter(execution_id=execution.pk).prefetch_related(
         Prefetch('results', queryset=result_qs, to_attr='_persisted_results'),
     ).order_by('id'))
     definitions = execution.config_snapshot.get('candidates', []) \
@@ -562,14 +596,12 @@ def _summarize_persisted_execution(execution):
             'labels': {'spec': case.spec_label, 'scenario': case.scenario_label,
                        'profile': case.profile_label},
             'status': case.status,
-            'task_id': case.task_id, 'task_status': (
-                TASK_STATUS_NAMES.get(case.task.current_status, 'failed') if case.task else None
-            ),
-            'task_status_label': (
-                TASK_STATUS_LABELS.get(TASK_STATUS_NAMES.get(case.task.current_status), '未知')
-                if case.task else '失败'
-            ),
-            'task_progress': task_progress(case.task) if case.task else None,
+            # A terminal summary is immutable: expose the frozen Case lifecycle,
+            # never the mutable Task currently referenced by the Case.
+            'task_id': case.task_id,
+            'task_status': case.status,
+            'task_status_label': TASK_STATUS_LABELS.get(case.status, '未知'),
+            'task_progress': 100,
             'error': None, 'runs': run_rows,
         })
     names = ('pending', 'running', 'success', 'partial', 'failed', 'cancelled')
@@ -588,8 +620,13 @@ def _summarize_persisted_execution(execution):
 
 
 def summarize_execution(execution):
-    """Read the durable aggregate only; this function must never touch Task/Run."""
+    """Use live Task/Run state only before finalization; terminal reads are aggregate-only."""
     current = SimcBenchmarkExecution.objects.get(pk=execution.pk)
+    if current.status in (
+        SimcBenchmarkExecution.STATUS_PENDING,
+        SimcBenchmarkExecution.STATUS_RUNNING,
+    ):
+        return _summarize_active_lifecycle(current)
     summary = _summarize_persisted_execution(current)
     layout = _snapshot_layout(current)
     if layout is None:

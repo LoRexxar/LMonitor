@@ -1,4 +1,5 @@
 """TDD API contracts for the staff-only SimC Benchmark Dashboard."""
+import hashlib
 import json
 from unittest.mock import patch
 
@@ -122,6 +123,129 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         panel.refresh_from_db()
         self.assertEqual(panel.created_by_id, self.staff.id)
         self.assertEqual(response.json()['error'], 'validation_error')
+
+    def test_panel_list_and_history_expose_execution_progress_and_metadata_readiness(self):
+        panel = self._create_panel()
+        snapshot = {'version': 2, 'case_count': 4, 'run_count': 4}
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel,
+            config_snapshot=snapshot,
+            config_hash=hashlib.sha256(json.dumps(
+                snapshot, sort_keys=True, separators=(',', ':'), ensure_ascii=False,
+            ).encode()).hexdigest(),
+            status='running',
+        )
+        panel.active_execution = execution
+        panel.save(update_fields=['active_execution'])
+        fixtures = (
+            ('success', 2, '{}'),
+            ('failed', 3, '{}'),
+            ('running', 1, json.dumps({'progress': 37})),
+            ('pending', 0, '{}'),
+        )
+        task_ids = []
+        for index, (case_status, task_status, ext) in enumerate(fixtures):
+            task = SimcTask.objects.create(
+                user_id=self.staff.id,
+                name=f'benchmark-progress-{index}',
+                mode='comparison',
+                simc_profile_id=self.profile.id,
+                backend=self.backend,
+                current_status=task_status,
+                ext=ext,
+            )
+            task_ids.append(task.id)
+            SimcBenchmarkCase.objects.create(
+                execution=execution,
+                task=task,
+                status=case_status,
+                spec_key='warrior_fury',
+                scenario_key=f'scenario-{index}',
+                profile_key=str(index),
+                spec_label='Fury',
+                scenario_label=f'Scenario {index}',
+                profile_label=f'Profile {index}',
+                coordinate_hash=f'{index + 1:064x}',
+            )
+
+        response = self.client.get('/api/simc-benchmarks/panels/')
+        self.assertEqual(response.status_code, 200)
+        progress = response.json()['data'][0]['execution']
+        self.assertEqual(progress['id'], execution.id)
+        self.assertTrue(progress['is_active'])
+        self.assertEqual(progress['progress'], 59)
+        self.assertEqual(progress['counts'], {
+            'pending': 1, 'running': 1, 'success': 1,
+            'partial': 0, 'failed': 1, 'cancelled': 0,
+        })
+        self.assertEqual(progress['current_cases'], [{
+            'task_id': task_ids[2],
+            'spec': 'Fury', 'scenario': 'Scenario 2', 'profile': 'Profile 2',
+            'progress': 37,
+        }])
+        self.assertEqual(progress['metadata'], {
+            'config_frozen': True,
+            'task_bindings': 4,
+            'task_total': 4,
+            'results_available': False,
+        })
+
+        response = self.client.get(
+            f'/api/simc-benchmarks/panels/{panel.id}/executions/',
+        )
+        history = response.json()['data']['items'][0]
+        self.assertEqual(history['progress'], 59)
+        self.assertEqual(history['counts']['running'], 1)
+        self.assertEqual(history['metadata']['task_bindings'], 4)
+
+    def test_execution_progress_counts_missing_cases_without_claiming_aggregate_available(self):
+        panel = self._create_panel()
+        now = timezone.now()
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel,
+            config_snapshot={'version': 2, 'case_count': 3, 'run_count': 1},
+            config_hash='c' * 64,
+            status='success',
+            completed_at=now,
+            results_finalized_at=now,
+            result_hash='d' * 64,
+        )
+        SimcBenchmarkCase.objects.create(
+            execution=execution,
+            status='success',
+            spec_key='warrior_fury',
+            scenario_key='patchwerk',
+            profile_key=str(self.profile.id),
+            spec_label='Fury',
+            scenario_label='Patchwerk',
+            profile_label='Raid',
+            coordinate_hash='e' * 64,
+        )
+
+        panel_response = self.client.get('/api/simc-benchmarks/panels/')
+        panel_progress = panel_response.json()['data'][0]['execution']
+        self.assertEqual(panel_progress['case_count'], 3)
+        self.assertEqual(panel_progress['progress'], 33)
+        self.assertEqual(panel_progress['counts'], {
+            'pending': 2, 'running': 0, 'success': 1,
+            'partial': 0, 'failed': 0, 'cancelled': 0,
+        })
+        self.assertEqual(panel_progress['metadata'], {
+            'config_frozen': False,
+            'task_bindings': 0,
+            'task_total': 3,
+            'results_available': False,
+        })
+
+        history_response = self.client.get(
+            f'/api/simc-benchmarks/panels/{panel.id}/executions/',
+        )
+        history = history_response.json()['data']['items'][0]
+        self.assertEqual(history['case_count'], 3)
+        self.assertEqual(history['progress'], 33)
+        self.assertEqual(history['counts']['pending'], 2)
+        self.assertFalse(history['metadata']['config_frozen'])
+        self.assertFalse(history['metadata']['results_available'])
 
     def test_body_must_be_valid_json_object_and_errors_are_stable(self):
         for body in (' ', '[]', '{broken'):
