@@ -2257,18 +2257,26 @@ function simcWbToggleProfileForm(mode, profileData) {
         formWrap.querySelector('input[name="battlenet_character"]').value = '';
         formWrap.querySelector('textarea[name="player_equipment"]').value = '';
         formWrap.querySelector('input[name="talent"]').value = '';
-        formWrap.querySelector('input[name="gear_strength"]').value = '0';
-        formWrap.querySelector('input[name="gear_crit"]').value = '8730';
-        formWrap.querySelector('input[name="gear_haste"]').value = '20141';
+        formWrap.querySelector('input[name="gear_strength"]').value = '93330';
+        formWrap.querySelector('input[name="gear_crit"]').value = '10730';
+        formWrap.querySelector('input[name="gear_haste"]').value = '18641';
         formWrap.querySelector('input[name="gear_mastery"]').value = '21785';
-        formWrap.querySelector('input[name="gear_versatility"]').value = '7257';
+        formWrap.querySelector('input[name="gear_versatility"]').value = '6757';
         simcWbAttributeOnlyConfig = null;
     } else {
         simcWbProfileFormEditId = profileData.id;
         formWrap.querySelector('.simc-wb-form-title').textContent = '编辑配置 #' + profileData.id;
         formWrap.querySelector('input[name="name"]').value = profileData.name || '';
         const specSel = formWrap.querySelector('select[name="spec"]');
-        specSel.value = profileData.spec || 'fury';
+        const profileSpec = normalizeSimcSpecKey(profileData.spec || '');
+        specSel.value = profileSpec;
+        if (profileSpec && specSel.value !== profileSpec) {
+            const option = document.createElement('option');
+            option.value = profileSpec;
+            option.textContent = profileSpec;
+            specSel.appendChild(option);
+            specSel.value = profileSpec;
+        }
         const profileMode = getSimcProfileMode(profileData);
         formWrap.querySelector('select[name="player_config_mode"]').value = profileMode;
         formWrap.querySelector('input[name="battlenet_region"]').value = profileData.battlenet_region || '';

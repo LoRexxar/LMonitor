@@ -106,6 +106,22 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('renderSimcProfileDetailDialog', MAIN)
         self.assertIn('raw_player_equipment', MAIN)
 
+    def test_profile_form_normalizes_legacy_spec_and_uses_model_attribute_defaults(self):
+        """编辑旧 class_spec 记录必须选中实际专精；新建默认值与模型保持一致。"""
+        form = MAIN[MAIN.index('function simcWbToggleProfileForm'):MAIN.index('function simcWbCloseProfileForm')]
+        self.assertIn("const profileSpec = normalizeSimcSpecKey(profileData.spec || '');", form)
+        self.assertIn('specSel.value = profileSpec;', form)
+        self.assertIn("gear_strength\"]').value = '93330'", form)
+        self.assertIn("gear_crit\"]').value = '10730'", form)
+        self.assertIn("gear_haste\"]').value = '18641'", form)
+        self.assertIn("gear_mastery\"]').value = '21785'", form)
+        self.assertIn("gear_versatility\"]').value = '6757'", form)
+        self.assertIn('name="gear_strength" type="number" value="93330"', HTML)
+        self.assertIn('name="gear_crit" type="number" value="10730"', HTML)
+        self.assertIn('name="gear_haste" type="number" value="18641"', HTML)
+        self.assertIn('name="gear_versatility" type="number" value="6757"', HTML)
+
+    def test_profile_list_resolves_saved_profile_source_without_refreshing_detail(self):
         resolver = MAIN[
             MAIN.index('async function resolveSimcPlayerSource'):
             MAIN.index('async function onSimcTargetSpecChange')

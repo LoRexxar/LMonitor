@@ -396,7 +396,7 @@ def parse_manual_player_config(player_equipment, spec):
         gem_ids = ([values['gem_id']] if values.get('gem_id') else []) + [x for x in re.split(r'[/;:]', values.get('gems', '')) if x]
         crafted = [CRAFTED_STAT_LABELS.get(value, value) for value in re.split(r'[/;:]', values.get('crafted_stats', '')) if value]
         parsed['equipment'].append({
-            **item, 'slot': slot, 'slot_label': SLOT_LABELS[slot], 'item_level': hint[1] or _number(values.get('ilevel') or values.get('item_level')),
+            **item, 'item_id': item['id'], 'slot': slot, 'slot_label': SLOT_LABELS[slot], 'item_level': hint[1] or _number(values.get('ilevel') or values.get('item_level')),
             'enchant': enchant, 'gems': [_item_meta(gem_id, snapshots) for gem_id in gem_ids],
             'bonus_ids': [value for value in re.split(r'[/;:]', values.get('bonus_id', '') or values.get('bonus_ids', '')) if value],
             'content_tuning': values.get('content_tuning', ''), 'crafted_stats': crafted,

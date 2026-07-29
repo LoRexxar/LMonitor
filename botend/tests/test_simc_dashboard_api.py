@@ -2650,6 +2650,7 @@ class SimcPlayerConfigDetailTests(TestCase):
         self.assertEqual(data['profile']['id'], profile.id)
         self.assertEqual(data['profile']['raw_player_equipment'], profile.player_equipment)
         self.assertEqual(data['equipment'][0]['slot'], 'head')
+        self.assertEqual(data['equipment'][0]['item_id'], 212048)
 
 
     def test_player_config_detail_exposes_only_parsed_comparison_candidates(self):
