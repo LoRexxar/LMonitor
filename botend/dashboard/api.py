@@ -72,7 +72,7 @@ from botend.services.simc_composer import SimcComposer
 from botend.services.simc_apl.completion import complete_document
 from botend.services.simc_apl.translation import (
     extract_translation_demands, resolve_demand_mappings, translate_apl_ranges,
-    CONTROL_ACTIONS,
+    CONTROL_ACTIONS, disambiguate_chinese_labels,
 )
 from django.core.exceptions import PermissionDenied, SuspiciousOperation, ValidationError
 from django.db.models.deletion import ProtectedError
@@ -1027,19 +1027,11 @@ class ConvertTextAPIView(View):
             key: value for key, value in mapping.items()
             if key[0] != 'action' or key[1] not in CONTROL_ACTIONS
         }
-        forward_pairs = []
-        reverse_pairs = []
-        by_cn = {}
-        for (kind, token), chinese in mapping.items():
-            by_cn.setdefault(chinese.casefold(), []).append(token)
-        for (kind, token), chinese in mapping.items():
-            # The editor is a Chinese editing surface. Never append the English
-            # token to a translated name: that produces text which is neither
-            # valid SimC nor convenient to edit. Reverse conversion resolves
-            # an ambiguous Chinese name using the authoritative pair order.
-            rendered = chinese
-            forward_pairs.append((kind, token, rendered))
-            reverse_pairs.append((kind, token, rendered))
+        pairs = disambiguate_chinese_labels(
+            [(kind, token, chinese) for (kind, token), chinese in mapping.items()]
+        )
+        forward_pairs = list(pairs)
+        reverse_pairs = list(pairs)
         return forward_pairs, reverse_pairs
 
 

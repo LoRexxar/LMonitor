@@ -17,6 +17,40 @@ CONTROL_ACTIONS = frozenset({
     "retarget_auto_attack", "cancel_buff",
 })
 
+_DISAMBIGUATION_LABELS = {
+    "damage": "伤害", "heal": "治疗", "healing": "治疗",
+    "buff": "增益", "debuff": "减益", "dot": "持续伤害",
+    "proc": "触发", "trigger": "触发", "main": "主要", "secondary": "次要",
+    "stance": "姿态", "aoe": "范围", "single": "单体", "cleave": "顺劈",
+    "pet": "宠物", "passive": "被动", "active": "主动", "berserker": "狂暴",
+    "fury": "狂暴", "base": "基础", "normal": "普通", "empowered": "强化",
+}
+
+
+def disambiguate_chinese_labels(pairs):
+    """Give duplicate localized names deterministic Chinese semantic labels."""
+    groups = {}
+    for kind, token, chinese in pairs:
+        groups.setdefault((kind, str(chinese).casefold()), []).append((kind, token, chinese))
+    result = []
+    for group in groups.values():
+        group = sorted(group, key=lambda item: (str(item[1]).casefold(), str(item[1])))
+        if len(group) == 1:
+            result.extend(group)
+            continue
+        base = group[0][2]
+        used = set()
+        for index, (kind, token, _chinese) in enumerate(group, start=1):
+            tail = str(token).split('_')[-1]
+            label = _DISAMBIGUATION_LABELS.get(tail) or (
+                "基础" if len(str(token).split('_')) > 1 else f"变体{index}"
+            )
+            if label in used:
+                label = f"变体{index}"
+            used.add(label)
+            result.append((kind, token, f"{base}-{label}"))
+    return result
+
 from .ast import ActionEntry, IdentifierExpression
 from .parser import parse
 from .semantic import analyze

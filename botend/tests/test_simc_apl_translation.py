@@ -2,7 +2,7 @@ from django.test import SimpleTestCase
 
 from botend.services.simc_apl.translation import (
     TranslationDemand, extract_translation_demands, resolve_demand_mappings,
-    translate_apl_ranges,
+    translate_apl_ranges, disambiguate_chinese_labels,
 )
 
 
@@ -47,13 +47,24 @@ class SimcAplTranslationTests(SimpleTestCase):
         result = translate_apl_ranges(source, {
             ('talent', 'killing_streak'): '血性大发',
             ('buff', 'hot_streak'): '炽热连击！',
-            ('talent', 'icy_onslaught'): '冷冽强袭〔icy_onslaught〕',
+            ('talent', 'icy_onslaught'): '冷冽强袭',
         })
         self.assertEqual(
             result,
             "actions+=/spell,if=(talent.血性大发)&buff.炽热连击！.react"
-            "&talent.冷冽强袭〔icy_onslaught〕\n",
+            "&talent.冷冽强袭\n",
         )
+
+    def test_duplicate_chinese_names_get_stable_semantic_chinese_suffixes(self):
+        result = disambiguate_chinese_labels([
+            ('action', 'death_strike', '灵界打击'),
+            ('action', 'death_strike_heal', '灵界打击'),
+        ])
+        self.assertEqual(result, [
+            ('action', 'death_strike', '灵界打击-基础'),
+            ('action', 'death_strike_heal', '灵界打击-治疗'),
+        ])
+        self.assertTrue(all('death_strike' not in chinese for _, _, chinese in result))
 
     def test_invalid_document_is_not_partially_translated(self):
         source = "actions=/bloodthirst,if=(buff.enrage.up\n"

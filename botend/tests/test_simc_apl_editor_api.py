@@ -59,6 +59,7 @@ class SimcAplEditorApiTests(TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response.json()["result"], text)
 
+    @override_settings(SIMC_APL_CURRENT_IDENTITY=('a' * 40, '12.0.5'))
     def test_editor_language_api_converts_the_same_document_in_both_directions(self):
         revision, build = 'a' * 40, '12.0.5'
         SimcBackendBinary.objects.create(platform='linux64', current_version=revision)
@@ -86,6 +87,7 @@ class SimcAplEditorApiTests(TestCase):
         self.assertEqual(authoritative.status_code, 200)
         self.assertEqual(authoritative.json(), {"success": True, "result": apl})
 
+    @override_settings(SIMC_APL_CURRENT_IDENTITY=('a' * 40, '12.0.5'))
     def test_editor_language_api_round_trips_talent_before_arithmetic_operator(self):
         revision, build = 'a' * 40, '12.0.5'
         SimcBackendBinary.objects.create(platform='linux64', current_version=revision)
@@ -119,6 +121,7 @@ class SimcAplEditorApiTests(TestCase):
         self.assertIn('熟能生巧', chinese.json()['result'])
         self.assertEqual(restored.json()['result'], apl)
 
+    @override_settings(SIMC_APL_CURRENT_IDENTITY=('a' * 40, '12.0.5'))
     def test_editor_language_api_disambiguates_shared_chinese_names_reversibly(self):
         revision, build = 'a' * 40, '12.0.5'
         SimcBackendBinary.objects.create(platform='linux64', current_version=revision)
@@ -151,8 +154,8 @@ class SimcAplEditorApiTests(TestCase):
         }), content_type='application/json')
 
         self.assertEqual(translated.json()['result'], (
-            'actions=/灵界打击\n'
-            'actions+=/灵界打击'
+            'actions=/灵界打击-基础\n'
+            'actions+=/灵界打击-治疗'
         ))
         self.assertEqual(restored.json()['result'], apl)
 
