@@ -142,7 +142,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn("key:data.key||''", JS)
         self.assertIn("params:data.params", JS)
         self.assertIn('candidateParams(meta,itemId,itemLevel)', JS)
-        self.assertIn("if(meta.key)candidate.key=meta.key", JS)
+        self.assertIn("if(meta.key)candidate.key=levels.length>1", JS)
 
     def test_create_is_lightweight_and_defers_detailed_fields_to_configuration(self):
         soup = BeautifulSoup(PARTIAL, "html.parser")
@@ -229,10 +229,13 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn(".spec-config-row .config-card-primary", CSS)
         self.assertIn("专精", CSS)
 
-    def test_candidate_cards_only_ask_for_item_id_and_item_level(self):
+    def test_candidate_cards_support_optional_rows_item_lookup_and_multiple_levels(self):
         segment = JS[JS.index('function addCandidate('):JS.index('function localDate(')]
-        self.assertIn("field('装备 ID *','item_id','number'", segment)
-        self.assertIn("field('装等 *','item_level','number'", segment)
+        self.assertIn("field('装备 ID','item_id','number'", segment)
+        self.assertIn("field('装等（逗号分隔多个） *','item_level','text'", segment)
+        self.assertIn('item-lookup/?item_id=', segment)
+        self.assertIn(".split(',').map(x=>x.trim()).filter(Boolean)", JS)
+        self.assertIn("if(!itemId)return []", JS)
         for removed_field in (
             "field('key", "field('label", "field('单条装备行",
             "field('来源标签", "field('图标 URL", 'candidateSpecPicker(',

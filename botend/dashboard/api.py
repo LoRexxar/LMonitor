@@ -32,7 +32,7 @@ from django.template.loader import render_to_string
 
 from django.conf import settings
 from utils.log import logger
-from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcApl, SimcAplSymbol, SimcTask, SimulationRun, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState, WowSpellSnapshot, WowTalentNodeMetadata
+from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcApl, SimcAplSymbol, SimcTask, SimulationRun, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState, WowSpellSnapshot, WowTalentNodeMetadata, WowItemSnapshot
 from botend.alerting import upsert_system_alert
 from django.db import IntegrityError, models, transaction
 from core.glm import GLMClient
@@ -8468,6 +8468,23 @@ class SimcBenchmarkPanelOptionsAPIView(_BenchmarkAdminAPIView):
             'success': True,
             'data': _benchmark_options_payload(panel.created_by_id, 'panel_creator'),
         })
+
+
+class SimcBenchmarkItemLookupAPIView(_BenchmarkAdminAPIView):
+    def get(self, request):
+        raw = (request.GET.get('item_id') or '').strip()
+        if not raw:
+            return JsonResponse({'success': True, 'data': None})
+        if not raw.isdigit() or int(raw) <= 0:
+            return _benchmark_error('item_id 必须是正整数', 400)
+        item = WowItemSnapshot.objects.filter(item_id=int(raw)).first()
+        if item is None:
+            return JsonResponse({'success': True, 'data': None})
+        return JsonResponse({'success': True, 'data': {
+            'item_id': item.item_id,
+            'name': item.name_zh or item.name or f'物品 {item.item_id}',
+            'icon': item.icon or '',
+        }})
 
 
 class SimcBenchmarkPanelDetailAPIView(_BenchmarkAdminAPIView):

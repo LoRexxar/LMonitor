@@ -35,7 +35,7 @@ from botend.dashboard.api import (
     SimcBenchmarkPanelListAPIView, SimcBenchmarkPanelDetailAPIView,
     SimcBenchmarkPanelRunAPIView, SimcBenchmarkPanelExecutionListAPIView,
     SimcBenchmarkExecutionDetailAPIView, SimcBenchmarkExecutionReconcileAPIView,
-    SimcBenchmarkOptionsAPIView, SimcBenchmarkPanelOptionsAPIView,
+    SimcBenchmarkOptionsAPIView, SimcBenchmarkPanelOptionsAPIView, SimcBenchmarkItemLookupAPIView,
 )
 from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, ChangePasswordView
 from botend.portal.views import PortalHomeView
@@ -196,6 +196,7 @@ urlpatterns = [
     path('api/simc-workbench/artifacts/<int:object_id>/preview/', SimcArtifactPreviewAPIView.as_view(), name="simc_artifact_preview"),
     path('api/simc-benchmarks/panels/', SimcBenchmarkPanelListAPIView.as_view(), name='simc_benchmark_panels'),
     path('api/simc-benchmarks/options/', SimcBenchmarkOptionsAPIView.as_view(), name='simc_benchmark_options'),
+    path('api/simc-benchmarks/item-lookup/', SimcBenchmarkItemLookupAPIView.as_view(), name='simc_benchmark_item_lookup'),
     path('api/simc-benchmarks/panels/<int:panel_id>/options/', SimcBenchmarkPanelOptionsAPIView.as_view(), name='simc_benchmark_panel_options'),
     path('api/simc-benchmarks/panels/<int:panel_id>/', SimcBenchmarkPanelDetailAPIView.as_view(), name='simc_benchmark_panel_detail'),
     path('api/simc-benchmarks/panels/<int:panel_id>/run/', SimcBenchmarkPanelRunAPIView.as_view(), name='simc_benchmark_panel_run'),
