@@ -983,23 +983,32 @@ class SimcMonitor(BaseScan):
             flags=re.IGNORECASE | re.MULTILINE,
         )
         default_priority_text = default_priority_match.group(1) if default_priority_match else ''
+        dispatch_lists = []
         talent_dispatch_lists = []
         for action_list, condition in re.findall(
             r'run_action_list,name=([a-z][a-z0-9_]*),((?:(?!/[a-z][a-z0-9_]*,)[^\n])*)',
             default_priority_text,
             flags=re.IGNORECASE,
         ):
-            if 'talent.' in condition.lower() and action_list.lower() not in talent_dispatch_lists:
-                talent_dispatch_lists.append(action_list.lower())
-        active_talent_dispatch_lists = [
-            name for name in talent_dispatch_lists
-            if name in {value.lower() for value in declared_action_lists}
+            name = action_list.lower()
+            if name not in dispatch_lists:
+                dispatch_lists.append(name)
+            if 'talent.' in condition.lower() and name not in talent_dispatch_lists:
+                talent_dispatch_lists.append(name)
+        declared_action_list_names = {value.lower() for value in declared_action_lists}
+        active_dispatch_lists = [
+            name for name in dispatch_lists
+            if name in declared_action_list_names
         ]
         unresolved_action_lists = [
             name for name in talent_dispatch_lists
-            if name not in {value.lower() for value in declared_action_lists}
+            if name not in declared_action_list_names
         ]
-        missing_talent_dispatch = bool(talent_dispatch_lists and not active_talent_dispatch_lists)
+        # A profile may legitimately select a non-talent sibling branch (for
+        # example a hero-tree branch or a generic single-target/AOE branch)
+        # while its talent-gated alternatives remain undeclared.  Only reject
+        # the result when none of the dispatched branches exists in the report.
+        missing_talent_dispatch = bool(dispatch_lists and not active_dispatch_lists)
         valid = bool(dps_match and non_auto_dps > 0 and not missing_talent_dispatch)
         failure_type = ''
         reason = ''

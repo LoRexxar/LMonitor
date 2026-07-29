@@ -1372,6 +1372,40 @@ main_hand=,id=222222
             ['colossus_aoe', 'colossus_st', 'slayer_st'],
         )
 
+    def test_semantic_validation_accepts_non_talent_sibling_dispatch_when_talent_branch_is_inactive(self):
+        stdout = '''Player: Audit mage frost 90
+  DPS=208368.3 DPS-Error=121.1/0.06%
+  Priorities (actions.default):
+    call_action_list,name=cds/run_action_list,name=ff_tarswap,if=talent.frostfire_bolt&variable.target_swapping/run_action_list,name=ff_aoe,if=talent.frostfire_bolt&active_enemies>=3/run_action_list,name=ff_st,if=talent.frostfire_bolt/run_action_list,name=ss_aoe,if=active_enemies>=4/run_action_list,name=ss_st
+  Priorities (actions.ss_aoe):
+    frozen_orb
+  Actions:
+    frostbolt Count=42.0 pDPS=208365
+'''
+        validation = SimcMonitor.validate_simulation_semantics(stdout)
+        self.assertTrue(validation['valid'])
+        self.assertEqual(
+            validation['unresolved_action_lists'],
+            ['ff_tarswap', 'ff_aoe', 'ff_st'],
+        )
+
+    def test_semantic_validation_accepts_hero_tree_sibling_dispatch_when_talent_branches_are_inactive(self):
+        stdout = '''Player: Audit warrior protection 90
+  DPS=197565.4 DPS-Error=182.4/0.09%
+  Priorities (actions.default):
+    auto_attack/run_action_list,name=colossus_aoe,if=hero_tree.colossus&active_enemies>=3/run_action_list,name=thane_aoe,if=hero_tree.mountain_thane&active_enemies>=3/run_action_list,name=colossus_st,if=talent.demolish/run_action_list,name=thane_st,if=talent.lightning_strikes
+  Priorities (actions.thane_aoe):
+    thunder_blast
+  Actions:
+    thunder_blast Count=26.8 pDPS=263805
+'''
+        validation = SimcMonitor.validate_simulation_semantics(stdout)
+        self.assertTrue(validation['valid'])
+        self.assertEqual(
+            validation['unresolved_action_lists'],
+            ['colossus_st', 'thane_st'],
+        )
+
     def test_semantic_validation_accepts_core_skill_damage(self):
         stdout = '''Player: Audit warrior fury 90
   DPS=62453.0 DPS-Error=150/0.24%
