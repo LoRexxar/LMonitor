@@ -159,6 +159,103 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertEqual(config.simc_path, values['simc_path'])
             self.assertEqual(config.simc_source_path, values['simc_source_path'])
 
+    def test_config_allows_explicit_agent_run_capacity_and_reports_it(self):
+        from simc_agent_consumer import AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            values['max_concurrent_runs'] = 2
+
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=MagicMock())
+
+            self.assertEqual(consumer._report()['capabilities']['max_concurrent_runs'], 2)
+
+    def test_maintenance_failure_keeps_claiming_when_the_existing_binary_is_usable(self):
+        from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=MagicMock())
+            consumer.register = MagicMock()
+            consumer.flush_completion_outbox = MagicMock(return_value=True)
+            consumer._maintain_simc_with_heartbeats = MagicMock(
+                side_effect=APIError('compiler failed'),
+            )
+            consumer.heartbeat = MagicMock()
+            consumer.claim = MagicMock(return_value=None)
+
+            consumer.run(once=True)
+
+            consumer.claim.assert_called_once_with()
+            consumer.heartbeat.assert_any_call('degraded')
+
+    def test_main_uses_a_local_default_configuration_path(self):
+        import simc_agent_consumer
+
+        with patch.object(simc_agent_consumer, 'AgentConfig') as config_class, \
+                patch.object(simc_agent_consumer, 'SimcAgentConsumer') as consumer_class, \
+                patch.object(simc_agent_consumer.signal, 'signal'), \
+                patch('sys.argv', ['simc_agent_consumer.py', '--once']):
+            config_class.load.return_value = MagicMock(log_path='', token_path='/tmp/agent.token')
+            consumer_class.return_value.run = MagicMock()
+
+            result = simc_agent_consumer.main()
+
+        self.assertEqual(result, 0)
+        config_class.load.assert_called_once_with(
+            str(Path(simc_agent_consumer.__file__).resolve().with_name('simc_agent.json')),
+        )
+
+    def test_run_claims_and_executes_to_explicit_capacity_in_parallel(self):
+        from simc_agent_consumer import AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            values['max_concurrent_runs'] = 2
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=MagicMock())
+            consumer.register = MagicMock()
+            consumer.flush_completion_outbox = MagicMock(return_value=True)
+            consumer._maintain_simc_with_heartbeats = MagicMock()
+            consumer.heartbeat = MagicMock()
+            first = {'task_id': 1, 'run_id': 1}
+            second = {'task_id': 1, 'run_id': 2}
+            consumer.claim = MagicMock(side_effect=[first, second])
+
+            def execute(job):
+                if job['run_id'] == 2:
+                    consumer.stop_event.set()
+
+            consumer.execute_job = MagicMock(side_effect=execute)
+            consumer.run()
+
+            self.assertEqual(consumer.claim.call_count, 2)
+            self.assertCountEqual(
+                [entry.args[0] for entry in consumer.execute_job.call_args_list], [first, second],
+            )
+
+    def test_once_claims_only_one_run_even_when_capacity_is_higher(self):
+        from simc_agent_consumer import AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            values['max_concurrent_runs'] = 2
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=MagicMock())
+            consumer.register = MagicMock()
+            consumer.flush_completion_outbox = MagicMock(return_value=True)
+            consumer._maintain_simc_with_heartbeats = MagicMock()
+            consumer.heartbeat = MagicMock()
+            first = {'task_id': 1, 'run_id': 1}
+            second = {'task_id': 1, 'run_id': 2}
+            consumer.claim = MagicMock(side_effect=[first, second])
+            consumer.execute_job = MagicMock()
+
+            consumer.run(once=True)
+
+            self.assertEqual(consumer.claim.call_count, 1)
+            self.assertEqual(
+                [entry.args[0] for entry in consumer.execute_job.call_args_list], [first],
+            )
+
     def test_report_contains_real_simc_revision_and_binary_availability(self):
         from simc_agent_consumer import AgentConfig, SimcAgentConsumer
 

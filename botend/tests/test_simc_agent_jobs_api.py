@@ -251,6 +251,26 @@ class SimcAgentJobAPITests(TestCase):
         self.task(backend=self.other, name='later')
         self.assertEqual(self.claim(self.other_token, 'other-instance').status_code, 204)
 
+    def test_same_agent_can_claim_up_to_advertised_capacity(self):
+        self.agent.capabilities = {'max_concurrent_runs': 2}
+        self.agent.save(update_fields=['capabilities'])
+        task = self.task(mode='comparison', candidates=[
+            {'candidate_key': 'one', 'candidate_params': {'candidate_type': 'base'}},
+            {'candidate_key': 'two', 'candidate_params': {'candidate_type': 'base'}},
+            {'candidate_key': 'three', 'candidate_params': {'candidate_type': 'base'}},
+        ])
+
+        first = self.claim()
+        second = self.claim()
+        third = self.claim()
+
+        self.assertEqual(first.status_code, 200, first.content)
+        self.assertEqual(second.status_code, 200, second.content)
+        self.assertEqual(first.json()['task_id'], task.pk)
+        self.assertEqual(second.json()['task_id'], task.pk)
+        self.assertNotEqual(first.json()['run_id'], second.json()['run_id'])
+        self.assertEqual(third.status_code, 204, third.content)
+
     def test_two_agents_same_backend_claim_different_runs_concurrently(self):
         agent_b, token_b = self.agent_row(self.backend, 'primary-b')
         task = self.task(mode='comparison', candidates=[

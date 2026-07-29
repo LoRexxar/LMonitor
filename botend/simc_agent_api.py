@@ -169,12 +169,20 @@ class SimcAgentManagementListAPIView(View):
         from django.utils import timezone
         now = timezone.now()
         timeout = max(1, int(getattr(settings, 'SIMC_AGENT_ONLINE_TIMEOUT_SECONDS', 90)))
-        leases = {row.lease_agent_id: row for row in SimulationRun.objects.filter(
+        leases_by_agent = {}
+        for row in SimulationRun.objects.filter(
             status='running', lease_agent__isnull=False, lease_expires_at__gt=now,
-        ).select_related('task').order_by('lease_agent_id', 'lease_expires_at')}
+        ).select_related('task').order_by('lease_agent_id', 'lease_expires_at', 'id'):
+            leases_by_agent.setdefault(row.lease_agent_id, []).append(row)
         rows = []
         for agent in SimcAgent.objects.select_related('backend').order_by('id'):
-            lease = leases.get(agent.pk)
+            agent_leases = leases_by_agent.get(agent.pk, [])
+            lease_payloads = [
+                {'run_id': lease.pk, 'task_id': lease.task_id,
+                 'expires_at': lease.lease_expires_at.isoformat(),
+                 'instance_id': lease.lease_instance_id}
+                for lease in agent_leases
+            ]
             rows.append({
                 'id': agent.pk, 'name': agent.name,
                 'backend': {'id': agent.backend_id, 'identifier': agent.backend.identifier,
@@ -187,9 +195,9 @@ class SimcAgentManagementListAPIView(View):
                 'capabilities': agent.capabilities, 'binary_available': agent.binary_available,
                 'last_seen_at': agent.last_seen_at.isoformat() if agent.last_seen_at else None,
                 'registered_at': agent.registered_at.isoformat() if agent.registered_at else None,
-                'lease': ({'run_id': lease.pk, 'task_id': lease.task_id,
-                           'expires_at': lease.lease_expires_at.isoformat(),
-                           'instance_id': lease.lease_instance_id} if lease else None),
+                'leases': lease_payloads,
+                # Keep this compatibility summary for existing management clients.
+                'lease': lease_payloads[0] if lease_payloads else None,
             })
         return _no_store(JsonResponse({'success': True, 'data': rows}))
 

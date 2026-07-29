@@ -388,6 +388,32 @@ class SimcAgentAPITests(TestCase):
         agent.last_seen_at = timezone.now() - timedelta(seconds=91)
         self.assertFalse(agent.is_online(timeout_seconds=90))
 
+    def test_management_list_exposes_all_live_leases_for_a_multi_run_agent(self):
+        from botend.models import SimcTask, SimulationRun
+
+        self.enroll(host_identifier=HOST_A, name='Node A')
+        agent = SimcAgent.objects.get(host_identifier=HOST_A)
+        backend = agent.backend
+        task = SimcTask.objects.create(
+            user_id=1, simc_profile_id=1, backend=backend, mode='comparison', name='parallel', current_status=1,
+            execution_owner=SimcTask.EXECUTION_OWNER_AGENT, started_at=timezone.now(),
+        )
+        for sequence in (1, 2):
+            SimulationRun.objects.create(
+                task=task, sequence=sequence, status='running', lease_agent=agent,
+                lease_instance_id='instance-a', lease_expires_at=timezone.now() + timedelta(seconds=60),
+            )
+        staff = get_user_model().objects.create_user(username='staff', password='x', is_staff=True)
+        self.client.force_login(staff)
+
+        response = self.client.get(MANAGEMENT_URL)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        row = response.json()['data'][0]
+        self.assertEqual([lease['run_id'] for lease in row['leases']], [
+            run.pk for run in SimulationRun.objects.filter(task=task).order_by('id')
+        ])
+
     def test_management_list_requires_staff_and_shows_agents_and_leases(self):
         self.enroll(host_identifier=HOST_A, name='Node A')
         self.enroll(host_identifier=HOST_B, name='Node B')

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+from concurrent.futures import Future, ThreadPoolExecutor
 import hashlib
 import ipaddress
 import json
@@ -186,6 +187,9 @@ class AgentConfig:
     auto_update_simc: bool = True
     simc_update_interval_seconds: float = 1800.0
     simc_compile_threads: int = 2
+    # Preserve the existing one-Run behavior by default.  Higher values are
+    # an explicit deployment choice and are advertised to the control plane.
+    max_concurrent_runs: int = 1
     log_path: str = ''
 
     @classmethod
@@ -221,6 +225,10 @@ class AgentConfig:
                 and (type(values['simc_compile_threads']) is not int
                      or values['simc_compile_threads'] < 1 or values['simc_compile_threads'] > 64)):
             raise ConfigError('simc_compile_threads must be an integer between 1 and 64')
+        if ('max_concurrent_runs' in values
+                and (type(values['max_concurrent_runs']) is not int
+                     or values['max_concurrent_runs'] < 1 or values['max_concurrent_runs'] > 64)):
+            raise ConfigError('max_concurrent_runs must be an integer between 1 and 64')
         config = cls(**values)
         # The execution entry must always be an explicit binary path.  A
         # missing file is allowed only when a source checkout is configured so
@@ -367,6 +375,8 @@ class SimcAgentConsumer:
         self.logger = logging.getLogger(LOGGER_NAME)
         self._last_simc_check = 0.0
         self._lease_block_until = 0.0
+        self._active_jobs: dict[int, Future[None]] = {}
+        self._active_jobs_lock = threading.Lock()
         self.completion_outbox_path = Path(self.config.token_path).with_name('completion-outbox')
 
     @property
@@ -445,7 +455,7 @@ class SimcAgentConsumer:
         return {
             'status': status, 'platform': self.config.platform,
             'agent_version': VERSION, 'agent_revision': agent_revision(), 'protocol_version': PROTOCOL_VERSION,
-            'capabilities': {'max_concurrent_runs': 1},
+            'capabilities': {'max_concurrent_runs': self.config.max_concurrent_runs},
             'instance_id': self.instance_id, 'current_version': current_version,
             'binary_available': binary_available,
         }
@@ -1143,20 +1153,34 @@ class SimcAgentConsumer:
                 self.logger.exception('SimC maintenance failed: %s', exc)
             try:
                 self.heartbeat('degraded' if maintenance_error else 'online')
-                job = self.claim()
-                if job:
-                    self.logger.info('claimed Task %s Run %s', job.get('task_id'), job.get('run_id'))
+                capacity = 1 if once else self.config.max_concurrent_runs
+                with ThreadPoolExecutor(max_workers=capacity,
+                                        thread_name_prefix='simc-agent-run') as executor:
+                    while (not self.stop_event.is_set()
+                           and len(self._active_jobs) < capacity):
+                        job = self.claim()
+                        if not job:
+                            break
+                        self.logger.info('claimed Task %s Run %s', job.get('task_id'), job.get('run_id'))
+                        self.heartbeat('busy')
+                        run_id = job.get('run_id')
+                        future = executor.submit(self.execute_job, job)
+                        if isinstance(run_id, int):
+                            self._active_jobs[run_id] = future
+                    for run_id, future in list(self._active_jobs.items()):
+                        try:
+                            future.result()
+                        except Exception:
+                            self._lease_block_until = time.monotonic() + self.lease_seconds
+                            raise
+                        finally:
+                            self._active_jobs.pop(run_id, None)
+                    self._lease_block_until = 0.0
+                if self._active_jobs:
                     self.heartbeat('busy')
-                    try:
-                        self.execute_job(job)
-                    except Exception:
-                        self._lease_block_until = time.monotonic() + self.lease_seconds
-                        raise
-                    else:
-                        self._lease_block_until = 0.0
-                    self.logger.info('finished Task %s Run %s', job.get('task_id'), job.get('run_id'))
+                else:
                     self.heartbeat('online')
-                elif once:
+                if once:
                     return
             except APIError as exc:
                 self.logger.error('control-plane operation failed: %s', exc)
@@ -1181,7 +1205,10 @@ class SimcAgentConsumer:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description='Standalone LMonitor SimC Agent')
-    parser.add_argument('--config', required=True, help='Path to agent JSON configuration')
+    parser.add_argument(
+        '--config', default=str(Path(__file__).resolve().with_name('simc_agent.json')),
+        help='Path to agent JSON configuration (default: simc_agent.json beside this script)',
+    )
     parser.add_argument('--once', action='store_true', help='Claim at most one Run and exit')
     args = parser.parse_args()
     try:

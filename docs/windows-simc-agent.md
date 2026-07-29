@@ -31,13 +31,27 @@ The Agent derives the remaining settings:
 - `platform` and `host_identifier`: automatically detected;
 - `agent.token`, `simc-agent.log`, `completion-outbox/`, and managed `simc-source/`: created beside `agent.json`.
 
+For the no-argument launcher default, name that file `simc_agent.json` beside `simc_agent_consumer.py`; `agent.json` is also valid whenever its path is passed explicitly with `-Config`.
+
 `simc_path` is always the explicit final executable path. It may not exist for the initial automatic build. If it is an existing build output under a SimulationCraft Git checkout (for example `C:\\simulationcraft\\build\\simc.exe`), the Agent discovers that checkout and maintains it. Otherwise it creates and maintains the sibling `simc-source/` checkout, then installs the verified `simc.exe` at the configured path.
 
 Only add optional fields when overriding a default, for example `server_url` for a private control plane, `token_path`/`log_path` for a separate state directory, or `simc_compile_threads` to cap build concurrency. Do not delete `completion-outbox/` while it contains unacknowledged terminal completions.
 
 ## Start
 
-From PowerShell, preferably a Visual Studio developer PowerShell when automatic compilation is enabled:
+Put `simc_agent.json` beside `simc_agent_consumer.py`, then start without a config argument:
+
+```powershell
+.\scripts\start-simc-agent.ps1
+```
+
+The CMD wrapper has the same default and remains intended for Task Scheduler or `cmd.exe`:
+
+```cmd
+scripts\start-simc-agent.cmd
+```
+
+Use `-Config` only when the configuration is deliberately stored elsewhere:
 
 ```powershell
 .\scripts\start-simc-agent.ps1 -Config C:\LMonitorSimCAgent\agent.json
@@ -46,8 +60,10 @@ From PowerShell, preferably a Visual Studio developer PowerShell when automatic 
 For one claim cycle only:
 
 ```powershell
-.\scripts\start-simc-agent.ps1 -Config C:\LMonitorSimCAgent\agent.json -Once
+.\scripts\start-simc-agent.ps1 -Once
 ```
+
+Set `"max_concurrent_runs": 2` (or another integer from 1 to 64) only to opt an Agent into parallel Run execution. The default is `1`; Agent capacity is enforced by the server's live leases as well as the local thread pool.
 
 `start-simc-agent.cmd` is a thin wrapper around the PowerShell launcher for Task Scheduler or `cmd.exe`.
 

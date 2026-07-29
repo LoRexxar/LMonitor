@@ -1,8 +1,7 @@
 #Requires -Version 5.1
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$Config,
+    [string]$Config = (Join-Path (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)) 'simc_agent.json'),
 
     [switch]$Once,
 

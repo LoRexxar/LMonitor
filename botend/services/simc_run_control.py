@@ -37,6 +37,13 @@ def _lease_digest(token):
     return TOKEN_HASH_PREFIX + hashlib.sha256(token.encode('ascii')).hexdigest()
 
 
+def _agent_run_capacity(agent):
+    """Return the bounded, explicitly advertised concurrent lease capacity."""
+    capabilities = agent.capabilities if isinstance(agent.capabilities, dict) else {}
+    value = capabilities.get('max_concurrent_runs', 1)
+    return value if type(value) is int and 1 <= value <= 64 else 1
+
+
 def _check_agent_ready(agent, now):
     if not agent.backend.is_active:
         raise AgentAPIError('Backend is disabled', 403)
@@ -226,9 +233,10 @@ def claim_run(payload, authorization):
         _check_agent_ready(agent, now)
         if agent.pk != discovered_agent.pk or (task is not None and task.backend_id != agent.backend_id):
             raise AgentAPIError('Agent backend changed during claim', 409)
-        if SimulationRun.objects.filter(
+        live_run_count = SimulationRun.objects.filter(
             lease_agent=agent, status='running', lease_expires_at__gt=now,
-        ).exists():
+        ).count()
+        if live_run_count >= _agent_run_capacity(agent):
             return None
         if task is None:
             return None
