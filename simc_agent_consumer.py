@@ -42,7 +42,11 @@ TRUSTED_REPOSITORY_URLS = {
     'git@github.com:LoRexxar/LMonitor.git',
     'https://github.com/LoRexxar/LMonitor.git',
 }
+# LMonitor itself is updated from master. SimC is a separate checkout and its
+# production branch is midnight; never infer this from the checkout's current
+# branch (an old agent may have been initialized on master).
 UPDATE_BRANCH = 'master'
+SIMC_UPDATE_BRANCH = 'midnight'
 TRUSTED_SIMC_REPOSITORY_URLS = {
     'git@github.com:simulationcraft/simc.git',
     'https://github.com/simulationcraft/simc.git',
@@ -174,10 +178,11 @@ class AgentConfig:
                      or values['simc_compile_threads'] < 1 or values['simc_compile_threads'] > 64)):
             raise ConfigError('simc_compile_threads must be an integer between 1 and 64')
         config = cls(**values)
-        if not config.simc_source_path:
-            inferred_source = Path(config.simc_path).expanduser().resolve().parent.parent
-            if (inferred_source / '.git').exists():
-                config = cls(**{**config.__dict__, 'simc_source_path': str(inferred_source)})
+        # The execution entry must always be an explicit executable file.  Do
+        # not accept a source/build directory and do not infer the executable
+        # from a directory: the control plane reports and runs this exact path.
+        if not Path(config.simc_path).is_file() or not os.access(config.simc_path, os.X_OK):
+            raise ConfigError('simc_path must point to an executable SimC binary file')
         if not config.token_path:
             config = cls(**{
                 **config.__dict__,
@@ -442,7 +447,7 @@ class SimcAgentConsumer:
             source.parent.mkdir(parents=True, exist_ok=True)
             self.logger.info('creating managed SimC source checkout at %s', source)
             self._command([
-                'git', 'clone', '--branch', 'midnight', '--single-branch',
+                'git', 'clone', '--branch', SIMC_UPDATE_BRANCH, '--single-branch',
                 'https://github.com/simulationcraft/simc.git', str(source),
             ], timeout=600)
         if not (source / '.git').is_dir() or (source / '.git').is_symlink():
@@ -458,11 +463,13 @@ class SimcAgentConsumer:
         if remote not in TRUSTED_SIMC_REPOSITORY_URLS:
             raise APIError('SimC automatic update refused because origin is not trusted')
         branch = git('branch', '--show-current').stdout.strip()
-        if not re.fullmatch(r'[0-9A-Za-z._/-]{1,100}', branch) or branch.startswith(('/', '-')):
-            raise APIError('SimC automatic update requires a named safe branch')
-        git('fetch', '--prune', 'origin', branch, timeout=300)
+        if branch != SIMC_UPDATE_BRANCH:
+            raise APIError(
+                f'SimC automatic update requires the {SIMC_UPDATE_BRANCH} branch',
+            )
+        git('fetch', '--prune', 'origin', SIMC_UPDATE_BRANCH, timeout=300)
         local_revision = git('rev-parse', 'HEAD').stdout.strip().lower()
-        upstream_revision = git('rev-parse', f'origin/{branch}').stdout.strip().lower()
+        upstream_revision = git('rev-parse', f'origin/{SIMC_UPDATE_BRANCH}').stdout.strip().lower()
         if not re.fullmatch(r'[0-9a-f]{7,64}', upstream_revision):
             raise APIError('SimC upstream returned an invalid revision')
 
@@ -486,7 +493,7 @@ class SimcAgentConsumer:
         if local_revision != target_revision or required_revision is not None:
             self.logger.info('updating SimC source %s -> %s', local_revision, target_revision)
             if required_revision is None:
-                git('pull', '--ff-only', 'origin', branch, timeout=300)
+                git('pull', '--ff-only', 'origin', SIMC_UPDATE_BRANCH, timeout=300)
             else:
                 # The control plane freezes Tasks against an exact SimC commit. A
                 # clean managed checkout may therefore need to move forward or

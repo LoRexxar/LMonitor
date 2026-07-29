@@ -68,6 +68,15 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertEqual(config.enrollment_token, 'enroll-secret')
             self.assertEqual(config.backend_identifier, '')
 
+    def test_simc_path_must_be_an_explicit_executable_file_not_a_directory(self):
+        from simc_agent_consumer import AgentConfig, ConfigError
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            values['simc_path'] = root
+            with self.assertRaisesRegex(ConfigError, 'executable SimC binary file'):
+                AgentConfig.from_dict(values)
+
     def test_report_contains_real_simc_revision_and_binary_availability(self):
         from simc_agent_consumer import AgentConfig, SimcAgentConsumer
 

@@ -1,4 +1,4 @@
 {
-  "simc_path": "/opt/simc/simc",
+  "simc_path": "/opt/simc/bin/simc",
   "enrollment_token": "REPLACE_FOR_FIRST_REGISTRATION_ONLY"
 }
