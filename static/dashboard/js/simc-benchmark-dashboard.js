@@ -95,7 +95,7 @@ function updateGearIdentity(raw,itemId,itemLevel){let value=String(raw||'');if(!
 function candidateParams(meta,itemId,itemLevel){const fallback=`${meta.slot||'trinket1'}=id=${itemId},ilevel=${itemLevel}`,original=meta.params;if(!original)return fallback;if(typeof original==='string'){const match=original.match(/^\s*([a-z][a-z0-9_]*)\s*=(.*)$/i),slot=match?.[1]||meta.slot||'trinket1';return `${slot}=${updateGearIdentity(match?.[2]??original,itemId,itemLevel)}`;}const params=JSON.parse(JSON.stringify(original)),swap=params.gear_swap||params;swap.slot=swap.slot||meta.slot||'trinket1';swap.item_id=Number(itemId);swap.raw_value=updateGearIdentity(swap.raw_value,itemId,itemLevel);return params;}
 function addSpec(data={}){
   if($$('[data-config="spec"]',root).length>=limits.max_specs){notify(`专精最多 ${limits.max_specs} 项`,'warning');return;}
-  const box=$('[data-editor-specs]',root),card=el('div',{class:'config-card',dataset:{config:'spec'}}),head=el('div',{class:'config-card-head'});
+  const box=$('[data-editor-specs]',root),card=el('div',{class:'config-card spec-config-row',dataset:{config:'spec'}}),head=el('div',{class:'config-card-head'});
   head.append(el('div',{class:'config-card-title'},'专精坐标'),removeButton('spec'));
   const primary=el('div',{class:'config-card-primary spec-primary'}),specItems=(resources?.specs||[]).map(x=>({value:x.value,label:x.label})),specSelect=selectField('专精 *','spec_key',specItems,data.spec_key);
   primary.append(specSelect,checkbox('启用','is_enabled',data.is_enabled!==false));

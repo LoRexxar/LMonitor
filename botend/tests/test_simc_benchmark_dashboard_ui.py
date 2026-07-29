@@ -171,8 +171,8 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         for text in ('面板概览', '高级配置', '定时策略', '专精配置', '场景', '候选装备'):
             self.assertIn(text, CONFIG_PAGE)
         self.assertIn('simc-benchmark-dashboard.js', CONFIG_PAGE)
-        self.assertIn('?v=20260728b', CONFIG_PAGE)
-        self.assertIn('?v=20260728b', INDEX)
+        self.assertIn('?v=20260729a', CONFIG_PAGE)
+        self.assertIn('?v=20260729a', INDEX)
         self.assertIn("if(!configPage){document.body.classList.add", JS)
         self.assertIn("data-benchmark-notification", JS)
         self.assertNotIn('data-create-only', CONFIG_PAGE)
@@ -221,6 +221,13 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertNotIn("field('显示名", segment)
         self.assertIn("advancedGroup('资源与 Profiles'", segment)
         self.assertIn("spec?.spec_label||spec?.label", JS)
+
+    def test_spec_configuration_uses_compact_table_rows(self):
+        segment = JS[JS.index('function addSpec('):JS.index('function updateSpecResources(')]
+        self.assertIn("class:'config-card spec-config-row'", segment)
+        self.assertIn('.spec-config-list', CSS)
+        self.assertIn(".spec-config-row .config-card-primary", CSS)
+        self.assertIn("专精", CSS)
 
     def test_candidate_cards_only_ask_for_item_id_and_item_level(self):
         segment = JS[JS.index('function addCandidate('):JS.index('function localDate(')]

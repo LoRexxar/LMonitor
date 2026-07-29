@@ -131,6 +131,26 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
 .simc-benchmark-config-page .simc-benchmark-summary { position:static; display:flex; align-items:center; flex-wrap:wrap; gap:.35rem .8rem; margin-bottom:.85rem; border-color:#c9d8ef; border-radius:.8rem; padding:.7rem .9rem; background:#f5f8fd; color:#40547b; box-shadow:none; }
 .simc-benchmark-config-page .simc-benchmark-summary strong { margin:0 .25rem 0 0; color:#26457e; font-size:.76rem; }.simc-benchmark-config-page .simc-benchmark-summary > div { font-size:.68rem; }.simc-benchmark-config-page .simc-benchmark-summary .summary-error { flex-basis:100%; margin:.2rem 0 0; border-top:1px solid #efcaca; padding-top:.45rem; color:#a23636; }
 
+/* 专精配置使用紧凑管理表；展开时仅当前行占用详细配置空间。 */
+.spec-config-table { overflow:hidden; margin-top:.8rem; border:1px solid #dce3eb; border-radius:.8rem; background:#fff; }
+.spec-config-table-head { display:grid; grid-template-columns:minmax(13rem,1fr) 7rem minmax(12rem,.8fr) 4.5rem; align-items:center; gap:.65rem; min-height:2.25rem; padding:.35rem .7rem; border-bottom:1px solid #dce3eb; background:#f5f7fa; color:#667085; font-size:.65rem; font-weight:800; letter-spacing:.03em; }
+.spec-config-list { display:block; margin:0; }
+.spec-config-list:empty::before { border:0 !important; border-radius:0 !important; }
+.simc-benchmark-config-page .spec-config-row { display:grid; grid-template-columns:minmax(13rem,1fr) 7rem minmax(12rem,.8fr) 4.5rem; align-items:center; gap:.65rem; overflow:visible; border:0; border-bottom:1px solid #edf0f3; border-radius:0; box-shadow:none; }
+.simc-benchmark-config-page .spec-config-row:last-child { border-bottom:0; }
+.spec-config-row .config-card-primary { display:contents; }
+.spec-config-row .config-card-primary > label { padding:.38rem .7rem; }
+.spec-config-row .config-card-primary > .config-check { min-height:34px; margin:0; padding:.35rem .55rem; }
+.spec-config-row .config-card-primary select { min-height:34px; padding:.35rem .55rem; }
+.simc-benchmark-config-page .spec-config-row .config-card-head { grid-column:4; grid-row:1; min-height:0; border:0; padding:.25rem .35rem; background:transparent; }
+.spec-config-row .config-card-title { display:none; }
+.simc-benchmark-config-page .spec-config-row .config-card-head .danger { width:100%; min-height:32px; }
+.spec-config-row .config-card-advanced { grid-column:3; grid-row:1; border:0; background:transparent; }
+.spec-config-row .config-card-advanced > summary { min-height:34px; border:1px solid #e0e6ed; border-radius:.55rem; padding:.35rem .55rem; background:#fafbfc; }
+.spec-config-row .config-card-advanced summary small { display:none; }
+.spec-config-row .config-card-advanced[open] { grid-column:1/-1; grid-row:2; border-top:1px solid #edf0f3; background:#f7f9fb; }
+.spec-config-row .config-card-advanced[open] > summary { border:0; border-radius:0; padding:.5rem .7rem; background:#f7f9fb; }
+
 @media (max-width: 900px) {
   .simc-benchmark-primary-section { grid-template-columns:1fr; gap:.85rem; }
   .advanced-section-body { grid-template-columns:1fr; }
@@ -165,4 +185,8 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
   .simc-benchmark-advanced-section > summary { padding:.7rem .85rem; }
   .simc-benchmark-config-page .config-card-grid,.simc-benchmark-config-page .structured-params { grid-template-columns:minmax(0,1fr); }
   .simc-benchmark-config-page .config-card-grid .span-all,.simc-benchmark-config-page .candidate-spec-picker.span-all { grid-column:auto; }
+  .spec-config-table { overflow-x:auto; }
+  .spec-config-table-head,.simc-benchmark-config-page .spec-config-row { min-width:34rem; }
+  .spec-config-row .config-card-primary { display:contents; }
+  .spec-config-row .config-card-advanced[open] { grid-column:1/-1; }
 }
