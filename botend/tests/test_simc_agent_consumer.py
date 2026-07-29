@@ -754,7 +754,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertEqual({call.kwargs['payload']['completion_id']
                               for call in transport.json.call_args_list}, {'fixed-id'})
 
-    def test_completion_retries_transient_failure_past_original_three_attempt_limit(self):
+    def test_completion_defers_to_outbox_after_three_transient_failures(self):
         from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
 
         with tempfile.TemporaryDirectory() as root:
@@ -763,17 +763,68 @@ class SimcAgentConsumerTests(SimpleTestCase):
             transport = MagicMock()
             transport.json.side_effect = [
                 APIError('gateway timeout'), APIError('gateway timeout'),
-                APIError('gateway timeout'), APIError('gateway timeout'),
-                APIError('gateway timeout'), {'run_id': 22, 'status': 'completed'},
+                APIError('gateway timeout'),
             ]
             consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=transport)
 
             with patch.object(consumer.stop_event, 'wait', return_value=False):
-                consumer._complete(22, 'lease', 'fixed-id', 'failed', '', 'error', None, None)
+                consumer._complete(22, 'lease', 'a' * 32, 'failed', '', 'error', None, None)
 
-            self.assertEqual(transport.json.call_count, 6)
+            self.assertEqual(transport.json.call_count, 3)
+            self.assertEqual(len(list(consumer.completion_outbox_path.glob('*.json'))), 1)
             self.assertEqual({call.kwargs['payload']['completion_id']
-                              for call in transport.json.call_args_list}, {'fixed-id'})
+                              for call in transport.json.call_args_list}, {'a' * 32})
+
+    def test_completion_outbox_persists_after_three_transient_failures_and_flushes_on_next_consumer(self):
+        from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            self.write_token(values, 'token')
+            first_transport = MagicMock()
+            first_transport.json.side_effect = APIError('network unavailable')
+            first = SimcAgentConsumer(AgentConfig.from_dict(values), transport=first_transport)
+
+            with patch.object(first.stop_event, 'wait', return_value=False):
+                first._complete(22, 'lease', 'f' * 32, 'failed', '', 'simc failed', None, None)
+
+            self.assertEqual(first_transport.json.call_count, 3)
+            outbox = first.completion_outbox_path
+            self.assertEqual(len(list(outbox.glob('*.json'))), 1)
+
+            recovered_transport = MagicMock()
+            recovered_transport.json.side_effect = APIError('still offline')
+            recovered = SimcAgentConsumer(AgentConfig.from_dict(values), transport=recovered_transport)
+            self.assertFalse(recovered.flush_completion_outbox())
+            self.assertEqual(len(list(outbox.glob('*.json'))), 1)
+
+            recovered_transport.json.side_effect = None
+            self.assertTrue(recovered.flush_completion_outbox())
+            self.assertEqual(recovered_transport.json.call_count, 4)
+            payload = recovered_transport.json.call_args.kwargs['payload']
+            self.assertEqual(payload['completion_id'], 'f' * 32)
+            self.assertEqual(payload['status'], 'failed')
+            self.assertEqual(len(list(outbox.glob('*.json'))), 0)
+
+    def test_completion_outbox_persists_report_when_upload_is_unavailable(self):
+        from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            self.write_token(values, 'token')
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=MagicMock())
+            with patch.object(consumer, '_upload_report', side_effect=APIError('offline')):
+                consumer._complete(
+                    23, 'lease', 'e' * 32, 'completed', 'DPS=1', '',
+                    b'<html>report</html>', 'simc_task_1_run_23.html',
+                )
+
+            entry = next(consumer.completion_outbox_path.glob('*.json'))
+            persisted = json.loads(entry.read_text(encoding='utf-8'))
+            self.assertEqual(persisted['metadata']['status'], 'completed')
+            self.assertIsNone(persisted['metadata']['report'])
+            self.assertEqual(persisted['report_name'], 'simc_task_1_run_23.html')
+            self.assertEqual(persisted['report_bytes'], 'PGh0bWw+cmVwb3J0PC9odG1sPg==')
 
     def test_uncertain_success_completion_never_falls_back_to_failed_terminal_state(self):
         from simc_agent_consumer import AgentConfig, APIError, SimcAgentConsumer
@@ -789,20 +840,20 @@ class SimcAgentConsumerTests(SimpleTestCase):
                     'object_key': 'simc_agent_results/simc_task_1_run_22.html',
                     'size': 16, 'sha256': 'a' * 64,
                  }), patch.object(consumer.stop_event, 'wait', return_value=False):
-                with self.assertRaisesRegex(APIError, 'uncertain'):
-                    consumer._complete(
-                        22, 'lease', 'fixed-id', 'completed', 'Player: A\nDPS=1234', '',
-                        b'<html>ok</html>', 'simc_task_1_run_22.html',
-                    )
+                consumer._complete(
+                    22, 'lease', 'b' * 32, 'completed', 'Player: A\nDPS=1234', '',
+                    b'<html>ok</html>', 'simc_task_1_run_22.html',
+                )
             completion_calls = [
                 call for call in transport.json.call_args_list
                 if call.kwargs['path'].endswith('/complete/')
             ]
-            self.assertEqual(len(completion_calls), 8)
+            self.assertEqual(len(completion_calls), 3)
             self.assertTrue(all(
                 call.kwargs['payload']['status'] == 'completed'
                 for call in completion_calls
             ))
+            self.assertEqual(len(list(consumer.completion_outbox_path.glob('*.json'))), 1)
 
     def test_oversized_report_is_rejected_before_reading_file(self):
         from simc_agent_consumer import AgentConfig, MAX_REPORT_BYTES, SimcAgentConsumer

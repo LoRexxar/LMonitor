@@ -33,11 +33,13 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-VERSION = '1.3.3'
+VERSION = '1.4.0'
 PROTOCOL_VERSION = 1
 MAX_REPORT_BYTES = 20 * 1024 * 1024
 COMPLETION_TEXT_MAX_BYTES = 256 * 1024
-COMPLETION_ATTEMPTS = 8
+# A short foreground retry only covers a brief response loss.  Durable delivery
+# is handled by the local completion outbox before the Agent can claim again.
+COMPLETION_ATTEMPTS = 3
 COMPLETION_RETRY_DELAY_SECONDS = 0.25
 COMPLETION_RETRY_MAX_DELAY_SECONDS = 2.0
 TRUSTED_REPOSITORY_URLS = {
@@ -318,6 +320,7 @@ class SimcAgentConsumer:
         self.logger = logging.getLogger(LOGGER_NAME)
         self._last_simc_check = 0.0
         self._lease_block_until = 0.0
+        self.completion_outbox_path = Path(self.config.token_path).with_name('completion-outbox')
 
     @property
     def authorization(self) -> str:
@@ -734,6 +737,123 @@ class SimcAgentConsumer:
             return value.decode('utf-8', errors='replace')
         return value if isinstance(value, str) else str(value or '')
 
+    def _completion_outbox_file(self, run_id: int, completion_id: str) -> Path:
+        if type(run_id) is not int or run_id <= 0 or not re.fullmatch(r'[0-9a-f]{32}', completion_id):
+            raise APIError('completion outbox identity is invalid')
+        return self.completion_outbox_path / f'run-{run_id}-{completion_id}.json'
+
+    def _save_completion_outbox(self, run_id: int, metadata: dict[str, Any],
+                                report_name: str | None = None,
+                                report_bytes: bytes | None = None) -> None:
+        """Durably preserve an unacknowledged terminal completion before idling."""
+        completion_id = metadata.get('completion_id')
+        if not isinstance(completion_id, str):
+            raise APIError('completion outbox identity is invalid')
+        path = self._completion_outbox_file(run_id, completion_id)
+        if set(metadata) != {'lease_token', 'instance_id', 'completion_id', 'status', 'stdout', 'stderr', 'report'}:
+            raise APIError('completion outbox payload is invalid')
+        if (report_name is None) != (report_bytes is None):
+            raise APIError('completion outbox report is invalid')
+        if report_bytes is not None and (not report_name or len(report_bytes) > MAX_REPORT_BYTES):
+            raise APIError('completion outbox report is invalid')
+        self.completion_outbox_path.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if self.completion_outbox_path.is_symlink() or not self.completion_outbox_path.is_dir():
+            raise APIError('completion outbox must be a directory')
+        encoded = json.dumps(
+            {
+                'run_id': run_id, 'metadata': metadata, 'report_name': report_name,
+                'report_bytes': (base64.b64encode(report_bytes).decode('ascii')
+                                 if report_bytes is not None else None),
+            }, separators=(',', ':'), ensure_ascii=False, allow_nan=False,
+        ).encode('utf-8')
+        fd, temporary = tempfile.mkstemp(prefix=f'.{path.name}.', dir=str(self.completion_outbox_path))
+        try:
+            os.fchmod(fd, 0o600)
+            os.write(fd, encoded)
+            os.fsync(fd)
+            os.close(fd)
+            fd = -1
+            os.replace(temporary, path)
+            directory_fd = os.open(self.completion_outbox_path, os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0))
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        finally:
+            if fd >= 0:
+                os.close(fd)
+            try:
+                os.unlink(temporary)
+            except FileNotFoundError:
+                pass
+
+    def _load_completion_outbox(self, path: Path) -> tuple[int, dict[str, Any], str | None, bytes | None]:
+        if path.is_symlink() or not path.is_file():
+            raise APIError('completion outbox entry must be a regular file')
+        if stat.S_IMODE(path.stat().st_mode) & 0o077:
+            raise APIError('completion outbox entry permissions must be 0600 or stricter')
+        try:
+            value = json.loads(path.read_text(encoding='utf-8'))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise APIError(f'cannot read completion outbox entry: {exc}') from exc
+        if not isinstance(value, dict) or set(value) != {'run_id', 'metadata', 'report_name', 'report_bytes'}:
+            raise APIError('completion outbox entry is invalid')
+        run_id, metadata = value['run_id'], value['metadata']
+        report_name, encoded_report = value['report_name'], value['report_bytes']
+        if type(run_id) is not int or run_id <= 0 or not isinstance(metadata, dict):
+            raise APIError('completion outbox entry is invalid')
+        if (report_name is None) != (encoded_report is None) or (report_name is not None and not isinstance(report_name, str)):
+            raise APIError('completion outbox report is invalid')
+        report_bytes = None
+        if encoded_report is not None:
+            if not isinstance(encoded_report, str):
+                raise APIError('completion outbox report is invalid')
+            try:
+                report_bytes = base64.b64decode(encoded_report.encode('ascii'), validate=True)
+            except (UnicodeError, ValueError) as exc:
+                raise APIError('completion outbox report is invalid') from exc
+            if len(report_bytes) > MAX_REPORT_BYTES:
+                raise APIError('completion outbox report is invalid')
+        completion_id = metadata.get('completion_id')
+        if not isinstance(completion_id, str):
+            raise APIError('completion outbox entry is invalid')
+        expected = self._completion_outbox_file(run_id, completion_id)
+        if path.name != expected.name:
+            raise APIError('completion outbox entry identity is invalid')
+        return run_id, metadata, report_name, report_bytes
+
+    def flush_completion_outbox(self) -> bool:
+        """Try all durable completions before claiming new work; retain failures."""
+        if not self.completion_outbox_path.exists():
+            return True
+        if self.completion_outbox_path.is_symlink() or not self.completion_outbox_path.is_dir():
+            raise APIError('completion outbox must be a directory')
+        delivered = True
+        for path in sorted(self.completion_outbox_path.glob('*.json')):
+            run_id, metadata, report_name, report_bytes = self._load_completion_outbox(path)
+            if report_bytes is not None and metadata.get('report') is None:
+                if report_name is None:
+                    raise APIError('completion outbox report is invalid')
+                try:
+                    report = self._upload_report(
+                        run_id, metadata['lease_token'], report_bytes, report_name,
+                    )
+                except Exception as exc:
+                    self.logger.warning('completion outbox report upload still pending for Run %s: %s', run_id, exc)
+                    delivered = False
+                    continue
+                metadata['report'] = report
+                self._save_completion_outbox(
+                    run_id, metadata, report_name=report_name, report_bytes=report_bytes,
+                )
+            if not self._completion_json(run_id, metadata):
+                self.logger.warning('completion outbox delivery still pending for Run %s', run_id)
+                delivered = False
+                continue
+            path.unlink()
+            self.logger.info('delivered completion outbox entry for Run %s', run_id)
+        return delivered
+
     def _completion_json(self, run_id: int, metadata: dict[str, Any]) -> bool:
         for attempt in range(COMPLETION_ATTEMPTS):
             try:
@@ -803,16 +923,20 @@ class SimcAgentConsumer:
                   status: str, stdout: str, stderr: str,
                   report_bytes: bytes | None, report_name: str | None) -> None:
         report = None
+        upload_pending = False
         if status == 'completed':
+            if report_bytes is None or not report_name:
+                raise APIError('completed SimC run has no report')
             try:
-                if report_bytes is None or not report_name:
-                    raise APIError('completed SimC run has no report')
                 report = self._upload_report(
                     run_id, lease_token, report_bytes, report_name,
                 )
             except Exception as exc:
-                status = 'failed'
-                stderr = (stderr + f'\n{exc}').strip()
+                # Preserve the successful simulation and its report locally.  A
+                # later outbox drain retries the upload before reporting terminal
+                # completion; it must never convert a network failure to failed.
+                upload_pending = True
+                self.logger.warning('report upload deferred in durable outbox for Run %s: %s', run_id, exc)
 
         metadata = {
             'lease_token': lease_token, 'instance_id': self.instance_id,
@@ -821,12 +945,17 @@ class SimcAgentConsumer:
             'stderr': _utf8_tail(stderr, COMPLETION_TEXT_MAX_BYTES),
             'report': report if status == 'completed' else None,
         }
-        if self._completion_json(run_id, metadata):
+        if not upload_pending and self._completion_json(run_id, metadata):
             return
-        # A completed completion may have committed even when its response was lost.
-        # Never race it with an opposite failed terminal state or update binaries
-        # before the lease expires; the run loop enters its conservative lease fence.
-        raise APIError('completion result is uncertain after retries')
+        # A response can be lost after the server committed this same completion.
+        # Persist the exact payload and fixed completion_id, then let a future
+        # idle cycle retry it before any new claim or maintenance can run.
+        self._save_completion_outbox(
+            run_id, metadata,
+            report_name=report_name if status == 'completed' else None,
+            report_bytes=report_bytes if status == 'completed' else None,
+        )
+        self.logger.warning('completion delivery deferred in durable outbox for Run %s', run_id)
 
     def execute_job(self, job: dict[str, Any]) -> None:
         # A valid run identity is the minimum needed to report malformed claims.
@@ -955,6 +1084,16 @@ class SimcAgentConsumer:
             VERSION, self.instance_id, self.config.backend_identifier or 'enrollment-bound',
         )
         while not self.stop_event.is_set():
+            try:
+                if not self.flush_completion_outbox():
+                    # Backlog delivery is deliberately non-blocking: a later Run
+                    # completion gives it another batch retry opportunity, while
+                    # an outage must not strand the whole Agent idle forever.
+                    self.logger.warning('completion outbox still has pending entries; continuing to claim work')
+            except Exception as exc:
+                self.logger.exception('completion outbox delivery failed: %s', exc)
+                if once:
+                    raise
             lease_wait = self._lease_block_until - time.monotonic()
             if lease_wait > 0:
                 try:
