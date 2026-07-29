@@ -182,6 +182,7 @@ class SimcAgentManagementListAPIView(View):
                 'is_active': agent.is_active, 'status': agent.status,
                 'online': agent.is_online(timeout_seconds=timeout, now=now),
                 'platform': agent.platform, 'agent_version': agent.agent_version,
+                'agent_revision': agent.agent_revision,
                 'protocol_version': agent.protocol_version, 'current_version': agent.current_version,
                 'capabilities': agent.capabilities, 'binary_available': agent.binary_available,
                 'last_seen_at': agent.last_seen_at.isoformat() if agent.last_seen_at else None,

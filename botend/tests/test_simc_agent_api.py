@@ -35,6 +35,7 @@ class SimcAgentAPITests(TestCase):
             'name': 'Production Agent',
             'platform': 'linux64',
             'agent_version': '1.2.3',
+            'agent_revision': 'a' * 40,
             'protocol_version': 1,
             'capabilities': {'claim': False, 'cores': 8},
             'instance_id': 'instance-a',

@@ -288,7 +288,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertNotIn('enroll-secret', request.kwargs['payload'])
 
     def test_existing_token_registration_and_claim_use_bearer_identity(self):
-        from simc_agent_consumer import AgentConfig, PROTOCOL_VERSION, SimcAgentConsumer, VERSION
+        from simc_agent_consumer import AgentConfig, PROTOCOL_VERSION, SimcAgentConsumer, VERSION, agent_revision
 
         with tempfile.TemporaryDirectory() as root:
             values = self.config(root)
@@ -310,6 +310,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertEqual(transport.json.call_args_list[1].kwargs['payload'], {
                 'instance_id': consumer.instance_id,
                 'agent_version': VERSION,
+                'agent_revision': agent_revision(Path(__file__).resolve().parents[2]),
                 'protocol_version': PROTOCOL_VERSION,
             })
 

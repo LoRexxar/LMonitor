@@ -21,12 +21,12 @@ TOKEN_HASH_PREFIX = 'sha256$'
 DUMMY_TOKEN_HASH = TOKEN_HASH_PREFIX + ('0' * 64)
 STATUSES = {'online', 'busy', 'degraded'}
 REGISTER_FIELDS = {'host_identifier', 'backend_identifier', 'name', 'platform', 'agent_version',
-                   'protocol_version', 'capabilities', 'instance_id', 'current_version', 'binary_available'}
-REGISTER_REQUIRED = REGISTER_FIELDS - {'name', 'backend_identifier'}
+                   'agent_revision', 'protocol_version', 'capabilities', 'instance_id', 'current_version', 'binary_available'}
+REGISTER_REQUIRED = REGISTER_FIELDS - {'name', 'backend_identifier', 'agent_revision'}
 HEARTBEAT_FIELDS = {'status', 'platform', 'agent_version', 'protocol_version', 'capabilities',
-                    'instance_id', 'current_version', 'binary_available'}
+                    'agent_revision', 'instance_id', 'current_version', 'binary_available'}
 REPORT_FIELDS = ('platform', 'agent_version', 'protocol_version', 'capabilities', 'instance_id',
-                 'current_version', 'binary_available')
+                 'agent_revision', 'current_version', 'binary_available')
 
 
 class AgentAPIError(Exception):
@@ -110,6 +110,7 @@ def validate_registration_payload(payload):
             'name': _string(payload, 'name', 100, required=False),
             'platform': _string(payload, 'platform', 32),
             'agent_version': _string(payload, 'agent_version', 64, allow_blank=True),
+            'agent_revision': _string(payload, 'agent_revision', 64, required=False, allow_blank=True),
             'protocol_version': _positive(payload, 'protocol_version'),
             'capabilities': _capabilities(payload),
             'instance_id': _string(payload, 'instance_id', 128, allow_blank=True),
@@ -127,6 +128,7 @@ def validate_heartbeat_payload(payload):
         values['status'] = status
     validators = {'platform': lambda: _string(payload, 'platform', 32),
                   'agent_version': lambda: _string(payload, 'agent_version', 64, allow_blank=True),
+                  'agent_revision': lambda: _string(payload, 'agent_revision', 64, allow_blank=True),
                   'protocol_version': lambda: _positive(payload, 'protocol_version'),
                   'capabilities': lambda: _capabilities(payload),
                   'instance_id': lambda: _string(payload, 'instance_id', 128, allow_blank=True),

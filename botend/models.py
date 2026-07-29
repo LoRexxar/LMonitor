@@ -1373,6 +1373,10 @@ class SimcAgent(models.Model):
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_UNREGISTERED)
     platform = models.CharField(max_length=32, default='')
     agent_version = models.CharField(max_length=64, default='', blank=True)
+    agent_revision = models.CharField(
+        max_length=64, default='', blank=True,
+        help_text='运行中的 LMonitor Agent Git commit',
+    )
     protocol_version = models.PositiveIntegerField(default=1)
     capabilities = models.JSONField(default=dict, blank=True)
     instance_id = models.CharField(max_length=128, default='', blank=True)

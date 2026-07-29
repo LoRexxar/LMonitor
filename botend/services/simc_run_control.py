@@ -44,6 +44,12 @@ def _check_agent_ready(agent, now):
         raise AgentAPIError('Agent is disabled', 403)
     if not agent.binary_available:
         raise AgentAPIError('Agent binary is unavailable', 403)
+    required_agent_revision = str(getattr(settings, 'SIMC_AGENT_REQUIRED_REVISION', '') or '').strip().lower()
+    if required_agent_revision and str(agent.agent_revision or '').strip().lower() != required_agent_revision:
+        raise AgentAPIError('Agent update required', 426, {
+            'code': 'agent_update_required', 'current_revision': str(agent.agent_revision or ''),
+            'required_revision': required_agent_revision,
+        })
     required_simc_version = str(agent.backend.current_version or '').strip().lower()
     agent_simc_version = str(agent.current_version or '').strip().lower()
     if required_simc_version and agent_simc_version != required_simc_version:
@@ -127,7 +133,7 @@ def runtime_threads(task):
 
 
 def claim_run(payload, authorization):
-    allowed_fields = {'instance_id', 'agent_version', 'protocol_version'}
+    allowed_fields = {'instance_id', 'agent_version', 'agent_revision', 'protocol_version'}
     if set(payload) - allowed_fields or 'instance_id' not in payload:
         unknown = set(payload) - allowed_fields
         raise AgentAPIError('Unknown field: ' + sorted(unknown)[0] if unknown else 'Missing field: instance_id')
@@ -139,9 +145,13 @@ def claim_run(payload, authorization):
     # is repeated under the Agent lock after Task -> Run locks are acquired.
     discovered_agent = authenticate_bearer(authorization, lock=False)
     agent_version = payload.get('agent_version')
+    agent_revision = payload.get('agent_revision')
     protocol_version = payload.get('protocol_version')
     if agent_version is not None and (not isinstance(agent_version, str) or len(agent_version) > 64):
         raise AgentAPIError('agent_version has invalid length')
+    if agent_revision is not None and (not isinstance(agent_revision, str)
+                                       or not re.fullmatch(r'[0-9a-f]{40}', agent_revision)):
+        raise AgentAPIError('agent_revision must be a 40-character Git commit')
     if (protocol_version is not None and (
             isinstance(protocol_version, bool) or not isinstance(protocol_version, int)
             or protocol_version < 1)):
@@ -152,9 +162,17 @@ def claim_run(payload, authorization):
     if (agent_version is None) != (protocol_version is None):
         raise AgentAPIError('agent_version and protocol_version must be sent together')
     required_version = str(getattr(settings, 'SIMC_AGENT_REQUIRED_VERSION', '1.3.3'))
+    required_revision = str(getattr(settings, 'SIMC_AGENT_REQUIRED_REVISION', '') or '').strip().lower()
     required_protocol = int(getattr(settings, 'SIMC_AGENT_PROTOCOL_VERSION', 1))
     mismatch = None
-    if agent_version is not None and agent_version != required_version:
+    if required_revision and agent_revision != required_revision:
+        mismatch = AgentAPIError('Agent update required', 426, {
+            'code': 'agent_update_required',
+            'current_revision': agent_revision or '',
+            'required_revision': required_revision,
+            'required_version': required_version,
+        })
+    elif agent_version is not None and agent_version != required_version:
         mismatch = AgentAPIError('Agent update required', 426, {
             'code': 'agent_update_required',
             'current_version': agent_version,

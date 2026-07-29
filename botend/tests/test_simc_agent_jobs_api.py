@@ -41,6 +41,7 @@ class SimcAgentJobAPITests(TestCase):
             backend=backend, host_identifier=(name.encode().hex() * 64)[:64], name=name,
             is_active=True, binary_available=True, status=SimcAgent.STATUS_ONLINE,
             agent_version='1.3.3', protocol_version=1,
+            agent_revision='a' * 40,
             last_seen_at=timezone.now(),
         )
         token = _issue_token(agent)
@@ -92,7 +93,8 @@ class SimcAgentJobAPITests(TestCase):
 
     def claim(self, token=None, instance='instance-a'):
         return self.post_json(CLAIM, {
-            'instance_id': instance, 'agent_version': '1.3.3', 'protocol_version': 1,
+                        'instance_id': instance, 'agent_version': '1.3.3',
+            'agent_revision': 'a' * 40, 'protocol_version': 1,
         }, token)
 
     def test_claim_rejects_agent_when_simc_revision_does_not_match_backend(self):
@@ -110,6 +112,16 @@ class SimcAgentJobAPITests(TestCase):
         task.refresh_from_db()
         self.assertEqual(task.current_status, 0)
         self.assertFalse(SimulationRun.objects.filter(task=task).exists())
+
+    @override_settings(SIMC_AGENT_REQUIRED_REVISION='b' * 40)
+    def test_claim_rejects_agent_when_lmonitor_revision_does_not_match(self):
+        task = self.task()
+        response = self.claim()
+        self.assertEqual(response.status_code, 426, response.content)
+        self.assertEqual(response.json()['code'], 'agent_update_required')
+        self.assertEqual(response.json()['required_revision'], 'b' * 40)
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 0)
 
     @override_settings(SIMC_AGENT_REQUIRED_VERSION='1.1.0', SIMC_AGENT_PROTOCOL_VERSION=1)
     def test_claim_rejects_outdated_agent_before_mutating_task(self):

@@ -50,6 +50,19 @@ TRUSTED_SIMC_REPOSITORY_URLS = {
 LOGGER_NAME = 'lmonitor.simc_agent'
 
 
+def agent_revision(repository: Path | None = None) -> str:
+    repository = (repository or Path(__file__).resolve().parent).expanduser().resolve()
+    try:
+        result = subprocess.run(
+            ['git', '-C', str(repository), 'rev-parse', 'HEAD'],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ''
+    revision = result.stdout.strip().lower()
+    return revision if result.returncode == 0 and re.fullmatch(r'[0-9a-f]{40}', revision) else ''
+
+
 def configure_logging(log_path: str, *, max_bytes: int = 10 * 1024 * 1024,
                       backup_count: int = 5) -> logging.Logger:
     """Create a process-local rotating log without exposing Agent credentials."""
@@ -375,7 +388,7 @@ class SimcAgentConsumer:
                 pass
         return {
             'status': status, 'platform': self.config.platform,
-            'agent_version': VERSION, 'protocol_version': PROTOCOL_VERSION,
+            'agent_version': VERSION, 'agent_revision': agent_revision(), 'protocol_version': PROTOCOL_VERSION,
             'capabilities': {'max_concurrent_runs': 1},
             'instance_id': self.instance_id, 'current_version': current_version,
             'binary_available': binary_available,
@@ -569,16 +582,16 @@ class SimcAgentConsumer:
                                    payload={
                                        'instance_id': self.instance_id,
                                        'agent_version': VERSION,
+                                       'agent_revision': agent_revision(),
                                        'protocol_version': PROTOCOL_VERSION,
                                    },
                                    authorization=self.authorization)
 
-    def _self_update(self, required_version: Any) -> None:
-        if not self.config.auto_update:
-            raise APIError(
-                f'agent {VERSION} must be updated to {required_version}; automatic updates are disabled',
-            )
-        if (type(required_version) is not str
+    def _self_update(self, required_version: Any = None, *, required_revision: Any = None) -> None:
+        if required_revision is not None:
+            if type(required_revision) is not str or not re.fullmatch(r'[0-9a-f]{40}', required_revision):
+                raise APIError('control plane returned an invalid required Agent revision')
+        elif (type(required_version) is not str
                 or not re.fullmatch(r'[0-9A-Za-z][0-9A-Za-z._+-]{0,63}', required_version)):
             raise APIError('control plane returned an invalid required agent version')
         repository = Path(
@@ -621,14 +634,19 @@ class SimcAgentConsumer:
         branch = git('branch', '--show-current', timeout=30).stdout.strip()
         if branch != UPDATE_BRANCH:
             raise APIError(f'automatic Agent update requires the {UPDATE_BRANCH} branch')
-        self.logger.info('updating Agent %s -> %s', VERSION, required_version)
+        self.logger.info('updating Agent checkout to %s', required_revision or required_version)
         git('pull', '--ff-only', 'origin', UPDATE_BRANCH, timeout=120)
         try:
             source = target.read_text(encoding='utf-8')
         except (OSError, UnicodeError) as exc:
             raise APIError(f'cannot verify updated Agent: {exc}') from exc
+        actual_revision = agent_revision(repository)
+        if required_revision is not None and actual_revision != required_revision:
+            raise APIError(
+                f'Git update completed but Agent revision is {actual_revision or "unknown"}, expected {required_revision}',
+            )
         match = re.search(r"^VERSION\s*=\s*['\"]([^'\"]+)['\"]\s*$", source, re.MULTILINE)
-        if not match or match.group(1) != required_version:
+        if required_revision is None and (not match or match.group(1) != required_version):
             actual = match.group(1) if match else 'unknown'
             raise APIError(
                 f'Git update completed but Agent version is {actual}, expected {required_version}',
@@ -956,7 +974,10 @@ class SimcAgentConsumer:
             except APIError as exc:
                 self.logger.error('control-plane operation failed: %s', exc)
                 if exc.status == 426 and exc.details.get('code') == 'agent_update_required':
-                    self._self_update(exc.details.get('required_version'))
+                    self._self_update(
+                        exc.details.get('required_version'),
+                        required_revision=exc.details.get('required_revision'),
+                    )
                 if exc.status == 409 and exc.details.get('code') == 'simc_update_required':
                     self._maintain_simc_with_heartbeats(
                         force=True,
