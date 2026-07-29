@@ -30,6 +30,18 @@ from botend.mythic_planner.icon_assets import (
     build_wowhead_icon_url,
     normalize_wowhead_icon_slug,
 )
+from botend.mythic_planner.spell_tooltips import (
+    QUALITY_EXACT_RENDERED,
+    QUALITY_MECHANIC_ONLY,
+    QUALITY_RENDERED_EXTERNAL,
+    SOURCE_WAGO_DB2,
+    SOURCE_WOWHEAD_TOOLTIP,
+    build_description_metadata,
+    description_quality,
+    metadata_client_full_build,
+    preserve_description_provenance,
+    should_preserve_description,
+)
 from botend.wow.spell_text import SpellTextResolver
 
 
@@ -806,6 +818,11 @@ class Command(BaseCommand):
             if not description:
                 continue
             metadata = dict(record.metadata or {})
+            if should_preserve_description(
+                metadata,
+                QUALITY_RENDERED_EXTERNAL,
+            ):
+                continue
             metadata['wowhead_tooltip_url'] = self._wowhead_spell_url(
                 record.spell_id,
                 data_env,
@@ -817,6 +834,10 @@ class Command(BaseCommand):
             metadata['wowhead_locale'] = locale
             metadata['wowhead_data_env'] = data_env
             metadata['wowhead_environment'] = WOWHEAD_ENVIRONMENT_KEYS[data_env]
+            metadata.update(build_description_metadata(
+                source=SOURCE_WOWHEAD_TOOLTIP,
+                quality=QUALITY_RENDERED_EXTERNAL,
+            ))
             record.description_zh = description
             record.source_branch = branch
             record.snapshot_build = build
@@ -1045,18 +1066,49 @@ class Command(BaseCommand):
             if preserve_asset:
                 icon_url = existing_icon_url
             description = resolver_en.resolve(row.get('description'), spell_id)
-            description_zh = self._localized_description(
-                wowhead_tooltips.get(spell_id),
-                resolver_zh.resolve(row.get('description_zh'), spell_id),
+            db2_description_zh = resolver_zh.resolve_mechanic(
+                row.get('description_zh'),
+                spell_id,
             )
+            rendered_tooltip_zh = str(
+                wowhead_tooltips.get(spell_id) or '',
+            ).strip()
+            if CJK_RE.search(rendered_tooltip_zh):
+                description_zh = rendered_tooltip_zh
+                incoming_source = SOURCE_WOWHEAD_TOOLTIP
+                incoming_quality = QUALITY_RENDERED_EXTERNAL
+            else:
+                description_zh = db2_description_zh
+                incoming_source = SOURCE_WAGO_DB2
+                incoming_quality = QUALITY_MECHANIC_ONLY
             aura_description = resolver_en.resolve(
                 row.get('aura_description'),
                 spell_id,
             )
-            aura_description_zh = resolver_zh.resolve(
+            aura_description_zh = resolver_zh.resolve_mechanic(
                 row.get('aura_description_zh'),
                 spell_id,
             )
+            existing_metadata = dict(
+                existing_record.metadata or {},
+            ) if existing_record else {}
+            preserve_description = bool(
+                existing_record
+                and existing_record.description_zh
+                and should_preserve_description(
+                    existing_metadata,
+                    incoming_quality,
+                )
+            )
+            if (
+                preserve_description
+                and description_quality(existing_metadata) == QUALITY_EXACT_RENDERED
+                and metadata_client_full_build(existing_metadata)
+                and metadata_client_full_build(existing_metadata) != build
+            ):
+                preserve_description = False
+            if preserve_description:
+                description_zh = existing_record.description_zh
             metadata = {
                 'source': 'wago.tools DB2',
                 'source_branch': branch,
@@ -1077,12 +1129,18 @@ class Command(BaseCommand):
                 ],
                 'coverage': coverage,
             }
+            metadata.update(build_description_metadata(
+                source=incoming_source,
+                quality=incoming_quality,
+            ))
             if preserve_asset:
                 metadata.update({
                     key: value
                     for key, value in (existing_record.metadata or {}).items()
                     if str(key).startswith('asset_')
                 })
+            if preserve_description:
+                preserve_description_provenance(metadata, existing_metadata)
             record, _created = MythicDungeonSpell.objects.update_or_create(
                 data_version=version,
                 spell_id=spell_id,
@@ -1112,7 +1170,17 @@ class Command(BaseCommand):
                 spell_id=spell_id,
             ).exclude(spell_record=record).update(spell_record=record)
         version_metadata = dict(version.metadata or {})
-        version_metadata['spell_snapshot'] = {
+        spell_snapshot = dict(version_metadata.get('spell_snapshot') or {})
+        description_coverage = {
+            QUALITY_EXACT_RENDERED: 0,
+            QUALITY_RENDERED_EXTERNAL: 0,
+            QUALITY_MECHANIC_ONLY: 0,
+        }
+        for record in spell_records.values():
+            quality = description_quality(record.metadata)
+            if quality in description_coverage and record.description_zh:
+                description_coverage[quality] += 1
+        spell_snapshot.update({
             'source': 'wago.tools DB2',
             'source_branch': branch,
             'source_locale': 'zhCN',
@@ -1124,8 +1192,10 @@ class Command(BaseCommand):
             'wowhead_data_env': tooltip_data_env,
             'wowhead_environment': WOWHEAD_ENVIRONMENT_KEYS[tooltip_data_env],
             'coverage': coverage,
+            'description_coverage': description_coverage,
             'synced_at': now.isoformat(),
-        }
+        })
+        version_metadata['spell_snapshot'] = spell_snapshot
         version.metadata = version_metadata
         version.save(update_fields=['metadata', 'updated_at'])
         return {

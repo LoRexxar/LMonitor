@@ -148,3 +148,73 @@ class SpellTextResolverTests(unittest.TestCase):
             resolver.resolve('投掷$n枚战轮，共造成$x次伤害。$@spelltooltip1269383', 1),
             '投掷x枚战轮，共造成x次伤害。用英勇打击攻击目标。',
         )
+
+    def test_mechanic_description_does_not_expose_untrusted_effect_values(self):
+        resolver = _FakeEffectResolver({
+            154132: {
+                0: {'base_points': '25'},
+                1: {'base_points': '300'},
+            },
+        })
+
+        result = resolver.resolve_mechanic(
+            '对所有玩家造成$s1点火焰伤害，并使其受到的伤害提高$s2%，持续$d。',
+            154132,
+        )
+
+        self.assertEqual(
+            result,
+            '对所有玩家造成火焰伤害，并使其受到的伤害提高，持续一段时间。',
+        )
+        self.assertNotIn('25', result)
+        self.assertNotIn('300', result)
+        self.assertNotIn('x', result.lower())
+        self.assertNotIn('$', result)
+
+    def test_mechanic_description_keeps_range_tick_and_duration_semantics(self):
+        resolver = _FakeEffectResolver({})
+
+        result = resolver.resolve_mechanic(
+            '向随机玩家喷吐熔化的黄金，对冲击点$1312104a1码范围内的玩家'
+            '造成$1312104s1点火焰伤害，并在$d内每$t1秒造成额外的$s1点火焰伤害。',
+            265773,
+        )
+
+        self.assertEqual(
+            result,
+            '向随机玩家喷吐熔化的黄金，对冲击点附近的玩家造成火焰伤害，'
+            '并在一段时间内周期性造成额外的火焰伤害。',
+        )
+        self.assertNotIn('一定码', result)
+        self.assertNotIn('一段时间秒', result)
+        self.assertNotIn('x', result.lower())
+        self.assertNotIn('$', result)
+
+    def test_mechanic_description_expands_linked_spell_without_effect_values(self):
+        resolver = _FakeSnapshotResolver(
+            {154132: {0: {'base_points': '25'}}},
+            {
+                154132: {
+                    'name_zh': '灼热重击',
+                    'description': '造成$s1点火焰伤害。',
+                },
+            },
+        )
+
+        self.assertEqual(
+            resolver.resolve_mechanic('$@spelldesc154132', 154110),
+            '造成火焰伤害。',
+        )
+
+    def test_mechanic_description_cleans_grammar_after_value_omission(self):
+        resolver = _FakeEffectResolver({})
+
+        self.assertEqual(
+            resolver.resolve_mechanic(
+                '每隔$t1秒吸收接下来受到的$s1点伤害，'
+                '并在$t2秒内吸取$s2点生命，影响$r1码范围内的目标。',
+                1,
+            ),
+            '周期性吸收接下来受到的伤害，'
+            '并在一段时间内吸取生命，影响附近的目标。',
+        )

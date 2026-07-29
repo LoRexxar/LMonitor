@@ -17,6 +17,7 @@ from botend.models import (
     MythicDungeonSpawn,
     MythicPlannerConfig,
 )
+from botend.mythic_planner.spell_tooltips import spell_snapshot_provenance
 
 
 SHARE_PREFIX = '!LMDT1!'
@@ -388,6 +389,7 @@ def serialize_ability(ability):
             'source_locale': spell.source_locale,
             'snapshot_build': spell.snapshot_build,
             'icon_file_data_id': spell.icon_file_data_id,
+            **spell_snapshot_provenance(spell.metadata),
         }
     return {
         'id': ability.id,

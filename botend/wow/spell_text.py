@@ -30,6 +30,14 @@ _BARE_COND_RE = re.compile(r"\?(?:!?\$?[acs]\d+)(?:&!?\$?[acs]\d+)*\[([^\[\]]*)\
 _BARE_COND_ONE_RE = re.compile(r"\?(?:!?\$?[acs]\d+)(?:&!?\$?[acs]\d+)*\[([^\[\]]*)\]", re.IGNORECASE)
 _SWITCH_RE = re.compile(r"\$@switch<[^>]*>\[([^\[\]]*)\]\[([^\[\]]*)\]", re.IGNORECASE)
 _NAMED_RE = re.compile(r"\$<([^>]+)>")
+_MECHANIC_VALUE_PATTERN = (
+    r"(?:"
+    r"\$\{[^{}]+\}(?:\.\d+)?"
+    r"|\$/\d+;(?:\d+)?[smAtdoUiLrnchxb]\d*"
+    r"|\$(?:\d+)?[smbhxc]\d*"
+    r"|\$<[^>]+>"
+    r")"
+)
 
 
 @dataclass
@@ -95,6 +103,73 @@ class SpellTextResolver:
             return self._cleanup_unresolved(out)
         except Exception:
             return self._cleanup_unresolved(text)
+
+    def resolve_mechanic(
+        self,
+        text: str | None,
+        spell_id: int | None = None,
+        *,
+        depth: int = 0,
+    ) -> str:
+        """Render a mechanic-only description without pretending DB2 base values are final.
+
+        Dungeon NPC damage and healing values depend on client hotfixes, difficulty,
+        level and runtime scaling.  This path intentionally expands references and
+        keeps the mechanic, but degrades unresolved value tokens semantically instead
+        of resolving SpellEffect base points or emitting ``x``.
+        """
+
+        text = text or ""
+        if not text:
+            return ""
+        sid = _to_int(spell_id)
+        try:
+            out = text
+            prev = None
+            while prev != out:
+                prev = out
+                out = _COND_RE.sub(lambda m: (m.group(1) or m.group(2) or ""), out)
+                out = _COND_ONE_RE.sub(lambda m: m.group(1) or "", out)
+                out = _BARE_COND_RE.sub(lambda m: (m.group(1) or m.group(2) or ""), out)
+                out = _BARE_COND_ONE_RE.sub(lambda m: m.group(1) or "", out)
+                out = _SWITCH_RE.sub(lambda m: (m.group(1) or m.group(2) or ""), out)
+            out = _SPELLNAME_RE.sub(
+                lambda m: self._spell_name(_to_int(m.group(1))) or "该技能",
+                out,
+            )
+            if depth <= 3:
+                out = _SPELLDESC_RE.sub(
+                    lambda m: self.resolve_mechanic(
+                        self._spell_desc(_to_int(m.group(1))),
+                        _to_int(m.group(1)),
+                        depth=depth + 1,
+                    ),
+                    out,
+                )
+                out = _SPELLTOOLTIP_RE.sub(
+                    lambda m: self.resolve_mechanic(
+                        self._spell_desc(_to_int(m.group(1))),
+                        _to_int(m.group(1)),
+                        depth=depth + 1,
+                    ),
+                    out,
+                )
+                out = _SPELLAURA_RE.sub(
+                    lambda m: self.resolve_mechanic(
+                        self._spell_aura(_to_int(m.group(1))),
+                        _to_int(m.group(1)),
+                        depth=depth + 1,
+                    ),
+                    out,
+                )
+            else:
+                out = _SPELLDESC_RE.sub("", out)
+                out = _SPELLTOOLTIP_RE.sub("", out)
+                out = _SPELLAURA_RE.sub("", out)
+            out = _SPELLICON_RE.sub("", out)
+            return self._cleanup_mechanic_text(out)
+        except Exception:
+            return self._cleanup_mechanic_text(text)
 
     def _spell_snapshot(self, spell_id: int) -> dict[str, str]:
         spell_id = _to_int(spell_id)
@@ -368,6 +443,123 @@ class SpellTextResolver:
     def _cleanup(text: str) -> str:
         return re.sub(r"\s+", " ", text or "").strip()
 
+    def _cleanup_mechanic_text(self, text: str) -> str:
+        text = str(text or "")
+        value = _MECHANIC_VALUE_PATTERN
+
+        # Preserve Chinese mechanics while deliberately omitting untrusted values.
+        text = re.sub(
+            rf"每\s*(?:\$(?:\d+)?[to]\d*|{value})\s*秒",
+            "周期性",
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(
+            r"持续\s*\$(?:\d+)?d\d*(?:\s*秒)?",
+            "持续一段时间",
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(
+            r"\$(?:\d+)?[aArR]\d*\s*码(?:范围)?内",
+            "附近",
+            text,
+        )
+        text = re.sub(
+            r"\$(?:\d+)?[aArR]\d*\s*码",
+            "一定范围",
+            text,
+        )
+        text = re.sub(
+            rf"(造成(?:额外的?)?|受到|承受)\s*{value}\s*点\s*"
+            r"((?:物理|火焰|冰霜|自然|暗影|神圣|奥术|混沌|宇宙)?伤害)",
+            r"\1\2",
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(
+            rf"恢复\s*{value}\s*%?\s*(?:的)?(?:最大)?生命值",
+            "恢复生命值",
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(
+            rf"(吸收)\s*{value}\s*点\s*伤害",
+            r"\1伤害",
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(
+            rf"(提高|降低|增加|减少)\s*{value}\s*%",
+            r"\1",
+            text,
+            flags=re.IGNORECASE,
+        )
+        count_words = {
+            "个": "多个",
+            "名": "多名",
+            "次": "多次",
+            "层": "多层",
+            "枚": "多枚",
+        }
+        for unit, replacement in count_words.items():
+            text = re.sub(
+                rf"{value}\s*{unit}",
+                replacement,
+                text,
+                flags=re.IGNORECASE,
+            )
+
+        # Small English fallback set, mainly for records without zhCN text.
+        text = re.sub(
+            rf"\bevery\s+{value}\s+seconds?\b",
+            "periodically",
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(
+            rf"\bfor\s+{value}\s+seconds?\b",
+            "for a duration",
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(
+            rf"\bdeals?\s+{value}\s+((?:physical|fire|frost|nature|shadow|holy|arcane|chaos)?\s*damage)",
+            r"deals \1",
+            text,
+            flags=re.IGNORECASE,
+        )
+
+        text = re.sub(r"\$proccooldown", "一段时间", text, flags=re.IGNORECASE)
+        text = _EXPR_RE.sub("", text)
+        text = _INLINE_DIV_VAR_RE.sub("", text)
+        text = _VAR_RE.sub(_mechanic_unresolved_var, text)
+        text = _NAMED_RE.sub("", text)
+        text = re.sub(r"\$[ef](?![A-Za-z0-9_])", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\$\?(?=\D|$)", "", text)
+        text = text.replace("$", "")
+
+        text = re.sub(r"每(?:隔)?\s*一段时间\s*秒", "周期性", text)
+        text = re.sub(r"每(?:隔)?\s*周期性\s*秒?", "周期性", text)
+        text = re.sub(r"在\s*(?:周期性|一段时间)\s*秒内", "在一段时间内", text)
+        text = re.sub(r"持续\s*一段时间\s*秒", "持续一段时间", text)
+        text = re.sub(r"一定范围\s*码(?:范围)?内", "附近", text)
+        text = re.sub(r"一定范围\s*码", "一定范围", text)
+        text = re.sub(r"一定范围\s*范围内", "一定范围内", text)
+        text = re.sub(r"(造成|受到|承受)\s*点\s*", r"\1", text)
+        text = re.sub(r"受到的点(?=伤害|治疗量|治疗效果)", "受到的", text)
+        text = re.sub(r"接下来的点(?=伤害|治疗量|治疗效果)", "接下来的", text)
+        text = re.sub(r"吸取点(?=生命)", "吸取", text)
+        text = re.sub(r"(提高|降低|增加|减少)\s*%", r"\1", text)
+        text = re.sub(r"有\s*%\s*几率", "有一定几率", text)
+        text = re.sub(r"(?<![A-Za-z])x(?![A-Za-z])", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s+([，。；、,.!?])", r"\1", text)
+        text = re.sub(r"([，。；、,.!?])\1+", r"\1", text)
+        text = re.sub(r"\s+", " ", text)
+        text = text.replace("..", ".")
+        text = re.sub(r"\|c[0-9a-fA-F]{8}|\|r", "", text)
+        return text.strip()
+
     def _cleanup_unresolved(self, text: str) -> str:
         text = text or ""
         prev = None
@@ -430,6 +622,19 @@ def _readable_unresolved_var(m: re.Match[str]) -> str:
     if kind in {'n', 'c', 'h', 'x', 'b'}:
         return 'x' if kind != 'h' else '点'
     return 'x'
+
+
+def _mechanic_unresolved_var(m: re.Match[str]) -> str:
+    kind = (m.group("kind") or "").lower()
+    if kind == "d":
+        return "一段时间"
+    if kind in {"a", "r"}:
+        return "一定范围"
+    if kind in {"t", "o"}:
+        return "周期性"
+    if kind in {"u", "i", "n"}:
+        return "多"
+    return ""
 
 
 @lru_cache(maxsize=8)

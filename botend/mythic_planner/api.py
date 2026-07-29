@@ -28,6 +28,11 @@ from botend.models import (
     MythicDungeonSpawn,
     MythicPlannerConfig,
 )
+from botend.mythic_planner.spell_tooltips import (
+    QUALITY_MANUAL_OVERRIDE,
+    SOURCE_MANUAL,
+    build_description_metadata,
+)
 from botend.mythic_planner.services import (
     decode_share_code,
     encode_share_code,
@@ -618,6 +623,14 @@ def management_snapshot(resources=None, dungeon_id=None):
                 'source_branch': row.source_branch,
                 'source_locale': row.source_locale,
                 'snapshot_build': row.snapshot_build,
+                'description_source': (row.metadata or {}).get(
+                    'description_source',
+                    '',
+                ),
+                'description_quality': (row.metadata or {}).get(
+                    'description_quality',
+                    '',
+                ),
                 'name': row.name,
                 'name_zh': row.name_zh,
                 'display_name': row.display_name,
@@ -1090,6 +1103,34 @@ class DashboardMythicPlannerAPIView(View):
                         if field in data
                     })
                     metadata['manual_override_fields'] = sorted(override_fields)
+                    clean['metadata'] = metadata
+                if resource == 'spells':
+                    existing_metadata = {}
+                    if object_id:
+                        existing_metadata = (
+                            model.objects.filter(id=object_id).values_list(
+                                'metadata',
+                                flat=True,
+                            ).first()
+                            or {}
+                        )
+                    metadata = dict(existing_metadata)
+                    if isinstance(clean.get('metadata'), dict):
+                        metadata.update(clean['metadata'])
+                    if {
+                        'description',
+                        'description_zh',
+                        'aura_description',
+                        'aura_description_zh',
+                    }.intersection(data):
+                        metadata.update(build_description_metadata(
+                            source=SOURCE_MANUAL,
+                            quality=QUALITY_MANUAL_OVERRIDE,
+                            tooltip_imported_at=timezone.now().isoformat(),
+                        ))
+                        metadata['manual_description_updated_by_user_id'] = (
+                            request.user.id
+                        )
                     clean['metadata'] = metadata
                 if resource == 'spawns':
                     existing_spawn = None

@@ -194,6 +194,8 @@
                 ['version_label', '数据版本'],
                 ['source_branch', '数据分支'],
                 ['snapshot_build', '客户端 build'],
+                ['description_source', '说明来源'],
+                ['description_quality', '说明质量'],
                 ['icon_file_data_id', '图标文件 ID'],
                 ['is_active', '状态'],
             ],

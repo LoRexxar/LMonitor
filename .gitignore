@@ -60,6 +60,10 @@ docs/
 /findings.md
 /progress.md
 
+# 大秘境 PTR Tooltip 本地采集清单与快照（禁止上传）
+/tools/LMonitorMythicTooltipCollector/LMonitorMythicTooltipManifest.lua
+/mythic_tooltip_snapshots/
+
 # PyBuilder
 target/
 

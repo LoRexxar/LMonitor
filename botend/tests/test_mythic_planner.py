@@ -45,6 +45,15 @@ from botend.mythic_planner.services import (
     serialize_catalog,
     validate_route_payload,
 )
+from botend.mythic_planner.spell_tooltips import (
+    QUALITY_EXACT_RENDERED,
+    QUALITY_MANUAL_OVERRIDE,
+    QUALITY_MECHANIC_ONLY,
+    SOURCE_MANUAL,
+    SOURCE_WOW_CLIENT,
+    build_manifest_core,
+    manifest_hash,
+)
 from botend.management.commands.sync_mythic_dungeon_spells import (
     Command as SyncMythicDungeonSpellsCommand,
 )
@@ -108,6 +117,14 @@ class MythicPlannerImportTests(TestCase):
         spell.name_zh = '已解析技能'
         spell.description_zh = '来自公共技能资料表的完整说明。'
         spell.icon_url = 'https://example.com/icon.jpg'
+        spell.metadata = {
+            'description_source': SOURCE_WOW_CLIENT,
+            'description_quality': QUALITY_EXACT_RENDERED,
+            'client_version': '12.1.0',
+            'client_build': '68914',
+            'client_locale': 'zhCN',
+            'difficulty_id': 8,
+        }
         spell.save()
 
         payload = serialize_ability(
@@ -117,6 +134,14 @@ class MythicPlannerImportTests(TestCase):
         self.assertEqual(payload['display_name'], '已解析技能')
         self.assertEqual(payload['description_zh'], '来自公共技能资料表的完整说明。')
         self.assertEqual(payload['icon_url'], 'https://example.com/icon.jpg')
+        self.assertEqual(
+            payload['metadata']['spell_snapshot']['description_quality'],
+            QUALITY_EXACT_RENDERED,
+        )
+        self.assertEqual(
+            payload['metadata']['spell_snapshot']['difficulty_id'],
+            8,
+        )
 
     def test_explicit_relation_override_beats_shared_spell_snapshot(self):
         import_mythic_dungeon_payload(demo_payload(), activate=True)
@@ -799,6 +824,479 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
         )
 
 
+class MythicPlannerSpellDescriptionSourceTests(TestCase):
+    def _version_and_spell(self, *, client_build='68914'):
+        version = MythicDungeonDataVersion.objects.create(
+            key='tooltip-source-test',
+            label='Tooltip 来源测试',
+            game_version='12.1.0',
+            is_active=True,
+        )
+        spell = MythicDungeonSpell.objects.create(
+            data_version=version,
+            spell_id=154132,
+            source_branch='wowt',
+            source_locale='zhCN',
+            snapshot_build='12.1.0.68914',
+            name_zh='灼热重击',
+            description_zh='客户端精确说明。',
+            metadata={
+                'description_source': SOURCE_WOW_CLIENT,
+                'description_quality': QUALITY_EXACT_RENDERED,
+                'client_version': '12.1.0',
+                'client_build': client_build,
+                'client_locale': 'zhCN',
+                'difficulty_id': 8,
+            },
+        )
+        return version, spell
+
+    @staticmethod
+    def _coverage():
+        return {
+            'total': 1,
+            'name': 1,
+            'name_zh': 1,
+            'raw_text': 1,
+            'icon_id': 0,
+            'icon_name': 0,
+            'rendered_tooltip_zh': 0,
+        }
+
+    def _write_db2_snapshot(self, version, build):
+        command = SyncMythicDungeonSpellsCommand()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            command._write_snapshots(
+                version=version,
+                branch='wowt',
+                build=build,
+                dump_dir=Path(temp_dir),
+                spell_ids={154132},
+                rows={
+                    154132: {
+                        'name': 'Searing Slam',
+                        'name_zh': '灼热重击',
+                        'description': 'Deals $s1 Fire damage.',
+                        'description_zh': '造成$s1点火焰伤害。',
+                        'aura_description': '',
+                        'aura_description_zh': '',
+                    },
+                },
+                misc={},
+                effects={},
+                icon_names={},
+                coverage=self._coverage(),
+                listfile_url='',
+                wowhead_tooltips={},
+                tooltip_data_env=2,
+            )
+
+    def test_same_build_db2_sync_does_not_downgrade_exact_client_tooltip(self):
+        version, spell = self._version_and_spell()
+
+        self._write_db2_snapshot(version, '12.1.0.68914')
+
+        spell.refresh_from_db()
+        version.refresh_from_db()
+        self.assertEqual(spell.description_zh, '客户端精确说明。')
+        self.assertEqual(
+            spell.metadata['description_quality'],
+            QUALITY_EXACT_RENDERED,
+        )
+        self.assertEqual(
+            version.metadata['spell_snapshot']['description_coverage'][
+                QUALITY_EXACT_RENDERED
+            ],
+            1,
+        )
+
+    def test_new_build_db2_sync_replaces_stale_exact_client_tooltip_safely(self):
+        version, spell = self._version_and_spell(client_build='68914')
+
+        self._write_db2_snapshot(version, '12.1.0.69000')
+
+        spell.refresh_from_db()
+        self.assertEqual(spell.description_zh, '造成火焰伤害。')
+        self.assertEqual(
+            spell.metadata['description_quality'],
+            QUALITY_MECHANIC_ONLY,
+        )
+        self.assertNotIn('x', spell.description_zh.lower())
+        self.assertNotIn('$', spell.description_zh)
+
+    def test_wowhead_tooltip_only_does_not_override_exact_client_tooltip(self):
+        version, spell = self._version_and_spell()
+
+        result = SyncMythicDungeonSpellsCommand()._write_tooltips_only(
+            version=version,
+            branch='wowt',
+            build='12.1.0.68914',
+            spell_ids={spell.spell_id},
+            wowhead_tooltips={spell.spell_id: '外部渲染说明。'},
+            locale=4,
+            data_env=2,
+        )
+
+        spell.refresh_from_db()
+        self.assertEqual(spell.description_zh, '客户端精确说明。')
+        self.assertEqual(result['updated'], 0)
+
+
+class MythicPlannerNormalizeSpellDescriptionCommandTests(TestCase):
+    full_build = '12.1.0.68914'
+
+    def setUp(self):
+        self.version = MythicDungeonDataVersion.objects.create(
+            key='normalize-tooltip-test',
+            label='说明重建测试',
+            game_version='12.1.0',
+            is_active=True,
+            metadata={
+                'spell_snapshot': {
+                    'snapshot_build': self.full_build,
+                    'source_branch': 'wowt',
+                },
+            },
+        )
+
+    def _create_spell(self, spell_id, **values):
+        defaults = {
+            'data_version': self.version,
+            'spell_id': spell_id,
+            'source_branch': 'wowt',
+            'source_locale': 'zhCN',
+            'snapshot_build': self.full_build,
+            'description_zh': '造成x点火焰伤害。',
+            'metadata': {
+                'raw_description_zh': '造成$s1点火焰伤害。',
+            },
+        }
+        defaults.update(values)
+        return MythicDungeonSpell.objects.create(**defaults)
+
+    def test_normalize_rebuilds_legacy_description_without_redownloading_db2(self):
+        spell = self._create_spell(154132)
+
+        call_command(
+            'normalize_mythic_spell_descriptions',
+            version_key=self.version.key,
+            expected_build=self.full_build,
+            verbosity=0,
+        )
+
+        spell.refresh_from_db()
+        self.assertEqual(spell.description_zh, '造成火焰伤害。')
+        self.assertEqual(
+            spell.metadata['description_quality'],
+            QUALITY_MECHANIC_ONLY,
+        )
+        self.assertNotIn('x', spell.description_zh.lower())
+        self.assertNotIn('$', spell.description_zh)
+
+    def test_normalize_dry_run_does_not_write_and_preserves_current_exact(self):
+        legacy = self._create_spell(154132)
+        exact = self._create_spell(
+            154133,
+            description_zh='客户端精确说明。',
+            metadata={
+                'raw_description_zh': '造成$s1点冰霜伤害。',
+                'description_source': SOURCE_WOW_CLIENT,
+                'description_quality': QUALITY_EXACT_RENDERED,
+                'client_version': '12.1.0',
+                'client_build': '68914',
+            },
+        )
+
+        call_command(
+            'normalize_mythic_spell_descriptions',
+            version_key=self.version.key,
+            expected_build=self.full_build,
+            dry_run=True,
+            verbosity=0,
+        )
+
+        legacy.refresh_from_db()
+        exact.refresh_from_db()
+        self.assertEqual(legacy.description_zh, '造成x点火焰伤害。')
+        self.assertEqual(exact.description_zh, '客户端精确说明。')
+        self.assertEqual(
+            exact.metadata['description_quality'],
+            QUALITY_EXACT_RENDERED,
+        )
+
+    def test_normalize_replaces_only_stale_exact_client_description(self):
+        stale = self._create_spell(
+            154132,
+            description_zh='旧客户端说明。',
+            metadata={
+                'raw_description_zh': '造成$s1点火焰伤害。',
+                'description_source': SOURCE_WOW_CLIENT,
+                'description_quality': QUALITY_EXACT_RENDERED,
+                'client_version': '12.0.0',
+                'client_build': '65000',
+            },
+        )
+
+        call_command(
+            'normalize_mythic_spell_descriptions',
+            version_key=self.version.key,
+            expected_build=self.full_build,
+            verbosity=0,
+        )
+
+        stale.refresh_from_db()
+        self.assertEqual(stale.description_zh, '造成火焰伤害。')
+        self.assertEqual(
+            stale.metadata['description_quality'],
+            QUALITY_MECHANIC_ONLY,
+        )
+
+    def test_normalize_rejects_a_different_expected_build(self):
+        with self.assertRaisesMessage(CommandError, '数据版本 build 不匹配'):
+            call_command(
+                'normalize_mythic_spell_descriptions',
+                version_key=self.version.key,
+                expected_build='12.1.0.69000',
+                verbosity=0,
+            )
+
+
+class MythicPlannerClientTooltipCommandTests(TestCase):
+    full_build = '12.1.0.68914'
+
+    def setUp(self):
+        import_mythic_dungeon_payload(demo_payload(), activate=True)
+        self.version = MythicDungeonDataVersion.objects.get(
+            key='lmonitor-demo-1',
+        )
+        self.version.game_version = '12.1.0'
+        self.version.metadata = {
+            'spell_snapshot': {
+                'snapshot_build': self.full_build,
+                'source_branch': 'wowt',
+            },
+        }
+        self.version.save()
+        self.spell_ids = sorted({
+            int(spell_id)
+            for spell_id in MythicDungeonAbility.objects.filter(
+                enemy__dungeon__data_version=self.version,
+                is_active=True,
+            ).values_list('spell_id', flat=True)
+        })
+
+    def _manifest_hash(self):
+        return manifest_hash(build_manifest_core(
+            data_version_key=self.version.key,
+            full_build=self.full_build,
+            locale='zhCN',
+            difficulty_id=8,
+            spell_ids=self.spell_ids,
+        ))
+
+    def _snapshot_text(
+        self,
+        *,
+        client_build='68914',
+        manifest_digest=None,
+        invalid_spell_id=None,
+        missing_ids=None,
+    ):
+        missing_ids = set(missing_ids or ())
+        lines = [
+            'LMonitorMythicTooltipExport = {',
+            '    schema_version = 1,',
+            '    collector_version = "1.0.0",',
+            f'    data_version_key = {json.dumps(self.version.key)},',
+            f'    expected_full_build = {json.dumps(self.full_build)},',
+            '    client_version = "12.1.0",',
+            f'    client_build = {json.dumps(client_build)},',
+            '    client_interface_version = 120100,',
+            '    client_locale = "zhCN",',
+            '    difficulty_id = 8,',
+            f'    manifest_hash = {json.dumps(manifest_digest or self._manifest_hash())},',
+            '    completed_at = 1785254400,',
+            f'    total = {len(self.spell_ids)},',
+            '    spells = {',
+        ]
+        for spell_id in self.spell_ids:
+            if spell_id in missing_ids:
+                continue
+            description = (
+                '造成$x点火焰伤害。'
+                if spell_id == invalid_spell_id
+                else '对玩家造成火焰伤害。'
+            )
+            lines.extend([
+                f'        [{spell_id}] = {{',
+                f'            name = "技能 {spell_id}",',
+                f'            description = {json.dumps(description, ensure_ascii=False)},',
+                '            capture_source = "tooltip_info",',
+                '            line_type = 34,',
+                '        },',
+            ])
+        lines.extend([
+            '    },',
+            '    missing = {',
+        ])
+        for spell_id in sorted(missing_ids):
+            lines.extend([
+                f'        [{spell_id}] = {{',
+                '            reason = "description_not_loaded",',
+                '            attempts = 6,',
+                '        },',
+            ])
+        lines.extend([
+            '    },',
+            '}',
+            '',
+        ])
+        return '\n'.join(lines)
+
+    def test_export_manifest_writes_versioned_ignored_lua_input(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / 'manifest.lua'
+            call_command(
+                'export_mythic_tooltip_manifest',
+                version_key=self.version.key,
+                build=self.full_build,
+                output=str(output),
+                verbosity=0,
+            )
+
+            text = output.read_text(encoding='utf-8')
+            match = re.search(
+                r'LMonitorMythicTooltipManifest\s*=\s*',
+                text,
+            )
+            manifest = LuaValueParser(text, match.end()).parse()
+
+        self.assertEqual(manifest['data_version_key'], self.version.key)
+        self.assertEqual(manifest['expected_full_build'], self.full_build)
+        self.assertEqual(manifest['difficulty_id'], 8)
+        self.assertEqual(
+            [manifest['spell_ids'][index] for index in sorted(manifest['spell_ids'])],
+            self.spell_ids,
+        )
+        self.assertEqual(manifest['manifest_hash'], self._manifest_hash())
+
+    def test_import_client_tooltip_snapshot_updates_public_spell_records(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            snapshot_path = Path(temp_dir) / 'LMonitor.lua'
+            snapshot_path.write_text(
+                self._snapshot_text(),
+                encoding='utf-8',
+            )
+            call_command(
+                'import_mythic_tooltip_snapshot',
+                input=str(snapshot_path),
+                version_key=self.version.key,
+                expected_build=self.full_build,
+                min_coverage=1.0,
+                verbosity=0,
+            )
+
+        spells = list(MythicDungeonSpell.objects.filter(
+            data_version=self.version,
+            spell_id__in=self.spell_ids,
+        ))
+        self.assertEqual(len(spells), len(self.spell_ids))
+        self.assertTrue(all(
+            spell.metadata.get('description_quality') == QUALITY_EXACT_RENDERED
+            for spell in spells
+        ))
+        self.assertTrue(all(
+            spell.metadata.get('description_source') == SOURCE_WOW_CLIENT
+            for spell in spells
+        ))
+        self.assertTrue(all(spell.description_zh == '对玩家造成火焰伤害。' for spell in spells))
+        self.version.refresh_from_db()
+        client_tooltips = self.version.metadata['spell_snapshot']['client_tooltips']
+        self.assertEqual(client_tooltips['captured'], len(self.spell_ids))
+        self.assertEqual(client_tooltips['coverage'], 1.0)
+
+    def test_import_rejects_wrong_build_stale_manifest_and_unresolved_text(self):
+        cases = (
+            (
+                self._snapshot_text(client_build='68915'),
+                '客户端 build 不匹配',
+            ),
+            (
+                self._snapshot_text(manifest_digest='0' * 64),
+                '采集清单哈希与当前数据库不一致',
+            ),
+            (
+                self._snapshot_text(invalid_spell_id=self.spell_ids[0]),
+                '快照包含无效技能说明',
+            ),
+        )
+        for index, (content, message) in enumerate(cases):
+            with self.subTest(message=message):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    snapshot_path = Path(temp_dir) / f'LMonitor-{index}.lua'
+                    snapshot_path.write_text(content, encoding='utf-8')
+                    with self.assertRaisesMessage(CommandError, message):
+                        call_command(
+                            'import_mythic_tooltip_snapshot',
+                            input=str(snapshot_path),
+                            version_key=self.version.key,
+                            expected_build=self.full_build,
+                            verbosity=0,
+                        )
+
+    def test_import_can_gate_partial_snapshot_by_exact_coverage(self):
+        missing_id = self.spell_ids[-1]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            snapshot_path = Path(temp_dir) / 'LMonitor-partial.lua'
+            snapshot_path.write_text(
+                self._snapshot_text(missing_ids={missing_id}),
+                encoding='utf-8',
+            )
+            with self.assertRaisesMessage(CommandError, '低于最低要求'):
+                call_command(
+                    'import_mythic_tooltip_snapshot',
+                    input=str(snapshot_path),
+                    version_key=self.version.key,
+                    expected_build=self.full_build,
+                    min_coverage=1.0,
+                    verbosity=0,
+                )
+
+    def test_import_does_not_overwrite_public_manual_description(self):
+        manual_spell = MythicDungeonSpell.objects.filter(
+            data_version=self.version,
+            spell_id=self.spell_ids[0],
+        ).first()
+        manual_spell.description_zh = '管理员手工说明。'
+        manual_spell.metadata = {
+            **(manual_spell.metadata or {}),
+            'description_source': SOURCE_MANUAL,
+            'description_quality': QUALITY_MANUAL_OVERRIDE,
+        }
+        manual_spell.save()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            snapshot_path = Path(temp_dir) / 'LMonitor.lua'
+            snapshot_path.write_text(
+                self._snapshot_text(),
+                encoding='utf-8',
+            )
+            call_command(
+                'import_mythic_tooltip_snapshot',
+                input=str(snapshot_path),
+                version_key=self.version.key,
+                expected_build=self.full_build,
+                verbosity=0,
+            )
+
+        manual_spell.refresh_from_db()
+        self.assertEqual(manual_spell.description_zh, '管理员手工说明。')
+        self.assertEqual(
+            manual_spell.metadata['description_quality'],
+            QUALITY_MANUAL_OVERRIDE,
+        )
+
+
 class MythicPlannerAssetPersistenceTests(TestCase):
     def test_recovered_icon_uses_normalized_slug_and_clears_failure_marker(self):
         version = MythicDungeonDataVersion.objects.create(
@@ -1134,11 +1632,31 @@ class MythicPlannerDashboardTests(TestCase):
         legacy_route_page = self.client.get('/dashboard/mythic-planner/?resource=routes')
         self.assertEqual(legacy_route_page.status_code, 200)
         self.assertNotContains(legacy_route_page, 'id="route-table-body"')
+        source_spell = MythicDungeonSpell.objects.first()
+        source_spell.metadata = {
+            **(source_spell.metadata or {}),
+            'description_source': SOURCE_WOW_CLIENT,
+            'description_quality': QUALITY_EXACT_RENDERED,
+        }
+        source_spell.save(update_fields=['metadata', 'updated_at'])
         snapshot = self.client.get('/api/mythic-planner/manage/')
         self.assertEqual(snapshot.status_code, 200)
         self.assertEqual(snapshot.json()['data']['counts']['dungeons'], 2)
         self.assertGreater(snapshot.json()['data']['counts']['spells'], 0)
         self.assertTrue(snapshot.json()['data']['abilities'][0]['display_name'])
+        serialized_spell = next(
+            row
+            for row in snapshot.json()['data']['spells']
+            if row['id'] == source_spell.id
+        )
+        self.assertEqual(
+            serialized_spell['description_source'],
+            SOURCE_WOW_CLIENT,
+        )
+        self.assertEqual(
+            serialized_spell['description_quality'],
+            QUALITY_EXACT_RENDERED,
+        )
 
         scoped_snapshot = self.client.get(
             '/api/mythic-planner/manage/'
@@ -1526,6 +2044,14 @@ class MythicPlannerDashboardTests(TestCase):
         spell.refresh_from_db()
         self.assertEqual(spell.name_zh, '后台修订技能')
         self.assertEqual(spell.description_zh, '后台维护的技能说明。')
+        self.assertEqual(
+            spell.metadata['description_source'],
+            SOURCE_MANUAL,
+        )
+        self.assertEqual(
+            spell.metadata['description_quality'],
+            QUALITY_MANUAL_OVERRIDE,
+        )
         returned = next(
             row
             for row in patched.json()['snapshot']['spells']

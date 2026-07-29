@@ -1,0 +1,9 @@
+## Interface: 120100
+## Title: LMonitor Mythic Tooltip Collector
+## Notes: 采集当前客户端渲染的大秘境技能说明
+## Author: LMonitor
+## Version: 1.0.0
+## SavedVariables: LMonitorMythicTooltipExport
+
+LMonitorMythicTooltipManifest.lua
+LMonitorMythicTooltipCollector.lua
