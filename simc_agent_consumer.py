@@ -553,7 +553,7 @@ class SimcAgentConsumer:
             candidate = Path(build) / _simc_binary_name()
             if not _is_executable_regular_file(candidate):
                 raise APIError('SimC build did not produce an executable binary')
-            probe = self._command([str(candidate), '--version'], timeout=30)
+            probe = self._command([str(candidate)], timeout=30)
             if 'SimulationCraft' not in (probe.stdout + probe.stderr):
                 raise APIError('compiled SimC binary failed its version probe')
             fd, temporary = tempfile.mkstemp(prefix=f'.{target.name}.', dir=str(target.parent))

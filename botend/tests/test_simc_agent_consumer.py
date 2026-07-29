@@ -164,7 +164,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
                     candidate = build_dir / 'simc'
                     candidate.write_text('#!/bin/sh\nexit 0\n', encoding='utf-8')
                     candidate.chmod(0o755)
-                elif command[0].endswith('/simc') and command[-1] == '--version':
+                elif command[0].endswith('/simc') and len(command) == 1:
                     stdout = 'SimulationCraft 1200-01\n'
                 return MagicMock(returncode=0, stdout=stdout, stderr='')
 
@@ -180,6 +180,8 @@ class SimcAgentConsumerTests(SimpleTestCase):
             commands = [call.args[0] for call in run_command.call_args_list]
             self.assertIn(['git', '-C', str(source), 'pull', '--ff-only', 'origin', 'midnight'], commands)
             self.assertTrue(any(command[:2] == ['cmake', '--build'] for command in commands))
+            self.assertTrue(any(command[0].endswith('/simc') and len(command) == 1 for command in commands))
+            self.assertFalse(any('--version' in command for command in commands))
 
     def test_windows_maintenance_uses_simc_exe_and_skips_posix_mode_changes(self):
         from simc_agent_consumer import AgentConfig, SimcAgentConsumer
@@ -208,7 +210,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
                 elif command[:2] == ['cmake', '--build']:
                     candidate = Path(command[2]) / 'simc.exe'
                     candidate.write_bytes(b'MZ')
-                elif command[0].endswith('simc.exe') and command[-1] == '--version':
+                elif command[0].endswith('simc.exe') and len(command) == 1:
                     stdout = 'SimulationCraft 1200-01\n'
                 return MagicMock(returncode=0, stdout=stdout, stderr='')
 
@@ -222,7 +224,8 @@ class SimcAgentConsumerTests(SimpleTestCase):
             chmod.assert_not_called()
             commands = [call.args[0] for call in run_command.call_args_list]
             self.assertTrue(any(command[:2] == ['cmake', '--build'] for command in commands))
-            self.assertTrue(any(command[0].endswith('simc.exe') for command in commands))
+            self.assertTrue(any(command[0].endswith('simc.exe') and len(command) == 1 for command in commands))
+            self.assertFalse(any('--version' in command for command in commands))
 
     def test_required_simc_revision_clones_managed_source_and_builds_exact_commit(self):
         from simc_agent_consumer import AgentConfig, SimcAgentConsumer
@@ -260,7 +263,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
                     candidate = Path(command[2]) / 'simc'
                     candidate.write_text('#!/bin/sh\nexit 0\n', encoding='utf-8')
                     candidate.chmod(0o755)
-                elif command[0].endswith('/simc') and command[-1] == '--version':
+                elif command[0].endswith('/simc') and len(command) == 1:
                     stdout = 'SimulationCraft 1200-01\n'
                 return MagicMock(returncode=0, stdout=stdout, stderr='')
 

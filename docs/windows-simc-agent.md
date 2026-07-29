@@ -14,25 +14,25 @@ Use a dedicated, writable directory for the Agent checkout and its data. Do not 
 
 ## Configuration
 
-Create `agent.json` in a writable location. `simc_path` must be the explicit final executable path. For automatic SimC build/update, set `simc_source_path` to a separate local source checkout directory (or an empty managed directory when the control plane requests an exact revision).
+Create `agent.json` in a writable location. For a **first start**, only the one-time enrollment token and the final SimC executable path are needed:
 
 ```json
 {
-  "server_url": "https://your-control-plane.example",
   "enrollment_token": "[REDACTED]",
-  "backend_identifier": "your-windows-backend",
-  "name": "windows-agent-01",
-  "platform": "windows",
-  "simc_path": "C:\\LMonitorSimCAgent\\bin\\simc.exe",
-  "token_path": "C:\\LMonitorSimCAgent\\agent.token",
-  "log_path": "C:\\LMonitorSimCAgent\\simc-agent.log",
-  "simc_source_path": "C:\\LMonitorSimCAgent\\simc-source",
-  "simc_compile_threads": 4,
-  "auto_update_simc": true
+  "simc_path": "C:\\LMonitorSimCAgent\\bin\\simc.exe"
 }
 ```
 
-When `token_path` and `log_path` are explicitly set as above, the completion outbox is a sibling directory named `completion-outbox`; do not delete it while there are unacknowledged terminal completions. If they are omitted, the token and log are created adjacent to the config file.
+The Agent derives the remaining settings:
+
+- `server_url`: defaults to the LMonitor control plane;
+- Backend binding: comes from the one-time enrollment token; do not configure `backend_identifier` for a new Agent;
+- `name`, `platform`, and `host_identifier`: automatically detected;
+- `agent.token`, `simc-agent.log`, `completion-outbox/`, and managed `simc-source/`: created beside `agent.json`.
+
+`simc_path` is always the explicit final executable path. It may not exist for the initial automatic build: the Agent creates and maintains the sibling `simc-source/` checkout, then installs the verified `simc.exe` at that path.
+
+Only add optional fields when overriding a default, for example `server_url` for a private control plane, `token_path`/`log_path` for a separate state directory, or `simc_compile_threads` to cap build concurrency. Do not delete `completion-outbox/` while it contains unacknowledged terminal completions.
 
 ## Start
 
@@ -52,6 +52,6 @@ For one claim cycle only:
 
 ## Automatic compilation behavior
 
-The Agent uses Git plus CMake/Ninja directly, without POSIX shell commands. It configures `BUILD_GUI=OFF`, builds target `simc`, expects `simc.exe` from the build directory on Windows, validates it with `simc.exe --version`, then atomically replaces the configured `simc_path`. It does not compile while a Run lease may be live.
+The Agent uses Git plus CMake/Ninja directly, without POSIX shell commands. It configures `BUILD_GUI=OFF`, builds target `simc`, expects `simc.exe` from the build directory on Windows, validates it by invoking `simc.exe` with no arguments and checking for its `SimulationCraft` banner, then atomically replaces the configured `simc_path`. It does not compile while a Run lease may be live.
 
 On Windows, POSIX `chmod`, `fchmod`, directory `fsync`, and mode-bit consistency checks are intentionally skipped because NTFS ACLs are authoritative. On POSIX these private-mode checks and directory fsync protections remain enabled.
