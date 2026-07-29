@@ -107,6 +107,16 @@ class SimcAgentAPITests(TestCase):
         self.assertEqual(response['Cache-Control'], 'no-store')
         self.assertEqual(response['Pragma'], 'no-cache')
 
+    def test_superuser_can_read_agent_management_projection(self):
+        self.enroll()
+        superuser = get_user_model().objects.create_user(
+            username='simc-superuser', password='x', is_superuser=True,
+        )
+        self.client.force_login(superuser)
+        response = self.client.get(MANAGEMENT_URL)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(len(response.json()['data']), 1)
+
     def test_registration_uses_precreated_backend_without_overwriting_its_name(self):
         backend = SimcBackendBinary.objects.create(
             identifier='production', name='Existing Backend', simc_path='/legacy/path'

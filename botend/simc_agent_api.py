@@ -164,7 +164,7 @@ class SimcAgentManagementListAPIView(View):
     http_method_names = ['get']
 
     def get(self, request):
-        if not request.user.is_authenticated or not request.user.is_staff:
+        if not _staff_required(request):
             return _no_store(JsonResponse({'success': False, 'error': 'Staff access required'}, status=403))
         from django.utils import timezone
         now = timezone.now()
@@ -198,7 +198,7 @@ class SimcAgentManagementActiveAPIView(View):
     http_method_names = ['post']
 
     def post(self, request, agent_id):
-        if not request.user.is_authenticated or not request.user.is_staff:
+        if not _staff_required(request):
             return _no_store(JsonResponse({'success': False, 'error': 'Staff access required'}, status=403))
         try:
             payload = _parse_request_json(request)
@@ -216,7 +216,7 @@ class SimcAgentManagementActiveAPIView(View):
 
 
 def _staff_required(request):
-    return request.user.is_authenticated and request.user.is_staff
+    return request.user.is_authenticated and (request.user.is_staff or request.user.is_superuser)
 
 
 def _serialize_enrollment_code(row):
