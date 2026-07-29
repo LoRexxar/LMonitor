@@ -1846,11 +1846,29 @@ function loadSimcWorkbenchProfiles(page) {
 function renderSimcProfileDetailDialog(detail) {
     const profile = detail.profile || {};
     const esc = value => escapeHtml(String(value == null || value === '' ? '-' : value));
-    const equipment = (detail.equipment || []).map(item => `<div class="rounded-lg border border-slate-200 bg-slate-50 p-3"><div class="text-xs text-slate-500">${esc(item.slot_label || item.slot)}</div><div class="font-medium">${esc(item.display_name)} <span class="text-xs text-slate-400">${item.item_level ? 'ilvl ' + esc(item.item_level) : '#' + esc(item.item_id || item.id)}</span></div>${item.enchant ? `<div class="text-xs text-violet-700">附魔：${esc(item.enchant.display_name)}</div>` : ''}${(item.gems || []).length ? `<div class="text-xs text-cyan-700">宝石：${item.gems.map(g => esc(g.display_name)).join('、')}</div>` : ''}</div>`).join('') || '<div class="text-sm text-slate-400">未解析到装备槽位</div>';
+    const equipment = (detail.equipment || []).map(item => {
+        const itemId = item.item_id || item.id || '';
+        const editor = profile.can_edit ? `<div class="mt-2 grid grid-cols-2 gap-2" data-profile-equipment-slot="${esc(item.slot)}"><label class="text-xs text-slate-500">装备 ID<input type="number" min="1" name="item_id" value="${escapeHtml(String(itemId))}" class="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1 text-sm text-slate-900"></label><label class="text-xs text-slate-500">装等<input type="number" min="1" name="item_level" value="${escapeHtml(String(item.item_level || ''))}" class="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1 text-sm text-slate-900"></label></div>` : '';
+        return `<div class="rounded-lg border border-slate-200 bg-slate-50 p-3"><div class="text-xs text-slate-500">${esc(item.slot_label || item.slot)}</div><div class="font-medium">${esc(item.display_name)} <span class="text-xs text-slate-400">${item.item_level ? 'ilvl ' + esc(item.item_level) : '#' + esc(itemId)}</span></div>${item.enchant ? `<div class="text-xs text-violet-700">附魔：${esc(item.enchant.display_name)}</div>` : ''}${(item.gems || []).length ? `<div class="text-xs text-cyan-700">宝石：${item.gems.map(g => esc(g.display_name)).join('、')}</div>` : ''}${editor}</div>`;
+    }).join('') || '<div class="text-sm text-slate-400">未解析到装备槽位</div>';
     openSimcWorkbenchDialog('profile-detail');
     const body = document.getElementById('simc-dialog-body');
     if (!body) return;
-    body.innerHTML = `<div class="space-y-4"><div class="flex flex-wrap gap-3 text-sm"><span>配置：<b>${esc(profile.name)}</b></span><span>专精：<b>${esc(profile.spec)}</b></span><span>状态：<b>${profile.is_active ? '生效中' : '未生效'}</b></span></div><section><h4 class="mb-2 font-semibold">装备、附魔与宝石</h4><div class="grid gap-2 sm:grid-cols-2">${equipment}</div></section><section><h4 class="mb-2 font-semibold">原始玩家配置字符串</h4><pre class="max-h-[28rem] overflow-auto rounded-xl bg-slate-950 p-3 text-xs leading-5 text-slate-100 whitespace-pre-wrap">${esc(profile.raw_player_equipment)}</pre></section></div>`;
+    body.innerHTML = `<div class="space-y-4" data-profile-detail-id="${esc(profile.id)}"><div class="flex flex-wrap gap-3 text-sm"><span>配置：<b>${esc(profile.name)}</b></span><span>专精：<b>${esc(profile.spec)}</b></span><span>状态：<b>${profile.is_active ? '生效中' : '未生效'}</b></span></div><section><div class="mb-2 flex items-center justify-between gap-3"><h4 class="font-semibold">装备、附魔与宝石</h4>${profile.can_edit ? '<button type="button" onclick="simcWbSaveProfileEquipment()" class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700">保存装备修改</button>' : ''}</div><p class="mb-2 text-xs text-slate-500">只需修改装备 ID 和装等；名称、附魔、宝石等信息保存后由后端重新解析。</p><div class="grid gap-2 sm:grid-cols-2">${equipment}</div></section><section><h4 class="mb-2 font-semibold">原始玩家配置字符串</h4><pre class="max-h-[28rem] overflow-auto rounded-xl bg-slate-950 p-3 text-xs leading-5 text-slate-100 whitespace-pre-wrap">${esc(profile.raw_player_equipment)}</pre></section></div>`;
+}
+
+async function simcWbSaveProfileEquipment() {
+    const root = document.querySelector('[data-profile-detail-id]');
+    if (!root) return;
+    const equipment = Array.from(root.querySelectorAll('[data-profile-equipment-slot]')).map(row => ({ slot: row.dataset.profileEquipmentSlot, item_id: Number(row.querySelector('[name="item_id"]')?.value || 0), item_level: Number(row.querySelector('[name="item_level"]')?.value || 0) }));
+    try {
+        const response = await fetch('/api/simc-profile/', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() }, body: JSON.stringify({ id: Number(root.dataset.profileDetailId), equipment }) });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.error || '保存装备失败');
+        showMessage('装备配置已更新', 'success');
+        await simcWbViewProfile(root.dataset.profileDetailId);
+        loadSimcWorkbenchProfiles(simcWbProfilePage);
+    } catch (error) { showMessage(String(error.message || error), 'error'); }
 }
 async function simcWbViewProfile(id) {
     try {

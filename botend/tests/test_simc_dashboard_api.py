@@ -360,6 +360,28 @@ class SimcProfileResourceListTests(TestCase):
         self.assertEqual(system.name, 'MID1 Frost player')
         self.assertTrue(system.is_active)
 
+    def test_owner_can_update_equipment_ids_and_levels_without_replacing_other_profile_lines(self):
+        profile = SimcProfile.objects.create(
+            user_id=self.user.id, name='可编辑装备', spec='warrior_fury',
+            player_config_mode='manual_equipment',
+            player_equipment='warrior="Tester"\\nspec=fury\\ntalents=BUILD\\nhead=,id=100,ilevel=276\\nchest=,id=200,ilevel=276\\n',
+        )
+        response = self.client.put(
+            '/api/simc-profile/',
+            data=json.dumps({'id': profile.id, 'equipment': [
+                {'slot': 'head', 'item_id': 999, 'item_level': 300},
+                {'slot': 'chest', 'item_id': 888, 'item_level': 285},
+            ]}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['success'], response.content)
+        profile.refresh_from_db()
+        self.assertIn('warrior="Tester"', profile.player_equipment)
+        self.assertIn('talents=BUILD', profile.player_equipment)
+        self.assertIn('head=,id=999,ilevel=300', profile.player_equipment)
+        self.assertIn('chest=,id=888,ilevel=285', profile.player_equipment)
+
     def test_workbench_marks_system_profiles_read_only_and_shows_sync_metadata(self):
         source = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text()
 
@@ -375,6 +397,12 @@ class SimcProfileResourceListTests(TestCase):
         self.assertIn("frost_mage: ['mage', 'frost']", source)
         self.assertIn("protection_paladin: ['paladin', 'protection']", source)
         self.assertIn("protection_warrior: ['warrior', 'protection']", source)
+        self.assertIn('data-profile-equipment-slot', source)
+        self.assertIn('item_id', source)
+        self.assertIn('item_level', source)
+        self.assertIn("method: 'PUT'", source)
+        self.assertIn("body: JSON.stringify({ id:", source)
+        self.assertIn("equipment })", source)
 
 
 class SimcTemplateAPIViewTests(TestCase):

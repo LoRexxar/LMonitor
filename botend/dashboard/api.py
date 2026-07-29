@@ -2552,6 +2552,7 @@ class SimcPlayerConfigDetailAPIView(View):
             'version': profile.version,
             'is_active': profile.is_active,
             'is_system': profile.user_id is None and profile.source == SimcProfile.SOURCE_SIMC_UPSTREAM,
+            'can_edit': profile.user_id == request.user.id and profile.is_active,
             'raw_player_equipment': profile.player_equipment or '',
         }
         return JsonResponse({'success': True, 'data': detail})
@@ -3804,6 +3805,55 @@ class SimcProfileAPIView(View):
                 user_id=request.user.id,
                 is_active=True
             )
+
+            # Detail view uses a narrow equipment editor: only item IDs and item
+            # levels are client supplied; the rest of the exported player block
+            # remains authoritative and is preserved byte-for-byte where possible.
+            if 'equipment' in data:
+                equipment = data.get('equipment')
+                if not isinstance(equipment, list):
+                    return JsonResponse({'success': False, 'error': '装备列表格式无效'}, status=400)
+                updates = {}
+                for row in equipment:
+                    if not isinstance(row, dict):
+                        return JsonResponse({'success': False, 'error': '装备项格式无效'}, status=400)
+                    slot = str(row.get('slot') or '').strip().lower()
+                    if not re.match(r'^[a-z_]+$', slot):
+                        return JsonResponse({'success': False, 'error': '装备槽位无效'}, status=400)
+                    try:
+                        item_id = int(row.get('item_id'))
+                        item_level = int(row.get('item_level'))
+                    except (TypeError, ValueError):
+                        return JsonResponse({'success': False, 'error': '装备 ID 和装等必须是整数'}, status=400)
+                    if item_id <= 0 or item_level <= 0:
+                        return JsonResponse({'success': False, 'error': '装备 ID 和装等必须大于 0'}, status=400)
+                    updates[slot] = (item_id, item_level)
+                lines = (profile.player_equipment or '').splitlines()
+                seen = set()
+                output = []
+                for line in lines:
+                    match = re.match(r'^(\s*)([a-z_]+)(\s*=)(.*)$', line, re.IGNORECASE)
+                    slot = match.group(2).lower() if match else ''
+                    if match and slot in updates:
+                        item_id, item_level = updates[slot]
+                        value = match.group(4)
+                        if re.search(r'(^|,)\s*id\s*=', value, re.IGNORECASE):
+                            value = re.sub(r'(^|,)\s*id\s*=\s*[^,]*', rf'\1id={item_id}', value, count=1, flags=re.IGNORECASE)
+                        else:
+                            value += f',id={item_id}'
+                        if re.search(r'(^|,)\s*ilevel\s*=', value, re.IGNORECASE):
+                            value = re.sub(r'(^|,)\s*ilevel\s*=\s*[^,]*', rf'\1ilevel={item_level}', value, count=1, flags=re.IGNORECASE)
+                        else:
+                            value += f',ilevel={item_level}'
+                        line = f'{match.group(1)}{match.group(2)}{match.group(3)}{value}'
+                        seen.add(slot)
+                    output.append(line)
+                missing = [slot for slot in updates if slot not in seen]
+                if missing:
+                    output.extend(f'{slot}=,id={updates[slot][0]},ilevel={updates[slot][1]}' for slot in missing)
+                profile.player_equipment = '\n'.join(output)
+                profile.save(update_fields=['player_equipment', 'update_time'] if hasattr(profile, 'update_time') else ['player_equipment'])
+                return JsonResponse({'success': True, 'message': '装备配置更新成功'})
             
             # 验证名称
             name = data.get('name', '').strip()
