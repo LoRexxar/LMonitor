@@ -378,34 +378,32 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertIn(['git', '-C', root, 'pull', '--ff-only', 'origin', 'master'], commands)
             execv.assert_called_once()
 
-    def test_simc_revision_mismatch_forces_exact_commit_maintenance(self):
+    def test_legacy_simc_revision_error_does_not_drive_agent_maintenance(self):
         from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
 
         with tempfile.TemporaryDirectory() as root:
             values = self.config(root)
             values['simc_source_path'] = str(Path(root) / 'simc-source')
             self.write_token(values, 'token-id.' + ('s' * 43))
-            required_revision = 'b' * 40
             transport = MagicMock()
             transport.json.side_effect = [
                 {'success': True, 'heartbeat_interval_seconds': 20, 'lease_seconds': 60},
                 None,
                 APIError(
                     'Agent SimC update required', 409,
-                    {'code': 'simc_update_required', 'required_version': required_revision},
+                    {'code': 'simc_update_required', 'required_version': 'b' * 40},
                 ),
             ]
             consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=transport)
 
             with patch.object(
-                consumer, '_maintain_simc_with_heartbeats', side_effect=[False, True],
+                consumer, '_maintain_simc_with_heartbeats', return_value=False,
             ) as maintain:
                 with self.assertRaisesRegex(APIError, 'SimC update required'):
                     consumer.run(once=True)
 
-            self.assertEqual(maintain.call_count, 2)
+            self.assertEqual(maintain.call_count, 1)
             maintain.assert_any_call()
-            maintain.assert_any_call(force=True, required_revision=required_revision)
 
     def test_self_update_refuses_dirty_tracked_checkout(self):
         from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer

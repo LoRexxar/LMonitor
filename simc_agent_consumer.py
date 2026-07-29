@@ -987,11 +987,6 @@ class SimcAgentConsumer:
                         exc.details.get('required_version'),
                         required_revision=exc.details.get('required_revision'),
                     )
-                if exc.status == 409 and exc.details.get('code') == 'simc_update_required':
-                    self._maintain_simc_with_heartbeats(
-                        force=True,
-                        required_revision=exc.details.get('required_version'),
-                    )
                 if once:
                     raise
             except Exception:

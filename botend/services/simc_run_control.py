@@ -50,14 +50,12 @@ def _check_agent_ready(agent, now):
             'code': 'agent_update_required', 'current_revision': str(agent.agent_revision or ''),
             'required_revision': required_agent_revision,
         })
-    required_simc_version = str(agent.backend.current_version or '').strip().lower()
-    agent_simc_version = str(agent.current_version or '').strip().lower()
-    if required_simc_version and agent_simc_version != required_simc_version:
-        raise AgentAPIError('Agent SimC update required', 409, {
-            'code': 'simc_update_required',
-            'current_version': agent_simc_version,
-            'required_version': required_simc_version,
-        })
+    # SimC binaries are maintained independently by each standalone Agent.
+    # Backend.current_version describes the local Django Worker only; using it
+    # as a remote Agent claim gate couples two different execution planes and
+    # can strand an otherwise healthy Agent in a 409 loop.  The Agent's
+    # current_version remains telemetry, while task-specific binary pinning
+    # (if introduced later) must be carried by the frozen Run itself.
     timeout = max(1, int(getattr(settings, 'SIMC_AGENT_ONLINE_TIMEOUT_SECONDS', 90)))
     if not agent.is_online(timeout_seconds=timeout, now=now):
         raise AgentAPIError('Agent is offline', 403)

@@ -97,7 +97,7 @@ class SimcAgentJobAPITests(TestCase):
             'agent_revision': 'a' * 40, 'protocol_version': 1,
         }, token)
 
-    def test_claim_rejects_agent_when_simc_revision_does_not_match_backend(self):
+    def test_claim_allows_agent_when_simc_revision_differs_from_worker_backend(self):
         task = self.task()
         self.backend.current_version = 'b' * 40
         self.backend.save(update_fields=['current_version'])
@@ -106,12 +106,11 @@ class SimcAgentJobAPITests(TestCase):
 
         response = self.claim()
 
-        self.assertEqual(response.status_code, 409, response.content)
-        self.assertEqual(response.json()['code'], 'simc_update_required')
-        self.assertEqual(response.json()['required_version'], 'b' * 40)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['task_id'], task.pk)
         task.refresh_from_db()
-        self.assertEqual(task.current_status, 0)
-        self.assertFalse(SimulationRun.objects.filter(task=task).exists())
+        self.assertEqual(task.current_status, 1)
+        self.assertTrue(SimulationRun.objects.filter(task=task, status='running').exists())
 
     @override_settings(SIMC_AGENT_REQUIRED_REVISION='b' * 40)
     def test_claim_rejects_agent_when_lmonitor_revision_does_not_match(self):
