@@ -33,7 +33,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-VERSION = '1.3.1'
+VERSION = '1.3.2'
 PROTOCOL_VERSION = 1
 MAX_REPORT_BYTES = 20 * 1024 * 1024
 COMPLETION_TEXT_MAX_BYTES = 256 * 1024
@@ -199,6 +199,8 @@ class AgentConfig:
             raw['token_path'] = str(Path(path).resolve().with_suffix('.token'))
         if 'log_path' not in raw:
             raw['log_path'] = str(Path(path).resolve().with_suffix('.log'))
+        if 'simc_source_path' not in raw:
+            raw['simc_source_path'] = str(Path(path).resolve().parent / 'simc-source')
         return cls.from_dict(raw)
 
 
@@ -419,7 +421,18 @@ class SimcAgentConsumer:
         if source_entry.is_symlink():
             raise APIError('SimC automatic update refused for a symlink source checkout')
         source = source_entry.resolve()
-        if not source.is_dir() or not (source / '.git').exists() or (source / '.git').is_symlink():
+        if not source.is_dir() or not (source / '.git').exists():
+            if required_revision is None:
+                raise APIError('SimC automatic update requires a local Git checkout')
+            if source.exists() and (not source.is_dir() or any(source.iterdir())):
+                raise APIError('managed SimC source path must be absent or empty')
+            source.parent.mkdir(parents=True, exist_ok=True)
+            self.logger.info('creating managed SimC source checkout at %s', source)
+            self._command([
+                'git', 'clone', '--branch', 'midnight', '--single-branch',
+                'https://github.com/simulationcraft/simc.git', str(source),
+            ], timeout=600)
+        if not (source / '.git').is_dir() or (source / '.git').is_symlink():
             raise APIError('SimC automatic update requires a local Git checkout')
 
         def git(*arguments: str, timeout: float = 60) -> subprocess.CompletedProcess[str]:

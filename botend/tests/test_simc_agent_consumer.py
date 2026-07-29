@@ -64,6 +64,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertEqual(config.server_url, 'https://wowdaily.cn')
             self.assertEqual(config.simc_path, str(simc))
             self.assertEqual(config.token_path, str(Path(root) / 'agent.token'))
+            self.assertEqual(config.simc_source_path, str(Path(root) / 'simc-source'))
             self.assertEqual(config.enrollment_token, 'enroll-secret')
             self.assertEqual(config.backend_identifier, '')
 
@@ -132,13 +133,11 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertIn(['git', '-C', str(source), 'pull', '--ff-only', 'origin', 'midnight'], commands)
             self.assertTrue(any(command[:2] == ['cmake', '--build'] for command in commands))
 
-    def test_required_simc_revision_bypasses_periodic_auto_update_switch_and_builds_exact_commit(self):
+    def test_required_simc_revision_clones_managed_source_and_builds_exact_commit(self):
         from simc_agent_consumer import AgentConfig, SimcAgentConsumer
 
         with tempfile.TemporaryDirectory() as root:
             source = Path(root) / 'simc-source'
-            source.mkdir()
-            (source / '.git').mkdir()
             values = self.config(root)
             values['simc_source_path'] = str(source)
             values['auto_update_simc'] = False
@@ -149,7 +148,9 @@ class SimcAgentConsumerTests(SimpleTestCase):
 
             def command_result(command, **_kwargs):
                 stdout = ''
-                if command[-3:] == ['config', '--get', 'remote.origin.url']:
+                if command[:2] == ['git', 'clone']:
+                    (source / '.git').mkdir(parents=True)
+                elif command[-3:] == ['config', '--get', 'remote.origin.url']:
                     stdout = 'https://github.com/simulationcraft/simc.git\n'
                 elif command[-2:] == ['branch', '--show-current']:
                     stdout = 'midnight\n'
@@ -176,6 +177,10 @@ class SimcAgentConsumerTests(SimpleTestCase):
 
             self.assertTrue(changed)
             commands = [call.args[0] for call in run_command.call_args_list]
+            self.assertIn([
+                'git', 'clone', '--branch', 'midnight', '--single-branch',
+                'https://github.com/simulationcraft/simc.git', str(source),
+            ], commands)
             self.assertIn(
                 ['git', '-C', str(source), 'merge-base', '--is-ancestor',
                  required_revision, 'origin/midnight'],
@@ -315,7 +320,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.write_token(values, 'token-id.' + ('u' * 43))
             (Path(root) / '.git').mkdir()
             (Path(root) / 'simc_agent_consumer.py').write_text(
-                "VERSION = '1.3.1'\n", encoding='utf-8',
+                "VERSION = '1.3.2'\n", encoding='utf-8',
             )
             transport = MagicMock()
             transport.json.side_effect = [
@@ -323,7 +328,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
                 None,
                 APIError(
                     'Agent update required', 426,
-                    {'code': 'agent_update_required', 'required_version': '1.3.1'},
+                    {'code': 'agent_update_required', 'required_version': '1.3.2'},
                 ),
             ]
             consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=transport)
