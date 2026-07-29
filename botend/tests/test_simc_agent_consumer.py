@@ -77,6 +77,32 @@ class SimcAgentConsumerTests(SimpleTestCase):
             with self.assertRaisesRegex(ConfigError, 'executable SimC binary file'):
                 AgentConfig.from_dict(values)
 
+    def test_windows_config_accepts_regular_simc_exe_without_posix_execute_mode(self):
+        from simc_agent_consumer import AgentConfig
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            binary = Path(root) / 'simc.exe'
+            binary.write_bytes(b'MZ')
+            binary.chmod(0o644)
+            values['simc_path'] = str(binary)
+
+            with patch('simc_agent_consumer._is_windows', return_value=True):
+                config = AgentConfig.from_dict(values)
+
+            self.assertEqual(config.simc_path, str(binary))
+
+    def test_windows_default_token_path_uses_local_app_data(self):
+        from simc_agent_consumer import AgentConfig
+
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {'LOCALAPPDATA': root}):
+            simc = Path(root) / 'simc.exe'
+            simc.write_bytes(b'MZ')
+            with patch('simc_agent_consumer._is_windows', return_value=True):
+                config = AgentConfig.from_dict({'simc_path': str(simc)})
+
+            self.assertEqual(config.token_path, str(Path(root) / 'LMonitorSimCAgent' / 'agent.token'))
+
     def test_missing_binary_is_allowed_when_source_path_can_build_it(self):
         from simc_agent_consumer import AgentConfig
 
@@ -154,6 +180,49 @@ class SimcAgentConsumerTests(SimpleTestCase):
             commands = [call.args[0] for call in run_command.call_args_list]
             self.assertIn(['git', '-C', str(source), 'pull', '--ff-only', 'origin', 'midnight'], commands)
             self.assertTrue(any(command[:2] == ['cmake', '--build'] for command in commands))
+
+    def test_windows_maintenance_uses_simc_exe_and_skips_posix_mode_changes(self):
+        from simc_agent_consumer import AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            source = Path(root) / 'simc-source'
+            source.mkdir()
+            (source / '.git').mkdir()
+            values = self.config(root)
+            values['simc_source_path'] = str(source)
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=MagicMock())
+
+            def command_result(command, **_kwargs):
+                stdout = ''
+                if command[-3:] == ['config', '--get', 'remote.origin.url']:
+                    stdout = 'https://github.com/simulationcraft/simc.git\n'
+                elif command[-2:] == ['branch', '--show-current']:
+                    stdout = 'midnight\n'
+                elif command[-2:] == ['rev-parse', 'HEAD']:
+                    stdout = ('a' * 40) + '\n' if not any(
+                        call.args[0][-4:-1] == ['pull', '--ff-only', 'origin']
+                        for call in run_command.call_args_list
+                    ) else ('b' * 40) + '\n'
+                elif command[-2:] == ['rev-parse', 'origin/midnight']:
+                    stdout = ('b' * 40) + '\n'
+                elif command[:2] == ['cmake', '--build']:
+                    candidate = Path(command[2]) / 'simc.exe'
+                    candidate.write_bytes(b'MZ')
+                elif command[0].endswith('simc.exe') and command[-1] == '--version':
+                    stdout = 'SimulationCraft 1200-01\n'
+                return MagicMock(returncode=0, stdout=stdout, stderr='')
+
+            with patch('simc_agent_consumer._is_windows', return_value=True), \
+                    patch('simc_agent_consumer.os.chmod') as chmod, \
+                    patch('simc_agent_consumer.subprocess.run', side_effect=command_result) as run_command:
+                changed = consumer._maintain_simc(force=True)
+
+            self.assertTrue(changed)
+            self.assertTrue(Path(values['simc_path']).is_file())
+            chmod.assert_not_called()
+            commands = [call.args[0] for call in run_command.call_args_list]
+            self.assertTrue(any(command[:2] == ['cmake', '--build'] for command in commands))
+            self.assertTrue(any(command[0].endswith('simc.exe') for command in commands))
 
     def test_required_simc_revision_clones_managed_source_and_builds_exact_commit(self):
         from simc_agent_consumer import AgentConfig, SimcAgentConsumer
@@ -436,6 +505,34 @@ class SimcAgentConsumerTests(SimpleTestCase):
 
             with self.assertRaisesRegex(ConfigError, 'permissions'):
                 SimcAgentConsumer(AgentConfig.from_dict(values), MagicMock())
+
+    def test_windows_token_save_does_not_require_posix_directory_or_fchmod(self):
+        from simc_agent_consumer import AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=MagicMock())
+
+            with patch('simc_agent_consumer._is_windows', return_value=True), \
+                    patch('simc_agent_consumer.os.fchmod') as fchmod:
+                consumer._save_token('token-id.' + ('w' * 43))
+
+            self.assertEqual(Path(values['token_path']).read_text(encoding='ascii'), 'token-id.' + ('w' * 43))
+            fchmod.assert_not_called()
+
+    def test_windows_token_mode_bits_are_not_enforced(self):
+        from simc_agent_consumer import AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            token_path = Path(values['token_path'])
+            token_path.write_text('token-id.' + ('w' * 43), encoding='ascii')
+            token_path.chmod(0o644)
+
+            with patch('simc_agent_consumer._is_windows', return_value=True):
+                consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=MagicMock())
+
+            self.assertTrue(consumer.agent_token)
 
     def test_execute_job_writes_isolated_input_runs_simc_and_uploads_report(self):
         from simc_agent_consumer import AgentConfig, SimcAgentConsumer

@@ -85,7 +85,8 @@ def configure_logging(log_path: str, *, max_bytes: int = 10 * 1024 * 1024,
     file_handler = RotatingFileHandler(
         path, maxBytes=max_bytes, backupCount=backup_count, encoding='utf-8',
     )
-    os.chmod(path, 0o600)
+    if not _is_windows():
+        os.chmod(path, 0o600)
     formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
     file_handler.setFormatter(formatter)
     stream_handler = logging.StreamHandler(sys.stdout)
@@ -112,6 +113,30 @@ class APIError(RuntimeError):
         self.status = status
         self.details = details or {}
         super().__init__(message)
+
+
+def _is_windows() -> bool:
+    return os.name == 'nt'
+
+
+def _is_executable_regular_file(path: Path) -> bool:
+    """Validate an execution target without applying POSIX mode bits on Windows."""
+    return path.is_file() and (_is_windows() or os.access(path, os.X_OK))
+
+
+def _simc_binary_name() -> str:
+    return 'simc.exe' if _is_windows() else 'simc'
+
+
+def _fsync_directory(path: Path) -> None:
+    """Persist a directory entry where the platform exposes POSIX directory fsync."""
+    if _is_windows():
+        return
+    directory_fd = os.open(path, os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0))
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
 
 
 def _stable_host_identifier() -> str:
@@ -188,14 +213,17 @@ class AgentConfig:
         # a regular executable file (directories and symlinks are rejected).
         binary = Path(config.simc_path).expanduser()
         if binary.exists():
-            if binary.is_symlink() or not binary.is_file() or not os.access(binary, os.X_OK):
+            if binary.is_symlink() or not _is_executable_regular_file(binary):
                 raise ConfigError('simc_path must point to an executable SimC binary file')
         elif not config.simc_source_path:
             raise ConfigError('simc_path must point to an executable SimC binary file')
         if not config.token_path:
+            state_dir = (Path(os.environ.get('LOCALAPPDATA', Path.home() / 'AppData/Local'))
+                         / 'LMonitorSimCAgent' if _is_windows()
+                         else Path.home() / '.local/state/lmonitor-simc-agent')
             config = cls(**{
                 **config.__dict__,
-                'token_path': str(Path.home() / '.local/state/lmonitor-simc-agent/agent.token'),
+                'token_path': str(state_dir / 'agent.token'),
             })
         parsed = urlparse(config.server_url)
         if parsed.scheme not in ({'https'} if not config.allow_insecure_http else {'http', 'https'}):
@@ -338,7 +366,7 @@ class SimcAgentConsumer:
                 file_stat = os.fstat(fd)
                 if not stat.S_ISREG(file_stat.st_mode):
                     raise ConfigError('token file must be a regular file')
-                if stat.S_IMODE(file_stat.st_mode) & 0o077:
+                if not _is_windows() and stat.S_IMODE(file_stat.st_mode) & 0o077:
                     raise ConfigError('token file permissions must be 0600 or stricter')
                 with os.fdopen(fd, 'r', encoding='ascii') as token_file:
                     fd = -1
@@ -358,7 +386,8 @@ class SimcAgentConsumer:
             raise ConfigError('token file must not be a symbolic link')
         fd, temporary = tempfile.mkstemp(prefix=f'.{path.name}.', dir=str(path.parent))
         try:
-            os.fchmod(fd, 0o600)
+            if not _is_windows():
+                os.fchmod(fd, 0o600)
             encoded = token.encode('ascii')
             written = 0
             while written < len(encoded):
@@ -372,11 +401,7 @@ class SimcAgentConsumer:
             if path.is_symlink():
                 raise ConfigError('token file must not be a symbolic link')
             os.replace(temporary, path)
-            directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0))
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
+            _fsync_directory(path.parent)
         finally:
             if fd >= 0:
                 os.close(fd)
@@ -387,7 +412,7 @@ class SimcAgentConsumer:
 
     def _report(self, status: str = 'online') -> dict[str, Any]:
         binary = Path(self.config.simc_path)
-        binary_available = binary.is_file() and os.access(binary, os.X_OK)
+        binary_available = _is_executable_regular_file(binary)
         current_version = ''
         marker = Path(str(binary) + '.lmonitor-build.json')
         if binary_available:
@@ -525,8 +550,8 @@ class SimcAgentConsumer:
                 'cmake', '--build', build, '--target', 'simc', '-j',
                 str(self.config.simc_compile_threads),
             ], timeout=3600)
-            candidate = Path(build) / 'simc'
-            if not candidate.is_file() or not os.access(candidate, os.X_OK):
+            candidate = Path(build) / _simc_binary_name()
+            if not _is_executable_regular_file(candidate):
                 raise APIError('SimC build did not produce an executable binary')
             probe = self._command([str(candidate), '--version'], timeout=30)
             if 'SimulationCraft' not in (probe.stdout + probe.stderr):
@@ -541,7 +566,8 @@ class SimcAgentConsumer:
                         output.write(chunk)
                     output.flush()
                     os.fsync(output.fileno())
-                os.chmod(temporary, 0o755)
+                if not _is_windows():
+                    os.chmod(temporary, 0o755)
                 os.replace(temporary, target)
             finally:
                 try:
@@ -551,7 +577,8 @@ class SimcAgentConsumer:
         marker = Path(str(target) + '.lmonitor-build.json')
         marker_tmp = marker.with_name(f'.{marker.name}.{uuid.uuid4().hex}')
         marker_tmp.write_text(json.dumps({'revision': revision}), encoding='utf-8')
-        os.chmod(marker_tmp, 0o600)
+        if not _is_windows():
+            os.chmod(marker_tmp, 0o600)
         os.replace(marker_tmp, marker)
         self.logger.info('SimC revision %s compiled and activated', revision)
         return True
@@ -768,17 +795,14 @@ class SimcAgentConsumer:
         ).encode('utf-8')
         fd, temporary = tempfile.mkstemp(prefix=f'.{path.name}.', dir=str(self.completion_outbox_path))
         try:
-            os.fchmod(fd, 0o600)
+            if not _is_windows():
+                os.fchmod(fd, 0o600)
             os.write(fd, encoded)
             os.fsync(fd)
             os.close(fd)
             fd = -1
             os.replace(temporary, path)
-            directory_fd = os.open(self.completion_outbox_path, os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0))
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
+            _fsync_directory(self.completion_outbox_path)
         finally:
             if fd >= 0:
                 os.close(fd)
@@ -790,7 +814,7 @@ class SimcAgentConsumer:
     def _load_completion_outbox(self, path: Path) -> tuple[int, dict[str, Any], str | None, bytes | None]:
         if path.is_symlink() or not path.is_file():
             raise APIError('completion outbox entry must be a regular file')
-        if stat.S_IMODE(path.stat().st_mode) & 0o077:
+        if not _is_windows() and stat.S_IMODE(path.stat().st_mode) & 0o077:
             raise APIError('completion outbox entry permissions must be 0600 or stricter')
         try:
             value = json.loads(path.read_text(encoding='utf-8'))
