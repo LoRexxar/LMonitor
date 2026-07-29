@@ -1810,6 +1810,8 @@ function loadSimcWorkbenchProfiles(page) {
                         ? ('冻结玩家基线 + 绿字覆盖 ' + (row.player_equipment ? ('(' + String(row.player_equipment).split('\n').filter(Boolean).length + ' 行)') : '(历史配置缺少基线)'))
                         : ('Battle.net ' + [row.battlenet_region, row.battlenet_realm, row.battlenet_character].filter(Boolean).join('/'));
             const sourceTitle = escapeHtml(sourceText || '-');
+            const statusText = row.is_active ? '生效中' : '未生效';
+            const statusClass = row.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500';
             const offset = startIdx + idx + 1;
             const managementActions = row.can_edit || row.can_delete
                 ? `${row.can_edit ? `<button class="text-blue-600 hover:text-blue-800 text-xs" data-profile-row-action="edit" data-profile-id="${id}" title="编辑"><i class="fas fa-edit"></i></button>` : ''}
@@ -1820,6 +1822,7 @@ function loadSimcWorkbenchProfiles(page) {
                 <td class="px-3 py-3 text-sm font-medium text-gray-900 max-w-[200px] truncate" title="${name}">${name}</td>
                 <td class="px-3 py-3 text-center">${renderSpecBadgeHtml(spec)}</td>
                 <td class="px-3 py-3 text-xs text-gray-500 max-w-[220px] truncate" title="${sourceTitle}">${sourceTitle}</td>
+                <td class="px-3 py-3 text-center"><span class="rounded-full px-2 py-1 text-xs ${statusClass}">${statusText}</span></td>
                 <td class="px-3 py-3 text-center">
                     <div class="flex items-center justify-center gap-1 flex-wrap">
                         ${managementActions}

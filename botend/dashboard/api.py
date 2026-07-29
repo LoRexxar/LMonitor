@@ -3316,14 +3316,18 @@ class SimcProfileAPIView(View):
             else:
                 # 用户配置与迁移后的 SimC 上游默认玩家属于同一 Profile 资源库。
                 # 系统记录只在列表中展示，写接口仍严格按 user_id 校验所有权。
-                profiles = SimcProfile.objects.filter(
-                    models.Q(user_id=request.user.id)
-                    | models.Q(
-                        user_id__isnull=True,
-                        source=SimcProfile.SOURCE_SIMC_UPSTREAM,
-                    ),
-                    is_active=True,
-                ).order_by('user_id', 'class_name', 'spec', '-id')
+                if _is_simc_admin(request.user):
+                    # 管理后台是资源审计入口，停用记录也必须可见；状态由列表表达。
+                    profiles = SimcProfile.objects.all().order_by('user_id', 'class_name', 'spec', '-id')
+                else:
+                    profiles = SimcProfile.objects.filter(
+                        models.Q(user_id=request.user.id)
+                        | models.Q(
+                            user_id__isnull=True,
+                            source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+                        ),
+                        is_active=True,
+                    ).order_by('user_id', 'class_name', 'spec', '-id')
                 
                 profile_list = []
                 for profile in profiles:

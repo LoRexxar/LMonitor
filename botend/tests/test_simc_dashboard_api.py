@@ -310,6 +310,29 @@ class SimcProfileResourceListTests(TestCase):
         self.assertEqual(rows[system.id]['sync_version'], 'revision-1')
         self.assertEqual(rows[system.id]['equipment_line_count'], 3)
 
+    def test_admin_list_includes_inactive_and_other_owned_profiles_with_status(self):
+        admin = User.objects.create_user(
+            username='profile_resource_admin', password='pwd', is_superuser=True,
+        )
+        self.client.force_login(admin)
+        inactive_system = SimcProfile.objects.create(
+            user_id=None, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury_inactive', class_name='warrior',
+            name='12.1 PTR Fury', spec='warrior_fury', version='12.1', is_active=False,
+        )
+        other = SimcProfile.objects.create(
+            user_id=self.other_user.id, name='其他用户配置', spec='fury', is_active=True,
+        )
+
+        response = self.client.get('/api/simc-profile/')
+
+        self.assertEqual(response.status_code, 200)
+        rows = {row['id']: row for row in response.json()['data']}
+        self.assertIn(inactive_system.id, rows)
+        self.assertIn(other.id, rows)
+        self.assertFalse(rows[inactive_system.id]['is_active'])
+        self.assertTrue(rows[other.id]['is_active'])
+
     def test_system_profile_is_list_only_and_cannot_be_read_or_mutated_as_owned(self):
         system = SimcProfile.objects.create(
             user_id=None, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
