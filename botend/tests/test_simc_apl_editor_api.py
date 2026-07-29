@@ -122,6 +122,44 @@ class SimcAplEditorApiTests(TestCase):
         self.assertEqual(restored.json()['result'], apl)
 
     @override_settings(SIMC_APL_CURRENT_IDENTITY=('a' * 40, '12.0.5'))
+    def test_editor_language_api_does_not_disambiguate_unused_runtime_token(self):
+        revision, build = 'a' * 40, '12.0.5'
+        SimcBackendBinary.objects.create(platform='linux64', current_version=revision)
+        WowSpellSnapshot.objects.bulk_create([
+            WowSpellSnapshot(
+                branch='wow', locale='zhCN', spell_id=49998,
+                name='Death Strike', name_zh='灵界打击', snapshot_build=build),
+            WowSpellSnapshot(
+                branch='wow', locale='zhCN', spell_id=45470,
+                name='Death Strike Heal', name_zh='灵界打击', snapshot_build=build),
+        ])
+        SimcAplSymbol.objects.bulk_create([
+            SimcAplSymbol(
+                simc_revision=revision, wow_build=build, class_name='deathknight', spec='blood',
+                class_key='deathknight', spec_key='blood',
+                token='death_strike', symbol_kind='action', spell_id=49998),
+            SimcAplSymbol(
+                simc_revision=revision, wow_build=build, class_name='deathknight', spec='blood',
+                class_key='deathknight', spec_key='blood',
+                token='death_strike_heal', symbol_kind='action', spell_id=45470),
+        ])
+        apl = 'actions=/death_strike\nactions+=/death_strike'
+
+        translated = self.client.post('/api/convert-text/', data=json.dumps({
+            'text': apl, 'conversion_type': 'apl_to_cn', 'spec': 'deathknight_blood',
+        }), content_type='application/json')
+        restored = self.client.post('/api/convert-text/', data=json.dumps({
+            'text': translated.json()['result'], 'conversion_type': 'cn_to_apl',
+            'spec': 'deathknight_blood',
+        }), content_type='application/json')
+
+        self.assertEqual(translated.json()['result'], (
+            'actions=/灵界打击\n'
+            'actions+=/灵界打击'
+        ))
+        self.assertEqual(restored.json()['result'], apl)
+
+    @override_settings(SIMC_APL_CURRENT_IDENTITY=('a' * 40, '12.0.5'))
     def test_editor_language_api_disambiguates_shared_chinese_names_reversibly(self):
         revision, build = 'a' * 40, '12.0.5'
         SimcBackendBinary.objects.create(platform='linux64', current_version=revision)
@@ -323,6 +361,7 @@ class SimcAplEditorApiTests(TestCase):
 
         self.assertEqual(response.json()['result'], apl)
 
+    @override_settings(SIMC_APL_CURRENT_IDENTITY=('a' * 40, '12.0.5'))
     def test_editor_language_api_queries_wago_only_for_current_catalog_spell_ids(self):
         revision, build = 'a' * 40, '12.0.5'
         SimcBackendBinary.objects.create(platform='linux64', current_version=revision)

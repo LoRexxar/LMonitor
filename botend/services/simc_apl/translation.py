@@ -27,20 +27,28 @@ _DISAMBIGUATION_LABELS = {
 }
 
 
-def disambiguate_chinese_labels(pairs):
-    """Give duplicate localized names deterministic Chinese semantic labels."""
+def disambiguate_chinese_labels(pairs, active_keys=None, include_plain_alias=False):
+    """Give only active duplicate localized names deterministic Chinese labels."""
     groups = {}
     for kind, token, chinese in pairs:
         groups.setdefault((kind, str(chinese).casefold()), []).append((kind, token, chinese))
     result = []
     for group in groups.values():
         group = sorted(group, key=lambda item: (str(item[1]).casefold(), str(item[1])))
-        if len(group) == 1:
+        active_group = group if active_keys is None else [
+            item for item in group if (item[0], str(item[1]).casefold()) in active_keys
+        ]
+        if len(active_group) < 2:
             result.extend(group)
             continue
         base = group[0][2]
         used = set()
         for index, (kind, token, _chinese) in enumerate(group, start=1):
+            if (kind, str(token).casefold()) not in {
+                (item[0], str(item[1]).casefold()) for item in active_group
+            }:
+                result.append((kind, token, base))
+                continue
             tail = str(token).split('_')[-1]
             label = _DISAMBIGUATION_LABELS.get(tail) or (
                 "基础" if len(str(token).split('_')) > 1 else f"变体{index}"
@@ -49,6 +57,8 @@ def disambiguate_chinese_labels(pairs):
                 label = f"变体{index}"
             used.add(label)
             result.append((kind, token, f"{base}-{label}"))
+        if include_plain_alias:
+            result.append((group[0][0], group[0][1], base))
     return result
 
 from .ast import ActionEntry, IdentifierExpression

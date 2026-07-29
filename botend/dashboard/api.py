@@ -72,7 +72,7 @@ from botend.services.simc_composer import SimcComposer
 from botend.services.simc_apl.completion import complete_document
 from botend.services.simc_apl.translation import (
     extract_translation_demands, resolve_demand_mappings, translate_apl_ranges,
-    CONTROL_ACTIONS, disambiguate_chinese_labels,
+    TranslationDemand, CONTROL_ACTIONS, disambiguate_chinese_labels,
 )
 from django.core.exceptions import PermissionDenied, SuspiciousOperation, ValidationError
 from django.db.models.deletion import ProtectedError
@@ -937,34 +937,27 @@ class ConvertTextAPIView(View):
             })
     
     def bilingual_pairs(self, spec='', text=''):
-        """Build a typed catalog from default APL demands plus the current document."""
+        """Build a typed catalog, then scope visible names to the submitted document."""
         identity = _latest_catalog_identity()
         parsed_spec = _editor_spec(spec) if spec else None
         if not identity or not parsed_spec:
             return [], []
         class_key, class_name, spec_name = parsed_spec
-        # Stored system APLs use the canonical full key (for example
-        # ``warrior_fury``), while older/test rows may use the short spec.
-        # Accept both, but never broaden the class scope.
-        apl_queryset = SimcApl.objects.filter(
-            is_active=True, is_system=True, class_name=class_name,
-            spec__in=(spec_name, class_key),
+        demands = list(extract_translation_demands(text))
+        # The legacy editor accepts action-list lines that the strict parser
+        # rejects (notably a standalone ``actions+=/...``).  Extract only the
+        # action slot on those lines; do not broaden into a catalog scan.
+        parsed_action_tokens = {demand.token.casefold() for demand in demands if demand.kind == 'action'}
+        action_slot = re.compile(
+            r'(?m)^\s*actions(?:\.[A-Za-z0-9_]+)?\s*\+?=\s*/\s*'
+            r'([A-Za-z][A-Za-z0-9_]*(?:[ _][A-Za-z0-9_]+)*)'
         )
-        revision_rows = apl_queryset.filter(sync_version=identity[0])
-        # Tests and manually maintained system defaults may predate revision
-        # tagging. Use those only when no revision-bound default exists; never
-        # merge historical revisions into the current demand set.
-        apl_rows = (revision_rows if revision_rows.exists() else apl_queryset.filter(sync_version='')).values_list(
-            'content', flat=True,
-        )
-        demands = []
-        seen = set()
-        for content in list(apl_rows) + ([text] if text else []):
-            for demand in extract_translation_demands(content):
-                key = (demand.kind, demand.token.casefold())
-                if key not in seen:
-                    seen.add(key)
-                    demands.append(demand)
+        for match in action_slot.finditer(text):
+            source_token = match.group(1)
+            token_key = source_token.replace(' ', '_').casefold()
+            if token_key not in parsed_action_tokens:
+                demands.append(TranslationDemand('action', token_key, token_key in CONTROL_ACTIONS))
+                parsed_action_tokens.add(token_key)
         symbol_rows = SimcAplSymbol.objects.filter(
             simc_revision=identity[0], wow_build=identity[1], is_active=True,
         ).filter(
@@ -1027,8 +1020,13 @@ class ConvertTextAPIView(View):
             key: value for key, value in mapping.items()
             if key[0] != 'action' or key[1] not in CONTROL_ACTIONS
         }
+        active_keys = {(demand.kind, demand.token.casefold()) for demand in demands}
+        # Scope disambiguation to the submitted document: unrelated runtime
+        # aliases stay plain and cannot make a normal single-token edit verbose.
         pairs = disambiguate_chinese_labels(
-            [(kind, token, chinese) for (kind, token), chinese in mapping.items()]
+            [(kind, token, chinese) for (kind, token), chinese in mapping.items()],
+            active_keys=active_keys if text else None,
+            include_plain_alias=not bool(text),
         )
         forward_pairs = list(pairs)
         reverse_pairs = list(pairs)
@@ -1047,9 +1045,15 @@ class ConvertTextAPIView(View):
                 (kind, apl_keyword.casefold()): cn_keyword
                 for kind, apl_keyword, cn_keyword in keyword_pairs
             }
+            document_demands = list(extract_translation_demands(text))
+            parsed_action_tokens = {demand.token.casefold() for demand in document_demands if demand.kind == 'action'}
+            for token in re.findall(r'(?:^|\n)\s*actions(?:\.[A-Za-z0-9_]+)?\s*[+]?=/\s*([A-Za-z][A-Za-z0-9_]*)', text):
+                if token.casefold() not in parsed_action_tokens:
+                    document_demands.append(TranslationDemand('action', token, token.casefold() in CONTROL_ACTIONS))
+                    parsed_action_tokens.add(token.casefold())
             mapping = {
                 (demand.kind, demand.token.casefold()): pair_by_token[(demand.kind, demand.token.casefold())]
-                for demand in extract_translation_demands(text)
+                for demand in document_demands
                 if (demand.kind, demand.token.casefold()) in pair_by_token
             }
             translated = translate_apl_ranges(text, mapping)
