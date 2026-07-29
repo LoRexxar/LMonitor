@@ -162,6 +162,8 @@ class SimcAgentConsumerTests(SimpleTestCase):
                     stdout = (required_revision if reset_done else local_revision) + '\n'
                 elif command[-2:] == ['rev-parse', 'origin/midnight']:
                     stdout = upstream_revision + '\n'
+                elif command[-2:] == ['status', '--porcelain']:
+                    stdout = ' M engine/generated.cpp\n'
                 elif command[:2] == ['cmake', '--build']:
                     candidate = Path(command[2]) / 'simc'
                     candidate.write_text('#!/bin/sh\nexit 0\n', encoding='utf-8')
@@ -320,7 +322,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.write_token(values, 'token-id.' + ('u' * 43))
             (Path(root) / '.git').mkdir()
             (Path(root) / 'simc_agent_consumer.py').write_text(
-                "VERSION = '1.3.2'\n", encoding='utf-8',
+                "VERSION = '1.3.3'\n", encoding='utf-8',
             )
             transport = MagicMock()
             transport.json.side_effect = [
@@ -328,7 +330,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
                 None,
                 APIError(
                     'Agent update required', 426,
-                    {'code': 'agent_update_required', 'required_version': '1.3.2'},
+                    {'code': 'agent_update_required', 'required_version': '1.3.3'},
                 ),
             ]
             consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=transport)

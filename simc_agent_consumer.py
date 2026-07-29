@@ -33,7 +33,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-VERSION = '1.3.2'
+VERSION = '1.3.3'
 PROTOCOL_VERSION = 1
 MAX_REPORT_BYTES = 20 * 1024 * 1024
 COMPLETION_TEXT_MAX_BYTES = 256 * 1024
@@ -438,7 +438,8 @@ class SimcAgentConsumer:
         def git(*arguments: str, timeout: float = 60) -> subprocess.CompletedProcess[str]:
             return self._command(['git', '-C', str(source), *arguments], timeout=timeout)
 
-        if git('status', '--porcelain').stdout.strip():
+        if (required_revision is None
+                and git('status', '--porcelain').stdout.strip()):
             raise APIError('SimC automatic update refused because the source working tree is not clean')
         remote = git('config', '--get', 'remote.origin.url').stdout.strip()
         if remote not in TRUSTED_SIMC_REPOSITORY_URLS:
@@ -469,7 +470,7 @@ class SimcAgentConsumer:
                 and report['current_version'] == target_revision):
             self.logger.info('SimC is current at %s', target_revision)
             return False
-        if local_revision != target_revision:
+        if local_revision != target_revision or required_revision is not None:
             self.logger.info('updating SimC source %s -> %s', local_revision, target_revision)
             if required_revision is None:
                 git('pull', '--ff-only', 'origin', branch, timeout=300)
@@ -485,7 +486,9 @@ class SimcAgentConsumer:
         target = Path(self.config.simc_path).expanduser().resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
         self.logger.info('compiling SimC revision %s', revision)
-        with tempfile.TemporaryDirectory(prefix='.lmonitor-simc-build-', dir=str(source)) as build:
+        with tempfile.TemporaryDirectory(
+            prefix='.lmonitor-simc-build-', dir=str(source.parent),
+        ) as build:
             self._command([
                 'cmake', '-S', str(source), '-B', build, '-G', 'Ninja',
                 '-DBUILD_GUI=OFF', '-DCMAKE_BUILD_TYPE=Release',
