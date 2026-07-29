@@ -5,11 +5,12 @@ import tempfile
 from pathlib import Path
 from unittest import mock
 
+import requests
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.core.management import call_command, CommandError
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from botend.models import (
     MythicDungeon,
@@ -523,6 +524,12 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             )
         )
 
+    @override_settings(
+        PROXY_CONFIG={
+            'http': 'socks5://127.0.0.1:10809',
+            'https': 'socks5://127.0.0.1:10809',
+        },
+    )
     @mock.patch(
         'botend.management.commands.sync_mythic_dungeon_assets.requests.get',
     )
@@ -544,6 +551,84 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
 
             self.assertEqual(target.read_bytes(), b'new-image')
             request_get.assert_called_once()
+            self.assertEqual(
+                request_get.call_args.kwargs['proxies'],
+                {
+                    'http': 'socks5://127.0.0.1:10809',
+                    'https': 'socks5://127.0.0.1:10809',
+                },
+            )
+
+    @override_settings(PROXY_CONFIG={}, REQUEST_CONFIG={})
+    @mock.patch(
+        'botend.management.commands.sync_mythic_dungeon_assets.requests.get',
+    )
+    def test_asset_sync_download_allows_empty_proxy_config(self, request_get):
+        response = mock.Mock()
+        response.headers = {'Content-Type': 'image/jpeg'}
+        response.content = b'image'
+        response.raise_for_status.return_value = None
+        request_get.return_value = response
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            SyncMythicDungeonAssetsCommand._download_image(
+                'https://wow.zamimg.com/images/wow/icons/large/icon.jpg',
+                Path(temp_dir) / 'icon.jpg',
+            )
+
+        self.assertIsNone(request_get.call_args.kwargs['proxies'])
+
+    @override_settings(
+        PROXY_CONFIG={},
+        REQUEST_CONFIG={
+            'proxies': {
+                'https': 'http://127.0.0.1:7890',
+            },
+        },
+    )
+    @mock.patch(
+        'botend.management.commands.sync_mythic_dungeon_assets.requests.get',
+    )
+    def test_asset_sync_uses_request_config_proxy_fallback(self, request_get):
+        response = mock.Mock()
+        response.headers = {'Content-Type': 'image/jpeg'}
+        response.content = b'image'
+        response.raise_for_status.return_value = None
+        request_get.return_value = response
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            SyncMythicDungeonAssetsCommand._download_image(
+                'https://wow.zamimg.com/images/wow/icons/large/icon.jpg',
+                Path(temp_dir) / 'icon.jpg',
+            )
+
+        self.assertEqual(
+            request_get.call_args.kwargs['proxies'],
+            {'https': 'http://127.0.0.1:7890'},
+        )
+
+    @override_settings(
+        PROXY_CONFIG={'https': 'socks5://127.0.0.1:10809'},
+    )
+    @mock.patch(
+        'botend.management.commands.sync_mythic_dungeon_assets.requests.get',
+    )
+    def test_asset_sync_explains_missing_socks_dependency(self, request_get):
+        request_get.side_effect = requests.exceptions.InvalidSchema(
+            'Missing dependencies for SOCKS support.',
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with self.assertRaisesRegex(
+                RuntimeError,
+                'python -m pip install PySocks==1.7.1',
+            ):
+                SyncMythicDungeonAssetsCommand._download_image(
+                    'https://wow.zamimg.com/images/wow/icons/large/icon.jpg',
+                    Path(temp_dir) / 'icon.jpg',
+                )
+
+        request_get.assert_called_once()
 
     @mock.patch(
         'botend.management.commands.sync_mythic_dungeon_assets.requests.get',

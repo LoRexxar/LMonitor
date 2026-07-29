@@ -17,6 +17,7 @@ from botend.models import (
     MythicDungeonFloor,
     MythicDungeonSpell,
 )
+from botend.services.article_image_service import _get_configured_proxies
 
 
 IMAGE_EXTENSIONS = {'.gif', '.jpeg', '.jpg', '.png', '.webp'}
@@ -99,6 +100,14 @@ class Command(BaseCommand):
 
         self.stdout.write(f'数据版本: {version.key}')
         self.stdout.write(f'OSS 版本前缀: {version_prefix}')
+        self.stdout.write(
+            '远程图片代理: '
+            + (
+                '使用项目代理配置'
+                if _get_configured_proxies()
+                else '未显式配置，遵循系统环境或直连'
+            )
+        )
         self.stdout.write(
             '待归档: 地图 {floors}、公共技能 {spells}、怪物 {enemies}、'
             '关系技能 {abilities}；已在 OSS {already_oss}、无图片 {empty}、'
@@ -386,6 +395,7 @@ class Command(BaseCommand):
     def _download_image(source_url, target, *, refresh=False):
         if target.is_file() and target.stat().st_size > 0 and not refresh:
             return target
+        proxies = _get_configured_proxies()
         response = None
         last_error = None
         for attempt in range(3):
@@ -399,6 +409,7 @@ class Command(BaseCommand):
                             'image/avif,image/webp,image/apng,image/*,*/*;q=0.8'
                         ),
                     },
+                    proxies=proxies,
                 )
                 if response.status_code == 404:
                     raise AssetUnavailableError('上游返回 404')
@@ -407,6 +418,11 @@ class Command(BaseCommand):
             except AssetUnavailableError:
                 raise
             except requests.RequestException as exc:
+                if 'Missing dependencies for SOCKS support' in str(exc):
+                    raise RuntimeError(
+                        'SOCKS 代理需要 PySocks：'
+                        'python -m pip install PySocks==1.7.1'
+                    ) from exc
                 last_error = exc
                 if attempt < 2:
                     time.sleep(2 ** attempt)
