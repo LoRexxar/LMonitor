@@ -620,6 +620,21 @@ class SimcAplEditorApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['data']['items'][0]['simc_revision'], self.REVISION)
 
+    def test_catalog_identity_ignores_inactive_backend_version(self):
+        """An inactive historical binary cannot make the live catalog ambiguous."""
+        self._catalog()
+        SimcBackendBinary.objects.create(
+            identifier='inactive-history', name='Inactive history',
+            platform='linux64', current_version='b' * 40, is_active=False,
+        )
+
+        response = self.client.get(
+            '/api/simc-workbench/apl-symbols/?spec=warrior_fury&page_size=1',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['data']['items'][0]['simc_revision'], self.REVISION)
+
     def test_symbols_filter_search_all_public_fields_and_paginate(self):
         self._catalog()
         first = self.client.get("/api/simc-workbench/apl-symbols/?spec=warrior_fury&kind=action&page=1&page_size=1")

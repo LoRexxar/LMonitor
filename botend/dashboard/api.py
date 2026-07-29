@@ -502,6 +502,7 @@ def _latest_catalog_identity():
     # the first row would hide a valid running backend behind that placeholder.
     versions = list(SimcBackendBinary.objects.filter(
         platform=platform,
+        is_active=True,
     ).exclude(current_version='').values_list('current_version', flat=True))
     # Several backend rows may report the same runtime revision.  This is one
     # catalog identity, not an ambiguity.  Distinct revisions do remain
