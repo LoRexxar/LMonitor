@@ -178,10 +178,15 @@ class AgentConfig:
                      or values['simc_compile_threads'] < 1 or values['simc_compile_threads'] > 64)):
             raise ConfigError('simc_compile_threads must be an integer between 1 and 64')
         config = cls(**values)
-        # The execution entry must always be an explicit executable file.  Do
-        # not accept a source/build directory and do not infer the executable
-        # from a directory: the control plane reports and runs this exact path.
-        if not Path(config.simc_path).is_file() or not os.access(config.simc_path, os.X_OK):
+        # The execution entry must always be an explicit binary path.  A
+        # missing file is allowed only when a source checkout is configured so
+        # the first maintenance cycle can build it; an existing entry must be
+        # a regular executable file (directories and symlinks are rejected).
+        binary = Path(config.simc_path).expanduser()
+        if binary.exists():
+            if binary.is_symlink() or not binary.is_file() or not os.access(binary, os.X_OK):
+                raise ConfigError('simc_path must point to an executable SimC binary file')
+        elif not config.simc_source_path:
             raise ConfigError('simc_path must point to an executable SimC binary file')
         if not config.token_path:
             config = cls(**{
@@ -195,9 +200,6 @@ class AgentConfig:
             raise ConfigError('server_url is invalid')
         if len(config.backend_identifier) > 64:
             raise ConfigError('backend_identifier is invalid')
-        if ((not Path(config.simc_path).is_file() or not os.access(config.simc_path, os.X_OK))
-                and not config.simc_source_path):
-            raise ConfigError('simc_path must be an executable file')
         host = config.host_identifier or _stable_host_identifier()
         if len(host) < 32 or len(host) > 128 or any(ch not in '0123456789abcdef' for ch in host):
             raise ConfigError('host_identifier must be 32-128 lowercase hexadecimal characters')

@@ -77,6 +77,19 @@ class SimcAgentConsumerTests(SimpleTestCase):
             with self.assertRaisesRegex(ConfigError, 'executable SimC binary file'):
                 AgentConfig.from_dict(values)
 
+    def test_missing_binary_is_allowed_when_source_path_can_build_it(self):
+        from simc_agent_consumer import AgentConfig
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            values.update({
+                'simc_path': str(Path(root) / 'build' / 'simc'),
+                'simc_source_path': str(Path(root) / 'source'),
+            })
+            config = AgentConfig.from_dict(values)
+            self.assertEqual(config.simc_path, values['simc_path'])
+            self.assertEqual(config.simc_source_path, values['simc_source_path'])
+
     def test_report_contains_real_simc_revision_and_binary_availability(self):
         from simc_agent_consumer import AgentConfig, SimcAgentConsumer
 
@@ -148,6 +161,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
         with tempfile.TemporaryDirectory() as root:
             source = Path(root) / 'simc-source'
             values = self.config(root)
+            Path(values['simc_path']).unlink()
             values['simc_source_path'] = str(source)
             values['auto_update_simc'] = False
             consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=MagicMock())
@@ -217,7 +231,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertFalse(consumer._maintain_simc(force=True))
 
     def test_simc_maintenance_refuses_symlink_binary_entry(self):
-        from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
+        from simc_agent_consumer import AgentConfig, ConfigError
 
         with tempfile.TemporaryDirectory() as root:
             source = Path(root) / 'simc-source'
@@ -229,11 +243,9 @@ class SimcAgentConsumerTests(SimpleTestCase):
             link.symlink_to(real_binary)
             values = self.config(root)
             values.update({'simc_path': str(link), 'simc_source_path': str(source)})
-            consumer = SimcAgentConsumer(AgentConfig.from_dict(values))
 
-            with self.assertRaisesRegex(APIError, 'symlink'):
-                consumer._maintain_simc(force=True)
-            self.assertEqual(real_binary.read_text(encoding='utf-8'), '#!/bin/sh\n')
+            with self.assertRaisesRegex(ConfigError, 'executable SimC binary file'):
+                AgentConfig.from_dict(values)
 
     def test_agent_writes_rotating_local_log_with_runtime_errors(self):
         from simc_agent_consumer import configure_logging
