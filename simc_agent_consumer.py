@@ -151,6 +151,21 @@ def _stable_host_identifier() -> str:
     return hashlib.sha256(material.encode('utf-8')).hexdigest()
 
 
+def _default_agent_name(host_identifier: str) -> str:
+    """Return a server-valid, stable display name without exposing host data."""
+    return f'simc-agent-{host_identifier[:12]}'
+
+
+def _discover_simc_source_path(simc_path: str) -> Path | None:
+    """Find the Git checkout containing a configured build output, if any."""
+    binary = Path(simc_path).expanduser()
+    for candidate in (binary.parent, *binary.parent.parents):
+        git_entry = candidate / '.git'
+        if git_entry.exists() and not git_entry.is_symlink():
+            return candidate
+    return None
+
+
 @dataclass(frozen=True)
 class AgentConfig:
     simc_path: str
@@ -237,6 +252,7 @@ class AgentConfig:
             raise ConfigError('host_identifier must be 32-128 lowercase hexadecimal characters')
         return cls(**{**config.__dict__, 'server_url': config.server_url.rstrip('/'),
                       'host_identifier': host,
+                      'name': config.name or _default_agent_name(host),
                       'platform': config.platform or platform_module.system().lower()})
 
     @classmethod
@@ -252,7 +268,10 @@ class AgentConfig:
         if 'log_path' not in raw:
             raw['log_path'] = str(Path(path).resolve().with_suffix('.log'))
         if 'simc_source_path' not in raw:
-            raw['simc_source_path'] = str(Path(path).resolve().parent / 'simc-source')
+            discovered_source = _discover_simc_source_path(str(raw.get('simc_path', '')))
+            raw['simc_source_path'] = str(
+                discovered_source or (Path(path).resolve().parent / 'simc-source')
+            )
         return cls.from_dict(raw)
 
 

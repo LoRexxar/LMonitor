@@ -68,6 +68,40 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertEqual(config.enrollment_token, 'enroll-secret')
             self.assertEqual(config.backend_identifier, '')
 
+    def test_minimal_config_derives_a_nonblank_bounded_agent_name(self):
+        from simc_agent_consumer import AgentConfig
+
+        with tempfile.TemporaryDirectory() as root:
+            simc = Path(root) / 'simc'
+            simc.write_text('#!/bin/sh\n', encoding='utf-8')
+            simc.chmod(0o755)
+
+            config = AgentConfig.from_dict({'simc_path': str(simc)})
+
+            self.assertRegex(config.name, r'^simc-agent-[0-9a-f]{12}$')
+
+    def test_config_load_discovers_git_source_above_build_output_before_managed_fallback(self):
+        from simc_agent_consumer import AgentConfig
+
+        with tempfile.TemporaryDirectory() as root:
+            root_path = Path(root)
+            source = root_path / 'simulationcraft'
+            (source / '.git').mkdir(parents=True)
+            binary = source / 'build' / 'simc'
+            binary.parent.mkdir()
+            binary.write_text('#!/bin/sh\n', encoding='utf-8')
+            binary.chmod(0o755)
+            config_path = root_path / 'agent-state' / 'agent.json'
+            config_path.parent.mkdir()
+            config_path.write_text(json.dumps({
+                'enrollment_token': 'enroll-secret',
+                'simc_path': str(binary),
+            }), encoding='utf-8')
+
+            config = AgentConfig.load(str(config_path))
+
+            self.assertEqual(config.simc_source_path, str(source))
+
     def test_simc_path_must_be_an_explicit_executable_file_not_a_directory(self):
         from simc_agent_consumer import AgentConfig, ConfigError
 
@@ -359,6 +393,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
 
             payload = transport.json.call_args.kwargs['payload']
             self.assertNotIn('backend_identifier', payload)
+            self.assertRegex(payload['name'], r'^simc-agent-[0-9a-f]{12}$')
 
     def test_first_registration_persists_separate_agent_token_with_0600_mode(self):
         from simc_agent_consumer import AgentConfig, SimcAgentConsumer

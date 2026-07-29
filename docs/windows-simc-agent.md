@@ -27,10 +27,11 @@ The Agent derives the remaining settings:
 
 - `server_url`: defaults to the LMonitor control plane;
 - Backend binding: comes from the one-time enrollment token; do not configure `backend_identifier` for a new Agent;
-- `name`, `platform`, and `host_identifier`: automatically detected;
+- `name`: defaults to a stable `simc-agent-<host fingerprint>` label; override it only for a custom display name;
+- `platform` and `host_identifier`: automatically detected;
 - `agent.token`, `simc-agent.log`, `completion-outbox/`, and managed `simc-source/`: created beside `agent.json`.
 
-`simc_path` is always the explicit final executable path. It may not exist for the initial automatic build: the Agent creates and maintains the sibling `simc-source/` checkout, then installs the verified `simc.exe` at that path.
+`simc_path` is always the explicit final executable path. It may not exist for the initial automatic build. If it is an existing build output under a SimulationCraft Git checkout (for example `C:\\simulationcraft\\build\\simc.exe`), the Agent discovers that checkout and maintains it. Otherwise it creates and maintains the sibling `simc-source/` checkout, then installs the verified `simc.exe` at the configured path.
 
 Only add optional fields when overriding a default, for example `server_url` for a private control plane, `token_path`/`log_path` for a separate state directory, or `simc_compile_threads` to cap build concurrency. Do not delete `completion-outbox/` while it contains unacknowledged terminal completions.
 
