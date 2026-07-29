@@ -2526,9 +2526,9 @@ class SimcPlayerConfigDetailAPIView(View):
         if not profile_id:
             return JsonResponse({'success': False, 'error': '请先选择已有 Profile'}, status=400)
         profile = SimcProfile.objects.filter(
-            _accessible_simc_profile_q(request.user.id),
+            (_accessible_simc_profile_q(request.user.id) if not _is_simc_admin(request.user) else models.Q(id=profile_id)),
             id=profile_id,
-            is_active=True,
+            **({} if _is_simc_admin(request.user) else {'is_active': True}),
         ).first()
         if not profile:
             return JsonResponse({'success': False, 'error': 'Profile 不存在或无权使用'}, status=404)
@@ -2545,6 +2545,15 @@ class SimcPlayerConfigDetailAPIView(View):
         )
         if profile.player_equipment and 'comparison_candidates' in detail:
             detail['comparison_candidates']['max_selectable'] = SimcComparisonTaskAPIView.MAX_TASKS - 1
+        detail['profile'] = {
+            'id': profile.id,
+            'name': profile.name,
+            'spec': profile.spec,
+            'version': profile.version,
+            'is_active': profile.is_active,
+            'is_system': profile.user_id is None and profile.source == SimcProfile.SOURCE_SIMC_UPSTREAM,
+            'raw_player_equipment': profile.player_equipment or '',
+        }
         return JsonResponse({'success': True, 'data': detail})
 
     def post(self, request):

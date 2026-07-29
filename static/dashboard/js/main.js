@@ -1518,6 +1518,7 @@ window.closeSimcWorkbenchDialog = closeSimcWorkbenchDialog;
 
 function getTitleForDialogContent(contentType) {
     const titles = {
+        'profile-detail': '玩家配置详情',
         'profile-form': '配置管理',
         'template-detail': '模板详情',
         'template-form': '模板管理',
@@ -1814,9 +1815,10 @@ function loadSimcWorkbenchProfiles(page) {
             const statusClass = row.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500';
             const offset = startIdx + idx + 1;
             const managementActions = row.can_edit || row.can_delete
-                ? `${row.can_edit ? `<button class="text-blue-600 hover:text-blue-800 text-xs" data-profile-row-action="edit" data-profile-id="${id}" title="编辑"><i class="fas fa-edit"></i></button>` : ''}
+                ? `<button class="text-slate-600 hover:text-slate-900 text-xs" data-profile-row-action="view" data-profile-id="${id}" title="查看详情"><i class="fas fa-eye"></i></button>
+                   ${row.can_edit ? `<button class="text-blue-600 hover:text-blue-800 text-xs" data-profile-row-action="edit" data-profile-id="${id}" title="编辑"><i class="fas fa-edit"></i></button>` : ''}
                    ${row.can_delete ? `<button class="text-red-600 hover:text-red-800 text-xs" data-profile-row-action="delete" data-profile-id="${id}" title="删除"><i class="fas fa-trash-alt"></i></button>` : ''}`
-                : '<span class="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-500" title="由 SimC 上游同步维护">系统只读</span>';
+                : `<button class="text-slate-600 hover:text-slate-900 text-xs" data-profile-row-action="view" data-profile-id="${id}" title="查看详情"><i class="fas fa-eye"></i></button> <span class="rounded-full bg-slate-100 px-2 py-1 text-xs text-gray-500" title="由 SimC 上游同步维护">系统只读</span>`;
             return `<tr class="hover:bg-gray-50 border-b border-gray-100">
                 <td class="px-3 py-3 text-center text-gray-500 text-xs">${offset}</td>
                 <td class="px-3 py-3 text-sm font-medium text-gray-900 max-w-[200px] truncate" title="${name}">${name}</td>
@@ -1841,6 +1843,24 @@ function loadSimcWorkbenchProfiles(page) {
     });
 }
 
+function renderSimcProfileDetailDialog(detail) {
+    const profile = detail.profile || {};
+    const esc = value => escapeHtml(String(value == null || value === '' ? '-' : value));
+    const equipment = (detail.equipment || []).map(item => `<div class="rounded-lg border border-slate-200 bg-slate-50 p-3"><div class="text-xs text-slate-500">${esc(item.slot_label || item.slot)}</div><div class="font-medium">${esc(item.display_name)} <span class="text-xs text-slate-400">${item.item_level ? 'ilvl ' + esc(item.item_level) : '#' + esc(item.item_id || item.id)}</span></div>${item.enchant ? `<div class="text-xs text-violet-700">附魔：${esc(item.enchant.display_name)}</div>` : ''}${(item.gems || []).length ? `<div class="text-xs text-cyan-700">宝石：${item.gems.map(g => esc(g.display_name)).join('、')}</div>` : ''}</div>`).join('') || '<div class="text-sm text-slate-400">未解析到装备槽位</div>';
+    openSimcWorkbenchDialog('profile-detail');
+    const body = document.getElementById('simc-dialog-body');
+    if (!body) return;
+    body.innerHTML = `<div class="space-y-4"><div class="flex flex-wrap gap-3 text-sm"><span>配置：<b>${esc(profile.name)}</b></span><span>专精：<b>${esc(profile.spec)}</b></span><span>状态：<b>${profile.is_active ? '生效中' : '未生效'}</b></span></div><section><h4 class="mb-2 font-semibold">装备、附魔与宝石</h4><div class="grid gap-2 sm:grid-cols-2">${equipment}</div></section><section><h4 class="mb-2 font-semibold">原始玩家配置字符串</h4><pre class="max-h-[28rem] overflow-auto rounded-xl bg-slate-950 p-3 text-xs leading-5 text-slate-100 whitespace-pre-wrap">${esc(profile.raw_player_equipment)}</pre></section></div>`;
+}
+async function simcWbViewProfile(id) {
+    try {
+        const response = await fetch(`/api/simc-player-config-detail/?profile_id=${encodeURIComponent(id)}`, { headers: { 'X-CSRFToken': getCSRFToken() } });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.error || '加载配置详情失败');
+        renderSimcProfileDetailDialog(payload.data || {});
+    } catch (error) { showMessage(String(error.message || error), 'error'); }
+}
+
 function bindSimcWorkbenchProfilesControls() {
     const profilePanel = document.getElementById('simc-workbench-profiles-panel');
     if (profilePanel && document.documentElement.dataset.simcProfileActionsBound !== '1') {
@@ -1858,6 +1878,7 @@ function bindSimcWorkbenchProfilesControls() {
             if (!rowActionButton) return;
             const rowAction = rowActionButton.dataset.profileRowAction;
             const profileId = rowActionButton.dataset.profileId;
+            if (rowAction === 'view') simcWbViewProfile(profileId);
             if (rowAction === 'edit') simcWbEditProfile(profileId);
             if (rowAction === 'delete') simcWbDeleteProfile(profileId, rowActionButton);
 

@@ -2576,6 +2576,16 @@ class SimcPlayerConfigDetailTests(TestCase):
         self.assertAlmostEqual(detail['stats']['secondary']['crit']['percent'], 233.26, places=2)
         self.assertEqual(SimcTask.objects.count(), 0)
 
+    def test_get_saved_profile_returns_raw_and_structured_equipment_detail(self):
+        profile = self._create_profile('Saved profile', 'warrior="Saved"\nspec=fury\nhead=,id=212048,ilevel=639')
+        response = self.client.get(f'/api/simc-player-config-detail/?profile_id={profile.id}')
+        self.assertEqual(response.status_code, 200)
+        data = response.json()['data']
+        self.assertEqual(data['profile']['id'], profile.id)
+        self.assertEqual(data['profile']['raw_player_equipment'], profile.player_equipment)
+        self.assertEqual(data['equipment'][0]['slot'], 'head')
+
+
     def test_player_config_detail_exposes_only_parsed_comparison_candidates(self):
         player_block = '''warrior="Batcher"
 spec=fury

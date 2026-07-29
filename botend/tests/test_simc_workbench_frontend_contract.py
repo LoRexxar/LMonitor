@@ -97,7 +97,15 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("await onSimcProfileSelect()", loader)
         self.assertNotIn("select.innerHTML = '<option value=\"default\">系统默认配置</option>'", loader)
 
-    def test_resolving_a_saved_profile_does_not_request_its_detail_twice(self):
+    def test_profile_list_has_view_detail_action_and_renders_equipment_and_raw_block(self):
+        loader = MAIN[MAIN.index('function loadSimcWorkbenchProfiles'):MAIN.index('function bindSimcWorkbenchProfilesControls')]
+        self.assertIn('data-profile-row-action="view"', loader)
+        self.assertIn('data-profile-row-action="edit"', loader)
+        self.assertIn('equipment_line_count', loader)
+        self.assertIn('simcWbViewProfile', MAIN)
+        self.assertIn('renderSimcProfileDetailDialog', MAIN)
+        self.assertIn('raw_player_equipment', MAIN)
+
         resolver = MAIN[
             MAIN.index('async function resolveSimcPlayerSource'):
             MAIN.index('async function onSimcTargetSpecChange')
