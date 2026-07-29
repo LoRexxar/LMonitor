@@ -132,6 +132,62 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertIn(['git', '-C', str(source), 'pull', '--ff-only', 'origin', 'midnight'], commands)
             self.assertTrue(any(command[:2] == ['cmake', '--build'] for command in commands))
 
+    def test_required_simc_revision_builds_exact_control_plane_commit(self):
+        from simc_agent_consumer import AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            source = Path(root) / 'simc-source'
+            source.mkdir()
+            (source / '.git').mkdir()
+            values = self.config(root)
+            values['simc_source_path'] = str(source)
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=MagicMock())
+            required_revision = 'b' * 40
+            upstream_revision = 'c' * 40
+            local_revision = 'a' * 40
+
+            def command_result(command, **_kwargs):
+                stdout = ''
+                if command[-3:] == ['config', '--get', 'remote.origin.url']:
+                    stdout = 'https://github.com/simulationcraft/simc.git\n'
+                elif command[-2:] == ['branch', '--show-current']:
+                    stdout = 'midnight\n'
+                elif command[-2:] == ['rev-parse', 'HEAD']:
+                    reset_done = any(
+                        call.args[0][-3:] == ['reset', '--hard', required_revision]
+                        for call in run_command.call_args_list
+                    )
+                    stdout = (required_revision if reset_done else local_revision) + '\n'
+                elif command[-2:] == ['rev-parse', 'origin/midnight']:
+                    stdout = upstream_revision + '\n'
+                elif command[:2] == ['cmake', '--build']:
+                    candidate = Path(command[2]) / 'simc'
+                    candidate.write_text('#!/bin/sh\nexit 0\n', encoding='utf-8')
+                    candidate.chmod(0o755)
+                elif command[0].endswith('/simc') and command[-1] == '--version':
+                    stdout = 'SimulationCraft 1200-01\n'
+                return MagicMock(returncode=0, stdout=stdout, stderr='')
+
+            with patch('simc_agent_consumer.subprocess.run', side_effect=command_result) as run_command:
+                changed = consumer._maintain_simc(
+                    force=True, required_revision=required_revision,
+                )
+
+            self.assertTrue(changed)
+            commands = [call.args[0] for call in run_command.call_args_list]
+            self.assertIn(
+                ['git', '-C', str(source), 'merge-base', '--is-ancestor',
+                 required_revision, 'origin/midnight'],
+                commands,
+            )
+            self.assertIn(
+                ['git', '-C', str(source), 'reset', '--hard', required_revision], commands,
+            )
+            self.assertEqual(
+                json.loads(Path(values['simc_path'] + '.lmonitor-build.json').read_text()),
+                {'revision': required_revision},
+            )
+
     def test_simc_maintenance_is_skipped_while_run_lease_may_be_live(self):
         from simc_agent_consumer import AgentConfig, SimcAgentConsumer
 
@@ -258,7 +314,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.write_token(values, 'token-id.' + ('u' * 43))
             (Path(root) / '.git').mkdir()
             (Path(root) / 'simc_agent_consumer.py').write_text(
-                "VERSION = '1.2.0'\n", encoding='utf-8',
+                "VERSION = '1.3.0'\n", encoding='utf-8',
             )
             transport = MagicMock()
             transport.json.side_effect = [
@@ -266,7 +322,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
                 None,
                 APIError(
                     'Agent update required', 426,
-                    {'code': 'agent_update_required', 'required_version': '1.2.0'},
+                    {'code': 'agent_update_required', 'required_version': '1.3.0'},
                 ),
             ]
             consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=transport)
@@ -291,6 +347,35 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertIn(['git', '-C', root, 'status', '--porcelain', '--untracked-files=all'], commands)
             self.assertIn(['git', '-C', root, 'pull', '--ff-only', 'origin', 'master'], commands)
             execv.assert_called_once()
+
+    def test_simc_revision_mismatch_forces_exact_commit_maintenance(self):
+        from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            values['simc_source_path'] = str(Path(root) / 'simc-source')
+            self.write_token(values, 'token-id.' + ('s' * 43))
+            required_revision = 'b' * 40
+            transport = MagicMock()
+            transport.json.side_effect = [
+                {'success': True, 'heartbeat_interval_seconds': 20, 'lease_seconds': 60},
+                None,
+                APIError(
+                    'Agent SimC update required', 409,
+                    {'code': 'simc_update_required', 'required_version': required_revision},
+                ),
+            ]
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=transport)
+
+            with patch.object(
+                consumer, '_maintain_simc_with_heartbeats', side_effect=[False, True],
+            ) as maintain:
+                with self.assertRaisesRegex(APIError, 'SimC update required'):
+                    consumer.run(once=True)
+
+            self.assertEqual(maintain.call_count, 2)
+            maintain.assert_any_call()
+            maintain.assert_any_call(force=True, required_revision=required_revision)
 
     def test_self_update_refuses_dirty_tracked_checkout(self):
         from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer

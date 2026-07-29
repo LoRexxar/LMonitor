@@ -33,7 +33,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-VERSION = '1.2.0'
+VERSION = '1.3.0'
 PROTOCOL_VERSION = 1
 MAX_REPORT_BYTES = 20 * 1024 * 1024
 COMPLETION_TEXT_MAX_BYTES = 256 * 1024
@@ -394,7 +394,8 @@ class SimcAgentConsumer:
             raise APIError(f'command failed ({command[0]}): {detail or "unsuccessful exit"}')
         return result
 
-    def _maintain_simc(self, *, force: bool = False) -> bool:
+    def _maintain_simc(self, *, force: bool = False,
+                       required_revision: str | None = None) -> bool:
         """Check upstream and build a verified replacement while no Run lease is held."""
         if time.monotonic() < self._lease_block_until:
             self.logger.info('skipping SimC maintenance while a Run lease may still be live')
@@ -432,17 +433,35 @@ class SimcAgentConsumer:
         if not re.fullmatch(r'[0-9a-f]{7,64}', upstream_revision):
             raise APIError('SimC upstream returned an invalid revision')
 
+        target_revision = upstream_revision
+        if required_revision is not None:
+            target_revision = str(required_revision).strip().lower()
+            if not re.fullmatch(r'[0-9a-f]{40}', target_revision):
+                raise APIError('control plane returned an invalid required SimC revision')
+            try:
+                git('merge-base', '--is-ancestor', target_revision, f'origin/{branch}')
+            except APIError as exc:
+                raise APIError(
+                    'required SimC revision is not available on the trusted upstream branch',
+                ) from exc
+
         report = self._report()
-        if (local_revision == upstream_revision and report['binary_available']
-                and report['current_version'] == upstream_revision):
-            self.logger.info('SimC is current at %s', upstream_revision)
+        if (local_revision == target_revision and report['binary_available']
+                and report['current_version'] == target_revision):
+            self.logger.info('SimC is current at %s', target_revision)
             return False
-        if local_revision != upstream_revision:
-            self.logger.info('updating SimC source %s -> %s', local_revision, upstream_revision)
-            git('pull', '--ff-only', 'origin', branch, timeout=300)
+        if local_revision != target_revision:
+            self.logger.info('updating SimC source %s -> %s', local_revision, target_revision)
+            if required_revision is None:
+                git('pull', '--ff-only', 'origin', branch, timeout=300)
+            else:
+                # The control plane freezes Tasks against an exact SimC commit. A
+                # clean managed checkout may therefore need to move forward or
+                # backward within the trusted branch instead of following HEAD.
+                git('reset', '--hard', target_revision, timeout=300)
         revision = git('rev-parse', 'HEAD').stdout.strip().lower()
-        if revision != upstream_revision:
-            raise APIError('SimC source update did not reach the fetched revision')
+        if revision != target_revision:
+            raise APIError('SimC source update did not reach the required revision')
 
         target = Path(self.config.simc_path).expanduser().resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -849,7 +868,8 @@ class SimcAgentConsumer:
             if heartbeat_thread is not None:
                 heartbeat_thread.join(timeout=3)
 
-    def _maintain_simc_with_heartbeats(self) -> bool:
+    def _maintain_simc_with_heartbeats(self, *, force: bool = False,
+                                       required_revision: str | None = None) -> bool:
         stopped = threading.Event()
 
         def report_while_building() -> None:
@@ -864,7 +884,9 @@ class SimcAgentConsumer:
         )
         thread.start()
         try:
-            return self._maintain_simc()
+            return self._maintain_simc(
+                force=force, required_revision=required_revision,
+            )
         finally:
             stopped.set()
             thread.join(timeout=2)
@@ -913,6 +935,11 @@ class SimcAgentConsumer:
                 self.logger.error('control-plane operation failed: %s', exc)
                 if exc.status == 426 and exc.details.get('code') == 'agent_update_required':
                     self._self_update(exc.details.get('required_version'))
+                if exc.status == 409 and exc.details.get('code') == 'simc_update_required':
+                    self._maintain_simc_with_heartbeats(
+                        force=True,
+                        required_revision=exc.details.get('required_version'),
+                    )
                 if once:
                     raise
             except Exception:
