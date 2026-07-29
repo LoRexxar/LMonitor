@@ -151,8 +151,8 @@ class SimcAplEditorApiTests(TestCase):
         }), content_type='application/json')
 
         self.assertEqual(translated.json()['result'], (
-            'actions=/灵界打击〔death_strike〕\n'
-            'actions+=/灵界打击〔death_strike_heal〕'
+            'actions=/灵界打击\n'
+            'actions+=/灵界打击'
         ))
         self.assertEqual(restored.json()['result'], apl)
 

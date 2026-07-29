@@ -1033,7 +1033,11 @@ class ConvertTextAPIView(View):
         for (kind, token), chinese in mapping.items():
             by_cn.setdefault(chinese.casefold(), []).append(token)
         for (kind, token), chinese in mapping.items():
-            rendered = chinese if len(by_cn[chinese.casefold()]) == 1 else f'{chinese}〔{token}〕'
+            # The editor is a Chinese editing surface. Never append the English
+            # token to a translated name: that produces text which is neither
+            # valid SimC nor convenient to edit. Reverse conversion resolves
+            # an ambiguous Chinese name using the authoritative pair order.
+            rendered = chinese
             forward_pairs.append((kind, token, rendered))
             reverse_pairs.append((kind, token, rendered))
         return forward_pairs, reverse_pairs
