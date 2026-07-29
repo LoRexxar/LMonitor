@@ -197,7 +197,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
                     stdout = 'midnight\n'
                 elif command[-2:] == ['rev-parse', 'HEAD']:
                     stdout = ('a' * 40) + '\n' if not any(
-                        call.args[0][-3:] == ['reset', '--hard', 'origin/midnight']
+                        call.args[0][-5:] == ['pull', '--ff-only', '--force', 'origin', 'midnight']
                         for call in run_command.call_args_list
                     ) else ('b' * 40) + '\n'
                 elif command[-2:] == ['rev-parse', 'origin/midnight']:
@@ -221,9 +221,10 @@ class SimcAgentConsumerTests(SimpleTestCase):
             )
             self.assertTrue(os.access(values['simc_path'], os.X_OK))
             commands = [call.args[0] for call in run_command.call_args_list]
-            self.assertIn(['git', '-C', str(source), 'fetch', '--prune', 'origin', 'midnight'], commands)
-            self.assertIn(['git', '-C', str(source), 'reset', '--hard', 'origin/midnight'], commands)
-            self.assertIn(['git', '-C', str(source), 'clean', '-fd'], commands)
+            self.assertIn(
+                ['git', '-C', str(source), 'pull', '--ff-only', '--force', 'origin', 'midnight'], commands,
+            )
+            self.assertFalse(any('reset' in command or 'clean' in command for command in commands))
             self.assertTrue(any(command[:2] == ['cmake', '--build'] for command in commands))
             self.assertTrue(any(command[0].endswith('/simc') and len(command) == 1 for command in commands))
             self.assertFalse(any('--version' in command for command in commands))
@@ -247,7 +248,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
                     stdout = 'midnight\n'
                 elif command[-2:] == ['rev-parse', 'HEAD']:
                     stdout = ('a' * 40) + '\n' if not any(
-                        call.args[0][-3:] == ['reset', '--hard', 'origin/midnight']
+                        call.args[0][-5:] == ['pull', '--ff-only', '--force', 'origin', 'midnight']
                         for call in run_command.call_args_list
                     ) else ('b' * 40) + '\n'
                 elif command[-2:] == ['rev-parse', 'origin/midnight']:
@@ -295,11 +296,11 @@ class SimcAgentConsumerTests(SimpleTestCase):
                 elif command[-2:] == ['branch', '--show-current']:
                     stdout = 'midnight\n'
                 elif command[-2:] == ['rev-parse', 'HEAD']:
-                    reset_done = any(
-                        call.args[0][-3:] == ['reset', '--hard', required_revision]
+                    pull_done = any(
+                        call.args[0][-5:] == ['pull', '--ff-only', '--force', 'origin', 'midnight']
                         for call in run_command.call_args_list
                     )
-                    stdout = (required_revision if reset_done else local_revision) + '\n'
+                    stdout = (required_revision if pull_done else local_revision) + '\n'
                 elif command[-2:] == ['rev-parse', 'origin/midnight']:
                     stdout = upstream_revision + '\n'
                 elif command[-2:] == ['status', '--porcelain']:
@@ -329,8 +330,9 @@ class SimcAgentConsumerTests(SimpleTestCase):
                 commands,
             )
             self.assertIn(
-                ['git', '-C', str(source), 'reset', '--hard', required_revision], commands,
+                ['git', '-C', str(source), 'pull', '--ff-only', '--force', 'origin', 'midnight'], commands,
             )
+            self.assertFalse(any('reset' in command or 'clean' in command for command in commands))
             self.assertEqual(
                 json.loads(Path(values['simc_path'] + '.lmonitor-build.json').read_text()),
                 {'revision': required_revision},
@@ -453,7 +455,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
                 'protocol_version': PROTOCOL_VERSION,
             })
 
-    def test_update_required_claim_triggers_ff_only_git_update_and_reexec(self):
+    def test_update_required_claim_forces_fast_forward_pull_without_reset_or_clean(self):
         from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
 
         with tempfile.TemporaryDirectory() as root:
@@ -492,10 +494,10 @@ class SimcAgentConsumerTests(SimpleTestCase):
                     consumer.run(once=True)
 
             commands = [call.args[0] for call in run_git.call_args_list]
-            self.assertIn(['git', '-C', root, 'fetch', '--prune', 'origin', 'master'], commands)
-            self.assertIn(['git', '-C', root, 'reset', '--hard', 'origin/master'], commands)
-            self.assertIn(['git', '-C', root, 'clean', '-fd'], commands)
-            self.assertNotIn(['git', '-C', root, 'pull', '--ff-only', 'origin', 'master'], commands)
+            self.assertIn(
+                ['git', '-C', root, 'pull', '--ff-only', '--force', 'origin', 'master'], commands,
+            )
+            self.assertFalse(any('reset' in command or 'clean' in command for command in commands))
             execv.assert_called_once()
 
     def test_legacy_simc_revision_error_does_not_drive_agent_maintenance(self):

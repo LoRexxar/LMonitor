@@ -539,10 +539,8 @@ class SimcAgentConsumer:
             self.logger.info('SimC is current at %s', target_revision)
             return False
         if local_revision != target_revision or required_revision is not None:
-            self.logger.info('forcing SimC source %s -> %s', local_revision, target_revision)
-            git('reset', '--hard', target_revision if required_revision is not None else f'origin/{SIMC_UPDATE_BRANCH}',
-                timeout=300)
-            git('clean', '-fd', timeout=300)
+            self.logger.info('fast-forwarding SimC source %s -> %s', local_revision, target_revision)
+            git('pull', '--ff-only', '--force', 'origin', SIMC_UPDATE_BRANCH, timeout=300)
         revision = git('rev-parse', 'HEAD').stdout.strip().lower()
         if revision != target_revision:
             raise APIError('SimC source update did not reach the required revision')
@@ -684,10 +682,8 @@ class SimcAgentConsumer:
         branch = git('branch', '--show-current', timeout=30).stdout.strip()
         if branch != UPDATE_BRANCH:
             raise APIError(f'automatic Agent update requires the {UPDATE_BRANCH} branch')
-        self.logger.info('forcing Agent checkout to %s', required_revision or required_version)
-        git('fetch', '--prune', 'origin', UPDATE_BRANCH, timeout=120)
-        git('reset', '--hard', f'origin/{UPDATE_BRANCH}', timeout=120)
-        git('clean', '-fd', timeout=120)
+        self.logger.info('fast-forwarding Agent checkout to %s', required_revision or required_version)
+        git('pull', '--ff-only', '--force', 'origin', UPDATE_BRANCH, timeout=120)
         try:
             source = target.read_text(encoding='utf-8')
         except (OSError, UnicodeError) as exc:
