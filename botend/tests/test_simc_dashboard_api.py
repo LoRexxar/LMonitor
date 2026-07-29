@@ -373,6 +373,9 @@ class SimcProfileResourceListTests(TestCase):
             player_equipment='mage="Default"\\nspec=frost\\nhead=,id=100,ilevel=276\\n',
         )
 
+        # 管理列表允许编辑的默认/未生效 Profile，编辑表单读取接口也必须
+        # 使用同一管理员可见范围，不能把它错误判成“找不到配置”。
+        edit_load = self.client.get(f'/api/simc-profile/{system.id}/')
         detail = self.client.get(f'/api/simc-player-config-detail/?profile_id={system.id}')
         update = self.client.put(
             '/api/simc-profile/',
@@ -382,6 +385,9 @@ class SimcProfileResourceListTests(TestCase):
             content_type='application/json',
         )
 
+        self.assertEqual(edit_load.status_code, 200)
+        self.assertTrue(edit_load.json()['success'], edit_load.content)
+        self.assertEqual(edit_load.json()['id'], system.id)
         self.assertEqual(detail.status_code, 200)
         self.assertTrue(detail.json()['data']['profile']['can_edit'])
         self.assertEqual(update.status_code, 200)

@@ -3306,37 +3306,35 @@ class SimcProfileAPIView(View):
         """获取SimC配置列表或单个配置"""
         try:
             if profile_id:
-                # 获取单个配置
-                try:
-                    profile = SimcProfile.objects.get(
-                        id=profile_id,
-                        user_id=request.user.id,
-                    )
-                    
-                    return JsonResponse({
-                        'success': True,
-                        'id': profile.id,
-                        'name': profile.name,
-                        'spec': profile.spec,
-                        'player_config_mode': self._profile_mode(profile),
-                        'battlenet_region': getattr(profile, 'battlenet_region', '') or '',
-                        'battlenet_realm': getattr(profile, 'battlenet_realm', '') or '',
-                        'battlenet_character': getattr(profile, 'battlenet_character', '') or '',
-                        'player_equipment': getattr(profile, 'player_equipment', '') or '',
-                        'talent': profile.talent,
-                        'gear_strength': profile.gear_strength,
-                        'gear_crit': profile.gear_crit,
-                        'gear_haste': profile.gear_haste,
-                        'gear_mastery': profile.gear_mastery,
-                        'gear_versatility': profile.gear_versatility,
-                        'is_active': profile.is_active
-                    })
-                    
-                except SimcProfile.DoesNotExist:
+                # 管理资源列表可见的上游/未生效 Profile 必须可被同一管理员
+                # 读取进编辑表单；普通用户仍只能读取自己拥有的 Profile。
+                profile = SimcProfile.objects.filter(
+                    id=profile_id,
+                    **({} if _is_simc_admin(request.user) else {'user_id': request.user.id}),
+                ).first()
+                if profile is None:
                     return JsonResponse({
                         'success': False,
-                        'error': '配置不存在或无权限访问'
+                        'error': '配置不存在或无权限访问',
                     })
+                return JsonResponse({
+                    'success': True,
+                    'id': profile.id,
+                    'name': profile.name,
+                    'spec': profile.spec,
+                    'player_config_mode': self._profile_mode(profile),
+                    'battlenet_region': getattr(profile, 'battlenet_region', '') or '',
+                    'battlenet_realm': getattr(profile, 'battlenet_realm', '') or '',
+                    'battlenet_character': getattr(profile, 'battlenet_character', '') or '',
+                    'player_equipment': getattr(profile, 'player_equipment', '') or '',
+                    'talent': profile.talent,
+                    'gear_strength': profile.gear_strength,
+                    'gear_crit': profile.gear_crit,
+                    'gear_haste': profile.gear_haste,
+                    'gear_mastery': profile.gear_mastery,
+                    'gear_versatility': profile.gear_versatility,
+                    'is_active': profile.is_active,
+                })
             else:
                 # 用户配置与迁移后的 SimC 上游默认玩家属于同一 Profile 资源库。
                 # 系统记录只在列表中展示，写接口仍严格按 user_id 校验所有权。
