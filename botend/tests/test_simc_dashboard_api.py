@@ -570,6 +570,32 @@ class SimcAplCanonicalSpecPermissionTests(TestCase):
 
 
 class SimcBackendUpdateSafetyTests(TestCase):
+    def test_upstream_check_fetches_explicit_midnight_branch(self):
+        # Exercise the monitor helper because it owns the periodic
+        # upstream check and must not resolve the checkout's implicit upstream.
+        monitor = SimcMonitor(None, None)
+        monitor.simc_source_dir = '/srv/simc'
+        with patch.object(monitor, '_git_output', return_value='a' * 40) as git_output:
+            self.assertEqual(monitor._get_git_upstream_hash(), 'a' * 40)
+        self.assertEqual(git_output.call_args_list[0].args[0], [
+            'fetch', '--prune', '--quiet', 'origin', 'midnight',
+        ])
+        self.assertEqual(git_output.call_args_list[1].args[0], [
+            'rev-parse', 'refs/remotes/origin/midnight',
+        ])
+
+    def test_binary_update_pulls_explicit_midnight_branch(self):
+        command = UpdateSimcBinaryCommand()
+        command.simc_source_dir = '/srv/simc'
+        command._set_status = __import__('unittest').mock.Mock()
+        command.stdout = SimpleNamespace(write=lambda *args, **kwargs: None)
+        result = SimpleNamespace(returncode=0, stdout='', stderr='')
+        with patch('botend.management.commands.update_simc_binary.subprocess.run', return_value=result) as run:
+            command._pull_rebase()
+        self.assertEqual(run.call_args.args[0], [
+            'git', 'pull', '--rebase', 'origin', 'midnight',
+        ])
+
     def test_tracked_source_changes_are_autocommitted_before_rebase_pull(self):
         command = UpdateSimcBinaryCommand()
         command.simc_source_dir = '/srv/simc'

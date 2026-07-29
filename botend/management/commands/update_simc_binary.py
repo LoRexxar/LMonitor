@@ -494,7 +494,9 @@ class Command(BaseCommand):
         self.stdout.write('拉取 SimC 源码')
         try:
             result = subprocess.run(
-                ['git', 'pull', '--rebase'], cwd=self.simc_source_dir,
+                # Never pull the checkout's implicit upstream. The production
+                # SimC source of truth is the upstream midnight branch.
+                ['git', 'pull', '--rebase', 'origin', 'midnight'], cwd=self.simc_source_dir,
                 capture_output=True, text=True, timeout=300,
             )
         except subprocess.TimeoutExpired as exc:

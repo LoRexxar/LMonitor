@@ -142,8 +142,12 @@ class SimcMonitor(BaseScan):
     def _get_git_upstream_hash(self):
         source_dir = self.simc_source_dir
         try:
-            self._git_output(['fetch', '--quiet'], source_dir, timeout=120)
-            return self._git_output(['rev-parse', '@{u}'], source_dir, timeout=10)
+            # SimulationCraft is maintained on the explicit midnight branch.
+            # Do not follow the checkout's configured upstream: historical
+            # checkouts can point at a local/non-upstream commit and then
+            # publish that value as Backend.latest_version to Agents.
+            self._git_output(['fetch', '--prune', '--quiet', 'origin', 'midnight'], source_dir, timeout=120)
+            return self._git_output(['rev-parse', 'refs/remotes/origin/midnight'], source_dir, timeout=10)
         except Exception as e:
             logger.warning(f"[SimC Monitor] Failed to check SimC upstream git hash: {e}")
             return ''
