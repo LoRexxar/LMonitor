@@ -151,7 +151,7 @@ def claim_run(payload, authorization):
     # updater-capable Agents always send both fields and are strictly gated.
     if (agent_version is None) != (protocol_version is None):
         raise AgentAPIError('agent_version and protocol_version must be sent together')
-    required_version = str(getattr(settings, 'SIMC_AGENT_REQUIRED_VERSION', '1.3.0'))
+    required_version = str(getattr(settings, 'SIMC_AGENT_REQUIRED_VERSION', '1.3.1'))
     required_protocol = int(getattr(settings, 'SIMC_AGENT_PROTOCOL_VERSION', 1))
     mismatch = None
     if agent_version is not None and agent_version != required_version:

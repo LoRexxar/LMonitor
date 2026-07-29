@@ -33,7 +33,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-VERSION = '1.3.0'
+VERSION = '1.3.1'
 PROTOCOL_VERSION = 1
 MAX_REPORT_BYTES = 20 * 1024 * 1024
 COMPLETION_TEXT_MAX_BYTES = 256 * 1024
@@ -400,7 +400,13 @@ class SimcAgentConsumer:
         if time.monotonic() < self._lease_block_until:
             self.logger.info('skipping SimC maintenance while a Run lease may still be live')
             return False
-        if not self.config.auto_update_simc or not self.config.simc_source_path:
+        # `auto_update_simc` controls proactive periodic updates. An exact
+        # revision demanded by the control plane is mandatory for claiming a
+        # frozen Run and must not be silently ignored because periodic updates
+        # were disabled.
+        if (not self.config.auto_update_simc and required_revision is None):
+            return False
+        if not self.config.simc_source_path:
             return False
         now = time.monotonic()
         if not force and now - self._last_simc_check < self.config.simc_update_interval_seconds:

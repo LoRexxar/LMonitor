@@ -40,7 +40,7 @@ class SimcAgentJobAPITests(TestCase):
         agent = SimcAgent.objects.create(
             backend=backend, host_identifier=(name.encode().hex() * 64)[:64], name=name,
             is_active=True, binary_available=True, status=SimcAgent.STATUS_ONLINE,
-            agent_version='1.3.0', protocol_version=1,
+            agent_version='1.3.1', protocol_version=1,
             last_seen_at=timezone.now(),
         )
         token = _issue_token(agent)
@@ -92,7 +92,7 @@ class SimcAgentJobAPITests(TestCase):
 
     def claim(self, token=None, instance='instance-a'):
         return self.post_json(CLAIM, {
-            'instance_id': instance, 'agent_version': '1.3.0', 'protocol_version': 1,
+            'instance_id': instance, 'agent_version': '1.3.1', 'protocol_version': 1,
         }, token)
 
     def test_claim_rejects_agent_when_simc_revision_does_not_match_backend(self):
@@ -140,7 +140,7 @@ class SimcAgentJobAPITests(TestCase):
         task.refresh_from_db()
         self.assertEqual(task.current_status, 0)
 
-    @override_settings(SIMC_AGENT_REQUIRED_VERSION='1.3.0', SIMC_AGENT_PROTOCOL_VERSION=1)
+    @override_settings(SIMC_AGENT_REQUIRED_VERSION='1.3.1', SIMC_AGENT_PROTOCOL_VERSION=1)
     def test_outdated_agent_with_live_lease_is_not_told_to_reexec(self):
         self.task()
         first = self.claim(instance='lease-owner')

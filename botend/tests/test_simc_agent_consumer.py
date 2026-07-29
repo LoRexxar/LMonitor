@@ -132,7 +132,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertIn(['git', '-C', str(source), 'pull', '--ff-only', 'origin', 'midnight'], commands)
             self.assertTrue(any(command[:2] == ['cmake', '--build'] for command in commands))
 
-    def test_required_simc_revision_builds_exact_control_plane_commit(self):
+    def test_required_simc_revision_bypasses_periodic_auto_update_switch_and_builds_exact_commit(self):
         from simc_agent_consumer import AgentConfig, SimcAgentConsumer
 
         with tempfile.TemporaryDirectory() as root:
@@ -141,6 +141,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
             (source / '.git').mkdir()
             values = self.config(root)
             values['simc_source_path'] = str(source)
+            values['auto_update_simc'] = False
             consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=MagicMock())
             required_revision = 'b' * 40
             upstream_revision = 'c' * 40
@@ -314,7 +315,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.write_token(values, 'token-id.' + ('u' * 43))
             (Path(root) / '.git').mkdir()
             (Path(root) / 'simc_agent_consumer.py').write_text(
-                "VERSION = '1.3.0'\n", encoding='utf-8',
+                "VERSION = '1.3.1'\n", encoding='utf-8',
             )
             transport = MagicMock()
             transport.json.side_effect = [
@@ -322,7 +323,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
                 None,
                 APIError(
                     'Agent update required', 426,
-                    {'code': 'agent_update_required', 'required_version': '1.3.0'},
+                    {'code': 'agent_update_required', 'required_version': '1.3.1'},
                 ),
             ]
             consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=transport)
