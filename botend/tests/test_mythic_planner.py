@@ -49,8 +49,12 @@ from botend.mythic_planner.spell_tooltips import (
     QUALITY_EXACT_RENDERED,
     QUALITY_MANUAL_OVERRIDE,
     QUALITY_MECHANIC_ONLY,
+    QUALITY_RENDERED_EXTERNAL,
     SOURCE_MANUAL,
+    SOURCE_WAGO_DB2,
     SOURCE_WOW_CLIENT,
+    SOURCE_WOWHEAD_TOOLTIP,
+    SOURCE_WOWHEAD_TOOLTIP_REFERENCE,
     build_manifest_core,
     manifest_hash,
 )
@@ -61,6 +65,7 @@ from botend.management.commands.sync_mythic_dungeon_assets import (
     AssetUnavailableError,
     Command as SyncMythicDungeonAssetsCommand,
 )
+from botend.wow.spell_text import SpellTextResolver
 
 
 def demo_payload():
@@ -754,6 +759,12 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
         with self.assertRaisesMessage(CommandError, '不支持的 Wowhead dataEnv'):
             SyncMythicDungeonSpellsCommand._resolve_wowhead_data_env('wowt', 99)
 
+    @override_settings(
+        PROXY_CONFIG={
+            'http': 'socks5://127.0.0.1:10809',
+            'https': 'socks5://127.0.0.1:10809',
+        },
+    )
     @mock.patch(
         'botend.management.commands.sync_mythic_dungeon_spells.requests.get',
     )
@@ -775,6 +786,83 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
         self.assertEqual(description, '造成123点暗影伤害。')
         self.assertEqual(request_get.call_args.kwargs['params']['dataEnv'], 2)
         self.assertEqual(request_get.call_args.kwargs['params']['locale'], 4)
+        self.assertEqual(request_get.call_args.kwargs['params']['dd'], 8)
+        self.assertEqual(
+            request_get.call_args.kwargs['proxies'],
+            {
+                'http': 'socks5://127.0.0.1:10809',
+                'https': 'socks5://127.0.0.1:10809',
+            },
+        )
+
+    @override_settings(PROXY_CONFIG={}, REQUEST_CONFIG={})
+    @mock.patch(
+        'botend.management.commands.sync_mythic_dungeon_spells.requests.get',
+    )
+    def test_wowhead_tooltip_request_allows_empty_proxy_config(
+        self,
+        request_get,
+    ):
+        response = mock.Mock()
+        response.status_code = 200
+        response.json.return_value = {
+            'tooltip': '<div class="q">造成123点暗影伤害。</div>',
+        }
+        request_get.return_value = response
+
+        SyncMythicDungeonSpellsCommand._fetch_wowhead_tooltip(
+            12345,
+            0,
+            4,
+            data_env=1,
+        )
+
+        self.assertIsNone(request_get.call_args.kwargs['proxies'])
+
+    def test_wowhead_description_references_do_not_include_effect_values(self):
+        rows = {
+            1253520: {
+                'description_zh': (
+                    '$@spelldesc1253519 每$1253520t2秒受到$s1点火焰伤害。'
+                ),
+                'aura_description_zh': '',
+            },
+            1254336: {
+                'description_zh': '造成$1254338s1点火焰伤害。',
+                'aura_description_zh': '',
+            },
+        }
+
+        self.assertEqual(
+            SyncMythicDungeonSpellsCommand._collect_description_references(rows),
+            {1253519},
+        )
+
+    def test_wowhead_reference_is_stitched_into_wago_template(self):
+        resolved = SyncMythicDungeonSpellsCommand._composite_description_zh(
+            spell_id=1253520,
+            raw_description_zh=(
+                '$@spelldesc1253519 每$1253520t2秒受到$s1点火焰伤害。'
+            ),
+            raw_aura_description_zh='',
+            wowhead_tooltips={
+                1253519: (
+                    '鲁克兰用燃烧利爪撕裂目标，造成203380点物理伤害，'
+                    '并使目标燃烧。'
+                ),
+            },
+            resolver=SpellTextResolver(locale='zhCN', branch='wowt'),
+        )
+
+        self.assertEqual(
+            resolved['source'],
+            SOURCE_WOWHEAD_TOOLTIP_REFERENCE,
+        )
+        self.assertEqual(resolved['quality'], QUALITY_RENDERED_EXTERNAL)
+        self.assertEqual(resolved['reference_spell_ids'], [1253519])
+        self.assertIn('203380点物理伤害', resolved['description'])
+        self.assertNotIn('$', resolved['description'])
+        self.assertNotRegex(resolved['description'], r'(?<![A-Za-z])x(?![A-Za-z])')
 
     def test_spell_sync_prefers_chinese_db2_text_over_english_tooltip(self):
         self.assertEqual(
@@ -940,6 +1028,151 @@ class MythicPlannerSpellDescriptionSourceTests(TestCase):
         spell.refresh_from_db()
         self.assertEqual(spell.description_zh, '客户端精确说明。')
         self.assertEqual(result['updated'], 0)
+
+    def test_tooltip_only_builds_direct_reference_and_mechanic_descriptions(self):
+        version = MythicDungeonDataVersion.objects.create(
+            key='tooltip-composite-test',
+            label='Tooltip 组合来源测试',
+            game_version='12.1.0',
+            is_active=True,
+        )
+        direct = MythicDungeonSpell.objects.create(
+            data_version=version,
+            spell_id=154132,
+            source_branch='wowt',
+            source_locale='zhCN',
+            snapshot_build='12.1.0.68914',
+            description_zh='造成x点火焰伤害。',
+            metadata={'raw_description_zh': '造成$s1点火焰伤害。'},
+        )
+        referenced = MythicDungeonSpell.objects.create(
+            data_version=version,
+            spell_id=1253520,
+            source_branch='wowt',
+            source_locale='zhCN',
+            snapshot_build='12.1.0.68914',
+            description_zh='造成x点火焰伤害。',
+            metadata={
+                'raw_description_zh': (
+                    '$@spelldesc1253519 每$1253520t2秒受到$s1点火焰伤害。'
+                ),
+            },
+        )
+        mechanic = MythicDungeonSpell.objects.create(
+            data_version=version,
+            spell_id=245742,
+            source_branch='wowt',
+            source_locale='zhCN',
+            snapshot_build='12.1.0.68914',
+            description_zh='造成x点物理伤害。',
+            metadata={'raw_description_zh': '造成$s1点物理伤害。'},
+        )
+        blank = MythicDungeonSpell.objects.create(
+            data_version=version,
+            spell_id=1239871,
+            source_branch='wowt',
+            source_locale='zhCN',
+            snapshot_build='12.1.0.68914',
+            description_zh='x',
+            metadata={},
+        )
+
+        result = SyncMythicDungeonSpellsCommand()._write_tooltips_only(
+            version=version,
+            branch='wowt',
+            build='12.1.0.68914',
+            spell_ids={
+                direct.spell_id,
+                referenced.spell_id,
+                mechanic.spell_id,
+                blank.spell_id,
+            },
+            wowhead_tooltips={
+                direct.spell_id: '造成127113点火焰伤害。',
+                1253519: '撕裂目标，造成203380点物理伤害。',
+            },
+            locale=4,
+            data_env=1,
+            difficulty_id=8,
+        )
+
+        direct.refresh_from_db()
+        referenced.refresh_from_db()
+        mechanic.refresh_from_db()
+        blank.refresh_from_db()
+        self.assertEqual(direct.description_zh, '造成127113点火焰伤害。')
+        self.assertEqual(
+            direct.metadata['description_source'],
+            SOURCE_WOWHEAD_TOOLTIP,
+        )
+        self.assertEqual(direct.metadata['wowhead_difficulty_id'], 8)
+        self.assertFalse(direct.metadata['wowhead_build_exact'])
+        self.assertEqual(
+            direct.metadata['wowhead_version_scope'],
+            'environment_current',
+        )
+        self.assertIn('dd=8', direct.metadata['wowhead_tooltip_source'])
+        self.assertIn('203380点物理伤害', referenced.description_zh)
+        self.assertEqual(
+            referenced.metadata['description_source'],
+            SOURCE_WOWHEAD_TOOLTIP_REFERENCE,
+        )
+        self.assertEqual(
+            referenced.metadata['wowhead_reference_spell_ids'],
+            [1253519],
+        )
+        self.assertEqual(
+            mechanic.metadata['description_source'],
+            SOURCE_WAGO_DB2,
+        )
+        self.assertEqual(
+            mechanic.metadata['description_quality'],
+            QUALITY_MECHANIC_ONLY,
+        )
+        self.assertEqual(mechanic.description_zh, '造成物理伤害。')
+        self.assertEqual(blank.description_zh, '')
+        self.assertEqual(result['fetched'], 1)
+        self.assertEqual(result['referenced'], 1)
+        self.assertEqual(result['mechanic_only'], 1)
+        self.assertEqual(result['blank'], 1)
+        self.assertEqual(result['updated'], 4)
+
+    def test_tooltip_only_dry_run_reports_without_writing(self):
+        version = MythicDungeonDataVersion.objects.create(
+            key='tooltip-dry-run-test',
+            label='Tooltip dry-run 测试',
+            game_version='12.1.0',
+            is_active=True,
+            metadata={'marker': 'keep'},
+        )
+        spell = MythicDungeonSpell.objects.create(
+            data_version=version,
+            spell_id=154132,
+            source_branch='wowt',
+            source_locale='zhCN',
+            snapshot_build='12.1.0.68914',
+            description_zh='旧说明x。',
+            metadata={'raw_description_zh': '造成$s1点火焰伤害。'},
+        )
+
+        result = SyncMythicDungeonSpellsCommand()._write_tooltips_only(
+            version=version,
+            branch='wowt',
+            build='12.1.0.68914',
+            spell_ids={spell.spell_id},
+            wowhead_tooltips={spell.spell_id: '造成127113点火焰伤害。'},
+            locale=4,
+            data_env=1,
+            difficulty_id=8,
+            dry_run=True,
+        )
+
+        spell.refresh_from_db()
+        version.refresh_from_db()
+        self.assertTrue(result['dry_run'])
+        self.assertEqual(result['updated'], 1)
+        self.assertEqual(spell.description_zh, '旧说明x。')
+        self.assertEqual(version.metadata, {'marker': 'keep'})
 
 
 class MythicPlannerNormalizeSpellDescriptionCommandTests(TestCase):

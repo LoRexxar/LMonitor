@@ -15,6 +15,7 @@ QUALITY_MANUAL_OVERRIDE = "manual_override"
 
 SOURCE_WAGO_DB2 = "wago_db2_template"
 SOURCE_WOWHEAD_TOOLTIP = "wowhead_tooltip"
+SOURCE_WOWHEAD_TOOLTIP_REFERENCE = "wowhead_tooltip_reference"
 SOURCE_WOW_CLIENT = "wow_client_tooltip"
 SOURCE_MANUAL = "manual"
 
@@ -41,6 +42,16 @@ DESCRIPTION_PROVENANCE_KEYS = {
     "tooltip_manifest_hash",
     "tooltip_snapshot_hash",
     "tooltip_collector_schema_version",
+    "wowhead_tooltip_url",
+    "wowhead_tooltip_source",
+    "wowhead_reference_spell_ids",
+    "wowhead_reference_sources",
+    "wowhead_locale",
+    "wowhead_data_env",
+    "wowhead_environment",
+    "wowhead_difficulty_id",
+    "wowhead_version_scope",
+    "wowhead_build_exact",
 }
 
 _ISOLATED_X_RE = re.compile(r"(?<![A-Za-z])x(?![A-Za-z])", re.IGNORECASE)
@@ -59,7 +70,11 @@ def description_quality(metadata: dict[str, Any] | None) -> str:
         return QUALITY_EXACT_RENDERED
     if source == SOURCE_MANUAL:
         return QUALITY_MANUAL_OVERRIDE
-    if source == SOURCE_WOWHEAD_TOOLTIP or metadata.get("wowhead_tooltip_source"):
+    if (
+        source in (SOURCE_WOWHEAD_TOOLTIP, SOURCE_WOWHEAD_TOOLTIP_REFERENCE)
+        or metadata.get("wowhead_tooltip_source")
+        or metadata.get("wowhead_reference_sources")
+    ):
         return QUALITY_RENDERED_EXTERNAL
     return ""
 
