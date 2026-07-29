@@ -26,6 +26,10 @@ from botend.models import (
     WowSpellSnapshot,
     WowSpellSnapshotState,
 )
+from botend.mythic_planner.icon_assets import (
+    build_wowhead_icon_url,
+    normalize_wowhead_icon_slug,
+)
 from botend.wow.spell_text import SpellTextResolver
 
 
@@ -1014,12 +1018,10 @@ class Command(BaseCommand):
             row = rows.get(spell_id, {})
             misc_row = misc.get(spell_id, {})
             file_data_id = _to_int(misc_row.get('SpellIconFileDataID')) or None
-            icon_name = icon_names.get(file_data_id, '') if file_data_id else ''
-            icon_url = (
-                f'https://wow.zamimg.com/images/wow/icons/large/{icon_name}.jpg'
-                if icon_name
-                else ''
+            icon_name = normalize_wowhead_icon_slug(
+                icon_names.get(file_data_id, '') if file_data_id else '',
             )
+            icon_url = build_wowhead_icon_url(icon_name)
             existing_record = existing_spell_records.get(spell_id)
             existing_icon_url = str(
                 existing_record.icon_url if existing_record else ''

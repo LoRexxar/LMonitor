@@ -17,6 +17,7 @@ from botend.models import (
     MythicDungeonFloor,
     MythicDungeonSpell,
 )
+from botend.mythic_planner.icon_assets import build_wowhead_icon_url
 from botend.services.article_image_service import _get_configured_proxies
 
 
@@ -74,6 +75,13 @@ class Command(BaseCommand):
             action='store_true',
             help='按记录的原始来源重新下载，并覆盖同一个固定 OSS 对象键。',
         )
+        parser.add_argument(
+            '--spell-id',
+            action='append',
+            type=int,
+            default=[],
+            help='仅处理指定技能 ID；可重复传入，适合定向补图。',
+        )
 
     def handle(self, *args, **options):
         version = self._resolve_version(options.get('version_key'))
@@ -86,12 +94,18 @@ class Command(BaseCommand):
             raise CommandError('OSS_CONFIG.base_url 未配置，不能归档规划器资源。')
 
         version_prefix = f'{base_prefix}/versions/{self._safe_segment(version.key)}'
+        target_spell_ids = {
+            int(spell_id)
+            for spell_id in options.get('spell_id') or []
+            if int(spell_id) > 0
+        }
         jobs, stats = self._build_jobs(
             version=version,
             base_prefix=base_prefix,
             version_prefix=version_prefix,
             oss_base_url=oss_base_url,
             force=bool(options.get('force')),
+            spell_ids=target_spell_ids,
         )
         limit = max(0, int(options.get('limit') or 0))
         if limit:
@@ -177,8 +191,14 @@ class Command(BaseCommand):
         version_prefix,
         oss_base_url,
         force,
+        spell_ids=None,
     ):
         jobs = []
+        target_spell_ids = {
+            int(spell_id)
+            for spell_id in (spell_ids or ())
+            if int(spell_id) > 0
+        }
         stats = {
             'floors': 0,
             'spells': 0,
@@ -189,10 +209,14 @@ class Command(BaseCommand):
             'missing_local': 0,
         }
 
-        floors = MythicDungeonFloor.objects.filter(
-            dungeon__data_version=version,
-            is_active=True,
-        ).select_related('dungeon').order_by('dungeon__key', 'key')
+        floors = (
+            MythicDungeonFloor.objects.none()
+            if target_spell_ids
+            else MythicDungeonFloor.objects.filter(
+                dungeon__data_version=version,
+                is_active=True,
+            ).select_related('dungeon').order_by('dungeon__key', 'key')
+        )
         for floor in floors:
             current_url = str(floor.background_url or '').strip()
             if self._is_oss_url(current_url, oss_base_url) and not force:
@@ -225,7 +249,10 @@ class Command(BaseCommand):
         spells = MythicDungeonSpell.objects.filter(
             data_version=version,
             is_active=True,
-        ).order_by('spell_id')
+        )
+        if target_spell_ids:
+            spells = spells.filter(spell_id__in=target_spell_ids)
+        spells = spells.order_by('spell_id')
         for spell in spells:
             current_url = str(spell.icon_url or '').strip()
             if (spell.metadata or {}).get('asset_unavailable') and not force:
@@ -233,12 +260,7 @@ class Command(BaseCommand):
                 continue
             source_url = current_url
             if not source_url or self._is_oss_url(source_url, oss_base_url):
-                icon_name = str(spell.icon_name or '').strip().lower()
-                if icon_name:
-                    source_url = (
-                        'https://wow.zamimg.com/images/wow/icons/large/'
-                        f'{icon_name}.jpg'
-                    )
+                source_url = build_wowhead_icon_url(spell.icon_name)
             if not self._is_remote_url(source_url):
                 stats['empty'] += 1
                 continue
@@ -270,10 +292,14 @@ class Command(BaseCommand):
             })
             stats['spells'] += 1
 
-        enemies = MythicDungeonEnemy.objects.filter(
-            dungeon__data_version=version,
-            is_active=True,
-        ).select_related('dungeon').order_by('dungeon__key', 'key')
+        enemies = (
+            MythicDungeonEnemy.objects.none()
+            if target_spell_ids
+            else MythicDungeonEnemy.objects.filter(
+                dungeon__data_version=version,
+                is_active=True,
+            ).select_related('dungeon').order_by('dungeon__key', 'key')
+        )
         for enemy in enemies:
             source_url = str(enemy.icon_url or '').strip()
             if self._is_oss_url(source_url, oss_base_url) and not force:
@@ -314,7 +340,10 @@ class Command(BaseCommand):
         abilities = MythicDungeonAbility.objects.filter(
             enemy__dungeon__data_version=version,
             is_active=True,
-        ).exclude(icon_url='').select_related(
+        )
+        if target_spell_ids:
+            abilities = abilities.filter(spell_id__in=target_spell_ids)
+        abilities = abilities.exclude(icon_url='').select_related(
             'enemy__dungeon',
         ).order_by('enemy__dungeon__key', 'enemy__key', 'spell_id')
         for ability in abilities:
@@ -461,6 +490,8 @@ class Command(BaseCommand):
         for job, public_url in completed:
             for instance in job['instances']:
                 metadata = dict(instance.metadata or {})
+                metadata.pop('asset_unavailable', None)
+                metadata.pop('asset_unavailable_reason', None)
                 metadata.update({
                     'asset_source_url': job.get('source_url') or '',
                     'asset_oss_object_key': job['object_key'],

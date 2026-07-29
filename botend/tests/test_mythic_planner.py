@@ -28,6 +28,10 @@ from botend.models import (
     MythicPlannerConfig,
 )
 from botend.mythic_planner.importer import import_mythic_dungeon_payload
+from botend.mythic_planner.icon_assets import (
+    build_wowhead_icon_url,
+    normalize_wowhead_icon_slug,
+)
 from botend.mythic_planner.mdt_converter import (
     LuaParseError,
     LuaValueParser,
@@ -490,6 +494,33 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             ),
         )
 
+    def test_wowhead_icon_slug_normalizes_client_filename_spaces(self):
+        cases = {
+            'inv_10_specialreagentfoozles_tuskclaw black': (
+                'inv_10_specialreagentfoozles_tuskclaw-black'
+            ),
+            ' Spell_Frost_Ring Of Frost ': 'spell_frost_ring-of-frost',
+            'inv_ misc_herb_marrowroot_leaf': 'inv_-misc_herb_marrowroot_leaf',
+            'spell_priest_void blast': 'spell_priest_void-blast',
+            'spell_frost_piercing chill': 'spell_frost_piercing-chill',
+            'trade_archaeology_bones of transformation': (
+                'trade_archaeology_bones-of-transformation'
+            ),
+        }
+        for source, expected in cases.items():
+            with self.subTest(source=source):
+                self.assertEqual(
+                    normalize_wowhead_icon_slug(source),
+                    expected,
+                )
+                self.assertEqual(
+                    build_wowhead_icon_url(source),
+                    (
+                        'https://wow.zamimg.com/images/wow/icons/large/'
+                        f'{expected}.jpg'
+                    ),
+                )
+
     def test_asset_sync_keeps_host_for_non_wowhead_remote_path(self):
         object_key = SyncMythicDungeonAssetsCommand._remote_object_key(
             'mythic-planner',
@@ -766,6 +797,65 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
                 'http://oss.example/mythic-planner/sources/icon.jpg',
             )
         )
+
+
+class MythicPlannerAssetPersistenceTests(TestCase):
+    def test_recovered_icon_uses_normalized_slug_and_clears_failure_marker(self):
+        version = MythicDungeonDataVersion.objects.create(
+            key='asset-icon-test',
+            label='图标恢复测试',
+            is_active=True,
+        )
+        spell = MythicDungeonSpell.objects.create(
+            data_version=version,
+            spell_id=1235656,
+            icon_file_data_id=464484,
+            icon_name='spell_frost_ring of frost',
+            metadata={
+                'asset_unavailable': True,
+                'asset_unavailable_reason': 'HTTP 404',
+            },
+        )
+        MythicDungeonSpell.objects.create(
+            data_version=version,
+            spell_id=1237330,
+            icon_file_data_id=3480676,
+            icon_name='inv_ misc_herb_marrowroot_leaf',
+        )
+        command = SyncMythicDungeonAssetsCommand()
+        jobs, stats = command._build_jobs(
+            version=version,
+            base_prefix='mythic-planner',
+            version_prefix='mythic-planner/versions/asset-icon-test',
+            oss_base_url='https://oss.example/',
+            force=True,
+            spell_ids={1235656},
+        )
+
+        self.assertEqual(stats['spells'], 1)
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(
+            jobs[0]['source_url'],
+            (
+                'https://wow.zamimg.com/images/wow/icons/large/'
+                'spell_frost_ring-of-frost.jpg'
+            ),
+        )
+        SyncMythicDungeonAssetsCommand._write_results(
+            version,
+            [(jobs[0], 'https://oss.example/wowhead/icons/frozen-tempest.jpg')],
+            [],
+            'mythic-planner/versions/asset-icon-test',
+            'https://oss.example/',
+        )
+
+        spell.refresh_from_db()
+        self.assertEqual(
+            spell.icon_url,
+            'https://oss.example/wowhead/icons/frozen-tempest.jpg',
+        )
+        self.assertNotIn('asset_unavailable', spell.metadata)
+        self.assertNotIn('asset_unavailable_reason', spell.metadata)
 
 
 class MythicPlannerPublicApiTests(TestCase):
