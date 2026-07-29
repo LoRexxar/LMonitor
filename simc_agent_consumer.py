@@ -37,7 +37,9 @@ VERSION = '1.3.3'
 PROTOCOL_VERSION = 1
 MAX_REPORT_BYTES = 20 * 1024 * 1024
 COMPLETION_TEXT_MAX_BYTES = 256 * 1024
-COMPLETION_ATTEMPTS = 3
+COMPLETION_ATTEMPTS = 8
+COMPLETION_RETRY_DELAY_SECONDS = 0.25
+COMPLETION_RETRY_MAX_DELAY_SECONDS = 2.0
 TRUSTED_REPOSITORY_URLS = {
     'git@github.com:LoRexxar/LMonitor.git',
     'https://github.com/LoRexxar/LMonitor.git',
@@ -746,7 +748,10 @@ class SimcAgentConsumer:
                     return False
                 if attempt + 1 == COMPLETION_ATTEMPTS:
                     return False
-                self.stop_event.wait(0.25 * (2 ** attempt))
+                self.stop_event.wait(min(
+                    COMPLETION_RETRY_MAX_DELAY_SECONDS,
+                    COMPLETION_RETRY_DELAY_SECONDS * (2 ** attempt),
+                ))
         return False
 
     def _upload_report(self, run_id: int, lease_token: str,
@@ -784,7 +789,10 @@ class SimcAgentConsumer:
                 if isinstance(exc, APIError) and exc.status in (403, 404):
                     break
                 if attempt + 1 < COMPLETION_ATTEMPTS:
-                    self.stop_event.wait(0.25 * (2 ** attempt))
+                    self.stop_event.wait(min(
+                        COMPLETION_RETRY_MAX_DELAY_SECONDS,
+                        COMPLETION_RETRY_DELAY_SECONDS * (2 ** attempt),
+                    ))
         # A PUT response can be lost after OSS persisted the object. Returning the
         # descriptor lets completion's authoritative HEAD check resolve that case.
         if descriptor is not None:
