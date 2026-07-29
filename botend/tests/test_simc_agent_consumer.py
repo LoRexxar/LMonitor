@@ -68,6 +68,15 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertEqual(config.enrollment_token, 'enroll-secret')
             self.assertEqual(config.backend_identifier, '')
 
+    def test_agent_runtime_state_paths_are_ignored_when_config_lives_in_checkout(self):
+        repository_ignore = (Path(__file__).resolve().parents[2] / '.gitignore').read_text(encoding='utf-8')
+
+        for pattern in (
+            '/agent.json', '/agent.token', '/simc-agent.log', '/completion-outbox/',
+            '/simc-source/', '*.lmonitor-build.json',
+        ):
+            self.assertIn(pattern, repository_ignore)
+
     def test_minimal_config_derives_a_nonblank_bounded_agent_name(self):
         from simc_agent_consumer import AgentConfig
 
@@ -188,7 +197,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
                     stdout = 'midnight\n'
                 elif command[-2:] == ['rev-parse', 'HEAD']:
                     stdout = ('a' * 40) + '\n' if not any(
-                        call.args[0][-4:-1] == ['pull', '--ff-only', 'origin']
+                        call.args[0][-3:] == ['reset', '--hard', 'origin/midnight']
                         for call in run_command.call_args_list
                     ) else ('b' * 40) + '\n'
                 elif command[-2:] == ['rev-parse', 'origin/midnight']:
@@ -212,7 +221,9 @@ class SimcAgentConsumerTests(SimpleTestCase):
             )
             self.assertTrue(os.access(values['simc_path'], os.X_OK))
             commands = [call.args[0] for call in run_command.call_args_list]
-            self.assertIn(['git', '-C', str(source), 'pull', '--ff-only', 'origin', 'midnight'], commands)
+            self.assertIn(['git', '-C', str(source), 'fetch', '--prune', 'origin', 'midnight'], commands)
+            self.assertIn(['git', '-C', str(source), 'reset', '--hard', 'origin/midnight'], commands)
+            self.assertIn(['git', '-C', str(source), 'clean', '-fd'], commands)
             self.assertTrue(any(command[:2] == ['cmake', '--build'] for command in commands))
             self.assertTrue(any(command[0].endswith('/simc') and len(command) == 1 for command in commands))
             self.assertFalse(any('--version' in command for command in commands))
@@ -236,7 +247,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
                     stdout = 'midnight\n'
                 elif command[-2:] == ['rev-parse', 'HEAD']:
                     stdout = ('a' * 40) + '\n' if not any(
-                        call.args[0][-4:-1] == ['pull', '--ff-only', 'origin']
+                        call.args[0][-3:] == ['reset', '--hard', 'origin/midnight']
                         for call in run_command.call_args_list
                     ) else ('b' * 40) + '\n'
                 elif command[-2:] == ['rev-parse', 'origin/midnight']:
@@ -481,8 +492,10 @@ class SimcAgentConsumerTests(SimpleTestCase):
                     consumer.run(once=True)
 
             commands = [call.args[0] for call in run_git.call_args_list]
-            self.assertIn(['git', '-C', root, 'status', '--porcelain', '--untracked-files=all'], commands)
-            self.assertIn(['git', '-C', root, 'pull', '--ff-only', 'origin', 'master'], commands)
+            self.assertIn(['git', '-C', root, 'fetch', '--prune', 'origin', 'master'], commands)
+            self.assertIn(['git', '-C', root, 'reset', '--hard', 'origin/master'], commands)
+            self.assertIn(['git', '-C', root, 'clean', '-fd'], commands)
+            self.assertNotIn(['git', '-C', root, 'pull', '--ff-only', 'origin', 'master'], commands)
             execv.assert_called_once()
 
     def test_legacy_simc_revision_error_does_not_drive_agent_maintenance(self):
@@ -512,25 +525,32 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertEqual(maintain.call_count, 1)
             maintain.assert_any_call()
 
-    def test_self_update_refuses_dirty_tracked_checkout(self):
+    def test_self_update_still_refuses_an_untrusted_repository_before_forcing_reset(self):
         from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
 
         with tempfile.TemporaryDirectory() as root:
             values = self.config(root)
             values['repository_path'] = root
-            self.write_token(values, 'token-id.' + ('d' * 43))
             (Path(root) / '.git').mkdir()
             (Path(root) / 'simc_agent_consumer.py').write_text(
                 "VERSION = '1.0.0'\n", encoding='utf-8',
             )
             consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=MagicMock())
-            dirty = MagicMock(returncode=0, stdout=' M simc_agent_consumer.py\n', stderr='')
+
+            def git_result(command, **_kwargs):
+                stdout = 'https://example.invalid/untrusted.git\n' if command[-3:] == [
+                    'config', '--get', 'remote.origin.url',
+                ] else ''
+                return MagicMock(returncode=0, stdout=stdout, stderr='')
 
             with patch('simc_agent_consumer.__file__', str(Path(root) / 'simc_agent_consumer.py')), patch(
-                'simc_agent_consumer.subprocess.run', return_value=dirty,
-            ):
-                with self.assertRaisesRegex(APIError, 'local changes'):
+                'simc_agent_consumer.subprocess.run', side_effect=git_result,
+            ) as run_git:
+                with self.assertRaisesRegex(APIError, 'origin is not the trusted repository'):
                     consumer._self_update('1.1.0')
+
+            commands = [call.args[0] for call in run_git.call_args_list]
+            self.assertFalse(any(command[-2:] == ['reset', '--hard'] for command in commands))
 
     def test_existing_token_with_group_or_other_permissions_is_rejected(self):
         from simc_agent_consumer import AgentConfig, ConfigError, SimcAgentConsumer

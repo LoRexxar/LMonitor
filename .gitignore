@@ -132,3 +132,13 @@ staticfiles/
 
 # 聚合数据（由 aggregate_spec_stats 生成）
 media/aggregated/
+
+# Standalone SimC Agent runtime state when installed from this checkout.
+# These contain enrollment credentials, durable completion payloads, logs,
+# managed SimulationCraft sources, and generated binary revision markers.
+/agent.json
+/agent.token
+/simc-agent.log
+/completion-outbox/
+/simc-source/
+*.lmonitor-build.json

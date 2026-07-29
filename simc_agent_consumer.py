@@ -507,9 +507,6 @@ class SimcAgentConsumer:
         def git(*arguments: str, timeout: float = 60) -> subprocess.CompletedProcess[str]:
             return self._command(['git', '-C', str(source), *arguments], timeout=timeout)
 
-        if (required_revision is None
-                and git('status', '--porcelain').stdout.strip()):
-            raise APIError('SimC automatic update refused because the source working tree is not clean')
         remote = git('config', '--get', 'remote.origin.url').stdout.strip()
         if remote not in TRUSTED_SIMC_REPOSITORY_URLS:
             raise APIError('SimC automatic update refused because origin is not trusted')
@@ -542,14 +539,10 @@ class SimcAgentConsumer:
             self.logger.info('SimC is current at %s', target_revision)
             return False
         if local_revision != target_revision or required_revision is not None:
-            self.logger.info('updating SimC source %s -> %s', local_revision, target_revision)
-            if required_revision is None:
-                git('pull', '--ff-only', 'origin', SIMC_UPDATE_BRANCH, timeout=300)
-            else:
-                # The control plane freezes Tasks against an exact SimC commit. A
-                # clean managed checkout may therefore need to move forward or
-                # backward within the trusted branch instead of following HEAD.
-                git('reset', '--hard', target_revision, timeout=300)
+            self.logger.info('forcing SimC source %s -> %s', local_revision, target_revision)
+            git('reset', '--hard', target_revision if required_revision is not None else f'origin/{SIMC_UPDATE_BRANCH}',
+                timeout=300)
+            git('clean', '-fd', timeout=300)
         revision = git('rev-parse', 'HEAD').stdout.strip().lower()
         if revision != target_revision:
             raise APIError('SimC source update did not reach the required revision')
@@ -685,17 +678,16 @@ class SimcAgentConsumer:
                 raise APIError(f'automatic Agent update failed: {detail or "git exited unsuccessfully"}')
             return result
 
-        status = git('status', '--porcelain', '--untracked-files=all', timeout=30)
-        if status.stdout.strip():
-            raise APIError('automatic Agent update refused because the Git checkout has local changes')
         remote_url = git('config', '--get', 'remote.origin.url', timeout=30).stdout.strip()
         if remote_url not in TRUSTED_REPOSITORY_URLS:
             raise APIError('automatic Agent update refused because origin is not the trusted repository')
         branch = git('branch', '--show-current', timeout=30).stdout.strip()
         if branch != UPDATE_BRANCH:
             raise APIError(f'automatic Agent update requires the {UPDATE_BRANCH} branch')
-        self.logger.info('updating Agent checkout to %s', required_revision or required_version)
-        git('pull', '--ff-only', 'origin', UPDATE_BRANCH, timeout=120)
+        self.logger.info('forcing Agent checkout to %s', required_revision or required_version)
+        git('fetch', '--prune', 'origin', UPDATE_BRANCH, timeout=120)
+        git('reset', '--hard', f'origin/{UPDATE_BRANCH}', timeout=120)
+        git('clean', '-fd', timeout=120)
         try:
             source = target.read_text(encoding='utf-8')
         except (OSError, UnicodeError) as exc:
