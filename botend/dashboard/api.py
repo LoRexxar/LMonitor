@@ -2552,7 +2552,10 @@ class SimcPlayerConfigDetailAPIView(View):
             'version': profile.version,
             'is_active': profile.is_active,
             'is_system': profile.user_id is None and profile.source == SimcProfile.SOURCE_SIMC_UPSTREAM,
-            'can_edit': profile.user_id == request.user.id and profile.is_active,
+            'can_edit': (
+                _is_simc_admin(request.user)
+                or (profile.user_id == request.user.id and profile.is_active)
+            ),
             'raw_player_equipment': profile.player_equipment or '',
         }
         return JsonResponse({'success': True, 'data': detail})
@@ -3365,7 +3368,7 @@ class SimcProfileAPIView(View):
                         'gear_versatility': profile.gear_versatility,
                         'is_active': profile.is_active,
                         'is_system': is_system,
-                        'can_edit': not is_system,
+                        'can_edit': _is_simc_admin(request.user) or not is_system,
                         'can_delete': not is_system,
                         'source': profile.source,
                         'sync_version': getattr(profile, 'sync_version', '') or '',
@@ -3800,11 +3803,10 @@ class SimcProfileAPIView(View):
                 })
             
             # 获取配置记录
-            profile = SimcProfile.objects.get(
-                id=profile_id,
-                user_id=request.user.id,
-                is_active=True
-            )
+            profile_query = models.Q(id=profile_id)
+            if not _is_simc_admin(request.user):
+                profile_query &= models.Q(user_id=request.user.id, is_active=True)
+            profile = SimcProfile.objects.get(profile_query)
 
             # Detail view uses a narrow equipment editor: only item IDs and item
             # levels are client supplied; the rest of the exported player block

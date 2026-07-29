@@ -331,9 +331,11 @@ class SimcProfileResourceListTests(TestCase):
         self.assertIn(inactive_system.id, rows)
         self.assertIn(other.id, rows)
         self.assertFalse(rows[inactive_system.id]['is_active'])
+        self.assertTrue(rows[inactive_system.id]['can_edit'])
+        self.assertFalse(rows[inactive_system.id]['can_delete'])
         self.assertTrue(rows[other.id]['is_active'])
 
-    def test_system_profile_is_list_only_and_cannot_be_read_or_mutated_as_owned(self):
+    def test_regular_user_cannot_mutate_upstream_profile(self):
         system = SimcProfile.objects.create(
             user_id=None, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
             system_key='simc_upstream:mage_frost', class_name='mage',
@@ -341,7 +343,6 @@ class SimcProfileResourceListTests(TestCase):
             player_config_mode='manual_equipment', player_equipment='mage="Default"',
         )
 
-        detail = self.client.get(f'/api/simc-profile/{system.id}/')
         update = self.client.put(
             '/api/simc-profile/',
             data=json.dumps({'id': system.id, 'name': '被篡改'}),
@@ -353,12 +354,42 @@ class SimcProfileResourceListTests(TestCase):
             content_type='application/json',
         )
 
-        self.assertFalse(detail.json()['success'])
         self.assertFalse(update.json()['success'])
         self.assertFalse(delete.json()['success'])
         system.refresh_from_db()
         self.assertEqual(system.name, 'MID1 Frost player')
         self.assertTrue(system.is_active)
+
+    def test_admin_can_edit_inactive_upstream_profile_equipment(self):
+        admin = User.objects.create_user(
+            username='profile_default_editor', password='pwd', is_superuser=True,
+        )
+        self.client.force_login(admin)
+        system = SimcProfile.objects.create(
+            user_id=None, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:mage_frost', class_name='mage',
+            name='12.1 Frost player', spec='mage_frost', version='12.1', is_active=False,
+            player_config_mode='manual_equipment',
+            player_equipment='mage="Default"\\nspec=frost\\nhead=,id=100,ilevel=276\\n',
+        )
+
+        detail = self.client.get(f'/api/simc-player-config-detail/?profile_id={system.id}')
+        update = self.client.put(
+            '/api/simc-profile/',
+            data=json.dumps({'id': system.id, 'equipment': [
+                {'slot': 'head', 'item_id': 999, 'item_level': 300},
+            ]}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(detail.status_code, 200)
+        self.assertTrue(detail.json()['data']['profile']['can_edit'])
+        self.assertEqual(update.status_code, 200)
+        self.assertTrue(update.json()['success'], update.content)
+        system.refresh_from_db()
+        self.assertIn('head=,id=999,ilevel=300', system.player_equipment)
+        self.assertEqual(system.source, SimcProfile.SOURCE_SIMC_UPSTREAM)
+        self.assertFalse(system.is_active)
 
     def test_owner_can_update_equipment_ids_and_levels_without_replacing_other_profile_lines(self):
         profile = SimcProfile.objects.create(
@@ -382,13 +413,14 @@ class SimcProfileResourceListTests(TestCase):
         self.assertIn('head=,id=999,ilevel=300', profile.player_equipment)
         self.assertIn('chest=,id=888,ilevel=285', profile.player_equipment)
 
-    def test_workbench_marks_system_profiles_read_only_and_shows_sync_metadata(self):
+    def test_workbench_uses_api_edit_permission_and_shows_sync_metadata(self):
         source = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text()
 
         self.assertIn('row.is_system', source)
         self.assertIn('row.can_edit', source)
         self.assertIn('row.can_delete', source)
         self.assertIn('系统默认配置', source)
+        self.assertNotIn('系统只读', source)
         self.assertIn('版本 ${row.version}', source)
         self.assertIn('row.sync_version', source)
         self.assertIn('row.equipment_line_count', source)
