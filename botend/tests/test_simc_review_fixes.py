@@ -198,3 +198,17 @@ class SimcReviewFixTests(TestCase):
         self.assertEqual(response.status_code, 500)
         self.assertEqual(payload["error"], "获取 SimC 后端状态失败，请稍后重试")
         self.assertNotIn(secret, json.dumps(payload, ensure_ascii=False))
+
+    def test_backend_source_versions_use_full_sha_and_do_not_report_false_update(self):
+        view = SimcBackendBinaryAPIView()
+        full_head = 'a' * 40
+        full_upstream = 'a' * 40
+        with tempfile.TemporaryDirectory() as source_dir, patch('botend.dashboard.api.subprocess.run') as run:
+            run.side_effect = [
+                type('Result', (), {'returncode': 0, 'stdout': full_head + '\n'})(),
+                type('Result', (), {'returncode': 0, 'stdout': full_upstream + '\n'})(),
+            ]
+            current, latest = view._get_source_versions(source_dir)
+        self.assertEqual(current, full_head)
+        self.assertEqual(latest, full_upstream)
+        self.assertEqual(len(current), 40)

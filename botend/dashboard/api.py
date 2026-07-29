@@ -6554,21 +6554,26 @@ class SimcBackendBinaryAPIView(View):
         return default
 
     def _get_source_versions(self, source_dir):
-        """Read the checked-out and tracked-upstream commits without modifying the source checkout."""
-        def git_short(ref):
+        """Read canonical full SHA values for checkout and origin/midnight.
+
+        BackendBinary versions are persisted as full git SHAs. Returning a
+        short SHA here makes an up-to-date backend look stale forever.
+        """
+        def git_full(ref):
             result = subprocess.run(
-                ['git', 'rev-parse', '--short', ref],
+                ['git', 'rev-parse', ref],
                 cwd=source_dir,
                 capture_output=True,
                 text=True,
                 timeout=10,
             )
-            return result.stdout.strip() if result.returncode == 0 else ''
+            value = result.stdout.strip().lower() if result.returncode == 0 else ''
+            return value if re.fullmatch(r'[0-9a-f]{40}', value) else ''
 
         try:
             if not os.path.isdir(source_dir):
                 return '', ''
-            return git_short('HEAD'), git_short('@{u}')
+            return git_full('HEAD'), git_full('refs/remotes/origin/midnight')
         except Exception:
             return '', ''
 
