@@ -605,6 +605,21 @@ class SimcAplEditorApiTests(TestCase):
         WowSpellSnapshot.objects.create(locale="enUS", spell_id=23881, name="Bloodthirst", snapshot_build="11.2.0")
         WowSpellSnapshot.objects.create(locale="zhCN", spell_id=23881, name_zh="嗜血", description="中文说明", snapshot_build="11.2.0")
 
+    def test_catalog_identity_ignores_empty_placeholder_backend_version(self):
+        """A seeded backend row must not shadow the actual catalog runtime."""
+        self._catalog()
+
+        SimcBackendBinary.objects.create(
+            identifier='empty-placeholder', name='Empty placeholder',
+            platform='linux64', current_version='',
+        )
+        response = self.client.get(
+            '/api/simc-workbench/apl-symbols/?spec=warrior_fury&page_size=1',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['data']['items'][0]['simc_revision'], self.REVISION)
+
     def test_symbols_filter_search_all_public_fields_and_paginate(self):
         self._catalog()
         first = self.client.get("/api/simc-workbench/apl-symbols/?spec=warrior_fury&kind=action&page=1&page_size=1")

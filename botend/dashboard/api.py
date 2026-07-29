@@ -497,9 +497,19 @@ def _latest_catalog_identity():
             return revision, build
         return None
     platform = 'linuxarm64' if 'aarch64' in py_platform.machine().lower() else 'linux64'
-    current = SimcBackendBinary.objects.filter(platform=platform).values_list('current_version', flat=True).first()
-    if not current:
+    # A seeded/placeholder backend has an empty version and is not a catalog
+    # identity.  There can be more than one backend per platform, so selecting
+    # the first row would hide a valid running backend behind that placeholder.
+    versions = list(SimcBackendBinary.objects.filter(
+        platform=platform,
+    ).exclude(current_version='').values_list('current_version', flat=True))
+    # Several backend rows may report the same runtime revision.  This is one
+    # catalog identity, not an ambiguity.  Distinct revisions do remain
+    # fail-closed because choosing one could expose the wrong symbol catalog.
+    versions = sorted(set(versions))
+    if len(versions) != 1:
         return None
+    current = versions[0]
 
     revision = current if re.fullmatch(r'[0-9a-f]{40}', current) else None
     catalog = SimcAplSymbol.objects.filter(is_active=True)
