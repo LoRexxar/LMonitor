@@ -6,6 +6,8 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from botend.models import (
+    MythicDungeonEnemy,
+    MythicDungeonFloor,
     MythicDungeonDataVersion,
     MythicDungeonSpell,
     WowSpellSnapshot,
@@ -116,6 +118,35 @@ class Command(BaseCommand):
                 if existing_version and isinstance(existing_version.metadata, dict)
                 else {}
             )
+            floor_background_urls = {}
+            enemy_icon_urls = {}
+            if existing_version:
+                floor_background_urls = {
+                    (str(row['dungeon__key']), str(row['key'])): str(
+                        row['background_url'] or ''
+                    )
+                    for row in MythicDungeonFloor.objects.filter(
+                        dungeon__data_version=existing_version,
+                        is_active=True,
+                    ).exclude(background_url='').values(
+                        'dungeon__key',
+                        'key',
+                        'background_url',
+                    )
+                }
+                enemy_icon_urls = {
+                    (str(row['dungeon__key']), str(row['key'])): str(
+                        row['icon_url'] or ''
+                    )
+                    for row in MythicDungeonEnemy.objects.filter(
+                        dungeon__data_version=existing_version,
+                        is_active=True,
+                    ).exclude(icon_url='').values(
+                        'dungeon__key',
+                        'key',
+                        'icon_url',
+                    )
+                }
             snapshot_metadata = (
                 existing_metadata.get('spell_snapshot')
                 if isinstance(existing_metadata.get('spell_snapshot'), dict)
@@ -169,6 +200,7 @@ class Command(BaseCommand):
                     'name',
                     'name_zh',
                     'description_zh',
+                    'icon_url',
                 ):
                     spell_id = int(row['spell_id'])
                     current = dict(snapshots.get(spell_id) or {})
@@ -185,19 +217,29 @@ class Command(BaseCommand):
                             or current.get('description')
                             or ''
                         ),
+                        'icon_url': str(
+                            row.get('icon_url')
+                            or current.get('icon_url')
+                            or ''
+                        ),
                     }
                     if any(
                         preferred[field]
-                        for field in ('name', 'name_zh', 'description')
+                        for field in ('name', 'name_zh', 'description', 'icon_url')
                     ):
                         snapshots[spell_id] = preferred
                         version_spell_hits += 1
-            if snapshots:
+            if snapshots or floor_background_urls or enemy_icon_urls:
                 payload = build_payload(
                     source_dir,
                     version_key=str(options['version_key'] or '').strip() or None,
                     spell_snapshots=snapshots,
+                    floor_background_urls=floor_background_urls,
+                    enemy_icon_urls=enemy_icon_urls,
                 )
+            payload_metadata = dict(existing_metadata)
+            payload_metadata.update(payload['data_version'].get('metadata') or {})
+            payload['data_version']['metadata'] = payload_metadata
             write_payload(payload, output_path)
 
             map_manifest = []

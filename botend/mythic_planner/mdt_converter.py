@@ -376,8 +376,9 @@ def _spell_names(spell_id, snapshots):
             str(snapshot.get('name') or f'Spell #{spell_id}'),
             str(snapshot.get('name_zh') or f'技能 #{spell_id}'),
             str(snapshot.get('description') or ''),
+            str(snapshot.get('icon_url') or ''),
         )
-    return f'Spell #{spell_id}', f'技能 #{spell_id}', ''
+    return f'Spell #{spell_id}', f'技能 #{spell_id}', '', ''
 
 
 def _convert_pois(source_table, locale_zh):
@@ -511,8 +512,10 @@ def _load_ability_overrides(source_root):
 def _convert_enemies(
     source_table,
     locale_zh,
+    dungeon_key,
     spell_snapshots=None,
     ability_overrides=None,
+    enemy_icon_urls=None,
 ):
     enemies = []
     used_keys = set()
@@ -553,7 +556,10 @@ def _convert_enemies(
         ):
             spell_id = int(spell_id)
             flags = flags if isinstance(flags, dict) else {}
-            name, name_zh, description_zh = _spell_names(spell_id, spell_snapshots)
+            name, name_zh, description_zh, icon_url = _spell_names(
+                spell_id,
+                spell_snapshots,
+            )
             dispel_types = [label for flag, label in DISPEL_FLAGS if flags.get(flag)]
             interruptible = bool(flags.get('interruptible'))
             if interruptible:
@@ -566,6 +572,7 @@ def _convert_enemies(
                 'name': name,
                 'name_zh': name_zh,
                 'description_zh': description_zh,
+                'icon_url': icon_url,
                 'interruptible': interruptible,
                 'dispel_type': '、'.join(dispel_types),
                 'danger_level': danger_level,
@@ -629,6 +636,9 @@ def _convert_enemies(
             'base_health': int(source_enemy.get('health') or 0),
             'level': max(0, int(source_enemy.get('level') or 0)),
             'creature_type': str(source_enemy.get('creatureType') or ''),
+            'icon_url': str(
+                (enemy_icon_urls or {}).get((dungeon_key, key)) or ''
+            ),
             'marker_color': MARKER_COLORS[(source_index - 1) % len(MARKER_COLORS)],
             'is_boss': bool(source_enemy.get('isBoss')),
             'traits': traits,
@@ -704,7 +714,14 @@ def _load_selection_groups(source_root, locale_zh):
     return groups
 
 
-def build_payload(source_root, *, version_key=None, spell_snapshots=None):
+def build_payload(
+    source_root,
+    *,
+    version_key=None,
+    spell_snapshots=None,
+    floor_background_urls=None,
+    enemy_icon_urls=None,
+):
     source_root = Path(source_root).resolve()
     midnight_path = source_root / 'Midnight'
     locale_en = _load_locale(source_root / 'Locales' / 'enUS.lua')
@@ -768,16 +785,18 @@ def build_payload(source_root, *, version_key=None, spell_snapshots=None):
             ),
             key=lambda item: item[0],
         ):
+            floor_key = f'floor-{floor_index}'
             name = _resolve_locale(source_floor_name, locale_en, fallback=f'Floor {floor_index}')
             name_zh = _resolve_locale(source_floor_name, locale_zh, fallback='')
             floor_pois = map_pois.get(floor_index, {})
             floors.append({
-                'key': f'floor-{floor_index}',
+                'key': floor_key,
                 'floor_index': floor_index,
                 'name': name,
                 'name_zh': name_zh,
                 'background_url': (
-                    f'{MAP_STATIC_PREFIX}/{dungeon_key}/floor-{floor_index}.webp'
+                    (floor_background_urls or {}).get((dungeon_key, floor_key))
+                    or f'{MAP_STATIC_PREFIX}/{dungeon_key}/{floor_key}.webp'
                 ),
                 'background_color': '#171512',
                 'map_width': 1200,
@@ -821,8 +840,10 @@ def build_payload(source_root, *, version_key=None, spell_snapshots=None):
             'enemies': _convert_enemies(
                 source_enemies,
                 locale_zh,
+                dungeon_key,
                 spell_snapshots=effective_spell_snapshots,
                 ability_overrides=ability_overrides.get(dungeon_key),
+                enemy_icon_urls=enemy_icon_urls,
             ),
         })
 

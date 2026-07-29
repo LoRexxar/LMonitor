@@ -817,13 +817,28 @@
                 `法术 ${ability.spell_id}`,
             ].filter(Boolean);
             const icon = ability.icon_url
-                ? `<img class="mdt-ability-icon" src="${escapeHtml(ability.icon_url)}" alt="" loading="lazy" onerror="this.hidden=true">`
-                : '<span class="mdt-ability-icon is-empty">?</span>';
+                ? `
+                    <span class="mdt-ability-icon-frame">
+                        <span class="mdt-ability-icon-fallback" aria-hidden="true">?</span>
+                        <img
+                            class="mdt-ability-icon"
+                            src="${escapeHtml(ability.icon_url)}"
+                            alt=""
+                            loading="lazy"
+                            onerror="this.parentElement.classList.add('is-error');this.remove()"
+                        >
+                    </span>
+                `
+                : `
+                    <span class="mdt-ability-icon-frame is-error">
+                        <span class="mdt-ability-icon-fallback" aria-hidden="true">?</span>
+                    </span>
+                `;
             return `
                 <div class="mdt-ability">
                     <span class="mdt-danger-${clamp(Number(ability.danger_level || 1), 1, 3)}"></span>
                     ${icon}
-                    <div>
+                    <div class="mdt-ability-copy">
                         <strong>${escapeHtml(ability.display_name)}</strong>
                         <p>${escapeHtml(description)}</p>
                         <div class="mdt-ability-tags">${tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join('')}</div>
@@ -832,11 +847,29 @@
             `;
         }).join('');
         const health = scaledHealth(enemy.base_health, state.route.dungeon_level);
+        const portraitInitial = escapeHtml(initials(enemy.display_name));
+        const portrait = enemy.icon_url
+            ? `
+                <div class="mdt-enemy-portrait">
+                    <span class="mdt-enemy-portrait-fallback" aria-hidden="true">${portraitInitial}</span>
+                    <img
+                        src="${escapeHtml(enemy.icon_url)}"
+                        alt=""
+                        loading="lazy"
+                        onerror="this.parentElement.classList.add('is-error');this.remove()"
+                    >
+                </div>
+            `
+            : `
+                <div class="mdt-enemy-portrait is-error" aria-hidden="true">
+                    <span class="mdt-enemy-portrait-fallback">${portraitInitial}</span>
+                </div>
+            `;
         els.enemyDetailTitle.textContent = enemy.display_name;
         els.enemyDetail.innerHTML = `
             <div class="mdt-enemy-detail-layout" style="--enemy-color:${escapeHtml(enemy.marker_color || '#94a3b8')}">
                 <section class="mdt-enemy-profile">
-                    <div class="mdt-enemy-portrait" aria-hidden="true">${escapeHtml(initials(enemy.display_name))}</div>
+                    ${portrait}
                     <div class="mdt-enemy-profile-copy">
                         <h3>${escapeHtml(enemy.display_name)}</h3>
                         <p>${escapeHtml(enemy.creature_type || '未知类型')}</p>

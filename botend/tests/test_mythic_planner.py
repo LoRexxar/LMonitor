@@ -1,6 +1,7 @@
 import copy
 import json
 import re
+import tempfile
 from pathlib import Path
 from unittest import mock
 
@@ -41,6 +42,10 @@ from botend.mythic_planner.services import (
 )
 from botend.management.commands.sync_mythic_dungeon_spells import (
     Command as SyncMythicDungeonSpellsCommand,
+)
+from botend.management.commands.sync_mythic_dungeon_assets import (
+    AssetUnavailableError,
+    Command as SyncMythicDungeonAssetsCommand,
 )
 
 
@@ -364,8 +369,7 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
         )
         self.assertEqual(
             shadow_barrage['description_zh'],
-            '对一名敌人造成3495点暗影伤害。\n'
-            '每2秒对一名敌人造成2330点暗影伤害，持续8秒。',
+            '',
         )
         self.assertEqual(
             sum(
@@ -379,6 +383,184 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
     def test_lua_parser_does_not_execute_identifiers_or_function_calls(self):
         with self.assertRaises(LuaParseError):
             LuaValueParser('os.execute("not allowed")').parse()
+
+    def test_converter_preserves_oss_asset_snapshots(self):
+        payload = build_payload(
+            self.source_root(),
+            spell_snapshots={
+                272388: {
+                    'name': 'Shadow Barrage',
+                    'name_zh': '暗影弹幕',
+                    'description': 'PTR 技能说明',
+                    'icon_url': 'http://oss.example/spells/shadow-barrage.jpg',
+                },
+            },
+            floor_background_urls={
+                (
+                    'kings-rest',
+                    'floor-1',
+                ): 'http://oss.example/maps/kings-rest/floor-1.webp',
+            },
+            enemy_icon_urls={
+                (
+                    'kings-rest',
+                    'npc-135204',
+                ): 'http://oss.example/enemies/kings-rest/npc-135204.jpg',
+            },
+        )
+        kings_rest = next(
+            row for row in payload['dungeons'] if row['key'] == 'kings-rest'
+        )
+        self.assertEqual(
+            kings_rest['floors'][0]['background_url'],
+            'http://oss.example/maps/kings-rest/floor-1.webp',
+        )
+        shadow_barrage = next(
+            ability
+            for enemy in kings_rest['enemies']
+            for ability in enemy['abilities']
+            if ability['spell_id'] == 272388
+        )
+        self.assertEqual(
+            shadow_barrage['icon_url'],
+            'http://oss.example/spells/shadow-barrage.jpg',
+        )
+        phantom_hex_priest = next(
+            enemy for enemy in kings_rest['enemies'] if enemy['npc_id'] == 135204
+        )
+        self.assertEqual(
+            phantom_hex_priest['icon_url'],
+            'http://oss.example/enemies/kings-rest/npc-135204.jpg',
+        )
+
+    def test_asset_sync_deduplicates_shared_spell_icon_uploads(self):
+        first = object()
+        second = object()
+        jobs = SyncMythicDungeonAssetsCommand._deduplicate_jobs([
+            {
+                'kind': 'spell',
+                'instance': first,
+                'source': 'https://example.com/icon.jpg',
+                'source_url': 'https://example.com/icon.jpg',
+                'object_key': 'mythic-planner/version/spells/icon.jpg',
+            },
+            {
+                'kind': 'spell',
+                'instance': second,
+                'source': 'https://example.com/icon.jpg',
+                'source_url': 'https://example.com/icon.jpg',
+                'object_key': 'mythic-planner/version/spells/icon.jpg',
+            },
+        ])
+
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0]['instances'], [first, second])
+
+    def test_asset_sync_only_recognizes_configured_oss_host(self):
+        base_url = 'http://oss.example/assets/'
+        self.assertTrue(
+            SyncMythicDungeonAssetsCommand._is_oss_url(
+                'https://oss.example/mythic-planner/map.webp',
+                base_url,
+            )
+        )
+        self.assertFalse(
+            SyncMythicDungeonAssetsCommand._is_oss_url(
+                'https://wow.zamimg.com/images/icon.jpg',
+                base_url,
+            )
+        )
+
+    def test_asset_sync_maps_remote_path_to_stable_oss_key(self):
+        object_key = SyncMythicDungeonAssetsCommand._remote_object_key(
+            'mythic-planner',
+            (
+                'https://wow.zamimg.com/images/wow/icons/large/'
+                'spell_shadow_shadowbolt.jpg?build=68914'
+            ),
+            fallback='spells/fallback.jpg',
+        )
+
+        self.assertEqual(
+            object_key,
+            (
+                'wowhead/images/wow/icons/large/'
+                'spell_shadow_shadowbolt.jpg'
+            ),
+        )
+
+    def test_asset_sync_keeps_host_for_non_wowhead_remote_path(self):
+        object_key = SyncMythicDungeonAssetsCommand._remote_object_key(
+            'mythic-planner',
+            'https://assets.example.com/images/icon.jpg?revision=2',
+            fallback='spells/fallback.jpg',
+        )
+
+        self.assertEqual(
+            object_key,
+            'mythic-planner/sources/assets.example.com/images/icon.jpg',
+        )
+
+    def test_asset_sync_distinguishes_legacy_and_current_oss_paths(self):
+        base_url = 'http://oss.example/'
+        object_key = 'wowhead/images/wow/icons/large/icon.jpg'
+
+        self.assertTrue(
+            SyncMythicDungeonAssetsCommand._is_oss_object_url(
+                'https://oss.example/wowhead/images/wow/icons/large/icon.jpg',
+                base_url,
+                object_key,
+            )
+        )
+        self.assertFalse(
+            SyncMythicDungeonAssetsCommand._is_oss_object_url(
+                (
+                    'https://oss.example/mythic-planner/sources/'
+                    'wow.zamimg.com/images/wow/icons/large/icon.jpg'
+                ),
+                base_url,
+                object_key,
+            )
+        )
+
+    @mock.patch(
+        'botend.management.commands.sync_mythic_dungeon_assets.requests.get',
+    )
+    def test_asset_sync_force_refreshes_download_cache(self, request_get):
+        response = mock.Mock()
+        response.headers = {'Content-Type': 'image/jpeg'}
+        response.content = b'new-image'
+        response.raise_for_status.return_value = None
+        request_get.return_value = response
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / 'icon.jpg'
+            target.write_bytes(b'old-image')
+            SyncMythicDungeonAssetsCommand._download_image(
+                'https://wow.zamimg.com/images/wow/icons/large/icon.jpg',
+                target,
+                refresh=True,
+            )
+
+            self.assertEqual(target.read_bytes(), b'new-image')
+            request_get.assert_called_once()
+
+    @mock.patch(
+        'botend.management.commands.sync_mythic_dungeon_assets.requests.get',
+    )
+    def test_asset_sync_treats_upstream_404_as_unavailable(self, request_get):
+        response = mock.Mock()
+        response.status_code = 404
+        request_get.return_value = response
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with self.assertRaises(AssetUnavailableError):
+                SyncMythicDungeonAssetsCommand._download_image(
+                    'https://wow.zamimg.com/missing.jpg',
+                    Path(temp_dir) / 'missing.jpg',
+                )
+
+        request_get.assert_called_once()
 
     def test_wowhead_tooltip_html_parser_returns_plain_chinese_description(self):
         tooltip = (
@@ -411,6 +593,48 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             [1236709],
         )
 
+    def test_wowhead_data_environment_tracks_the_requested_game_branch(self):
+        self.assertEqual(
+            SyncMythicDungeonSpellsCommand._resolve_wowhead_data_env('wow', 0),
+            1,
+        )
+        self.assertEqual(
+            SyncMythicDungeonSpellsCommand._resolve_wowhead_data_env('wowt', 0),
+            2,
+        )
+        self.assertEqual(
+            SyncMythicDungeonSpellsCommand._resolve_wowhead_data_env('wowxptr', 0),
+            10,
+        )
+        self.assertEqual(
+            SyncMythicDungeonSpellsCommand._resolve_wowhead_data_env('wowt', 3),
+            3,
+        )
+        with self.assertRaisesMessage(CommandError, '不支持的 Wowhead dataEnv'):
+            SyncMythicDungeonSpellsCommand._resolve_wowhead_data_env('wowt', 99)
+
+    @mock.patch(
+        'botend.management.commands.sync_mythic_dungeon_spells.requests.get',
+    )
+    def test_wowhead_tooltip_request_uses_ptr_data_environment(self, request_get):
+        response = mock.Mock()
+        response.status_code = 200
+        response.json.return_value = {
+            'tooltip': '<div class="q">造成123点暗影伤害。</div>',
+        }
+        request_get.return_value = response
+
+        description = SyncMythicDungeonSpellsCommand._fetch_wowhead_tooltip(
+            12345,
+            0,
+            4,
+            data_env=2,
+        )
+
+        self.assertEqual(description, '造成123点暗影伤害。')
+        self.assertEqual(request_get.call_args.kwargs['params']['dataEnv'], 2)
+        self.assertEqual(request_get.call_args.kwargs['params']['locale'], 4)
+
     def test_spell_sync_prefers_chinese_db2_text_over_english_tooltip(self):
         self.assertEqual(
             SyncMythicDungeonSpellsCommand._localized_description(
@@ -432,6 +656,30 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
                 '',
             ),
             'English fallback',
+        )
+
+    def test_empty_ptr_tooltip_is_cached_but_not_counted_as_usable(self):
+        self.assertFalse(
+            SyncMythicDungeonSpellsCommand._tooltip_needs_retry(''),
+        )
+        self.assertEqual(
+            SyncMythicDungeonSpellsCommand._usable_tooltip_count(
+                {270493, 272388},
+                {270493: '', 272388: ''},
+            ),
+            0,
+        )
+
+    def test_spell_sync_preserves_only_archived_icon_urls(self):
+        self.assertTrue(
+            SyncMythicDungeonSpellsCommand._is_wowhead_asset_url(
+                'https://wow.zamimg.com/images/wow/icons/large/icon.jpg',
+            )
+        )
+        self.assertFalse(
+            SyncMythicDungeonSpellsCommand._is_wowhead_asset_url(
+                'http://oss.example/mythic-planner/sources/icon.jpg',
+            )
         )
 
 

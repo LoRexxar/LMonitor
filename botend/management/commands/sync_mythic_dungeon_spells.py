@@ -10,6 +10,7 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import requests
 from django.conf import settings
@@ -37,6 +38,17 @@ ICON_PATH_RE = re.compile(
     re.IGNORECASE,
 )
 CJK_RE = re.compile(r'[\u3400-\u9fff]')
+WOWHEAD_DATA_ENV_BY_BRANCH = {
+    'wow': 1,
+    'wowt': 2,
+    'wowxptr': 10,
+}
+WOWHEAD_ENVIRONMENT_KEYS = {
+    1: 'live',
+    2: 'ptr',
+    3: 'beta',
+    10: 'ptr2',
+}
 TABLE_DOWNLOADS = (
     ('SpellName_enUS.csv', 'SpellName', 'enUS'),
     ('SpellName_zhCN.csv', 'SpellName', 'zhCN'),
@@ -86,6 +98,12 @@ class Command(BaseCommand):
             default=4,
             help='Wowhead 语言编号；简体中文为 4',
         )
+        parser.add_argument(
+            '--wowhead-data-env',
+            type=int,
+            default=0,
+            help='Wowhead 数据环境；0 表示按分支自动选择（wow=1、wowt=2、wowxptr=10）',
+        )
         parser.add_argument('--tooltip-workers', type=int, default=6, help='Wowhead tooltip 查询并发数')
         parser.add_argument('--tooltip-delay', type=float, default=0.05, help='每个 tooltip 查询前延迟秒数')
         parser.add_argument(
@@ -121,24 +139,45 @@ class Command(BaseCommand):
             dump_root = Path(settings.BASE_DIR) / dump_root
         dump_dir = dump_root / f'{branch}-{build}'
         dump_dir.mkdir(parents=True, exist_ok=True)
+        tooltip_data_env = self._resolve_wowhead_data_env(
+            branch,
+            int(options.get('wowhead_data_env') or 0),
+        )
 
         self.stdout.write(
             f'目标版本: {version.key}, branch={branch}, build={build}, '
             f'unique_spells={len(spell_ids)}'
         )
-        tooltip_cache_path = dump_dir / 'wowhead_tooltips_zhCN.csv'
+        tooltip_cache_path = (
+            dump_dir / f'wowhead_tooltips_dataenv{tooltip_data_env}_zhCN.csv'
+        )
         tooltip_locale = max(0, int(options.get('wowhead_locale') or 4))
         if options.get('tooltip_only'):
-            wowhead_tooltips = self._load_tooltip_cache(tooltip_cache_path)
+            wowhead_tooltips = (
+                {}
+                if options.get('refresh')
+                else self._load_tooltip_cache(tooltip_cache_path)
+            )
             wowhead_tooltips = self._resolve_wowhead_tooltips(
                 spell_ids,
                 wowhead_tooltips,
                 workers=max(1, int(options.get('tooltip_workers') or 1)),
                 delay=max(0.0, float(options.get('tooltip_delay') or 0.0)),
                 locale=tooltip_locale,
+                data_env=tooltip_data_env,
                 cache_path=tooltip_cache_path,
             )
             self._write_tooltip_cache(tooltip_cache_path, wowhead_tooltips)
+            usable_tooltips = self._usable_tooltip_count(
+                spell_ids,
+                wowhead_tooltips,
+            )
+            if not usable_tooltips:
+                raise CommandError(
+                    f'Wowhead {WOWHEAD_ENVIRONMENT_KEYS[tooltip_data_env]} '
+                    f'环境没有返回可用的简中技能说明；未写数据库。'
+                    '请执行完整 DB2 同步，以目标 build 的客户端数据为准。'
+                )
             if options.get('dry_run'):
                 self.stdout.write(self.style.SUCCESS('tooltip-only dry-run 完成，未写数据库'))
                 return
@@ -149,6 +188,7 @@ class Command(BaseCommand):
                 spell_ids=spell_ids,
                 wowhead_tooltips=wowhead_tooltips,
                 locale=tooltip_locale,
+                data_env=tooltip_data_env,
             )
             self.stdout.write(self.style.SUCCESS(
                 f"Tooltip 同步完成: fetched={written['fetched']}/{len(spell_ids)}, "
@@ -219,7 +259,11 @@ class Command(BaseCommand):
             )
             self._write_icon_cache(icon_cache_path, icon_names)
 
-        wowhead_tooltips = self._load_tooltip_cache(tooltip_cache_path)
+        wowhead_tooltips = (
+            {}
+            if options.get('refresh')
+            else self._load_tooltip_cache(tooltip_cache_path)
+        )
         if options.get('wowhead_tooltips'):
             wowhead_tooltips = self._resolve_wowhead_tooltips(
                 spell_ids,
@@ -227,6 +271,7 @@ class Command(BaseCommand):
                 workers=max(1, int(options.get('tooltip_workers') or 1)),
                 delay=max(0.0, float(options.get('tooltip_delay') or 0.0)),
                 locale=tooltip_locale,
+                data_env=tooltip_data_env,
                 cache_path=tooltip_cache_path,
             )
             self._write_tooltip_cache(tooltip_cache_path, wowhead_tooltips)
@@ -270,6 +315,7 @@ class Command(BaseCommand):
             coverage=coverage,
             listfile_url=listfile_url,
             wowhead_tooltips=wowhead_tooltips,
+            tooltip_data_env=tooltip_data_env,
         )
         self.stdout.write(self.style.SUCCESS(
             f"技能资料同步完成: spells={written['spells']}, "
@@ -288,6 +334,24 @@ class Command(BaseCommand):
         if not version:
             raise CommandError('找不到目标 MDT 数据版本')
         return version
+
+    @staticmethod
+    def _resolve_wowhead_data_env(branch, configured):
+        configured = int(configured or 0)
+        if configured:
+            if configured not in WOWHEAD_ENVIRONMENT_KEYS:
+                raise CommandError(
+                    f'不支持的 Wowhead dataEnv={configured}；'
+                    f'可选值为 {sorted(WOWHEAD_ENVIRONMENT_KEYS)}'
+                )
+            return configured
+        return WOWHEAD_DATA_ENV_BY_BRANCH.get(str(branch or '').strip(), 1)
+
+    @staticmethod
+    def _wowhead_spell_url(spell_id, data_env):
+        environment = WOWHEAD_ENVIRONMENT_KEYS.get(int(data_env or 1), 'live')
+        prefix = '' if environment == 'live' else f'/{environment}'
+        return f'https://www.wowhead.com{prefix}/spell={spell_id}'
 
     def _download_csv(self, session, *, table, locale, build, target, refresh):
         if target.is_file() and target.stat().st_size > 0 and not refresh:
@@ -548,12 +612,14 @@ class Command(BaseCommand):
         workers,
         delay,
         locale,
+        data_env,
         cache_path=None,
     ):
         missing = sorted(
             spell_id
             for spell_id in spell_ids
-            if self._tooltip_needs_retry(cache.get(spell_id))
+            if spell_id not in cache
+            or self._tooltip_needs_retry(cache.get(spell_id))
         )
         if not missing:
             found = sum(bool(cache.get(spell_id)) for spell_id in spell_ids)
@@ -571,6 +637,7 @@ class Command(BaseCommand):
                     spell_id,
                     delay,
                     locale,
+                    data_env=data_env,
                 ): spell_id
                 for spell_id in missing
             }
@@ -594,7 +661,14 @@ class Command(BaseCommand):
     @staticmethod
     def _tooltip_needs_retry(description):
         text = str(description or '').strip()
-        return not text or '$' in text
+        return '$' in text
+
+    @staticmethod
+    def _usable_tooltip_count(spell_ids, cache):
+        return sum(
+            bool(CJK_RE.search(str(cache.get(spell_id) or '')))
+            for spell_id in spell_ids
+        )
 
     @staticmethod
     def _localized_description(tooltip, db2_description):
@@ -610,6 +684,7 @@ class Command(BaseCommand):
         delay,
         locale,
         *,
+        data_env,
         depth=0,
         seen=None,
     ):
@@ -625,7 +700,7 @@ class Command(BaseCommand):
                 response = requests.get(
                     url,
                     timeout=45,
-                    params={'dataEnv': 1, 'locale': locale},
+                    params={'dataEnv': data_env, 'locale': locale},
                     headers={
                         'User-Agent': 'Mozilla/5.0',
                         'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
@@ -648,6 +723,7 @@ class Command(BaseCommand):
                         referenced_id,
                         0,
                         locale,
+                        data_env=data_env,
                         depth=depth + 1,
                         seen=seen,
                     )
@@ -707,6 +783,7 @@ class Command(BaseCommand):
         spell_ids,
         wowhead_tooltips,
         locale,
+        data_env,
     ):
         now = timezone.now()
         records = list(MythicDungeonSpell.objects.filter(
@@ -715,20 +792,27 @@ class Command(BaseCommand):
         ))
         updated = []
         for record in records:
+            tooltip = str(wowhead_tooltips.get(record.spell_id) or '').strip()
+            if not tooltip:
+                continue
             description = self._localized_description(
-                wowhead_tooltips.get(record.spell_id),
+                tooltip,
                 record.description_zh,
             )
             if not description:
                 continue
             metadata = dict(record.metadata or {})
-            metadata['wowhead_tooltip_url'] = (
-                f'https://www.wowhead.com/cn/spell={record.spell_id}'
+            metadata['wowhead_tooltip_url'] = self._wowhead_spell_url(
+                record.spell_id,
+                data_env,
             )
             metadata['wowhead_tooltip_source'] = (
                 f'https://nether.wowhead.com/tooltip/spell/{record.spell_id}'
+                f'?dataEnv={data_env}&locale={locale}'
             )
             metadata['wowhead_locale'] = locale
+            metadata['wowhead_data_env'] = data_env
+            metadata['wowhead_environment'] = WOWHEAD_ENVIRONMENT_KEYS[data_env]
             record.description_zh = description
             record.source_branch = branch
             record.snapshot_build = build
@@ -753,7 +837,7 @@ class Command(BaseCommand):
         coverage = dict(spell_snapshot.get('coverage') or {})
         coverage['total'] = len(spell_ids)
         coverage['rendered_tooltip_zh'] = sum(
-            bool(wowhead_tooltips.get(spell_id))
+            bool(CJK_RE.search(str(wowhead_tooltips.get(spell_id) or '')))
             for spell_id in spell_ids
         )
         spell_snapshot.update({
@@ -761,6 +845,8 @@ class Command(BaseCommand):
             'snapshot_build': build,
             'wowhead_tooltips': True,
             'wowhead_locale': locale,
+            'wowhead_data_env': data_env,
+            'wowhead_environment': WOWHEAD_ENVIRONMENT_KEYS[data_env],
             'coverage': coverage,
             'synced_at': now.isoformat(),
         })
@@ -841,6 +927,7 @@ class Command(BaseCommand):
         coverage,
         listfile_url,
         wowhead_tooltips,
+        tooltip_data_env,
     ):
         now = timezone.now()
         all_ids = set(rows)
@@ -916,6 +1003,13 @@ class Command(BaseCommand):
             dump_dir=dump_dir,
         )
         spell_records = {}
+        existing_spell_records = {
+            int(record.spell_id): record
+            for record in MythicDungeonSpell.objects.filter(
+                data_version=version,
+                spell_id__in=spell_ids,
+            )
+        }
         for spell_id in sorted(spell_ids):
             row = rows.get(spell_id, {})
             misc_row = misc.get(spell_id, {})
@@ -926,6 +1020,28 @@ class Command(BaseCommand):
                 if icon_name
                 else ''
             )
+            existing_record = existing_spell_records.get(spell_id)
+            existing_icon_url = str(
+                existing_record.icon_url if existing_record else ''
+            ).strip()
+            existing_asset_unavailable = bool(
+                (existing_record.metadata or {}).get('asset_unavailable')
+                if existing_record
+                else False
+            )
+            preserve_asset = (
+                existing_record is not None
+                and existing_record.icon_name == icon_name
+                and (
+                    existing_asset_unavailable
+                    or (
+                        existing_icon_url
+                        and not self._is_wowhead_asset_url(existing_icon_url)
+                    )
+                )
+            )
+            if preserve_asset:
+                icon_url = existing_icon_url
             description = resolver_en.resolve(row.get('description'), spell_id)
             description_zh = self._localized_description(
                 wowhead_tooltips.get(spell_id),
@@ -939,6 +1055,32 @@ class Command(BaseCommand):
                 row.get('aura_description_zh'),
                 spell_id,
             )
+            metadata = {
+                'source': 'wago.tools DB2',
+                'source_branch': branch,
+                'snapshot_build': build,
+                'raw_description': row.get('description', ''),
+                'raw_description_zh': row.get('description_zh', ''),
+                'raw_aura_description': row.get('aura_description', ''),
+                'raw_aura_description_zh': row.get('aura_description_zh', ''),
+                'listfile_url': listfile_url,
+                'wowhead_tooltip_url': (
+                    self._wowhead_spell_url(spell_id, tooltip_data_env)
+                    if wowhead_tooltips.get(spell_id)
+                    else ''
+                ),
+                'wowhead_data_env': tooltip_data_env,
+                'wowhead_environment': WOWHEAD_ENVIRONMENT_KEYS[
+                    tooltip_data_env
+                ],
+                'coverage': coverage,
+            }
+            if preserve_asset:
+                metadata.update({
+                    key: value
+                    for key, value in (existing_record.metadata or {}).items()
+                    if str(key).startswith('asset_')
+                })
             record, _created = MythicDungeonSpell.objects.update_or_create(
                 data_version=version,
                 spell_id=spell_id,
@@ -956,22 +1098,7 @@ class Command(BaseCommand):
                     'icon_name': icon_name,
                     'icon_url': icon_url,
                     'is_active': True,
-                    'metadata': {
-                        'source': 'wago.tools DB2',
-                        'source_branch': branch,
-                        'snapshot_build': build,
-                        'raw_description': row.get('description', ''),
-                        'raw_description_zh': row.get('description_zh', ''),
-                        'raw_aura_description': row.get('aura_description', ''),
-                        'raw_aura_description_zh': row.get('aura_description_zh', ''),
-                        'listfile_url': listfile_url,
-                        'wowhead_tooltip_url': (
-                            f'https://www.wowhead.com/cn/spell={spell_id}'
-                            if wowhead_tooltips.get(spell_id)
-                            else ''
-                        ),
-                        'coverage': coverage,
-                    },
+                    'metadata': metadata,
                 },
             )
             spell_records[spell_id] = record
@@ -989,7 +1116,11 @@ class Command(BaseCommand):
             'source_locale': 'zhCN',
             'snapshot_build': build,
             'listfile_url': listfile_url,
-            'wowhead_tooltips': bool(wowhead_tooltips),
+            'wowhead_tooltips': bool(
+                self._usable_tooltip_count(spell_ids, wowhead_tooltips)
+            ),
+            'wowhead_data_env': tooltip_data_env,
+            'wowhead_environment': WOWHEAD_ENVIRONMENT_KEYS[tooltip_data_env],
             'coverage': coverage,
             'synced_at': now.isoformat(),
         }
@@ -1000,6 +1131,10 @@ class Command(BaseCommand):
             'links': links,
             'effects': len(effects) * 2,
         }
+
+    @staticmethod
+    def _is_wowhead_asset_url(value):
+        return urlsplit(str(value or '').strip()).netloc.lower() == 'wow.zamimg.com'
 
 
 def _to_int(value):
