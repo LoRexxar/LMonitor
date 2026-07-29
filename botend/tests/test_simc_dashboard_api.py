@@ -335,6 +335,31 @@ class SimcProfileResourceListTests(TestCase):
         self.assertFalse(rows[inactive_system.id]['can_delete'])
         self.assertTrue(rows[other.id]['is_active'])
 
+    def test_create_profile_without_attribute_overrides_keeps_them_absent(self):
+        response = self.client.post(
+            '/api/simc-profile/',
+            data=json.dumps({
+                'name': '不覆盖属性',
+                'spec': 'fury',
+                'player_config_mode': 'manual_equipment',
+                'player_equipment': 'warrior="Tester"\\nhead=,id=1',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(response.json()['success'], response.content)
+        profile = SimcProfile.objects.get(pk=response.json()['data']['id'])
+        self.assertIsNone(profile.gear_strength)
+        self.assertIsNone(profile.gear_crit)
+        self.assertIsNone(profile.gear_haste)
+        self.assertIsNone(profile.gear_mastery)
+        self.assertIsNone(profile.gear_versatility)
+
+        listed = {row['id']: row for row in self.client.get('/api/simc-profile/').json()['data']}
+        self.assertIsNone(listed[profile.id]['gear_strength'])
+        self.assertIsNone(listed[profile.id]['gear_crit'])
+
     def test_regular_user_cannot_mutate_upstream_profile(self):
         system = SimcProfile.objects.create(
             user_id=None, source=SimcProfile.SOURCE_SIMC_UPSTREAM,

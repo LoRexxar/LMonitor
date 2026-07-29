@@ -1216,11 +1216,12 @@ class SimcProfile(models.Model):
     battlenet_character = models.CharField(max_length=100, default="", blank=True)
     player_equipment = models.TextField(default="", blank=True, help_text="手动装备/天赋玩家块")
     talent = models.CharField(max_length=2000, default="")
-    gear_strength = models.IntegerField(default=93330)
-    gear_crit = models.IntegerField(default=10730)
-    gear_haste = models.IntegerField(default=18641)
-    gear_mastery = models.IntegerField(default=21785)
-    gear_versatility = models.IntegerField(default=6757)
+    # 仅在用户明确填写时保存属性覆盖；NULL 表示继承玩家装备/基线，不伪造默认值。
+    gear_strength = models.IntegerField(null=True, blank=True)
+    gear_crit = models.IntegerField(null=True, blank=True)
+    gear_haste = models.IntegerField(null=True, blank=True)
+    gear_mastery = models.IntegerField(null=True, blank=True)
+    gear_versatility = models.IntegerField(null=True, blank=True)
     is_active = models.BooleanField(default=True, help_text="是否启用")
     
     class Meta:

@@ -2257,11 +2257,11 @@ function simcWbToggleProfileForm(mode, profileData) {
         formWrap.querySelector('input[name="battlenet_character"]').value = '';
         formWrap.querySelector('textarea[name="player_equipment"]').value = '';
         formWrap.querySelector('input[name="talent"]').value = '';
-        formWrap.querySelector('input[name="gear_strength"]').value = '93330';
-        formWrap.querySelector('input[name="gear_crit"]').value = '10730';
-        formWrap.querySelector('input[name="gear_haste"]').value = '18641';
-        formWrap.querySelector('input[name="gear_mastery"]').value = '21785';
-        formWrap.querySelector('input[name="gear_versatility"]').value = '6757';
+        formWrap.querySelector('input[name="gear_strength"]').value = '';
+        formWrap.querySelector('input[name="gear_crit"]').value = '';
+        formWrap.querySelector('input[name="gear_haste"]').value = '';
+        formWrap.querySelector('input[name="gear_mastery"]').value = '';
+        formWrap.querySelector('input[name="gear_versatility"]').value = '';
         simcWbAttributeOnlyConfig = null;
     } else {
         simcWbProfileFormEditId = profileData.id;
@@ -2284,11 +2284,11 @@ function simcWbToggleProfileForm(mode, profileData) {
         formWrap.querySelector('input[name="battlenet_character"]').value = profileData.battlenet_character || '';
         formWrap.querySelector('textarea[name="player_equipment"]').value = profileData.player_equipment || '';
         formWrap.querySelector('input[name="talent"]').value = profileData.talent || '';
-        formWrap.querySelector('input[name="gear_strength"]').value = profileData.gear_strength || 0;
-        formWrap.querySelector('input[name="gear_crit"]').value = profileData.gear_crit || 0;
-        formWrap.querySelector('input[name="gear_haste"]').value = profileData.gear_haste || 0;
-        formWrap.querySelector('input[name="gear_mastery"]').value = profileData.gear_mastery || 0;
-        formWrap.querySelector('input[name="gear_versatility"]').value = profileData.gear_versatility || 0;
+        formWrap.querySelector('input[name="gear_strength"]').value = profileData.gear_strength ?? '';
+        formWrap.querySelector('input[name="gear_crit"]').value = profileData.gear_crit ?? '';
+        formWrap.querySelector('input[name="gear_haste"]').value = profileData.gear_haste ?? '';
+        formWrap.querySelector('input[name="gear_mastery"]').value = profileData.gear_mastery ?? '';
+        formWrap.querySelector('input[name="gear_versatility"]').value = profileData.gear_versatility ?? '';
     }
 
     body.innerHTML = '';
@@ -2333,11 +2333,11 @@ async function simcWbSaveProfile() {
         battlenet_character: gv('battlenet_character'),
         player_equipment: gv('player_equipment'),
         talent: gv('talent'),
-        gear_strength: parseInt(gv('gear_strength')) || 0,
-        gear_crit: parseInt(gv('gear_crit')) || 0,
-        gear_haste: parseInt(gv('gear_haste')) || 0,
-        gear_mastery: parseInt(gv('gear_mastery')) || 0,
-        gear_versatility: parseInt(gv('gear_versatility')) || 0,
+        gear_strength: gv('gear_strength') === '' ? null : parseInt(gv('gear_strength')),
+        gear_crit: gv('gear_crit') === '' ? null : parseInt(gv('gear_crit')),
+        gear_haste: gv('gear_haste') === '' ? null : parseInt(gv('gear_haste')),
+        gear_mastery: gv('gear_mastery') === '' ? null : parseInt(gv('gear_mastery')),
+        gear_versatility: gv('gear_versatility') === '' ? null : parseInt(gv('gear_versatility')),
     };
     if (!payload.name) { showMessage('请输入配置名称', 'error'); return; }
     if (!payload.spec) { showMessage('请输入专精', 'error'); return; }
@@ -2438,11 +2438,11 @@ async function simcWbSaveCurrentSimulatorProfile() {
         battlenet_character: mode === 'battlenet' ? (document.getElementById('simc-sim-battlenet-character')?.value || '').trim() : '',
         player_equipment: ['manual_equipment', 'attribute_only'].includes(mode) ? (document.getElementById('simc-sim-equipment')?.value || '') : '',
         talent: attributeConfig?.talent || '',
-        gear_strength: attributeConfig?.gear_strength || 0,
-        gear_crit: attributeConfig?.gear_crit || 0,
-        gear_haste: attributeConfig?.gear_haste || 0,
-        gear_mastery: attributeConfig?.gear_mastery || 0,
-        gear_versatility: attributeConfig?.gear_versatility || 0,
+        gear_strength: attributeConfig?.gear_strength ?? null,
+        gear_crit: attributeConfig?.gear_crit ?? null,
+        gear_haste: attributeConfig?.gear_haste ?? null,
+        gear_mastery: attributeConfig?.gear_mastery ?? null,
+        gear_versatility: attributeConfig?.gear_versatility ?? null,
     };
     if (mode === 'battlenet' && (!payload.battlenet_region || !payload.battlenet_realm || !payload.battlenet_character)) {
         showMessage('Battle.net 配置需要填写地区、服务器和角色名', 'error'); return;
@@ -4419,9 +4419,9 @@ function displayTableData(data, fields, tableName = currentTableName) {
                 td.appendChild(badge);
             }
             else if (renderTableName === 'SimcProfile' && (field === 'gear_strength' || field === 'gear_crit' || field === 'gear_haste' || field === 'gear_mastery' || field === 'gear_versatility')) {
-                // SimcProfile表的装备属性字段右对齐并添加样式
+                // 属性覆盖未保存时保持为空；0 是用户显式保存的有效覆盖值。
                 td.className += ' text-right font-mono';
-                td.textContent = cellText || '0';
+                td.textContent = cellText === null || cellText === undefined || cellText === '' ? '-' : cellText;
             }
             else if (renderTableName === 'SimcProfile' && field === 'action_list') {
                 // SimcProfile表的动作列表字段截断显示

@@ -3449,11 +3449,11 @@ class SimcProfileAPIView(View):
         return values
 
     @staticmethod
-    def _coerce_profile_number(data, field, fallback=0):
-        """Accept integer-form fields while rejecting malformed persisted configuration."""
+    def _coerce_profile_number(data, field, fallback=None):
+        """Keep omitted attribute overrides absent instead of coercing them to zero."""
         raw_value = data.get(field, fallback)
         if raw_value in (None, ''):
-            return 0
+            return None
         try:
             return int(raw_value)
         except (TypeError, ValueError):
@@ -3463,7 +3463,7 @@ class SimcProfileAPIView(View):
     def _profile_numeric_values(cls, data, fallback=None):
         fallback = fallback or {}
         return {
-            field: cls._coerce_profile_number(data, field, fallback.get(field, 0))
+            field: cls._coerce_profile_number(data, field, fallback.get(field))
             for field in ('gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility')
         }
 
@@ -3897,7 +3897,7 @@ class SimcProfileAPIView(View):
                     'talent': profile.talent,
                 })
                 numeric_values = self._profile_numeric_values(data, {
-                    field: getattr(profile, field, 0)
+                    field: getattr(profile, field, None)
                     for field in ('gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility')
                 })
             except ValueError as e:

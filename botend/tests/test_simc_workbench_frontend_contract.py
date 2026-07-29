@@ -106,20 +106,23 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('renderSimcProfileDetailDialog', MAIN)
         self.assertIn('raw_player_equipment', MAIN)
 
-    def test_profile_form_normalizes_legacy_spec_and_uses_model_attribute_defaults(self):
-        """编辑旧 class_spec 记录必须选中实际专精；新建默认值与模型保持一致。"""
+    def test_profile_form_normalizes_legacy_spec_and_leaves_optional_attribute_overrides_blank(self):
+        """编辑旧 class_spec 记录必须选中实际专精；未填写属性不得伪造覆盖值。"""
         form = MAIN[MAIN.index('function simcWbToggleProfileForm'):MAIN.index('function simcWbCloseProfileForm')]
+        save = MAIN[MAIN.index('async function simcWbSaveProfile'):MAIN.index('async function simcWbDeleteProfile')]
         self.assertIn("const profileSpec = normalizeSimcSpecKey(profileData.spec || '');", form)
         self.assertIn('specSel.value = profileSpec;', form)
-        self.assertIn("gear_strength\"]').value = '93330'", form)
-        self.assertIn("gear_crit\"]').value = '10730'", form)
-        self.assertIn("gear_haste\"]').value = '18641'", form)
-        self.assertIn("gear_mastery\"]').value = '21785'", form)
-        self.assertIn("gear_versatility\"]').value = '6757'", form)
-        self.assertIn('name="gear_strength" type="number" value="93330"', HTML)
-        self.assertIn('name="gear_crit" type="number" value="10730"', HTML)
-        self.assertIn('name="gear_haste" type="number" value="18641"', HTML)
-        self.assertIn('name="gear_versatility" type="number" value="6757"', HTML)
+        self.assertIn("profileData.gear_strength ?? ''", form)
+        self.assertIn("profileData.gear_crit ?? ''", form)
+        self.assertIn("profileData.gear_haste ?? ''", form)
+        self.assertIn("profileData.gear_mastery ?? ''", form)
+        self.assertIn("profileData.gear_versatility ?? ''", form)
+        self.assertIn("gear_strength: gv('gear_strength') === '' ? null", save)
+        self.assertIn("gear_strength: attributeConfig?.gear_strength ?? null", MAIN)
+        self.assertIn("cellText === null || cellText === undefined || cellText === '' ? '-' : cellText", MAIN)
+        self.assertIn('name="gear_strength" type="number"', HTML)
+        self.assertIn('placeholder="未填写则不覆盖"', HTML)
+        self.assertNotIn('name="gear_strength" type="number" value=', HTML)
 
     def test_profile_list_resolves_saved_profile_source_without_refreshing_detail(self):
         resolver = MAIN[
