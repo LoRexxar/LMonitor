@@ -21,8 +21,9 @@ TOKEN_HASH_PREFIX = 'sha256$'
 DUMMY_TOKEN_HASH = TOKEN_HASH_PREFIX + ('0' * 64)
 STATUSES = {'online', 'busy', 'degraded'}
 REGISTER_FIELDS = {'host_identifier', 'backend_identifier', 'name', 'platform', 'agent_version',
-                   'agent_revision', 'protocol_version', 'capabilities', 'instance_id', 'current_version', 'binary_available'}
-REGISTER_REQUIRED = REGISTER_FIELDS - {'name', 'backend_identifier', 'agent_revision'}
+                   'agent_revision', 'protocol_version', 'capabilities', 'instance_id', 'current_version',
+                   'binary_available', 'html_locale_patch_version'}
+REGISTER_REQUIRED = REGISTER_FIELDS - {'name', 'backend_identifier', 'agent_revision', 'html_locale_patch_version'}
 HEARTBEAT_FIELDS = {'status', 'platform', 'agent_version', 'protocol_version', 'capabilities',
                     'agent_revision', 'instance_id', 'current_version', 'binary_available',
                     'html_locale_patch_version'}

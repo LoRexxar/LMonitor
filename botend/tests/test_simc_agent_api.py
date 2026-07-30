@@ -361,6 +361,11 @@ class SimcAgentAPITests(TestCase):
                 with self.assertRaises(ValidationError):
                     agent.validate_constraints()
 
+    def test_registration_accepts_html_locale_patch_version_as_telemetry(self):
+        response = self.enroll(html_locale_patch_version=1)
+
+        self.assertEqual(response.status_code, 201, response.content)
+
     def test_heartbeat_accepts_html_locale_patch_version_as_telemetry(self):
         token = self.enroll().json()['agent_token']
 
