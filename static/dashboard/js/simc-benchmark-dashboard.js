@@ -38,16 +38,32 @@ function badge(text,kind=''){ return el('span',{class:`benchmark-badge ${kind}`}
 const STATUS_VIEW={pending:['等待中','warn'],running:['运行中','running'],success:['成功','good'],partial:['部分完成','warn'],failed:['失败','bad'],cancelled:['已取消','muted']};
 function statusBadge(status){const view=STATUS_VIEW[status]||[status||'未知','muted'];return badge(view[0],view[1]);}
 function statusCount(label,value,kind=''){return el('span',{class:`benchmark-status-count ${kind}`},`${label} ${Number(value)||0}`);}
+function formatDps(value){
+  const number=Number(value);
+  return Number.isFinite(number) ? `${number.toLocaleString('zh-CN',{maximumFractionDigits:1})} DPS` : 'DPS 未就绪';
+}
 function renderAggregatedResults(aggregate,compact=false){
-  const host=el('div',{class:`benchmark-aggregated-results${compact?' compact':''}`});
+  const host=el('section',{class:`benchmark-aggregated-results${compact?' compact':''}`});
   const coordinates=Array.isArray(aggregate?.coordinates)?aggregate.coordinates:[];
   const rows=coordinates.flatMap(coordinate=>(Array.isArray(coordinate.candidates)?coordinate.candidates:[]).map(candidate=>({coordinate,candidate})));
-  if(!coordinates.length){host.append(badge('暂无可复用结果','muted'));return host;}
-  host.append(badge(`跨批次结果 ${rows.length} 项 / ${coordinates.length} 坐标`,'good'));
-  const detail=el('div',{class:'benchmark-aggregated-detail'});
-  rows.slice(0,compact?2:6).forEach(({coordinate,candidate})=>detail.append(el('div',{},`${coordinate.spec_key} / ${coordinate.scenario_key} / ${coordinate.profile_key} · ${candidate.key}：${candidate.dps} DPS · Task #${candidate.task_id}`)));
-  if(rows.length>(compact?2:6))detail.append(el('div',{},`其余 ${rows.length-(compact?2:6)} 项结果已聚合`));
-  host.append(detail);return host;
+  if(!coordinates.length){host.append(badge('暂无跨批次聚合结果','muted'));return host;}
+  const heading=el('div',{class:'benchmark-aggregate-heading'});
+  heading.append(el('strong',{},'跨批次聚合结果'),badge(`${rows.length} 项结果 · ${coordinates.length} 个坐标`,'good'));
+  host.append(heading);
+  const detail=el('div',{class:'benchmark-aggregate-summary'},'已完成坐标的不可变结果；与当前 Execution 的子任务 / Run 进度分开统计。');
+  const list=el('div',{class:'benchmark-aggregate-list'});
+  const limit=compact?2:6;
+  rows.slice(0,limit).forEach(({coordinate,candidate})=>{
+    const row=el('div',{class:'benchmark-aggregate-row'});
+    const coordinateLabel=el('div',{class:'benchmark-aggregate-coordinate'},`${coordinate.spec_key} · ${coordinate.scenario_key} · ${coordinate.profile_key}`);
+    const candidateLabel=el('div',{class:'benchmark-aggregate-candidate'},candidate.key||'候选方案');
+    const result=el('div',{class:'benchmark-aggregate-result'});
+    result.append(el('strong',{class:'benchmark-aggregate-dps'},formatDps(candidate.dps)));
+    if(candidate.task_id) result.append(el('span',{class:'benchmark-aggregate-task'},`来源 Task #${candidate.task_id}`));
+    row.append(coordinateLabel,candidateLabel,result);list.append(row);
+  });
+  if(rows.length>limit)list.append(el('div',{class:'benchmark-aggregate-more'},`其余 ${rows.length-limit} 项已聚合；完整对比请打开“查看结果”。`));
+  host.append(detail,list);return host;
 }
 function renderRunProgress(execution,compact=false){
   const host=el('div',{class:`benchmark-run-progress${compact?' compact':''}`});

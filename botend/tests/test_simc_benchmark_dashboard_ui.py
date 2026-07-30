@@ -125,6 +125,21 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         ):
             self.assertIn(selector, CSS)
 
+    def test_cross_execution_results_use_structured_rows_not_raw_debug_lines(self):
+        """A large immutable aggregate must remain scannable in the panel list."""
+        aggregate = JS[JS.index('function renderAggregatedResults('):JS.index('function renderRunProgress(')]
+        self.assertIn("'跨批次聚合结果'", aggregate)
+        self.assertIn("class:'benchmark-aggregate-row'", aggregate)
+        self.assertIn("class:'benchmark-aggregate-coordinate'", aggregate)
+        self.assertIn("class:'benchmark-aggregate-dps'", aggregate)
+        self.assertIn("formatDps(candidate.dps)", aggregate)
+        self.assertNotIn("${candidate.dps} DPS · Task #${candidate.task_id}", aggregate)
+        for selector in (
+            '.benchmark-aggregate-summary', '.benchmark-aggregate-row',
+            '.benchmark-aggregate-coordinate', '.benchmark-aggregate-dps',
+        ):
+            self.assertIn(selector, CSS)
+
     def test_history_has_independent_abort_and_generation_guards(self):
         for contract in ('historyListController', 'historyDetailController',
                          'historyReconcileController', 'historyGeneration',
@@ -190,7 +205,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn('function loadExecutionPage()', JS)
         self.assertIn('function rerunFailedPage(id,button)', JS)
         self.assertIn("dataset:{rerunFailed:data.id}", JS)
-        self.assertIn('?v=20260729a', INDEX)
+        self.assertIn('?v=20260731b', INDEX)
         self.assertIn("if(!configPage){document.body.classList.add", JS)
         self.assertIn("data-benchmark-notification", JS)
         self.assertNotIn('data-create-only', CONFIG_PAGE)
