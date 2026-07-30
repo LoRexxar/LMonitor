@@ -20,6 +20,11 @@ class SimcAgentConsumerTests(SimpleTestCase):
         token_path.write_text(token, encoding='ascii')
         token_path.chmod(0o600)
 
+    def write_enrollment_marker(self, values, enrollment_token):
+        marker_path = Path(values['token_path']).with_name('enrollment-token.sha256')
+        marker_path.write_text(hashlib.sha256(enrollment_token.encode('utf-8')).hexdigest(), encoding='ascii')
+        marker_path.chmod(0o600)
+
     def config(self, root):
         simc = Path(root) / 'simc'
         simc.write_text('#!/bin/sh\n', encoding='utf-8')
@@ -762,15 +767,14 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertEqual(request.kwargs['authorization'], 'Enrollment enroll-secret')
             self.assertNotIn('enroll-secret', request.kwargs['payload'])
 
-    def test_existing_token_registration_and_claim_use_bearer_identity(self):
+    def test_existing_token_registration_and_claim_use_bearer_identity_after_enrollment_was_consumed(self):
         from simc_agent_consumer import AgentConfig, PROTOCOL_VERSION, SimcAgentConsumer, VERSION, agent_revision
 
         with tempfile.TemporaryDirectory() as root:
             values = self.config(root)
             token = 'token-id.' + ('y' * 43)
-            token_path = Path(values['token_path'])
-            token_path.write_text(token, encoding='utf-8')
-            token_path.chmod(0o600)
+            self.write_token(values, token)
+            self.write_enrollment_marker(values, 'enroll-secret')
             config = AgentConfig.from_dict(values)
             transport = MagicMock()
             transport.json.side_effect = [
@@ -789,7 +793,65 @@ class SimcAgentConsumerTests(SimpleTestCase):
                 'protocol_version': PROTOCOL_VERSION,
             })
 
-    def test_invalid_persisted_token_recovers_with_fresh_enrollment_code_without_erasing_token_first(self):
+    def test_fresh_enrollment_code_replaces_existing_token_without_waiting_for_401(self):
+        from simc_agent_consumer import AgentConfig, PROTOCOL_VERSION, SimcAgentConsumer, VERSION, agent_revision
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            values['enrollment_token'] = 'fresh-enroll-secret'
+            stale_token = 'token-id.' + ('y' * 43)
+            replacement = 'replacement-id.' + ('r' * 43)
+            self.write_token(values, stale_token)
+            self.write_enrollment_marker(values, 'enroll-secret')
+            token_path = Path(values['token_path'])
+            config = AgentConfig.from_dict(values)
+            transport = MagicMock()
+            transport.json.side_effect = [
+                {
+                    'success': True, 'agent_token': replacement,
+                    'heartbeat_interval_seconds': 20, 'lease_seconds': 60,
+                },
+                None,
+            ]
+            consumer = SimcAgentConsumer(config, transport=transport)
+            consumer.register()
+            self.assertIsNone(consumer.claim())
+            self.assertEqual(consumer.agent_token, replacement)
+            self.assertEqual(token_path.read_text(encoding='utf-8'), replacement)
+            self.assertEqual(
+                token_path.with_name('enrollment-token.sha256').read_text(encoding='ascii'),
+                hashlib.sha256(b'fresh-enroll-secret').hexdigest(),
+            )
+            self.assertEqual(transport.json.call_args_list[0].kwargs['authorization'], 'Enrollment fresh-enroll-secret')
+            self.assertEqual(transport.json.call_args_list[1].kwargs['authorization'], 'Bearer ' + replacement)
+            self.assertEqual(transport.json.call_args_list[1].kwargs['payload'], {
+                'instance_id': consumer.instance_id,
+                'agent_version': VERSION,
+                'agent_revision': agent_revision(Path(__file__).resolve().parents[2]),
+                'protocol_version': PROTOCOL_VERSION,
+            })
+
+    def test_invalid_persisted_token_without_changed_enrollment_code_keeps_existing_token(self):
+        from simc_agent_consumer import APIError, AgentConfig, ConfigError, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            stale_token = 'token-id.' + ('s' * 43)
+            self.write_token(values, stale_token)
+            self.write_enrollment_marker(values, 'enroll-secret')
+            transport = MagicMock()
+            transport.json.side_effect = APIError('Invalid agent token', 401)
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=transport)
+
+            with self.assertRaisesRegex(ConfigError, 'replace enrollment_token'):
+                consumer.register()
+
+            self.assertEqual(consumer.agent_token, stale_token)
+            self.assertEqual(Path(values['token_path']).read_text(encoding='utf-8'), stale_token)
+            self.assertEqual(transport.json.call_count, 1)
+            self.assertEqual(transport.json.call_args.kwargs['authorization'], 'Bearer ' + stale_token)
+
+    def test_invalid_persisted_token_recovers_with_legacy_enrollment_code_without_erasing_token_first(self):
         from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
 
         with tempfile.TemporaryDirectory() as root:
@@ -816,6 +878,10 @@ class SimcAgentConsumerTests(SimpleTestCase):
             calls = transport.json.call_args_list
             self.assertEqual(calls[0].kwargs['authorization'], 'Bearer ' + stale_token)
             self.assertEqual(calls[1].kwargs['authorization'], 'Enrollment enroll-secret')
+            self.assertEqual(
+                Path(values['token_path']).with_name('enrollment-token.sha256').read_text(encoding='ascii'),
+                hashlib.sha256(b'enroll-secret').hexdigest(),
+            )
 
     def test_invalid_persisted_token_keeps_existing_token_when_recovery_code_is_rejected(self):
         from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
