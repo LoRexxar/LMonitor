@@ -107,6 +107,20 @@ class SimcAgentJobAPITests(TestCase):
         ).strip().lower()
         self.assertEqual(settings.SIMC_AGENT_REQUIRED_REVISION, expected)
 
+    @override_settings(SIMC_AGENT_REQUIRED_REVISION='')
+    @patch('botend.services.simc_run_control.subprocess.check_output')
+    def test_claim_requires_checkout_revision_when_setting_is_omitted(self, check_output):
+        check_output.return_value = ('b' * 40) + '\n'
+
+        response = self.claim()
+
+        self.assertEqual(response.status_code, 426, response.content)
+        self.assertEqual(response.json()['code'], 'agent_update_required')
+        self.assertEqual(response.json()['required_revision'], 'b' * 40)
+        check_output.assert_called_once_with(
+            ['git', '-C', settings.BASE_DIR, 'rev-parse', 'HEAD'], text=True, timeout=5,
+        )
+
     def test_claim_allows_agent_when_simc_revision_differs_from_worker_backend(self):
         task = self.task()
         self.backend.current_version = 'b' * 40

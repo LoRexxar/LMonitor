@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import secrets
+import subprocess
 from dataclasses import asdict, is_dataclass
 from datetime import timedelta
 
@@ -44,6 +45,26 @@ def _agent_run_capacity(agent):
     return value if type(value) is int and 1 <= value <= 64 else 1
 
 
+def _configured_agent_revision():
+    """Return the exact deployed LMonitor revision required for standalone Agents.
+
+    Some long-lived control-plane processes use the legacy ``settings.py``
+    supplied only on deployed hosts.  When that untracked settings module does
+    not define the gate itself, derive it from the checkout rather than silently
+    allowing stale Agents to keep claiming Runs.
+    """
+    configured = str(getattr(settings, 'SIMC_AGENT_REQUIRED_REVISION', '') or '').strip().lower()
+    if configured:
+        return configured
+    try:
+        revision = subprocess.check_output(
+            ['git', '-C', settings.BASE_DIR, 'rev-parse', 'HEAD'], text=True, timeout=5,
+        ).strip().lower()
+    except (OSError, subprocess.SubprocessError):
+        return ''
+    return revision if re.fullmatch(r'[0-9a-f]{40}', revision) else ''
+
+
 def _check_agent_ready(agent, now):
     if not agent.backend.is_active:
         raise AgentAPIError('Backend is disabled', 403)
@@ -51,7 +72,7 @@ def _check_agent_ready(agent, now):
         raise AgentAPIError('Agent is disabled', 403)
     if not agent.binary_available:
         raise AgentAPIError('Agent binary is unavailable', 403)
-    required_agent_revision = str(getattr(settings, 'SIMC_AGENT_REQUIRED_REVISION', '') or '').strip().lower()
+    required_agent_revision = _configured_agent_revision()
     if required_agent_revision and str(agent.agent_revision or '').strip().lower() != required_agent_revision:
         raise AgentAPIError('Agent update required', 426, {
             'code': 'agent_update_required', 'current_revision': str(agent.agent_revision or ''),
@@ -167,7 +188,7 @@ def claim_run(payload, authorization):
     if (agent_version is None) != (protocol_version is None):
         raise AgentAPIError('agent_version and protocol_version must be sent together')
     required_version = str(getattr(settings, 'SIMC_AGENT_REQUIRED_VERSION', '1.4.0'))
-    required_revision = str(getattr(settings, 'SIMC_AGENT_REQUIRED_REVISION', '') or '').strip().lower()
+    required_revision = _configured_agent_revision()
     required_protocol = int(getattr(settings, 'SIMC_AGENT_PROTOCOL_VERSION', 1))
     mismatch = None
     if required_revision and agent_revision != required_revision:
