@@ -88,6 +88,7 @@ from botend.simc_agent_api import (
     SimcAgentHeartbeatAPIView, SimcAgentRegisterAPIView,
     SimcAgentJobClaimAPIView, SimcAgentJobHeartbeatAPIView,
     SimcAgentJobReportUploadAPIView, SimcAgentJobCompleteAPIView,
+    SimcAgentMaintenanceTaskAPIView,
     SimcAgentManagementListAPIView, SimcAgentManagementActiveAPIView,
     SimcAgentEnrollmentCodeListAPIView, SimcAgentEnrollmentCodeRevokeAPIView,
 )
@@ -165,6 +166,7 @@ urlpatterns = [
     path('api/simc-agent/v1/jobs/<int:run_id>/heartbeat/', SimcAgentJobHeartbeatAPIView.as_view(), name='simc_agent_job_heartbeat'),
     path('api/simc-agent/v1/jobs/<int:run_id>/report-upload/', SimcAgentJobReportUploadAPIView.as_view(), name='simc_agent_job_report_upload'),
     path('api/simc-agent/v1/jobs/<int:run_id>/complete/', SimcAgentJobCompleteAPIView.as_view(), name='simc_agent_job_complete'),
+    path('api/simc-agent/v1/maintenance-tasks/<int:task_id>/', SimcAgentMaintenanceTaskAPIView.as_view(), name='simc_agent_maintenance_task'),
     path('api/simc-workbench/agents/', SimcAgentManagementListAPIView.as_view(), name='simc_agent_management_list'),
     path('api/simc-workbench/agents/<int:agent_id>/active/', SimcAgentManagementActiveAPIView.as_view(), name='simc_agent_management_active'),
     path('api/simc-workbench/agent-enrollment-codes/', SimcAgentEnrollmentCodeListAPIView.as_view(), name='simc_agent_enrollment_codes'),

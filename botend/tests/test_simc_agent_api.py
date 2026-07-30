@@ -8,7 +8,7 @@ from django.db import connection
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from botend.models import SimcAgent, SimcBackendBinary
+from botend.models import SimcAgent, SimcAgentMaintenanceTask, SimcBackendBinary
 from botend.services.simc_agent_control import create_enrollment_code
 
 
@@ -214,6 +214,38 @@ class SimcAgentAPITests(TestCase):
         legacy = self.post_json(REGISTER_URL, self.register_payload(), f'Enrollment {ENROLLMENT}')
         self.assertEqual(legacy.status_code, 401)
         self.assertFalse(SimcAgent.objects.exists())
+
+    def test_heartbeat_delivers_only_own_pending_maintenance_when_idle_and_completion_is_authenticated(self):
+        token_a = self.enroll(host_identifier=HOST_A).json()['agent_token']
+        token_b = self.enroll(host_identifier=HOST_B).json()['agent_token']
+        agent_a = SimcAgent.objects.get(host_identifier=HOST_A)
+        agent_b = SimcAgent.objects.get(host_identifier=HOST_B)
+        task_a = SimcAgentMaintenanceTask.objects.create(agent=agent_a)
+        SimcAgentMaintenanceTask.objects.create(agent=agent_b)
+
+        response = self.post_json(HEARTBEAT_URL, {'status': 'online'}, f'Bearer {token_a}')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['agent_maintenance_task'], {'id': task_a.pk, 'action': 'update_simc'})
+        started = self.post_json(f'/api/simc-agent/v1/maintenance-tasks/{task_a.pk}/', {'status': 'running'}, f'Bearer {token_a}')
+        self.assertEqual(started.status_code, 200, started.content)
+        forbidden = self.post_json(f'/api/simc-agent/v1/maintenance-tasks/{task_a.pk}/', {'status': 'success'}, f'Bearer {token_b}')
+        self.assertEqual(forbidden.status_code, 404, forbidden.content)
+        complete = self.post_json(f'/api/simc-agent/v1/maintenance-tasks/{task_a.pk}/', {'status': 'success'}, f'Bearer {token_a}')
+        self.assertEqual(complete.status_code, 200, complete.content)
+        task_a.refresh_from_db()
+        self.assertEqual(task_a.status, 'success')
+        self.assertIsNotNone(task_a.completed_at)
+
+    def test_heartbeat_does_not_deliver_maintenance_with_live_or_uncertain_lease(self):
+        token = self.enroll().json()['agent_token']
+        agent = SimcAgent.objects.get(host_identifier=HOST_A)
+        SimcAgentMaintenanceTask.objects.create(agent=agent)
+        from botend.models import SimcTask, SimulationRun
+        task = SimcTask.objects.create(user_id=1, name='lease', simc_profile_id=1, backend=agent.backend)
+        SimulationRun.objects.create(task=task, status='running', lease_agent=agent, lease_expires_at=timezone.now() + timedelta(minutes=1))
+        response = self.post_json(HEARTBEAT_URL, {'status': 'busy'}, f'Bearer {token}')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertNotIn('agent_maintenance_task', response.json())
 
     def test_heartbeat_updates_only_authenticated_agent_report(self):
         token_a = self.enroll(host_identifier=HOST_A, name='Node A').json()['agent_token']

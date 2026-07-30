@@ -32,7 +32,7 @@ from django.template.loader import render_to_string
 
 from django.conf import settings
 from utils.log import logger
-from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcApl, SimcAplSymbol, SimcTask, SimulationRun, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState, WowSpellSnapshot, WowTalentNodeMetadata, WowItemSnapshot
+from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcApl, SimcAplSymbol, SimcTask, SimulationRun, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, SimcAgent, SimcAgentMaintenanceTask, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState, WowSpellSnapshot, WowTalentNodeMetadata, WowItemSnapshot
 from botend.alerting import upsert_system_alert
 from django.db import IntegrityError, models, transaction
 from core.glm import GLMClient
@@ -6660,11 +6660,21 @@ class SimcBackendBinaryAPIView(View):
             return ''
         return identity[1] if identity else ''
 
+    def _serialize_maintenance_task(self, task):
+        return {
+            'id': task.pk, 'agent_id': task.agent_id, 'status': task.status,
+            'requested_at': _fmt_dt(task.requested_at),
+            'completed_at': _fmt_dt(task.completed_at),
+            'has_error': bool(task.error),
+        }
+
     def _serialize_backend_row(self, row, source_dir, build_dir, binary_path):
         current_hash, upstream_hash = self._get_source_versions(source_dir)
         current_version = current_hash or str(row.current_version or '').strip()
         latest_version = upstream_hash or str(row.latest_version or '').strip()
+        backend_id = getattr(row, 'pk', None)
         return {
+            'id': backend_id if isinstance(backend_id, int) else None,
             'platform': row.platform,
             'binary_name': os.path.basename(binary_path),
             'available': bool(binary_path and os.path.isfile(binary_path) and os.access(binary_path, os.X_OK)),
@@ -6758,8 +6768,22 @@ class SimcBackendBinaryAPIView(View):
 
             data = json.loads(request.body or '{}')
             action = (data.get('action') or '').strip()
-            if action not in ('set_auto_update', 'set_maintenance_schedule', 'check', 'update'):
+            if action not in ('set_auto_update', 'set_maintenance_schedule', 'check', 'update', 'dispatch_agent_maintenance'):
                 return JsonResponse({'success': False, 'error': '不支持的后端操作'}, status=400)
+
+            if action == 'dispatch_agent_maintenance':
+                backend_id = data.get('backend_id')
+                if type(backend_id) is not int or backend_id <= 0:
+                    return JsonResponse({'success': False, 'error': 'backend_id 必须是正整数'}, status=400)
+                agent_ids = data.get('agent_ids')
+                if agent_ids is not None and (not isinstance(agent_ids, list) or any(type(value) is not int or value <= 0 for value in agent_ids)):
+                    return JsonResponse({'success': False, 'error': 'agent_ids 必须是正整数数组'}, status=400)
+                agents = SimcAgent.objects.filter(backend_id=backend_id, is_active=True)
+                if agent_ids is not None:
+                    agents = agents.filter(id__in=set(agent_ids))
+                tasks = [SimcAgentMaintenanceTask(agent=agent) for agent in agents.order_by('id')]
+                SimcAgentMaintenanceTask.objects.bulk_create(tasks)
+                return JsonResponse({'success': True, 'data': [self._serialize_maintenance_task(task) for task in tasks]})
 
             runtime_platform = self._get_runtime_platform()
             row = SimcBackendBinary.objects.filter(identifier='production').first()

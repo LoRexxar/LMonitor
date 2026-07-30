@@ -1413,6 +1413,34 @@ class SimcAgent(models.Model):
         return self.last_seen_at >= (now or timezone.now()) - timedelta(seconds=timeout_seconds)
 
 
+class SimcAgentMaintenanceTask(models.Model):
+    """A Dashboard-requested, agent-polled one-off SimC maintenance operation."""
+    STATUS_PENDING = 'pending'
+    STATUS_RUNNING = 'running'
+    STATUS_SUCCESS = 'success'
+    STATUS_FAILED = 'failed'
+    STATUS_CANCELLED = 'cancelled'
+    STATUS_CHOICES = (
+        (STATUS_PENDING, 'Pending'), (STATUS_RUNNING, 'Running'),
+        (STATUS_SUCCESS, 'Success'), (STATUS_FAILED, 'Failed'), (STATUS_CANCELLED, 'Cancelled'),
+    )
+
+    agent = models.ForeignKey(SimcAgent, on_delete=models.PROTECT, related_name='maintenance_tasks')
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    requested_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    error = models.CharField(max_length=500, default='', blank=True)
+
+    class Meta:
+        db_table = 'simc_agent_maintenance_task'
+        ordering = ['-requested_at', '-id']
+        indexes = [models.Index(fields=['agent', 'status', 'id'], name='simc_agmaint_agent_state_idx')]
+        constraints = [models.CheckConstraint(
+            condition=models.Q(status__in=('pending', 'running', 'success', 'failed', 'cancelled')),
+            name='simc_agmaint_status_ck',
+        )]
+
+
 class SimcAgentEnrollmentCode(models.Model):
     code_id = models.CharField(max_length=32, unique=True)
     secret_hash = models.CharField(max_length=255)

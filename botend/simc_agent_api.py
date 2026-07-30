@@ -1,13 +1,14 @@
 """HTTP endpoints for independent SimC agents (machine authentication only)."""
 
 from django.conf import settings
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
+from django.utils import timezone
 from django.http import JsonResponse
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
-from botend.models import SimcAgent, SimcAgentEnrollmentCode, SimcBackendBinary, SimulationRun
+from botend.models import SimcAgent, SimcAgentEnrollmentCode, SimcAgentMaintenanceTask, SimcBackendBinary, SimulationRun
 from botend.services.simc_agent_control import (
     AgentAPIError,
     authenticate_bearer,
@@ -63,6 +64,26 @@ def _agent_response(agent):
     }
 
 
+def _maintenance_task_payload(task):
+    return {'id': task.pk, 'action': 'update_simc'}
+
+
+def _next_maintenance_task(agent):
+    # Heartbeat polling is the only delivery mechanism.  Do not touch task
+    # claims or run lease hot paths: maintenance is allowed only while idle.
+    now = timezone.now()
+    has_live_or_uncertain_lease = SimulationRun.objects.filter(
+        lease_agent=agent, status='running',
+    ).filter(lease_expires_at__isnull=True) | SimulationRun.objects.filter(
+        lease_agent=agent, status='running', lease_expires_at__gt=now,
+    )
+    if has_live_or_uncertain_lease.exists():
+        return None
+    return SimcAgentMaintenanceTask.objects.filter(
+        agent=agent, status=SimcAgentMaintenanceTask.STATUS_PENDING,
+    ).order_by('id').first()
+
+
 def _parse_request_json(request, *, max_bytes=65536):
     if request.content_type != 'application/json':
         raise AgentAPIError('Content-Type must be application/json')
@@ -110,10 +131,48 @@ class SimcAgentHeartbeatAPIView(View):
             agent = heartbeat_agent(payload, request.headers.get('Authorization', ''))
         except AgentAPIError as exc:
             return _error_response(exc)
-        return _no_store(JsonResponse({
+        body = {
             'success': True, 'agent': _agent_response(agent),
             'agent_maintenance_policy': _agent_maintenance_policy(agent),
-        }))
+        }
+        task = _next_maintenance_task(agent)
+        if task:
+            body['agent_maintenance_task'] = _maintenance_task_payload(task)
+        return _no_store(JsonResponse(body))
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class SimcAgentMaintenanceTaskAPIView(View):
+    http_method_names = ['post', 'options']
+
+    def post(self, request, task_id):
+        try:
+            payload = _parse_request_json(request)
+            if set(payload) != {'status'} or payload['status'] not in {'running', 'success', 'failed'}:
+                raise AgentAPIError('JSON payload must be exactly {"status": "running"|"success"|"failed"}')
+            with transaction.atomic():
+                agent = authenticate_bearer(request.headers.get('Authorization', ''), lock=True)
+                task = SimcAgentMaintenanceTask.objects.select_for_update().get(pk=task_id, agent=agent)
+                status = payload['status']
+                if status == 'running':
+                    if task.status != SimcAgentMaintenanceTask.STATUS_PENDING:
+                        raise AgentAPIError('Maintenance task is not pending', 409)
+                    if _next_maintenance_task(agent) is None or _next_maintenance_task(agent).pk != task.pk:
+                        raise AgentAPIError('Maintenance task cannot run while a lease is live or uncertain', 409)
+                    task.status = SimcAgentMaintenanceTask.STATUS_RUNNING
+                    task.save(update_fields=['status'])
+                else:
+                    if task.status != SimcAgentMaintenanceTask.STATUS_RUNNING:
+                        raise AgentAPIError('Maintenance task is not running', 409)
+                    task.status = status
+                    task.completed_at = timezone.now()
+                    task.error = '' if status == 'success' else 'Agent reported SimC maintenance failure'
+                    task.save(update_fields=['status', 'completed_at', 'error'])
+        except SimcAgentMaintenanceTask.DoesNotExist:
+            return _error_response(AgentAPIError('Maintenance task not found', 404))
+        except AgentAPIError as exc:
+            return _error_response(exc)
+        return _no_store(JsonResponse({'success': True, 'task': _maintenance_task_payload(task), 'status': task.status}))
 
 
 @method_decorator(csrf_exempt, name='dispatch')

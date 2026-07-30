@@ -34,6 +34,22 @@ class SimcAgentConsumerTests(SimpleTestCase):
             'request_timeout_seconds': 10,
         }
 
+    def test_dispatched_maintenance_runs_forced_then_reports_terminal_status(self):
+        from simc_agent_consumer import AgentConfig, SimcAgentConsumer
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            self.write_token(values, 'x' * 16 + '.' + 'y' * 43)
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values))
+            consumer.transport.json = MagicMock()
+            consumer._maintain_simc_with_heartbeats = MagicMock(return_value=True)
+
+            consumer._run_dispatched_maintenance({'agent_maintenance_task': {'id': 7, 'action': 'update_simc'}})
+
+            consumer._maintain_simc_with_heartbeats.assert_called_once_with(force=True)
+            self.assertEqual([call.kwargs['payload'] for call in consumer.transport.json.call_args_list], [
+                {'status': 'running'}, {'status': 'success'},
+            ])
+
     def test_config_is_independent_and_rejects_unknown_or_insecure_values(self):
         from simc_agent_consumer import AgentConfig, ConfigError
 

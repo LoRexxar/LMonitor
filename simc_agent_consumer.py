@@ -803,6 +803,34 @@ class SimcAgentConsumer:
         self._maintenance_policy = policy if isinstance(policy, dict) else None
 
     @staticmethod
+    def _maintenance_task(response: dict[str, Any]) -> int | None:
+        task = response.get('agent_maintenance_task')
+        if (not isinstance(task, dict) or set(task) != {'id', 'action'}
+                or type(task.get('id')) is not int or task['id'] <= 0
+                or task.get('action') != 'update_simc'):
+            return None
+        return task['id']
+
+    def _report_maintenance_task(self, task_id: int, status: str) -> None:
+        self.transport.json(path=f'/api/simc-agent/v1/maintenance-tasks/{task_id}/',
+                            payload={'status': status}, authorization=self.authorization)
+
+    def _run_dispatched_maintenance(self, response: dict[str, Any]) -> None:
+        task_id = self._maintenance_task(response)
+        if task_id is None:
+            return
+        self._report_maintenance_task(task_id, 'running')
+        try:
+            self._maintain_simc_with_heartbeats(force=True)
+        except Exception:
+            try:
+                self._report_maintenance_task(task_id, 'failed')
+            except Exception:
+                self.logger.exception('failed to report dispatched SimC maintenance failure')
+            raise
+        self._report_maintenance_task(task_id, 'success')
+
+    @staticmethod
     def _maintenance_slot(policy: dict[str, Any], now: datetime) -> tuple[int, str] | None:
         if policy.get('enabled') is not True:
             return None
@@ -876,7 +904,7 @@ class SimcAgentConsumer:
             raise APIError(f'{name} must be a positive finite number')
         return float(value)
 
-    def heartbeat(self, status: str = 'online', *, maintenance: str | None = None) -> None:
+    def heartbeat(self, status: str = 'online', *, maintenance: str | None = None) -> dict[str, Any]:
         payload = self._report(status)
         if maintenance is not None:
             payload['capabilities']['maintenance'] = maintenance
@@ -884,6 +912,8 @@ class SimcAgentConsumer:
                                        authorization=self.authorization)
         if isinstance(response, dict):
             self._set_maintenance_policy(response)
+            return response
+        return {}
 
     def claim(self) -> dict[str, Any] | None:
         return self.transport.json(path='/api/simc-agent/v1/jobs/claim/',
@@ -1422,7 +1452,8 @@ class SimcAgentConsumer:
                 maintenance_error = exc
                 self.logger.exception('SimC maintenance failed: %s', exc)
             try:
-                self.heartbeat('degraded' if maintenance_error else 'online')
+                response = self.heartbeat('degraded' if maintenance_error else 'online')
+                self._run_dispatched_maintenance(response)
                 capacity = 1 if once else self.config.max_concurrent_runs
                 with ThreadPoolExecutor(max_workers=capacity,
                                         thread_name_prefix='simc-agent-run') as executor:
