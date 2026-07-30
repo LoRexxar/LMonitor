@@ -8,7 +8,7 @@ import json
 import re
 import time
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
 import requests
@@ -55,6 +55,42 @@ class Command(BaseCommand):
         parser.add_argument('--refresh', action='store_true', help='重新请求已有缓存；失败时保留旧缓存')
         parser.add_argument('--workers', type=int, default=6, help='Tooltip请求并发数')
         parser.add_argument('--delay', type=float, default=0.05, help='每个请求前的延迟秒数')
+        parser.add_argument(
+            '--connect-timeout',
+            type=float,
+            default=0,
+            help='连接超时秒数；0表示复用REQUEST_CONFIG.timeout',
+        )
+        parser.add_argument(
+            '--read-timeout',
+            type=float,
+            default=0,
+            help='读取超时秒数；0表示复用REQUEST_CONFIG.timeout',
+        )
+        parser.add_argument(
+            '--request-retries',
+            type=int,
+            default=-1,
+            help='单个请求失败后的重试次数；-1表示复用REQUEST_CONFIG.retries',
+        )
+        parser.add_argument(
+            '--progress-every',
+            type=int,
+            default=25,
+            help='每完成多少个请求输出进度',
+        )
+        parser.add_argument(
+            '--progress-interval',
+            type=float,
+            default=10,
+            help='即使没有请求完成，也至少每隔多少秒输出一次心跳',
+        )
+        parser.add_argument(
+            '--checkpoint-every',
+            type=int,
+            default=25,
+            help='每获得多少个可缓存结果落盘一次',
+        )
         parser.add_argument('--limit', type=int, default=0, help='每个版本最多处理的唯一技能数，0为不限')
         parser.add_argument(
             '--include-hero-anchors',
@@ -73,6 +109,7 @@ class Command(BaseCommand):
         cache_dir = Path(str(options.get('cache_dir') or '.cache/wowhead_talent_metadata'))
         if not cache_dir.is_absolute():
             cache_dir = Path(settings.BASE_DIR) / cache_dir
+        request_timeout, request_retries = self._resolve_request_policy(options)
 
         proxies = _get_configured_proxies()
         self.stdout.write(
@@ -95,6 +132,14 @@ class Command(BaseCommand):
                 refresh=bool(options.get('refresh')),
                 workers=max(1, int(options.get('workers') or 1)),
                 delay=max(0.0, float(options.get('delay') or 0.0)),
+                request_timeout=request_timeout,
+                request_retries=request_retries,
+                progress_every=max(1, int(options.get('progress_every') or 1)),
+                progress_interval=max(
+                    0.1,
+                    float(options.get('progress_interval') or 10),
+                ),
+                checkpoint_every=max(1, int(options.get('checkpoint_every') or 1)),
                 limit=max(0, int(options.get('limit') or 0)),
                 dry_run=bool(options.get('dry_run')),
                 proxies=proxies,
@@ -158,6 +203,55 @@ class Command(BaseCommand):
             )
         return data_env
 
+    @staticmethod
+    def _resolve_request_policy(options):
+        request_config = getattr(settings, 'REQUEST_CONFIG', {}) or {}
+        configured_timeout = (
+            request_config.get('timeout', (5, 20))
+            if isinstance(request_config, dict)
+            else (5, 20)
+        )
+        if isinstance(configured_timeout, (list, tuple)) and len(configured_timeout) >= 2:
+            default_connect, default_read = configured_timeout[:2]
+        else:
+            default_connect = configured_timeout
+            default_read = configured_timeout
+        try:
+            default_connect = float(default_connect)
+        except (TypeError, ValueError):
+            default_connect = 5.0
+        try:
+            default_read = float(default_read)
+        except (TypeError, ValueError):
+            default_read = 20.0
+
+        connect_timeout = float(options.get('connect_timeout') or 0)
+        read_timeout = float(options.get('read_timeout') or 0)
+        if connect_timeout <= 0:
+            connect_timeout = default_connect
+        if read_timeout <= 0:
+            read_timeout = default_read
+
+        configured_retries = (
+            request_config.get('retries', 2)
+            if isinstance(request_config, dict)
+            else 2
+        )
+        retries_option = options.get('request_retries')
+        try:
+            retries_option = int(retries_option)
+        except (TypeError, ValueError):
+            retries_option = -1
+        retries = configured_retries if retries_option < 0 else retries_option
+        try:
+            retries = int(retries)
+        except (TypeError, ValueError):
+            retries = 2
+        return (
+            (max(0.1, connect_timeout), max(0.1, read_timeout)),
+            max(0, retries),
+        )
+
     def _sync_version(
         self,
         *,
@@ -170,6 +264,11 @@ class Command(BaseCommand):
         refresh,
         workers,
         delay,
+        request_timeout,
+        request_retries,
+        progress_every,
+        progress_interval,
+        checkpoint_every,
         limit,
         dry_run,
         proxies,
@@ -218,6 +317,7 @@ class Command(BaseCommand):
             f'rows={len(rows)}, unique_spells={len(spell_ids)}, '
             f'cached={len(spell_ids) - len(targets)}, fetch={len(targets)}'
         )
+        self._flush_stdout()
 
         fetch_stats = self._fill_cache(
             targets,
@@ -228,6 +328,11 @@ class Command(BaseCommand):
             workers=workers,
             delay=delay,
             proxies=proxies,
+            request_timeout=request_timeout,
+            request_retries=request_retries,
+            progress_every=progress_every,
+            progress_interval=progress_interval,
+            checkpoint_every=checkpoint_every,
         )
         candidate_stats = Counter(
             str((records.get(str(spell_id)) or {}).get('status') or 'uncached')
@@ -290,6 +395,11 @@ class Command(BaseCommand):
         workers,
         delay,
         proxies,
+        request_timeout,
+        request_retries,
+        progress_every,
+        progress_interval,
+        checkpoint_every,
     ):
         stats = Counter()
         if not spell_ids:
@@ -297,6 +407,19 @@ class Command(BaseCommand):
 
         records = cache['records']
         dirty = 0
+        total = len(spell_ids)
+        completed = 0
+        started_at = time.monotonic()
+        last_report_at = started_at
+        next_count_report = progress_every
+        self.stdout.write(
+            'Wowhead 抓取开始: '
+            f'total={total}, workers={workers}, '
+            f'timeout=({request_timeout[0]:g}s,{request_timeout[1]:g}s), '
+            f'attempts={request_retries + 1}, '
+            f'heartbeat={progress_interval:g}s, checkpoint={checkpoint_every}'
+        )
+        self._flush_stdout()
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {
                 executor.submit(
@@ -306,39 +429,93 @@ class Command(BaseCommand):
                     locale=locale,
                     delay=delay,
                     proxies=proxies,
+                    request_timeout=request_timeout,
+                    request_retries=request_retries,
                 ): spell_id
                 for spell_id in spell_ids
             }
-            for future in as_completed(futures):
-                spell_id = futures[future]
-                try:
-                    record = future.result()
-                except Exception:
-                    record = None
-                if record is None:
-                    stats['request_failed'] += 1
-                    continue
-                records[str(spell_id)] = record
-                stats[f'status_{record["status"]}'] += 1
-                dirty += 1
-                if dirty >= 50:
-                    self._write_cache(cache_path, cache)
-                    dirty = 0
+            pending = set(futures)
+            while pending:
+                now = time.monotonic()
+                wait_seconds = max(
+                    0.1,
+                    progress_interval - (now - last_report_at),
+                )
+                done, pending = wait(
+                    pending,
+                    timeout=wait_seconds,
+                    return_when=FIRST_COMPLETED,
+                )
+                for future in done:
+                    spell_id = futures[future]
+                    completed += 1
+                    try:
+                        record = future.result()
+                    except Exception as exc:
+                        record = {
+                            'status': 'request_failed',
+                            'error': self._error_text(exc),
+                        }
+                    if not record or record.get('status') == 'request_failed':
+                        stats['request_failed'] += 1
+                        if stats['request_failed'] <= 3:
+                            error = str((record or {}).get('error') or '未知请求错误')
+                            self.stdout.write(
+                                f'Wowhead 请求失败: spell_id={spell_id}, {error}'
+                            )
+                            self._flush_stdout()
+                        continue
+                    records[str(spell_id)] = record
+                    stats[f'status_{record["status"]}'] += 1
+                    dirty += 1
+                    if dirty >= checkpoint_every:
+                        self._write_cache(cache_path, cache)
+                        dirty = 0
+
+                now = time.monotonic()
+                should_report = (
+                    completed >= next_count_report
+                    or now - last_report_at >= progress_interval
+                    or not pending
+                )
+                if should_report:
+                    self._write_progress(
+                        completed=completed,
+                        total=total,
+                        pending=len(pending),
+                        stats=stats,
+                        elapsed=max(0.001, now - started_at),
+                        waiting=not done,
+                    )
+                    last_report_at = now
+                    while next_count_report <= completed:
+                        next_count_report += progress_every
         if dirty:
             self._write_cache(cache_path, cache)
         return stats
 
     @classmethod
-    def _fetch_tooltip(cls, spell_id, *, data_env, locale, delay, proxies):
+    def _fetch_tooltip(
+        cls,
+        spell_id,
+        *,
+        data_env,
+        locale,
+        delay,
+        proxies,
+        request_timeout=(5.0, 20.0),
+        request_retries=2,
+    ):
         if delay:
             time.sleep(delay)
         url = f'https://nether.wowhead.com/tooltip/spell/{int(spell_id)}'
-        for attempt in range(3):
+        last_error = None
+        for attempt in range(max(0, int(request_retries)) + 1):
             try:
                 response = requests.get(
                     url,
                     params={'dataEnv': data_env, 'locale': locale},
-                    timeout=45,
+                    timeout=request_timeout,
                     headers={
                         'User-Agent': 'Mozilla/5.0',
                         'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
@@ -352,10 +529,59 @@ class Command(BaseCommand):
                 if not isinstance(payload, dict):
                     raise ValueError('Wowhead Tooltip 响应不是对象')
                 return cls._record_from_payload(payload)
-            except (requests.RequestException, ValueError, TypeError, json.JSONDecodeError):
-                if attempt < 2:
+            except (requests.RequestException, ValueError, TypeError, json.JSONDecodeError) as exc:
+                last_error = exc
+                if attempt < request_retries:
                     time.sleep(2 ** attempt)
-        return None
+        return {
+            'status': 'request_failed',
+            'error': cls._error_text(last_error),
+        }
+
+    @staticmethod
+    def _error_text(error):
+        if not error:
+            return '未知请求错误'
+        value = re.sub(r'\s+', ' ', f'{type(error).__name__}: {error}').strip()
+        return value[:300]
+
+    def _write_progress(self, *, completed, total, pending, stats, elapsed, waiting):
+        rate = completed / elapsed if completed else 0.0
+        eta_seconds = pending / rate if rate > 0 else None
+        eta_text = self._format_duration(eta_seconds) if eta_seconds is not None else '未知'
+        status_parts = []
+        for key in ('ok', 'partial', 'missing', 'empty', 'unlocalized'):
+            count = stats[f'status_{key}']
+            if count:
+                status_parts.append(f'{key}={count}')
+        status_parts.append(f'failed={stats["request_failed"]}')
+        state = '，等待首批响应' if waiting and completed == 0 else ''
+        self.stdout.write(
+            'Wowhead 进度: '
+            f'{completed}/{total} ({completed / max(1, total):.1%}), '
+            + ', '.join(status_parts)
+            + f', pending={pending}, speed={rate:.2f}/s, '
+            f'elapsed={self._format_duration(elapsed)}, ETA={eta_text}{state}'
+        )
+        self._flush_stdout()
+
+    @staticmethod
+    def _format_duration(seconds):
+        if seconds is None:
+            return '未知'
+        seconds = max(0, int(round(seconds)))
+        minutes, seconds = divmod(seconds, 60)
+        hours, minutes = divmod(minutes, 60)
+        if hours:
+            return f'{hours}h{minutes:02d}m'
+        if minutes:
+            return f'{minutes}m{seconds:02d}s'
+        return f'{seconds}s'
+
+    def _flush_stdout(self):
+        flush = getattr(self.stdout, 'flush', None)
+        if callable(flush):
+            flush()
 
     @classmethod
     def _record_from_payload(cls, payload):

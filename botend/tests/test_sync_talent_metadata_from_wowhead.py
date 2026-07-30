@@ -1,12 +1,14 @@
 import json
 import tempfile
+import time
 from io import StringIO
 from pathlib import Path
 from unittest import mock
 
+import requests
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from botend.management.commands.sync_talent_metadata_from_wowhead import Command
 from botend.models import WowSpellSnapshot, WowTalentNodeMetadata, WowTalentVersion
@@ -132,6 +134,80 @@ class SyncTalentMetadataFromWowheadTests(TestCase):
             {'dataEnv': 3, 'locale': 4},
         )
         self.assertEqual(request_get.call_args.kwargs['proxies'], proxies)
+        self.assertEqual(request_get.call_args.kwargs['timeout'], (5.0, 20.0))
+
+    @mock.patch(
+        'botend.management.commands.sync_talent_metadata_from_wowhead.requests.get',
+        side_effect=requests.Timeout('read timeout'),
+    )
+    def test_request_timeout_and_retry_count_are_bounded(self, request_get):
+        with mock.patch(
+            'botend.management.commands.sync_talent_metadata_from_wowhead.time.sleep'
+        ):
+            record = Command._fetch_tooltip(
+                1267028,
+                data_env=1,
+                locale=4,
+                delay=0,
+                proxies=None,
+                request_timeout=(1.0, 2.0),
+                request_retries=1,
+            )
+
+        self.assertEqual(record['status'], 'request_failed')
+        self.assertIn('Timeout', record['error'])
+        self.assertEqual(request_get.call_count, 2)
+        self.assertTrue(all(
+            item.kwargs['timeout'] == (1.0, 2.0)
+            for item in request_get.call_args_list
+        ))
+
+    @override_settings(REQUEST_CONFIG={'timeout': (1, 2), 'retries': 0})
+    @mock.patch(
+        'botend.management.commands.sync_talent_metadata_from_wowhead.Command._fetch_tooltip'
+    )
+    def test_command_reuses_project_request_policy(self, fetch_tooltip):
+        version = self.create_version('retail-test', 'retail')
+        self.create_node(version, node_id=1, spell_id=100)
+        fetch_tooltip.return_value = self.record()
+
+        output = self.run_sync(
+            version_key=[version.key],
+            dry_run=True,
+            progress_every=1,
+            checkpoint_every=1,
+        )
+
+        self.assertEqual(fetch_tooltip.call_count, 1)
+        self.assertEqual(fetch_tooltip.call_args.kwargs['request_timeout'], (1.0, 2.0))
+        self.assertEqual(fetch_tooltip.call_args.kwargs['request_retries'], 0)
+        self.assertIn('timeout=(1s,2s)', output)
+        self.assertIn('attempts=1', output)
+
+    @mock.patch(
+        'botend.management.commands.sync_talent_metadata_from_wowhead.Command._fetch_tooltip'
+    )
+    def test_slow_first_response_emits_heartbeat_and_final_progress(self, fetch_tooltip):
+        version = self.create_version('retail-test', 'retail')
+        self.create_node(version, node_id=1, spell_id=100)
+
+        def slow_result(*args, **kwargs):
+            time.sleep(0.25)
+            return self.record()
+
+        fetch_tooltip.side_effect = slow_result
+        output = self.run_sync(
+            version_key=[version.key],
+            dry_run=True,
+            progress_every=100,
+            progress_interval=0.1,
+            checkpoint_every=1,
+        )
+
+        self.assertIn('Wowhead 抓取开始', output)
+        self.assertIn('Wowhead 进度: 0/1', output)
+        self.assertIn('等待首批响应', output)
+        self.assertIn('Wowhead 进度: 1/1', output)
 
     def test_updates_duplicate_display_spells_and_preserves_invalid_fields(self):
         version = self.create_version('retail-test', 'retail')
