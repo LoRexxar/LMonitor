@@ -457,9 +457,25 @@ def rerun_failed_cases(execution, requested_by=None):
         source_cases = {(case.spec_key, case.scenario_key, case.profile_key): case
                         for case in SimcBenchmarkCase.objects.filter(execution=source)
                         .select_related('task').order_by('id')}
+        failed_coordinates = {
+            (case.spec_key, case.scenario_key, case.profile_key)
+            for case in failed_cases
+        }
+        # An Execution snapshot describes its historical full surface, but a retry
+        # owns only the failed coordinates.  Keep successful coordinates in their
+        # immutable source Execution so aggregate projection can reuse them instead
+        # of creating duplicate Tasks or rerunning their completed Runs.
         snapshot = deepcopy(source.config_snapshot)
-        snapshot['case_count'] = len(snapshot.get('cases', []))
-        snapshot['run_count'] = sum(len(case['candidate_keys']) for case in snapshot['cases'])
+        retry_case_data = [
+            case_data for case_data in snapshot.get('cases', [])
+            if (case_data.get('spec_key'), case_data.get('scenario_key'),
+                case_data.get('profile_key')) in failed_coordinates
+        ]
+        if len(retry_case_data) != len(failed_coordinates):
+            _validation_error('失败子任务缺少冻结坐标', 'execution')
+        snapshot['cases'] = retry_case_data
+        snapshot['case_count'] = len(retry_case_data)
+        snapshot['run_count'] = sum(len(case['candidate_keys']) for case in retry_case_data)
         new_execution = SimcBenchmarkExecution.objects.create(
             panel=panel, trigger=SimcBenchmarkExecution.TRIGGER_MANUAL,
             config_snapshot=snapshot, config_hash=_canonical_hash(snapshot),

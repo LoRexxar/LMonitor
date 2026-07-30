@@ -162,6 +162,49 @@ class SimcBenchmarkExecutionTests(TestCase):
             list(original_success_case.results.values_list('id', flat=True)), original_result_ids,
         )
 
+    def test_failed_rerun_keeps_successful_coordinate_out_of_new_execution_and_aggregates_it(self):
+        SimcBenchmarkScenario.objects.create(
+            panel=self.panel, key='failed-coordinate', name='Failed coordinate',
+            simulation_params={'iterations': 2000},
+        )
+        execution = self._create()
+        cases = {case.scenario_key: case for case in execution.cases.select_related('task')}
+        successful_case = cases['patchwerk']
+        failed_case = cases['failed-coordinate']
+
+        successful_task = successful_case.task
+        successful_task.current_status = 2
+        successful_task.save(update_fields=['current_status'])
+        self._run(successful_task, 1, 'completed', 'baseline', dps=1234)
+        self._run(successful_task, 2, 'completed', 'trinket', dps=1300)
+        failed_task = failed_case.task
+        failed_task.current_status = 3
+        failed_task.save(update_fields=['current_status'])
+        self._run(failed_task, 1, 'failed', 'baseline')
+        self._run(failed_task, 2, 'failed', 'trinket')
+        reconcile_execution(execution)
+        execution.refresh_from_db()
+        self.assertEqual(execution.status, 'partial')
+
+        retry = rerun_failed_cases(execution, requested_by=self.user_id)
+
+        self.assertEqual(retry.cases.count(), 1)
+        retry_case = retry.cases.select_related('task').get()
+        self.assertEqual(retry_case.scenario_key, 'failed-coordinate')
+        self.assertEqual(retry_case.task.source_task_id, failed_task.id)
+        self.assertEqual(retry.config_snapshot['case_count'], 1)
+        self.assertEqual(len(retry.config_snapshot['cases']), 1)
+        self.assertEqual(retry.config_snapshot['run_count'], 2)
+        self.assertEqual(successful_case.results.count(), 2)
+
+        aggregate = serialize_incremental_panel_results(self.panel)
+        by_scenario = {row['scenario_key']: row['candidates'] for row in aggregate['coordinates']}
+        self.assertEqual(by_scenario['patchwerk'], [
+            {'key': 'baseline', 'dps': 1234.0, 'task_id': successful_task.id},
+            {'key': 'trinket', 'dps': 1300.0, 'task_id': successful_task.id},
+        ])
+        self.assertEqual(by_scenario['failed-coordinate'], [])
+
     def test_incremental_result_projection_scans_finalized_cases_once_for_all_coordinates(self):
         self._published_success()
         SimcBenchmarkScenario.objects.create(
