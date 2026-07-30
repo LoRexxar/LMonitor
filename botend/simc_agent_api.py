@@ -44,6 +44,17 @@ def _no_store(response):
     return response
 
 
+def _agent_maintenance_policy(agent):
+    backend = agent.backend
+    return {
+        'enabled': bool(backend.maintenance_enabled),
+        'policy_revision': int(backend.maintenance_policy_revision),
+        'timezone': 'Asia/Shanghai',
+        'daily_time': backend.maintenance_daily_time,
+        'window_minutes': int(backend.maintenance_window_minutes),
+    }
+
+
 def _agent_response(agent):
     return {
         'id': agent.pk, 'host_identifier': agent.host_identifier,
@@ -82,6 +93,7 @@ class SimcAgentRegisterAPIView(View):
                 settings, 'SIMC_AGENT_HEARTBEAT_INTERVAL_SECONDS', 30
             )),
             'lease_seconds': int(getattr(settings, 'SIMC_AGENT_LEASE_SECONDS', 90)),
+            'agent_maintenance_policy': _agent_maintenance_policy(result.agent),
         }
         if result.agent_token is not None:
             body['agent_token'] = result.agent_token
@@ -98,7 +110,10 @@ class SimcAgentHeartbeatAPIView(View):
             agent = heartbeat_agent(payload, request.headers.get('Authorization', ''))
         except AgentAPIError as exc:
             return _error_response(exc)
-        return _no_store(JsonResponse({'success': True, 'agent': _agent_response(agent)}))
+        return _no_store(JsonResponse({
+            'success': True, 'agent': _agent_response(agent),
+            'agent_maintenance_policy': _agent_maintenance_policy(agent),
+        }))
 
 
 @method_decorator(csrf_exempt, name='dispatch')

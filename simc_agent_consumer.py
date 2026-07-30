@@ -27,7 +27,8 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
@@ -517,6 +518,9 @@ class SimcAgentConsumer:
         self.stop_event = threading.Event()
         self.logger = logging.getLogger(LOGGER_NAME)
         self._last_simc_check = 0.0
+        self._maintenance_slot_path = Path(self.config.token_path).with_name('simc-maintenance-slots.json')
+        self._completed_maintenance_slots = self._load_completed_maintenance_slots()
+        self._maintenance_policy: dict[str, Any] | None = None
         self._lease_block_until = 0.0
         self._active_jobs: dict[int, Future[None]] = {}
         self._active_jobs_lock = threading.Lock()
@@ -764,6 +768,82 @@ class SimcAgentConsumer:
         self.logger.info('SimC revision %s compiled and activated', revision)
         return True
 
+    def _load_completed_maintenance_slots(self) -> set[tuple[int, str]]:
+        try:
+            raw = json.loads(self._maintenance_slot_path.read_text(encoding='utf-8'))
+            if not isinstance(raw, list):
+                return set()
+            return {
+                (item[0], item[1]) for item in raw
+                if isinstance(item, list) and len(item) == 2 and type(item[0]) is int
+                and isinstance(item[1], str) and re.fullmatch(r'\d{4}-\d{2}-\d{2}', item[1])
+            }
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return set()
+
+    def _save_completed_maintenance_slots(self) -> None:
+        self._maintenance_slot_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps([list(slot) for slot in sorted(self._completed_maintenance_slots)[-32:]])
+        temporary = self._maintenance_slot_path.with_name(
+            f'.{self._maintenance_slot_path.name}.{uuid.uuid4().hex}'
+        )
+        try:
+            temporary.write_text(payload, encoding='utf-8')
+            if not _is_windows():
+                os.chmod(temporary, 0o600)
+            os.replace(temporary, self._maintenance_slot_path)
+        finally:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+
+    def _set_maintenance_policy(self, response: dict[str, Any]) -> None:
+        policy = response.get('agent_maintenance_policy')
+        self._maintenance_policy = policy if isinstance(policy, dict) else None
+
+    @staticmethod
+    def _maintenance_slot(policy: dict[str, Any], now: datetime) -> tuple[int, str] | None:
+        if policy.get('enabled') is not True:
+            return None
+        if policy.get('timezone') != 'Asia/Shanghai':
+            return None
+        daily_time = policy.get('daily_time')
+        window_minutes = policy.get('window_minutes')
+        revision = policy.get('policy_revision')
+        if (not isinstance(daily_time, str) or not re.fullmatch(r'(?:[01]\d|2[0-3]):[0-5]\d', daily_time)
+                or type(window_minutes) is not int or not 1 <= window_minutes <= 180
+                or type(revision) is not int or revision < 1):
+            return None
+        local = now.astimezone(ZoneInfo('Asia/Shanghai'))
+        hour, minute = (int(part) for part in daily_time.split(':'))
+        start = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if not start <= local < start + timedelta(minutes=window_minutes):
+            return None
+        return revision, start.date().isoformat()
+
+    def _should_run_scheduled_maintenance(self, policy: dict[str, Any] | None = None,
+                                          *, now: datetime | None = None) -> bool:
+        slot = self._maintenance_slot(policy or self._maintenance_policy or {}, now or datetime.now().astimezone())
+        return slot is not None and slot not in self._completed_maintenance_slots
+
+    def _mark_scheduled_maintenance_complete(self, policy: dict[str, Any] | None = None,
+                                             *, now: datetime | None = None) -> None:
+        slot = self._maintenance_slot(policy or self._maintenance_policy or {}, now or datetime.now().astimezone())
+        if slot is not None:
+            self._completed_maintenance_slots.add(slot)
+            # Policy revisions and dates are tiny, but keep this process-local
+            # cache bounded for agents that run unattended for many months.
+            if len(self._completed_maintenance_slots) > 64:
+                self._completed_maintenance_slots = set(sorted(self._completed_maintenance_slots)[-32:])
+            self._save_completed_maintenance_slots()
+
+    def _run_scheduled_maintenance_if_due(self) -> None:
+        if not self._should_run_scheduled_maintenance():
+            return
+        self._maintain_simc_with_heartbeats(force=True)
+        self._mark_scheduled_maintenance_complete()
+
     def register(self) -> None:
         payload = {**self._report(), 'host_identifier': self.config.host_identifier,
                    'name': self.config.name}
@@ -788,6 +868,7 @@ class SimcAgentConsumer:
         self.heartbeat_interval = self._positive_number(
             response.get('heartbeat_interval_seconds', 30), 'heartbeat_interval_seconds')
         self.lease_seconds = self._positive_number(response.get('lease_seconds', 90), 'lease_seconds')
+        self._set_maintenance_policy(response)
 
     @staticmethod
     def _positive_number(value: Any, name: str) -> float:
@@ -799,8 +880,10 @@ class SimcAgentConsumer:
         payload = self._report(status)
         if maintenance is not None:
             payload['capabilities']['maintenance'] = maintenance
-        self.transport.json(path='/api/simc-agent/v1/heartbeat/', payload=payload,
-                            authorization=self.authorization)
+        response = self.transport.json(path='/api/simc-agent/v1/heartbeat/', payload=payload,
+                                       authorization=self.authorization)
+        if isinstance(response, dict):
+            self._set_maintenance_policy(response)
 
     def claim(self) -> dict[str, Any] | None:
         return self.transport.json(path='/api/simc-agent/v1/jobs/claim/',
@@ -1329,9 +1412,12 @@ class SimcAgentConsumer:
                     return
                 self.stop_event.wait(min(self.config.poll_interval_seconds, lease_wait))
                 continue
+            # Existing binaries remain usable even if the next scheduled
+            # maintenance window later fails.  A task claim never triggers a
+            # version check or rebuild.
             maintenance_error = None
             try:
-                self._maintain_simc_with_heartbeats()
+                self._run_scheduled_maintenance_if_due()
             except Exception as exc:
                 maintenance_error = exc
                 self.logger.exception('SimC maintenance failed: %s', exc)

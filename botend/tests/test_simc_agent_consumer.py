@@ -1,6 +1,8 @@
 import hashlib
 import json
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 import logging
 import os
 import stat
@@ -206,11 +208,31 @@ class SimcAgentConsumerTests(SimpleTestCase):
             )
             consumer.heartbeat = MagicMock()
             consumer.claim = MagicMock(return_value=None)
+            consumer._maintenance_policy = {
+                'enabled': True, 'policy_revision': 1, 'timezone': 'Asia/Shanghai',
+                'daily_time': datetime.now().astimezone(ZoneInfo('Asia/Shanghai')).strftime('%H:%M'),
+                'window_minutes': 60,
+            }
 
             consumer.run(once=True)
 
             consumer.claim.assert_called_once_with()
             consumer.heartbeat.assert_any_call('degraded')
+
+    def test_daily_maintenance_policy_runs_once_only_inside_its_shanghai_slot(self):
+        from datetime import datetime, timezone
+        from simc_agent_consumer import AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(self.config(root)), transport=MagicMock())
+            policy = {'enabled': True, 'policy_revision': 7, 'timezone': 'Asia/Shanghai',
+                      'daily_time': '03:00', 'window_minutes': 60}
+            inside = datetime(2026, 7, 30, 19, 30, tzinfo=timezone.utc)  # 03:30 CST
+            self.assertTrue(consumer._should_run_scheduled_maintenance(policy, now=inside))
+            consumer._mark_scheduled_maintenance_complete(policy, now=inside)
+            self.assertFalse(consumer._should_run_scheduled_maintenance(policy, now=inside))
+            outside = datetime(2026, 7, 30, 17, 0, tzinfo=timezone.utc)  # 01:00 CST
+            self.assertFalse(consumer._should_run_scheduled_maintenance(policy, now=outside))
 
     def test_example_configuration_documents_every_supported_field(self):
         from simc_agent_consumer import AgentConfig
@@ -767,7 +789,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertFalse(any('clean' in command for command in commands))
             execv.assert_called_once()
 
-    def test_legacy_simc_revision_error_does_not_drive_agent_maintenance(self):
+    def test_legacy_simc_revision_error_does_not_trigger_agent_maintenance_on_claim(self):
         from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
 
         with tempfile.TemporaryDirectory() as root:
@@ -791,8 +813,8 @@ class SimcAgentConsumerTests(SimpleTestCase):
                 with self.assertRaisesRegex(APIError, 'SimC update required'):
                     consumer.run(once=True)
 
-            self.assertEqual(maintain.call_count, 1)
-            maintain.assert_any_call()
+            self.assertEqual(maintain.call_count, 0)
+            maintain.assert_not_called()
 
     def test_self_update_still_refuses_an_untrusted_repository_before_forcing_reset(self):
         from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer

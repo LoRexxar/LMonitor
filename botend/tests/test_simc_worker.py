@@ -57,7 +57,9 @@ class SimcWorkerTests(TestCase):
         stale_copy = SimcTask.objects.get(pk=task.pk)
         monitor = SimcMonitor(None, None)
 
-        with patch.object(monitor, 'is_reference_task', return_value=True), \
+        with patch('botend.controller.plugins.simc.SimcMonitor.os.path.isfile', return_value=True), \
+             patch.object(monitor, '_validate_local_simc_binary', return_value=(True, '')), \
+             patch.object(monitor, 'is_reference_task', return_value=True), \
              patch.object(monitor, 'process_reference_task', return_value=True) as process:
             self.assertTrue(monitor.process_simc_task(task))
             self.assertFalse(monitor.process_simc_task(stale_copy))

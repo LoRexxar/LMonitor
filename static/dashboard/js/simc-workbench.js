@@ -901,6 +901,8 @@
         const availableLabel = info.available ? '可用' : '不可用';
         const updateLabel = info.need_update ? '有更新' : '已同步';
         const progress = Number.isFinite(Number(info.update_progress)) ? Math.max(0, Math.min(100, Number(info.update_progress))) : 0;
+        const policy = info.maintenance_policy || {};
+        const maintenanceText = `${policy.enabled === false ? '已停用' : '每日'} ${policy.daily_time || '03:00'} · ${policy.window_minutes || 60} 分钟 · ${policy.timezone || 'Asia/Shanghai'}`;
         host.innerHTML = `<dl class="grid gap-3 md:grid-cols-3">
             <div class="rounded bg-slate-50 p-3">平台<br><b>${esc(info.platform)}</b></div>
             <div class="rounded bg-slate-50 p-3">魔兽世界版本<br><b>${esc(info.game_version || '-')}</b></div>
@@ -909,6 +911,7 @@
             <div class="rounded bg-slate-50 p-3">本地二进制<br><b>${esc(info.binary_name || '-')} · ${esc(availableLabel)}</b></div>
             <div class="rounded bg-slate-50 p-3">源码状态<br><b>${esc(updateLabel)}</b></div>
             <div class="rounded bg-slate-50 p-3">执行状态<br><b>${esc(info.update_status || '未初始化')}</b></div>
+            <div class="rounded bg-violet-50 p-3">每日维护窗口<br><b>${esc(maintenanceText)}</b></div>
         </dl>
         <div class="mt-3 h-2 overflow-hidden rounded bg-slate-200"><div class="h-full bg-blue-600" style="width:${progress}%"></div></div>
         <div class="mt-2 text-xs text-gray-500">进度 ${progress}%${info.is_updating ? ' · 正在执行' : ''}${info.has_error ? ' · 最近一次操作失败，请检查服务端日志' : ''}</div>`;
@@ -917,9 +920,13 @@
             return;
         }
         const disabled = info.is_updating ? 'disabled aria-disabled="true"' : '';
-        actions.innerHTML = `<label class="flex items-center gap-2 text-sm"><input type="checkbox" data-backend-auto-update ${info.auto_update ? 'checked' : ''} ${disabled}>自动更新</label>
+        actions.innerHTML = `<div class="flex flex-wrap items-center gap-3"><label class="flex items-center gap-2 text-sm"><input type="checkbox" data-backend-auto-update ${info.auto_update ? 'checked' : ''} ${disabled}>自动更新</label>
+            <label class="flex items-center gap-2 text-sm"><input type="checkbox" data-backend-maintenance-enabled ${policy.enabled === false ? '' : 'checked'} ${disabled}>每日维护</label>
+            <label class="text-sm">开始 <input type="time" data-backend-maintenance-time value="${esc(policy.daily_time || '03:00')}" ${disabled} class="rounded border px-2 py-1"></label>
+            <label class="text-sm">窗口 <input type="number" min="1" max="180" data-backend-maintenance-window value="${esc(policy.window_minutes || 60)}" ${disabled} class="w-20 rounded border px-2 py-1"> 分钟</label>
+            <button data-backend-action="save-maintenance-schedule" ${disabled} class="rounded border border-violet-300 bg-violet-50 px-4 py-2 text-violet-800 disabled:opacity-50">保存维护窗口</button>
             <button data-backend-action="check" ${disabled} class="rounded border bg-white px-4 py-2 text-slate-700 disabled:opacity-50">检查版本</button>
-            <button data-backend-action="update" ${disabled} class="rounded bg-blue-600 px-4 py-2 text-white disabled:opacity-50">更新并编译</button>`;
+            <button data-backend-action="update" ${disabled} class="rounded bg-blue-600 px-4 py-2 text-white disabled:opacity-50">立即更新并编译</button></div>`;
     }
     async function loadAgents() {
         const host = document.getElementById('simc-agent-list');
@@ -1317,6 +1324,14 @@
                 const actionName = backendAction.dataset.backendAction;
                 if (actionName === 'check' || actionName === 'update') {
                     runBackendAction({ action: actionName }).catch(notify);
+                } else if (actionName === 'save-maintenance-schedule') {
+                    const scope = backendAction.closest('#simc-wb-backend-actions');
+                    const dailyTime = scope?.querySelector('[data-backend-maintenance-time]')?.value || '';
+                    const windowMinutes = Number.parseInt(scope?.querySelector('[data-backend-maintenance-window]')?.value || '', 10);
+                    const enabled = scope?.querySelector('[data-backend-maintenance-enabled]')?.checked === true;
+                    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(dailyTime)) return notify(new Error('维护开始时间必须是 HH:MM'));
+                    if (!Number.isSafeInteger(windowMinutes) || windowMinutes < 1 || windowMinutes > 180) return notify(new Error('维护窗口必须是 1 到 180 分钟'));
+                    runBackendAction({ action: 'set_maintenance_schedule', enabled, daily_time: dailyTime, window_minutes: windowMinutes }).catch(notify);
                 }
             }
             const agentAction = event.target.closest('[data-agent-action]');

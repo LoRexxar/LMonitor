@@ -6673,6 +6673,17 @@ class SimcBackendBinaryAPIView(View):
             'game_version': self._get_game_version(row),
             'need_update': bool(latest_version) and (latest_version != current_version),
             'auto_update': row.auto_update,
+            'maintenance_policy': {
+                'enabled': (getattr(row, 'maintenance_enabled', True)
+                            if type(getattr(row, 'maintenance_enabled', True)) is bool else True),
+                'policy_revision': (getattr(row, 'maintenance_policy_revision', 1)
+                                    if type(getattr(row, 'maintenance_policy_revision', 1)) is int else 1),
+                'timezone': 'Asia/Shanghai',
+                'daily_time': (getattr(row, 'maintenance_daily_time', '03:00')
+                               if isinstance(getattr(row, 'maintenance_daily_time', '03:00'), str) else '03:00'),
+                'window_minutes': (getattr(row, 'maintenance_window_minutes', 60)
+                                   if type(getattr(row, 'maintenance_window_minutes', 60)) is int else 60),
+            },
             'is_updating': row.is_updating,
             'update_progress': row.update_progress,
             'update_status': row.update_status,
@@ -6699,6 +6710,10 @@ class SimcBackendBinaryAPIView(View):
                         'game_version': '',
                         'need_update': False,
                         'auto_update': True,
+                        'maintenance_policy': {
+                            'enabled': True, 'policy_revision': 1, 'timezone': 'Asia/Shanghai',
+                            'daily_time': '03:00', 'window_minutes': 60,
+                        },
                         'is_updating': False,
                         'update_progress': 0,
                         'update_status': '未初始化',
@@ -6743,7 +6758,7 @@ class SimcBackendBinaryAPIView(View):
 
             data = json.loads(request.body or '{}')
             action = (data.get('action') or '').strip()
-            if action not in ('set_auto_update', 'check', 'update'):
+            if action not in ('set_auto_update', 'set_maintenance_schedule', 'check', 'update'):
                 return JsonResponse({'success': False, 'error': '不支持的后端操作'}, status=400)
 
             runtime_platform = self._get_runtime_platform()
@@ -6754,6 +6769,10 @@ class SimcBackendBinaryAPIView(View):
                 row.current_version = ''
                 row.latest_version = ''
                 row.auto_update = True
+                row.maintenance_enabled = True
+                row.maintenance_daily_time = '03:00'
+                row.maintenance_window_minutes = 60
+                row.maintenance_policy_revision = 1
                 row.last_checked_at = None
                 row.last_updated_at = None
                 row.update_progress = 0
@@ -6761,6 +6780,36 @@ class SimcBackendBinaryAPIView(View):
                 row.last_error = ''
                 row.is_updating = False
                 row.save()
+
+            if action == 'set_maintenance_schedule':
+                enabled = self._json_bool(data.get('enabled'), True)
+                daily_time = str(data.get('daily_time') or '').strip()
+                if not re.fullmatch(r'(?:[01]\d|2[0-3]):[0-5]\d', daily_time):
+                    return JsonResponse({'success': False, 'error': 'daily_time 必须是 HH:MM（Asia/Shanghai）'}, status=400)
+                try:
+                    window_minutes = int(data.get('window_minutes'))
+                except (TypeError, ValueError):
+                    return JsonResponse({'success': False, 'error': 'window_minutes 必须是 1 到 180 的整数'}, status=400)
+                if not 1 <= window_minutes <= 180:
+                    return JsonResponse({'success': False, 'error': 'window_minutes 必须是 1 到 180 的整数'}, status=400)
+                changed = (row.maintenance_enabled != enabled
+                           or row.maintenance_daily_time != daily_time
+                           or row.maintenance_window_minutes != window_minutes)
+                row.maintenance_enabled = enabled
+                row.maintenance_daily_time = daily_time
+                row.maintenance_window_minutes = window_minutes
+                if changed:
+                    row.maintenance_policy_revision = int(row.maintenance_policy_revision or 0) + 1
+                row.save(update_fields=[
+                    'maintenance_enabled', 'maintenance_daily_time', 'maintenance_window_minutes',
+                    'maintenance_policy_revision',
+                ])
+                source_dir, build_dir, binary_path = self._resolve_local_build_paths()
+                return JsonResponse({
+                    'success': True,
+                    'message': '每日 SimC 维护窗口已保存（Asia/Shanghai）',
+                    'data': self._serialize_backend_row(row, source_dir, build_dir, binary_path),
+                })
 
             # 处理自动更新开关设置
             if action == 'set_auto_update':

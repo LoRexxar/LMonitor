@@ -182,75 +182,27 @@ class SimcMonitor(BaseScan):
         return True, ''
 
     def ensure_local_simc_backend_current(self):
-        """
-        Only supported update path: check local SimulationCraft git checkout and compile with update_simc_binary.
-        The old nightly-package download/install chain has been removed.
+        """Validate the currently prepared binary without checking or compiling.
+
+        Version discovery and rebuilds are performed only by the configured
+        daily maintenance window; task scheduling must never enter that path.
         """
         row = self._get_backend_row()
         if row.simc_path != self.simc_path:
             row.simc_path = self.simc_path
             row.save(update_fields=['simc_path'])
-
         ok, binary_error = self._validate_local_simc_binary()
-        interval = int(self.simc_config.get('update_check_interval_seconds', 1800) or 1800)
-        now = timezone.now()
-        if ok and row.last_checked_at and (now - row.last_checked_at).total_seconds() < interval:
-            self._set_update_status(row, status=row.update_status or '本地 SimC 可用', progress=100, is_updating=False, last_error='')
+        if ok:
+            self._set_update_status(
+                row, status='本地 SimC 二进制可用', progress=100,
+                is_updating=False, last_error='',
+            )
             return True
-
-        if row.is_updating:
-            logger.info('[SimC Monitor] SimC backend update is already running, skip auto check')
-            return ok
-
-        current_hash = self._get_git_hash('HEAD')
-        upstream_hash = self._get_git_upstream_hash()
-        latest_version = upstream_hash or current_hash
-        need_update = (not ok) or (bool(upstream_hash and current_hash and upstream_hash != current_hash))
-
-        if need_update:
-            if not row.auto_update:
-                msg = binary_error if not ok else f'检测到 SimC 源码更新 {current_hash} -> {upstream_hash}，但自动更新关闭'
-                self._set_update_status(row, status='需要更新', progress=0, is_updating=False, latest_version=latest_version, last_error=msg)
-                if not ok:
-                    return False
-                return True
-            try:
-                logger.info(f"[SimC Monitor] Auto updating local SimC backend: current={current_hash}, upstream={upstream_hash}, binary_ok={ok}")
-                from django.core.management import call_command
-                self._set_update_status(row, status='自动编译更新 SimC', progress=1, is_updating=True, latest_version=latest_version, last_error='')
-                call_command('update_simc_binary', threads=int(self.simc_config.get('compile_threads', 2) or 2), no_pull=False, check=False)
-                ok, binary_error = self._validate_local_simc_binary()
-                if not ok:
-                    self._set_update_status(row, status='自动编译后验证失败', progress=0, is_updating=False, last_error=binary_error)
-                    return False
-                row = self._get_backend_row()
-                row.simc_path = self.simc_path
-                row.save(update_fields=['simc_path'])
-                return True
-            except Exception as e:
-                err = str(e)
-                if ok:
-                    self._set_update_status(
-                        row,
-                        status='自动更新失败，继续使用现有 SimC 二进制',
-                        progress=100,
-                        is_updating=False,
-                        last_error=err,
-                    )
-                    upsert_system_alert(
-                        'SIMC_UPDATE_FAILED', self._get_runtime_platform(), 3,
-                        'SimC 自动更新失败，已回退到现有二进制', err,
-                    )
-                    logger.error(f"[SimC Monitor] Auto update failed; keeping usable local SimC binary: {err}")
-                    return True
-                self._set_update_status(row, status='自动编译失败', progress=0, is_updating=False, last_error=err)
-                upsert_system_alert('SIMC_UPDATE_FAILED', self._get_runtime_platform(), 3, 'SimC 自动更新失败', err)
-                logger.error(f"[SimC Monitor] Auto update local SimC backend failed: {err}")
-                return False
-
-        status = f'本地 SimC 已是最新 {current_hash}' if current_hash else '本地 SimC 可用'
-        self._set_update_status(row, status=status, progress=100, is_updating=False, latest_version=latest_version, current_version=current_hash or row.current_version, last_error='')
-        return True
+        self._set_update_status(
+            row, status='等待每日维护窗口', progress=0,
+            is_updating=False, last_error=binary_error,
+        )
+        return False
 
     def _save_task_fields(self, simc_task, field_names):
         """Persist Task fields only while this monitor still owns its running lease."""
@@ -904,6 +856,11 @@ class SimcMonitor(BaseScan):
                 return False
             self._active_claim_task_id = simc_task.pk
             self._active_claim_started_at = simc_task.started_at
+            # Binary maintenance belongs exclusively to the configured daily
+            # maintenance window.  Claimed work may only use the ready binary.
+            if not self.simc_path or not os.path.isfile(self.simc_path):
+                self.mark_task_failed(simc_task, 'SimC 二进制不可用；请等待每日维护窗口完成编译')
+                return False
             self.clear_simc_error_details(simc_task)
             if not self._save_task_fields(simc_task, ['ext']):
                 return False

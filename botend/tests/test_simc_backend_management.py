@@ -341,3 +341,49 @@ class SimcBackendManagementSecurityTests(unittest.TestCase):
         data = json.loads(response.content)
         self.assertFalse(data['success'])
         self.assertIn('不支持', data['error'])
+
+    @patch('botend.dashboard.api.SimcBackendBinary.objects')
+    def test_staff_can_configure_daily_maintenance_window(self, mock_objects):
+        """The dashboard persists a Shanghai daily maintenance slot, not an interval."""
+        mock_row = Mock()
+        mock_row.simc_path = ''
+        mock_row.platform = 'linux64'
+        mock_row.auto_update = True
+        mock_row.current_version = mock_row.latest_version = ''
+        mock_row.is_updating = False
+        mock_row.update_progress = 0
+        mock_row.update_status = 'idle'
+        mock_row.last_error = ''
+        mock_row.last_checked_at = mock_row.last_updated_at = None
+        mock_row.maintenance_enabled = True
+        mock_row.maintenance_daily_time = '03:00'
+        mock_row.maintenance_window_minutes = 60
+        mock_row.maintenance_policy_revision = 1
+        mock_objects.filter.return_value.first.return_value = mock_row
+        request = self.factory.post(
+            '/api/simc-backend-binary/',
+            data=json.dumps({'action': 'set_maintenance_schedule', 'enabled': True,
+                             'daily_time': '03:30', 'window_minutes': 45}),
+            content_type='application/json',
+        )
+        request.user = self.staff_user
+        response = self.view_class().post(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_row.maintenance_daily_time, '03:30')
+        self.assertEqual(mock_row.maintenance_window_minutes, 45)
+        self.assertEqual(mock_row.maintenance_policy_revision, 2)
+        self.assertIn('maintenance_policy', json.loads(response.content)['data'])
+
+    @patch('botend.dashboard.api.SimcBackendBinary.objects')
+    def test_maintenance_schedule_rejects_invalid_clock_or_window(self, mock_objects):
+        mock_row = Mock(pk=1, platform='linux64')
+        mock_objects.filter.return_value.first.return_value = mock_row
+        request = self.factory.post(
+            '/api/simc-backend-binary/',
+            data=json.dumps({'action': 'set_maintenance_schedule', 'enabled': True,
+                             'daily_time': '25:00', 'window_minutes': 0}),
+            content_type='application/json',
+        )
+        request.user = self.staff_user
+        response = self.view_class().post(request)
+        self.assertEqual(response.status_code, 400)
