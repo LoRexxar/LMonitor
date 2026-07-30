@@ -410,7 +410,14 @@ def request_report_upload(run_id, payload, authorization):
         agent = authenticate_bearer(authorization, lock=True)
         if agent.pk != discovered_agent.pk:
             raise AgentAPIError('Agent identity changed during report upload request', 409)
-        if task.execution_owner != SimcTask.EXECUTION_OWNER_AGENT or run.status != 'running':
+        if task.execution_owner != SimcTask.EXECUTION_OWNER_AGENT:
+            raise AgentAPIError('Task is not agent-owned', 409)
+        # A completed Run already has its one authoritative result.  A delayed
+        # report retry is harmless but must not be signed again or left retrying
+        # forever just because the original Agent identity later changed.
+        if run.status in TERMINAL:
+            return {'run_id': run.pk, 'status': run.status, 'already_completed': True}
+        if run.status != 'running':
             raise AgentAPIError('Run is not running', 409)
         now = timezone.now()
         _validate_fence(run, agent, payload.get('lease_token'), payload.get('instance_id'), now)
@@ -530,15 +537,16 @@ def complete_run(run_id, metadata, authorization):
     task_id = run_for_key.task_id
     if run_for_key.task.execution_owner != SimcTask.EXECUTION_OWNER_AGENT:
         raise AgentAPIError('Task is not agent-owned', 409)
+    # A terminal Run is immutable: the first valid completion won.  Any later
+    # completion is only a duplicate acknowledgement so an Agent can discard a
+    # locally durable outbox entry; it must not re-validate its old lease or
+    # overwrite the authoritative result.
+    if run_for_key.status in TERMINAL:
+        return {'run_id': run_for_key.pk, 'status': run_for_key.status, 'idempotent': True}
     _validate_fence(
         run_for_key, discovered_agent, metadata['lease_token'], metadata['instance_id'],
-        timezone.now(), require_unexpired=run_for_key.status == 'running',
+        timezone.now(), require_unexpired=True,
     )
-    if run_for_key.status in TERMINAL:
-        if (run_for_key.completion_id == metadata['completion_id']
-                and run_for_key.status == status):
-            return {'run_id': run_for_key.pk, 'status': run_for_key.status, 'idempotent': True}
-        raise AgentAPIError('Completion conflict', 409)
     if run_for_key.status != 'running':
         raise AgentAPIError('Run is not running', 409)
 
@@ -573,14 +581,11 @@ def complete_run(run_id, metadata, authorization):
             raise AgentAPIError('Agent identity changed during completion', 409)
         if task.execution_owner != SimcTask.EXECUTION_OWNER_AGENT:
             raise AgentAPIError('Task is not agent-owned', 409)
+        if run.status in TERMINAL:
+            return {'run_id': run.pk, 'status': run.status, 'idempotent': True}
         now = timezone.now()
         _validate_fence(run, agent, metadata['lease_token'], metadata['instance_id'], now,
-                        require_unexpired=run.status == 'running')
-        if run.status in TERMINAL:
-            if (run.completion_id == metadata['completion_id']
-                    and run.status == status):
-                return {'run_id': run.pk, 'status': run.status, 'idempotent': True}
-            raise AgentAPIError('Completion conflict', 409)
+                        require_unexpired=True)
         if run.status != 'running':
             raise AgentAPIError('Run is not running', 409)
 

@@ -411,8 +411,8 @@ class SimcAgentJobAPITests(TestCase):
 
     def test_complete_success_artifact_dps_and_idempotency(self):
         job = self.claim_after_task()
-        response = self.complete(job)
-        self.assertEqual(response.status_code, 200, response.content)
+        first = self.complete(job)
+        self.assertEqual(first.status_code, 200, first.content)
         run = SimulationRun.objects.get(pk=job['run_id'])
         self.assertEqual(run.status, 'completed')
         self.assertEqual(run.result_summary['dps'], 1234.0)
@@ -423,8 +423,34 @@ class SimcAgentJobAPITests(TestCase):
         )
         self.assertEqual(self.complete(job).status_code, 200)
         self.assertEqual(SimcTaskArtifact.objects.filter(run=run).count(), 1)
-        self.assertEqual(self.complete(job, status='failed').status_code, 409)
-        self.assertEqual(self.complete(job, completion_id='different').status_code, 409)
+        duplicate = self.complete(job, status='failed', completion_id='different', token=self.other_token)
+        self.assertEqual(duplicate.status_code, 200, duplicate.content)
+        self.assertEqual(duplicate.json(), {
+            'run_id': job['run_id'], 'status': 'completed', 'idempotent': True,
+        })
+        upload = self.post_json(
+            f"/api/simc-agent/v1/jobs/{job['run_id']}/report-upload/",
+            {
+                'lease_token': job['lease_token'], 'instance_id': 'instance-a',
+                'size': 16, 'sha256': 'a' * 64,
+                'content_md5': 'MDEyMzQ1Njc4OUFCQ0RFRg==',
+            }, self.other_token,
+        )
+        self.assertEqual(upload.status_code, 200, upload.content)
+        self.assertEqual(upload.json(), {
+            'run_id': job['run_id'], 'status': 'completed', 'already_completed': True,
+        })
+        self.assertEqual(SimcTaskArtifact.objects.filter(run=run).count(), 1)
+
+        # A later Agent identity cannot forge or take over a *running* Run.
+        # It only receives the terminal idempotent acknowledgement above.
+        replacement_agent, replacement_token = self.agent_row(self.backend, 'replacement')
+        recovered_job = self.claim_after_task()
+        recovered = self.complete(recovered_job, completion_id='recovered', token=replacement_token)
+        self.assertEqual(recovered.status_code, 403, recovered.content)
+        recovered_run = SimulationRun.objects.get(pk=recovered_job['run_id'])
+        self.assertEqual(recovered_run.status, 'running')
+        self.assertEqual(recovered_run.lease_agent_id, self.agent.pk)
 
         from botend.dashboard.api import SimcWorkbenchAPIView
         with override_settings(OSS_CONFIG={'base_url': 'https://reports.example'}):

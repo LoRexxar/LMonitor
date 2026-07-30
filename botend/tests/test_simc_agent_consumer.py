@@ -1418,6 +1418,27 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertEqual(payload['status'], 'failed')
             self.assertEqual(len(list(outbox.glob('*.json'))), 0)
 
+    def test_completion_outbox_discards_entry_when_report_upload_confirms_run_completed(self):
+        from simc_agent_consumer import AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            self.write_token(values, 'token')
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=MagicMock())
+            consumer._save_completion_outbox(
+                23,
+                {'lease_token': 'lease', 'instance_id': consumer.instance_id,
+                 'completion_id': 'd' * 32, 'status': 'completed',
+                 'stdout': 'DPS=1', 'stderr': '', 'report': None},
+                report_name='simc_task_1_run_23.html', report_bytes=b'<html>report</html>',
+            )
+            with patch.object(consumer, '_upload_report', return_value=None) as upload:
+                self.assertTrue(consumer.flush_completion_outbox())
+
+            upload.assert_called_once()
+            self.assertEqual(len(list(consumer.completion_outbox_path.glob('*.json'))), 0)
+            consumer.transport.json.assert_not_called()
+
     def test_completion_outbox_persists_report_when_upload_is_unavailable(self):
         from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
 

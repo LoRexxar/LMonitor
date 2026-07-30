@@ -1236,6 +1236,10 @@ class SimcAgentConsumer:
                     self.logger.warning('completion outbox report upload still pending for Run %s: %s', run_id, exc)
                     delivered = False
                     continue
+                if report is None:
+                    path.unlink()
+                    self.logger.info('discarded already-completed outbox entry for Run %s', run_id)
+                    continue
                 metadata['report'] = report
                 self._save_completion_outbox(
                     run_id, metadata, report_name=report_name, report_bytes=report_bytes,
@@ -1269,7 +1273,7 @@ class SimcAgentConsumer:
         return False
 
     def _upload_report(self, run_id: int, lease_token: str,
-                       report_bytes: bytes, report_name: str) -> dict[str, Any]:
+                       report_bytes: bytes, report_name: str) -> dict[str, Any] | None:
         sha256 = hashlib.sha256(report_bytes).hexdigest()
         content_md5 = base64.b64encode(
             hashlib.md5(report_bytes, usedforsecurity=False).digest()
@@ -1286,6 +1290,8 @@ class SimcAgentConsumer:
                     path=f'/api/simc-agent/v1/jobs/{run_id}/report-upload/',
                     payload=payload, authorization=self.authorization,
                 )
+                if isinstance(ticket, dict) and ticket.get('already_completed') is True:
+                    return None
                 if not isinstance(ticket, dict):
                     raise APIError('control plane returned an invalid OSS upload ticket')
                 object_key = ticket.get('object_key')
@@ -1325,6 +1331,9 @@ class SimcAgentConsumer:
                 report = self._upload_report(
                     run_id, lease_token, report_bytes, report_name,
                 )
+                if report is None:
+                    self.logger.info('Run %s was already completed; discarding duplicate completion', run_id)
+                    return
             except Exception as exc:
                 # Preserve the successful simulation and its report locally.  A
                 # later outbox drain retries the upload before reporting terminal
