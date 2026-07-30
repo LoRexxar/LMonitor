@@ -853,8 +853,27 @@ class SimcAgentConsumer:
         branch = git('branch', '--show-current', timeout=30).stdout.strip()
         if branch != UPDATE_BRANCH:
             raise APIError(f'automatic Agent update requires the {UPDATE_BRANCH} branch')
-        self.logger.info('fast-forwarding Agent checkout to %s', required_revision or required_version)
-        git('pull', '--ff-only', '--force', 'origin', UPDATE_BRANCH, timeout=120)
+        # An Agent checkout is disposable code, but its operator may have left
+        # configuration or diagnostics beside it.  Preserve every tracked and
+        # untracked local change in Git's local stash before replacing the code.
+        # Never commit those files or push them to the trusted upstream.
+        changes = git('status', '--porcelain', '--untracked-files=all', timeout=30).stdout
+        if changes.strip():
+            self.logger.warning('preserving local Agent checkout changes in a pre-update stash')
+            git('stash', 'push', '--include-untracked', '--message',
+                'lmonitor-agent-pre-update', timeout=120)
+        self.logger.info('replacing Agent checkout with required revision %s', required_revision or required_version)
+        git('fetch', '--force', 'origin', UPDATE_BRANCH, timeout=120)
+        if required_revision is not None:
+            fetched_revision = git('rev-parse', f'origin/{UPDATE_BRANCH}', timeout=30).stdout.strip()
+            if fetched_revision != required_revision:
+                raise APIError(
+                    f'Git fetch completed but origin/{UPDATE_BRANCH} is {fetched_revision or "unknown"}, '
+                    f'expected {required_revision}',
+                )
+            git('reset', '--hard', required_revision, timeout=120)
+        else:
+            git('pull', '--ff-only', '--force', 'origin', UPDATE_BRANCH, timeout=120)
         try:
             source = target.read_text(encoding='utf-8')
         except (OSError, UnicodeError) as exc:

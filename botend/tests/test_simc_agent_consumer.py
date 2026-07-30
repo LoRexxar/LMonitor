@@ -709,7 +709,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
                 'protocol_version': PROTOCOL_VERSION,
             })
 
-    def test_update_required_claim_forces_fast_forward_pull_without_reset_or_clean(self):
+    def test_update_required_claim_stashes_local_changes_then_resets_to_required_revision(self):
         from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
 
         with tempfile.TemporaryDirectory() as root:
@@ -726,7 +726,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
                 None,
                 APIError(
                     'Agent update required', 426,
-                    {'code': 'agent_update_required', 'required_version': '1.3.3'},
+                    {'code': 'agent_update_required', 'required_revision': 'b' * 40},
                 ),
             ]
             consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=transport)
@@ -737,9 +737,15 @@ class SimcAgentConsumerTests(SimpleTestCase):
                     stdout = 'https://github.com/LoRexxar/LMonitor.git\n'
                 elif command[-2:] == ['branch', '--show-current']:
                     stdout = 'master\n'
+                elif command[-3:] == ['status', '--porcelain', '--untracked-files=all']:
+                    stdout = '?? agent-local.log\n'
+                elif command[-2:] == ['rev-parse', 'origin/master']:
+                    stdout = ('b' * 40) + '\n'
                 return MagicMock(returncode=0, stdout=stdout, stderr='')
 
             with patch('simc_agent_consumer.__file__', str(Path(root) / 'simc_agent_consumer.py')), patch(
+                'simc_agent_consumer.agent_revision', return_value='b' * 40,
+            ), patch(
                 'simc_agent_consumer.subprocess.run', side_effect=git_result,
             ) as run_git, patch(
                 'simc_agent_consumer.os.execv', side_effect=RuntimeError('reexec'),
@@ -749,9 +755,16 @@ class SimcAgentConsumerTests(SimpleTestCase):
 
             commands = [call.args[0] for call in run_git.call_args_list]
             self.assertIn(
-                ['git', '-C', root, 'pull', '--ff-only', '--force', 'origin', 'master'], commands,
+                ['git', '-C', root, 'stash', 'push', '--include-untracked',
+                 '--message', 'lmonitor-agent-pre-update'], commands,
             )
-            self.assertFalse(any('reset' in command or 'clean' in command for command in commands))
+            self.assertIn(
+                ['git', '-C', root, 'fetch', '--force', 'origin', 'master'], commands,
+            )
+            self.assertIn(
+                ['git', '-C', root, 'reset', '--hard', 'b' * 40], commands,
+            )
+            self.assertFalse(any('clean' in command for command in commands))
             execv.assert_called_once()
 
     def test_legacy_simc_revision_error_does_not_drive_agent_maintenance(self):
