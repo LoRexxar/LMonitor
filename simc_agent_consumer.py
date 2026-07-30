@@ -11,7 +11,6 @@ import base64
 import shutil
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 import hashlib
-import hmac
 import ipaddress
 import json
 import logging
@@ -529,8 +528,10 @@ class HTTPTransport:
 
 
 class SimcAgentConsumer:
-    def __init__(self, config: AgentConfig, transport: HTTPTransport | None = None):
+    def __init__(self, config: AgentConfig, transport: HTTPTransport | None = None,
+                 *, config_path: str | None = None):
         self.config = config
+        self.config_path = Path(config_path).expanduser().resolve() if config_path else None
         self.transport = transport or HTTPTransport(config.server_url, config.request_timeout_seconds)
         self.instance_id = uuid.uuid4().hex
         self.agent_token = self._read_token()
@@ -576,62 +577,23 @@ class SimcAgentConsumer:
         except (OSError, UnicodeError) as exc:
             raise ConfigError(f'cannot read token file: {exc}') from exc
 
-    def _enrollment_marker_path(self) -> Path:
-        return Path(self.config.token_path).with_name('enrollment-token.sha256')
+    def _consume_enrollment_token(self) -> None:
+        """Remove a successfully consumed one-time code from the owned config.
 
-    def _read_enrollment_marker(self) -> str:
-        path = self._enrollment_marker_path()
-        try:
-            if path.is_symlink():
-                raise ConfigError('enrollment marker file must not be a symbolic link')
-            value = path.read_text(encoding='ascii').strip()
-        except FileNotFoundError:
-            return ''
-        except (OSError, UnicodeError) as exc:
-            raise ConfigError(f'cannot read enrollment marker file: {exc}') from exc
-        if value and not re.fullmatch(r'[0-9a-f]{64}', value):
-            raise ConfigError('enrollment marker file is invalid')
-        return value
-
-    def _save_enrollment_marker(self) -> None:
-        path = self._enrollment_marker_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if path.is_symlink():
-            raise ConfigError('enrollment marker file must not be a symbolic link')
-        marker = hashlib.sha256(self.config.enrollment_token.encode('utf-8')).hexdigest()
-        fd, temporary = tempfile.mkstemp(prefix=f'.{path.name}.', dir=str(path.parent))
-        try:
-            if not _is_windows():
-                os.fchmod(fd, 0o600)
-            written = 0
-            encoded = marker.encode('ascii')
-            while written < len(encoded):
-                count = os.write(fd, encoded[written:])
-                if count <= 0:
-                    raise OSError('short write while saving enrollment marker')
-                written += count
-            os.fsync(fd)
-            os.close(fd)
-            fd = -1
-            if path.is_symlink():
-                raise ConfigError('enrollment marker file must not be a symbolic link')
-            os.replace(temporary, path)
-            _fsync_directory(path.parent)
-        finally:
-            if fd >= 0:
-                os.close(fd)
-            try:
-                os.unlink(temporary)
-            except FileNotFoundError:
-                pass
-
-    def _enrollment_token_changed(self) -> tuple[bool, bool]:
-        """Return ``(should_enroll, legacy_marker_missing)`` for this startup."""
+        Runtime state stays limited to the configured token/outbox/log paths.  A
+        code is only removed after the control plane has issued and durably
+        stored its replacement Bearer token.
+        """
         if not self.config.enrollment_token:
-            return False, False
-        marker = self._read_enrollment_marker()
-        desired = hashlib.sha256(self.config.enrollment_token.encode('utf-8')).hexdigest()
-        return (bool(marker) and not hmac.compare_digest(marker, desired)), not bool(marker)
+            return
+        if self.config_path is None:
+            # Unit callers may construct an in-memory config; production main()
+            # always supplies the owned path and persists this consumption.
+            self.config = AgentConfig.from_dict({**self.config.__dict__, 'enrollment_token': ''})
+            return
+        values = {**self.config.__dict__, 'enrollment_token': ''}
+        _write_private_json(self.config_path, values)
+        self.config = AgentConfig.from_dict(values)
 
     def _save_token(self, token: str) -> None:
         path = Path(self.config.token_path)
@@ -957,8 +919,7 @@ class SimcAgentConsumer:
             payload['backend_identifier'] = self.config.backend_identifier
         payload.pop('status')
         had_persisted_token = bool(self.agent_token)
-        should_enroll, legacy_marker_missing = self._enrollment_token_changed()
-        use_enrollment = not self.agent_token or should_enroll
+        use_enrollment = bool(self.config.enrollment_token)
         if not self.agent_token and not use_enrollment:
             raise ConfigError('enrollment_token is required for first registration')
         try:
@@ -967,28 +928,15 @@ class SimcAgentConsumer:
                 authorization=('Enrollment ' + self.config.enrollment_token
                                if use_enrollment else self.authorization),
             )
-        except APIError as exc:
-            # A configuration-supplied enrollment code is an explicit request
-            # to rotate the credential.  It is attempted before any Bearer
-            # request so an operator never has to wait for or act on a 401.
-            # Do not erase a working token until the control plane accepted
-            # the new code and returned its replacement.
-            if exc.status != 401 or not had_persisted_token or use_enrollment:
-                raise
-            if legacy_marker_missing and self.config.enrollment_token:
-                self.logger.warning('persisted Agent token was rejected; attempting one-time enrollment recovery')
-                response = self.transport.json(
-                    path='/api/simc-agent/v1/register/', payload=payload,
-                    authorization='Enrollment ' + self.config.enrollment_token,
-                )
-                use_enrollment = True
-            else:
-                raise ConfigError(
-                    'persisted agent token was rejected; replace enrollment_token with a fresh code to recover it',
-                ) from exc
+        except APIError:
+            # A supplied one-time code is attempted before any Bearer request.
+            # Preserve an existing token if enrollment is rejected.
+            raise
         if not response:
             raise APIError('registration returned an empty response')
         issued = response.get('agent_token')
+        if use_enrollment and (type(issued) is not str or not issued):
+            raise APIError('enrollment registration returned an invalid agent token')
         if issued is not None:
             if self.agent_token and not had_persisted_token:
                 raise APIError('control plane unexpectedly rotated an existing token')
@@ -996,8 +944,8 @@ class SimcAgentConsumer:
                 raise APIError('registration returned an invalid agent token')
             self._save_token(issued)
             self.agent_token = issued
-        if self.config.enrollment_token:
-            self._save_enrollment_marker()
+        if use_enrollment:
+            self._consume_enrollment_token()
         self.heartbeat_interval = self._positive_number(
             response.get('heartbeat_interval_seconds', 30), 'heartbeat_interval_seconds')
         self.lease_seconds = self._positive_number(response.get('lease_seconds', 90), 'lease_seconds')
@@ -1640,7 +1588,7 @@ def main() -> int:
             Path(config.token_path).with_name('simc-agent.log')
         )
         logger = configure_logging(log_path)
-        consumer = SimcAgentConsumer(config)
+        consumer = SimcAgentConsumer(config, config_path=args.config)
         signal.signal(signal.SIGINT, consumer.stop)
         signal.signal(signal.SIGTERM, consumer.stop)
         consumer.run(once=args.once)
