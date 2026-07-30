@@ -146,7 +146,10 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertNotEqual(rerun_execution.id, failed_execution.id)
         self.assertEqual(rerun_case.task.source_task_id, failed_task.id)
         self.assertEqual(rerun_case.task.current_status, 0)
-        self.assertEqual(rerun_case.task.simulation_runs.count(), 0)
+        self.assertEqual(
+            list(rerun_case.task.simulation_runs.values_list('candidate_key', 'status')),
+            [('baseline', 'pending'), ('trinket', 'pending')],
+        )
         self.assertEqual(
             SimcTask.objects.filter(source_task=failed_task).count(), 1,
         )
@@ -208,6 +211,66 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(SimcTask.objects.count(), 1)
         aggregate = serialize_incremental_panel_results(self.panel)
         self.assertEqual(aggregate['coordinates'][0]['candidates'][0]['task_id'], original_case.task_id)
+
+    def test_running_execution_persists_complete_case_results_for_incremental_aggregation(self):
+        SimcBenchmarkScenario.objects.create(
+            panel=self.panel, key='pending-coordinate', name='Pending coordinate',
+            simulation_params={'iterations': 2000},
+        )
+        execution = self._create()
+        cases = {case.scenario_key: case for case in execution.cases.select_related('task')}
+        successful_case = cases['patchwerk']
+        successful_task = successful_case.task
+        successful_task.current_status = 2
+        successful_task.save(update_fields=['current_status'])
+        self._run(successful_task, 1, 'completed', 'baseline', dps=1234)
+        self._run(successful_task, 2, 'completed', 'trinket', dps=1300)
+
+        reconcile_execution(execution)
+        execution.refresh_from_db()
+
+        self.assertEqual(execution.status, SimcBenchmarkExecution.STATUS_RUNNING)
+        self.assertEqual(successful_case.results.count(), 2)
+        aggregate = serialize_incremental_panel_results(self.panel)
+        by_scenario = {row['scenario_key']: row['candidates'] for row in aggregate['coordinates']}
+        self.assertEqual(by_scenario['patchwerk'], [
+            {'key': 'baseline', 'dps': 1234.0, 'task_id': successful_task.id},
+            {'key': 'trinket', 'dps': 1300.0, 'task_id': successful_task.id},
+        ])
+        self.assertEqual(by_scenario['pending-coordinate'], [])
+
+    def test_partial_execution_persists_complete_case_results_for_incremental_aggregation(self):
+        SimcBenchmarkScenario.objects.create(
+            panel=self.panel, key='failed-coordinate', name='Failed coordinate',
+            simulation_params={'iterations': 2000},
+        )
+        execution = self._create()
+        cases = {case.scenario_key: case for case in execution.cases.select_related('task')}
+        successful_case = cases['patchwerk']
+        failed_case = cases['failed-coordinate']
+        successful_task = successful_case.task
+        successful_task.current_status = 2
+        successful_task.save(update_fields=['current_status'])
+        self._run(successful_task, 1, 'completed', 'baseline', dps=1234)
+        self._run(successful_task, 2, 'completed', 'trinket', dps=1300)
+        failed_task = failed_case.task
+        failed_task.current_status = 3
+        failed_task.save(update_fields=['current_status'])
+        self._run(failed_task, 1, 'failed', 'baseline')
+
+        reconcile_execution(execution)
+        execution.refresh_from_db()
+
+        self.assertEqual(execution.status, SimcBenchmarkExecution.STATUS_PARTIAL)
+        self.assertEqual(successful_case.results.count(), 2)
+        self.assertFalse(failed_case.results.exists())
+        aggregate = serialize_incremental_panel_results(self.panel)
+        by_scenario = {row['scenario_key']: row['candidates'] for row in aggregate['coordinates']}
+        self.assertEqual(by_scenario['patchwerk'], [
+            {'key': 'baseline', 'dps': 1234.0, 'task_id': successful_task.id},
+            {'key': 'trinket', 'dps': 1300.0, 'task_id': successful_task.id},
+        ])
+        self.assertEqual(by_scenario['failed-coordinate'], [])
 
     def test_success_is_persisted_and_frozen_from_task_run_mutation(self):
         execution = self._published_success()
@@ -525,6 +588,33 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(result['cases'][0]['runs'], [])
         self.assertIsNone(result['cases'][0]['error'])
         self.assertNotIn('file_path', repr(result))
+
+    def test_partial_case_rerun_reuses_completed_runs_and_only_schedules_failed_candidates(self):
+        execution = self._create()
+        task = execution.cases.get().task
+        task.current_status = 3
+        task.save(update_fields=['current_status'])
+        completed = self._run(task, 1, 'completed', 'baseline', dps=1234)
+        failed = self._run(task, 2, 'failed', 'trinket')
+        reconcile_execution(execution)
+
+        rerun_execution = rerun_failed_cases(execution, requested_by=self.user_id)
+        rerun_case = rerun_execution.cases.get()
+        rerun_task = rerun_case.task
+
+        self.assertEqual(rerun_execution.config_snapshot['case_count'], 1)
+        self.assertEqual(rerun_execution.cases.count(), execution.cases.count())
+        self.assertEqual(rerun_task.source_task_id, task.id)
+        self.assertEqual(
+            [candidate['candidate_key'] for candidate in rerun_task.mode_params['initial_candidates']],
+            ['baseline', 'trinket'],
+        )
+        self.assertEqual(
+            list(rerun_task.simulation_runs.values_list('candidate_key', 'status', 'result_summary')),
+            [('baseline', 'completed', {'dps': 1234}), ('trinket', 'pending', None)],
+        )
+        self.assertEqual(SimulationRun.objects.filter(pk=completed.pk).count(), 1)
+        self.assertEqual(SimulationRun.objects.filter(pk=failed.pk).count(), 1)
 
     def test_success_task_with_mixed_terminal_runs_is_partial_and_not_published(self):
         execution = self._create()

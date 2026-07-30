@@ -185,9 +185,10 @@ def _reusable_candidate_tasks(panel, coordinate):
     candidates = {}
     cases = SimcBenchmarkCase.objects.filter(
         execution__panel_id=panel.pk,
-        execution__status=SimcBenchmarkExecution.STATUS_SUCCESS,
-        execution__results_finalized_at__isnull=False,
-    ).select_related('task').prefetch_related('results').order_by('-execution_id', '-id')
+        results__isnull=False,
+    ).select_related('task', 'execution').prefetch_related('results').order_by(
+        '-execution_id', '-id',
+    ).distinct()
     target_coordinate = _coordinate_input_identity(coordinate)
     for case in cases:
         task = case.task
@@ -387,8 +388,35 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
         return execution
 
 
+def _copy_runs_for_retry(source_task, rerun_task):
+    """Seed immutable completed Runs and requeue every other frozen simulation."""
+    source_runs = list(SimulationRun.objects.filter(
+        task_id=source_task.pk,
+    ).order_by('sequence', 'id'))
+    expected = _expected_candidate_keys(source_task) or []
+    by_key = {run.candidate_key: run for run in source_runs}
+    retry_runs = []
+    for sequence, candidate_key in enumerate(expected, start=1):
+        run = by_key.get(candidate_key)
+        completed = run is not None and run.status == 'completed'
+        retry_runs.append(SimulationRun(
+            task=rerun_task, sequence=sequence,
+            candidate_key=candidate_key,
+            candidate_label=run.candidate_label if run else candidate_key,
+            round_number=run.round_number if run else 1,
+            candidate_params=deepcopy(run.candidate_params) if run else {},
+            status='completed' if completed else 'pending',
+            input_hash=run.input_hash if completed else '',
+            resource_manifest=deepcopy(run.resource_manifest) if completed else None,
+            result_summary=deepcopy(run.result_summary) if completed else None,
+            started_at=run.started_at if completed else None,
+            completed_at=run.completed_at if completed else None,
+        ))
+    SimulationRun.objects.bulk_create(retry_runs)
+
+
 def rerun_failed_cases(execution, requested_by=None):
-    """Create an independent Execution containing only terminal failed/cancelled Cases."""
+    """Create a full-coordinate retry Execution; only unsuccessful Runs are scheduled."""
     requester_id = getattr(requested_by, 'id', requested_by)
     with transaction.atomic():
         source = SimcBenchmarkExecution.objects.select_for_update().get(pk=execution.pk)
@@ -411,13 +439,11 @@ def rerun_failed_cases(execution, requested_by=None):
             if active and active.completed_at is None:
                 raise BenchmarkExecutionConflict('Panel already has an unfinished benchmark execution')
 
-        snapshot = deepcopy(source.config_snapshot)
         source_cases = {(case.spec_key, case.scenario_key, case.profile_key): case
-                        for case in failed_cases}
-        snapshot['cases'] = [case for case in snapshot.get('cases', [])
-                             if (case.get('spec_key'), case.get('scenario_key'), case.get('profile_key'))
-                             in source_cases]
-        snapshot['case_count'] = len(snapshot['cases'])
+                        for case in SimcBenchmarkCase.objects.filter(execution=source)
+                        .select_related('task').order_by('id')}
+        snapshot = deepcopy(source.config_snapshot)
+        snapshot['case_count'] = len(snapshot.get('cases', []))
         snapshot['run_count'] = sum(len(case['candidate_keys']) for case in snapshot['cases'])
         new_execution = SimcBenchmarkExecution.objects.create(
             panel=panel, trigger=SimcBenchmarkExecution.TRIGGER_MANUAL,
@@ -429,6 +455,8 @@ def rerun_failed_cases(execution, requested_by=None):
             source_case = source_cases[(
                 case_data['spec_key'], case_data['scenario_key'], case_data['profile_key'],
             )]
+            if source_case.task_id is None:
+                _validation_error('失败子任务缺少冻结任务', 'execution')
             try:
                 task = create_rerun(
                     source_task_id=source_case.task_id,
@@ -436,8 +464,11 @@ def rerun_failed_cases(execution, requested_by=None):
                 )
             except TaskRerunError as exc:
                 _validation_error(str(exc), 'execution')
+            # Retain the frozen manifest. Completed Run snapshots are seeded as
+            # completed; every other original Run becomes pending for the Worker.
             task.name = _task_name(panel.pk, new_execution.pk, case_data)
             task.save(update_fields=['name'])
+            _copy_runs_for_retry(source_case.task, task)
             SimcBenchmarkCase.objects.create(
                 execution=new_execution, task=task,
                 spec_key=source_case.spec_key, scenario_key=source_case.scenario_key,
@@ -851,10 +882,15 @@ def summarize_execution(execution):
     return summary
 
 
-def _collect_success_results(execution, live):
-    """Validate snapshot → Case → Task manifest → Run, then extract DPS once."""
+def _collect_success_results(execution, live, *, require_complete_execution):
+    """Extract immutable rows for complete successful Cases from a frozen snapshot.
+
+    A Case is independently publishable to the Panel's aggregate once its frozen
+    candidate collection is complete. ``require_complete_execution`` remains true
+    only when creating the Execution-level publication seal.
+    """
     layout = _snapshot_layout(execution)
-    if layout is None or live['status'] != 'success' or len(layout) != len(live['cases']):
+    if layout is None or (require_complete_execution and live['status'] != 'success'):
         return None
     live_by_coordinate = {}
     for case in live['cases']:
@@ -862,12 +898,17 @@ def _collect_success_results(execution, live):
         if coordinate in live_by_coordinate:
             return None
         live_by_coordinate[coordinate] = case
-    if set(live_by_coordinate) != {coordinate for coordinate, _keys in layout}:
+    expected = {coordinate: keys for coordinate, keys in layout}
+    if set(live_by_coordinate) != set(expected):
         return None
 
     rows = []
     for coordinate, candidate_keys in layout:
         case = live_by_coordinate[coordinate]
+        if case['status'] != 'success':
+            if require_complete_execution:
+                return None
+            continue
         if ([run['key'] for run in case['runs']] != candidate_keys
                 or type(case.get('_case_id')) is not int):
             return None
@@ -923,14 +964,51 @@ def reconcile_execution(execution):
                     execution_id=locked.pk, pk__in=ids,
                 ).update(status=status)
         if live_status in ('pending', 'running'):
+            partial_rows = _collect_success_results(
+                locked, live, require_complete_execution=False,
+            )
+            if partial_rows is not None:
+                successful_case_ids = {row['case_id'] for row in partial_rows}
+                SimcBenchmarkResult.objects.filter(
+                    case__execution_id=locked.pk,
+                ).exclude(case_id__in=successful_case_ids).delete()
+                SimcBenchmarkResult.objects.filter(
+                    case_id__in=successful_case_ids,
+                ).delete()
+                SimcBenchmarkResult.objects.bulk_create([
+                    SimcBenchmarkResult(
+                        case_id=row['case_id'], candidate_key=row['candidate_key'],
+                        dps=row['dps'],
+                    )
+                    for row in partial_rows
+                ])
             if locked.status != live_status:
                 locked.status = live_status
                 locked.save(update_fields=['status'])
             return locked
 
         now = timezone.now()
-        if live_status != 'success':
+        partial_rows = _collect_success_results(
+            locked, live, require_complete_execution=False,
+        )
+        if partial_rows is None:
             SimcBenchmarkResult.objects.filter(case__execution_id=locked.pk).delete()
+        else:
+            successful_case_ids = {row['case_id'] for row in partial_rows}
+            SimcBenchmarkResult.objects.filter(
+                case__execution_id=locked.pk,
+            ).exclude(case_id__in=successful_case_ids).delete()
+            SimcBenchmarkResult.objects.filter(
+                case_id__in=successful_case_ids,
+            ).delete()
+            SimcBenchmarkResult.objects.bulk_create([
+                SimcBenchmarkResult(
+                    case_id=row['case_id'], candidate_key=row['candidate_key'],
+                    dps=row['dps'],
+                )
+                for row in partial_rows
+            ])
+        if live_status != 'success':
             locked.status = live_status
             locked.completed_at = now
             locked.result_hash = ''
@@ -943,7 +1021,7 @@ def reconcile_execution(execution):
                 panel.save(update_fields=['active_execution'])
             return locked
 
-        rows = _collect_success_results(locked, live)
+        rows = _collect_success_results(locked, live, require_complete_execution=True)
         if rows is None:
             # Bad/missing/non-finite/non-positive DPS is terminal aggregate failure,
             # rather than an exception that leaves the scheduler retrying forever.
@@ -963,6 +1041,7 @@ def reconcile_execution(execution):
                 panel.save(update_fields=['active_execution'])
             return locked
 
+        SimcBenchmarkResult.objects.filter(case__execution_id=locked.pk).delete()
         SimcBenchmarkResult.objects.bulk_create([
             SimcBenchmarkResult(case_id=row['case_id'], candidate_key=row['candidate_key'],
                                 dps=row['dps'])
