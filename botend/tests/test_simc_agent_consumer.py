@@ -189,10 +189,48 @@ class SimcAgentConsumerTests(SimpleTestCase):
             consumer.claim.assert_called_once_with()
             consumer.heartbeat.assert_any_call('degraded')
 
+    def test_example_configuration_documents_every_supported_field(self):
+        from simc_agent_consumer import AgentConfig
+
+        example_path = Path(__file__).resolve().parents[2] / 'simc_agent.example.json'
+        values = json.loads(example_path.read_text(encoding='utf-8'))
+
+        self.assertEqual(set(values), set(AgentConfig.__dataclass_fields__))
+
+    def test_first_start_interactively_creates_minimal_configuration(self):
+        from simc_agent_consumer import ensure_configuration
+
+        with tempfile.TemporaryDirectory() as root:
+            config_path = Path(root) / 'simc_agent.json'
+            with patch('builtins.input', side_effect=[
+                '  enroll-secret  ',
+                '  /opt/simc/bin/simc  ',
+            ]):
+                created = ensure_configuration(str(config_path), interactive=True)
+
+            self.assertTrue(created)
+            self.assertEqual(json.loads(config_path.read_text(encoding='utf-8')), {
+                'enrollment_token': 'enroll-secret',
+                'simc_path': '/opt/simc/bin/simc',
+            })
+            self.assertEqual(stat.S_IMODE(config_path.stat().st_mode), 0o600)
+
+    def test_first_start_requires_both_interactive_values_without_writing_partial_config(self):
+        from simc_agent_consumer import ConfigError, ensure_configuration
+
+        with tempfile.TemporaryDirectory() as root:
+            config_path = Path(root) / 'simc_agent.json'
+            with patch('builtins.input', side_effect=['', '/opt/simc/bin/simc']):
+                with self.assertRaisesRegex(ConfigError, 'enrollment token'):
+                    ensure_configuration(str(config_path), interactive=True)
+
+            self.assertFalse(config_path.exists())
+
     def test_main_uses_a_local_default_configuration_path(self):
         import simc_agent_consumer
 
-        with patch.object(simc_agent_consumer, 'AgentConfig') as config_class, \
+        with patch.object(simc_agent_consumer, 'ensure_configuration') as ensure, \
+                patch.object(simc_agent_consumer, 'AgentConfig') as config_class, \
                 patch.object(simc_agent_consumer, 'SimcAgentConsumer') as consumer_class, \
                 patch.object(simc_agent_consumer.signal, 'signal'), \
                 patch('sys.argv', ['simc_agent_consumer.py', '--once']):
@@ -204,6 +242,10 @@ class SimcAgentConsumerTests(SimpleTestCase):
         self.assertEqual(result, 0)
         config_class.load.assert_called_once_with(
             str(Path(simc_agent_consumer.__file__).resolve().with_name('simc_agent.json')),
+        )
+        ensure.assert_called_once_with(
+            str(Path(simc_agent_consumer.__file__).resolve().with_name('simc_agent.json')),
+            interactive=False,
         )
 
     def test_run_claims_and_executes_to_explicit_capacity_in_parallel(self):

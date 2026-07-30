@@ -1,5 +1,25 @@
 {
-  "simc_path": "/opt/simc/bin/simc",
   "enrollment_token": "REPLACE_FOR_FIRST_REGISTRATION_ONLY",
-  "max_concurrent_runs": 1
+  "simc_path": "/opt/simc/bin/simc",
+
+  "server_url": "https://wowdaily.cn",
+  "backend_identifier": "",
+  "name": "",
+  "max_concurrent_runs": 1,
+  "poll_interval_seconds": 5,
+  "request_timeout_seconds": 30,
+  "max_run_seconds": 7200,
+
+  "auto_update": true,
+  "repository_path": "",
+  "auto_update_simc": true,
+  "simc_source_path": "",
+  "simc_update_interval_seconds": 1800,
+  "simc_compile_threads": 2,
+
+  "token_path": "",
+  "log_path": "",
+  "platform": "",
+  "host_identifier": "",
+  "allow_insecure_http": false
 }

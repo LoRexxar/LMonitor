@@ -14,8 +14,14 @@ Use a dedicated, writable directory for the Agent checkout and its data. Do not 
 
 ## Configuration
 
-Create `agent.json` in a writable location. For a **first start**, only the one-time enrollment token and the final SimC executable path are needed:
+On the **first interactive start**, do not create a configuration file manually. Start the Agent and enter the two required values when prompted:
 
+1. one-time `enrollment_token`;
+2. final `simc_path` (for example `C:\\LMonitorSimCAgent\\bin\\simc.exe`).
+
+The Agent atomically creates `simc_agent.json` beside `simc_agent_consumer.py` with private permissions, then starts registration. This prompt appears only when that configuration file is absent; unattended Task Scheduler/service starts fail closed instead of waiting for input.
+
+The equivalent minimal file is:
 ```json
 {
   "enrollment_token": "[REDACTED]",
@@ -35,7 +41,29 @@ For the no-argument launcher default, name that file `simc_agent.json` beside `s
 
 `simc_path` is always the explicit final executable path. It may not exist for the initial automatic build. If it is an existing build output under a SimulationCraft Git checkout (for example `C:\\simulationcraft\\build\\simc.exe`), the Agent discovers that checkout and maintains it. Otherwise it creates and maintains the sibling `simc-source/` checkout, then installs the verified `simc.exe` at the configured path.
 
-Only add optional fields when overriding a default, for example `server_url` for a private control plane, `token_path`/`log_path` for a separate state directory, or `simc_compile_threads` to cap build concurrency. Do not delete `completion-outbox/` while it contains unacknowledged terminal completions.
+Only add optional fields when overriding a default. The first interactive start writes only the two required fields; `simc_agent.example.json` is the complete field reference:
+
+| Field | Default | When to change it |
+|---|---|---|
+| `server_url` | `https://wowdaily.cn` | Use a private control-plane address. HTTPS is required unless `allow_insecure_http` is explicitly enabled for a local test environment. |
+| `backend_identifier` | Empty | Legacy compatibility only; a new Agent is bound by its one-time enrollment token and should leave this empty. |
+| `name` | Stable `simc-agent-<host fingerprint>` | Set a human-readable display name for the Dashboard. |
+| `max_concurrent_runs` | `1` | Explicitly opt in to 2–64 parallel Runs; the server also enforces this live-lease limit. |
+| `poll_interval_seconds` | `5` | Change idle queue polling frequency. |
+| `request_timeout_seconds` | `30` | Change individual control-plane HTTP request timeout. |
+| `max_run_seconds` | `7200` | Cap one SimC Run before it is marked timed out. |
+| `auto_update` | `true` | Disable only when Agent code updates are managed externally. |
+| `repository_path` | Agent checkout | Point to the dedicated LMonitor checkout used for Agent self-update. |
+| `auto_update_simc` | `true` | Disable automatic SimC source maintenance/builds. |
+| `simc_source_path` | Existing checkout above `simc_path`, otherwise sibling `simc-source/` | Use a specific SimulationCraft source checkout. |
+| `simc_update_interval_seconds` | `1800` | Change automatic SimC maintenance interval. |
+| `simc_compile_threads` | `2` | Cap CMake/Ninja build concurrency, from 1 to 64. |
+| `token_path` | Beside the config as `*.token` | Store the long-lived Agent token in a separate protected state directory. |
+| `log_path` | Beside the config as `*.log` | Store rotating Agent logs elsewhere. |
+| `platform`, `host_identifier` | Auto-detected | Only use for controlled diagnostics; `host_identifier` must be 32–128 lowercase hex characters. |
+| `allow_insecure_http` | `false` | Local development only; never enable over an untrusted network. |
+
+Do not delete `completion-outbox/` while it contains unacknowledged terminal completions.
 
 ## Start
 

@@ -17,9 +17,6 @@ if (-not (Test-Path -LiteralPath $agent -PathType Leaf)) {
     throw "找不到 SimC Agent：$agent"
 }
 $configPath = [System.IO.Path]::GetFullPath($Config)
-if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
-    throw "找不到 Agent 配置：$configPath"
-}
 
 $arguments = @($agent, '--config', $configPath)
 if ($Once) {

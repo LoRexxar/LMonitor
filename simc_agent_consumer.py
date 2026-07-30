@@ -283,6 +283,68 @@ class AgentConfig:
         return cls.from_dict(raw)
 
 
+def ensure_configuration(path: str, *, interactive: bool) -> bool:
+    """Create the first-run minimal config only after collecting both required values.
+
+    Returns True when a new file was created.  Non-interactive callers fail closed
+    rather than blocking a service/Task Scheduler launch waiting for stdin.
+    """
+    config_path = Path(path).expanduser().resolve()
+    if config_path.exists():
+        if config_path.is_symlink() or not config_path.is_file():
+            raise ConfigError('configuration path must be a regular file')
+        return False
+    if not interactive:
+        raise ConfigError(
+            f'configuration does not exist: {config_path}; create it from simc_agent.example.json '
+            'or start interactively once to initialize it'
+        )
+    try:
+        enrollment_token = input('首次注册验证码（enrollment_token，必填）：').strip()
+        simc_path = input('SimC 可执行文件完整路径（simc_path，必填）：').strip()
+    except (EOFError, KeyboardInterrupt) as exc:
+        raise ConfigError('首次配置已取消，未写入配置文件') from exc
+    if not enrollment_token:
+        raise ConfigError('enrollment token is required; configuration was not written')
+    if not simc_path:
+        raise ConfigError('simc_path is required; configuration was not written')
+
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=f'.{config_path.name}.', dir=str(config_path.parent))
+    try:
+        if not _is_windows():
+            os.fchmod(fd, 0o600)
+        payload = json.dumps(
+            {'enrollment_token': enrollment_token, 'simc_path': simc_path},
+            ensure_ascii=False, indent=2,
+        ).encode('utf-8') + b'\n'
+        written = 0
+        while written < len(payload):
+            count = os.write(fd, payload[written:])
+            if count <= 0:
+                raise OSError('short write while saving configuration')
+            written += count
+        os.fsync(fd)
+        os.close(fd)
+        fd = -1
+        if config_path.exists() or config_path.is_symlink():
+            raise ConfigError('configuration appeared while initializing; refusing to overwrite it')
+        os.replace(temporary, config_path)
+        _fsync_directory(config_path.parent)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+    print(
+        '已生成最小配置。可选配置及说明见 simc_agent.example.json 和 docs/windows-simc-agent.md。',
+        flush=True,
+    )
+    return True
+
+
 class _NoRedirectHandler(HTTPRedirectHandler):
     """Reject redirects instead of forwarding a credentialed request."""
 
@@ -1212,6 +1274,7 @@ def main() -> int:
     parser.add_argument('--once', action='store_true', help='Claim at most one Run and exit')
     args = parser.parse_args()
     try:
+        ensure_configuration(args.config, interactive=sys.stdin.isatty())
         config = AgentConfig.load(args.config)
         log_path = config.log_path or str(
             Path(config.token_path).with_name('simc-agent.log')
