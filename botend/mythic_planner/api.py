@@ -663,12 +663,20 @@ def management_snapshot(resources=None, dungeon_id=None):
                 'is_position_manual': bool(
                     (row.metadata or {}).get('manual_position_override')
                 ),
+                'is_group_manual': bool(
+                    (row.metadata or {}).get('manual_group_override')
+                ),
                 'imported_position': (
                     (row.metadata or {}).get('imported_position')
                     if isinstance(
                         (row.metadata or {}).get('imported_position'),
                         dict,
                     )
+                    else None
+                ),
+                'imported_group_key': (
+                    str((row.metadata or {}).get('imported_group_key') or '')
+                    if (row.metadata or {}).get('manual_group_override')
                     else None
                 ),
             }
@@ -874,6 +882,114 @@ def _coerce_resource_data(spec, data):
     return clean
 
 
+def _spawn_group_ids(value):
+    if not isinstance(value, list) or not value:
+        raise ValueError('请选择至少一个怪物点位。')
+    if len(value) > 500:
+        raise ValueError('一次最多处理 500 个怪物点位。')
+    try:
+        spawn_ids = list(dict.fromkeys(int(item) for item in value))
+    except (TypeError, ValueError) as exc:
+        raise ValueError('怪物点位 ID 格式无效。') from exc
+    if any(spawn_id <= 0 for spawn_id in spawn_ids):
+        raise ValueError('怪物点位 ID 格式无效。')
+    return spawn_ids
+
+
+def _next_manual_spawn_group_key(floor):
+    largest = 0
+    for group_key in MythicDungeonSpawn.objects.filter(
+        floor=floor,
+        group_key__startswith='manual-group-',
+    ).values_list('group_key', flat=True):
+        suffix = str(group_key).removeprefix('manual-group-')
+        if suffix.isdigit():
+            largest = max(largest, int(suffix))
+    return f'manual-group-{largest + 1}'
+
+
+def _manage_spawn_groups(request, data):
+    if not isinstance(data, dict):
+        raise ValueError('data 必须是 JSON 对象。')
+    action = str(data.get('action') or '').strip()
+    if action not in {'create', 'assign', 'remove', 'restore'}:
+        raise ValueError('不支持的怪群操作。')
+    spawn_ids = _spawn_group_ids(data.get('spawn_ids'))
+    now = timezone.now()
+    with transaction.atomic():
+        spawns = list(
+            MythicDungeonSpawn.objects.select_for_update()
+            .select_related('floor', 'enemy__dungeon')
+            .filter(id__in=spawn_ids)
+            .order_by('id')
+        )
+        if len(spawns) != len(spawn_ids):
+            raise ValueError('部分怪物点位不存在或已经删除。')
+        floor_ids = {spawn.floor_id for spawn in spawns}
+        dungeon_ids = {spawn.enemy.dungeon_id for spawn in spawns}
+        if len(floor_ids) != 1 or len(dungeon_ids) != 1:
+            raise ValueError('一次只能设置同一个楼层内的怪群。')
+        floor = MythicDungeonFloor.objects.select_for_update().get(
+            id=spawns[0].floor_id,
+        )
+        target_group_key = ''
+        if action == 'create':
+            target_group_key = _next_manual_spawn_group_key(floor)
+        elif action == 'assign':
+            target_group_key = str(data.get('group_key') or '').strip()
+            if not target_group_key:
+                raise ValueError('请选择要加入的已有怪群。')
+            if not MythicDungeonSpawn.objects.filter(
+                floor=floor,
+                group_key=target_group_key,
+            ).exists():
+                raise ValueError('目标怪群不存在于当前楼层。')
+
+        changed = []
+        for spawn in spawns:
+            metadata = dict(spawn.metadata or {})
+            previous_group_key = spawn.group_key
+            previous_metadata = dict(metadata)
+            if action == 'restore':
+                if not metadata.get('manual_group_override'):
+                    continue
+                spawn.group_key = str(metadata.get('imported_group_key') or '')
+                metadata.pop('imported_group_key', None)
+                for key in list(metadata):
+                    if key.startswith('manual_group_'):
+                        metadata.pop(key, None)
+            else:
+                if not metadata.get('manual_group_override'):
+                    metadata['imported_group_key'] = spawn.group_key
+                spawn.group_key = target_group_key
+                metadata.update({
+                    'manual_group_override': True,
+                    'manual_group_updated_at': now.isoformat(),
+                    'manual_group_updated_by_user_id': request.user.id,
+                })
+            if (
+                spawn.group_key == previous_group_key
+                and metadata == previous_metadata
+            ):
+                continue
+            spawn.metadata = metadata
+            spawn.updated_at = now
+            changed.append(spawn)
+        if changed:
+            MythicDungeonSpawn.objects.bulk_update(
+                changed,
+                ['group_key', 'metadata', 'updated_at'],
+            )
+    return {
+        'resource': 'spawn_groups',
+        'action': action,
+        'group_key': target_group_key,
+        'updated': len(changed),
+        'spawn_ids': [spawn.id for spawn in spawns],
+        'floor_id': floor.id,
+    }
+
+
 @method_decorator(csrf_exempt, name='dispatch')
 class DashboardMythicPlannerAPIView(View):
     def dispatch(self, request, *args, **kwargs):
@@ -1032,6 +1148,15 @@ class DashboardMythicPlannerAPIView(View):
                     ])
                 return success(
                     {'id': spawn.id, 'resource': 'spawns', 'restored': True},
+                    snapshot=management_snapshot(
+                        snapshot_resources,
+                        snapshot_dungeon_id,
+                    ),
+                )
+            if resource == 'spawn_groups':
+                result = _manage_spawn_groups(request, body.get('data'))
+                return success(
+                    result,
                     snapshot=management_snapshot(
                         snapshot_resources,
                         snapshot_dungeon_id,

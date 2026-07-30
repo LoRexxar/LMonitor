@@ -532,27 +532,39 @@ def import_mythic_dungeon_payload(payload, *, activate=False, replace=False, sou
                 existing_metadata = dict(
                     existing_spawn.metadata or {}
                 ) if existing_spawn else {}
-                if existing_spawn and existing_metadata.get(
-                    'manual_position_override'
-                ):
-                    imported_position = {
-                        'floor_key': floor.key,
-                        'x': spawn_defaults['x'],
-                        'y': spawn_defaults['y'],
-                    }
+                if existing_spawn:
                     merged_metadata = dict(spawn_defaults['metadata'])
-                    merged_metadata.update({
-                        key: value
-                        for key, value in existing_metadata.items()
-                        if key.startswith('manual_position_')
-                    })
-                    merged_metadata['imported_position'] = imported_position
-                    spawn_defaults.update({
-                        'floor': existing_spawn.floor,
-                        'x': existing_spawn.x,
-                        'y': existing_spawn.y,
-                        'metadata': merged_metadata,
-                    })
+                    preserve_manual_metadata = False
+                    if existing_metadata.get('manual_position_override'):
+                        merged_metadata.update({
+                            key: value
+                            for key, value in existing_metadata.items()
+                            if key.startswith('manual_position_')
+                        })
+                        merged_metadata['imported_position'] = {
+                            'floor_key': floor.key,
+                            'x': spawn_defaults['x'],
+                            'y': spawn_defaults['y'],
+                        }
+                        spawn_defaults.update({
+                            'floor': existing_spawn.floor,
+                            'x': existing_spawn.x,
+                            'y': existing_spawn.y,
+                        })
+                        preserve_manual_metadata = True
+                    if existing_metadata.get('manual_group_override'):
+                        merged_metadata.update({
+                            key: value
+                            for key, value in existing_metadata.items()
+                            if key.startswith('manual_group_')
+                        })
+                        merged_metadata['imported_group_key'] = (
+                            spawn_defaults['group_key']
+                        )
+                        spawn_defaults['group_key'] = existing_spawn.group_key
+                        preserve_manual_metadata = True
+                    if preserve_manual_metadata:
+                        spawn_defaults['metadata'] = merged_metadata
                 _, created = MythicDungeonSpawn.objects.update_or_create(
                     enemy=enemy,
                     key=spawn_key,

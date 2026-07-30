@@ -1830,7 +1830,14 @@ class MythicPlannerDashboardTests(TestCase):
         self.assertContains(position_page, 'id="spawn-map-canvas"')
         self.assertContains(position_page, 'id="spawn-map-create"')
         self.assertContains(position_page, 'id="spawn-map-enemy"')
-        self.assertContains(position_page, 'id="spawn-map-group-key"')
+        self.assertNotContains(position_page, 'id="spawn-map-group-key"')
+        self.assertContains(position_page, 'id="spawn-map-group-manage"')
+        self.assertContains(position_page, 'id="spawn-map-group-inspector"')
+        self.assertContains(position_page, 'id="spawn-group-list"')
+        self.assertContains(position_page, 'id="spawn-group-create"')
+        self.assertContains(position_page, 'id="spawn-group-assign"')
+        self.assertContains(position_page, 'id="spawn-group-remove"')
+        self.assertContains(position_page, 'id="spawn-group-restore"')
         self.assertContains(position_page, 'id="spawn-map-coordinates"')
         self.assertContains(position_page, 'id="spawn-map-save"')
         self.assertContains(position_page, '＋ 开始添加怪物')
@@ -2183,7 +2190,7 @@ class MythicPlannerDashboardTests(TestCase):
         self.assertEqual(rejected.status_code, 400, rejected.content)
         self.assertIn('必须在 0 到 100 之间', rejected.json()['message'])
 
-    def test_staff_can_create_spawn_and_change_linked_enemy(self):
+    def test_staff_can_create_spawn_and_change_enemy(self):
         self.client.force_login(self.staff)
         dungeon = MythicDungeon.objects.get(key='gloamvault')
         floor = MythicDungeonFloor.objects.filter(dungeon=dungeon).first()
@@ -2202,7 +2209,6 @@ class MythicPlannerDashboardTests(TestCase):
                     'key': 'manual-linked-spawn',
                     'x': 32.5,
                     'y': 47.25,
-                    'group_key': 'manual-pack-a',
                     'scale': 1.15,
                     'patrol': [],
                     'is_active': True,
@@ -2216,7 +2222,7 @@ class MythicPlannerDashboardTests(TestCase):
             key='manual-linked-spawn',
         )
         self.assertTrue(spawn.metadata['manual_position_override'])
-        self.assertEqual(spawn.group_key, 'manual-pack-a')
+        self.assertEqual(spawn.group_key, '')
 
         relinked = self.client.patch(
             f'/api/mythic-planner/manage/{spawn.id}/',
@@ -2228,7 +2234,6 @@ class MythicPlannerDashboardTests(TestCase):
                     'key': spawn.key,
                     'x': spawn.x,
                     'y': spawn.y,
-                    'group_key': 'manual-pack-b',
                     'scale': 0.9,
                     'patrol': [],
                     'is_active': True,
@@ -2239,7 +2244,7 @@ class MythicPlannerDashboardTests(TestCase):
         self.assertEqual(relinked.status_code, 200, relinked.content)
         spawn.refresh_from_db()
         self.assertEqual(spawn.enemy_id, enemies[1].id)
-        self.assertEqual(spawn.group_key, 'manual-pack-b')
+        self.assertEqual(spawn.group_key, '')
         self.assertEqual(spawn.scale, 0.9)
 
         other_enemy = MythicDungeonEnemy.objects.exclude(
@@ -2255,6 +2260,155 @@ class MythicPlannerDashboardTests(TestCase):
         )
         self.assertEqual(rejected.status_code, 400, rejected.content)
         self.assertIn('必须属于同一个地下城', rejected.json()['message'])
+
+    def test_staff_can_manage_spawn_groups_and_restore_imported_group(self):
+        self.client.force_login(self.staff)
+        dungeon = MythicDungeon.objects.get(key='gloamvault')
+        outer_floor = MythicDungeonFloor.objects.get(
+            dungeon=dungeon,
+            key='outer-halls',
+        )
+        guardians = {
+            spawn.key: spawn
+            for spawn in MythicDungeonSpawn.objects.filter(
+                enemy__dungeon=dungeon,
+                enemy__key='vault-guardian',
+                floor=outer_floor,
+            )
+        }
+        selected = [
+            guardians['guardian-01'],
+            guardians['guardian-03'],
+        ]
+        created = self.client.post(
+            '/api/mythic-planner/manage/',
+            data=json.dumps({
+                'resource': 'spawn_groups',
+                'snapshot_resources': ['floors', 'enemies', 'spawns'],
+                'snapshot_dungeon_id': dungeon.id,
+                'data': {
+                    'action': 'create',
+                    'spawn_ids': [spawn.id for spawn in selected],
+                },
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(created.status_code, 200, created.content)
+        created_data = created.json()['data']
+        self.assertEqual(created_data['group_key'], 'manual-group-1')
+        self.assertEqual(created_data['updated'], 2)
+        for spawn, imported_group_key in zip(
+            selected,
+            ['hall-a', 'hall-b'],
+        ):
+            spawn.refresh_from_db()
+            self.assertEqual(spawn.group_key, 'manual-group-1')
+            self.assertTrue(spawn.metadata['manual_group_override'])
+            self.assertEqual(
+                spawn.metadata['imported_group_key'],
+                imported_group_key,
+            )
+        returned = {
+            row['id']: row
+            for row in created.json()['snapshot']['spawns']
+        }
+        self.assertTrue(returned[selected[0].id]['is_group_manual'])
+        self.assertEqual(
+            returned[selected[0].id]['imported_group_key'],
+            'hall-a',
+        )
+
+        joined_spawn = guardians['guardian-05']
+        joined = self.client.patch(
+            '/api/mythic-planner/manage/',
+            data=json.dumps({
+                'resource': 'spawn_groups',
+                'data': {
+                    'action': 'assign',
+                    'spawn_ids': [joined_spawn.id],
+                    'group_key': 'manual-group-1',
+                },
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(joined.status_code, 200, joined.content)
+        joined_spawn.refresh_from_db()
+        self.assertEqual(joined_spawn.group_key, 'manual-group-1')
+        self.assertEqual(
+            joined_spawn.metadata['imported_group_key'],
+            'hall-c',
+        )
+
+        removed = self.client.patch(
+            '/api/mythic-planner/manage/',
+            data=json.dumps({
+                'resource': 'spawn_groups',
+                'data': {
+                    'action': 'remove',
+                    'spawn_ids': [selected[0].id],
+                },
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(removed.status_code, 200, removed.content)
+        selected[0].refresh_from_db()
+        self.assertEqual(selected[0].group_key, '')
+        self.assertTrue(selected[0].metadata['manual_group_override'])
+
+        updated_payload = demo_payload()
+        source_spawn = next(
+            spawn_data
+            for dungeon_data in updated_payload['dungeons']
+            if dungeon_data['key'] == 'gloamvault'
+            for enemy_data in dungeon_data['enemies']
+            if enemy_data['key'] == 'vault-guardian'
+            for spawn_data in enemy_data['spawns']
+            if spawn_data['key'] == 'guardian-01'
+        )
+        source_spawn['group_key'] = 'hall-updated'
+        import_mythic_dungeon_payload(updated_payload, activate=True)
+        selected[0].refresh_from_db()
+        self.assertEqual(selected[0].group_key, '')
+        self.assertEqual(
+            selected[0].metadata['imported_group_key'],
+            'hall-updated',
+        )
+
+        restored = self.client.patch(
+            '/api/mythic-planner/manage/',
+            data=json.dumps({
+                'resource': 'spawn_groups',
+                'data': {
+                    'action': 'restore',
+                    'spawn_ids': [selected[0].id],
+                },
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(restored.status_code, 200, restored.content)
+        selected[0].refresh_from_db()
+        self.assertEqual(selected[0].group_key, 'hall-updated')
+        self.assertNotIn('manual_group_override', selected[0].metadata)
+        self.assertNotIn('imported_group_key', selected[0].metadata)
+
+        other_floor_spawn = MythicDungeonSpawn.objects.get(
+            enemy__dungeon=dungeon,
+            enemy__key='umbral-hound',
+            key='hound-03',
+        )
+        rejected = self.client.patch(
+            '/api/mythic-planner/manage/',
+            data=json.dumps({
+                'resource': 'spawn_groups',
+                'data': {
+                    'action': 'create',
+                    'spawn_ids': [selected[1].id, other_floor_spawn.id],
+                },
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(rejected.status_code, 400, rejected.content)
+        self.assertIn('同一个楼层', rejected.json()['message'])
 
     def test_staff_can_edit_shared_spell_library(self):
         self.client.force_login(self.staff)
@@ -2447,6 +2601,12 @@ class MythicPlannerPageContractTests(SimpleTestCase):
         portal_js = (
             Path(settings.BASE_DIR) / 'static' / 'portal' / 'js' / 'mythic_planner.js'
         ).read_text(encoding='utf-8')
+        planner_template = (
+            Path(settings.BASE_DIR) / 'templates' / 'portal' / 'mythic_planner.html'
+        ).read_text(encoding='utf-8')
+        planner_css = (
+            Path(settings.BASE_DIR) / 'static' / 'portal' / 'css' / 'mythic_planner.css'
+        ).read_text(encoding='utf-8')
         dashboard_js = (
             Path(settings.BASE_DIR) / 'static' / 'dashboard' / 'js' / 'mythic_planner.js'
         ).read_text(encoding='utf-8')
@@ -2517,11 +2677,49 @@ class MythicPlannerPageContractTests(SimpleTestCase):
         self.assertNotIn('打开这份只读路线快照', portal_js)
         self.assertIn('reorderPull', portal_js)
         self.assertIn('onPullPointerMove', portal_js)
+        for token in (
+            'function spawnMarkerSize',
+            'function spawnOutlineRadius',
+            'function circleBoundaryPoints',
+            'function convexHull',
+            'function roundedPolygonPath',
+            'function renderPullArea',
+            "window.addEventListener('resize', renderPullArea)",
+        ):
+            self.assertIn(token, portal_js)
+        self.assertIn('const PULL_AREA_PADDING_PX = 1', portal_js)
+        self.assertIn('const PULL_AREA_SELECTED_RING_PX = 2', portal_js)
+        self.assertIn(
+            'circleBoundaryPoints(points[index], outlineRadii[index])',
+            portal_js,
+        )
+        self.assertNotIn('PULL_AREA_PADDING_PX + Math.max', portal_js)
+        self.assertNotIn('renderRouteLines', portal_js)
+        self.assertNotIn('route-lines-layer', planner_template)
+        self.assertNotIn('mdt-route-line', planner_css)
+        self.assertIn('renderPulls();\n            renderPullArea();', portal_js)
+        self.assertIn('id="pull-area-layer"', planner_template)
+        self.assertIn('mdt-pull-area-shape', planner_css)
+        self.assertIn('mdt-pull-area-label', planner_css)
+        toggle_spawn = portal_js[
+            portal_js.index('function toggleSpawn'):
+            portal_js.index('function selectBox')
+        ]
+        self.assertIn(
+            'const selectedInCurrentPull = uids.some(',
+            toggle_spawn,
+        )
+        self.assertIn('if (!selectedInCurrentPull)', toggle_spawn)
+        self.assertNotIn('const existingPull = pullForUid(uid)', toggle_spawn)
+        self.assertIn(
+            'aria-current="${isCurrent ? \'true\' : \'false\'}"',
+            portal_js,
+        )
         self.assertIn(
             '.filter(([key]) => Boolean(enemy.traits?.[key]))',
             portal_js,
         )
-        self.assertIn('const markerSize = baseMarkerSize + 1', portal_js)
+        self.assertIn('const markerSize = spawnMarkerSize(spawn)', portal_js)
         self.assertIn('clamp(baseMarkerSize * 0.55, 4, 13) + 1', portal_js)
         self.assertNotIn('data-pull-action="up"', portal_js)
         self.assertNotIn('data-pull-action="down"', portal_js)
@@ -2552,15 +2750,24 @@ class MythicPlannerPageContractTests(SimpleTestCase):
             'nextManualKey',
             'savePosition',
             'resetPosition',
+            'beginGroupManage',
+            'toggleGroupSpawn',
+            'selectSpawnGroup',
+            'updateSpawnGroups',
+            "resource: 'spawn_groups'",
             "resource: 'spawn_position_reset'",
             "resource: 'spawns'",
             'spawn-map-enemy',
-            'spawn-map-group-key',
+            'spawn-map-group-manage',
+            'spawn-map-group-inspector',
+            'spawn-group-list',
             'els.coordinates.hidden = creating',
             'els.save.hidden = creating',
             'createPositionAt(positionOnMap(event))',
         ):
             self.assertIn(token, position_dashboard_js)
+        self.assertNotIn('spawn-map-group-key', position_dashboard_js)
+        self.assertNotIn('group_key: els.groupKey', position_dashboard_js)
         self.assertIn(
             "if (state.mode === 'create') {\n"
             "                createPositionAt(positionOnMap(event));\n"

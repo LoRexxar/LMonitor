@@ -14,6 +14,10 @@
     );
     const POSITION_DIRECTORY_RESOURCES = ['versions', 'dungeons'];
     const POSITION_DUNGEON_RESOURCES = ['floors', 'enemies', 'spawns'];
+    const SPAWN_GROUP_COLORS = [
+        '#2563eb', '#db2777', '#059669', '#d97706', '#7c3aed',
+        '#0891b2', '#dc2626', '#4f46e5', '#65a30d', '#c026d3',
+    ];
 
     const state = {
         snapshot: null,
@@ -23,6 +27,9 @@
         mode: 'edit',
         enemyId: null,
         isCreating: false,
+        isGrouping: false,
+        groupSelection: new Set(),
+        activeGroupKey: '',
         manualSequence: 0,
         toastTimer: null,
     };
@@ -93,6 +100,9 @@
         state.mode = 'edit';
         state.enemyId = null;
         state.isCreating = false;
+        state.isGrouping = false;
+        state.groupSelection.clear();
+        state.activeGroupKey = '';
     }
 
     function chooseFirstOption(select) {
@@ -174,12 +184,18 @@
         }
     }
 
-    function visibleSpawns() {
+    function floorSpawns() {
         const floorId = selectedFloorId();
-        const search = els.search.value.trim().toLowerCase();
         return (state.snapshot?.spawns || []).filter((row) => {
             if (Number(row.floor_id) !== floorId) return false;
             if (!els.showInactive.checked && row.is_active === false) return false;
+            return true;
+        });
+    }
+
+    function visibleSpawns() {
+        const search = els.search.value.trim().toLowerCase();
+        return floorSpawns().filter((row) => {
             const enemy = rowBy('enemies', row.enemy_id);
             if (!search) return true;
             return [row, enemy].filter(Boolean).some(
@@ -188,7 +204,49 @@
         });
     }
 
-    function markerHtml(row) {
+    function groupDisplayName(groupKey) {
+        const key = String(groupKey || '');
+        if (!key) return '未分组';
+        if (key.startsWith('manual-group-')) {
+            return `自定义怪群 ${key.slice('manual-group-'.length)}`;
+        }
+        if (key.startsWith('group-')) {
+            return `怪群 ${key.slice('group-'.length)}`;
+        }
+        return `怪群 ${key}`;
+    }
+
+    function groupSortValue(groupKey) {
+        const match = String(groupKey || '').match(/(\d+)$/);
+        return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
+    }
+
+    function spawnGroups() {
+        const groups = new Map();
+        for (const row of floorSpawns()) {
+            if (!row.group_key) continue;
+            if (!groups.has(row.group_key)) groups.set(row.group_key, []);
+            groups.get(row.group_key).push(row);
+        }
+        return Array.from(groups, ([key, members]) => ({key, members}))
+            .sort((left, right) => (
+                groupSortValue(left.key) - groupSortValue(right.key)
+                || left.key.localeCompare(right.key, 'zh-CN')
+            ))
+            .map((group, index) => ({
+                ...group,
+                label: groupDisplayName(group.key),
+                color: SPAWN_GROUP_COLORS[index % SPAWN_GROUP_COLORS.length],
+            }));
+    }
+
+    function spawnGroup(groupKey, groups = null) {
+        return (groups || spawnGroups()).find(
+            (group) => group.key === groupKey,
+        ) || null;
+    }
+
+    function markerHtml(row, groups) {
         const enemy = rowBy('enemies', row.enemy_id);
         const name = displayName(enemy);
         const label = Array.from(String(name).trim())[0] || '?';
@@ -196,17 +254,32 @@
             ? enemy.marker_color
             : '#64748b';
         const isSelected = Number(row.id) === Number(state.selectedId);
+        const group = spawnGroup(row.group_key, groups);
+        const isGroupSelected = (
+            state.mode === 'group'
+            && state.groupSelection.has(Number(row.id))
+        );
+        const isGroupTarget = Boolean(
+            state.mode === 'group'
+            &&
+            state.activeGroupKey
+            && row.group_key === state.activeGroupKey,
+        );
         const position = isSelected && state.draft
             ? state.draft
             : {x: Number(row.x), y: Number(row.y)};
+        const groupDescription = group
+            ? `${group.label} · ${group.members.length} 个点位`
+            : '未分组';
         return `
             <button
                 type="button"
-                class="mp-spawn-map-marker${row.is_position_manual ? ' is-manual' : ''}${isSelected ? ' is-selected' : ''}"
+                class="mp-spawn-map-marker${row.is_position_manual ? ' is-manual' : ''}${isSelected ? ' is-selected' : ''}${group ? ' is-grouped' : ''}${isGroupSelected ? ' is-group-selected' : ''}${isGroupTarget ? ' is-group-target' : ''}"
                 data-spawn-marker="${row.id}"
-                style="left:${clamp(position.x, 0, 100)}%;top:${clamp(position.y, 0, 100)}%;--marker-color:${markerColor}"
-                title="${escapeHtml(name)} · ${Number(position.x).toFixed(2)}, ${Number(position.y).toFixed(2)}"
-                aria-label="${escapeHtml(name)}，坐标 ${Number(position.x).toFixed(2)}, ${Number(position.y).toFixed(2)}"
+                style="left:${clamp(position.x, 0, 100)}%;top:${clamp(position.y, 0, 100)}%;--marker-color:${markerColor};--group-color:${group?.color || '#94a3b8'}"
+                title="${escapeHtml(name)} · ${escapeHtml(groupDescription)} · ${Number(position.x).toFixed(2)}, ${Number(position.y).toFixed(2)}"
+                aria-label="${escapeHtml(name)}，${escapeHtml(groupDescription)}，坐标 ${Number(position.x).toFixed(2)}, ${Number(position.y).toFixed(2)}"
+                ${state.mode === 'group' ? `aria-pressed="${isGroupSelected ? 'true' : 'false'}"` : ''}
             >${escapeHtml(label)}</button>
         `;
     }
@@ -237,6 +310,7 @@
             'is-create-mode',
             state.mode === 'create' && Boolean(state.enemyId),
         );
+        els.canvas.classList.toggle('is-group-mode', state.mode === 'group');
         els.canvas.classList.toggle('is-placing', state.isCreating);
         if (!floor) {
             els.canvas.classList.remove('is-ready');
@@ -262,12 +336,83 @@
         }
         els.empty.hidden = rows.length > 0 || state.mode === 'create';
         els.empty.textContent = '当前楼层没有符合筛选条件的刷新点。';
-        els.layer.innerHTML = rows.map(markerHtml).join('') + draftMarkerHtml();
+        const groups = spawnGroups();
+        els.layer.innerHTML = rows.map(
+            (row) => markerHtml(row, groups),
+        ).join('') + draftMarkerHtml();
+    }
+
+    function selectedGroupSpawns() {
+        return floorSpawns().filter(
+            (row) => state.groupSelection.has(Number(row.id)),
+        );
+    }
+
+    function renderGroupInspector() {
+        const groups = spawnGroups();
+        const selectedRows = selectedGroupSpawns();
+        const selectedCount = selectedRows.length;
+        const activeGroup = spawnGroup(state.activeGroupKey, groups);
+        const selectedNames = selectedRows.slice(0, 3).map((row) => (
+            displayName(rowBy('enemies', row.enemy_id))
+        ));
+        els.groupSelectionTitle.textContent = selectedCount
+            ? `已选择 ${selectedCount} 个点位`
+            : '尚未选择点位';
+        els.groupSelectionSummary.textContent = selectedCount
+            ? (
+                `${selectedNames.join('、')}`
+                + (selectedCount > selectedNames.length
+                    ? ` 等 ${selectedCount} 个点位`
+                    : '')
+            )
+            : '点击地图圆点，或从下方选择一个已有怪群。';
+        els.groupCount.textContent = String(groups.length);
+        els.groupList.innerHTML = groups.length
+            ? groups.map((group) => {
+                const isActive = group.key === state.activeGroupKey;
+                const manualCount = group.members.filter(
+                    (row) => row.is_group_manual,
+                ).length;
+                return `
+                    <button
+                        type="button"
+                        class="mp-spawn-group-row${isActive ? ' is-active' : ''}"
+                        data-spawn-group-key="${escapeHtml(group.key)}"
+                        style="--group-color:${group.color}"
+                        aria-pressed="${isActive ? 'true' : 'false'}"
+                    >
+                        <span class="mp-spawn-group-swatch" aria-hidden="true"></span>
+                        <span>
+                            <strong>${escapeHtml(group.label)}</strong>
+                            <small>${manualCount ? `${manualCount} 个点位人工维护` : 'MDT 原始分组'}</small>
+                        </span>
+                        <b>${group.members.length}</b>
+                    </button>
+                `;
+            }).join('')
+            : '<div class="mp-spawn-group-empty">当前楼层还没有怪群。请在地图上多选点位后新建。</div>';
+        els.groupClear.disabled = state.isGrouping || !selectedCount;
+        els.groupCreate.disabled = state.isGrouping || !selectedCount;
+        els.groupAssign.disabled = (
+            state.isGrouping
+            || !selectedCount
+            || !activeGroup
+        );
+        els.groupRemove.disabled = (
+            state.isGrouping
+            || !selectedRows.some((row) => Boolean(row.group_key))
+        );
+        els.groupRestore.disabled = (
+            state.isGrouping
+            || !selectedRows.some((row) => row.is_group_manual)
+        );
     }
 
     function renderInspector() {
         const row = selectedSpawn();
         const creating = state.mode === 'create';
+        const grouping = state.mode === 'group';
         const enabled = creating || Boolean(row);
         const enemy = row ? rowBy('enemies', row.enemy_id) : selectedEnemy();
         const draft = state.draft || (row ? {
@@ -276,11 +421,21 @@
         } : null);
         const createEnemy = selectedEnemy();
 
+        els.pointInspector.hidden = grouping;
+        els.groupInspector.hidden = !grouping;
+        els.groupManage.classList.toggle('is-active', grouping);
+        els.groupManage.textContent = grouping ? '正在管理怪群' : '管理怪群';
+        els.groupManage.disabled = !selectedFloorId() || creating;
+        els.create.disabled = creating || grouping || !selectedFloorId();
+        if (grouping) {
+            renderGroupInspector();
+            return;
+        }
+
         renderEnemyOptions(state.enemyId ?? row?.enemy_id);
         els.enemy.disabled = !enabled || state.isCreating;
         els.key.disabled = true;
         els.keyField.hidden = creating;
-        els.groupKey.disabled = !enabled || state.isCreating;
         els.scale.disabled = !enabled || state.isCreating;
         els.coordinates.hidden = creating;
         els.x.disabled = creating || !enabled;
@@ -295,7 +450,6 @@
         );
         els.cancel.hidden = !creating;
         els.cancel.disabled = state.isCreating;
-        els.create.disabled = creating || !selectedFloorId();
 
         els.enemyName.textContent = creating
             ? (
@@ -317,9 +471,15 @@
             );
         if (!creating) {
             els.key.value = row?.key || '';
-            els.groupKey.value = row?.group_key || '';
             els.scale.value = row ? Number(row.scale || 1).toFixed(2) : '';
         }
+        els.currentGroup.textContent = creating
+            ? '新增后默认为未分组'
+            : groupDisplayName(row?.group_key);
+        els.currentGroup.classList.toggle(
+            'is-manual',
+            Boolean(row?.is_group_manual),
+        );
         els.x.value = draft ? Number(draft.x).toFixed(2) : '';
         els.y.value = draft ? Number(draft.y).toFixed(2) : '';
         els.positionHelp.textContent = creating
@@ -348,6 +508,7 @@
         const items = [
             ['当前显示', rows.length],
             ['本层全部', allFloorRows.length],
+            ['已有怪群', spawnGroups().length],
             ['人工点位', allFloorRows.filter((row) => row.is_position_manual).length],
             ['关联怪物', new Set(rows.map((row) => row.enemy_id)).size],
         ];
@@ -358,14 +519,24 @@
 
     function renderTable() {
         const rows = visibleSpawns();
+        const groups = spawnGroups();
         if (!rows.length) {
-            els.tableBody.innerHTML = '<tr><td colspan="8" class="mp-admin-empty">当前楼层没有符合筛选条件的刷新点。</td></tr>';
+            els.tableBody.innerHTML = '<tr><td colspan="9" class="mp-admin-empty">当前楼层没有符合筛选条件的刷新点。</td></tr>';
             return;
         }
         els.tableBody.innerHTML = rows.map((row) => {
             const enemy = rowBy('enemies', row.enemy_id);
+            const group = spawnGroup(row.group_key, groups);
+            const rowClasses = [
+                Number(row.id) === Number(state.selectedId)
+                    ? 'is-selected'
+                    : '',
+                state.groupSelection.has(Number(row.id))
+                    ? 'is-group-selected'
+                    : '',
+            ].filter(Boolean).join(' ');
             return `
-                <tr class="${Number(row.id) === Number(state.selectedId) ? 'is-selected' : ''}">
+                <tr class="${rowClasses}">
                     <td>
                         <div class="mp-admin-name">
                             <strong>${escapeHtml(displayName(enemy))}</strong>
@@ -376,6 +547,11 @@
                     <td>${enemy?.npc_id || '—'}</td>
                     <td>${Number(enemy?.enemy_forces || 0)}</td>
                     <td>${Number(row.x).toFixed(2)}, ${Number(row.y).toFixed(2)}</td>
+                    <td>
+                        <span class="mp-admin-status${group ? ' is-grouped' : ''}${row.is_group_manual ? ' is-manual' : ''}">
+                            ${escapeHtml(group?.label || '未分组')}
+                        </span>
+                    </td>
                     <td>
                         <span class="mp-admin-status ${row.is_position_manual ? 'is-manual' : ''}">
                             ${row.is_position_manual ? '人工维护' : 'MDT 导入'}
@@ -451,6 +627,9 @@
         const row = rowBy('spawns', spawnId);
         if (!row) return;
         state.mode = 'edit';
+        state.groupSelection.clear();
+        state.activeGroupKey = '';
+        state.isGrouping = false;
         state.selectedId = row.id;
         state.draft = {x: Number(row.x), y: Number(row.y)};
         state.enemyId = row.enemy_id;
@@ -471,8 +650,10 @@
         state.draft = null;
         state.enemyId = null;
         state.isCreating = false;
+        state.groupSelection.clear();
+        state.activeGroupKey = '';
+        state.isGrouping = false;
         els.key.value = '';
-        els.groupKey.value = '';
         els.scale.value = '1.00';
         renderAll();
         els.enemy.focus();
@@ -481,6 +662,97 @@
     function cancelCreate() {
         clearSelection();
         renderAll();
+    }
+
+    function beginGroupManage() {
+        if (!selectedFloorId()) {
+            toast('请先选择地下城和楼层。', true);
+            return;
+        }
+        state.mode = 'group';
+        state.selectedId = null;
+        state.draft = null;
+        state.pointerId = null;
+        state.enemyId = null;
+        state.isCreating = false;
+        state.isGrouping = false;
+        state.groupSelection.clear();
+        state.activeGroupKey = '';
+        renderAll();
+    }
+
+    function finishGroupManage() {
+        clearSelection();
+        renderAll();
+    }
+
+    function toggleGroupSpawn(spawnId) {
+        const numericId = Number(spawnId);
+        if (!rowBy('spawns', numericId)) return;
+        if (state.groupSelection.has(numericId)) {
+            state.groupSelection.delete(numericId);
+        } else {
+            state.groupSelection.add(numericId);
+        }
+        renderMap();
+        renderGroupInspector();
+        renderTable();
+    }
+
+    function selectSpawnGroup(groupKey) {
+        const group = spawnGroup(groupKey);
+        if (!group) return;
+        state.activeGroupKey = group.key;
+        state.groupSelection = new Set(
+            group.members.map((row) => Number(row.id)),
+        );
+        renderAll();
+    }
+
+    async function updateSpawnGroups(action) {
+        const spawnIds = Array.from(state.groupSelection);
+        if (!spawnIds.length || state.isGrouping) return;
+        if (action === 'assign' && !state.activeGroupKey) {
+            toast('请先选择一个已有怪群。', true);
+            return;
+        }
+        state.isGrouping = true;
+        renderGroupInspector();
+        const actionLabels = {
+            create: '已创建新怪群。',
+            assign: '已加入选中的怪群。',
+            remove: '已将所选点位移出怪群。',
+            restore: '已恢复所选点位的 MDT 分组。',
+        };
+        try {
+            const payload = await request('/api/mythic-planner/manage/', {
+                method: 'PATCH',
+                body: JSON.stringify({
+                    resource: 'spawn_groups',
+                    snapshot_resources: POSITION_DUNGEON_RESOURCES,
+                    snapshot_dungeon_id: selectedDungeonId(),
+                    data: {
+                        action,
+                        spawn_ids: spawnIds,
+                        ...(action === 'assign'
+                            ? {group_key: state.activeGroupKey}
+                            : {}),
+                    },
+                }),
+            });
+            mergeDungeonSnapshot(payload.snapshot);
+            state.groupSelection = new Set(payload.data.spawn_ids || []);
+            state.activeGroupKey = ['create', 'assign'].includes(action)
+                ? payload.data.group_key
+                : '';
+            toast(actionLabels[action] || '怪群设置已保存。');
+        } catch (error) {
+            toast(error.message, true);
+        } finally {
+            state.isGrouping = false;
+            renderFilters();
+            renderAll();
+        }
     }
 
     function positionOnMap(event) {
@@ -515,6 +787,7 @@
     }
 
     function beginDrag(event) {
+        if (state.mode !== 'edit') return;
         const marker = event.target.closest('[data-spawn-marker]');
         if (!marker || event.button !== 0) return;
         event.preventDefault();
@@ -577,7 +850,6 @@
             key,
             x: Number(state.draft.x.toFixed(4)),
             y: Number(state.draft.y.toFixed(4)),
-            group_key: els.groupKey.value.trim(),
             scale,
             patrol: selectedSpawn()?.patrol || [],
             is_active: selectedSpawn()?.is_active !== false,
@@ -611,7 +883,7 @@
                 : null;
             renderFilters();
             renderAll();
-            toast('点位、关联怪物和联动设置已保存。');
+            toast('点位和关联怪物已保存。');
         } catch (error) {
             toast(error.message, true);
         }
@@ -645,7 +917,6 @@
                         key: nextManualKey(),
                         x: Number(state.draft.x.toFixed(4)),
                         y: Number(state.draft.y.toFixed(4)),
-                        group_key: els.groupKey.value.trim(),
                         scale: validatedScale(),
                         patrol: [],
                         is_active: true,
@@ -736,7 +1007,7 @@
             enemy: $('#spawn-map-enemy'),
             keyField: $('#spawn-map-key-field'),
             key: $('#spawn-map-key'),
-            groupKey: $('#spawn-map-group-key'),
+            currentGroup: $('#spawn-map-current-group'),
             scale: $('#spawn-map-scale'),
             coordinates: $('#spawn-map-coordinates'),
             x: $('#spawn-map-x'),
@@ -744,6 +1015,19 @@
             positionHelp: $('#spawn-map-position-help'),
             save: $('#spawn-map-save'),
             reset: $('#spawn-map-reset'),
+            pointInspector: $('#spawn-map-point-inspector'),
+            groupInspector: $('#spawn-map-group-inspector'),
+            groupManage: $('#spawn-map-group-manage'),
+            groupDone: $('#spawn-group-done'),
+            groupSelectionTitle: $('#spawn-group-selection-title'),
+            groupSelectionSummary: $('#spawn-group-selection-summary'),
+            groupCount: $('#spawn-group-count'),
+            groupList: $('#spawn-group-list'),
+            groupClear: $('#spawn-group-clear'),
+            groupCreate: $('#spawn-group-create'),
+            groupAssign: $('#spawn-group-assign'),
+            groupRemove: $('#spawn-group-remove'),
+            groupRestore: $('#spawn-group-restore'),
             tableBody: $('#position-table-body'),
             toast: $('#admin-toast'),
         });
@@ -758,6 +1042,26 @@
         els.showInactive.addEventListener('change', renderAll);
         els.create.addEventListener('click', beginCreate);
         els.cancel.addEventListener('click', cancelCreate);
+        els.groupManage.addEventListener('click', () => {
+            if (state.mode === 'group') {
+                finishGroupManage();
+            } else {
+                beginGroupManage();
+            }
+        });
+        els.groupDone.addEventListener('click', finishGroupManage);
+        els.groupClear.addEventListener('click', () => {
+            state.groupSelection.clear();
+            renderAll();
+        });
+        els.groupCreate.addEventListener('click', () => updateSpawnGroups('create'));
+        els.groupAssign.addEventListener('click', () => updateSpawnGroups('assign'));
+        els.groupRemove.addEventListener('click', () => updateSpawnGroups('remove'));
+        els.groupRestore.addEventListener('click', () => updateSpawnGroups('restore'));
+        els.groupList.addEventListener('click', (event) => {
+            const button = event.target.closest('[data-spawn-group-key]');
+            if (button) selectSpawnGroup(button.dataset.spawnGroupKey);
+        });
         els.enemy.addEventListener('change', () => {
             state.enemyId = Number(els.enemy.value || 0) || null;
             state.draft = null;
@@ -776,6 +1080,10 @@
             const marker = event.target.closest('[data-spawn-marker]');
             if (marker) {
                 const spawnId = Number(marker.dataset.spawnMarker);
+                if (state.mode === 'group') {
+                    toggleGroupSpawn(spawnId);
+                    return;
+                }
                 if (spawnId !== Number(state.selectedId)) {
                     selectSpawn(spawnId);
                 }

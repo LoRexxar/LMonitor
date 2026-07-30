@@ -6,7 +6,7 @@
     <link rel="icon" href="/favicon.ico">
     <title>大秘境路线规划器（开发预览）</title>
     {% load static %}
-    <link rel="stylesheet" href="{% static 'portal/css/mythic_planner.css' %}?v=20260730_1">
+    <link rel="stylesheet" href="{% static 'portal/css/mythic_planner.css' %}?v=20260730_5">
 </head>
 <body class="mdt-page" data-share-token="{{ planner_share_token|escape }}">
     <div id="planner-app" class="mdt-app" aria-busy="true">
@@ -81,7 +81,7 @@
                 <div id="map-content" class="mdt-map-content">
                     <div class="mdt-map-texture" aria-hidden="true"></div>
                     <svg id="patrol-layer" class="mdt-map-svg mdt-patrol-layer" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
-                    <svg id="route-lines-layer" class="mdt-map-svg mdt-route-layer" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+                    <svg id="pull-area-layer" class="mdt-map-svg mdt-pull-area-layer" aria-hidden="true"></svg>
                     <div id="poi-layer" class="mdt-poi-layer"></div>
                     <div id="spawn-layer" class="mdt-spawn-layer"></div>
                     <svg id="annotation-layer" class="mdt-map-svg mdt-annotation-layer" viewBox="0 0 100 100" preserveAspectRatio="none">
@@ -201,6 +201,6 @@
 
     <div id="planner-toast" class="mdt-toast" role="status" hidden></div>
 
-    <script src="{% static 'portal/js/mythic_planner.js' %}?v=20260730_1" defer></script>
+    <script src="{% static 'portal/js/mythic_planner.js' %}?v=20260730_7" defer></script>
 </body>
 </html>

@@ -43,9 +43,12 @@
             <header>
                 <div>
                     <strong>刷新点地图</strong>
-                    <span>点击圆点进行编辑；添加时选怪后直接点击地图。</span>
+                    <span>点击圆点编辑点位；进入怪群管理后可在地图上多选并批量分组。</span>
                 </div>
-                <button id="spawn-map-create" type="button" class="is-primary">＋ 开始添加怪物</button>
+                <div class="mp-spawn-map-header-actions">
+                    <button id="spawn-map-group-manage" type="button">管理怪群</button>
+                    <button id="spawn-map-create" type="button" class="is-primary">＋ 开始添加怪物</button>
+                </div>
             </header>
             <div class="mp-spawn-map-layout">
                 <div
@@ -60,47 +63,79 @@
                     <div id="spawn-map-layer" class="mp-spawn-map-layer"></div>
                 </div>
                 <aside id="spawn-map-inspector" class="mp-spawn-map-inspector">
-                    <div class="mp-spawn-map-selection">
-                        <span>当前选中</span>
-                        <strong id="spawn-map-enemy-name">尚未选择怪物</strong>
-                        <small id="spawn-map-selection-meta">点击地图上的圆点开始编辑</small>
-                    </div>
-                    <label class="mp-spawn-map-field">
-                        <span>关联怪物原型</span>
-                        <select id="spawn-map-enemy" disabled>
-                            <option value="">请选择怪物</option>
-                        </select>
-                    </label>
-                    <label id="spawn-map-key-field" class="mp-spawn-map-field">
-                        <span>刷新点 key</span>
-                        <input id="spawn-map-key" type="text" maxlength="100" disabled>
-                    </label>
-                    <div class="mp-spawn-map-properties">
+                    <div id="spawn-map-point-inspector" class="mp-spawn-map-point-inspector">
+                        <div class="mp-spawn-map-selection">
+                            <span>当前选中</span>
+                            <strong id="spawn-map-enemy-name">尚未选择怪物</strong>
+                            <small id="spawn-map-selection-meta">点击地图上的圆点开始编辑</small>
+                        </div>
                         <label class="mp-spawn-map-field">
-                            <span>怪群联动 key</span>
-                            <input id="spawn-map-group-key" type="text" maxlength="100" placeholder="留空表示不联动" disabled>
+                            <span>关联怪物原型</span>
+                            <select id="spawn-map-enemy" disabled>
+                                <option value="">请选择怪物</option>
+                            </select>
                         </label>
-                        <label class="mp-spawn-map-field">
-                            <span>缩放</span>
-                            <input id="spawn-map-scale" type="number" min="0.25" max="5" step="0.05" disabled>
+                        <label id="spawn-map-key-field" class="mp-spawn-map-field">
+                            <span>刷新点 key</span>
+                            <input id="spawn-map-key" type="text" maxlength="100" disabled>
                         </label>
+                        <div class="mp-spawn-current-group">
+                            <span>所属怪群</span>
+                            <strong id="spawn-map-current-group">未分组</strong>
+                            <small>通过“管理怪群”在地图上批量设置。</small>
+                        </div>
+                        <div class="mp-spawn-map-properties">
+                            <label class="mp-spawn-map-field">
+                                <span>缩放</span>
+                                <input id="spawn-map-scale" type="number" min="0.25" max="5" step="0.05" disabled>
+                            </label>
+                        </div>
+                        <div id="spawn-map-coordinates" class="mp-spawn-map-coordinates">
+                            <span class="mp-spawn-map-coordinates-title">精确坐标（高级微调）</span>
+                            <label>
+                                <span>横向 X（0–100）</span>
+                                <input id="spawn-map-x" type="number" min="0" max="100" step="0.01" disabled>
+                            </label>
+                            <label>
+                                <span>纵向 Y（0–100）</span>
+                                <input id="spawn-map-y" type="number" min="0" max="100" step="0.01" disabled>
+                            </label>
+                        </div>
+                        <p id="spawn-map-position-help">拖动只会修改当前圆点；点击保存后才写入数据库。</p>
+                        <div class="mp-spawn-map-actions">
+                            <button id="spawn-map-cancel" type="button" hidden>结束添加</button>
+                            <button id="spawn-map-reset" type="button" disabled>恢复上游坐标</button>
+                            <button id="spawn-map-save" type="button" class="is-primary" disabled>保存点位</button>
+                        </div>
                     </div>
-                    <div id="spawn-map-coordinates" class="mp-spawn-map-coordinates">
-                        <span class="mp-spawn-map-coordinates-title">精确坐标（高级微调）</span>
-                        <label>
-                            <span>横向 X（0–100）</span>
-                            <input id="spawn-map-x" type="number" min="0" max="100" step="0.01" disabled>
-                        </label>
-                        <label>
-                            <span>纵向 Y（0–100）</span>
-                            <input id="spawn-map-y" type="number" min="0" max="100" step="0.01" disabled>
-                        </label>
-                    </div>
-                    <p id="spawn-map-position-help">拖动只会修改当前圆点；点击保存后才写入数据库。</p>
-                    <div class="mp-spawn-map-actions">
-                        <button id="spawn-map-cancel" type="button" hidden>结束添加</button>
-                        <button id="spawn-map-reset" type="button" disabled>恢复上游坐标</button>
-                        <button id="spawn-map-save" type="button" class="is-primary" disabled>保存点位</button>
+                    <div id="spawn-map-group-inspector" class="mp-spawn-group-inspector" hidden>
+                        <div class="mp-spawn-group-heading">
+                            <div>
+                                <span>怪群分组</span>
+                                <strong id="spawn-group-selection-title">尚未选择点位</strong>
+                            </div>
+                            <button id="spawn-group-done" type="button">完成</button>
+                        </div>
+                        <p>点击地图圆点进行多选；选择已有怪群可快速选中其全部成员。</p>
+                        <div id="spawn-group-selection-summary" class="mp-spawn-group-selection-summary">
+                            已选择 0 个点位
+                        </div>
+                        <div class="mp-spawn-group-quick-actions">
+                            <button id="spawn-group-clear" type="button" disabled>清空选择</button>
+                            <button id="spawn-group-create" type="button" class="is-primary" disabled>新建怪群</button>
+                        </div>
+                        <div class="mp-spawn-group-directory">
+                            <div class="mp-spawn-group-directory-title">
+                                <strong>当前楼层怪群</strong>
+                                <span id="spawn-group-count">0</span>
+                            </div>
+                            <div id="spawn-group-list" class="mp-spawn-group-list"></div>
+                        </div>
+                        <div class="mp-spawn-group-actions">
+                            <button id="spawn-group-assign" type="button" class="is-primary" disabled>加入选中怪群</button>
+                            <button id="spawn-group-remove" type="button" disabled>移出怪群</button>
+                            <button id="spawn-group-restore" type="button" disabled>恢复 MDT 分组</button>
+                        </div>
                     </div>
                 </aside>
             </div>
@@ -115,13 +150,14 @@
                         <th>NPC ID</th>
                         <th>进度</th>
                         <th>坐标</th>
+                        <th>怪群</th>
                         <th>来源</th>
                         <th>状态</th>
                         <th>操作</th>
                     </tr>
                 </thead>
                 <tbody id="position-table-body">
-                    <tr><td colspan="8" class="mp-admin-loading">正在加载点位数据…</td></tr>
+                    <tr><td colspan="9" class="mp-admin-loading">正在加载点位数据…</td></tr>
                 </tbody>
             </table>
         </div>

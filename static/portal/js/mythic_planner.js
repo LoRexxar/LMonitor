@@ -8,6 +8,10 @@
     const STORAGE_KEY = 'lmonitor.mythicPlanner.routes.v1';
     const SELECTED_KEY = 'lmonitor.mythicPlanner.selectedRoute.v1';
     const SHARE_PREFIX = '!LMDT1!';
+    const PULL_AREA_PADDING_PX = 1;
+    const PULL_AREA_SELECTED_RING_PX = 2;
+    const PULL_AREA_CIRCLE_SEGMENTS = 16;
+    const PULL_AREA_CORNER_RADIUS_PX = 7;
     const PULL_COLORS = [
         '#e879f9', '#2dd4bf', '#f87171', '#60a5fa', '#facc15',
         '#4ade80', '#fb7185', '#a78bfa', '#38bdf8', '#f97316',
@@ -606,7 +610,7 @@
             texture.style.backgroundPosition = '';
         }
         renderPatrols();
-        renderRouteLines();
+        renderPullArea();
         renderPois();
         renderSpawns();
         renderAnnotations();
@@ -635,18 +639,167 @@
         els.patrolLayer.innerHTML = lines.join('');
     }
 
-    function renderRouteLines() {
-        const lines = [];
-        for (const pull of state.route.pulls) {
-            const points = (pull.spawn_uids || [])
-                .map((uid) => state.spawnByUid.get(uid))
-                .filter((spawn) => spawn && spawn.floor_key === state.floorKey)
-                .map((spawn) => `${spawn.x},${spawn.y}`);
-            if (points.length > 1) {
-                lines.push(`<polyline class="mdt-route-line" points="${points.join(' ')}" stroke="${escapeHtml(pull.color)}"></polyline>`);
-            }
+    function spawnMarkerSize(spawn) {
+        const sourceScale = Number(spawn?.scale || 1);
+        const baseMarkerSize = clamp(
+            13 * (Number.isFinite(sourceScale) ? sourceScale : 1),
+            8,
+            30,
+        );
+        return baseMarkerSize + 1;
+    }
+
+    function pointDistance(left, right) {
+        return Math.hypot(right.x - left.x, right.y - left.y);
+    }
+
+    function spawnOutlineRadius(spawn) {
+        return (
+            spawnMarkerSize(spawn) / 2
+            + PULL_AREA_SELECTED_RING_PX
+            + PULL_AREA_PADDING_PX
+        );
+    }
+
+    function circleBoundaryPoints(center, radius) {
+        return Array.from({length: PULL_AREA_CIRCLE_SEGMENTS}, (_, index) => {
+            const angle = (Math.PI * 2 * index) / PULL_AREA_CIRCLE_SEGMENTS;
+            return {
+                x: center.x + Math.cos(angle) * radius,
+                y: center.y + Math.sin(angle) * radius,
+            };
+        });
+    }
+
+    function convexHull(points) {
+        const unique = Array.from(new Map(
+            points.map((point) => [`${point.x.toFixed(3)}:${point.y.toFixed(3)}`, point]),
+        ).values()).sort((left, right) => left.x - right.x || left.y - right.y);
+        if (unique.length <= 2) return unique;
+        const cross = (origin, left, right) => (
+            (left.x - origin.x) * (right.y - origin.y)
+            - (left.y - origin.y) * (right.x - origin.x)
+        );
+        const lower = [];
+        for (const point of unique) {
+            while (lower.length >= 2 && cross(lower.at(-2), lower.at(-1), point) <= 0) lower.pop();
+            lower.push(point);
         }
-        els.routeLayer.innerHTML = lines.join('');
+        const upper = [];
+        for (const point of [...unique].reverse()) {
+            while (upper.length >= 2 && cross(upper.at(-2), upper.at(-1), point) <= 0) upper.pop();
+            upper.push(point);
+        }
+        lower.pop();
+        upper.pop();
+        return lower.concat(upper);
+    }
+
+    function pointTowards(from, to, distance) {
+        const length = pointDistance(from, to) || 1;
+        const ratio = Math.min(distance, length / 2) / length;
+        return {
+            x: from.x + (to.x - from.x) * ratio,
+            y: from.y + (to.y - from.y) * ratio,
+        };
+    }
+
+    function roundedPolygonPath(points, radius) {
+        const corners = points.map((point, index) => {
+            const previous = points[(index - 1 + points.length) % points.length];
+            const next = points[(index + 1) % points.length];
+            return {
+                point,
+                before: pointTowards(point, previous, radius),
+                after: pointTowards(point, next, radius),
+            };
+        });
+        const format = (point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`;
+        let path = `M ${format(corners[0].before)} Q ${format(corners[0].point)} ${format(corners[0].after)}`;
+        for (const corner of corners.slice(1)) {
+            path += ` L ${format(corner.before)} Q ${format(corner.point)} ${format(corner.after)}`;
+        }
+        return `${path} Z`;
+    }
+
+    function pullAreaLabel(points, padding) {
+        if (points.length < 3) return null;
+        const center = points.reduce(
+            (total, point) => ({x: total.x + point.x, y: total.y + point.y}),
+            {x: 0, y: 0},
+        );
+        center.x /= points.length;
+        center.y /= points.length;
+        const nearestSpawn = Math.min(...points.map((point) => pointDistance(center, point)));
+        return nearestSpawn >= padding * 1.65 ? center : null;
+    }
+
+    function renderPullArea() {
+        if (!state.route || !state.dungeon) {
+            els.pullAreaLayer.innerHTML = '';
+            return;
+        }
+        const pull = currentPull();
+        const pullIndex = state.route.pulls.findIndex((row) => row.id === pull?.id);
+        const floor = currentFloor();
+        const width = els.mapContent.clientWidth || Number(floor?.map_width || 1000);
+        const height = els.mapContent.clientHeight || Number(floor?.map_height || 700);
+        els.pullAreaLayer.setAttribute('viewBox', `0 0 ${width} ${height}`);
+        els.pullAreaLayer.setAttribute('preserveAspectRatio', 'none');
+        if (!pull || width <= 0 || height <= 0) {
+            els.pullAreaLayer.innerHTML = '';
+            return;
+        }
+        const spawns = (pull.spawn_uids || [])
+            .map((uid) => state.spawnByUid.get(uid))
+            .filter((spawn) => spawn && spawn.floor_key === state.floorKey);
+        if (!spawns.length) {
+            els.pullAreaLayer.innerHTML = '';
+            return;
+        }
+        const points = spawns.map((spawn) => ({
+            x: (Number(spawn.x) / 100) * width,
+            y: (Number(spawn.y) / 100) * height,
+        }));
+        const outlineRadii = spawns.map((spawn) => spawnOutlineRadius(spawn));
+        const hull = convexHull(spawns.flatMap((spawn, index) => (
+            circleBoundaryPoints(points[index], outlineRadii[index])
+        )));
+        const color = escapeHtml(pull.color || PULL_COLORS[0]);
+        let shape = '';
+        if (spawns.length === 1) {
+            shape = `
+                <ellipse
+                    class="mdt-pull-area-shape"
+                    cx="${points[0].x.toFixed(2)}"
+                    cy="${points[0].y.toFixed(2)}"
+                    rx="${outlineRadii[0].toFixed(2)}"
+                    ry="${outlineRadii[0].toFixed(2)}"
+                    fill="${color}"
+                    stroke="${color}"
+                    style="color:${color}"
+                ></ellipse>
+            `;
+        } else {
+            shape = `
+                <path
+                    class="mdt-pull-area-shape"
+                    d="${roundedPolygonPath(hull, PULL_AREA_CORNER_RADIUS_PX)}"
+                    fill="${color}"
+                    stroke="${color}"
+                    style="color:${color}"
+                ></path>
+            `;
+        }
+        const labelPoint = pullAreaLabel(points, Math.max(...outlineRadii));
+        const label = labelPoint ? `
+            <text
+                class="mdt-pull-area-label"
+                x="${labelPoint.x.toFixed(2)}"
+                y="${labelPoint.y.toFixed(2)}"
+            >${pullIndex + 1}</text>
+        ` : '';
+        els.pullAreaLayer.innerHTML = `${shape}${label}`;
     }
 
     function renderPois() {
@@ -672,13 +825,8 @@
             const pull = pullForUid(spawn.uid);
             const patrol = Array.isArray(spawn.patrol) && spawn.patrol.length > 0;
             const markerInitial = initials(enemy.display_name);
-            const sourceScale = Number(spawn.scale || 1);
-            const baseMarkerSize = clamp(
-                13 * (Number.isFinite(sourceScale) ? sourceScale : 1),
-                8,
-                30,
-            );
-            const markerSize = baseMarkerSize + 1;
+            const markerSize = spawnMarkerSize(spawn);
+            const baseMarkerSize = markerSize - 1;
             const markerFontSize = clamp(baseMarkerSize * 0.55, 4, 13) + 1;
             const markerWideFontSize = clamp(baseMarkerSize * 0.36, 3.25, 9) + 1;
             return `
@@ -761,6 +909,7 @@
             const stats = pullStats(pull);
             const targetForces = Number(state.dungeon.total_enemy_forces || 0);
             const forcesPercent = targetForces ? (stats.forces / targetForces) * 100 : 0;
+            const isCurrent = pull.id === state.route.current_pull_id;
             const icons = stats.counts.length
                 ? stats.counts.map(({enemy, count}) => `
                     <span class="mdt-pull-mini" title="${escapeHtml(enemy.display_name)} × ${count}" style="border-color:${escapeHtml(enemy.marker_color || '#fff')}">
@@ -770,11 +919,13 @@
                 : '<span class="mdt-pull-empty">点击地图怪物加入这一波</span>';
             return `
                 <article
-                    class="mdt-pull ${pull.id === state.route.current_pull_id ? 'is-active' : ''}"
+                    class="mdt-pull ${isCurrent ? 'is-active' : ''}"
                     data-pull-id="${escapeHtml(pull.id)}"
                     style="--pull-color:${escapeHtml(pull.color)}"
                     tabindex="0"
+                    aria-current="${isCurrent ? 'true' : 'false'}"
                     aria-label="第 ${index + 1} 波，${stats.forces} 进度，${forcesPercent.toFixed(2)}%"
+                    title="${isCurrent ? '当前波次：点击地图怪物可增加或删除' : `点击切换到第 ${index + 1} 波`}"
                 >
                     <div class="mdt-pull-number" title="按住上下拖动调整顺序">${index + 1}</div>
                     <div class="mdt-pull-body">
@@ -963,17 +1114,13 @@
         if (!spawn) return;
         const configGroup = state.catalog?.config?.group_selection_default !== false;
         const uids = selectionUids(spawn, configGroup && !individual);
-        const existingPull = pullForUid(uid);
         mutateRoute((route) => {
-            if (existingPull) {
-                for (const pull of route.pulls) {
-                    pull.spawn_uids = (pull.spawn_uids || []).filter((item) => !uids.includes(item));
-                }
-            } else {
-                for (const pull of route.pulls) {
-                    pull.spawn_uids = (pull.spawn_uids || []).filter((item) => !uids.includes(item));
-                }
-                const pull = route.pulls.find((row) => row.id === route.current_pull_id) || route.pulls[0];
+            const pull = route.pulls.find((row) => row.id === route.current_pull_id) || route.pulls[0];
+            const selectedInCurrentPull = uids.some((item) => (pull.spawn_uids || []).includes(item));
+            for (const row of route.pulls) {
+                row.spawn_uids = (row.spawn_uids || []).filter((item) => !uids.includes(item));
+            }
+            if (!selectedInCurrentPull) {
                 pull.spawn_uids.push(...uids.filter((item) => state.spawnByUid.has(item)));
                 pull.spawn_uids = Array.from(new Set(pull.spawn_uids));
             }
@@ -1717,7 +1864,7 @@
             mapContent: $('#map-content'),
             mapEmpty: $('#map-empty'),
             patrolLayer: $('#patrol-layer'),
-            routeLayer: $('#route-lines-layer'),
+            pullAreaLayer: $('#pull-area-layer'),
             poiLayer: $('#poi-layer'),
             spawnLayer: $('#spawn-layer'),
             annotationLayer: $('#annotation-layer'),
@@ -1811,6 +1958,7 @@
             state.route.current_pull_id = article.dataset.pullId;
             persistRoute();
             renderPulls();
+            renderPullArea();
         });
         els.pullList.addEventListener('pointerdown', onPullPointerDown);
         els.pullList.addEventListener('pointermove', onPullPointerMove);
@@ -1888,6 +2036,7 @@
                 renderAnnotations();
             }
         });
+        window.addEventListener('resize', renderPullArea);
         window.addEventListener('beforeunload', persistRoute);
     }
 

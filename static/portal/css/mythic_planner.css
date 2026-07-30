@@ -199,14 +199,35 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .mdt-note-layer { position: absolute; inset: 0; width: 100%; height: 100%; }
 .mdt-map-svg { overflow: visible; pointer-events: none; }
 .mdt-patrol-layer { z-index: 2; }
-.mdt-route-layer { z-index: 3; }
+.mdt-pull-area-layer { z-index: 3; }
 .mdt-poi-layer { z-index: 4; pointer-events: none; }
 .mdt-spawn-layer { z-index: 5; }
 .mdt-annotation-layer { z-index: 6; }
 .mdt-note-layer { z-index: 7; pointer-events: none; }
 
 .mdt-patrol-line { fill: none; stroke: #fff6; stroke-width: .35; stroke-dasharray: 1 1; vector-effect: non-scaling-stroke; }
-.mdt-route-line { fill: none; stroke-width: .55; opacity: .82; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 1px #000); }
+.mdt-pull-area-shape {
+    fill-opacity: .035;
+    stroke-width: 1;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
+    filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 2px currentColor);
+}
+.mdt-pull-area-label {
+    fill: #fff;
+    stroke: #07090c;
+    stroke-width: 3.5px;
+    stroke-linejoin: round;
+    paint-order: stroke fill;
+    font-size: 16px;
+    font-weight: 900;
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    text-anchor: middle;
+    dominant-baseline: central;
+    vector-effect: non-scaling-stroke;
+    filter: drop-shadow(0 1px 1px #000);
+}
 .mdt-annotation-shape { fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-width: .55; vector-effect: non-scaling-stroke; pointer-events: stroke; }
 .mdt-annotation-shape:hover { filter: drop-shadow(0 0 2px white); }
 
