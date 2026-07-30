@@ -22,11 +22,14 @@ HOST_B = 'b' * 64
 )
 class SimcAgentEnrollmentCodeAPITests(TestCase):
     def setUp(self):
-        self.backend, _ = SimcBackendBinary.objects.update_or_create(
-            identifier='production', defaults={'name': 'Production', 'platform': 'linux64'},
+        SimcAgentEnrollmentCode.objects.all().delete()
+        SimcAgent.objects.all().delete()
+        SimcBackendBinary.objects.all().delete()
+        self.backend = SimcBackendBinary.objects.create(
+            identifier='production', name='Production', platform='linux64',
         )
-        self.other_backend, _ = SimcBackendBinary.objects.update_or_create(
-            identifier='ptr', defaults={'name': 'PTR', 'platform': 'linux64'},
+        self.other_backend = SimcBackendBinary.objects.create(
+            identifier='ptr', name='PTR', platform='linux64',
         )
         self.staff = get_user_model().objects.create_user(
             username='staff-enrollment', password='x', is_staff=True,
@@ -46,6 +49,7 @@ class SimcAgentEnrollmentCodeAPITests(TestCase):
             'name': 'Compute Node',
             'platform': 'linux64',
             'agent_version': '1.0.0',
+            'agent_revision': 'a' * 40,
             'protocol_version': 1,
             'capabilities': {'max_concurrent_runs': 1},
             'instance_id': 'instance-a',
@@ -184,11 +188,11 @@ class SimcAgentEnrollmentCodeAPITests(TestCase):
         )
         self.assertEqual(accepted.status_code, 201, accepted.content)
 
-        second = self.create_code()
+        second = self.create_code('ptr')
         original = QuerySet.select_for_update
         with patch.object(QuerySet, 'select_for_update', autospec=True, side_effect=original) as locked:
             conflict = self.post_json(
-                REGISTER_URL, self.register_payload(),
+                REGISTER_URL, self.register_payload(backend='ptr'),
                 f"Enrollment {second['enrollment_code']}",
             )
         self.assertEqual(conflict.status_code, 409, conflict.content)

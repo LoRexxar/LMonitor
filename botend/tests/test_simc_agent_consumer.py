@@ -789,6 +789,54 @@ class SimcAgentConsumerTests(SimpleTestCase):
                 'protocol_version': PROTOCOL_VERSION,
             })
 
+    def test_invalid_persisted_token_recovers_with_fresh_enrollment_code_without_erasing_token_first(self):
+        from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            stale_token = 'token-id.' + ('s' * 43)
+            replacement = 'replacement-id.' + ('r' * 43)
+            self.write_token(values, stale_token)
+            transport = MagicMock()
+            transport.json.side_effect = [
+                APIError('Invalid agent token', 401),
+                {
+                    'success': True,
+                    'agent_token': replacement,
+                    'heartbeat_interval_seconds': 20,
+                    'lease_seconds': 60,
+                },
+            ]
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=transport)
+
+            consumer.register()
+
+            self.assertEqual(consumer.agent_token, replacement)
+            self.assertEqual(Path(values['token_path']).read_text(encoding='utf-8'), replacement)
+            calls = transport.json.call_args_list
+            self.assertEqual(calls[0].kwargs['authorization'], 'Bearer ' + stale_token)
+            self.assertEqual(calls[1].kwargs['authorization'], 'Enrollment enroll-secret')
+
+    def test_invalid_persisted_token_keeps_existing_token_when_recovery_code_is_rejected(self):
+        from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            stale_token = 'token-id.' + ('s' * 43)
+            self.write_token(values, stale_token)
+            transport = MagicMock()
+            transport.json.side_effect = [
+                APIError('Invalid agent token', 401),
+                APIError('Invalid enrollment code', 401),
+            ]
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=transport)
+
+            with self.assertRaisesRegex(APIError, 'Invalid enrollment code'):
+                consumer.register()
+
+            self.assertEqual(consumer.agent_token, stale_token)
+            self.assertEqual(Path(values['token_path']).read_text(encoding='utf-8'), stale_token)
+
     def test_update_required_claim_commits_tracked_local_changes_then_merges_matching_control_plane_revision(self):
         from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
 

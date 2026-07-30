@@ -286,8 +286,12 @@ def register_agent(payload, authorization):
                     raise AgentAPIError('Agent has inconsistent token state', 409)
                 # A new one-time enrollment code is the explicit recovery
                 # authorization for an operator who has lost this host's local
-                # Bearer token.  Rotate the stored credential rather than
-                # leaving the host permanently unable to authenticate.
+                # Bearer token. Rotate it only after the old credential has
+                # been cleared. A single final save keeps the replacement and
+                # enrollment-code consumption atomic.
+                agent.token_id = None
+                agent.token_hash = ''
+                agent.save(update_fields=['token_id', 'token_hash'])
                 token, first = _issue_token(agent), False
             else:
                 agent = SimcAgent(backend=backend, host_identifier=values['host_identifier'])

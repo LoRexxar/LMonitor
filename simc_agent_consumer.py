@@ -898,16 +898,36 @@ class SimcAgentConsumer:
         if self.config.backend_identifier:
             payload['backend_identifier'] = self.config.backend_identifier
         payload.pop('status')
-        authorization = self.authorization if self.agent_token else 'Enrollment ' + self.config.enrollment_token
+        had_persisted_token = bool(self.agent_token)
         if not self.agent_token and not self.config.enrollment_token:
             raise ConfigError('enrollment_token is required for first registration')
-        response = self.transport.json(path='/api/simc-agent/v1/register/', payload=payload,
-                                       authorization=authorization)
+        try:
+            response = self.transport.json(
+                path='/api/simc-agent/v1/register/', payload=payload,
+                authorization=self.authorization if self.agent_token else 'Enrollment ' + self.config.enrollment_token,
+            )
+        except APIError as exc:
+            # A 401 at registration is the one authoritative signal that the
+            # persisted Bearer credential is no longer usable.  Keep it on
+            # disk until the control plane has accepted a *fresh* enrollment
+            # code and returned its replacement: deleting first makes a bad
+            # code turn credential loss into an unrecoverable loop.
+            if exc.status != 401 or not had_persisted_token:
+                raise
+            if not self.config.enrollment_token:
+                raise ConfigError(
+                    'persisted agent token was rejected; set a fresh enrollment_token to recover it',
+                ) from exc
+            self.logger.warning('persisted Agent token was rejected; attempting enrollment recovery')
+            response = self.transport.json(
+                path='/api/simc-agent/v1/register/', payload=payload,
+                authorization='Enrollment ' + self.config.enrollment_token,
+            )
         if not response:
             raise APIError('registration returned an empty response')
         issued = response.get('agent_token')
         if issued is not None:
-            if self.agent_token:
+            if self.agent_token and not had_persisted_token:
                 raise APIError('control plane unexpectedly rotated an existing token')
             if type(issued) is not str or not issued:
                 raise APIError('registration returned an invalid agent token')

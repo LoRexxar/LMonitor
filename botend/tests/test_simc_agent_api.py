@@ -1,6 +1,7 @@
 import hashlib
 import json
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
@@ -8,8 +9,8 @@ from django.db import connection
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from botend.models import SimcAgent, SimcAgentMaintenanceTask, SimcBackendBinary
-from botend.services.simc_agent_control import create_enrollment_code
+from botend.models import SimcAgent, SimcAgentEnrollmentCode, SimcAgentMaintenanceTask, SimcBackendBinary
+from botend.services.simc_agent_control import create_enrollment_code, register_agent
 
 
 REGISTER_URL = '/api/simc-agent/v1/register/'
@@ -27,6 +28,8 @@ HOST_B = 'b' * 64
 )
 class SimcAgentAPITests(TestCase):
     def setUp(self):
+        SimcAgentEnrollmentCode.objects.all().delete()
+        SimcAgent.objects.all().delete()
         SimcBackendBinary.objects.all().delete()
 
     def register_payload(self, **overrides):
@@ -212,6 +215,51 @@ class SimcAgentAPITests(TestCase):
             HEARTBEAT_URL, {'status': 'online'}, f'Bearer {replacement}',
         )
         self.assertEqual(current.status_code, 200, current.content)
+
+    def test_recovery_enrollment_rotates_token_for_consistent_same_host_record(self):
+        first = self.enroll()
+        self.assertEqual(first.status_code, 201, first.content)
+        issued = first.json()['agent_token']
+        agent = SimcAgent.objects.get(host_identifier=HOST_A)
+        old_hash = agent.token_hash
+        code = self.enrollment_code()
+
+        response = self.post_json(REGISTER_URL, self.register_payload(), f'Enrollment {code}')
+
+        self.assertEqual(response.status_code, 200, response.content)
+        replacement = response.json()['agent_token']
+        self.assertNotEqual(replacement, issued)
+        agent.refresh_from_db()
+        self.assertNotEqual(agent.token_hash, old_hash)
+        row = SimcAgentEnrollmentCode.objects.get(code_id=code.split('.', 1)[0][len('lmsa_enroll_'):])
+        self.assertEqual(row.consumed_by_agent_id, agent.pk)
+
+    def test_recovery_enrollment_rolls_back_token_rotation_if_code_consumption_fails(self):
+        first = self.enroll()
+        self.assertEqual(first.status_code, 201, first.content)
+        issued = first.json()['agent_token']
+        agent = SimcAgent.objects.get(host_identifier=HOST_A)
+        old_token_id, old_hash = agent.token_id, agent.token_hash
+        code = self.enrollment_code()
+        code_id = code.split('.', 1)[0][len('lmsa_enroll_'):]
+        original_save = SimcAgentEnrollmentCode.save
+
+        def fail_consumption(instance, *args, **kwargs):
+            if instance.code_id == code_id and instance.consumed_at is not None:
+                raise RuntimeError('consume failed')
+            return original_save(instance, *args, **kwargs)
+
+        with patch.object(SimcAgentEnrollmentCode, 'save', autospec=True, side_effect=fail_consumption):
+            with self.assertRaisesRegex(RuntimeError, 'consume failed'):
+                register_agent(self.register_payload(), f'Enrollment {code}')
+
+        agent.refresh_from_db()
+        self.assertEqual(agent.token_id, old_token_id)
+        self.assertEqual(agent.token_hash, old_hash)
+        row = SimcAgentEnrollmentCode.objects.get(code_id=code_id)
+        self.assertIsNone(row.consumed_at)
+        self.assertIsNone(row.consumed_by_agent_id)
+        self.assertEqual(self.post_json(HEARTBEAT_URL, {'status': 'online'}, f'Bearer {issued}').status_code, 200)
 
     def test_same_host_cannot_switch_backend(self):
         self.assertEqual(self.enroll(backend_identifier='production').status_code, 201)
