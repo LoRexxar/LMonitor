@@ -162,7 +162,7 @@ class SimcBenchmarkExecutionTests(TestCase):
             list(original_success_case.results.values_list('id', flat=True)), original_result_ids,
         )
 
-    def test_failed_rerun_keeps_successful_coordinate_out_of_new_execution_and_aggregates_it(self):
+    def test_failed_rerun_keeps_full_coordinate_snapshot_but_only_schedules_failed_cases(self):
         SimcBenchmarkScenario.objects.create(
             panel=self.panel, key='failed-coordinate', name='Failed coordinate',
             simulation_params={'iterations': 2000},
@@ -192,9 +192,9 @@ class SimcBenchmarkExecutionTests(TestCase):
         retry_case = retry.cases.select_related('task').get()
         self.assertEqual(retry_case.scenario_key, 'failed-coordinate')
         self.assertEqual(retry_case.task.source_task_id, failed_task.id)
-        self.assertEqual(retry.config_snapshot['case_count'], 1)
-        self.assertEqual(len(retry.config_snapshot['cases']), 1)
-        self.assertEqual(retry.config_snapshot['run_count'], 2)
+        self.assertEqual(retry.config_snapshot['case_count'], 2)
+        self.assertEqual(len(retry.config_snapshot['cases']), 2)
+        self.assertEqual(retry.config_snapshot['run_count'], 4)
         self.assertEqual(successful_case.results.count(), 2)
 
         aggregate = serialize_incremental_panel_results(self.panel)

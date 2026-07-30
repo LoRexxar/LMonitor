@@ -461,21 +461,17 @@ def rerun_failed_cases(execution, requested_by=None):
             (case.spec_key, case.scenario_key, case.profile_key)
             for case in failed_cases
         }
-        # An Execution snapshot describes its historical full surface, but a retry
-        # owns only the failed coordinates.  Keep successful coordinates in their
-        # immutable source Execution so aggregate projection can reuse them instead
-        # of creating duplicate Tasks or rerunning their completed Runs.
+        # A retry retains the full frozen logical surface.  It schedules Tasks only
+        # for failed coordinates, while independently persisted Case Results from
+        # earlier Executions remain available to the incremental aggregate.
         snapshot = deepcopy(source.config_snapshot)
-        retry_case_data = [
-            case_data for case_data in snapshot.get('cases', [])
-            if (case_data.get('spec_key'), case_data.get('scenario_key'),
-                case_data.get('profile_key')) in failed_coordinates
-        ]
-        if len(retry_case_data) != len(failed_coordinates):
+        snapshot_coordinates = {
+            (case_data.get('spec_key'), case_data.get('scenario_key'),
+             case_data.get('profile_key'))
+            for case_data in snapshot.get('cases', [])
+        }
+        if not failed_coordinates.issubset(snapshot_coordinates):
             _validation_error('失败子任务缺少冻结坐标', 'execution')
-        snapshot['cases'] = retry_case_data
-        snapshot['case_count'] = len(retry_case_data)
-        snapshot['run_count'] = sum(len(case['candidate_keys']) for case in retry_case_data)
         new_execution = SimcBenchmarkExecution.objects.create(
             panel=panel, trigger=SimcBenchmarkExecution.TRIGGER_MANUAL,
             config_snapshot=snapshot, config_hash=_canonical_hash(snapshot),
@@ -483,9 +479,12 @@ def rerun_failed_cases(execution, requested_by=None):
         panel.active_execution = new_execution
         panel.save(update_fields=['active_execution'])
         for case_data in snapshot['cases']:
-            source_case = source_cases[(
+            coordinate = (
                 case_data['spec_key'], case_data['scenario_key'], case_data['profile_key'],
-            )]
+            )
+            if coordinate not in failed_coordinates:
+                continue
+            source_case = source_cases[coordinate]
             if source_case.task_id is None:
                 _validation_error('失败子任务缺少冻结任务', 'execution')
             try:
