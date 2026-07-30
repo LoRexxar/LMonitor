@@ -284,11 +284,14 @@ def register_agent(payload, authorization):
                     raise AgentAPIError('Host is bound to a different backend_identifier', 409)
                 if bool(agent.token_id) != bool(agent.token_hash):
                     raise AgentAPIError('Agent has inconsistent token state', 409)
-                if agent.token_id:
-                    raise AgentAPIError('Agent is already registered; retry with its existing Bearer token', 409)
+                # A new one-time enrollment code is the explicit recovery
+                # authorization for an operator who has lost this host's local
+                # Bearer token.  Rotate the stored credential rather than
+                # leaving the host permanently unable to authenticate.
+                token, first = _issue_token(agent), False
             else:
                 agent = SimcAgent(backend=backend, host_identifier=values['host_identifier'])
-            token, first = _issue_token(agent), True
+                token, first = _issue_token(agent), True
             agent.registered_at = now
         if values['name'] is not None:
             agent.name = values['name']

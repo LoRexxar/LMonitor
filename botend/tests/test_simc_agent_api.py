@@ -191,15 +191,27 @@ class SimcAgentAPITests(TestCase):
         self.assertEqual(agent_b.last_seen_at, old_b_seen)
         self.assertTrue(second.json()['agent_token'])
 
-    def test_enrollment_retry_for_same_host_is_conflict_without_token_leak(self):
+    def test_fresh_enrollment_recovers_lost_bearer_token_for_same_host(self):
         first = self.enroll()
         issued = first.json()['agent_token']
+        agent = SimcAgent.objects.get(host_identifier=HOST_A)
+        old_hash = agent.token_hash
+
         response = self.enroll()
-        self.assertEqual(response.status_code, 409, response.content)
-        serialized = json.dumps(response.json())
-        self.assertNotIn('agent_token', serialized)
-        self.assertNotIn(issued, serialized)
-        self.assertIn('Bearer', response.json()['error'])
+
+        self.assertEqual(response.status_code, 200, response.content)
+        replacement = response.json()['agent_token']
+        self.assertNotEqual(replacement, issued)
+        agent.refresh_from_db()
+        self.assertNotEqual(agent.token_hash, old_hash)
+        stale = self.post_json(
+            HEARTBEAT_URL, {'status': 'online'}, f'Bearer {issued}',
+        )
+        self.assertEqual(stale.status_code, 401, stale.content)
+        current = self.post_json(
+            HEARTBEAT_URL, {'status': 'online'}, f'Bearer {replacement}',
+        )
+        self.assertEqual(current.status_code, 200, current.content)
 
     def test_same_host_cannot_switch_backend(self):
         self.assertEqual(self.enroll(backend_identifier='production').status_code, 201)
