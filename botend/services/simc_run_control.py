@@ -324,8 +324,9 @@ def claim_run(payload, authorization):
         }
 
 
-def _validate_fence(run, agent, token, instance_id, now, *, require_unexpired=True):
-    if run.lease_agent_id != agent.pk:
+def _validate_fence(run, agent, token, instance_id, now, *, require_unexpired=True,
+                    require_lease_agent=True):
+    if require_lease_agent and run.lease_agent_id != agent.pk:
         raise AgentAPIError('Run is leased to another agent', 403)
     if not isinstance(token, str) or not LEASE_TOKEN_RE.fullmatch(token):
         raise AgentAPIError('Lease conflict', 409)
@@ -420,7 +421,11 @@ def request_report_upload(run_id, payload, authorization):
         if run.status != 'running':
             raise AgentAPIError('Run is not running', 409)
         now = timezone.now()
-        _validate_fence(run, agent, payload.get('lease_token'), payload.get('instance_id'), now)
+        # A legitimate durable outbox may retry after its Agent row was rotated.
+        # The original cryptographic lease still fences it: a subsequent claim
+        # changes the token hash and is rejected below.
+        _validate_fence(run, agent, payload.get('lease_token'), payload.get('instance_id'), now,
+                        require_lease_agent=False)
         lease_fence = run.lease_token_hash
         lease_expires_at = run.lease_expires_at
     try:
@@ -545,7 +550,7 @@ def complete_run(run_id, metadata, authorization):
         return {'run_id': run_for_key.pk, 'status': run_for_key.status, 'idempotent': True}
     _validate_fence(
         run_for_key, discovered_agent, metadata['lease_token'], metadata['instance_id'],
-        timezone.now(), require_unexpired=True,
+        timezone.now(), require_unexpired=True, require_lease_agent=False,
     )
     if run_for_key.status != 'running':
         raise AgentAPIError('Run is not running', 409)
@@ -585,7 +590,7 @@ def complete_run(run_id, metadata, authorization):
             return {'run_id': run.pk, 'status': run.status, 'idempotent': True}
         now = timezone.now()
         _validate_fence(run, agent, metadata['lease_token'], metadata['instance_id'], now,
-                        require_unexpired=True)
+                        require_unexpired=True, require_lease_agent=False)
         if run.status != 'running':
             raise AgentAPIError('Run is not running', 409)
 

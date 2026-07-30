@@ -326,9 +326,12 @@ class SimcAgentJobAPITests(TestCase):
         self.assertEqual(self.post_json(first_path, {
             'lease_token': first.json()['lease_token'], 'instance_id': 'instance-a',
         }, token_b).status_code, 403)
-        self.assertEqual(self.complete(first.json(), token=token_b, instance='instance-a').status_code, 403)
-        self.assertEqual(self.complete(second.json(), token=token_b, instance='instance-b',
-                                       completion_id='agent-b').status_code, 200)
+        # The original lease token remains the authority for terminal submission:
+        # an Agent row rotation must not strand its durable completion outbox.
+        self.assertEqual(self.complete(first.json(), token=token_b, instance='instance-a').status_code, 200)
+        first_run = SimulationRun.objects.get(pk=first.json()['run_id'])
+        self.assertEqual(first_run.status, 'completed')
+        self.assertEqual(first_run.lease_agent, self.agent)
 
     def test_disabled_agent_cannot_claim_but_can_finish_existing_lease(self):
         job = self.claim_after_task()
@@ -442,14 +445,14 @@ class SimcAgentJobAPITests(TestCase):
         })
         self.assertEqual(SimcTaskArtifact.objects.filter(run=run).count(), 1)
 
-        # A later Agent identity cannot forge or take over a *running* Run.
-        # It only receives the terminal idempotent acknowledgement above.
+        # Re-enrollment changes the Agent row but not the cryptographic lease.
+        # The replacement identity can commit the original unique report once.
         replacement_agent, replacement_token = self.agent_row(self.backend, 'replacement')
         recovered_job = self.claim_after_task()
         recovered = self.complete(recovered_job, completion_id='recovered', token=replacement_token)
-        self.assertEqual(recovered.status_code, 403, recovered.content)
+        self.assertEqual(recovered.status_code, 200, recovered.content)
         recovered_run = SimulationRun.objects.get(pk=recovered_job['run_id'])
-        self.assertEqual(recovered_run.status, 'running')
+        self.assertEqual(recovered_run.status, 'completed')
         self.assertEqual(recovered_run.lease_agent_id, self.agent.pk)
 
         from botend.dashboard.api import SimcWorkbenchAPIView
