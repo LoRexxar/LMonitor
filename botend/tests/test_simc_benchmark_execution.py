@@ -162,6 +162,28 @@ class SimcBenchmarkExecutionTests(TestCase):
             list(original_success_case.results.values_list('id', flat=True)), original_result_ids,
         )
 
+    def test_incremental_result_projection_scans_finalized_cases_once_for_all_coordinates(self):
+        self._published_success()
+        SimcBenchmarkScenario.objects.create(
+            panel=self.panel, key='single-target', name='Single target',
+            simulation_params={'iterations': 1200},
+        )
+
+        original_filter = SimcBenchmarkCase.objects.filter
+        result_lookup_calls = 0
+
+        def counted_filter(*args, **kwargs):
+            nonlocal result_lookup_calls
+            if kwargs.get('execution__panel_id') == self.panel.id and kwargs.get('results__isnull') is False:
+                result_lookup_calls += 1
+            return original_filter(*args, **kwargs)
+
+        with patch.object(SimcBenchmarkCase.objects, 'filter', side_effect=counted_filter):
+            result = serialize_incremental_panel_results(self.panel)
+
+        self.assertEqual(len(result['coordinates']), 2)
+        self.assertEqual(result_lookup_calls, 1)
+
     def test_incremental_candidate_creates_only_missing_candidate_task_and_aggregates_old_result(self):
         original = self._published_success()
         original_case = original.cases.get()

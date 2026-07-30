@@ -180,38 +180,53 @@ def _coordinate_input_identity(coordinate):
     })
 
 
-def _reusable_candidate_tasks(panel, coordinate):
-    """Return finalized Task provenance by full frozen coordinate/candidate input identity."""
-    candidates = {}
+def _reusable_candidate_tasks_by_coordinate(panel):
+    """Load finalized candidate provenance once, keyed by frozen coordinate identity.
+
+    A panel can contain dozens of coordinates.  Querying the same finalized Cases
+    for every coordinate made the dashboard result projection scale as N×M and
+    blocked its API response for minutes.  Ordering is retained so the newest
+    execution remains authoritative for each reusable candidate identity.
+    """
+    coordinates = {}
     cases = SimcBenchmarkCase.objects.filter(
         execution__panel_id=panel.pk,
         results__isnull=False,
     ).select_related('task', 'execution').prefetch_related('results').order_by(
         '-execution_id', '-id',
     ).distinct()
-    target_coordinate = _coordinate_input_identity(coordinate)
     for case in cases:
         task = case.task
-        if task is None or _coordinate_input_identity({
+        if task is None:
+            continue
+        coordinate = _coordinate_input_identity({
             'spec_key': case.spec_key, 'scenario_key': case.scenario_key,
             'profile_key': case.profile_key, 'profile_id': task.profile_id,
             'apl_id': task.apl_id, 'template_id': task.template_id,
             'backend_id': task.backend_id, 'simulation_params': task.simulation_params or {},
-        }) != target_coordinate:
-            continue
+        })
+        candidates = coordinates.setdefault(coordinate, {})
         identities = _task_candidate_identities(task)
         for result in case.results.all():
             identity = identities.get(result.candidate_key)
             if identity and identity not in candidates:
                 candidates[identity] = {'task': task, 'result': result}
-    return candidates
+    return coordinates
+
+
+def _reusable_candidate_tasks(panel, coordinate, reusable_by_coordinate=None):
+    """Return finalized Task provenance by full frozen coordinate/candidate input identity."""
+    if reusable_by_coordinate is None:
+        reusable_by_coordinate = _reusable_candidate_tasks_by_coordinate(panel)
+    return reusable_by_coordinate.get(_coordinate_input_identity(coordinate), {})
 
 
 def _incremental_coordinates(panel, plan):
     """Schedule only candidate input identities absent from immutable successful results."""
     rows = []
+    reusable_by_coordinate = _reusable_candidate_tasks_by_coordinate(panel)
     for coordinate in plan['cases']:
-        reusable = _reusable_candidate_tasks(panel, coordinate)
+        reusable = _reusable_candidate_tasks(panel, coordinate, reusable_by_coordinate)
         missing = [candidate for candidate in coordinate['candidates']
                    if _candidate_input_identity(candidate) not in reusable]
         if missing:
@@ -482,9 +497,10 @@ def rerun_failed_cases(execution, requested_by=None):
 def serialize_incremental_panel_results(panel):
     """Aggregate immutable successful Results across independent executions by input identity."""
     plan = build_execution_plan(panel, lock=False)
+    reusable_by_coordinate = _reusable_candidate_tasks_by_coordinate(panel)
     coordinates = []
     for coordinate in plan['cases']:
-        reusable = _reusable_candidate_tasks(panel, coordinate)
+        reusable = _reusable_candidate_tasks(panel, coordinate, reusable_by_coordinate)
         rows = []
         for candidate in coordinate['candidates']:
             match = reusable.get(_candidate_input_identity(candidate))
