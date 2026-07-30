@@ -93,7 +93,7 @@ For one claim cycle only:
 
 Set `"max_concurrent_runs": 2` (or another integer from 1 to 64) only to opt an Agent into parallel Run execution. The default is `1`; Agent capacity is enforced by the server's live leases as well as the local thread pool.
 
-`start-simc-agent.cmd` is a thin wrapper around the PowerShell launcher for Task Scheduler or `cmd.exe`.
+`start-simc-agent.cmd` is a thin wrapper around the PowerShell launcher for Task Scheduler or `cmd.exe`. The PowerShell launcher is the process supervisor: an unexpected non-zero Agent exit is restarted after five seconds, while `-Once` preserves the exact one-cycle exit code. Agent code self-update uses `execv` and continues in-process, so it does not depend on Task Scheduler detecting an exit.
 
 ## Automatic compilation behavior
 

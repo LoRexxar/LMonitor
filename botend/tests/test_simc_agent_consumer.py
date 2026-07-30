@@ -1,10 +1,10 @@
 import hashlib
 import json
+from pathlib import Path
 import logging
 import os
 import stat
 import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -1305,6 +1305,15 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertEqual(completion['payload']['status'], 'failed')
             self.assertIsNone(completion['payload']['report'])
             self.assertIn('20 MiB', completion['payload']['stderr'])
+
+    def test_windows_launcher_supervises_unexpected_agent_exit(self):
+        launcher = Path(__file__).resolve().parents[2] / 'scripts' / 'start-simc-agent.ps1'
+        source = launcher.read_text(encoding='utf-8')
+
+        self.assertIn('while ($true)', source)
+        self.assertIn('$exitCode = $LASTEXITCODE', source)
+        self.assertIn('if ($Once -or $exitCode -eq 0)', source)
+        self.assertIn('Start-Sleep -Seconds 5', source)
 
     def test_lease_deadline_terminates_process(self):
         from simc_agent_consumer import AgentConfig, SimcAgentConsumer

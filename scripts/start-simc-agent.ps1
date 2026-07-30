@@ -23,5 +23,17 @@ if ($Once) {
     $arguments += '--once'
 }
 
-& $Python @arguments
-exit $LASTEXITCODE
+while ($true) {
+    & $Python @arguments
+    $exitCode = $LASTEXITCODE
+
+    # Agent self-update replaces its own process with os.execv(), which normally
+    # never returns here.  Restart only abnormal exits so Task Scheduler or an
+    # external wrapper is not required to keep the consumer alive.
+    if ($Once -or $exitCode -eq 0) {
+        exit $exitCode
+    }
+
+    Write-Warning "SimC Agent exited with code $exitCode; restarting in 5 seconds."
+    Start-Sleep -Seconds 5
+}
