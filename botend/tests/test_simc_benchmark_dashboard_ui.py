@@ -113,8 +113,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn('执行进度', headers)
         for contract in (
             'renderExecutionProgress', 'current_cases', 'config_frozen',
-            'task_bindings', 'results_available', '聚合结果已保存',
-            '成功', '失败', '进行中', 'background:true',
+            'task_bindings', '成功', '失败', '进行中', 'background:true',
             'BENCHMARK_POLL_MS', 'forceDiscoveryUntil', 'listFetchInFlight',
             '子任务（Case）', '候选 Run', 'run_counts', 'renderRunProgress',
         ):
@@ -137,6 +136,9 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn("其余 ${rows.length-limit} 项结果已折叠显示", aggregate)
         # Execution 的“查看结果”不是跨批次完整聚合结果入口，不能拿它误导用户。
         self.assertNotIn('完整对比请打开“查看结果”', aggregate)
+        self.assertNotIn('聚合结果待生成', JS)
+        self.assertNotIn('聚合结果已保存', JS)
+        self.assertNotIn('无聚合结果', JS)
         self.assertNotIn("${candidate.dps} DPS · Task #${candidate.task_id}", aggregate)
         for selector in (
             '.benchmark-aggregate-summary', '.benchmark-aggregate-row',

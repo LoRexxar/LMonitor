@@ -86,8 +86,7 @@ function renderExecutionProgress(execution,compact=false){
   if((execution.current_cases||[]).length){const current=el('div',{class:'benchmark-current-case'});execution.current_cases.forEach(item=>current.append(el('div',{},`当前：${item.spec||'—'} / ${item.scenario||'—'} / ${item.profile||'—'} · Task #${item.task_id||'—'} · ${item.progress}%`)));host.append(current);}
   const metadata=el('div',{class:'benchmark-metadata'});metadata.append(
     badge(meta.config_frozen?'配置快照已冻结':'配置快照缺失',meta.config_frozen?'good':'bad'),
-    badge(`Task 绑定 ${meta.task_bindings||0}/${meta.task_total||0}`,(meta.task_total||0)>0&&meta.task_bindings===meta.task_total?'good':'warn'),
-    badge(meta.results_available?'聚合结果已保存':(execution.is_active?'聚合结果待生成':'无聚合结果'),meta.results_available?'good':'muted')
+    badge(`Task 绑定 ${meta.task_bindings||0}/${meta.task_total||0}`,(meta.task_total||0)>0&&meta.task_bindings===meta.task_total?'good':'warn')
   );host.append(metadata);return host;
 }
 
