@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import shutil
 from concurrent.futures import Future, ThreadPoolExecutor
 import hashlib
 import ipaddress
@@ -56,10 +57,48 @@ TRUSTED_SIMC_REPOSITORY_URLS = {
     'git@github.com:simulationcraft/simc.git',
     'https://github.com/simulationcraft/simc.git',
 }
-# HTML rendering initializes C++ locale facets.  An Agent may inherit an
-# invalid host/service locale, so use the portable C locale for SimC itself.
-SIMC_PROCESS_LOCALE = 'C'
+# SimC's HTML report renderer itself requires an installed ``en_US`` locale.
+# Do not overwrite the host locale here: setting ``LC_ALL=C`` makes the renderer
+# attempt unavailable POSIX ``en_US`` locale names and fail before producing HTML.
 LOGGER_NAME = 'lmonitor.simc_agent'
+SIMC_HTML_REPORT_SOURCE = Path('engine') / 'report' / 'report_html_sim.cpp'
+SIMC_HTML_LOCALE_FALLBACK = '''  catch ( const std::runtime_error& )
+  {
+    // backup spelling for CI
+    try
+    {
+      std::locale::global( std::locale( "en_US.utf8" ) );
+    }
+    catch ( const std::runtime_error& )
+    {
+      std::locale::global( std::locale::classic() );
+    }
+  }'''
+
+
+def prepare_simc_html_build_source(source: Path, build_source: Path) -> None:
+    """Copy SimC source and patch the renderer only when its source is present.
+
+    Production SimC checkouts contain the HTML renderer.  Treat an absent source
+    as an older/alternate layout so the maintenance path retains its existing
+    build behavior; the isolated locale workaround is simply unavailable there.
+    """
+    shutil.copytree(source, build_source, symlinks=True, copy_function=shutil.copyfile)
+    report_path = build_source / SIMC_HTML_REPORT_SOURCE
+    if not report_path.is_file():
+        return
+    try:
+        report = report_path.read_text(encoding='utf-8')
+    except (OSError, UnicodeError) as exc:
+        raise APIError(f'cannot read SimC HTML report renderer: {exc}') from exc
+    original = '''  catch ( const std::runtime_error& )
+  {
+    // backup spelling for CI
+    std::locale::global( std::locale( "en_US.utf8" ) );
+  }'''
+    if original not in report:
+        raise APIError('SimC HTML locale fallback source is not recognized')
+    report_path.write_text(report.replace(original, SIMC_HTML_LOCALE_FALLBACK, 1), encoding='utf-8')
 
 
 def agent_revision(repository: Path | None = None) -> str:
@@ -664,8 +703,10 @@ class SimcAgentConsumer:
         with tempfile.TemporaryDirectory(
             prefix='.lmonitor-simc-build-', dir=str(source.parent),
         ) as build:
+            build_source = Path(build) / 'source'
+            prepare_simc_html_build_source(source, build_source)
             self._command([
-                'cmake', '-S', str(source), '-B', build, '-G', 'Ninja',
+                'cmake', '-S', str(build_source), '-B', build, '-G', 'Ninja',
                 '-DBUILD_GUI=OFF', '-DCMAKE_BUILD_TYPE=Release',
                 '-DCMAKE_CXX_FLAGS_RELEASE=-O1 -DNDEBUG',
             ], timeout=300)
@@ -1151,7 +1192,7 @@ class SimcAgentConsumer:
                 process = subprocess.Popen(
                     [self.config.simc_path, input_path.name], cwd=work,
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                    env={**os.environ, 'LANG': SIMC_PROCESS_LOCALE, 'LC_ALL': SIMC_PROCESS_LOCALE},
+                    env=os.environ.copy(),
                 )
                 heartbeat_stop = threading.Event()
                 heartbeat_thread = threading.Thread(

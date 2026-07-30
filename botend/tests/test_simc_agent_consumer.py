@@ -391,6 +391,32 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertTrue(any(command[0].endswith('/simc') and len(command) == 1 for command in commands))
             self.assertFalse(any('--version' in command for command in commands))
 
+    def test_html_build_source_uses_classic_locale_when_en_us_is_unavailable(self):
+        from simc_agent_consumer import prepare_simc_html_build_source
+
+        with tempfile.TemporaryDirectory() as root:
+            source = Path(root) / 'simc-source'
+            report = source / 'engine' / 'report' / 'report_html_sim.cpp'
+            report.parent.mkdir(parents=True)
+            report.write_text(
+                'try { std::locale::global( std::locale( "en_US.UTF-8" ) ); }\n'
+                '  catch ( const std::runtime_error& )\n'
+                '  {\n'
+                '    // backup spelling for CI\n'
+                '    std::locale::global( std::locale( "en_US.utf8" ) );\n'
+                '  }\n', encoding='utf-8',
+            )
+            build_source = Path(root) / 'build-source'
+
+            prepare_simc_html_build_source(source, build_source)
+
+            rendered = (build_source / 'engine' / 'report' / 'report_html_sim.cpp').read_text(encoding='utf-8')
+            self.assertIn('std::locale::classic()', rendered)
+            self.assertEqual(
+                rendered.count('catch ( const std::runtime_error& )'), 2,
+            )
+            self.assertNotIn('std::locale::classic()', report.read_text(encoding='utf-8'))
+
     def test_windows_maintenance_uses_simc_exe_and_skips_posix_mode_changes(self):
         from simc_agent_consumer import AgentConfig, SimcAgentConsumer
 
@@ -429,7 +455,13 @@ class SimcAgentConsumerTests(SimpleTestCase):
 
             self.assertTrue(changed)
             self.assertTrue(Path(values['simc_path']).is_file())
-            chmod.assert_not_called()
+            # ``copytree`` may preserve source-directory metadata through the
+            # platform module, but Agent activation itself must not chmod the
+            # Windows binary's temporary replacement file.
+            self.assertFalse(any(
+                Path(call.args[0]).name.startswith('.simc.')
+                for call in chmod.call_args_list
+            ))
             commands = [call.args[0] for call in run_command.call_args_list]
             self.assertTrue(any(command[:2] == ['cmake', '--build'] for command in commands))
             self.assertTrue(any(command[0].endswith('simc.exe') and len(command) == 1 for command in commands))
@@ -791,13 +823,16 @@ class SimcAgentConsumerTests(SimpleTestCase):
                 (cwd / 'simc_task_1_run_17.html').write_text('<html>ok</html>', encoding='utf-8')
                 return process
 
-            with patch('simc_agent_consumer.subprocess.Popen', side_effect=create_report) as popen:
+            with patch.dict(
+                'simc_agent_consumer.os.environ',
+                {'LANG': 'zh_CN.UTF-8', 'LC_ALL': 'zh_CN.UTF-8'}, clear=True,
+            ), patch('simc_agent_consumer.subprocess.Popen', side_effect=create_report) as popen:
                 consumer = SimcAgentConsumer(config, transport=transport)
                 consumer.agent_token = token
                 consumer.execute_job(job)
 
-            self.assertEqual(popen.call_args.kwargs['env']['LANG'], 'C')
-            self.assertEqual(popen.call_args.kwargs['env']['LC_ALL'], 'C')
+            self.assertEqual(popen.call_args.kwargs['env']['LANG'], 'zh_CN.UTF-8')
+            self.assertEqual(popen.call_args.kwargs['env']['LC_ALL'], 'zh_CN.UTF-8')
             transport.put_bytes.assert_called_once_with(
                 url='https://bucket.oss.example/signed', body=report,
                 headers={'Content-Type': 'text/html; charset=utf-8'},
