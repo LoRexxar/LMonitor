@@ -400,6 +400,7 @@ def rerun_failed_cases(execution, requested_by=None):
         failed_cases = list(SimcBenchmarkCase.objects.filter(
             execution=source, status__in=(
                 SimcBenchmarkExecution.STATUS_FAILED,
+                SimcBenchmarkExecution.STATUS_PARTIAL,
                 SimcBenchmarkExecution.STATUS_CANCELLED,
             ),
         ).select_related('task').order_by('id'))

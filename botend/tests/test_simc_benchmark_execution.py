@@ -545,6 +545,11 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertIsNotNone(execution.completed_at)
         self.assertIsNone(self.panel.published_execution_id)
 
+        rerun_execution = rerun_failed_cases(execution, requested_by=self.user_id)
+        rerun_case = rerun_execution.cases.get()
+        self.assertEqual(rerun_case.task.source_task_id, task.id)
+        self.assertEqual(rerun_case.task.current_status, 0)
+
     def test_success_task_with_live_or_missing_runs_never_completes(self):
         for run_status, expected in ((None, 'pending'), ('pending', 'pending'),
                                      ('running', 'running')):

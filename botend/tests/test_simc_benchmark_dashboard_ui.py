@@ -173,6 +173,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn("actionButton('history','子任务状态'", JS)
         self.assertIn("actionButton('results','查看结果'", JS)
         self.assertIn("actionButton('rerun-failed','批量失败重跑'", JS)
+        self.assertIn("['failed','partial','cancelled'].includes(execution.status)", JS)
         self.assertIn("benchmarkFetch(`${API}executions/${id}/rerun-failed/`", JS)
         self.assertIn('function executionUrl(id)', JS)
         self.assertIn('function executionDetail(id)', JS)
