@@ -577,24 +577,6 @@ class SimcAgentConsumer:
         except (OSError, UnicodeError) as exc:
             raise ConfigError(f'cannot read token file: {exc}') from exc
 
-    def _consume_enrollment_token(self) -> None:
-        """Remove a successfully consumed one-time code from the owned config.
-
-        Runtime state stays limited to the configured token/outbox/log paths.  A
-        code is only removed after the control plane has issued and durably
-        stored its replacement Bearer token.
-        """
-        if not self.config.enrollment_token:
-            return
-        if self.config_path is None:
-            # Unit callers may construct an in-memory config; production main()
-            # always supplies the owned path and persists this consumption.
-            self.config = AgentConfig.from_dict({**self.config.__dict__, 'enrollment_token': ''})
-            return
-        values = {**self.config.__dict__, 'enrollment_token': ''}
-        _write_private_json(self.config_path, values)
-        self.config = AgentConfig.from_dict(values)
-
     def _save_token(self, token: str) -> None:
         path = Path(self.config.token_path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -919,23 +901,40 @@ class SimcAgentConsumer:
             payload['backend_identifier'] = self.config.backend_identifier
         payload.pop('status')
         had_persisted_token = bool(self.agent_token)
-        use_enrollment = bool(self.config.enrollment_token)
-        if not self.agent_token and not use_enrollment:
+        if not self.agent_token and not self.config.enrollment_token:
             raise ConfigError('enrollment_token is required for first registration')
         try:
             response = self.transport.json(
                 path='/api/simc-agent/v1/register/', payload=payload,
-                authorization=('Enrollment ' + self.config.enrollment_token
-                               if use_enrollment else self.authorization),
+                authorization=self.authorization if self.agent_token else 'Enrollment ' + self.config.enrollment_token,
             )
-        except APIError:
-            # A supplied one-time code is attempted before any Bearer request.
-            # Preserve an existing token if enrollment is rejected.
-            raise
+        except APIError as exc:
+            # Only a rejected Bearer credential permits enrollment recovery.
+            # A configured code is intentionally ignored while the existing
+            # long-lived token remains valid, so normal Agents are unaffected
+            # by an expired or stale enrollment_token left in their config.
+            if exc.status != 401 or not had_persisted_token:
+                raise
+            if not self.config.enrollment_token:
+                raise ConfigError(
+                    'persisted agent token was rejected and enrollment_token is not configured',
+                ) from exc
+            self.logger.warning('persisted Agent token was rejected; attempting enrollment recovery')
+            try:
+                response = self.transport.json(
+                    path='/api/simc-agent/v1/register/', payload=payload,
+                    authorization='Enrollment ' + self.config.enrollment_token,
+                )
+            except APIError as enrollment_error:
+                if enrollment_error.status == 401:
+                    raise ConfigError(
+                        'persisted agent token was rejected and enrollment_token is invalid or expired',
+                    ) from enrollment_error
+                raise
         if not response:
             raise APIError('registration returned an empty response')
         issued = response.get('agent_token')
-        if use_enrollment and (type(issued) is not str or not issued):
+        if not had_persisted_token and (type(issued) is not str or not issued):
             raise APIError('enrollment registration returned an invalid agent token')
         if issued is not None:
             if self.agent_token and not had_persisted_token:
@@ -944,8 +943,6 @@ class SimcAgentConsumer:
                 raise APIError('registration returned an invalid agent token')
             self._save_token(issued)
             self.agent_token = issued
-        if use_enrollment:
-            self._consume_enrollment_token()
         self.heartbeat_interval = self._positive_number(
             response.get('heartbeat_interval_seconds', 30), 'heartbeat_interval_seconds')
         self.lease_seconds = self._positive_number(response.get('lease_seconds', 90), 'lease_seconds')
