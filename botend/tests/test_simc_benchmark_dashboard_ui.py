@@ -134,6 +134,15 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn("historyDetailController?.abort()", JS)
         self.assertIn("historyReconcileController?.abort()", JS)
 
+    def test_history_detail_click_makes_loading_and_errors_visible(self):
+        """A failed detail request must not look like an inert history button."""
+        detail = JS[JS.index('async function executionDetail('):JS.index('function renderExecution(', JS.index('async function executionDetail('))]
+        self.assertIn("state.textContent='正在加载执行详情…'", detail)
+        self.assertIn("host.scrollIntoView({behavior:'smooth',block:'nearest'})", detail)
+        self.assertIn("const message=`详情加载失败：${e.message}`", detail)
+        self.assertIn("state.textContent=message", detail)
+        self.assertIn("notify(message,'error')", detail)
+
     def test_compact_gear_fields_preserve_canonical_slot_in_payload(self):
         self.assertIn("slot:swap?.slot||slotMatch?.[1]||'trinket1'", JS)
         self.assertIn("fallback=`${meta.slot||'trinket1'}=id=${itemId},ilevel=${itemLevel}`", JS)
