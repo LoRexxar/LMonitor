@@ -354,7 +354,10 @@ class SimcAgentConsumerTests(SimpleTestCase):
                 '  }\n', encoding='utf-8',
             )
             values = self.config(root)
-            values['simc_source_path'] = str(source)
+            values.update({
+                'simc_source_path': str(source),
+                'auto_update_simc': False,
+            })
             revision = 'a' * 40
             Path(values['simc_path'] + '.lmonitor-build.json').write_text(
                 json.dumps({'revision': revision}), encoding='utf-8',

@@ -633,12 +633,19 @@ class SimcAgentConsumer:
         # revision demanded by the control plane is mandatory for claiming a
         # frozen Run and must not be silently ignored because periodic updates
         # were disabled.
-        if (not self.config.auto_update_simc and required_revision is None):
+        report = self._report()
+        needs_html_locale_patch = (
+            report['binary_available']
+            and report['html_locale_patch_version'] < SIMC_HTML_LOCALE_PATCH_VERSION
+        )
+        if (not self.config.auto_update_simc and required_revision is None
+                and not needs_html_locale_patch):
             return False
         if not self.config.simc_source_path:
             return False
         now = time.monotonic()
-        if not force and now - self._last_simc_check < self.config.simc_update_interval_seconds:
+        if (not force and not needs_html_locale_patch
+                and now - self._last_simc_check < self.config.simc_update_interval_seconds):
             return False
         self._last_simc_check = now
         binary_entry = Path(self.config.simc_path).expanduser()
