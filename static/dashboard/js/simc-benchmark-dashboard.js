@@ -46,11 +46,11 @@ function renderAggregatedResults(aggregate,compact=false){
   const host=el('section',{class:`benchmark-aggregated-results${compact?' compact':''}`});
   const coordinates=Array.isArray(aggregate?.coordinates)?aggregate.coordinates:[];
   const rows=coordinates.flatMap(coordinate=>(Array.isArray(coordinate.candidates)?coordinate.candidates:[]).map(candidate=>({coordinate,candidate})));
-  if(!coordinates.length){host.append(badge('暂无跨批次聚合结果','muted'));return host;}
+  if(!coordinates.length){host.append(badge('暂无已完成模拟结果','muted'));return host;}
   const heading=el('div',{class:'benchmark-aggregate-heading'});
-  heading.append(el('strong',{},'跨批次聚合结果'),badge(`${rows.length} 项结果 · ${coordinates.length} 个坐标`,'good'));
+  heading.append(el('strong',{},'结果预览'),badge(`${rows.length} 项结果 · ${coordinates.length} 个坐标`,'good'));
   host.append(heading);
-  const detail=el('div',{class:'benchmark-aggregate-summary'},'已完成坐标的不可变结果；与当前 Execution 的子任务 / Run 进度分开统计。');
+  const detail=el('div',{class:'benchmark-aggregate-summary'},'页面打开时，按已完成模拟的不可变结果即时生成；不创建额外模拟或聚合任务。当前 Execution 的子任务 / Run 进度另行显示。');
   const list=el('div',{class:'benchmark-aggregate-list'});
   const limit=compact?2:6;
   rows.slice(0,limit).forEach(({coordinate,candidate})=>{
@@ -62,7 +62,7 @@ function renderAggregatedResults(aggregate,compact=false){
     if(candidate.task_id) result.append(el('span',{class:'benchmark-aggregate-task'},`来源 Task #${candidate.task_id}`));
     row.append(coordinateLabel,candidateLabel,result);list.append(row);
   });
-  if(rows.length>limit)list.append(el('div',{class:'benchmark-aggregate-more'},`其余 ${rows.length-limit} 项已聚合；完整对比请打开“查看结果”。`));
+  if(rows.length>limit)list.append(el('div',{class:'benchmark-aggregate-more'},`其余 ${rows.length-limit} 项结果已折叠显示。`));
   host.append(detail,list);return host;
 }
 function renderRunProgress(execution,compact=false){

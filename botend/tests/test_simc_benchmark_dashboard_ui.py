@@ -128,11 +128,15 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
     def test_cross_execution_results_use_structured_rows_not_raw_debug_lines(self):
         """A large immutable aggregate must remain scannable in the panel list."""
         aggregate = JS[JS.index('function renderAggregatedResults('):JS.index('function renderRunProgress(')]
-        self.assertIn("'跨批次聚合结果'", aggregate)
+        self.assertIn("'结果预览'", aggregate)
+        self.assertIn('页面打开时，按已完成模拟的不可变结果即时生成；不创建额外模拟或聚合任务。', aggregate)
         self.assertIn("class:'benchmark-aggregate-row'", aggregate)
         self.assertIn("class:'benchmark-aggregate-coordinate'", aggregate)
         self.assertIn("class:'benchmark-aggregate-dps'", aggregate)
         self.assertIn("formatDps(candidate.dps)", aggregate)
+        self.assertIn("其余 ${rows.length-limit} 项结果已折叠显示", aggregate)
+        # Execution 的“查看结果”不是跨批次完整聚合结果入口，不能拿它误导用户。
+        self.assertNotIn('完整对比请打开“查看结果”', aggregate)
         self.assertNotIn("${candidate.dps} DPS · Task #${candidate.task_id}", aggregate)
         for selector in (
             '.benchmark-aggregate-summary', '.benchmark-aggregate-row',
