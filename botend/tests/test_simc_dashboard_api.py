@@ -1378,6 +1378,8 @@ main_hand=,id=222222
                 run.call_args.args[0],
                 ['/opt/simc', '/tmp/input.simc', f'html={expected}', 'threads=1'],
             )
+            self.assertEqual(run.call_args.kwargs['env']['LANG'], 'C')
+            self.assertEqual(run.call_args.kwargs['env']['LC_ALL'], 'C')
 
     def test_execute_simc_command_caps_requested_threads_to_leave_one_cpu_for_web(self):
         task = SimpleNamespace(simulation_params={'threads': 4})

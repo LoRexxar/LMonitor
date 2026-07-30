@@ -43,6 +43,15 @@ def _composer_identity(frozen_spec):
     return spec, class_name
 
 
+# SimC's HTML renderer constructs C++ locales.  Keep backend-run processes
+# independent from an invalid locale inherited by a service/non-interactive shell.
+SIMC_PROCESS_LOCALE = 'C'
+
+
+def simc_process_env():
+    return {**os.environ, 'LANG': SIMC_PROCESS_LOCALE, 'LC_ALL': SIMC_PROCESS_LOCALE}
+
+
 class SimcMonitor(BaseScan):
     """
     SimC模拟监控
@@ -1139,6 +1148,7 @@ class SimcMonitor(BaseScan):
                 cwd=self.result_path,
                 capture_output=True,
                 text=True,
+                env=simc_process_env(),
                 timeout=300  # 5分钟超时
             )
             
