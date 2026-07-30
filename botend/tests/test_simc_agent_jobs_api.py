@@ -510,6 +510,34 @@ class SimcAgentJobAPITests(TestCase):
         )
         self.assertEqual(bad.status_code, 409)
 
+    def test_stale_lease_completion_is_acknowledged_and_discarded(self):
+        job = self.claim_after_task()
+        stale_payload = {
+            'lease_token': 'x' * 43, 'instance_id': 'instance-a',
+            'size': 16, 'sha256': 'a' * 64,
+            'content_md5': 'MDEyMzQ1Njc4OUFCQ0RFRg==',
+        }
+        upload = self.post_json(
+            f"/api/simc-agent/v1/jobs/{job['run_id']}/report-upload/", stale_payload,
+        )
+        self.assertEqual(upload.status_code, 200, upload.content)
+        self.assertEqual(upload.json(), {
+            'run_id': job['run_id'], 'status': 'running', 'already_completed': True,
+        })
+        completion_body = {
+            'lease_token': stale_payload['lease_token'], 'instance_id': 'instance-a',
+            'completion_id': 'stale-lease', 'status': 'failed',
+            'stdout': '', 'stderr': 'obsolete result', 'report': None,
+        }
+        response = self.post_json(
+            f"/api/simc-agent/v1/jobs/{job['run_id']}/complete/", completion_body,
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json(), {
+            'run_id': job['run_id'], 'status': 'running', 'idempotent': True,
+        })
+        self.assertEqual(SimulationRun.objects.get(pk=job['run_id']).status, 'running')
+
     def test_report_upload_returns_conflict_if_lease_expires_before_presign(self):
         from botend.services.simc_agent_oss import ReportLeaseExpiredError
 

@@ -421,11 +421,18 @@ def request_report_upload(run_id, payload, authorization):
         if run.status != 'running':
             raise AgentAPIError('Run is not running', 409)
         now = timezone.now()
-        # A legitimate durable outbox may retry after its Agent row was rotated.
-        # The original cryptographic lease still fences it: a subsequent claim
-        # changes the token hash and is rejected below.
-        _validate_fence(run, agent, payload.get('lease_token'), payload.get('instance_id'), now,
-                        require_lease_agent=False)
+        try:
+            _validate_fence(run, agent, payload.get('lease_token'), payload.get('instance_id'), now,
+                            require_lease_agent=False)
+        except AgentAPIError as exc:
+            if (exc.status == 409 and str(exc) == 'Lease conflict'
+                    and isinstance(payload.get('lease_token'), str)
+                    and LEASE_TOKEN_RE.fullmatch(payload['lease_token'])):
+                # The Run is still live under a newer/different lease.  A stale
+                # durable outbox must stop retrying rather than uploading a report
+                # that can never become authoritative.
+                return {'run_id': run.pk, 'status': run.status, 'already_completed': True}
+            raise
         lease_fence = run.lease_token_hash
         lease_expires_at = run.lease_expires_at
     try:
@@ -548,10 +555,19 @@ def complete_run(run_id, metadata, authorization):
     # overwrite the authoritative result.
     if run_for_key.status in TERMINAL:
         return {'run_id': run_for_key.pk, 'status': run_for_key.status, 'idempotent': True}
-    _validate_fence(
-        run_for_key, discovered_agent, metadata['lease_token'], metadata['instance_id'],
-        timezone.now(), require_unexpired=True, require_lease_agent=False,
-    )
+    try:
+        _validate_fence(
+            run_for_key, discovered_agent, metadata['lease_token'], metadata['instance_id'],
+            timezone.now(), require_unexpired=True, require_lease_agent=False,
+        )
+    except AgentAPIError as exc:
+        if (exc.status == 409 and str(exc) == 'Lease conflict'
+                and isinstance(metadata.get('lease_token'), str)
+                and LEASE_TOKEN_RE.fullmatch(metadata['lease_token'])):
+            # A stale durable terminal record cannot win against the current
+            # lease; acknowledge it solely so its Agent removes the outbox file.
+            return {'run_id': run_for_key.pk, 'status': run_for_key.status, 'idempotent': True}
+        raise
     if run_for_key.status != 'running':
         raise AgentAPIError('Run is not running', 409)
 
