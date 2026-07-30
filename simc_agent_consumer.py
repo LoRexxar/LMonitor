@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import base64
 import shutil
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 import hashlib
 import ipaddress
 import json
@@ -1457,25 +1457,34 @@ class SimcAgentConsumer:
                 capacity = 1 if once else self.config.max_concurrent_runs
                 with ThreadPoolExecutor(max_workers=capacity,
                                         thread_name_prefix='simc-agent-run') as executor:
-                    while (not self.stop_event.is_set()
-                           and len(self._active_jobs) < capacity):
-                        job = self.claim()
-                        if not job:
+                    while not self.stop_event.is_set():
+                        while (not self.stop_event.is_set()
+                               and len(self._active_jobs) < capacity):
+                            job = self.claim()
+                            if not job:
+                                break
+                            self.logger.info('claimed Task %s Run %s', job.get('task_id'), job.get('run_id'))
+                            self.heartbeat('busy')
+                            run_id = job.get('run_id')
+                            future = executor.submit(self.execute_job, job)
+                            if isinstance(run_id, int):
+                                self._active_jobs[run_id] = future
+                        if not self._active_jobs:
                             break
-                        self.logger.info('claimed Task %s Run %s', job.get('task_id'), job.get('run_id'))
-                        self.heartbeat('busy')
-                        run_id = job.get('run_id')
-                        future = executor.submit(self.execute_job, job)
-                        if isinstance(run_id, int):
-                            self._active_jobs[run_id] = future
-                    for run_id, future in list(self._active_jobs.items()):
-                        try:
-                            future.result()
-                        except Exception:
-                            self._lease_block_until = time.monotonic() + self.lease_seconds
-                            raise
-                        finally:
-                            self._active_jobs.pop(run_id, None)
+                        completed, _ = wait(tuple(self._active_jobs.values()),
+                                            return_when=FIRST_COMPLETED)
+                        for run_id, future in list(self._active_jobs.items()):
+                            if future not in completed:
+                                continue
+                            try:
+                                future.result()
+                            except Exception:
+                                self._lease_block_until = time.monotonic() + self.lease_seconds
+                                raise
+                            finally:
+                                self._active_jobs.pop(run_id, None)
+                        if once:
+                            break
                     self._lease_block_until = 0.0
                 if self._active_jobs:
                     self.heartbeat('busy')

@@ -7,6 +7,8 @@ import logging
 import os
 import stat
 import tempfile
+import threading
+import time
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -322,7 +324,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
             consumer.heartbeat = MagicMock()
             first = {'task_id': 1, 'run_id': 1}
             second = {'task_id': 1, 'run_id': 2}
-            consumer.claim = MagicMock(side_effect=[first, second])
+            consumer.claim = MagicMock(side_effect=[first, second, None])
 
             def execute(job):
                 if job['run_id'] == 2:
@@ -331,10 +333,50 @@ class SimcAgentConsumerTests(SimpleTestCase):
             consumer.execute_job = MagicMock(side_effect=execute)
             consumer.run()
 
-            self.assertEqual(consumer.claim.call_count, 2)
+            self.assertEqual(consumer.claim.call_count, 3)
             self.assertCountEqual(
                 [entry.args[0] for entry in consumer.execute_job.call_args_list], [first, second],
             )
+
+    def test_run_refills_a_completed_slot_without_waiting_for_other_active_runs(self):
+        from simc_agent_consumer import AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            values['max_concurrent_runs'] = 2
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=MagicMock())
+            consumer.register = MagicMock()
+            consumer.flush_completion_outbox = MagicMock(return_value=True)
+            consumer._run_scheduled_maintenance_if_due = MagicMock()
+            consumer.heartbeat = MagicMock()
+            first = {'task_id': 1, 'run_id': 1}
+            second = {'task_id': 2, 'run_id': 2}
+            third = {'task_id': 3, 'run_id': 3}
+            consumer.claim = MagicMock(side_effect=[first, second, third])
+            second_started = threading.Event()
+            release_second = threading.Event()
+            third_started = threading.Event()
+
+            def execute(job):
+                if job['run_id'] == 2:
+                    second_started.set()
+                    self.assertTrue(release_second.wait(timeout=2))
+                elif job['run_id'] == 3:
+                    third_started.set()
+                    consumer.stop_event.set()
+
+            consumer.execute_job = MagicMock(side_effect=execute)
+            thread = threading.Thread(target=consumer.run, daemon=True)
+            thread.start()
+            self.assertTrue(second_started.wait(timeout=2))
+            deadline = time.monotonic() + 2
+            while consumer.claim.call_count < 3 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertEqual(consumer.claim.call_count, 3)
+            self.assertTrue(third_started.wait(timeout=2))
+            release_second.set()
+            thread.join(timeout=2)
+            self.assertFalse(thread.is_alive())
 
     def test_once_claims_only_one_run_even_when_capacity_is_higher(self):
         from simc_agent_consumer import AgentConfig, SimcAgentConsumer
