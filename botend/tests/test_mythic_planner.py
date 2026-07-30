@@ -2377,6 +2377,11 @@ class MythicPlannerPageContractTests(SimpleTestCase):
         self.assertContains(planner, 'data-close-enemy-detail')
         self.assertContains(planner, 'id="share-route"')
         self.assertContains(planner, 'data-share-token=""')
+        self.assertContains(
+            planner,
+            '<a href="/" class="mdt-icon-button mdt-home-button" title="返回首页">返回首页</a>',
+            html=True,
+        )
         self.assertNotContains(planner, 'id="save-server-route"')
         self.assertNotContains(planner, 'data-authenticated=')
         self.assertNotContains(planner, '登录后云端保存')

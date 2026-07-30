@@ -6,7 +6,7 @@
     <link rel="icon" href="/favicon.ico">
     <title>大秘境路线规划器（开发预览）</title>
     {% load static %}
-    <link rel="stylesheet" href="{% static 'portal/css/mythic_planner.css' %}?v=20260729_1">
+    <link rel="stylesheet" href="{% static 'portal/css/mythic_planner.css' %}?v=20260730_1">
 </head>
 <body class="mdt-page" data-share-token="{{ planner_share_token|escape }}">
     <div id="planner-app" class="mdt-app" aria-busy="true">
@@ -38,7 +38,7 @@
             </div>
             <div class="mdt-top-actions">
                 <button id="open-route-library" type="button" title="本地路线库">路线库</button>
-                <a href="/" class="mdt-icon-button" title="返回 Portal 首页" aria-label="返回 Portal 首页">⌂</a>
+                <a href="/" class="mdt-icon-button mdt-home-button" title="返回首页">返回首页</a>
                 <button id="open-help" class="mdt-icon-button" type="button" title="操作说明" aria-label="操作说明">?</button>
             </div>
         </header>
