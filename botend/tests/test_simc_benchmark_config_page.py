@@ -2,7 +2,7 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
 
-from botend.models import SimcBenchmarkPanel
+from botend.models import SimcBenchmarkExecution, SimcBenchmarkPanel
 
 
 class SimcBenchmarkConfigPageTests(TestCase):
@@ -36,3 +36,18 @@ class SimcBenchmarkConfigPageTests(TestCase):
     def test_unknown_panel_is_not_disclosed(self):
         self.client.force_login(self.staff)
         self.assertEqual(self.client.get(self.url(999999)).status_code, 404)
+
+    def test_staff_can_open_private_execution_result_page_without_portal_publication(self):
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=self.panel, config_snapshot={}, config_hash='a' * 64,
+        )
+        url = reverse('simc_benchmark_execution_page', args=[execution.id])
+        self.client.force_login(self.staff)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'dashboard/simc_benchmark_execution.html')
+        self.assertContains(response, f'data-benchmark-execution-id="{execution.id}"')
+        self.assertContains(response, '私有执行结果')
+
+        self.client.force_login(self.regular)
+        self.assertEqual(self.client.get(url).status_code, 403)

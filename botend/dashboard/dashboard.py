@@ -29,7 +29,7 @@ from utils.log import logger
 from botend.models import (MonitorTask, TargetAuth, MonitorWebhook, WechatAccountTask,
                           WechatArticle, VulnMonitorTask, VulnData, RssMonitorTask,
                           RssArticle, WowArticle, SimcTask, SimcProfile, SimcSecondaryStatRule, WclAnalysisTask, SimcApl,
-                          SimcBenchmarkPanel)
+                          SimcBenchmarkPanel, SimcBenchmarkExecution)
 
 from botend.services.simc_attribute_results import parse_attribute_result_filename
 
@@ -1012,6 +1012,20 @@ class SimcBenchmarkConfigPageView(View):
         return render(request, 'dashboard/simc_benchmark_config.html', {
             'panel_id': panel.pk,
             'panel_name': panel.name,
+        })
+
+
+@method_decorator(login_required, name='dispatch')
+class SimcBenchmarkExecutionPageView(View):
+    """Staff-only private execution result shell; Portal publication is irrelevant."""
+
+    def get(self, request, execution_id):
+        if not (request.user.is_staff or request.user.is_superuser):
+            return HttpResponse(status=403)
+        execution = get_object_or_404(SimcBenchmarkExecution, pk=execution_id)
+        return render(request, 'dashboard/simc_benchmark_execution.html', {
+            'execution_id': execution.pk,
+            'panel_name': execution.panel.name,
         })
 
 

@@ -75,7 +75,7 @@ class PortalSimcBenchmarkAPITests(TestCase):
         self.assertEqual(serializer.call_args.args[0].pk, self.public.pk)
 
     @patch('botend.portal.simc_benchmark_api.serialize_public_execution')
-    def test_private_panel_is_hidden_from_list_but_addressable_by_slug(self, serializer):
+    def test_private_panel_is_not_exposed_by_list_or_slug(self, serializer):
         serializer.return_value = {'status': 'not_ready', 'execution': None}
 
         list_response = self.client.get('/portal/api/simc-benchmarks/panels/')
@@ -83,7 +83,8 @@ class PortalSimcBenchmarkAPITests(TestCase):
 
         self.assertNotIn('secret-panel', json.dumps(json.loads(list_response.content)))
         self.assertEqual(json.loads(private_response.content), serializer.return_value)
-        self.assertEqual(serializer.call_args.args[0].pk, self.private.pk)
+        serializer.assert_called_once()
+        self.assertEqual(serializer.call_args.args[0].pk, self.public.pk)
 
     @patch('botend.portal.simc_benchmark_api.serialize_public_execution')
     def test_disabled_and_missing_slugs_are_not_ready(self, serializer):

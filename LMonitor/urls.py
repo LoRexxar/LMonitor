@@ -21,7 +21,7 @@ from django.views.generic.base import RedirectView
 
 from botend.webhook.hexagram import GetHexagramView
 from botend.webhook.gewechat import GeWechatWebhookView
-from botend.dashboard.dashboard import DashboardView, SimcWorkbenchDetailPageView, SimcBenchmarkConfigPageView, SimcResultView, SimcAttributeAnalysisView, SimcRegularCompareView, SimcAttributeAnalysisSSRView, WclAnalysisPageView, WclAnalysisReportView
+from botend.dashboard.dashboard import DashboardView, SimcWorkbenchDetailPageView, SimcBenchmarkConfigPageView, SimcBenchmarkExecutionPageView, SimcResultView, SimcAttributeAnalysisView, SimcRegularCompareView, SimcAttributeAnalysisSSRView, WclAnalysisPageView, WclAnalysisReportView
 from botend.dashboard.api import (
     ConvertTextAPIView, AplStorageAPIView, AplDetailAPIView,
     SimcTaskAPIView, SimcComparisonTaskAPIView, SimcProfileAPIView, SimcPlayerConfigDetailAPIView,
@@ -121,6 +121,7 @@ urlpatterns = [
     path('dashboard/mythic-planner/routes/', DashboardMythicPlannerRoutesView.as_view(), name='dashboard_mythic_planner_routes'),
     path('dashboard/simc/tasks/<int:object_id>/', SimcWorkbenchDetailPageView.as_view(), {'kind': 'tasks'}, name='simc_task_detail_page'),
     path('dashboard/simc/benchmarks/<int:panel_id>/config/', SimcBenchmarkConfigPageView.as_view(), name='simc_benchmark_config_page'),
+    path('dashboard/simc/benchmarks/executions/<int:execution_id>/', SimcBenchmarkExecutionPageView.as_view(), name='simc_benchmark_execution_page'),
 
     # Portal API
     path('portal/api/blueposts/', csrf_exempt(PortalBluepostsAPIView.as_view()), name="portal_blueposts"),
