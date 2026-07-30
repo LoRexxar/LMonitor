@@ -8183,7 +8183,8 @@ def _benchmark_progress_case_queryset():
         'spec_key', 'scenario_key', 'profile_key',
         'spec_label', 'scenario_label', 'profile_label',
         'task__id', 'task__current_status', 'task__ext',
-    ).order_by('id')
+        'task__simulation_runs__id', 'task__simulation_runs__status',
+    ).prefetch_related('task__simulation_runs').order_by('id')
 
 
 def _benchmark_execution_progress(execution, cases, *, is_active=False, case_count=None):
@@ -8200,9 +8201,17 @@ def _benchmark_execution_progress(execution, cases, *, is_active=False, case_cou
     counts = {status: 0 for status in statuses}
     progress_values = []
     current_cases = []
+    run_counts = {status: 0 for status in ('pending', 'running', 'success', 'failed', 'cancelled')}
+    total_runs = 0
     for case in cases:
         status = case.status if case.status in counts else 'failed'
         counts[status] += 1
+        for run in case.task.simulation_runs.all() if case.task_id else ():
+            run_status = {'completed': 'success'}.get(run.status, run.status)
+            if run_status not in run_counts:
+                run_status = 'failed'
+            run_counts[run_status] += 1
+            total_runs += 1
         if status == 'pending':
             progress = 0
         elif status == 'running':
@@ -8226,6 +8235,8 @@ def _benchmark_execution_progress(execution, cases, *, is_active=False, case_cou
         'is_active': is_active,
         'progress': progress,
         'case_count': total_cases,
+        'total_runs': total_runs,
+        'run_counts': run_counts,
         'counts': counts,
         'current_cases': current_cases[:3],
         'metadata': _benchmark_execution_metadata(execution, cases, total_cases),

@@ -10,6 +10,7 @@ from django.utils import timezone
 from botend.models import (
     SimcApl, SimcBackendBinary, SimcBenchmarkCase, SimcBenchmarkExecution,
     SimcBenchmarkPanel, SimcContentTemplate, SimcProfile, SimcTask,
+    SimulationRun,
 )
 from botend.services.simc_benchmark_execution import BenchmarkExecutionConflict
 
@@ -205,6 +206,10 @@ class SimcBenchmarkDashboardApiTests(TestCase):
                 profile_label=f'Profile {index}',
                 coordinate_hash=f'{index + 1:064x}',
             )
+            SimulationRun.objects.create(
+                task=task, sequence=1,
+                status=('completed' if index == 0 else ('failed' if index == 1 else ('running' if index == 2 else 'pending'))),
+            )
 
         response = self.client.get('/api/simc-benchmarks/panels/')
         self.assertEqual(response.status_code, 200)
@@ -221,6 +226,11 @@ class SimcBenchmarkDashboardApiTests(TestCase):
             'spec': 'Fury', 'scenario': 'Scenario 2', 'profile': 'Profile 2',
             'progress': 37,
         }])
+        self.assertEqual(progress['run_counts'], {
+            'pending': 1, 'running': 1, 'success': 1,
+            'failed': 1, 'cancelled': 0,
+        })
+        self.assertEqual(progress['total_runs'], 4)
         self.assertEqual(progress['metadata'], {
             'config_frozen': True,
             'task_bindings': 4,

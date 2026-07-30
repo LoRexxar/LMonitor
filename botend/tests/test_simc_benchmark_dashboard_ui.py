@@ -116,6 +116,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
             'task_bindings', 'results_available', '聚合结果已保存',
             '成功', '失败', '进行中', 'background:true',
             'BENCHMARK_POLL_MS', 'forceDiscoveryUntil', 'listFetchInFlight',
+            '子任务（Case）', '候选 Run', 'run_counts', 'renderRunProgress',
         ):
             self.assertIn(contract, JS)
         for selector in (

@@ -49,6 +49,16 @@ function renderAggregatedResults(aggregate,compact=false){
   if(rows.length>(compact?2:6))detail.append(el('div',{},`其余 ${rows.length-(compact?2:6)} 项结果已聚合`));
   host.append(detail);return host;
 }
+function renderRunProgress(execution,compact=false){
+  const host=el('div',{class:`benchmark-run-progress${compact?' compact':''}`});
+  if(!execution)return host;
+  const counts=execution.run_counts||{},total=Math.max(0,Number(execution.total_runs ?? execution.run_count)||0);
+  const done=(Number(counts.success)||0)+(Number(counts.failed)||0)+(Number(counts.cancelled)||0);
+  const percent=total?Math.round(done*100/total):0;
+  const head=el('div',{class:'benchmark-run-progress-head'});head.append(el('strong',{},'候选 Run'),el('span',{},`${done}/${total} 已结束 · ${percent}%`));
+  const statuses=el('div',{class:'benchmark-status-counts'});statuses.append(statusCount('成功',counts.success,'good'),statusCount('失败',counts.failed,'bad'),statusCount('运行',counts.running,'running'),statusCount('等待',counts.pending,'warn'),statusCount('取消',counts.cancelled,'muted'));
+  host.append(head,statuses);return host;
+}
 function renderExecutionProgress(execution,compact=false){
   const host=el('div',{class:`benchmark-execution-progress${compact?' compact':''}`});
   if(!execution){host.append(el('div',{class:'benchmark-no-execution'},'尚无执行记录'));return host;}
@@ -56,7 +66,7 @@ function renderExecutionProgress(execution,compact=false){
   const head=el('div',{class:'benchmark-progress-head'});head.append(statusBadge(execution.status),el('strong',{},`${progress}%`),el('span',{},`Execution #${execution.id}${execution.is_active?' · 当前批次':' · 最近批次'}`));
   const track=el('div',{class:'benchmark-progress-track',role:'progressbar','aria-valuemin':'0','aria-valuemax':'100','aria-valuenow':progress});track.append(el('span',{style:`width:${progress}%`}));
   const statuses=el('div',{class:'benchmark-status-counts'});statuses.append(statusCount('成功',counts.success,'good'),statusCount('失败',counts.failed,'bad'),statusCount('进行中',counts.running,'running'),statusCount('等待',counts.pending,'warn'),statusCount('部分',counts.partial,'warn'),statusCount('取消',counts.cancelled,'muted'));
-  host.append(head,track,statuses);
+  host.append(head,track,el('div',{class:'benchmark-progress-section-title'},'子任务（Case）'),statuses,renderRunProgress(execution,compact));
   if((execution.current_cases||[]).length){const current=el('div',{class:'benchmark-current-case'});execution.current_cases.forEach(item=>current.append(el('div',{},`当前：${item.spec||'—'} / ${item.scenario||'—'} / ${item.profile||'—'} · Task #${item.task_id||'—'} · ${item.progress}%`)));host.append(current);}
   const metadata=el('div',{class:'benchmark-metadata'});metadata.append(
     badge(meta.config_frozen?'配置快照已冻结':'配置快照缺失',meta.config_frozen?'good':'bad'),
