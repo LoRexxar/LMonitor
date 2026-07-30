@@ -817,8 +817,8 @@ class SimcAgentConsumerTests(SimpleTestCase):
                     stdout = 'https://github.com/LoRexxar/LMonitor.git\n'
                 elif command[-2:] == ['branch', '--show-current']:
                     stdout = 'master\n'
-                elif command[-3:] == ['status', '--porcelain', '--untracked-files=all']:
-                    stdout = '?? agent-local.log\n'
+                elif command[-3:] == ['status', '--porcelain', '--untracked-files=no']:
+                    stdout = ' M simc_agent_consumer.py\n'
                 elif command[-2:] == ['rev-parse', 'origin/master']:
                     stdout = ('b' * 40) + '\n'
                 return MagicMock(returncode=0, stdout=stdout, stderr='')
@@ -835,9 +835,14 @@ class SimcAgentConsumerTests(SimpleTestCase):
 
             commands = [call.args[0] for call in run_git.call_args_list]
             self.assertIn(
-                ['git', '-C', root, 'stash', 'push', '--include-untracked',
-                 '--message', 'lmonitor-agent-pre-update'], commands,
+                ['git', '-C', root, 'stash', 'push', '--message',
+                 'lmonitor-agent-pre-update'], commands,
             )
+            self.assertFalse(any(
+                command[-4:] == ['stash', 'push', '--include-untracked', '--message']
+                or '--include-untracked' in command
+                for command in commands
+            ))
             self.assertIn(
                 ['git', '-C', root, 'fetch', '--force', 'origin', 'master'], commands,
             )
