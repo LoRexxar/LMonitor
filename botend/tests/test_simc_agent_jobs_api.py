@@ -1,8 +1,10 @@
 import hashlib
 import json
+import subprocess
 from datetime import timedelta
 from unittest.mock import patch
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -38,11 +40,12 @@ class SimcAgentJobAPITests(TestCase):
         return backend, agent, token
 
     def agent_row(self, backend, name):
+        revision = settings.SIMC_AGENT_REQUIRED_REVISION or ('a' * 40)
         agent = SimcAgent.objects.create(
             backend=backend, host_identifier=(name.encode().hex() * 64)[:64], name=name,
             is_active=True, binary_available=True, status=SimcAgent.STATUS_ONLINE,
             agent_version='1.4.0', protocol_version=1,
-            agent_revision='a' * 40,
+            agent_revision=revision,
             last_seen_at=timezone.now(),
         )
         token = _issue_token(agent)
@@ -95,8 +98,14 @@ class SimcAgentJobAPITests(TestCase):
     def claim(self, token=None, instance='instance-a'):
         return self.post_json(CLAIM, {
                         'instance_id': instance, 'agent_version': '1.4.0',
-            'agent_revision': 'a' * 40, 'protocol_version': 1,
+                        'agent_revision': settings.SIMC_AGENT_REQUIRED_REVISION or ('a' * 40), 'protocol_version': 1,
         }, token)
+
+    def test_control_plane_settings_pin_current_repository_revision(self):
+        expected = subprocess.check_output(
+            ['git', '-C', settings.BASE_DIR, 'rev-parse', 'HEAD'], text=True, timeout=5,
+        ).strip().lower()
+        self.assertEqual(settings.SIMC_AGENT_REQUIRED_REVISION, expected)
 
     def test_claim_allows_agent_when_simc_revision_differs_from_worker_backend(self):
         task = self.task()
@@ -143,7 +152,8 @@ class SimcAgentJobAPITests(TestCase):
         task = self.task()
 
         response = self.post_json(CLAIM, {
-            'instance_id': 'old-protocol', 'agent_version': '1.1.0', 'protocol_version': 1,
+            'instance_id': 'old-protocol', 'agent_version': '1.1.0',
+            'agent_revision': settings.SIMC_AGENT_REQUIRED_REVISION, 'protocol_version': 1,
         })
 
         self.assertEqual(response.status_code, 426, response.content)
@@ -171,7 +181,10 @@ class SimcAgentJobAPITests(TestCase):
     def test_legacy_claim_without_version_fields_remains_bootstrap_compatible(self):
         task = self.task()
 
-        response = self.post_json(CLAIM, {'instance_id': 'legacy-instance'})
+        response = self.post_json(CLAIM, {
+            'instance_id': 'legacy-instance',
+            'agent_revision': settings.SIMC_AGENT_REQUIRED_REVISION,
+        })
 
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()['task_id'], task.pk)

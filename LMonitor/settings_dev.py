@@ -3,6 +3,7 @@ LMonitor 开发环境配置 — 用于连接服务器数据库做验证
 """
 import json
 import os
+import subprocess
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -13,6 +14,16 @@ except ImportError:
     pass
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# The standalone Agent must run the same LMonitor revision as this control
+# plane.  settings.py is intentionally untracked on deployed hosts, so derive
+# the revision here instead of relying on an optional base-settings value.
+try:
+    SIMC_AGENT_REQUIRED_REVISION = subprocess.check_output(
+        ['git', '-C', BASE_DIR, 'rev-parse', 'HEAD'], text=True, timeout=5,
+    ).strip().lower()
+except (OSError, subprocess.SubprocessError):
+    SIMC_AGENT_REQUIRED_REVISION = ''
 
 SIMC_AGENT_ENROLLMENT_TOKEN = os.getenv('SIMC_AGENT_ENROLLMENT_TOKEN', '')
 _simc_agent_enrollment_tokens_json = os.getenv('SIMC_AGENT_ENROLLMENT_TOKENS_JSON', '')
