@@ -791,11 +791,13 @@ class SimcAgentConsumerTests(SimpleTestCase):
                 (cwd / 'simc_task_1_run_17.html').write_text('<html>ok</html>', encoding='utf-8')
                 return process
 
-            with patch('simc_agent_consumer.subprocess.Popen', side_effect=create_report):
+            with patch('simc_agent_consumer.subprocess.Popen', side_effect=create_report) as popen:
                 consumer = SimcAgentConsumer(config, transport=transport)
                 consumer.agent_token = token
                 consumer.execute_job(job)
 
+            self.assertEqual(popen.call_args.kwargs['env']['LANG'], 'C')
+            self.assertEqual(popen.call_args.kwargs['env']['LC_ALL'], 'C')
             transport.put_bytes.assert_called_once_with(
                 url='https://bucket.oss.example/signed', body=report,
                 headers={'Content-Type': 'text/html; charset=utf-8'},

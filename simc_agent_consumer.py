@@ -56,6 +56,9 @@ TRUSTED_SIMC_REPOSITORY_URLS = {
     'git@github.com:simulationcraft/simc.git',
     'https://github.com/simulationcraft/simc.git',
 }
+# HTML rendering initializes C++ locale facets.  An Agent may inherit an
+# invalid host/service locale, so use the portable C locale for SimC itself.
+SIMC_PROCESS_LOCALE = 'C'
 LOGGER_NAME = 'lmonitor.simc_agent'
 
 
@@ -1148,6 +1151,7 @@ class SimcAgentConsumer:
                 process = subprocess.Popen(
                     [self.config.simc_path, input_path.name], cwd=work,
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    env={**os.environ, 'LANG': SIMC_PROCESS_LOCALE, 'LC_ALL': SIMC_PROCESS_LOCALE},
                 )
                 heartbeat_stop = threading.Event()
                 heartbeat_thread = threading.Thread(
