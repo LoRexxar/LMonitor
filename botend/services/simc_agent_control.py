@@ -320,10 +320,17 @@ def _required_agent_revision():
     return revision if re.fullmatch(r'[0-9a-f]{40}', revision) else ''
 
 
-def _raise_update_required_if_idle(agent):
+def _raise_update_required_if_idle(agent, *, reported_status=None):
     required_revision = _required_agent_revision()
     current_revision = str(agent.agent_revision or '').strip().lower()
     if not required_revision or current_revision == required_revision:
+        return
+    # A source update/build is not a Run lease, but replacing the Agent checkout
+    # while it is compiling would interrupt that maintenance.  The Consumer
+    # reports this explicit transient state and retries the update gate as soon
+    # as it returns to online/busy work polling.
+    if (reported_status == SimcAgent.STATUS_DEGRADED
+            and agent.capabilities.get('maintenance') == 'simc_compile'):
         return
     if SimulationRun.objects.filter(
         lease_agent=agent, status='running', lease_expires_at__gt=timezone.now(),
@@ -339,7 +346,7 @@ def heartbeat_agent(payload, authorization):
     values = validate_heartbeat_payload(payload)
     with transaction.atomic():
         agent = authenticate_bearer(authorization, lock=True)
-        _raise_update_required_if_idle(agent)
+        _raise_update_required_if_idle(agent, reported_status=values.get('status'))
         _apply_report(agent, values, timezone.now())
         agent.save()
         return agent

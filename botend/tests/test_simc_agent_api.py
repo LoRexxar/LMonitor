@@ -239,6 +239,26 @@ class SimcAgentAPITests(TestCase):
         self.assertEqual(agent_b.last_seen_at, old_b_seen)
 
     @override_settings(SIMC_AGENT_REQUIRED_REVISION='b' * 40)
+    def test_heartbeat_defers_stale_agent_update_while_simc_maintenance_is_active(self):
+        token = self.enroll(agent_revision='a' * 40).json()['agent_token']
+        agent = SimcAgent.objects.get(host_identifier=HOST_A)
+        agent.capabilities = {'cores': 1, 'maintenance': 'simc_compile'}
+        agent.save(update_fields=['capabilities'])
+
+        compiling = self.post_json(HEARTBEAT_URL, {'status': 'degraded'}, f'Bearer {token}')
+
+        self.assertEqual(compiling.status_code, 200, compiling.content)
+        agent.refresh_from_db()
+        self.assertEqual(agent.status, 'degraded')
+        self.assertEqual(agent.capabilities['maintenance'], 'simc_compile')
+
+        ready = self.post_json(HEARTBEAT_URL, {'status': 'online'}, f'Bearer {token}')
+        self.assertEqual(ready.status_code, 426, ready.content)
+        self.assertEqual(ready.json()['code'], 'agent_update_required')
+        self.assertEqual(ready.json()['current_revision'], 'a' * 40)
+        self.assertEqual(ready.json()['required_revision'], 'b' * 40)
+
+    @override_settings(SIMC_AGENT_REQUIRED_REVISION='b' * 40)
     def test_heartbeat_requires_agent_update_when_revision_is_stale(self):
         token = self.enroll(agent_revision='a' * 40).json()['agent_token']
 

@@ -795,8 +795,11 @@ class SimcAgentConsumer:
             raise APIError(f'{name} must be a positive finite number')
         return float(value)
 
-    def heartbeat(self, status: str = 'online') -> None:
-        self.transport.json(path='/api/simc-agent/v1/heartbeat/', payload=self._report(status),
+    def heartbeat(self, status: str = 'online', *, maintenance: str | None = None) -> None:
+        payload = self._report(status)
+        if maintenance is not None:
+            payload['capabilities']['maintenance'] = maintenance
+        self.transport.json(path='/api/simc-agent/v1/heartbeat/', payload=payload,
                             authorization=self.authorization)
 
     def claim(self) -> dict[str, Any] | None:
@@ -1283,7 +1286,7 @@ class SimcAgentConsumer:
         def report_while_building() -> None:
             while not stopped.wait(max(1.0, self.heartbeat_interval)):
                 try:
-                    self.heartbeat('degraded')
+                    self.heartbeat('degraded', maintenance='simc_compile')
                 except Exception as exc:
                     self.logger.warning('status heartbeat failed during SimC maintenance: %s', exc)
 
