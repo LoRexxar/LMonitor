@@ -116,6 +116,26 @@ def agent_revision(repository: Path | None = None) -> str:
     return revision if result.returncode == 0 and re.fullmatch(r'[0-9a-f]{40}', revision) else ''
 
 
+def agent_upstream_revision(repository: Path | None = None) -> str:
+    """Report the checked-out trusted upstream revision, not a local merge commit.
+
+    Automatic updates may commit operator changes locally and merge the deployed
+    upstream revision.  The local merge commit is intentionally not deployable
+    identity: the control plane must gate this Agent on the exact upstream
+    source revision it incorporated.
+    """
+    repository = (repository or Path(__file__).resolve().parent).expanduser().resolve()
+    try:
+        result = subprocess.run(
+            ['git', '-C', str(repository), 'rev-parse', '--verify', f'origin/{UPDATE_BRANCH}'],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return agent_revision(repository)
+    revision = result.stdout.strip().lower()
+    return revision if result.returncode == 0 and re.fullmatch(r'[0-9a-f]{40}', revision) else agent_revision(repository)
+
+
 def configure_logging(log_path: str, *, max_bytes: int = 10 * 1024 * 1024,
                       backup_count: int = 5) -> logging.Logger:
     """Create a process-local rotating log without exposing Agent credentials."""
@@ -605,7 +625,7 @@ class SimcAgentConsumer:
                 pass
         return {
             'status': status, 'platform': self.config.platform,
-            'agent_version': VERSION, 'agent_revision': agent_revision(), 'protocol_version': PROTOCOL_VERSION,
+            'agent_version': VERSION, 'agent_revision': agent_upstream_revision(), 'protocol_version': PROTOCOL_VERSION,
             'capabilities': {'max_concurrent_runs': self.config.max_concurrent_runs},
             'instance_id': self.instance_id, 'current_version': marker_revision,
             'binary_available': binary_available,
@@ -920,7 +940,7 @@ class SimcAgentConsumer:
                                    payload={
                                        'instance_id': self.instance_id,
                                        'agent_version': VERSION,
-                                       'agent_revision': agent_revision(),
+                                       'agent_revision': agent_upstream_revision(),
                                        'protocol_version': PROTOCOL_VERSION,
                                    },
                                    authorization=self.authorization)
@@ -969,37 +989,43 @@ class SimcAgentConsumer:
         branch = git('branch', '--show-current', timeout=30).stdout.strip()
         if branch != UPDATE_BRANCH:
             raise APIError(f'automatic Agent update requires the {UPDATE_BRANCH} branch')
-        # An Agent checkout is disposable code, but its operator may have left
-        # tracked edits beside it.  Preserve tracked edits in Git's local stash
-        # before replacing code.  Agent runtime state is intentionally untracked
-        # and must stay in place: stashing with --include-untracked removes token,
-        # config and completion outbox paths from the running directory, then
-        # reset/re-exec starts without its persistent identity.
+        # Runtime state stays untracked and is never touched.  For modified
+        # tracked files, make a local-only checkpoint before merging upstream:
+        # this preserves the operator's branch history without push, while
+        # allowing an ordinary Git merge to combine non-conflicting changes.
         changes = git('status', '--porcelain', '--untracked-files=no', timeout=30).stdout
         if changes.strip():
-            self.logger.warning('preserving tracked local Agent checkout changes in a pre-update stash')
-            git('stash', 'push', '--message', 'lmonitor-agent-pre-update', timeout=120)
-        self.logger.info('replacing Agent checkout with required revision %s', required_revision or required_version)
-        git('fetch', '--force', 'origin', UPDATE_BRANCH, timeout=120)
+            self.logger.warning('committing tracked local Agent changes before automatic update')
+            git('add', '--update', timeout=30)
+            git('commit', '--message',
+                'chore(simc-agent): preserve local changes before automatic update', timeout=120)
+        self.logger.info('fetching Agent update target %s', required_revision or required_version)
+        git('fetch', 'origin', UPDATE_BRANCH, timeout=120)
         if required_revision is not None:
             fetched_revision = git('rev-parse', f'origin/{UPDATE_BRANCH}', timeout=30).stdout.strip()
             if fetched_revision != required_revision:
                 raise APIError(
-                    f'Git fetch completed but origin/{UPDATE_BRANCH} is {fetched_revision or "unknown"}, '
+                    f'Git update completed but origin/{UPDATE_BRANCH} is {fetched_revision or "unknown"}, '
                     f'expected {required_revision}',
                 )
-            git('reset', '--hard', required_revision, timeout=120)
+            target_revision = required_revision
         else:
-            git('pull', '--ff-only', '--force', 'origin', UPDATE_BRANCH, timeout=120)
+            target_revision = f'origin/{UPDATE_BRANCH}'
+        self.logger.info('merging Agent update against %s', target_revision)
+        git('merge', '--no-edit', target_revision, timeout=120)
         try:
             source = target.read_text(encoding='utf-8')
         except (OSError, UnicodeError) as exc:
             raise APIError(f'cannot verify updated Agent: {exc}') from exc
         actual_revision = agent_revision(repository)
-        if required_revision is not None and actual_revision != required_revision:
-            raise APIError(
-                f'Git update completed but Agent revision is {actual_revision or "unknown"}, expected {required_revision}',
-            )
+        if required_revision is not None:
+            try:
+                git('merge-base', '--is-ancestor', required_revision, actual_revision, timeout=30)
+            except APIError as exc:
+                raise APIError(
+                    f'Git update completed but Agent checkout {actual_revision or "unknown"} does not contain '
+                    f'required revision {required_revision}',
+                ) from exc
         match = re.search(r"^VERSION\s*=\s*['\"]([^'\"]+)['\"]\s*$", source, re.MULTILINE)
         if required_revision is None and (not match or match.group(1) != required_version):
             actual = match.group(1) if match else 'unknown'

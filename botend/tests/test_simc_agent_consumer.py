@@ -789,7 +789,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
                 'protocol_version': PROTOCOL_VERSION,
             })
 
-    def test_update_required_claim_stashes_local_changes_then_resets_to_required_revision(self):
+    def test_update_required_claim_commits_tracked_local_changes_then_merges_matching_control_plane_revision(self):
         from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
 
         with tempfile.TemporaryDirectory() as root:
@@ -821,6 +821,8 @@ class SimcAgentConsumerTests(SimpleTestCase):
                     stdout = ' M simc_agent_consumer.py\n'
                 elif command[-2:] == ['rev-parse', 'origin/master']:
                     stdout = ('b' * 40) + '\n'
+                elif command[-4:] == ['merge-base', '--is-ancestor', 'b' * 40, 'b' * 40]:
+                    stdout = ''
                 return MagicMock(returncode=0, stdout=stdout, stderr='')
 
             with patch('simc_agent_consumer.__file__', str(Path(root) / 'simc_agent_consumer.py')), patch(
@@ -835,20 +837,17 @@ class SimcAgentConsumerTests(SimpleTestCase):
 
             commands = [call.args[0] for call in run_git.call_args_list]
             self.assertIn(
-                ['git', '-C', root, 'stash', 'push', '--message',
-                 'lmonitor-agent-pre-update'], commands,
-            )
-            self.assertFalse(any(
-                command[-4:] == ['stash', 'push', '--include-untracked', '--message']
-                or '--include-untracked' in command
-                for command in commands
-            ))
-            self.assertIn(
-                ['git', '-C', root, 'fetch', '--force', 'origin', 'master'], commands,
+                ['git', '-C', root, 'add', '--update'], commands,
             )
             self.assertIn(
-                ['git', '-C', root, 'reset', '--hard', 'b' * 40], commands,
+                ['git', '-C', root, 'commit', '--message',
+                 'chore(simc-agent): preserve local changes before automatic update'], commands,
             )
+            self.assertIn(
+                ['git', '-C', root, 'merge', '--no-edit', 'b' * 40], commands,
+            )
+            self.assertFalse(any('--include-untracked' in command for command in commands))
+            self.assertFalse(any('reset' in command for command in commands))
             self.assertFalse(any('clean' in command for command in commands))
             execv.assert_called_once()
 
