@@ -2677,12 +2677,25 @@ class MythicPlannerPageContractTests(SimpleTestCase):
         self.assertNotIn('打开这份只读路线快照', portal_js)
         self.assertIn('reorderPull', portal_js)
         self.assertIn('onPullPointerMove', portal_js)
+        self.assertIn('function selectPull', portal_js)
+        self.assertIn('function suppressNextPullClick', portal_js)
+        self.assertIn(
+            'if (!cancelled && !drag.moved) {',
+            portal_js,
+        )
+        self.assertIn('selectPull(drag.pullId);', portal_js)
+        self.assertIn('selectPull(article.dataset.pullId);', portal_js)
+        self.assertIn(
+            "els.pullList.addEventListener('keydown'",
+            portal_js,
+        )
         for token in (
             'function spawnMarkerSize',
             'function spawnOutlineRadius',
             'function circleBoundaryPoints',
             'function convexHull',
             'function roundedPolygonPath',
+            'function pullAreaMarkup',
             'function renderPullArea',
             "window.addEventListener('resize', renderPullArea)",
         ):
@@ -2697,8 +2710,31 @@ class MythicPlannerPageContractTests(SimpleTestCase):
         self.assertNotIn('renderRouteLines', portal_js)
         self.assertNotIn('route-lines-layer', planner_template)
         self.assertNotIn('mdt-route-line', planner_css)
-        self.assertIn('renderPulls();\n            renderPullArea();', portal_js)
+        select_pull = portal_js[
+            portal_js.index('function selectPull'):
+            portal_js.index('function suppressNextPullClick')
+        ]
+        self.assertIn('renderPulls();', select_pull)
+        self.assertIn('renderPullArea();', select_pull)
         self.assertIn('id="pull-area-layer"', planner_template)
+        self.assertIn(
+            'const pullAreas = (state.route.pulls || []).map(',
+            portal_js,
+        )
+        self.assertIn(
+            'class="mdt-pull-area${isCurrent ? \' is-current\' : \'\'}"',
+            portal_js,
+        )
+        render_pull_area = portal_js[
+            portal_js.index('function renderPullArea'):
+            portal_js.index('function renderPois')
+        ]
+        self.assertNotIn('const pull = currentPull();', render_pull_area)
+        self.assertIn('.mdt-pull-area.is-current', planner_css)
+        self.assertIn(
+            '.mdt-pull-area:not(.is-current) .mdt-pull-area-shape',
+            planner_css,
+        )
         self.assertIn('mdt-pull-area-shape', planner_css)
         self.assertIn('mdt-pull-area-label', planner_css)
         toggle_spawn = portal_js[

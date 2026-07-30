@@ -206,6 +206,8 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .mdt-note-layer { z-index: 7; pointer-events: none; }
 
 .mdt-patrol-line { fill: none; stroke: #fff6; stroke-width: .35; stroke-dasharray: 1 1; vector-effect: non-scaling-stroke; }
+.mdt-pull-area { opacity: .72; }
+.mdt-pull-area.is-current { opacity: 1; }
 .mdt-pull-area-shape {
     fill-opacity: .035;
     stroke-width: 1;
@@ -213,6 +215,11 @@ button:disabled { cursor: not-allowed; opacity: .45; }
     stroke-linejoin: round;
     vector-effect: non-scaling-stroke;
     filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 2px currentColor);
+}
+.mdt-pull-area:not(.is-current) .mdt-pull-area-shape {
+    fill-opacity: .018;
+    stroke-opacity: .82;
+    filter: drop-shadow(0 0 1px #000);
 }
 .mdt-pull-area-label {
     fill: #fff;
@@ -227,6 +234,10 @@ button:disabled { cursor: not-allowed; opacity: .45; }
     dominant-baseline: central;
     vector-effect: non-scaling-stroke;
     filter: drop-shadow(0 1px 1px #000);
+}
+.mdt-pull-area:not(.is-current) .mdt-pull-area-label {
+    opacity: .78;
+    font-size: 14px;
 }
 .mdt-annotation-shape { fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-width: .55; vector-effect: non-scaling-stroke; pointer-events: stroke; }
 .mdt-annotation-shape:hover { filter: drop-shadow(0 0 2px white); }

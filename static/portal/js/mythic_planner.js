@@ -734,29 +734,11 @@
         return nearestSpawn >= padding * 1.65 ? center : null;
     }
 
-    function renderPullArea() {
-        if (!state.route || !state.dungeon) {
-            els.pullAreaLayer.innerHTML = '';
-            return;
-        }
-        const pull = currentPull();
-        const pullIndex = state.route.pulls.findIndex((row) => row.id === pull?.id);
-        const floor = currentFloor();
-        const width = els.mapContent.clientWidth || Number(floor?.map_width || 1000);
-        const height = els.mapContent.clientHeight || Number(floor?.map_height || 700);
-        els.pullAreaLayer.setAttribute('viewBox', `0 0 ${width} ${height}`);
-        els.pullAreaLayer.setAttribute('preserveAspectRatio', 'none');
-        if (!pull || width <= 0 || height <= 0) {
-            els.pullAreaLayer.innerHTML = '';
-            return;
-        }
+    function pullAreaMarkup(pull, pullIndex, width, height, isCurrent) {
         const spawns = (pull.spawn_uids || [])
             .map((uid) => state.spawnByUid.get(uid))
             .filter((spawn) => spawn && spawn.floor_key === state.floorKey);
-        if (!spawns.length) {
-            els.pullAreaLayer.innerHTML = '';
-            return;
-        }
+        if (!spawns.length) return '';
         const points = spawns.map((spawn) => ({
             x: (Number(spawn.x) / 100) * width,
             y: (Number(spawn.y) / 100) * height,
@@ -799,7 +781,45 @@
                 y="${labelPoint.y.toFixed(2)}"
             >${pullIndex + 1}</text>
         ` : '';
-        els.pullAreaLayer.innerHTML = `${shape}${label}`;
+        return `
+            <g
+                class="mdt-pull-area${isCurrent ? ' is-current' : ''}"
+                data-pull-area-id="${escapeHtml(pull.id)}"
+            >${shape}${label}</g>
+        `;
+    }
+
+    function renderPullArea() {
+        if (!state.route || !state.dungeon) {
+            els.pullAreaLayer.innerHTML = '';
+            return;
+        }
+        const floor = currentFloor();
+        const width = els.mapContent.clientWidth || Number(floor?.map_width || 1000);
+        const height = els.mapContent.clientHeight || Number(floor?.map_height || 700);
+        els.pullAreaLayer.setAttribute('viewBox', `0 0 ${width} ${height}`);
+        els.pullAreaLayer.setAttribute('preserveAspectRatio', 'none');
+        if (width <= 0 || height <= 0) {
+            els.pullAreaLayer.innerHTML = '';
+            return;
+        }
+        const pullAreas = (state.route.pulls || []).map((pull, pullIndex) => ({
+            pull,
+            pullIndex,
+            isCurrent: pull.id === state.route.current_pull_id,
+        }));
+        pullAreas.sort(
+            (left, right) => Number(left.isCurrent) - Number(right.isCurrent),
+        );
+        els.pullAreaLayer.innerHTML = pullAreas.map((item) => (
+            pullAreaMarkup(
+                item.pull,
+                item.pullIndex,
+                width,
+                height,
+                item.isCurrent,
+            )
+        )).join('');
     }
 
     function renderPois() {
@@ -1156,6 +1176,23 @@
         els.pullList.scrollTop = els.pullList.scrollHeight;
     }
 
+    function selectPull(pullId) {
+        const index = state.route.pulls.findIndex((pull) => pull.id === pullId);
+        if (index < 0) return;
+        state.route.current_pull_id = pullId;
+        persistRoute();
+        renderPulls();
+        renderPullArea();
+        setStatus(`正在编辑第 ${index + 1} 波；点击地图怪物可增加、移除或转入这一波。`);
+    }
+
+    function suppressNextPullClick() {
+        state.suppressPullClick = true;
+        window.setTimeout(() => {
+            state.suppressPullClick = false;
+        }, 0);
+    }
+
     function handlePullAction(pullId, action) {
         const index = state.route.pulls.findIndex((pull) => pull.id === pullId);
         if (index < 0) return;
@@ -1235,12 +1272,14 @@
             els.pullList.releasePointerCapture(event.pointerId);
         }
         clearPullDropIndicators();
+        if (!cancelled && !drag.moved) {
+            suppressNextPullClick();
+            selectPull(drag.pullId);
+            return;
+        }
         if (!cancelled && drag.moved && drag.targetPullId !== drag.pullId) {
-            state.suppressPullClick = true;
+            suppressNextPullClick();
             reorderPull(drag.pullId, drag.targetPullId, drag.placeAfter);
-            window.setTimeout(() => {
-                state.suppressPullClick = false;
-            }, 0);
         }
     }
 
@@ -1955,10 +1994,14 @@
                 handlePullAction(article.dataset.pullId, action);
                 return;
             }
-            state.route.current_pull_id = article.dataset.pullId;
-            persistRoute();
-            renderPulls();
-            renderPullArea();
+            selectPull(article.dataset.pullId);
+        });
+        els.pullList.addEventListener('keydown', (event) => {
+            if (!['Enter', ' '].includes(event.key) || event.target.closest('button')) return;
+            const article = event.target.closest('[data-pull-id]');
+            if (!article) return;
+            event.preventDefault();
+            selectPull(article.dataset.pullId);
         });
         els.pullList.addEventListener('pointerdown', onPullPointerDown);
         els.pullList.addEventListener('pointermove', onPullPointerMove);
