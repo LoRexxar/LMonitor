@@ -1003,11 +1003,9 @@ class SimcWorkbenchDetailPageView(View):
 
 @method_decorator(login_required, name='dispatch')
 class SimcBenchmarkConfigPageView(View):
-    """Staff-only full-page editor shell for every Benchmark Panel detail."""
+    """Full-page editor shell; publication controls Portal discovery only."""
 
     def get(self, request, panel_id):
-        if not (request.user.is_staff or request.user.is_superuser):
-            return HttpResponse(status=403)
         panel = get_object_or_404(SimcBenchmarkPanel, pk=panel_id)
         return render(request, 'dashboard/simc_benchmark_config.html', {
             'panel_id': panel.pk,
@@ -1017,11 +1015,9 @@ class SimcBenchmarkConfigPageView(View):
 
 @method_decorator(login_required, name='dispatch')
 class SimcBenchmarkExecutionPageView(View):
-    """Staff-only private execution result shell; Portal publication is irrelevant."""
+    """Execution result shell; private means unlisted in Portal, not restricted here."""
 
     def get(self, request, execution_id):
-        if not (request.user.is_staff or request.user.is_superuser):
-            return HttpResponse(status=403)
         execution = get_object_or_404(SimcBenchmarkExecution, pk=execution_id)
         return render(request, 'dashboard/simc_benchmark_execution.html', {
             'execution_id': execution.pk,

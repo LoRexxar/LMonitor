@@ -17,11 +17,11 @@ class SimcBenchmarkConfigPageTests(TestCase):
     def url(self, panel_id=None):
         return reverse('simc_benchmark_config_page', args=[panel_id or self.panel.id])
 
-    def test_page_requires_login_and_staff_permission(self):
+    def test_page_requires_login_but_logged_in_users_can_open_configuration(self):
         response = self.client.get(self.url())
         self.assertEqual(response.status_code, 302)
         self.client.force_login(self.regular)
-        self.assertEqual(self.client.get(self.url()).status_code, 403)
+        self.assertEqual(self.client.get(self.url()).status_code, 200)
 
     def test_staff_can_open_dedicated_full_configuration_page(self):
         self.client.force_login(self.staff)
@@ -37,7 +37,7 @@ class SimcBenchmarkConfigPageTests(TestCase):
         self.client.force_login(self.staff)
         self.assertEqual(self.client.get(self.url(999999)).status_code, 404)
 
-    def test_staff_can_open_private_execution_result_page_without_portal_publication(self):
+    def test_logged_in_user_can_open_private_execution_result_page_without_portal_publication(self):
         execution = SimcBenchmarkExecution.objects.create(
             panel=self.panel, config_snapshot={}, config_hash='a' * 64,
         )
@@ -50,4 +50,5 @@ class SimcBenchmarkConfigPageTests(TestCase):
         self.assertContains(response, '私有执行结果')
 
         self.client.force_login(self.regular)
-        self.assertEqual(self.client.get(url).status_code, 403)
+        self.assertEqual(self.client.get(url).status_code, 200)
+        self.assertEqual(self.client.get(f'/api/simc-benchmarks/executions/{execution.id}/').status_code, 200)

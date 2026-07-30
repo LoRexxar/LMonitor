@@ -7994,6 +7994,14 @@ def _benchmark_json_object(request, *, empty=False):
     return payload
 
 
+class _BenchmarkReadAPIView(View):
+    """Authenticated read-only Benchmark result access, independent of Portal listing."""
+
+    @method_decorator(login_required)
+    def dispatch(self, request, *args, **kwargs):
+        return super().dispatch(request, *args, **kwargs)
+
+
 class _BenchmarkAdminAPIView(View):
     """Anonymous users follow login redirect; authenticated non-admins get JSON 403."""
 
@@ -8648,7 +8656,7 @@ class SimcBenchmarkPanelExecutionListAPIView(_BenchmarkAdminAPIView):
         }})
 
 
-class SimcBenchmarkExecutionDetailAPIView(_BenchmarkAdminAPIView):
+class SimcBenchmarkExecutionDetailAPIView(_BenchmarkReadAPIView):
     def get(self, request, execution_id):
         execution = SimcBenchmarkExecution.objects.select_related('panel').filter(
             pk=execution_id,

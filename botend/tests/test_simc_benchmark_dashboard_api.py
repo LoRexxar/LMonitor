@@ -83,7 +83,6 @@ class SimcBenchmarkDashboardApiTests(TestCase):
             ('delete', '/api/simc-benchmarks/panels/1/', None),
             ('post', '/api/simc-benchmarks/panels/1/run/', {}),
             ('get', '/api/simc-benchmarks/panels/1/executions/', None),
-            ('get', '/api/simc-benchmarks/executions/1/', None),
             ('post', '/api/simc-benchmarks/executions/1/reconcile/', {}),
         ):
             with self.subTest(method=method, path=path):
