@@ -23,6 +23,7 @@ HOST_B = 'b' * 64
 @override_settings(
     SIMC_AGENT_HEARTBEAT_INTERVAL_SECONDS=30,
     SIMC_AGENT_LEASE_SECONDS=90,
+    SIMC_AGENT_REQUIRED_REVISION='a' * 40,
 )
 class SimcAgentAPITests(TestCase):
     def setUp(self):
@@ -236,6 +237,17 @@ class SimcAgentAPITests(TestCase):
         self.assertFalse(agent_a.binary_available)
         self.assertEqual(agent_b.status, 'online')
         self.assertEqual(agent_b.last_seen_at, old_b_seen)
+
+    @override_settings(SIMC_AGENT_REQUIRED_REVISION='b' * 40)
+    def test_heartbeat_requires_agent_update_when_revision_is_stale(self):
+        token = self.enroll(agent_revision='a' * 40).json()['agent_token']
+
+        response = self.post_json(HEARTBEAT_URL, {'status': 'online'}, f'Bearer {token}')
+
+        self.assertEqual(response.status_code, 426, response.content)
+        self.assertEqual(response.json()['code'], 'agent_update_required')
+        self.assertEqual(response.json()['current_revision'], 'a' * 40)
+        self.assertEqual(response.json()['required_revision'], 'b' * 40)
 
     def test_heartbeat_allows_inactive_agent(self):
         token = self.enroll().json()['agent_token']

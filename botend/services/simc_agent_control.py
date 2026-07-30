@@ -10,7 +10,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.crypto import constant_time_compare
 
-from botend.models import SimcAgent, SimcAgentEnrollmentCode
+from botend.models import SimcAgent, SimcAgentEnrollmentCode, SimulationRun
 
 HOST_RE = re.compile(r'^[0-9a-f]{32,128}$')
 SLUG_RE = re.compile(r'^[-a-zA-Z0-9_]+$')
@@ -299,10 +299,47 @@ def register_agent(payload, authorization):
         return RegistrationResult(agent, token, first)
 
 
+def _required_agent_revision():
+    """Resolve the deployed control-plane revision without importing Run control.
+
+    ``simc_run_control`` imports this module for bearer authentication, so the
+    heartbeat path must keep its revision gate here to avoid a circular import.
+    """
+    from django.conf import settings
+    import subprocess
+
+    configured = str(getattr(settings, 'SIMC_AGENT_REQUIRED_REVISION', '') or '').strip().lower()
+    if configured:
+        return configured
+    try:
+        revision = subprocess.check_output(
+            ['git', '-C', settings.BASE_DIR, 'rev-parse', 'HEAD'], text=True, timeout=5,
+        ).strip().lower()
+    except (OSError, subprocess.SubprocessError):
+        return ''
+    return revision if re.fullmatch(r'[0-9a-f]{40}', revision) else ''
+
+
+def _raise_update_required_if_idle(agent):
+    required_revision = _required_agent_revision()
+    current_revision = str(agent.agent_revision or '').strip().lower()
+    if not required_revision or current_revision == required_revision:
+        return
+    if SimulationRun.objects.filter(
+        lease_agent=agent, status='running', lease_expires_at__gt=timezone.now(),
+    ).exists():
+        return
+    raise AgentAPIError('Agent update required', 426, {
+        'code': 'agent_update_required', 'current_revision': current_revision,
+        'required_revision': required_revision,
+    })
+
+
 def heartbeat_agent(payload, authorization):
     values = validate_heartbeat_payload(payload)
     with transaction.atomic():
         agent = authenticate_bearer(authorization, lock=True)
+        _raise_update_required_if_idle(agent)
         _apply_report(agent, values, timezone.now())
         agent.save()
         return agent
