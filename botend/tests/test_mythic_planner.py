@@ -2366,7 +2366,7 @@ class MythicPlannerDashboardTests(TestCase):
         self.assertIn('同一个数据版本', rejected.json()['message'])
 
 class MythicPlannerPageContractTests(SimpleTestCase):
-    def test_direct_route_exists_and_portal_navigation_stays_unchanged(self):
+    def test_direct_route_exists_and_portal_navigation_exposes_mdt(self):
         planner = self.client.get('/portal/mythic-planner/')
         self.assertEqual(planner.status_code, 200)
         self.assertContains(planner, 'id="planner-app"')
@@ -2385,7 +2385,8 @@ class MythicPlannerPageContractTests(SimpleTestCase):
 
         portal = self.client.get('/')
         self.assertEqual(portal.status_code, 200)
-        self.assertNotContains(portal, 'href="/portal/mythic-planner/"')
+        self.assertContains(portal, 'href="/portal/mythic-planner/"')
+        self.assertContains(portal, '<span>MDT</span>', html=True)
 
         dashboard_template = (
             Path(settings.BASE_DIR)
@@ -2480,6 +2481,7 @@ class MythicPlannerPageContractTests(SimpleTestCase):
             'sharedRouteRequest',
             'source_share_key',
             'replaceSharedRouteUrl',
+            'syncDungeonUrl',
             'window.history.replaceState',
             '导入当前浏览器成为可编辑副本',
             '已打开当前浏览器中的路线',
@@ -2493,6 +2495,18 @@ class MythicPlannerPageContractTests(SimpleTestCase):
             "addEventListener('contextmenu'",
         ):
             self.assertIn(token, portal_js)
+        sync_url = portal_js[
+            portal_js.index('function syncDungeonUrl'):
+            portal_js.index('function normalizeRoute')
+        ]
+        self.assertIn('sharedRouteRequest()', sync_url)
+        self.assertIn("url.searchParams.set('dungeon', dungeonKey)", sync_url)
+        self.assertIn('${url.pathname}${url.search}${url.hash}', sync_url)
+        load_dungeon = portal_js[
+            portal_js.index('async function loadDungeon'):
+            portal_js.index('function renderAll')
+        ]
+        self.assertIn('syncDungeonUrl(dungeon.key)', load_dungeon)
         self.assertIn('进度 · ${forcesPercent.toFixed(2)}%', portal_js)
         self.assertNotIn('${formatNumber(stats.health)} HP', portal_js)
         self.assertNotIn('打开这份只读路线快照', portal_js)

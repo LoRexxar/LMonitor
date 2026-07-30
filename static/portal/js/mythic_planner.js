@@ -385,6 +385,18 @@
         document.body.dataset.shareToken = '';
     }
 
+    function syncDungeonUrl(dungeonKey) {
+        if (!dungeonKey || sharedRouteRequest()) return;
+        const url = new URL(window.location.href);
+        if (url.searchParams.get('dungeon') === dungeonKey) return;
+        url.searchParams.set('dungeon', dungeonKey);
+        window.history.replaceState(
+            {...(window.history.state || {}), mythicPlannerDungeon: dungeonKey},
+            '',
+            `${url.pathname}${url.search}${url.hash}`,
+        );
+    }
+
     function normalizeRoute(route) {
         const normalized = {...defaultRoute(route?.dungeon_key || state.dungeon?.key || ''), ...(route || {})};
         normalized.local_id = normalized.local_id || randomId();
@@ -529,6 +541,7 @@
             state.route.data_version_key = dungeon.data_version.key;
             selectGroupForDungeon(dungeon.key);
             renderCatalogSelectors(dungeon.key);
+            syncDungeonUrl(dungeon.key);
             els.mapEmpty.hidden = true;
             els.mapContent.hidden = false;
             if (persist) persistRoute();
