@@ -10,7 +10,10 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from botend.wow.talents.metadata import TalentMetadataProvider
+from botend.wow.talents.metadata import (
+    TalentMetadataProvider,
+    is_authoritative_talent_source,
+)
 from botend.wow.talents.models import (
     TREE_COLUMNS,
     TalentBuildStateModel,
@@ -181,10 +184,9 @@ def _iter_tree_types(grouped_nodes):
 def _should_merge_metadata(node, class_name='', spec_name=''):
     if not isinstance(node, dict):
         return False
-    # DB2 backfill / repair rows coming from TalentMetadataProvider are already
-    # authoritative, complete metadata. Re-merging each simulator node through
-    # provider indexes turns one page load into hundreds of redundant lookups.
-    if node.get('source') in {'db2_backfill', 'db2_repair', 'db2'}:
+    # TalentMetadataProvider 返回的 DB2 结构行（包括经 Wowhead 补充展示字段的行）
+    # 已经完整可信；再次逐节点合并会把一次页面加载放大为数百次冗余查询。
+    if is_authoritative_talent_source(node):
         return _needs_metadata_enrichment(node)
     if not class_name or not spec_name:
         return _needs_metadata_enrichment(node)

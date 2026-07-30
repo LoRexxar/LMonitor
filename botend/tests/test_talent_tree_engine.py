@@ -346,36 +346,38 @@ class TalentTreeAdapterTests(SimpleTestCase):
             def merge_into_node(self, node, class_name='', spec_name=''):
                 raise AssertionError('authoritative DB2 metadata should not be merged again')
 
-        tree_set, _ = build_tree_set_from_talents(
-            [
-                {
-                    'node_id': 10101,
-                    'spell_id': 101,
-                    'talent_id': 101,
-                    'name': 'DB2 节点',
-                    'tree_type': 'spec',
-                    'row': 1500,
-                    'column': 4200,
-                    'parents': [10001],
-                    'db2_subtree_id': 123,
-                    'description': 'original desc',
-                    'description_zh': '原始描述',
-                    'source': 'db2_backfill',
-                },
-            ],
-            class_name='Monk',
-            spec_name='Windwalker',
-            metadata_provider=Provider(),
-        )
+        for source in ('db2_backfill', 'db2+wowhead_live'):
+            with self.subTest(source=source):
+                tree_set, _ = build_tree_set_from_talents(
+                    [
+                        {
+                            'node_id': 10101,
+                            'spell_id': 101,
+                            'talent_id': 101,
+                            'name': 'DB2 节点',
+                            'tree_type': 'spec',
+                            'row': 1500,
+                            'column': 4200,
+                            'parents': [10001],
+                            'db2_subtree_id': 123,
+                            'description': 'original desc',
+                            'description_zh': '原始描述',
+                            'source': source,
+                        },
+                    ],
+                    class_name='Monk',
+                    spec_name='Windwalker',
+                    metadata_provider=Provider(),
+                )
 
-        node = tree_set.trees[0].nodes[0]
-        self.assertEqual(node.name, 'DB2 节点')
-        self.assertEqual(node.layout_row, 1500)
-        self.assertEqual(node.layout_column, 4200)
-        self.assertEqual(node.parents, [10001])
-        self.assertEqual(node.db2_subtree_id, 123)
-        self.assertEqual(node.description, 'original desc')
-        self.assertEqual(node.description_zh, '原始描述')
+                node = tree_set.trees[0].nodes[0]
+                self.assertEqual(node.name, 'DB2 节点')
+                self.assertEqual(node.layout_row, 1500)
+                self.assertEqual(node.layout_column, 4200)
+                self.assertEqual(node.parents, [10001])
+                self.assertEqual(node.db2_subtree_id, 123)
+                self.assertEqual(node.description, 'original desc')
+                self.assertEqual(node.description_zh, '原始描述')
 
 
 class TalentMetadataProviderTests(SimpleTestCase):
@@ -429,7 +431,12 @@ class TalentMetadataProviderTests(SimpleTestCase):
         metadata_model.objects.filter.assert_called_with(
             class_name='DeathKnight',
             spec_name='Blood',
-            source__in={'db2_backfill', 'db2_repair', 'db2'},
+            source__in={
+                'db2_backfill',
+                'db2_repair',
+                'db2',
+                'db2+wowhead_live',
+            },
             talent_version=version,
         )
 

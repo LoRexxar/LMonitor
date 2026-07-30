@@ -19,7 +19,13 @@ from botend.wow.spell_text import get_spell_text_resolver
 from botend.wow.talents.versioning import TalentVersionResolver
 
 STRUCTURAL_FIELDS = {'tree_type', 'row', 'column', 'max_points', 'parents', 'db2_subtree_id'}
-AUTHORITATIVE_TALENT_SOURCES = {'db2_backfill', 'db2_repair', 'db2'}
+# Wowhead 同步只补充 DB2 行的名称、说明和图标，组合来源仍保留完整 DB2 结构权威性。
+AUTHORITATIVE_TALENT_SOURCES = {
+    'db2_backfill',
+    'db2_repair',
+    'db2',
+    'db2+wowhead_live',
+}
 
 
 def normalize_talent_option_spell_id(node):

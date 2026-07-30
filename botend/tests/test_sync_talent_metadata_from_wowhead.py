@@ -12,6 +12,7 @@ from django.test import TestCase, override_settings
 
 from botend.management.commands.sync_talent_metadata_from_wowhead import Command
 from botend.models import WowSpellSnapshot, WowTalentNodeMetadata, WowTalentVersion
+from botend.wow.talents.metadata import TalentMetadataProvider
 
 
 class SyncTalentMetadataFromWowheadTests(TestCase):
@@ -246,6 +247,36 @@ class SyncTalentMetadataFromWowheadTests(TestCase):
         )
         self.assertIn('planned_rows=2', output)
         self.assertFalse(WowSpellSnapshot.objects.exists())
+
+    def test_wowhead_enriched_node_remains_in_full_tree_with_structure_intact(self):
+        version = self.create_version('retail-test', 'retail')
+        node = self.create_node(
+            version,
+            node_id=101,
+            spell_id=1001,
+            talent_id=101,
+            row=2700,
+            column=11400,
+            parents_json=[99],
+        )
+        self.write_cache(version, 1, {1001: self.record()})
+
+        self.run_sync(version_key=[version.key])
+
+        node.refresh_from_db()
+        self.assertEqual(node.source, 'db2+wowhead_live')
+        rendered = TalentMetadataProvider(
+            talent_version=version,
+        ).get_full_tree_nodes('warrior', 'arms')
+        self.assertEqual(len(rendered), 1)
+        self.assertEqual(rendered[0]['node_id'], 101)
+        self.assertEqual(rendered[0]['row'], 2700)
+        self.assertEqual(rendered[0]['column'], 11400)
+        self.assertEqual(rendered[0]['parents'], [99])
+        decoded = TalentMetadataProvider(
+            talent_version=version,
+        ).get_decoder_node_list('warrior')
+        self.assertEqual([item['node_id'] for item in decoded], [101])
 
     def test_default_run_only_processes_retail_and_leaves_ptr_untouched(self):
         retail = self.create_version('retail-test', 'retail')
