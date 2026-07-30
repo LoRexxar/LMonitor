@@ -329,6 +329,19 @@ class SimcAgentAPITests(TestCase):
                 with self.assertRaises(ValidationError):
                     agent.validate_constraints()
 
+    def test_heartbeat_accepts_html_locale_patch_version_as_telemetry(self):
+        token = self.enroll().json()['agent_token']
+
+        response = self.post_json(
+            HEARTBEAT_URL,
+            {'status': 'online', 'html_locale_patch_version': 1},
+            f'Bearer {token}',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        agent = SimcAgent.objects.get(host_identifier=HOST_A)
+        self.assertEqual(agent.backend.identifier, 'production')
+
     def test_payload_cannot_set_backend_or_host_identity_during_heartbeat(self):
         token = self.enroll().json()['agent_token']
         for forbidden in ('simc_path', 'host_identifier', 'backend_identifier'):
