@@ -62,6 +62,7 @@ TRUSTED_SIMC_REPOSITORY_URLS = {
 # attempt unavailable POSIX ``en_US`` locale names and fail before producing HTML.
 LOGGER_NAME = 'lmonitor.simc_agent'
 SIMC_HTML_REPORT_SOURCE = Path('engine') / 'report' / 'report_html_sim.cpp'
+SIMC_HTML_LOCALE_PATCH_VERSION = 1
 SIMC_HTML_LOCALE_FALLBACK = '''  catch ( const std::runtime_error& )
   {
     // backup spelling for CI
@@ -584,22 +585,27 @@ class SimcAgentConsumer:
     def _report(self, status: str = 'online') -> dict[str, Any]:
         binary = Path(self.config.simc_path)
         binary_available = _is_executable_regular_file(binary)
-        current_version = ''
+        marker_revision = ''
+        html_locale_patch_version = 0
         marker = Path(str(binary) + '.lmonitor-build.json')
         if binary_available:
             try:
                 metadata = json.loads(marker.read_text(encoding='utf-8'))
                 revision = metadata.get('revision') if isinstance(metadata, dict) else None
                 if isinstance(revision, str) and re.fullmatch(r'[0-9a-fA-F]{7,64}', revision):
-                    current_version = revision.lower()
+                    marker_revision = revision.lower()
+                patch_version = metadata.get('html_locale_patch_version') if isinstance(metadata, dict) else None
+                if type(patch_version) is int and patch_version >= 0:
+                    html_locale_patch_version = patch_version
             except (OSError, UnicodeError, json.JSONDecodeError):
                 pass
         return {
             'status': status, 'platform': self.config.platform,
             'agent_version': VERSION, 'agent_revision': agent_revision(), 'protocol_version': PROTOCOL_VERSION,
             'capabilities': {'max_concurrent_runs': self.config.max_concurrent_runs},
-            'instance_id': self.instance_id, 'current_version': current_version,
+            'instance_id': self.instance_id, 'current_version': marker_revision,
             'binary_available': binary_available,
+            'html_locale_patch_version': html_locale_patch_version,
         }
 
     @staticmethod
@@ -687,7 +693,8 @@ class SimcAgentConsumer:
 
         report = self._report()
         if (local_revision == target_revision and report['binary_available']
-                and report['current_version'] == target_revision):
+                and report['current_version'] == target_revision
+                and report['html_locale_patch_version'] >= SIMC_HTML_LOCALE_PATCH_VERSION):
             self.logger.info('SimC is current at %s', target_revision)
             return False
         if local_revision != target_revision or required_revision is not None:
@@ -740,7 +747,10 @@ class SimcAgentConsumer:
                     pass
         marker = Path(str(target) + '.lmonitor-build.json')
         marker_tmp = marker.with_name(f'.{marker.name}.{uuid.uuid4().hex}')
-        marker_tmp.write_text(json.dumps({'revision': revision}), encoding='utf-8')
+        marker_tmp.write_text(json.dumps({
+            'revision': revision,
+            'html_locale_patch_version': SIMC_HTML_LOCALE_PATCH_VERSION,
+        }), encoding='utf-8')
         if not _is_windows():
             os.chmod(marker_tmp, 0o600)
         os.replace(marker_tmp, marker)

@@ -337,6 +337,57 @@ class SimcAgentConsumerTests(SimpleTestCase):
             Path(values['simc_path']).unlink()
             self.assertFalse(consumer._report()['binary_available'])
 
+    def test_idle_maintenance_rebuilds_when_existing_binary_lacks_html_locale_patch(self):
+        from simc_agent_consumer import AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            source = Path(root) / 'simc-source'
+            source.mkdir()
+            (source / '.git').mkdir()
+            report = source / 'engine' / 'report' / 'report_html_sim.cpp'
+            report.parent.mkdir(parents=True)
+            report.write_text(
+                '  catch ( const std::runtime_error& )\n'
+                '  {\n'
+                '    // backup spelling for CI\n'
+                '    std::locale::global( std::locale( "en_US.utf8" ) );\n'
+                '  }\n', encoding='utf-8',
+            )
+            values = self.config(root)
+            values['simc_source_path'] = str(source)
+            revision = 'a' * 40
+            Path(values['simc_path'] + '.lmonitor-build.json').write_text(
+                json.dumps({'revision': revision}), encoding='utf-8',
+            )
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=MagicMock())
+
+            def command_result(command, **_kwargs):
+                stdout = ''
+                if command[-3:] == ['config', '--get', 'remote.origin.url']:
+                    stdout = 'https://github.com/simulationcraft/simc.git\n'
+                elif command[-2:] == ['branch', '--show-current']:
+                    stdout = 'midnight\n'
+                elif command[-2:] == ['rev-parse', 'HEAD']:
+                    stdout = revision + '\n'
+                elif command[-2:] == ['rev-parse', 'origin/midnight']:
+                    stdout = revision + '\n'
+                elif command[:2] == ['cmake', '--build']:
+                    candidate = Path(command[2]) / 'simc'
+                    candidate.write_text('#!/bin/sh\nexit 0\n', encoding='utf-8')
+                    candidate.chmod(0o755)
+                elif command[0].endswith('/simc') and len(command) == 1:
+                    stdout = 'SimulationCraft 1200-01\n'
+                return MagicMock(returncode=0, stdout=stdout, stderr='')
+
+            with patch('simc_agent_consumer.subprocess.run', side_effect=command_result) as run_command:
+                changed = consumer._maintain_simc(force=True)
+
+            self.assertTrue(changed)
+            self.assertTrue(any(
+                call.args[0][:2] == ['cmake', '--build']
+                for call in run_command.call_args_list
+            ))
+
     def test_idle_maintenance_pulls_compiles_verifies_and_atomically_replaces_simc(self):
         from simc_agent_consumer import AgentConfig, SimcAgentConsumer
 
@@ -379,7 +430,10 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertTrue(changed)
             self.assertEqual(
                 json.loads(Path(values['simc_path'] + '.lmonitor-build.json').read_text(encoding='utf-8')),
-                {'revision': 'b' * 40},
+                {
+                    'revision': 'b' * 40,
+                    'html_locale_patch_version': 1,
+                },
             )
             self.assertTrue(os.access(values['simc_path'], os.X_OK))
             commands = [call.args[0] for call in run_command.call_args_list]
@@ -529,7 +583,10 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertFalse(any('reset' in command or 'clean' in command for command in commands))
             self.assertEqual(
                 json.loads(Path(values['simc_path'] + '.lmonitor-build.json').read_text()),
-                {'revision': required_revision},
+                {
+                    'revision': required_revision,
+                    'html_locale_patch_version': 1,
+                },
             )
 
     def test_simc_maintenance_is_skipped_while_run_lease_may_be_live(self):
