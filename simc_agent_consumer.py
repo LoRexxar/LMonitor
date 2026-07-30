@@ -265,22 +265,60 @@ class AgentConfig:
 
     @classmethod
     def load(cls, path: str) -> 'AgentConfig':
+        config_path = Path(path).expanduser().resolve()
         try:
-            raw = json.loads(Path(path).read_text(encoding='utf-8'))
+            raw = json.loads(config_path.read_text(encoding='utf-8'))
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             raise ConfigError(f'cannot load configuration: {exc}') from exc
         if not isinstance(raw, dict):
             raise ConfigError('configuration root must be a JSON object')
         if 'token_path' not in raw:
-            raw['token_path'] = str(Path(path).resolve().with_suffix('.token'))
+            raw['token_path'] = str(config_path.with_suffix('.token'))
         if 'log_path' not in raw:
-            raw['log_path'] = str(Path(path).resolve().with_suffix('.log'))
+            raw['log_path'] = str(config_path.with_suffix('.log'))
         if 'simc_source_path' not in raw:
             discovered_source = _discover_simc_source_path(str(raw.get('simc_path', '')))
             raw['simc_source_path'] = str(
-                discovered_source or (Path(path).resolve().parent / 'simc-source')
+                discovered_source or (config_path.parent / 'simc-source')
             )
-        return cls.from_dict(raw)
+        config = cls.from_dict(raw)
+        # A first-run config intentionally contains only its two required
+        # fields.  On each successful load, materialize every omitted example
+        # field so operators can inspect and edit the effective settings.
+        if set(raw) != set(cls.__dataclass_fields__):
+            _write_private_json(config_path, config.__dict__)
+        return config
+
+
+def _write_private_json(path: Path, value: dict[str, Any]) -> None:
+    """Atomically replace an Agent-owned JSON config with private permissions."""
+    if path.is_symlink() or not path.is_file():
+        raise ConfigError('configuration path must be a regular file')
+    fd, temporary = tempfile.mkstemp(prefix=f'.{path.name}.', dir=str(path.parent))
+    try:
+        if not _is_windows():
+            os.fchmod(fd, 0o600)
+        payload = json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False).encode('utf-8') + b'\n'
+        written = 0
+        while written < len(payload):
+            count = os.write(fd, payload[written:])
+            if count <= 0:
+                raise OSError('short write while saving configuration')
+            written += count
+        os.fsync(fd)
+        os.close(fd)
+        fd = -1
+        os.replace(temporary, path)
+        _fsync_directory(path.parent)
+    except OSError as exc:
+        raise ConfigError(f'cannot save configuration defaults: {exc}') from exc
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
 
 
 def ensure_configuration(path: str, *, interactive: bool) -> bool:

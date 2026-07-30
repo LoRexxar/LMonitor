@@ -68,6 +68,29 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertEqual(config.enrollment_token, 'enroll-secret')
             self.assertEqual(config.backend_identifier, '')
 
+    def test_loading_existing_minimal_config_persists_all_example_defaults(self):
+        from simc_agent_consumer import AgentConfig
+
+        with tempfile.TemporaryDirectory() as root:
+            simc = Path(root) / 'simc'
+            simc.write_text('#!/bin/sh\n', encoding='utf-8')
+            simc.chmod(0o755)
+            config_path = Path(root) / 'simc_agent.json'
+            config_path.write_text(json.dumps({
+                'enrollment_token': 'enroll-secret',
+                'simc_path': str(simc),
+            }), encoding='utf-8')
+
+            config = AgentConfig.load(str(config_path))
+            persisted = json.loads(config_path.read_text(encoding='utf-8'))
+
+            self.assertEqual(set(persisted), set(AgentConfig.__dataclass_fields__))
+            self.assertEqual(persisted['server_url'], 'https://wowdaily.cn')
+            self.assertEqual(persisted['max_concurrent_runs'], 1)
+            self.assertEqual(persisted['token_path'], config.token_path)
+            self.assertEqual(persisted['log_path'], config.log_path)
+            self.assertEqual(persisted['simc_source_path'], config.simc_source_path)
+
     def test_agent_runtime_state_paths_are_ignored_when_config_lives_in_checkout(self):
         repository_ignore = (Path(__file__).resolve().parents[2] / '.gitignore').read_text(encoding='utf-8')
 
