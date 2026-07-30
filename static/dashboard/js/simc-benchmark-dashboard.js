@@ -42,28 +42,66 @@ function formatDps(value){
   const number=Number(value);
   return Number.isFinite(number) ? `${number.toLocaleString('zh-CN',{maximumFractionDigits:1})} DPS` : 'DPS 未就绪';
 }
+function collectAggregateDimension(coordinates,key,labelKey){
+  const values=new Map();
+  coordinates.forEach(coordinate=>{
+    const value=String(coordinate?.[key]||'');
+    if(value&&!values.has(value))values.set(value,String(coordinate?.labels?.[labelKey]||value));
+  });
+  return values;
+}
+function buildAggregateMatrix(coordinates,selectedCoordinates){
+  return coordinates.filter(coordinate=>Object.entries(selectedCoordinates).every(([key,value])=>!value||String(coordinate?.[key]||'')===value));
+}
 function renderAggregatedResults(aggregate,compact=false){
   const host=el('section',{class:`benchmark-aggregated-results${compact?' compact':''}`});
   const coordinates=Array.isArray(aggregate?.coordinates)?aggregate.coordinates:[];
-  const rows=coordinates.flatMap(coordinate=>(Array.isArray(coordinate.candidates)?coordinate.candidates:[]).map(candidate=>({coordinate,candidate})));
   if(!coordinates.length){host.append(badge('暂无已完成模拟结果','muted'));return host;}
   const heading=el('div',{class:'benchmark-aggregate-heading'});
-  heading.append(el('strong',{},'结果预览'),badge(`${rows.length} 项结果 · ${coordinates.length} 个坐标`,'good'));
+  heading.append(el('strong',{},'模拟结果'),badge(`${coordinates.length} 个坐标`,'good'));
   host.append(heading);
-  const detail=el('div',{class:'benchmark-aggregate-summary'},'页面打开时，按已完成模拟的不可变结果即时生成；不创建额外模拟或聚合任务。当前 Execution 的子任务 / Run 进度另行显示。');
-  const list=el('div',{class:'benchmark-aggregate-list'});
-  const limit=compact?2:6;
-  rows.slice(0,limit).forEach(({coordinate,candidate})=>{
-    const row=el('div',{class:'benchmark-aggregate-row'});
-    const coordinateLabel=el('div',{class:'benchmark-aggregate-coordinate'},`${coordinate.spec_key} · ${coordinate.scenario_key} · ${coordinate.profile_key}`);
-    const candidateLabel=el('div',{class:'benchmark-aggregate-candidate'},candidate.key||'候选方案');
-    const result=el('div',{class:'benchmark-aggregate-result'});
-    result.append(el('strong',{class:'benchmark-aggregate-dps'},formatDps(candidate.dps)));
-    if(candidate.task_id) result.append(el('span',{class:'benchmark-aggregate-task'},`来源 Task #${candidate.task_id}`));
-    row.append(coordinateLabel,candidateLabel,result);list.append(row);
+  host.append(el('div',{class:'benchmark-aggregate-summary'},'页面打开时，按已完成模拟的不可变结果即时生成；不创建额外模拟或聚合任务。选择专精、战斗场景与 Profile 后，列表按候选饰品 DPS 排名。'));
+  const dimensions=[['spec_key','spec','专精'],['scenario_key','scenario','战斗场景'],['profile_key','profile','Profile']];
+  const selectedCoordinates={};
+  const filters=el('div',{class:'benchmark-aggregate-filters'});
+  dimensions.forEach(([key,labelKey,title])=>{
+    const values=collectAggregateDimension(coordinates,key,labelKey);
+    const filter=el('label',{class:'benchmark-aggregate-filter'});
+    filter.append(el('span',{},title));
+    const select=el('select',{dataset:{aggregateDimension:key},'aria-label':`选择${title}`});
+    select.append(el('option',{value:''},`全部${title}`));
+    values.forEach((label,value)=>select.append(el('option',{value},label)));
+    const initial=values.size===1?values.keys().next().value:String(coordinates[0]?.[key]||'');
+    select.value=initial;
+    selectedCoordinates[key]=select.value;
+    select.addEventListener('change',()=>{selectedCoordinates[key]=select.value;render();});
+    filter.append(select);filters.append(filter);
   });
-  if(rows.length>limit)list.append(el('div',{class:'benchmark-aggregate-more'},`其余 ${rows.length-limit} 项结果已折叠显示。`));
-  host.append(detail,list);return host;
+  const list=el('div',{class:'benchmark-aggregate-list'});
+  const render=()=>{
+    clear(list);
+    const matches=buildAggregateMatrix(coordinates,selectedCoordinates);
+    const rows=matches.flatMap(coordinate=>{
+      const candidates=Array.isArray(coordinate?.candidates)?coordinate.candidates:[];
+      const baseline=candidates.find(candidate=>candidate?.key==='baseline');
+      const baseline_dps=Number(baseline?.dps);
+      return candidates.filter(candidate=>candidate?.key!=='baseline').map(candidate=>({coordinate,candidate,dps:Number(candidate?.dps),baseline_dps}));
+    }).filter(row=>Number.isFinite(row.dps)).sort((left,right)=>right.dps-left.dps);
+    const title=el('div',{class:'benchmark-aggregate-list-title'},`${rows.length} 个候选结果${matches.length?` · ${matches.length} 个匹配坐标`:''}`);
+    list.append(title);
+    if(!rows.length){list.append(el('div',{class:'benchmark-aggregate-empty'},'当前筛选条件下暂无已完成候选结果'));return;}
+    rows.forEach(({coordinate,candidate,dps,baseline_dps})=>{
+      const row=el('div',{class:'benchmark-aggregate-row'});
+      const identity=el('div',{class:'benchmark-aggregate-candidate'},candidate.label||candidate.key||'候选方案');
+      const coordinateLabel=el('div',{class:'benchmark-aggregate-coordinate'},`${coordinate?.labels?.spec||coordinate.spec_key} · ${coordinate?.labels?.scenario||coordinate.scenario_key} · ${coordinate?.labels?.profile||coordinate.profile_key}`);
+      const result=el('div',{class:'benchmark-aggregate-result'});
+      result.append(el('strong',{class:'benchmark-aggregate-dps'},formatDps(dps)));
+      const delta_percent=Number.isFinite(baseline_dps)&&baseline_dps>0?(dps-baseline_dps)*100/baseline_dps:null;
+      result.append(el('span',{class:`benchmark-aggregate-delta ${delta_percent!==null&&delta_percent<0?'negative':'positive'}`},delta_percent===null?'无基准对比':`相对基准 ${delta_percent>=0?'+':''}${delta_percent.toFixed(1)}%`));
+      row.append(identity,coordinateLabel,result);list.append(row);
+    });
+  };
+  host.append(filters,list);render();return host;
 }
 function renderRunProgress(execution,compact=false){
   const host=el('div',{class:`benchmark-run-progress${compact?' compact':''}`});

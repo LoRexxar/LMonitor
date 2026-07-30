@@ -147,6 +147,7 @@ class SimcBenchmarkDashboardApiTests(TestCase):
             'coordinates': [{
                 'spec_key': 'warrior_fury', 'scenario_key': 'patchwerk',
                 'profile_key': str(self.profile.id),
+                'labels': {'spec': 'Fury', 'scenario': 'Patchwerk', 'profile': 'Raid'},
                 'candidates': [
                     {'key': 'baseline', 'dps': 1234.5, 'task_id': 101},
                     {'key': 'new-trinket', 'dps': 1400.0, 'task_id': 102},

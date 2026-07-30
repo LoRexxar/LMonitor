@@ -98,6 +98,15 @@ class SimcBenchmarkExecutionTests(TestCase):
             result_summary={'dps': dps} if dps is not None else None,
         )
 
+    def _aggregate_candidate(self, key, dps, task_id, *, label=None, candidate_type=None,
+                             icon_url='', source_label=''):
+        return {
+            'key': key, 'label': label or key.title(),
+            'type': candidate_type or ('base' if key == 'baseline' else 'gear_swap'),
+            'icon_url': icon_url, 'source_label': source_label,
+            'dps': dps, 'task_id': task_id,
+        }
+
     def _published_success(self):
         # A completed immutable coordinate is intentionally not scheduled again.
         # Serializer-contract subtests need an independent fixture, so vary the
@@ -198,12 +207,15 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(successful_case.results.count(), 2)
 
         aggregate = serialize_incremental_panel_results(self.panel)
-        by_scenario = {row['scenario_key']: row['candidates'] for row in aggregate['coordinates']}
-        self.assertEqual(by_scenario['patchwerk'], [
-            {'key': 'baseline', 'dps': 1234.0, 'task_id': successful_task.id},
-            {'key': 'trinket', 'dps': 1300.0, 'task_id': successful_task.id},
+        coordinates = {row['scenario_key']: row for row in aggregate['coordinates']}
+        self.assertEqual(coordinates['patchwerk']['labels'], {
+            'spec': 'Fury', 'scenario': 'Patchwerk', 'profile': 'Raid profile',
+        })
+        self.assertEqual(coordinates['patchwerk']['candidates'], [
+            self._aggregate_candidate('baseline', 1234.0, successful_task.id, label='Baseline'),
+            self._aggregate_candidate('trinket', 1300.0, successful_task.id, label='Trinket'),
         ])
-        self.assertEqual(by_scenario['failed-coordinate'], [])
+        self.assertEqual(coordinates['failed-coordinate']['candidates'], [])
 
     def test_incremental_result_projection_scans_finalized_cases_once_for_all_coordinates(self):
         self._published_success()
@@ -261,9 +273,9 @@ class SimcBenchmarkExecutionTests(TestCase):
         aggregate = serialize_incremental_panel_results(self.panel)
         row = aggregate['coordinates'][0]
         self.assertEqual(row['candidates'], [
-            {'key': 'baseline', 'dps': 1234.0, 'task_id': original_task.id},
-            {'key': 'trinket', 'dps': 1300.0, 'task_id': original_task.id},
-            {'key': 'new-trinket', 'dps': 1400.0, 'task_id': incremental_task.id},
+            self._aggregate_candidate('baseline', 1234.0, original_task.id, label='Baseline'),
+            self._aggregate_candidate('trinket', 1300.0, original_task.id, label='Trinket'),
+            self._aggregate_candidate('new-trinket', 1400.0, incremental_task.id, label='New Trinket'),
         ])
 
     def test_incremental_execution_reuses_complete_coordinate_without_copying_task(self):
@@ -299,8 +311,8 @@ class SimcBenchmarkExecutionTests(TestCase):
         aggregate = serialize_incremental_panel_results(self.panel)
         by_scenario = {row['scenario_key']: row['candidates'] for row in aggregate['coordinates']}
         self.assertEqual(by_scenario['patchwerk'], [
-            {'key': 'baseline', 'dps': 1234.0, 'task_id': successful_task.id},
-            {'key': 'trinket', 'dps': 1300.0, 'task_id': successful_task.id},
+            self._aggregate_candidate('baseline', 1234.0, successful_task.id, label='Baseline'),
+            self._aggregate_candidate('trinket', 1300.0, successful_task.id, label='Trinket'),
         ])
         self.assertEqual(by_scenario['pending-coordinate'], [])
 
@@ -332,8 +344,8 @@ class SimcBenchmarkExecutionTests(TestCase):
         aggregate = serialize_incremental_panel_results(self.panel)
         by_scenario = {row['scenario_key']: row['candidates'] for row in aggregate['coordinates']}
         self.assertEqual(by_scenario['patchwerk'], [
-            {'key': 'baseline', 'dps': 1234.0, 'task_id': successful_task.id},
-            {'key': 'trinket', 'dps': 1300.0, 'task_id': successful_task.id},
+            self._aggregate_candidate('baseline', 1234.0, successful_task.id, label='Baseline'),
+            self._aggregate_candidate('trinket', 1300.0, successful_task.id, label='Trinket'),
         ])
         self.assertEqual(by_scenario['failed-coordinate'], [])
 

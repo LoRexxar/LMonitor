@@ -124,25 +124,30 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         ):
             self.assertIn(selector, CSS)
 
-    def test_cross_execution_results_use_structured_rows_not_raw_debug_lines(self):
-        """A large immutable aggregate must remain scannable in the panel list."""
+    def test_cross_execution_results_are_a_selectable_dimensioned_ranking(self):
+        """The aggregate is a result list, not a flattened coordinate preview."""
         aggregate = JS[JS.index('function renderAggregatedResults('):JS.index('function renderRunProgress(')]
-        self.assertIn("'结果预览'", aggregate)
+        for contract in (
+            "'模拟结果'", 'buildAggregateMatrix', 'collectAggregateDimension',
+            "['spec_key','spec','专精']", "['scenario_key','scenario','战斗场景']",
+            "['profile_key','profile','Profile']", 'benchmark-aggregate-filters',
+            'benchmark-aggregate-list-title', 'sort((left,right)=>right.dps-left.dps)',
+            'candidate.label||candidate.key||\'候选方案\'', 'baseline_dps',
+            'delta_percent', '相对基准', 'selectedCoordinates',
+            'const initial=values.size===1?values.keys().next().value:String(coordinates[0]?.[key]||\'\');',
+        ):
+            self.assertIn(contract, aggregate)
         self.assertIn('页面打开时，按已完成模拟的不可变结果即时生成；不创建额外模拟或聚合任务。', aggregate)
-        self.assertIn("class:'benchmark-aggregate-row'", aggregate)
-        self.assertIn("class:'benchmark-aggregate-coordinate'", aggregate)
-        self.assertIn("class:'benchmark-aggregate-dps'", aggregate)
-        self.assertIn("formatDps(candidate.dps)", aggregate)
-        self.assertIn("其余 ${rows.length-limit} 项结果已折叠显示", aggregate)
+        self.assertNotIn('其余 ${rows.length-limit} 项结果已折叠显示', aggregate)
         # Execution 的“查看结果”不是跨批次完整聚合结果入口，不能拿它误导用户。
         self.assertNotIn('完整对比请打开“查看结果”', aggregate)
         self.assertNotIn('聚合结果待生成', JS)
         self.assertNotIn('聚合结果已保存', JS)
         self.assertNotIn('无聚合结果', JS)
-        self.assertNotIn("${candidate.dps} DPS · Task #${candidate.task_id}", aggregate)
         for selector in (
-            '.benchmark-aggregate-summary', '.benchmark-aggregate-row',
-            '.benchmark-aggregate-coordinate', '.benchmark-aggregate-dps',
+            '.benchmark-aggregate-filters', '.benchmark-aggregate-filter',
+            '.benchmark-aggregate-list-title', '.benchmark-aggregate-row',
+            '.benchmark-aggregate-candidate', '.benchmark-aggregate-delta',
         ):
             self.assertIn(selector, CSS)
 

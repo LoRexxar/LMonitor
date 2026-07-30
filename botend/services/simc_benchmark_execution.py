@@ -521,12 +521,22 @@ def serialize_incremental_panel_results(panel):
             match = reusable.get(_candidate_input_identity(candidate))
             if match:
                 rows.append({
-                    'key': candidate['candidate_key'], 'dps': float(match['result'].dps),
-                    'task_id': match['task'].pk,
+                    'key': candidate['candidate_key'],
+                    'label': candidate['candidate_label'],
+                    'type': candidate['candidate_type'],
+                    'icon_url': candidate['icon_url'],
+                    'source_label': candidate['source_label'],
+                    'dps': float(match['result'].dps), 'task_id': match['task'].pk,
                 })
         coordinates.append({
             'spec_key': coordinate['spec_key'], 'scenario_key': coordinate['scenario_key'],
-            'profile_key': coordinate['profile_key'], 'candidates': rows,
+            'profile_key': coordinate['profile_key'],
+            'labels': {
+                'spec': coordinate['spec_label'],
+                'scenario': coordinate['scenario_label'],
+                'profile': coordinate['profile_label'],
+            },
+            'candidates': rows,
         })
     return {'panel_id': panel.pk, 'coordinates': coordinates}
 
