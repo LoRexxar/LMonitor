@@ -124,6 +124,45 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         self.assertEqual(panel.created_by_id, self.staff.id)
         self.assertEqual(response.json()['error'], 'validation_error')
 
+    def test_completed_execution_rerun_endpoint_delegates_only_to_benchmark_service(self):
+        panel = self._create_panel()
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, config_snapshot={'version': 2, 'case_count': 0, 'run_count': 0},
+            config_hash='e' * 64, status='failed', completed_at=timezone.now(),
+        )
+        with patch('botend.dashboard.api.rerun_failed_cases', return_value=execution) as rerun:
+            response = self.client.post(
+                f'/api/simc-benchmarks/executions/{execution.id}/rerun-failed/',
+                data='{}', content_type='application/json',
+            )
+        self.assertEqual(response.status_code, 202, response.content)
+        self.assertTrue(response.json()['success'])
+        self.assertEqual(response.json()['data']['id'], execution.id)
+        rerun.assert_called_once_with(execution, requested_by=self.staff)
+
+    def test_panel_list_projects_cross_execution_immutable_result_aggregation(self):
+        panel = self._create_panel()
+        aggregate = {
+            'panel_id': panel.id,
+            'coordinates': [{
+                'spec_key': 'warrior_fury', 'scenario_key': 'patchwerk',
+                'profile_key': str(self.profile.id),
+                'candidates': [
+                    {'key': 'baseline', 'dps': 1234.5, 'task_id': 101},
+                    {'key': 'new-trinket', 'dps': 1400.0, 'task_id': 102},
+                ],
+            }],
+        }
+        with patch(
+            'botend.dashboard.api.serialize_incremental_panel_results',
+            return_value=aggregate,
+        ) as serialize:
+            response = self.client.get('/api/simc-benchmarks/panels/')
+        self.assertEqual(response.status_code, 200, response.content)
+        row = response.json()['data'][0]
+        self.assertEqual(row['aggregated_results'], aggregate)
+        serialize.assert_called_once_with(panel)
+
     def test_panel_list_and_history_expose_execution_progress_and_metadata_readiness(self):
         panel = self._create_panel()
         snapshot = {'version': 2, 'case_count': 4, 'run_count': 4}

@@ -21,6 +21,7 @@ from botend.models import (
 )
 from botend.services.simc_benchmark_execution import (
     BenchmarkExecutionConflict, create_execution, reconcile_execution,
+    rerun_failed_cases, serialize_incremental_panel_results,
     serialize_public_execution, summarize_execution,
 )
 
@@ -98,6 +99,16 @@ class SimcBenchmarkExecutionTests(TestCase):
         )
 
     def _published_success(self):
+        # A completed immutable coordinate is intentionally not scheduled again.
+        # Serializer-contract subtests need an independent fixture, so vary the
+        # frozen scenario input after the first completed fixture in this database.
+        completed = SimcBenchmarkExecution.objects.filter(
+            panel=self.panel, results_finalized_at__isnull=False,
+        ).count()
+        if completed:
+            SimcBenchmarkScenario.objects.filter(panel=self.panel, key='patchwerk').update(
+                simulation_params={'iterations': 1000 + completed},
+            )
         execution = self._create()
         task = execution.cases.get().task
         task.current_status = 2
@@ -108,6 +119,95 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.panel.is_public = True
         self.panel.save(update_fields=['is_public'])
         return execution
+
+    def test_failed_case_rerun_copies_only_failed_task_and_keeps_original_result_immutable(self):
+        successful = self._published_success()
+        original_success_case = successful.cases.get()
+        original_success_task_id = original_success_case.task_id
+        original_result_ids = list(original_success_case.results.values_list('id', flat=True))
+        SimcBenchmarkScenario.objects.create(
+            panel=self.panel, key='retry-coordinate', name='Retry coordinate',
+            simulation_params={'iterations': 2000},
+        )
+
+        failed_execution = self._create()
+        failed_case = failed_execution.cases.get()
+        failed_task = failed_case.task
+        failed_task.current_status = 3
+        failed_task.save(update_fields=['current_status'])
+        self._run(failed_task, 1, 'failed', 'baseline')
+        reconcile_execution(failed_execution)
+        failed_execution.refresh_from_db()
+        self.assertEqual(failed_execution.status, 'failed')
+
+        rerun_execution = rerun_failed_cases(failed_execution, requested_by=self.user_id)
+
+        rerun_case = rerun_execution.cases.get()
+        self.assertNotEqual(rerun_execution.id, failed_execution.id)
+        self.assertEqual(rerun_case.task.source_task_id, failed_task.id)
+        self.assertEqual(rerun_case.task.current_status, 0)
+        self.assertEqual(rerun_case.task.simulation_runs.count(), 0)
+        self.assertEqual(
+            SimcTask.objects.filter(source_task=failed_task).count(), 1,
+        )
+        self.assertEqual(
+            SimcTask.objects.exclude(pk__in=[failed_task.id, rerun_case.task_id]).count(), 1,
+        )
+        original_success_case.refresh_from_db()
+        self.assertEqual(original_success_case.task_id, original_success_task_id)
+        self.assertEqual(
+            list(original_success_case.results.values_list('id', flat=True)), original_result_ids,
+        )
+
+    def test_incremental_candidate_creates_only_missing_candidate_task_and_aggregates_old_result(self):
+        original = self._published_success()
+        original_case = original.cases.get()
+        original_task = original_case.task
+        SimcBenchmarkCandidate.objects.create(
+            panel=self.panel, key='new-trinket', label='New Trinket',
+            candidate_type='gear_swap', params={
+                'candidate_type': 'gear_swap', 'is_base': False,
+                'gear_swap': {'slot': 'trinket2', 'raw_value': ',id=456',
+                              'item_id': 456, 'source': 'manual'},
+            },
+        )
+
+        incremental = self._create()
+        incremental_case = incremental.cases.get()
+
+        self.assertEqual(incremental_case.task.source_task_id, original_task.id)
+        self.assertEqual(
+            [row['candidate_key'] for row in incremental_case.task.mode_params['initial_candidates']],
+            ['new-trinket'],
+        )
+        self.assertEqual(incremental_case.task.simulation_runs.count(), 0)
+        self.assertEqual(SimcBenchmarkCase.objects.filter(execution=original).count(), 1)
+        self.assertEqual(original_case.results.count(), 2)
+
+        incremental_task = incremental_case.task
+        incremental_task.current_status = 2
+        incremental_task.save(update_fields=['current_status'])
+        self._run(incremental_task, 1, 'completed', 'new-trinket', dps=1400)
+        reconcile_execution(incremental)
+
+        aggregate = serialize_incremental_panel_results(self.panel)
+        row = aggregate['coordinates'][0]
+        self.assertEqual(row['candidates'], [
+            {'key': 'baseline', 'dps': 1234.0, 'task_id': original_task.id},
+            {'key': 'trinket', 'dps': 1300.0, 'task_id': original_task.id},
+            {'key': 'new-trinket', 'dps': 1400.0, 'task_id': incremental_task.id},
+        ])
+
+    def test_incremental_execution_reuses_complete_coordinate_without_copying_task(self):
+        original = self._published_success()
+        original_case = original.cases.get()
+
+        incremental = self._create()
+
+        self.assertEqual(incremental.cases.count(), 0)
+        self.assertEqual(SimcTask.objects.count(), 1)
+        aggregate = serialize_incremental_panel_results(self.panel)
+        self.assertEqual(aggregate['coordinates'][0]['candidates'][0]['task_id'], original_case.task_id)
 
     def test_success_is_persisted_and_frozen_from_task_run_mutation(self):
         execution = self._published_success()
@@ -622,6 +722,9 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.panel.refresh_from_db()
         self.assertEqual(self.panel.published_execution_id, older.id)
 
+        SimcBenchmarkScenario.objects.filter(panel=self.panel, key='patchwerk').update(
+            simulation_params={'iterations': 2000},
+        )
         newer = self._create()
         new_task = newer.cases.get().task
         new_task.current_status = 2
@@ -639,6 +742,9 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertIsNotNone(older.completed_at)
         self.assertEqual(self.panel.published_execution_id, newer.id)
 
+        SimcBenchmarkScenario.objects.filter(panel=self.panel, key='patchwerk').update(
+            simulation_params={'iterations': 3000},
+        )
         failed = self._create()
         failed_task = failed.cases.get().task
         failed_task.current_status = 3

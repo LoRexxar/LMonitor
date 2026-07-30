@@ -86,7 +86,8 @@ from botend.services.simc_benchmark_config import (
 )
 from botend.services.simc_benchmark_execution import (
     BenchmarkExecutionConflict, create_execution, reconcile_execution,
-    summarize_execution, task_progress, _canonical_hash,
+    rerun_failed_cases, serialize_incremental_panel_results, summarize_execution,
+    task_progress, _canonical_hash,
 )
 from botend.services.simc_task_service import TaskValidationUnavailable
 
@@ -8057,6 +8058,9 @@ def _benchmark_panel_summary(panel, execution=None):
             is_active=panel.active_execution_id == execution.pk,
         ) if execution is not None else None
     )
+    # Results are a read projection across immutable Case/Task/Result records;
+    # a single Execution only represents the latest scheduling boundary.
+    data['aggregated_results'] = serialize_incremental_panel_results(panel)
     return data
 
 
@@ -8654,6 +8658,25 @@ class SimcBenchmarkExecutionDetailAPIView(_BenchmarkAdminAPIView):
         return JsonResponse({'success': True,
                              'data': _benchmark_safe_detail(
                                  summarize_execution(execution), execution)})
+
+
+class SimcBenchmarkExecutionRerunFailedAPIView(_BenchmarkAdminAPIView):
+    def post(self, request, execution_id):
+        _benchmark_json_object(request, empty=True)
+        execution = SimcBenchmarkExecution.objects.select_related('panel').filter(
+            pk=execution_id,
+        ).first()
+        if execution is None:
+            return _benchmark_error('not_found', 404)
+        rerun = rerun_failed_cases(execution, requested_by=request.user)
+        cases = list(_benchmark_progress_case_queryset().filter(execution=rerun))
+        return JsonResponse({
+            'success': True,
+            'data': _benchmark_execution_summary(
+                rerun, published_id=rerun.panel.published_execution_id,
+                case_count=rerun.cases.count(), cases=cases,
+            ),
+        }, status=202)
 
 
 class SimcBenchmarkExecutionReconcileAPIView(_BenchmarkAdminAPIView):

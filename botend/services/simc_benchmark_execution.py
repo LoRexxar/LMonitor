@@ -28,6 +28,7 @@ from botend.services.simc_task_service import (
     TaskCreationError, TaskPreparedResourceChanged, TaskValidationUnavailable,
     create_task, prepare_task_creation,
 )
+from botend.services.task_rerun import create_rerun, TaskRerunError
 
 TASK_PENDING = 0
 TASK_RUNNING = 1
@@ -147,6 +148,87 @@ def _task_name(panel_id, execution_id, case):
     return value[:200]
 
 
+def _candidate_input_identity(candidate):
+    """Only executable candidate input participates in cross-execution reuse."""
+    return _canonical_hash({
+        'key': candidate.get('candidate_key'),
+        'candidate_type': candidate.get('candidate_type'),
+        'candidate_params': candidate.get('candidate_params'),
+    })
+
+
+def _task_candidate_identities(task):
+    mode_params = task.mode_params if isinstance(task.mode_params, dict) else {}
+    manifest = mode_params.get('request_manifest') if isinstance(mode_params, dict) else None
+    candidates = manifest.get('candidates') if isinstance(manifest, dict) else None
+    if not isinstance(candidates, list):
+        return {}
+    return {
+        candidate.get('candidate_key'): _candidate_input_identity(candidate)
+        for candidate in candidates
+        if isinstance(candidate, dict) and isinstance(candidate.get('candidate_key'), str)
+    }
+
+
+def _coordinate_input_identity(coordinate):
+    return _canonical_hash({
+        'spec_key': coordinate['spec_key'], 'scenario_key': coordinate['scenario_key'],
+        'profile_key': coordinate['profile_key'], 'profile_id': coordinate['profile_id'],
+        'apl_id': coordinate['apl_id'], 'template_id': coordinate['template_id'],
+        'backend_id': coordinate['backend_id'],
+        'simulation_params': coordinate['simulation_params'],
+    })
+
+
+def _reusable_candidate_tasks(panel, coordinate):
+    """Return finalized Task provenance by full frozen coordinate/candidate input identity."""
+    candidates = {}
+    cases = SimcBenchmarkCase.objects.filter(
+        execution__panel_id=panel.pk,
+        execution__status=SimcBenchmarkExecution.STATUS_SUCCESS,
+        execution__results_finalized_at__isnull=False,
+    ).select_related('task').prefetch_related('results').order_by('-execution_id', '-id')
+    target_coordinate = _coordinate_input_identity(coordinate)
+    for case in cases:
+        task = case.task
+        if task is None or _coordinate_input_identity({
+            'spec_key': case.spec_key, 'scenario_key': case.scenario_key,
+            'profile_key': case.profile_key, 'profile_id': task.profile_id,
+            'apl_id': task.apl_id, 'template_id': task.template_id,
+            'backend_id': task.backend_id, 'simulation_params': task.simulation_params or {},
+        }) != target_coordinate:
+            continue
+        identities = _task_candidate_identities(task)
+        for result in case.results.all():
+            identity = identities.get(result.candidate_key)
+            if identity and identity not in candidates:
+                candidates[identity] = {'task': task, 'result': result}
+    return candidates
+
+
+def _incremental_coordinates(panel, plan):
+    """Schedule only candidate input identities absent from immutable successful results."""
+    rows = []
+    for coordinate in plan['cases']:
+        reusable = _reusable_candidate_tasks(panel, coordinate)
+        missing = [candidate for candidate in coordinate['candidates']
+                   if _candidate_input_identity(candidate) not in reusable]
+        if missing:
+            row = deepcopy(coordinate)
+            row['candidates'] = missing
+            row['_source_task'] = next(iter(reusable.values()))['task'] if reusable else None
+            rows.append(row)
+    return rows
+
+
+def _plan_for_coordinates(plan, coordinates):
+    plan = deepcopy(plan)
+    plan['cases'] = coordinates
+    plan['case_count'] = len(coordinates)
+    plan['run_count'] = sum(len(item['candidates']) for item in coordinates)
+    return plan
+
+
 def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=None):
     """Preflight outside locks, then atomically persist from an identical locked plan."""
     slot = _normalize_trigger_slot(trigger, scheduled_slot)
@@ -233,7 +315,14 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
             raise BenchmarkExecutionConflict(
                 'Panel configuration changed during execution preflight'
             )
-        snapshot = _safe_snapshot(locked_panel, locked_plan)
+        incremental_coordinates = _incremental_coordinates(locked_panel, locked_plan)
+        # No missing candidate inputs means this execution is only a bookkeeping
+        # record; it owns no Task/Case. Existing complete Results remain reusable.
+        execution_coordinates = incremental_coordinates
+        # Execution freezes only work it owns.  The Panel configuration remains
+        # authoritative for display; completed immutable Results are reused there.
+        incremental_plan = _plan_for_coordinates(locked_plan, execution_coordinates)
+        snapshot = _safe_snapshot(locked_panel, incremental_plan)
         config_hash = _canonical_hash(snapshot)
 
         # Only the Execution slot claim is caught. Any later Task/Case integrity
@@ -261,7 +350,7 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
             raise
 
         try:
-            for coordinate in locked_plan['cases']:
+            for coordinate in execution_coordinates:
                 key = (coordinate['backend_id'], coordinate['profile_id'],
                        coordinate['apl_id'], coordinate['template_id'])
                 task = create_task(
@@ -277,6 +366,10 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
                     candidates=deepcopy(coordinate['candidates']),
                     prepared=prepared_by_resources[key],
                 )
+                source_task = coordinate.get('_source_task')
+                if source_task is not None:
+                    task.source_task = source_task
+                    task.save(update_fields=['source_task'])
                 case = SimcBenchmarkCase(
                     execution=execution, task=task,
                     spec_key=coordinate['spec_key'], scenario_key=coordinate['scenario_key'],
@@ -292,6 +385,87 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
         except TaskCreationError as exc:
             _validation_error(str(exc))
         return execution
+
+
+def rerun_failed_cases(execution, requested_by=None):
+    """Create an independent Execution containing only terminal failed/cancelled Cases."""
+    requester_id = getattr(requested_by, 'id', requested_by)
+    with transaction.atomic():
+        source = SimcBenchmarkExecution.objects.select_for_update().get(pk=execution.pk)
+        panel = SimcBenchmarkPanel.objects.select_for_update().get(pk=source.panel_id)
+        if requester_id != panel.created_by_id:
+            raise PermissionDenied('Only the Panel owner may rerun failed benchmark cases')
+        if source.completed_at is None:
+            raise BenchmarkExecutionConflict('Only a completed Execution can be rerun')
+        failed_cases = list(SimcBenchmarkCase.objects.filter(
+            execution=source, status__in=(
+                SimcBenchmarkExecution.STATUS_FAILED,
+                SimcBenchmarkExecution.STATUS_CANCELLED,
+            ),
+        ).select_related('task').order_by('id'))
+        if not failed_cases:
+            _validation_error('没有可重跑的失败子任务', 'execution')
+        if panel.active_execution_id:
+            active = panel.active_execution
+            if active and active.completed_at is None:
+                raise BenchmarkExecutionConflict('Panel already has an unfinished benchmark execution')
+
+        snapshot = deepcopy(source.config_snapshot)
+        source_cases = {(case.spec_key, case.scenario_key, case.profile_key): case
+                        for case in failed_cases}
+        snapshot['cases'] = [case for case in snapshot.get('cases', [])
+                             if (case.get('spec_key'), case.get('scenario_key'), case.get('profile_key'))
+                             in source_cases]
+        snapshot['case_count'] = len(snapshot['cases'])
+        snapshot['run_count'] = sum(len(case['candidate_keys']) for case in snapshot['cases'])
+        new_execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, trigger=SimcBenchmarkExecution.TRIGGER_MANUAL,
+            config_snapshot=snapshot, config_hash=_canonical_hash(snapshot),
+        )
+        panel.active_execution = new_execution
+        panel.save(update_fields=['active_execution'])
+        for case_data in snapshot['cases']:
+            source_case = source_cases[(
+                case_data['spec_key'], case_data['scenario_key'], case_data['profile_key'],
+            )]
+            try:
+                task = create_rerun(
+                    source_task_id=source_case.task_id,
+                    user_id=panel.created_by_id,
+                )
+            except TaskRerunError as exc:
+                _validation_error(str(exc), 'execution')
+            task.name = _task_name(panel.pk, new_execution.pk, case_data)
+            task.save(update_fields=['name'])
+            SimcBenchmarkCase.objects.create(
+                execution=new_execution, task=task,
+                spec_key=source_case.spec_key, scenario_key=source_case.scenario_key,
+                profile_key=source_case.profile_key, spec_label=source_case.spec_label,
+                scenario_label=source_case.scenario_label, profile_label=source_case.profile_label,
+                coordinate_hash=source_case.coordinate_hash,
+            )
+        return new_execution
+
+
+def serialize_incremental_panel_results(panel):
+    """Aggregate immutable successful Results across independent executions by input identity."""
+    plan = build_execution_plan(panel, lock=False)
+    coordinates = []
+    for coordinate in plan['cases']:
+        reusable = _reusable_candidate_tasks(panel, coordinate)
+        rows = []
+        for candidate in coordinate['candidates']:
+            match = reusable.get(_candidate_input_identity(candidate))
+            if match:
+                rows.append({
+                    'key': candidate['candidate_key'], 'dps': float(match['result'].dps),
+                    'task_id': match['task'].pk,
+                })
+        coordinates.append({
+            'spec_key': coordinate['spec_key'], 'scenario_key': coordinate['scenario_key'],
+            'profile_key': coordinate['profile_key'], 'candidates': rows,
+        })
+    return {'panel_id': panel.pk, 'coordinates': coordinates}
 
 
 def _safe_error(value):
