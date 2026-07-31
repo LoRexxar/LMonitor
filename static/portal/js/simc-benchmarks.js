@@ -87,6 +87,21 @@
     grid.append(identity, track, metrics); row.appendChild(grid); return row;
   }
 
+  function profileTalentSimulatorUrl(identity, buildCode) {
+    const className = String(identity?.class_name || "").trim().toLowerCase();
+    const specName = String(identity?.spec || "").trim().toLowerCase();
+    const code = String(buildCode || "").trim();
+    if (!className || !specName || !code) return "";
+    const classAliases = { deathknight: "DeathKnight", demonhunter: "DemonHunter" };
+    const toPascalCase = (value) => value.split("_").filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join("");
+    const params = new URLSearchParams();
+    params.set('class', classAliases[className] || toPascalCase(className));
+    params.set('spec', toPascalCase(specName));
+    params.set('code', code);
+    return `/portal/talents/?${params.toString()}`;
+  }
+
   function renderProfileDetails(profileDetail) {
     const details = node("details", "simc-benchmark-profile-details");
     const summary = node("summary", "profile-details-toggle", "展开 Profile 配置");
@@ -112,7 +127,15 @@
     const talentCode = profileDetail?.talents?.build_code;
     if (talentCode) {
       const section = node("section", "simc-benchmark-profile-section");
-      const code = node("code", "simc-benchmark-profile-talent-code", talentCode);
+      const simulatorUrl = profileTalentSimulatorUrl(identity, talentCode);
+      const code = simulatorUrl ? node("a", "simc-benchmark-profile-talent-code", talentCode) : node("code", "simc-benchmark-profile-talent-code", talentCode);
+      if (simulatorUrl) {
+        code.href = simulatorUrl;
+        code.target = "_blank";
+        code.rel = "noopener noreferrer";
+        code.title = "在天赋模拟器中打开";
+        code.setAttribute("aria-label", "在天赋模拟器中打开当前天赋");
+      }
       section.append(node("h4", "", "天赋"), code); body.appendChild(section);
     }
     const equipment = Array.isArray(profileDetail.equipment) ? profileDetail.equipment : [];
