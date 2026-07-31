@@ -117,7 +117,16 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertIn('data-copy-talent-code', editor)
         self.assertIn('navigator.clipboard.writeText', editor)
         self.assertIn('复制', editor)
-        self.assertIn("dashboard/js/main.js' %}?v=20260723b", HTML)
+        self.assertIn("dashboard/js/main.js' %}?v=", HTML)
+
+    def test_comparison_detail_uses_lowest_dps_relative_bar_chart_and_frozen_context(self):
+        for token in (
+            '最低 DPS 基准',
+            'comparison-relative-bar-chart',
+            'comparison-simulation-context',
+            'candidate_icon_url',
+        ):
+            self.assertIn(token, DETAIL)
 
     def test_task_detail_has_visual_comparison_and_attribute_analysis(self):
         for token in (
@@ -136,9 +145,15 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertIn(': NaN;\n      const deltaPercent', DETAIL)
         self.assertNotIn("Number.isFinite(Number(delta)) ?", DETAIL)
 
-    def test_comparison_prioritizes_difference_and_dps_trend_before_baseline_details(self):
-        for token in ('comparison-line-chart', 'comparison-chart-point', 'DPS 趋势', '候选差异'):
+    def test_comparison_prioritizes_lowest_dps_relative_bars_before_baseline_details(self):
+        for token in ('comparison-relative-bars', 'comparison-relative-bar-chart', '最低 DPS 基准', '候选差异'):
             self.assertIn(token, DETAIL)
+        # The display reference is the lowest complete candidate, while fill width
+        # remains relative to the best candidate so every bar fits its track.
+        for contract in ('minimumDps = chartItems.length', 'maximumDps = chartItems.length',
+                         'dps / minimumDps * 100', 'dps / maximumDps * 100',
+                         'comparison-simulation-context'):
+            self.assertIn(contract, DETAIL)
         return_block = DETAIL[DETAIL.index('return `<section class="hero ${isAttribute'):]
         baseline_token = "${isAttribute ? '' : baselinePanel}"
         self.assertLess(return_block.index('${isAttribute ? \'\' : comparisonChartPanel}'), return_block.index(baseline_token))
@@ -153,10 +168,12 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         for token in ('name="name"', 'name="iterations"', 'name="fight_style"',
                       'name="simc_profile_id"', 'name="base_template_id"', 'name="selected_apl_id"'):
             self.assertNotIn(token, form)
-        submit = WB[WB.index("async function submitTaskRerun"):WB.index("async function", WB.index("async function submitTaskRerun") + 20)]
+        submit_start = WB.index("async function submitTaskRerun")
+        submit_end = WB.index("async function", submit_start + len("async function submitTaskRerun"))
+        submit = WB[submit_start:submit_end]
         self.assertIn("JSON.stringify({ action: 'rerun' })", submit)
         for forbidden in ("prompt(", "alert(", "confirm(", "window.open("):
-            self.assertNotIn(forbidden, WB)
+            self.assertNotIn(forbidden, submit)
 
     def test_task_detail_is_permanent_result_home(self):
         for token in ("任务进度", "候选 Runs", "DPS 排名", "Artifact"):

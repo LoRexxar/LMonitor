@@ -10,7 +10,7 @@ from django.test.utils import CaptureQueriesContext
 from botend.models import (
     SimcApl, SimcBackendBinary, SimcBenchmarkCandidate, SimcBenchmarkPanel,
     SimcBenchmarkProfile, SimcBenchmarkScenario, SimcBenchmarkSpec,
-    SimcContentTemplate, SimcProfile,
+    SimcContentTemplate, SimcProfile, WowItemSnapshot,
 )
 from botend.services.simc_benchmark_config import (
     MAX_CANDIDATES, MAX_CASES, MAX_PROFILES_PER_SPEC, MAX_RUNS_PER_TASK,
@@ -120,6 +120,18 @@ class SimcBenchmarkConfigServiceTests(TestCase):
         self.assertEqual(result['specs'][0]['label'], '狂怒')
         self.assertEqual(result['candidates'][0]['key'], 'item-123-ilvl-700')
         self.assertEqual(result['candidates'][0]['label'], '物品 123 · 700')
+
+    def test_freezes_chinese_item_metadata_into_new_candidate(self):
+        WowItemSnapshot.objects.create(
+            item_id=123, name='Test Trinket', name_zh='测试饰品', icon='inv_trinket_raid_01',
+        )
+
+        result = normalize_panel_payload(self.payload, self.user_id)
+
+        candidate = result['candidates'][0]
+        self.assertEqual(candidate['label'], '测试饰品 · 700')
+        self.assertEqual(candidate['icon_url'], '/static/wow_icons/small/inv_trinket_raid_01.jpg')
+        self.assertEqual(candidate['source_label'], '物品 #123')
 
     def test_generated_keys_distinguish_execution_relevant_gear_params(self):
         candidates = [

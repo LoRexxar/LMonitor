@@ -134,36 +134,21 @@
       const deltaText = Number.isFinite(deltaPercent) ? `${signed(delta)} (${deltaPercent > 0 ? '+' : ''}${deltaPercent.toFixed(2)}%)` : '—';
       return `<tr class="${item.rank === 1 ? 'rank-winner comparison-winner' : ''} ${complete ? '' : 'rank-incomplete'}"><td><span class="rank-medal">${complete ? (item.rank === 1 ? '🥇' : value(item.rank)) : '—'}</span></td><td><b>${value(item.label || item.name)}</b>${complete ? '' : '<small class="incomplete-label">结果不完整，不参与排名</small>'}</td><td>${changeDetail(item)}</td><td>${unchangedDetail(item)}</td><td class="right"><b>${complete ? number(item.dps) : '—'}</b></td><td class="right delta comparison-delta ${Number(delta) > 0 ? 'positive' : Number(delta) < 0 ? 'negative' : ''}">${deltaText}</td></tr>`;
     }).join('');
-    const chartItems = [baseline, ...candidates].filter(item => item && item.is_complete === true && Number.isFinite(Number(item.dps)));
+    const chartItems = [baseline, ...candidates]
+      .filter(item => item && item.is_complete === true && Number.isFinite(Number(item.dps)))
+      .sort((leftItem, rightItem) => Number(leftItem.dps) - Number(rightItem.dps));
     let comparisonChartPanel = '';
     if (!isAttribute) {
-      if (chartItems.length) {
-        const chartWidth = 900, chartHeight = 280, left = 72, right = 30, top = 28, bottom = 64;
-        const values = chartItems.map(item => Number(item.dps));
-        let minDps = Math.min(...values), maxDps = Math.max(...values);
-        const padding = minDps === maxDps ? Math.max(1, maxDps * .01) : (maxDps - minDps) * .18;
-        minDps -= padding;
-        maxDps += padding;
-        const xAt = index => left + (chartItems.length === 1 ? (chartWidth - left - right) / 2 : index * (chartWidth - left - right) / (chartItems.length - 1));
-        const yAt = dps => top + (maxDps - dps) / (maxDps - minDps) * (chartHeight - top - bottom);
-        const points = chartItems.map((item, index) => `${xAt(index).toFixed(1)},${yAt(Number(item.dps)).toFixed(1)}`).join(' ');
-        const grid = [0, .5, 1].map(ratio => {
-          const y = top + ratio * (chartHeight - top - bottom);
-          const dps = maxDps - ratio * (maxDps - minDps);
-          return `<g><line x1="${left}" y1="${y}" x2="${chartWidth - right}" y2="${y}" class="comparison-chart-grid"/><text x="${left - 10}" y="${y + 4}" text-anchor="end">${number(dps)}</text></g>`;
-        }).join('');
-        const pointNodes = chartItems.map((item, index) => {
-          const x = xAt(index), y = yAt(Number(item.dps));
-          const label = String(item.label || item.name || `方案 ${index + 1}`);
-          const shortLabel = label.length > 14 ? `${label.slice(0, 14)}…` : label;
-          const delta = Number.isFinite(baselineDps) ? Number(item.dps) - baselineDps : NaN;
-          return `<g class="comparison-chart-point ${item.is_base === true ? 'is-baseline' : ''}"><circle cx="${x}" cy="${y}" r="6"><title>${value(label)}：${number(item.dps)} DPS${item.is_base === true ? '（基准）' : `，相对基准 ${signed(delta)}`}</title></circle><text x="${x}" y="${y - 13}" text-anchor="middle" class="comparison-chart-value">${number(item.dps)}</text><text x="${x}" y="${chartHeight - 25}" text-anchor="middle" class="comparison-chart-label">${value(shortLabel)}</text></g>`;
-        }).join('');
-        const chartSvg = `<div class="comparison-chart-scroll"><svg class="comparison-line-chart" viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="各候选方案 DPS 趋势折线图">${grid}<polyline points="${points}" class="comparison-chart-line"/>${pointNodes}</svg></div>`;
-        comparisonChartPanel = card('DPS 趋势', `${chartSvg}<p class="muted">折线按基准与候选排名顺序连接，用于快速观察 DPS 高低；精确差异以紧随其后的候选差异表为准。</p>`, true);
-      } else {
-        comparisonChartPanel = card('DPS 趋势', '<div class="empty">暂无完整 DPS，无法绘制折线图</div>', true);
-      }
+      const minimumDps = chartItems.length ? Number(chartItems[0].dps) : NaN;
+      const maximumDps = chartItems.length ? Number(chartItems[chartItems.length - 1].dps) : NaN;
+      const bars = chartItems.map((item, index) => {
+        const dps = Number(item.dps);
+        const ratio = minimumDps > 0 ? dps / minimumDps * 100 : 0;
+        const width = maximumDps > 0 ? dps / maximumDps * 100 : 0;
+        const icon = item.candidate_icon_url ? `<img src="${esc(item.candidate_icon_url)}" alt="" loading="lazy">` : '<span class="candidate-icon-placeholder">?</span>';
+        return `<div class="comparison-relative-bar-chart" data-candidate-icon-url="${esc(item.candidate_icon_url || '')}"><div class="comparison-relative-bar-label"><span class="candidate-icon">${icon}</span><b>${value(item.label || item.name || `方案 ${index + 1}`)}</b><small>${number(dps)} DPS · ${ratio.toFixed(1)}%</small></div><div class="comparison-relative-track"><div class="comparison-relative-fill ${item.is_base === true ? 'is-baseline' : ''}" style="width:${Math.min(100, Math.max(0, width))}%"></div></div></div>`;
+      }).join('');
+      comparisonChartPanel = card('最低 DPS 基准 · 相对比例', `<section class="comparison-simulation-context"><b>冻结模拟上下文</b><span>${baselineFacts}</span></section><div class="comparison-relative-bars">${bars || '<div class="empty">暂无完整 DPS，无法绘制比例图</div>'}</div><p class="muted">最低完成候选固定为 100%，其他候选按 DPS / 最低 DPS 计算。绝对 DPS 和相对基线变化见下方表格。</p>`, true);
     }
     const recommendation = attribute?.recommendation || null;
     const initial = attribute?.initial_ratings || {};

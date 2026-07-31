@@ -6059,6 +6059,7 @@ class SimcWorkbenchAPIView(View):
                     ranking.append({
                         'id': run.id,
                         'label': run.candidate_label or run.candidate_key,
+                        'candidate_icon_url': str(params.get('icon_url') or ''),
                         'dps': dps if isinstance(dps, (int, float)) else None,
                         'is_base': bool(params.get('is_base')),
                         'is_complete': run.status == 'completed' and isinstance(dps, (int, float)),

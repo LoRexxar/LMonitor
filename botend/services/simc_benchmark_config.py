@@ -21,7 +21,7 @@ from botend.constants.wow import SPEC_CN
 from botend.models import (
     SimcApl, SimcBackendBinary, SimcBenchmarkCandidate, SimcBenchmarkPanel,
     SimcBenchmarkProfile, SimcBenchmarkScenario, SimcBenchmarkSpec,
-    SimcContentTemplate, SimcProfile,
+    SimcContentTemplate, SimcProfile, WowItemSnapshot,
 )
 from botend.services.simc_player_config import (
     EQUIPMENT_SLOTS, EQUIPMENT_SLOT_ALIASES, canonical_simc_spec_identity,
@@ -381,6 +381,21 @@ def _default_profile(spec_key):
     return matches[0]
 
 
+def _benchmark_item_display_metadata(item_id):
+    """Resolve display-only item data before the candidate is frozen into an Execution."""
+    item = WowItemSnapshot.objects.filter(item_id=item_id).only(
+        'name_zh', 'name', 'icon',
+    ).first()
+    if item is None:
+        return '', ''
+    label = str(item.name_zh or item.name or '').strip()
+    icon_name = str(item.icon or '').strip().split('?', 1)[0].rsplit('/', 1)[-1]
+    while icon_name.rsplit('.', 1)[-1].lower() in {'jpg', 'jpeg', 'png', 'gif', 'webp'}:
+        icon_name = icon_name.rsplit('.', 1)[0]
+    icon_url = f'/static/wow_icons/small/{icon_name}.jpg' if icon_name else ''
+    return label, icon_url
+
+
 def normalize_panel_payload(payload, user_id, panel=None):
     """Validate an untrusted JSON-shaped payload and return a canonical safe snapshot."""
     payload = _require_dict(payload, 'payload')
@@ -516,21 +531,25 @@ def normalize_panel_payload(payload, user_id, panel=None):
             _error('spec_keys 只能包含字符串', 'spec_keys')
         spec_keys = [_key(item, 'spec_keys') for item in spec_keys]
         if len(set(spec_keys)) != len(spec_keys): _error('spec_keys 包含重复值', 'spec_keys')
-        icon_url = _text(raw.get('icon_url', ''), 'icon_url', required=False,
-                         max_length=500)
-        if icon_url:
+        metadata_label, metadata_icon_url = _benchmark_item_display_metadata(item_id)
+        icon_url = metadata_icon_url or _text(raw.get('icon_url', ''), 'icon_url', required=False,
+                                                max_length=500)
+        if icon_url and not icon_url.startswith('/static/'):
             try:
                 URLValidator()(icon_url)
             except ValidationError:
                 _error('icon_url 必须是有效 URL', 'icon_url')
+        candidate_label = metadata_label or f'物品 {item_id}'
+        if item_level:
+            candidate_label = f'{candidate_label} · {item_level}'
         normalized['candidates'].append({
             'key': key,
-            'label': f'物品 {item_id} · {item_level}',
+            'label': candidate_label,
             'candidate_type': candidate_type,
             'params': params,
             'spec_keys': spec_keys,
             'icon_url': icon_url,
-            'source_label': _text(raw.get('source_label', ''), 'source_label',
+            'source_label': _text(raw.get('source_label', f'物品 #{item_id}'), 'source_label',
                                   required=False, max_length=200),
             'is_enabled': _strict_bool(raw.get('is_enabled'), 'candidate.is_enabled', True),
             'display_order': _order(raw.get('display_order'), 'candidate.display_order', index),
