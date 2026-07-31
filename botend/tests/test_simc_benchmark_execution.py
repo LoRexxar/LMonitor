@@ -20,7 +20,7 @@ from botend.models import (
     SimcTask, SimulationRun,
 )
 from botend.services.simc_benchmark_execution import (
-    BenchmarkExecutionConflict, create_execution, reconcile_execution,
+    BenchmarkExecutionConflict, backfill_completed_case_results, create_execution, reconcile_execution,
     rerun_failed_cases, serialize_incremental_panel_results,
     serialize_public_execution, summarize_execution,
 )
@@ -666,6 +666,47 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertIsNone(result['cases'][0]['error'])
         self.assertNotIn('file_path', repr(result))
 
+    def test_backfill_completed_case_results_restores_only_success_cases_idempotently(self):
+        execution = self._create()
+        task = execution.cases.get().task
+        task.current_status = 2
+        task.save(update_fields=['current_status'])
+        self._run(task, 1, 'completed', 'baseline', dps=1234)
+        self._run(task, 2, 'completed', 'trinket', dps=1256)
+        reconcile_execution(execution)
+        execution.refresh_from_db()
+        self.assertEqual(execution.status, 'success')
+        SimcBenchmarkResult.objects.filter(case__execution=execution).delete()
+
+        original_state = (execution.status, execution.completed_at, execution.result_hash)
+        self.assertEqual(backfill_completed_case_results(execution), 2)
+        self.assertEqual(
+            list(SimcBenchmarkResult.objects.filter(case__execution=execution).values_list(
+                'candidate_key', 'dps').order_by('candidate_key')),
+            [('baseline', 1234.0), ('trinket', 1256.0)],
+        )
+        self.assertEqual(backfill_completed_case_results(execution), 0)
+        self.assertEqual(SimcBenchmarkResult.objects.filter(case__execution=execution).count(), 2)
+        execution.refresh_from_db()
+        self.assertEqual((execution.status, execution.completed_at, execution.result_hash), original_state)
+
+    def test_backfill_refuses_existing_conflicting_result(self):
+        execution = self._create()
+        task = execution.cases.get().task
+        task.current_status = 2
+        task.save(update_fields=['current_status'])
+        self._run(task, 1, 'completed', 'baseline', dps=1234)
+        self._run(task, 2, 'completed', 'trinket', dps=1256)
+        reconcile_execution(execution)
+        result = execution.cases.get().results.get(candidate_key='baseline')
+        result.dps = 9999
+        result.save(update_fields=['dps'])
+
+        with self.assertRaises(ValidationError):
+            backfill_completed_case_results(execution)
+        result.refresh_from_db()
+        self.assertEqual(result.dps, 9999)
+
     def test_partial_case_rerun_reuses_completed_runs_and_only_schedules_failed_candidates(self):
         execution = self._create()
         task = execution.cases.get().task
@@ -684,14 +725,28 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(rerun_task.source_task_id, task.id)
         self.assertEqual(
             [candidate['candidate_key'] for candidate in rerun_task.mode_params['initial_candidates']],
-            ['baseline', 'trinket'],
+            ['trinket'],
         )
         self.assertEqual(
             list(rerun_task.simulation_runs.values_list('candidate_key', 'status', 'result_summary')),
-            [('baseline', 'completed', {'dps': 1234}), ('trinket', 'pending', None)],
+            [('trinket', 'pending', None)],
         )
         self.assertEqual(SimulationRun.objects.filter(pk=completed.pk).count(), 1)
         self.assertEqual(SimulationRun.objects.filter(pk=failed.pk).count(), 1)
+
+        rerun_run = rerun_task.simulation_runs.get(candidate_key='trinket')
+        rerun_run.status = 'completed'
+        rerun_run.result_summary = {'dps': 1260}
+        rerun_run.save(update_fields=['status', 'result_summary'])
+        rerun_task.current_status = 2
+        rerun_task.save(update_fields=['current_status'])
+        reconcile_execution(rerun_execution)
+        rerun_execution.refresh_from_db()
+        self.assertEqual(rerun_execution.status, 'success')
+        self.assertEqual(
+            list(rerun_case.results.values_list('candidate_key', 'dps').order_by('candidate_key')),
+            [('baseline', 1234.0), ('trinket', 1260.0)],
+        )
 
     def test_success_task_with_mixed_terminal_runs_is_partial_and_not_published(self):
         execution = self._create()

@@ -403,30 +403,43 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
         return execution
 
 
-def _copy_runs_for_retry(source_task, rerun_task):
-    """Seed immutable completed Runs and requeue every other frozen simulation."""
+def _copy_failed_runs_for_retry(source_task, rerun_task):
+    """Freeze only non-completed Runs into a retry Task.
+
+    Completed Run results remain on ``source_task`` and are deliberately not copied:
+    a retry Task is executable work, not a synthetic full Task history.
+    """
     source_runs = list(SimulationRun.objects.filter(
         task_id=source_task.pk,
     ).order_by('sequence', 'id'))
     expected = _expected_candidate_keys(source_task) or []
     by_key = {run.candidate_key: run for run in source_runs}
-    retry_runs = []
-    for sequence, candidate_key in enumerate(expected, start=1):
+    retry_candidates, retry_runs = [], []
+    for candidate_key in expected:
         run = by_key.get(candidate_key)
-        completed = run is not None and run.status == 'completed'
+        if run is not None and run.status == 'completed':
+            continue
+        candidate = {
+            'candidate_key': candidate_key,
+            'candidate_label': run.candidate_label if run else candidate_key,
+            'round_number': run.round_number if run else 1,
+            'candidate_params': deepcopy(run.candidate_params) if run else {},
+        }
+        retry_candidates.append(candidate)
         retry_runs.append(SimulationRun(
-            task=rerun_task, sequence=sequence,
-            candidate_key=candidate_key,
-            candidate_label=run.candidate_label if run else candidate_key,
-            round_number=run.round_number if run else 1,
-            candidate_params=deepcopy(run.candidate_params) if run else {},
-            status='completed' if completed else 'pending',
-            input_hash=run.input_hash if completed else '',
-            resource_manifest=deepcopy(run.resource_manifest) if completed else None,
-            result_summary=deepcopy(run.result_summary) if completed else None,
-            started_at=run.started_at if completed else None,
-            completed_at=run.completed_at if completed else None,
+            task=rerun_task, sequence=len(retry_runs) + 1, status='pending',
+            candidate_key=candidate_key, candidate_label=candidate['candidate_label'],
+            round_number=candidate['round_number'], candidate_params=candidate['candidate_params'],
         ))
+    if not retry_runs:
+        _validation_error('失败子任务没有可重跑的 Run', 'execution')
+    mode_params = deepcopy(rerun_task.mode_params) or {}
+    mode_params['initial_candidates'] = deepcopy(retry_candidates)
+    manifest = mode_params.get('request_manifest')
+    if isinstance(manifest, dict):
+        manifest['candidates'] = deepcopy(retry_candidates)
+    rerun_task.mode_params = mode_params
+    rerun_task.save(update_fields=['mode_params'])
     SimulationRun.objects.bulk_create(retry_runs)
 
 
@@ -494,11 +507,11 @@ def rerun_failed_cases(execution, requested_by=None):
                 )
             except TaskRerunError as exc:
                 _validation_error(str(exc), 'execution')
-            # Retain the frozen manifest. Completed Run snapshots are seeded as
-            # completed; every other original Run becomes pending for the Worker.
+            # Retry Tasks contain only failed executable candidates.  Completed
+            # candidates remain immutable provenance on the source Task/Case.
             task.name = _task_name(panel.pk, new_execution.pk, case_data)
             task.save(update_fields=['name'])
-            _copy_runs_for_retry(source_case.task, task)
+            _copy_failed_runs_for_retry(source_case.task, task)
             SimcBenchmarkCase.objects.create(
                 execution=new_execution, task=task,
                 spec_key=source_case.spec_key, scenario_key=source_case.scenario_key,
@@ -570,14 +583,12 @@ def _load_execution(execution):
 
 
 def _expected_candidate_keys(task):
-    """Return authoritative ordered candidate keys, or None if unusable.
-
-    Historical/corrupt Tasks without the frozen request manifest deliberately fail
-    closed. ``initial_candidates`` is executable state, not publication authority.
-    """
+    """Return ordered executable candidates, or None if the frozen state is unusable."""
     mode_params = task.mode_params if isinstance(task.mode_params, dict) else {}
-    manifest = mode_params.get('request_manifest')
-    candidates = manifest.get('candidates') if isinstance(manifest, dict) else None
+    candidates = mode_params.get('initial_candidates')
+    if not isinstance(candidates, list) or not candidates:
+        manifest = mode_params.get('request_manifest')
+        candidates = manifest.get('candidates') if isinstance(manifest, dict) else None
     if not isinstance(candidates, list) or not candidates:
         return None
     keys = []
@@ -661,10 +672,32 @@ def task_progress(task):
     return None
 
 
+def _runs_through_source_chain(task):
+    """Overlay retry Runs on their immutable source Task history by candidate key."""
+    tasks = []
+    current = task
+    seen = set()
+    while current is not None and current.pk not in seen:
+        tasks.append(current)
+        seen.add(current.pk)
+        if current.source_task_id is None:
+            break
+        current = SimcTask.objects.select_related('source_task').get(pk=current.source_task_id)
+    runs_by_key = {}
+    for source in reversed(tasks):
+        runs = getattr(source, '_benchmark_runs', None)
+        if runs is None:
+            runs = SimulationRun.objects.filter(task_id=source.pk).order_by('sequence', 'id')
+        for run in runs:
+            runs_by_key[run.candidate_key] = run
+    return runs_by_key
+
+
 def _summarize_live_execution(execution):
     """Derive state from Runs, using Task for abandoned Runs and zero-run terminal edges."""
     execution = _load_execution(execution)
     cases = execution._benchmark_cases
+    expected_by_coordinate = dict(_snapshot_layout(execution) or [])
     count_names = ('pending', 'running', 'success', 'partial', 'failed', 'cancelled')
     counts = {name: 0 for name in count_names}
     run_counts = {name: 0 for name in ('pending', 'running', 'success', 'failed', 'cancelled')}
@@ -686,10 +719,17 @@ def _summarize_live_execution(execution):
             })
             continue
         task_status = TASK_STATUS_NAMES.get(task.current_status, 'failed')
-        expected_keys = _expected_candidate_keys(task)
+        coordinate = (case.spec_key, case.scenario_key, case.profile_key)
+        expected_keys = expected_by_coordinate.get(coordinate) or _expected_candidate_keys(task)
         run_rows, effective_statuses = [], []
         errors = [task.error_detail]
-        for run in task._benchmark_runs:
+        if task.source_task_id is None:
+            ordered_runs = list(task._benchmark_runs)
+        else:
+            runs_by_key = _runs_through_source_chain(task)
+            ordered_runs = [runs_by_key[key] for key in expected_keys if key in runs_by_key] \
+                if expected_keys is not None else list(runs_by_key.values())
+        for run in ordered_runs:
             total_runs += 1
             run_status = _effective_run_status(task_status, run.status)
             effective_statuses.append(run_status)
@@ -701,7 +741,7 @@ def _summarize_live_execution(execution):
                 # Live DPS is internal reconciliation input, never display output.
                 'status': run_status, 'dps': None, '_raw_dps': summary.get('dps'),
             })
-        actual_keys = [run.candidate_key for run in task._benchmark_runs]
+        actual_keys = [run.candidate_key for run in ordered_runs]
         case_status = _case_status(
             effective_statuses, task_status, expected_keys, actual_keys,
         )
@@ -969,6 +1009,63 @@ def _collect_success_results(execution, live, *, require_complete_execution):
                 'dps': float(dps),
             })
     return rows
+
+
+def backfill_completed_case_results(execution):
+    """Restore missing immutable rows for historical successful Cases only.
+
+    This deliberately does not alter Task/Run or Execution lifecycle fields.  It is
+    for legacy terminal Executions created before incremental Case result sealing.
+    """
+    with transaction.atomic():
+        locked = SimcBenchmarkExecution.objects.select_for_update().get(pk=execution.pk)
+        if locked.completed_at is None:
+            _validation_error('只能回填已完成的 Execution', 'execution')
+        layout = _snapshot_layout(locked)
+        if layout is None:
+            _validation_error('Execution 缺少有效冻结快照', 'execution')
+        expected = dict(layout)
+        cases = list(SimcBenchmarkCase.objects.filter(execution_id=locked.pk).prefetch_related(
+            Prefetch('task__simulation_runs', queryset=SimulationRun.objects.order_by('sequence', 'id'),
+                     to_attr='_backfill_runs'),
+        ).order_by('id'))
+        rows = []
+        existing = {
+            (row.case_id, row.candidate_key): row.dps
+            for row in SimcBenchmarkResult.objects.filter(case__execution_id=locked.pk)
+        }
+        for case in cases:
+            coordinate = (case.spec_key, case.scenario_key, case.profile_key)
+            candidate_keys = expected.get(coordinate)
+            task = case.task
+            runs = task._backfill_runs if task is not None else []
+            if case.status != SimcBenchmarkExecution.STATUS_SUCCESS:
+                continue
+            if candidate_keys is None or [run.candidate_key for run in runs] != candidate_keys:
+                continue
+            case_rows = []
+            for run in runs:
+                summary = run.result_summary if isinstance(run.result_summary, dict) else {}
+                dps = summary.get('dps')
+                if (run.status != 'completed' or isinstance(dps, bool)
+                        or not isinstance(dps, (int, float)) or not math.isfinite(dps)
+                        or dps <= 0):
+                    case_rows = []
+                    break
+                expected_dps = float(dps)
+                current_dps = existing.get((case.pk, run.candidate_key))
+                if current_dps is not None:
+                    if current_dps != expected_dps:
+                        _validation_error('已有结果与冻结 Run DPS 不一致', 'execution')
+                    continue
+                case_rows.append(SimcBenchmarkResult(
+                    case_id=case.pk, candidate_key=run.candidate_key, dps=expected_dps,
+                ))
+            if case_rows:
+                rows.extend(case_rows)
+        if rows:
+            SimcBenchmarkResult.objects.bulk_create(rows)
+        return len(rows)
 
 
 def reconcile_execution(execution):
