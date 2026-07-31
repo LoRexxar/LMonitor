@@ -727,8 +727,8 @@ def serialize_incremental_panel_results(panel):
             },
             'profile_detail': profile_details[profile_id],
             'scenario_detail': {
-                'desired_targets': scenario_params.get('desired_targets'),
-                'max_time': scenario_params.get('max_time'),
+                'desired_targets': scenario_params.get('desired_targets', 1),
+                'max_time': scenario_params.get('max_time', 300),
             },
             'candidates': rows,
         })
