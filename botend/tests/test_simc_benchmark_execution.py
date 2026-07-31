@@ -216,6 +216,9 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(coordinates['patchwerk']['labels'], {
             'spec': '狂怒', 'scenario': 'Patchwerk', 'profile': 'Raid profile',
         })
+        self.assertEqual(
+            benchmark_execution_service._spec_display_name('Warrior Fury'), '狂怒',
+        )
         self.assertEqual(coordinates['patchwerk']['scenario_detail'], {
             'desired_targets': 1, 'max_time': 300,
         })

@@ -82,7 +82,13 @@ def _spec_display_name(value):
     """Translate known specialization names for read-model display only."""
     text = str(value or '').strip()
     normalized = re.sub(r'[^a-z0-9]', '', text.lower())
-    return _SPEC_CN_BY_NORMALIZED_NAME.get(normalized, text)
+    direct = _SPEC_CN_BY_NORMALIZED_NAME.get(normalized)
+    if direct:
+        return direct
+    for name, label in sorted(_SPEC_CN_BY_NORMALIZED_NAME.items(), key=lambda item: -len(item[0])):
+        if normalized.endswith(name):
+            return label
+    return text
 
 
 def _normalize_trigger_slot(trigger, scheduled_slot):

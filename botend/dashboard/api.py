@@ -8365,8 +8365,15 @@ def _benchmark_safe_key(value):
 def _benchmark_spec_display_name(value):
     text = _benchmark_safe_key(value)
     normalized = re.sub(r'[^a-z0-9]', '', text.lower())
-    for name, label in SPEC_CN.items():
-        if re.sub(r'[^a-z0-9]', '', name.lower()) == normalized:
+    names = {
+        re.sub(r'[^a-z0-9]', '', name.lower()): label
+        for name, label in SPEC_CN.items()
+    }
+    direct = names.get(normalized)
+    if direct:
+        return direct
+    for name, label in sorted(names.items(), key=lambda item: -len(item[0])):
+        if normalized.endswith(name):
             return label
     return text
 
