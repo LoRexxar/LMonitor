@@ -189,18 +189,17 @@
                 const baseline = row.baseline_counts;
                 const count = key => Math.max(0, Number(taskCounts[key]) || 0);
                 const runCount = key => Math.max(0, Number(runCounts[key]) || 0);
-                const statusSummary = `本次子任务：完成 ${count('success')} / ${Number(row.case_count) || 0} · 运行中 ${count('running')} · 待运行 ${count('pending')}`
-                    + (count('failed') ? ` · 失败 ${count('failed')}` : '')
-                    + (count('cancelled') ? ` · 已取消 ${count('cancelled')}` : '');
-                const runSummary = `本次候选 Run：完成 ${runCount('success')} / ${Number(row.run_count) || 0} · 运行中 ${runCount('running')} · 待运行 ${runCount('pending')}`
-                    + (runCount('failed') ? ` · 失败 ${runCount('failed')}` : '');
+                const terminalCaseCount = count('success') + count('partial') + count('failed') + count('cancelled');
+                const terminalRunCount = runCount('success') + runCount('failed') + runCount('cancelled');
+                const statusSummary = `本次子任务：已终态 ${terminalCaseCount} / ${Number(row.case_count) || 0} · 成功 ${count('success')} · 部分完成 ${count('partial')} · 失败 ${count('failed')} · 已取消 ${count('cancelled')} · 运行中 ${count('running')} · 待运行 ${count('pending')}`;
+                const runSummary = `本次候选 Run：已终态 ${terminalRunCount} / ${Number(row.run_count) || 0} · 成功 ${runCount('success')} · 失败 ${runCount('failed')} · 已取消 ${runCount('cancelled')} · 运行中 ${runCount('running')} · 待运行 ${runCount('pending')}`;
                 const baselineSummary = baseline
                     ? `<span>来源基线 #${idOf(baseline.execution_id) || '—'}：${Number(baseline.cases) || 0} 子任务 / ${Number(baseline.runs) || 0} Run；已完成 ${Number(baseline.case_counts?.success) || 0} 子任务、${Number(baseline.run_counts?.success) || 0} Run</span>`
                     : '';
                 const cases = (row.cases || []).map(item => {
                     const itemProgress = Number.isFinite(Number(item.progress))
                         ? Math.max(0, Math.min(100, Number(item.progress))) : null;
-                    const itemStatus = ['pending', 'running', 'success', 'failed', 'cancelled'].includes(item.status)
+                    const itemStatus = ['pending', 'running', 'success', 'partial', 'failed', 'cancelled'].includes(item.status)
                         ? item.status : 'pending';
                     const title = `${esc(item.labels?.spec || item.coordinate?.spec_key || '—')} / ${esc(item.labels?.scenario || item.coordinate?.scenario_key || '—')} / ${esc(item.labels?.profile || item.coordinate?.profile_key || '—')}`;
                     return `<div class="simc-benchmark-task-case" data-status="${itemStatus}"><div class="simc-benchmark-task-case__header"><span class="simc-benchmark-task-case__title"><span class="simc-task-id">Task #${idOf(item.task_id)}</span>${title}</span><span class="simc-task-status is-${itemStatus}">${esc(item.status_label || '未知')}</span></div>${itemProgress == null ? '<div class="simc-benchmark-task-case__progress is-unknown">等待 Worker 上报进度</div>' : `<div class="simc-benchmark-task-case__progress"><div class="simc-task-progress__track"><div class="simc-task-progress__fill" style="width:${itemProgress}%"></div></div><strong>${itemProgress}%</strong></div>`}</div>`;

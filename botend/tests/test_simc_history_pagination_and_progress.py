@@ -54,9 +54,11 @@ class SimcHistoryPaginationContractTests(unittest.TestCase):
         self.assertIn("taskResponseSignature", JS)
         self.assertIn("background && responseSignature === state.taskResponseSignature", JS)
 
-    def test_benchmark_progress_shows_retry_work_and_baseline_separately(self):
+    def test_benchmark_progress_shows_terminal_work_and_baseline_separately(self):
+        """partial Execution 也必须把终态完成量、部分完成和失败直接展示出来。"""
         self.assertIn("row.task_counts", JS)
-        self.assertIn("本次子任务：", JS)
+        self.assertIn("已终态", JS)
+        self.assertIn("部分完成", JS)
         self.assertIn("本次候选 Run：", JS)
         self.assertIn("来源基线 #", JS)
         self.assertIn("baseline_counts", JS)
