@@ -466,6 +466,19 @@ class SimcBenchmarkDashboardApiTests(TestCase):
                     expected = ('unknown_fields' if body.startswith('{') else 'validation_error')
                     self.assertEqual(response.json()['error'], expected)
 
+    def test_panel_metadata_patch_does_not_accept_task_matrix_fields(self):
+        panel = SimcBenchmarkPanel.objects.create(
+            name='Metadata', slug='metadata-contract', created_by_id=self.staff.id,
+        )
+        response = self.client.patch(
+            f'/api/simc-benchmarks/panels/{panel.id}/',
+            data='{"name":"Renamed","specs":[]}', content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], 'unknown_fields')
+        panel.refresh_from_db()
+        self.assertEqual(panel.name, 'Metadata')
+
     def test_method_not_allowed_is_json_and_preserves_allow_header(self):
         panel = SimcBenchmarkPanel.objects.create(
             name='Methods', slug='method-contract', created_by_id=self.staff.id,
@@ -474,14 +487,8 @@ class SimcBenchmarkDashboardApiTests(TestCase):
             f'/api/simc-benchmarks/panels/{panel.id}/', data='{}',
             content_type='application/json',
         )
-        self.assertEqual(detail.status_code, 405)
-        self.assertEqual(detail.json(), {
-            'success': False, 'error': 'method_not_allowed',
-        })
-        self.assertEqual(
-            set(detail['Allow'].split(', ')),
-            {'GET', 'HEAD', 'PUT', 'DELETE', 'OPTIONS'},
-        )
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()['success'], True)
 
         run = self.client.get(f'/api/simc-benchmarks/panels/{panel.id}/run/')
         self.assertEqual(run.status_code, 405)

@@ -6,14 +6,14 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{{ panel_name }} · Benchmark 配置</title>
-  <link rel="stylesheet" href="{% static 'dashboard/css/simc-benchmark-dashboard.css' %}?v=20260730b">
+  <link rel="stylesheet" href="{% static 'dashboard/css/simc-benchmark-dashboard.css' %}?v=20260802a">
 </head>
 <body class="simc-benchmark-config-body">
 <main class="simc-benchmark-config-page" data-benchmark-config-page data-benchmark-panel-id="{{ panel_id }}">
   <header class="simc-benchmark-config-toolbar">
     <div class="simc-benchmark-config-identity">
       <a class="simc-benchmark-back-link" href="/dashboard/#simc-benchmarks">← 返回基准面板</a>
-      <div><span class="simc-benchmark-eyebrow">BENCHMARK CONFIG</span><h1 id="simc-benchmark-editor-title">{{ panel_name }}</h1><p>保留常用配置在首屏，低频资源和执行参数按需展开。</p></div>
+      <div><span class="simc-benchmark-eyebrow">TASK MATRIX</span><h1 id="simc-benchmark-editor-title">{{ panel_name }}</h1><p>这里仅配置要创建的任务矩阵：专精、Profile、场景与候选装备。</p></div>
     </div>
     <div class="simc-benchmark-config-actions">
       <span class="simc-benchmark-save-status" data-save-status aria-live="polite">正在载入配置…</span>
@@ -28,29 +28,6 @@
         <div id="simc-benchmark-editor-errors" class="simc-benchmark-errors" data-editor-errors role="alert" tabindex="-1" hidden></div>
         <aside class="simc-benchmark-summary" data-editor-summary aria-live="polite"></aside>
         <form data-benchmark-form novalidate>
-          <section class="simc-benchmark-form-section simc-benchmark-primary-section" data-primary-settings>
-            <div class="section-heading-copy"><span class="section-kicker">常用设置</span><h2>面板概览</h2><p>这里只保留日常最常修改的名称和启用状态。</p></div>
-            <div class="simc-benchmark-fields base-fields">
-              <label>面板名称 *<input name="panel_name" required maxlength="200"></label>
-              <label class="config-toggle"><input type="checkbox" name="is_active"><span><strong>启用面板</strong><small>允许定时或手动创建新的基准执行</small></span></label>
-            </div>
-          </section>
-
-          <details class="simc-benchmark-advanced-section" data-advanced-section>
-            <summary><span><strong>高级配置</strong><small>标识、描述、Portal 可见性与定时策略</small></span><span class="advanced-chevron" aria-hidden="true">⌄</span></summary>
-            <div class="advanced-section-body">
-              <section><h3>标识与说明</h3><div class="simc-benchmark-fields">
-                <label>slug *<input name="slug" required pattern="[a-z0-9][a-z0-9_-]*"></label>
-                <label class="config-toggle"><input type="checkbox" name="is_public"><span><strong>Portal 公开</strong><small>允许从 Portal 发现已发布结果</small></span></label>
-                <label class="wide">描述<textarea name="description" rows="3" maxlength="10000"></textarea></label>
-              </div></section>
-              <section><h3>定时策略</h3><div class="simc-benchmark-fields schedule-fields">
-                <label class="config-toggle"><input type="checkbox" name="schedule_enabled"><span><strong>启用定时</strong><small>由后台按间隔自动创建执行</small></span></label>
-                <label>间隔（秒）<input type="number" name="interval_seconds" min="1" value="86400"></label>
-                <label>下次运行<input type="datetime-local" name="next_run_at"></label>
-              </div></section>
-            </div>
-          </details>
 
           <section class="simc-benchmark-form-section"><div class="section-title"><div class="section-heading-copy"><span class="section-kicker">01 · MATRIX</span><h2>专精配置</h2><p>以紧凑列表管理专精；APL、Template、Backend 和 Profiles 按行展开。</p></div><button type="button" class="simc-benchmark-btn secondary" data-editor-add="spec">＋ 添加专精</button></div><div class="spec-config-table"><div class="spec-config-table-head" aria-hidden="true"><span>专精</span><span>状态</span><span>资源配置</span><span>操作</span></div><div data-editor-specs class="config-stack spec-config-list"></div></div></section>
           <section class="simc-benchmark-form-section"><div class="section-title"><div class="section-heading-copy"><span class="section-kicker">02 · SCENARIOS</span><h2>场景</h2><p>只在首层维护场景身份，SimC 详细参数默认折叠。</p></div><button type="button" class="simc-benchmark-btn secondary" data-editor-add="scenario">＋ 添加场景</button></div><div data-editor-scenarios class="config-stack"></div></section>
@@ -60,6 +37,6 @@
     </div>
   </div>
 </main>
-<script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260730b"></script>
+<script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260802a"></script>
 </body>
 </html>

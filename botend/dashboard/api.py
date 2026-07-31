@@ -8751,6 +8751,24 @@ class SimcBenchmarkPanelDetailAPIView(_BenchmarkAdminAPIView):
         data['next_run_at'] = _benchmark_iso(data['next_run_at'])
         return JsonResponse({'success': True, 'data': data})
 
+    def patch(self, request, panel_id):
+        payload = _benchmark_json_object(request, allowed_fields={
+            'name', 'slug', 'description', 'is_active', 'is_public',
+            'schedule_enabled', 'interval_seconds', 'next_run_at',
+        })
+        panel, error = self.panel_or_404(panel_id)
+        if error:
+            return error
+        for field in ('name', 'slug', 'description', 'is_active', 'is_public',
+                      'schedule_enabled', 'interval_seconds', 'next_run_at'):
+            if field in payload:
+                setattr(panel, field, payload[field])
+        panel.full_clean()
+        panel.save()
+        data = serialize_panel_config(panel)
+        data['next_run_at'] = _benchmark_iso(data['next_run_at'])
+        return JsonResponse({'success': True, 'data': data})
+
     def delete(self, request, panel_id):
         with transaction.atomic():
             panel = SimcBenchmarkPanel.objects.select_for_update().filter(pk=panel_id).first()
@@ -8829,7 +8847,17 @@ class SimcBenchmarkExecutionDetailAPIView(_BenchmarkReadAPIView):
         # A retry's frozen snapshot is intentionally smaller than the Panel's full
         # current plan. Surface the independent reusable-result coverage so a
         # historical 65-case execution cannot look like it replaced a 96-case panel.
-        data['panel_coverage'] = summarize_incremental_panel_coverage(execution.panel)
+        try:
+            data['panel_coverage'] = summarize_incremental_panel_coverage(execution.panel)
+        except ValidationError:
+            # Frozen Case detail remains readable if the current Panel configuration
+            # is incomplete and cannot form a fresh logical surface.
+            data['panel_coverage'] = {
+                'aggregate_baseline_execution_id': execution.panel.aggregate_baseline_execution_id,
+                'coordinates': 0, 'candidate_runs': 0,
+                'available_results': 0, 'missing_results': 0,
+                'source_executions': [],
+            }
         return JsonResponse({'success': True, 'data': data})
 
 

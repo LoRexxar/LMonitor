@@ -17,6 +17,9 @@ class SimcBenchmarkConfigPageTests(TestCase):
     def url(self, panel_id=None):
         return reverse('simc_benchmark_config_page', args=[panel_id or self.panel.id])
 
+    def panel_edit_url(self, panel_id=None):
+        return reverse('simc_benchmark_panel_edit_page', args=[panel_id or self.panel.id])
+
     def test_page_requires_login_but_logged_in_users_can_open_configuration(self):
         response = self.client.get(self.url())
         self.assertEqual(response.status_code, 302)
@@ -32,6 +35,14 @@ class SimcBenchmarkConfigPageTests(TestCase):
         self.assertContains(response, f'data-benchmark-panel-id="{self.panel.id}"')
         self.assertContains(response, '专精配置')
         self.assertContains(response, '候选装备')
+
+    def test_staff_can_open_separate_panel_editor(self):
+        self.client.force_login(self.staff)
+        response = self.client.get(self.panel_edit_url())
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'dashboard/simc_benchmark_panel_edit.html')
+        self.assertContains(response, 'data-benchmark-panel-edit-page')
+        self.assertContains(response, '维护面板身份、说明、公开边界和定时策略')
 
     def test_unknown_panel_is_not_disclosed(self):
         self.client.force_login(self.staff)

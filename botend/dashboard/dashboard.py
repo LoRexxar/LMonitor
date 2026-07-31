@@ -1002,6 +1002,18 @@ class SimcWorkbenchDetailPageView(View):
 
 
 @method_decorator(login_required, name='dispatch')
+class SimcBenchmarkPanelEditPageView(View):
+    """Panel-level editor; task matrix remains on its own configuration page."""
+
+    def get(self, request, panel_id):
+        panel = get_object_or_404(SimcBenchmarkPanel, pk=panel_id)
+        return render(request, 'dashboard/simc_benchmark_panel_edit.html', {
+            'panel_id': panel.pk,
+            'panel_name': panel.name,
+        })
+
+
+@method_decorator(login_required, name='dispatch')
 class SimcBenchmarkConfigPageView(View):
     """Full-page editor shell; publication controls Portal discovery only."""
 

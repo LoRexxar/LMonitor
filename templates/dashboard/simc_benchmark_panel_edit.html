@@ -1,0 +1,41 @@
+{% load static %}
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <title>{{ panel_name }} · 编辑面板</title>
+  <link rel="stylesheet" href="{% static 'dashboard/css/simc-benchmark-dashboard.css' %}?v=20260802a">
+</head>
+<body class="simc-benchmark-config-body">
+<main class="simc-benchmark-config-page" data-benchmark-panel-edit-page data-benchmark-panel-id="{{ panel_id }}">
+  <header class="simc-benchmark-config-toolbar">
+    <div class="simc-benchmark-config-identity">
+      <a class="simc-benchmark-back-link" href="/dashboard/#simc-benchmarks">← 返回基准面板</a>
+      <div><span class="simc-benchmark-eyebrow">BENCHMARK PANEL</span><h1>{{ panel_name }}</h1><p>维护面板身份、说明、公开边界和定时策略；任务矩阵在“配置任务”中单独维护。</p></div>
+    </div>
+    <div class="simc-benchmark-config-actions">
+      <span class="simc-benchmark-save-status" data-panel-save-status aria-live="polite">正在载入面板…</span>
+      <button type="button" class="simc-benchmark-btn primary" data-panel-save disabled>保存面板</button>
+    </div>
+  </header>
+  <div class="simc-benchmark-notification" data-panel-notification role="status" aria-live="polite" hidden></div>
+  <form class="simc-benchmark-editor page-editor" data-panel-edit-form novalidate>
+    <div class="simc-benchmark-editor-panel"><div class="simc-benchmark-editor-body">
+      <div class="simc-benchmark-fields base-fields">
+        <label>面板名称 *<input name="panel_name" required maxlength="200"></label>
+        <label>slug *<input name="slug" required pattern="[a-z0-9][a-z0-9_-]*"></label>
+        <label class="wide">描述<textarea name="description" rows="4" maxlength="10000"></textarea></label>
+        <label class="config-toggle"><input type="checkbox" name="is_active"><span><strong>启用面板</strong><small>允许手动或定时创建新的基准执行</small></span></label>
+        <label class="config-toggle"><input type="checkbox" name="is_public"><span><strong>Portal 公开</strong><small>允许 Portal 发现已发布的结果</small></span></label>
+        <label class="config-toggle"><input type="checkbox" name="schedule_enabled"><span><strong>启用定时</strong><small>由后台按设置的间隔创建执行</small></span></label>
+        <label>间隔（秒）<input type="number" name="interval_seconds" min="1"></label>
+        <label>下次运行<input type="datetime-local" name="next_run_at"></label>
+      </div>
+    </div></div>
+  </form>
+</main>
+<script src="{% static 'dashboard/js/simc-benchmark-panel-edit.js' %}?v=20260802a"></script>
+</body>
+</html>

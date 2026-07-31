@@ -10,6 +10,8 @@ INDEX = (ROOT / "templates/dashboard/index.html").read_text(encoding="utf-8")
 PARTIAL = (ROOT / "templates/dashboard/_simc_benchmark.html").read_text(encoding="utf-8")
 CONFIG_PATH = ROOT / "templates/dashboard/simc_benchmark_config.html"
 CONFIG_PAGE = CONFIG_PATH.read_text(encoding="utf-8") if CONFIG_PATH.exists() else ''
+PANEL_EDIT_PATH = ROOT / "templates/dashboard/simc_benchmark_panel_edit.html"
+PANEL_EDIT_PAGE = PANEL_EDIT_PATH.read_text(encoding="utf-8") if PANEL_EDIT_PATH.exists() else ''
 JS = (ROOT / "static/dashboard/js/simc-benchmark-dashboard.js").read_text(encoding="utf-8")
 CSS = (ROOT / "static/dashboard/css/simc-benchmark-dashboard.css").read_text(encoding="utf-8")
 
@@ -215,7 +217,8 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         create_default = cast(Tag, create_only).parent
         self.assertIsNotNone(create_default)
         self.assertIn('选择要启用的专精', cast(Tag, create_default).get_text(' ', strip=True))
-        self.assertIn("'配置'", JS)
+        self.assertIn("'编辑面板'", JS)
+        self.assertIn("'配置任务'", JS)
         self.assertIn('createDefaultSpec', JS)
         self.assertIn('renderCreateSpecPicker', JS)
         self.assertIn("editingId===null", JS)
@@ -225,13 +228,21 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn("create-spec-unavailable", JS)
         self.assertIn("candidates:[]", JS)
 
-    def test_configuration_uses_a_dedicated_page_with_every_detail_section(self):
+    def test_panel_editing_is_separate_from_task_matrix_configuration(self):
         self.assertIn('dashboard/simc/benchmarks/', JS)
         self.assertNotIn("if(action.dataset.action==='edit')openEditor(id)", JS)
+        self.assertIn("actionButton('edit-panel','编辑面板'", JS)
+        self.assertIn("actionButton('configure-tasks','配置任务'", JS)
         self.assertIn('data-benchmark-config-page', CONFIG_PAGE)
         self.assertIn('data-benchmark-panel-id', CONFIG_PAGE)
-        for text in ('面板概览', '高级配置', '定时策略', '专精配置', '场景', '候选装备'):
+        for text in ('专精配置', '场景', '候选装备'):
             self.assertIn(text, CONFIG_PAGE)
+        for field_name in ('panel_name', 'slug', 'description', 'is_public', 'is_active', 'schedule_enabled'):
+            self.assertNotIn(f'name="{field_name}"', CONFIG_PAGE)
+        self.assertIn('data-benchmark-panel-edit-page', PANEL_EDIT_PAGE)
+        for field_name in ('panel_name', 'slug', 'description', 'is_public', 'is_active', 'schedule_enabled'):
+            self.assertIn(f'name="{field_name}"', PANEL_EDIT_PAGE)
+        self.assertIn('simc-benchmark-panel-edit.js', PANEL_EDIT_PAGE)
         self.assertIn("actionButton('history','子任务状态'", JS)
         self.assertIn("actionButton('results','独立结果页'", JS)
         self.assertIn("actionButton('run-supplement','失败/补充重跑'", JS)
@@ -277,18 +288,11 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn('.simc-benchmark-config-page *', CSS)
         self.assertIn('box-sizing: border-box', CSS)
 
-    def test_config_page_keeps_only_frequent_fields_open_and_folds_advanced_fields(self):
+    def test_task_matrix_page_excludes_panel_level_fields(self):
         soup = BeautifulSoup(CONFIG_PAGE, "html.parser")
         form = cast(Tag, soup.select_one('[data-benchmark-form]'))
-        primary = cast(Tag, form.select_one('[data-primary-settings]'))
-        advanced = cast(Tag, form.select_one('details[data-advanced-section]'))
-        self.assertIsNotNone(primary.select_one('input[name="panel_name"]'))
-        self.assertIsNotNone(primary.select_one('input[name="is_active"]'))
-        for field_name in ('slug', 'description', 'is_public', 'schedule_enabled', 'interval_seconds', 'next_run_at'):
-            self.assertIsNone(primary.select_one(f'[name="{field_name}"]'))
-            self.assertIsNotNone(advanced.select_one(f'[name="{field_name}"]'))
-        self.assertFalse(advanced.has_attr('open'))
-        self.assertIn('高级配置', cast(Tag, advanced.select_one('summary')).get_text(' ', strip=True))
+        for field_name in ('panel_name', 'slug', 'description', 'is_public', 'is_active', 'schedule_enabled', 'interval_seconds', 'next_run_at'):
+            self.assertIsNone(form.select_one(f'[name="{field_name}"]'))
 
     def test_nested_resources_and_simulation_metadata_are_collapsed_per_card(self):
         self.assertIn("advancedGroup('资源与 Profiles'", JS)
@@ -325,11 +329,12 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
             self.assertNotIn(removed_field, segment)
 
     def test_panel_name_does_not_collide_with_nested_scenario_names(self):
-        for markup in (PARTIAL, CONFIG_PAGE):
-            soup = BeautifulSoup(markup, "html.parser")
-            form = cast(Tag, soup.select_one('[data-benchmark-form]'))
-            self.assertIsNotNone(form.select_one('input[name="panel_name"]'))
-            self.assertIsNone(form.select_one('input[name="name"]'))
+        soup = BeautifulSoup(PARTIAL, "html.parser")
+        form = cast(Tag, soup.select_one('[data-benchmark-form]'))
+        self.assertIsNotNone(form.select_one('input[name="panel_name"]'))
+        self.assertIsNone(form.select_one('input[name="name"]'))
+        matrix_form = cast(Tag, BeautifulSoup(CONFIG_PAGE, "html.parser").select_one('[data-benchmark-form]'))
+        self.assertIsNone(matrix_form.select_one('input[name="panel_name"]'))
         self.assertIn('form.elements.panel_name.value', JS)
         self.assertNotIn('form.elements.name.value', JS)
 
