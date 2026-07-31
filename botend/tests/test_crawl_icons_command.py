@@ -1,4 +1,5 @@
 from io import StringIO
+from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
@@ -10,7 +11,7 @@ class CrawlIconsCommandTests(SimpleTestCase):
     @override_settings()
     @patch('botend.management.commands.crawl_icons.requests.get')
     def test_explicit_icon_bypasses_business_data_scan(self, get):
-        response = Mock(status_code=200, content=b'jpeg-data' * 20)
+        response = Mock(status_code=200, content=b'\xff\xd8\xff' + b'jpeg-data' * 20)
         get.return_value = response
 
         with TemporaryDirectory() as static_root:
@@ -29,3 +30,21 @@ class CrawlIconsCommandTests(SimpleTestCase):
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             },
         )
+
+    @override_settings()
+    @patch('botend.management.commands.crawl_icons.requests.get')
+    def test_explicit_icon_rejects_non_jpeg_success_response(self, get):
+        get.return_value = Mock(status_code=200, content=b'<html>' + b'x' * 200)
+
+        with TemporaryDirectory() as static_root:
+            with override_settings(BASE_DIR=static_root):
+                output = StringIO()
+                call_command(
+                    'crawl_icons', '--size', 'small', '--icon', 'inv_error_page',
+                    stdout=output,
+                )
+                self.assertFalse(
+                    (Path(static_root) / 'static/wow_icons/small/inv_error_page.jpg').exists()
+                )
+
+        self.assertIn('失败 1', output.getvalue())

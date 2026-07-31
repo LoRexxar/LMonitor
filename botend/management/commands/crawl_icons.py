@@ -97,7 +97,7 @@ class Command(BaseCommand):
                     resp = requests.get(url, timeout=10, headers={
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
                     })
-                    if resp.status_code == 200 and len(resp.content) > 100:
+                    if self._is_jpeg(resp):
                         with open(filepath, 'wb') as f:
                             f.write(resp.content)
                         downloaded += 1
@@ -116,6 +116,11 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f'完成: {downloaded} 已下载, {skipped} 已跳过, {failed} 失败'
         ))
+
+    @staticmethod
+    def _is_jpeg(response):
+        content = response.content
+        return response.status_code == 200 and len(content) > 100 and content.startswith(b'\xff\xd8\xff')
 
     @classmethod
     def _collect_icon_from_payload(cls, payload, icons):
