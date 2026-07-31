@@ -144,13 +144,15 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         ):
             self.assertIn(contract, self.JS)
 
-    def test_profile_talent_code_links_to_portal_talent_simulator(self):
+    def test_profile_talent_code_stays_read_only_with_separate_simulator_link(self):
         for contract in (
             'profileTalentSimulatorUrl', "params.set('class'", "params.set('spec'",
             "params.set('code'", '/portal/talents/?${params.toString()}',
-            'target', 'noopener noreferrer',
+            'simc-benchmark-profile-talent-code', 'simc-benchmark-profile-talent-link',
+            '打开天赋模拟器', 'target', 'noopener noreferrer',
         ):
             self.assertIn(contract, self.JS)
+        self.assertNotIn('node("a", "simc-benchmark-profile-talent-code"', self.JS)
 
     def test_result_styles_make_percentage_comparison_and_baseline_contrasting(self):
         for contract in (

@@ -128,15 +128,17 @@
     if (talentCode) {
       const section = node("section", "simc-benchmark-profile-section");
       const simulatorUrl = profileTalentSimulatorUrl(identity, talentCode);
-      const code = simulatorUrl ? node("a", "simc-benchmark-profile-talent-code", talentCode) : node("code", "simc-benchmark-profile-talent-code", talentCode);
+      const talentRow = node("div", "simc-benchmark-profile-talent-row");
+      talentRow.appendChild(node("code", "simc-benchmark-profile-talent-code", talentCode));
       if (simulatorUrl) {
-        code.href = simulatorUrl;
-        code.target = "_blank";
-        code.rel = "noopener noreferrer";
-        code.title = "在天赋模拟器中打开";
-        code.setAttribute("aria-label", "在天赋模拟器中打开当前天赋");
+        const link = node("a", "simc-benchmark-profile-talent-link", "打开天赋模拟器");
+        link.href = simulatorUrl;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.setAttribute("aria-label", "在天赋模拟器中打开当前天赋");
+        talentRow.appendChild(link);
       }
-      section.append(node("h4", "", "天赋"), code); body.appendChild(section);
+      section.append(node("h4", "", "天赋"), talentRow); body.appendChild(section);
     }
     const equipment = Array.isArray(profileDetail.equipment) ? profileDetail.equipment : [];
     if (equipment.length) {
