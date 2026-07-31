@@ -140,6 +140,38 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         self.assertEqual(response.json()['data']['id'], execution.id)
         rerun.assert_called_once_with(execution, requested_by=self.staff)
 
+    def test_execution_detail_exposes_full_panel_result_coverage_separately_from_execution_scale(self):
+        """Execution #6/#7 的局部快照不能遮蔽 Panel 的完整 96×5031 聚合面。"""
+        panel = self._create_panel()
+        snapshot = {'version': 2, 'case_count': 65, 'run_count': 3407}
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, config_snapshot=snapshot,
+            config_hash=hashlib.sha256(json.dumps(
+                snapshot, sort_keys=True, separators=(',', ':'), ensure_ascii=False,
+            ).encode()).hexdigest(),
+            status='partial', completed_at=timezone.now(),
+        )
+        coverage = {
+            'coordinates': 96,
+            'candidate_runs': 5031,
+            'available_results': 4342,
+            'missing_results': 689,
+            'source_executions': [
+                {'execution_id': 4, 'results': 1511},
+                {'execution_id': 6, 'results': 2831},
+            ],
+        }
+        with patch(
+            'botend.dashboard.api.summarize_incremental_panel_coverage',
+            return_value=coverage,
+        ) as summarize_coverage:
+            response = self.client.get(f'/api/simc-benchmarks/executions/{execution.id}/')
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['data']['total_cases'], 65)
+        self.assertEqual(response.json()['data']['panel_coverage'], coverage)
+        summarize_coverage.assert_called_once_with(panel)
+
     def test_panel_list_does_not_project_results_for_the_configuration_page(self):
         panel = self._create_panel()
         aggregate = {

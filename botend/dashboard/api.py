@@ -86,7 +86,8 @@ from botend.services.simc_benchmark_config import (
 )
 from botend.services.simc_benchmark_execution import (
     BenchmarkExecutionConflict, create_execution, reconcile_execution,
-    rerun_failed_cases, serialize_incremental_panel_results, summarize_execution,
+    rerun_failed_cases, serialize_incremental_panel_results,
+    summarize_execution, summarize_incremental_panel_coverage,
     task_progress, _canonical_hash,
 )
 from botend.services.simc_task_service import TaskValidationUnavailable
@@ -8795,9 +8796,12 @@ class SimcBenchmarkExecutionDetailAPIView(_BenchmarkReadAPIView):
         ).first()
         if execution is None:
             return _benchmark_error('not_found', 404)
-        return JsonResponse({'success': True,
-                             'data': _benchmark_safe_detail(
-                                 summarize_execution(execution), execution)})
+        data = _benchmark_safe_detail(summarize_execution(execution), execution)
+        # A retry's frozen snapshot is intentionally smaller than the Panel's full
+        # current plan. Surface the independent reusable-result coverage so a
+        # historical 65-case execution cannot look like it replaced a 96-case panel.
+        data['panel_coverage'] = summarize_incremental_panel_coverage(execution.panel)
+        return JsonResponse({'success': True, 'data': data})
 
 
 class SimcBenchmarkExecutionRerunFailedAPIView(_BenchmarkAdminAPIView):

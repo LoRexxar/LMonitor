@@ -539,6 +539,39 @@ def rerun_failed_cases(execution, requested_by=None):
         return new_execution
 
 
+def summarize_incremental_panel_coverage(panel):
+    """Summarize the current Panel's full logical surface and reusable Results.
+
+    This is deliberately separate from any one Execution snapshot: retry Executions
+    can own only a small subset of Cases while older immutable Results still cover
+    the rest of the Panel's current 96-coordinate plan.
+    """
+    plan = build_execution_plan(panel)
+    reusable_by_coordinate = _reusable_candidate_tasks_by_coordinate(panel)
+    available_results = 0
+    source_counts = {}
+    for coordinate in plan['cases']:
+        reusable = _reusable_candidate_tasks(panel, coordinate, reusable_by_coordinate)
+        for candidate in coordinate['candidates']:
+            match = reusable.get(_candidate_input_identity(candidate))
+            if match is None:
+                continue
+            available_results += 1
+            execution_id = match['result'].case.execution_id
+            source_counts[execution_id] = source_counts.get(execution_id, 0) + 1
+    candidate_runs = sum(len(coordinate['candidates']) for coordinate in plan['cases'])
+    return {
+        'coordinates': len(plan['cases']),
+        'candidate_runs': candidate_runs,
+        'available_results': available_results,
+        'missing_results': max(0, candidate_runs - available_results),
+        'source_executions': [
+            {'execution_id': execution_id, 'results': count}
+            for execution_id, count in sorted(source_counts.items())
+        ],
+    }
+
+
 def serialize_incremental_panel_results(panel):
     """Aggregate immutable successful Results across independent executions by input identity."""
     plan = build_execution_plan(panel, lock=False)

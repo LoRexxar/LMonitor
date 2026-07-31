@@ -217,6 +217,26 @@ class SimcBenchmarkExecutionTests(TestCase):
         ])
         self.assertEqual(coordinates['failed-coordinate']['candidates'], [])
 
+    def test_incremental_projection_reuses_results_from_older_larger_execution(self):
+        """A smaller later Execution must not hide results on older panel coordinates."""
+        original = self._published_success()
+        original_case = original.cases.select_related('task').get()
+
+        later = SimcBenchmarkExecution.objects.create(
+            panel=self.panel,
+            status=SimcBenchmarkExecution.STATUS_PARTIAL,
+            config_snapshot={'case_count': 0, 'run_count': 0}, config_hash='f' * 64,
+        )
+        self.assertEqual(later.config_snapshot['case_count'], 0)
+
+        aggregate = serialize_incremental_panel_results(self.panel)
+
+        self.assertEqual(len(aggregate['coordinates']), 1)
+        self.assertEqual(aggregate['coordinates'][0]['candidates'], [
+            self._aggregate_candidate('baseline', 1234.0, original_case.task_id, label='Baseline'),
+            self._aggregate_candidate('trinket', 1300.0, original_case.task_id, label='Trinket'),
+        ])
+
     def test_incremental_result_projection_scans_finalized_cases_once_for_all_coordinates(self):
         self._published_success()
         SimcBenchmarkScenario.objects.create(
