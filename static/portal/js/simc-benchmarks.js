@@ -41,12 +41,12 @@
   function isBaseline(candidate) { return candidate && (candidate.type === "baseline" || candidate.key === "baseline"); }
   function sortCandidates(candidates) { return candidates.slice().sort((a, b) => (validDps(b?.dps) ?? -1) - (validDps(a?.dps) ?? -1)); }
 
-  function comparisonText(candidate, candidates, highest) {
+  function comparisonText(candidate, candidates, scale) {
     const dps = validDps(candidate.dps);
     if (dps === null) return "无有效结果";
     const baseline = candidates.find(isBaseline);
     const baselineDps = baseline ? validDps(baseline.dps) : null;
-    const highestText = highest > 0 ? `${((dps / highest) * 100).toFixed(1)}% · 最高 DPS` : "—";
+    const highestText = scale.highest > 0 ? `${((dps / scale.highest) * 100).toFixed(1)}% · 最高 DPS` : "—";
     if (baselineDps !== null && baselineDps > 0) {
       const delta = ((dps - baselineDps) / baselineDps) * 100;
       return `${delta > 0 ? "+" : ""}${delta.toFixed(1)}% vs baseline · ${highestText}`;
@@ -54,7 +54,7 @@
     return highestText;
   }
 
-  function renderCandidate(candidate, candidates, highest) {
+  function renderCandidate(candidate, candidates, scale) {
     const baseline = isBaseline(candidate);
     const row = node("div", `simc-benchmark-candidate${baseline ? " simc-benchmark-candidate--baseline" : ""}`);
     const grid = node("div", "simc-benchmark-candidate-grid");
@@ -72,13 +72,15 @@
     copy.append(name, node("div", "simc-benchmark-candidate-source", candidate.source_label || "—"));
     identity.appendChild(copy);
     const dps = validDps(candidate.dps);
-    const ratio = dps !== null && highest > 0 ? Math.max(0, Math.min(100, (dps / highest) * 100)) : 0;
+    const ratio = dps !== null && scale.range > 0
+      ? Math.max(0, Math.min(100, ((dps - scale.lowest) / scale.range) * 100))
+      : (dps !== null ? 100 : 0);
     const track = node("div", "simc-benchmark-bar-track");
     const bar = node("div", "simc-benchmark-bar");
     bar.style.width = `${ratio}%`; track.appendChild(bar);
     track.setAttribute("role", "meter"); track.setAttribute("aria-valuemin", "0"); track.setAttribute("aria-valuemax", "100"); track.setAttribute("aria-valuenow", ratio.toFixed(1));
     const metrics = node("div", "simc-benchmark-candidate-metrics");
-    metrics.append(node("div", "simc-benchmark-candidate-value", dps === null ? "—" : `${numberFormat.format(dps)} DPS`), node("div", "simc-benchmark-relative", comparisonText(candidate, candidates, highest)));
+    metrics.append(node("div", "simc-benchmark-candidate-value", dps === null ? "—" : `${numberFormat.format(dps)} DPS`), node("div", "simc-benchmark-relative", comparisonText(candidate, candidates, scale)));
     grid.append(identity, track, metrics); row.appendChild(grid); return row;
   }
 
@@ -86,7 +88,10 @@
     const candidates = sortCandidates(Array.isArray(coordinate?.candidates) ? coordinate.candidates : []);
     const caseNode = node("section", "simc-benchmark-case");
     if (!candidates.length) { caseNode.appendChild(state("当前坐标暂无已完成候选结果", "empty")); return caseNode; }
-    const highest = candidates.reduce((maximum, candidate) => Math.max(maximum, validDps(candidate?.dps) ?? 0), 0);
+    const values = candidates.map((candidate) => validDps(candidate?.dps)).filter((value) => value !== null);
+    const lowest = values.length ? Math.min(...values) : 0;
+    const highest = values.length ? Math.max(...values) : 0;
+    const scale = { lowest, highest, range: highest - lowest };
     const info = node("div", "simc-benchmark-basic-info");
     [
       ["simc-benchmark-info-spec", "专精", coordinate?.labels?.spec || coordinate?.spec_key],
@@ -100,8 +105,11 @@
     const axis = node("div", "simc-benchmark-axis-labels");
     [0, 25, 50, 75, 100].forEach((value) => axis.appendChild(node("span", "simc-benchmark-axis-label", `${value}%`)));
     const chart = node("div", "simc-benchmark-chart");
-    candidates.forEach((candidate) => chart.appendChild(renderCandidate(candidate || {}, candidates, highest)));
-    caseNode.append(info, axis, chart); return caseNode;
+    candidates.forEach((candidate) => chart.appendChild(renderCandidate(candidate || {}, candidates, scale)));
+    const range = node("div", "simc-benchmark-range-note", scale.range > 0
+      ? `区间对比：${numberFormat.format(lowest)} DPS = 0%，${numberFormat.format(highest)} DPS = 100%`
+      : "区间内结果相同");
+    caseNode.append(info, range, axis, chart); return caseNode;
   }
 
   function renderResults(shell, payload) {

@@ -126,7 +126,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
     def test_result_renderer_shows_percentage_axis_and_selected_basic_info(self):
         for contract in (
             'simc-benchmark-basic-info', 'simc-benchmark-info-spec',
-            'simc-benchmark-axis-labels', '[0, 25, 50, 75, 100]', '`${value}%`',
+            'simc-benchmark-range-note', 'scale.range > 0', '((dps - scale.lowest) / scale.range)',
             'ratio.toFixed(1)', '最高 DPS',
         ):
             self.assertIn(contract, self.JS)
