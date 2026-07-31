@@ -701,6 +701,10 @@ def serialize_incremental_panel_results(panel):
                     detail['talents']['build_code'] = profile.talent
                 profile_details[profile_id] = detail
         reusable = _reusable_candidate_tasks(panel, coordinate, reusable_by_coordinate)
+        scenario_params = next(
+            (match['task'].simulation_params or {} for match in reusable.values()),
+            coordinate['simulation_params'],
+        )
         rows = []
         for candidate in coordinate['candidates']:
             match = reusable.get(_candidate_input_identity(candidate))
@@ -722,6 +726,10 @@ def serialize_incremental_panel_results(panel):
                 'profile': coordinate['profile_label'],
             },
             'profile_detail': profile_details[profile_id],
+            'scenario_detail': {
+                'desired_targets': scenario_params.get('desired_targets'),
+                'max_time': scenario_params.get('max_time'),
+            },
             'candidates': rows,
         })
     return {'panel_id': panel.pk, 'coordinates': coordinates}

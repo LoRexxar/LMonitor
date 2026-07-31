@@ -172,6 +172,11 @@ class SimcBenchmarkExecutionTests(TestCase):
         )
 
     def test_failed_rerun_keeps_full_coordinate_snapshot_but_only_schedules_failed_cases(self):
+        scenario = self.panel.scenarios.get(key='patchwerk')
+        scenario.simulation_params = {
+            'iterations': 1000, 'desired_targets': 1, 'max_time': 300,
+        }
+        scenario.save(update_fields=['simulation_params'])
         SimcBenchmarkScenario.objects.create(
             panel=self.panel, key='failed-coordinate', name='Failed coordinate',
             simulation_params={'iterations': 2000},
@@ -210,6 +215,9 @@ class SimcBenchmarkExecutionTests(TestCase):
         coordinates = {row['scenario_key']: row for row in aggregate['coordinates']}
         self.assertEqual(coordinates['patchwerk']['labels'], {
             'spec': 'Fury', 'scenario': 'Patchwerk', 'profile': 'Raid profile',
+        })
+        self.assertEqual(coordinates['patchwerk']['scenario_detail'], {
+            'desired_targets': 1, 'max_time': 300,
         })
         self.assertEqual(coordinates['patchwerk']['candidates'], [
             self._aggregate_candidate('baseline', 1234.0, successful_task.id, label='Baseline'),

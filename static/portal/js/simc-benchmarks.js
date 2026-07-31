@@ -44,6 +44,15 @@
   }
   function sortCandidates(candidates) { return candidates.slice().sort((a, b) => (validDps(b?.dps) ?? -1) - (validDps(a?.dps) ?? -1)); }
 
+  function scenarioLabel(coordinate) {
+    const name = coordinate?.labels?.scenario || coordinate?.scenario_key || "—";
+    const detail = coordinate?.scenario_detail || {};
+    const targets = Number(detail.desired_targets);
+    const maxTime = Number(detail.max_time);
+    if (!Number.isFinite(targets) || targets < 1 || !Number.isFinite(maxTime) || maxTime <= 0) return name;
+    return `${name} · ${targets} 目标 · ${numberFormat.format(maxTime)} 秒`;
+  }
+
   function comparisonText(candidate, candidates, scale) {
     const dps = validDps(candidate.dps);
     if (dps === null) return "无有效结果";
@@ -170,7 +179,7 @@
     [
       ["simc-benchmark-info-spec", "专精", coordinate?.labels?.spec || coordinate?.spec_key],
       ["simc-benchmark-info-profile", "Profile", coordinate?.labels?.profile || coordinate?.profile_key],
-      ["simc-benchmark-info-scenario", "场景", coordinate?.labels?.scenario || coordinate?.scenario_key],
+      ["simc-benchmark-info-scenario", "场景", scenarioLabel(coordinate)],
     ].forEach(([className, label, value]) => {
       const item = node("div", className);
       item.append(node("span", "simc-benchmark-info-label", label), node("strong", "simc-benchmark-info-value", value || "—"));
@@ -214,7 +223,10 @@
       const select = selected[key]; const previous = select.value; const options = new Map();
       availableCoordinates(key).forEach((coordinate) => {
         const value = String(coordinate?.[key] || "");
-        if (value && !options.has(value)) options.set(value, String(coordinate?.labels?.[labelKey] || value));
+        const label = key === "scenario_key"
+          ? scenarioLabel(coordinate)
+          : String(coordinate?.labels?.[labelKey] || value);
+        if (value && !options.has(value)) options.set(value, label);
       });
       select.replaceChildren();
       options.forEach((label, value) => { const option = node("option", "", label); option.value = value; select.appendChild(option); });

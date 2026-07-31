@@ -137,6 +137,13 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         ):
             self.assertIn(contract, self.JS)
 
+    def test_result_renderer_uses_frozen_target_count_and_duration_for_scenarios(self):
+        for contract in (
+            'scenario_detail', 'scenarioLabel', 'desired_targets', 'max_time',
+            '${targets} 目标', '${numberFormat.format(maxTime)} 秒',
+        ):
+            self.assertIn(contract, self.JS)
+
     def test_result_renderer_has_collapsible_profile_detail_panel(self):
         for contract in (
             'profile_detail', 'simc-benchmark-profile-details', 'profile-details-toggle',

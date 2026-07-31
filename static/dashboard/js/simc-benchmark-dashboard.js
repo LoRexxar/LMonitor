@@ -42,11 +42,18 @@ function formatDps(value){
   const number=Number(value);
   return Number.isFinite(number) ? `${number.toLocaleString('zh-CN',{maximumFractionDigits:1})} DPS` : 'DPS 未就绪';
 }
+function scenarioLabel(coordinate){
+  const name=coordinate?.labels?.scenario||coordinate?.scenario_key||'—';
+  const detail=coordinate?.scenario_detail||{};
+  const targets=Number(detail.desired_targets),maxTime=Number(detail.max_time);
+  if(!Number.isFinite(targets)||targets<1||!Number.isFinite(maxTime)||maxTime<=0)return name;
+  return `${name} · ${targets} 目标 · ${maxTime.toLocaleString('zh-CN',{maximumFractionDigits:1})} 秒`;
+}
 function collectAggregateDimension(coordinates,key,labelKey){
   const values=new Map();
   coordinates.forEach(coordinate=>{
     const value=String(coordinate?.[key]||'');
-    if(value&&!values.has(value))values.set(value,String(coordinate?.labels?.[labelKey]||value));
+    if(value&&!values.has(value))values.set(value,key==='scenario_key'?scenarioLabel(coordinate):String(coordinate?.labels?.[labelKey]||value));
   });
   return values;
 }
@@ -93,7 +100,7 @@ function renderAggregatedResults(aggregate,compact=false){
     rows.forEach(({coordinate,candidate,dps,baseline_dps})=>{
       const row=el('div',{class:'benchmark-aggregate-row'});
       const identity=el('div',{class:'benchmark-aggregate-candidate'},candidate.label||candidate.key||'候选方案');
-      const coordinateLabel=el('div',{class:'benchmark-aggregate-coordinate'},`${coordinate?.labels?.spec||coordinate.spec_key} · ${coordinate?.labels?.scenario||coordinate.scenario_key} · ${coordinate?.labels?.profile||coordinate.profile_key}`);
+      const coordinateLabel=el('div',{class:'benchmark-aggregate-coordinate'},`${coordinate?.labels?.spec||coordinate.spec_key} · ${scenarioLabel(coordinate)} · ${coordinate?.labels?.profile||coordinate.profile_key}`);
       const result=el('div',{class:'benchmark-aggregate-result'});
       result.append(el('strong',{class:'benchmark-aggregate-dps'},formatDps(dps)));
       const delta_percent=Number.isFinite(baseline_dps)&&baseline_dps>0?(dps-baseline_dps)*100/baseline_dps:null;
