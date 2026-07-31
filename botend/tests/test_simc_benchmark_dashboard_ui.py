@@ -110,7 +110,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
     def test_panel_page_surfaces_batch_progress_statuses_and_metadata(self):
         soup = BeautifulSoup(PARTIAL, "html.parser")
         headers = [node.get_text(' ', strip=True) for node in soup.select('.simc-benchmark-table th')]
-        self.assertIn('执行进度', headers)
+        self.assertIn('当前执行', headers)
         for contract in (
             'renderExecutionProgress', 'current_cases', 'config_frozen',
             'task_bindings', '成功', '失败', '进行中', 'background:true',
@@ -124,9 +124,19 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         ):
             self.assertIn(selector, CSS)
 
-    def test_panel_page_surfaces_full_panel_coverage_separately_from_execution(self):
+    def test_panel_page_separates_full_panel_total_from_current_execution_column(self):
+        """完整 Panel 覆盖与当前 Execution 不能挤在同一个“进度”格内。"""
+        soup = BeautifulSoup(PARTIAL, "html.parser")
+        headers = [node.get_text(' ', strip=True) for node in soup.select('.simc-benchmark-table th')]
+        self.assertIn('完整面板总计', headers)
+        self.assertIn('当前执行', headers)
+        render_list = JS[JS.index('function renderList()'):JS.index('function field(', JS.index('function renderList()'))]
+        self.assertIn("class:'benchmark-total-cell'", render_list)
+        self.assertIn("class:'benchmark-current-execution-cell'", render_list)
+        self.assertLess(render_list.index("class:'benchmark-total-cell'"), render_list.index("class:'benchmark-current-execution-cell'"))
+
         aggregate = JS[JS.index('function renderPanelCoverage('):JS.index('function renderExecution(', JS.index('function renderPanelCoverage('))]
-        for contract in ('当前面板聚合覆盖', '可用结果', '仍缺结果', 'candidate_runs', 'available_results', 'missing_results'):
+        for contract in ('完整面板总计', '可用结果', '仍缺结果', 'candidate_runs', 'available_results', 'missing_results'):
             self.assertIn(contract, aggregate)
         self.assertIn('panel_coverage', JS)
 

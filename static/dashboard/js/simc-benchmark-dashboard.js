@@ -149,8 +149,8 @@ function renderList(){
   state.hidden=true;$('[data-benchmark-table-wrap]',root).hidden=false;
   rows.forEach(p=>{ const c=p.counts||{}, coverage=p.panel_coverage||{}; const dims=`${c.specs||0} 专精 × ${c.scenarios||0} 场景 · 共 ${c.profiles||0} Profiles · ${c.candidates||0} 候选 + baseline`;
     const coverageView=renderPanelCoverage(coverage);
-    const tr=el('tr'); const name=el('td');name.append(el('div',{class:'benchmark-name'},p.name),el('div',{class:'benchmark-slug'},p.slug)); const dim=el('td',{},dims); const progress=el('td',{class:'benchmark-progress-cell'});progress.append(renderExecutionProgress(p.execution,true),coverageView); const schedule=el('td');schedule.append(badge(p.schedule_enabled?'已定时':'未定时',p.schedule_enabled?'good':''),el('div',{},`下次：${formatTime(p.next_run_at)}`)); const publish=el('td');publish.append(badge(p.is_public?(p.published_execution_id?'公开 · 已发布':'公开 · 未发布'):'私有',p.is_public&&p.published_execution_id?'good':'warn')); const actions=el('td',{class:'benchmark-actions'});appendActions(actions,p);tr.append(name,dim,progress,schedule,publish,actions);tbody.append(tr);
-   const card=el('article',{class:'benchmark-card'});card.append(el('div',{class:'benchmark-name'},p.name),el('div',{class:'benchmark-slug'},p.slug),el('div',{},dims),renderExecutionProgress(p.execution),renderPanelCoverage(coverage),el('div',{},`${p.schedule_enabled?'已定时':'未定时'} · ${formatTime(p.next_run_at)}`)); const ca=el('div',{class:'benchmark-actions'});appendActions(ca,p);card.append(ca);cards.append(card);
+    const tr=el('tr'); const name=el('td');name.append(el('div',{class:'benchmark-name'},p.name),el('div',{class:'benchmark-slug'},p.slug)); const dim=el('td',{},dims); const total=el('td',{class:'benchmark-total-cell'});total.append(coverageView); const current=el('td',{class:'benchmark-current-execution-cell'});current.append(renderExecutionProgress(p.execution,true)); const schedule=el('td');schedule.append(badge(p.schedule_enabled?'已定时':'未定时',p.schedule_enabled?'good':''),el('div',{},`下次：${formatTime(p.next_run_at)}`)); const publish=el('td');publish.append(badge(p.is_public?(p.published_execution_id?'公开 · 已发布':'公开 · 未发布'):'私有',p.is_public&&p.published_execution_id?'good':'warn')); const actions=el('td',{class:'benchmark-actions'});appendActions(actions,p);tr.append(name,dim,total,current,schedule,publish,actions);tbody.append(tr);
+   const card=el('article',{class:'benchmark-card'});card.append(el('div',{class:'benchmark-name'},p.name),el('div',{class:'benchmark-slug'},p.slug),el('div',{},dims),renderPanelCoverage(coverage),renderExecutionProgress(p.execution),el('div',{},`${p.schedule_enabled?'已定时':'未定时'} · ${formatTime(p.next_run_at)}`)); const ca=el('div',{class:'benchmark-actions'});appendActions(ca,p);card.append(ca);cards.append(card);
   });
 }
 
@@ -248,7 +248,7 @@ async function executionDetail(id){const token=historyGeneration,panelId=history
 function renderPanelCoverage(coverage){
   const host=el('section',{class:'benchmark-panel-coverage'});
   const coordinates=Math.max(0,Number(coverage?.coordinates)||0),runs=Math.max(0,Number(coverage?.candidate_runs)||0),available=Math.max(0,Number(coverage?.available_results)||0),missing=Math.max(0,Number(coverage?.missing_results)||0);
-  const head=el('div',{class:'benchmark-panel-coverage-head'});head.append(el('strong',{},'当前面板聚合覆盖'),badge(`${coordinates} 个坐标 · ${runs} 个候选 Run`,'good'));
+  const head=el('div',{class:'benchmark-panel-coverage-head'});head.append(el('strong',{},'完整面板总计'),badge(`${coordinates} 个坐标 · ${runs} 个候选 Run`,'good'));
   const counts=el('div',{class:'benchmark-status-counts'});counts.append(statusCount('可用结果',available,'good'),statusCount('仍缺结果',missing,missing?'warn':'good'));
   host.append(head,counts);
   const sources=Array.isArray(coverage?.source_executions)?coverage.source_executions:[];
