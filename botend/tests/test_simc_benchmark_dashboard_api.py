@@ -196,23 +196,16 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         self.assertNotIn('aggregated_results', row)
         serialize.assert_not_called()
 
-    def test_panel_list_exposes_full_panel_coverage_next_to_latest_execution(self):
-        panel = self._create_panel()
-        coverage = {
-            'aggregate_baseline_execution_id': 8,
-            'coordinates': 96, 'candidate_runs': 5031,
-            'available_results': 4342, 'missing_results': 689,
-            'source_executions': [{'execution_id': 4, 'results': 1511}],
-        }
-        with patch(
-            'botend.dashboard.api.summarize_incremental_panel_coverage',
-            return_value=coverage,
-        ) as summarize:
+    def test_panel_list_does_not_build_cross_execution_coverage(self):
+        """The configuration list must not rebuild plans or scan historic Results."""
+        self._create_panel()
+        with patch('botend.dashboard.api.summarize_incremental_panel_coverage') as summarize:
             response = self.client.get('/api/simc-benchmarks/panels/')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['data'][0]['panel_coverage'], coverage)
-        self.assertEqual(response.json()['data'][0]['aggregate_baseline_execution_id'], None)
-        summarize.assert_called_once_with(panel)
+        row = response.json()['data'][0]
+        self.assertNotIn('panel_coverage', row)
+        self.assertEqual(row['aggregate_baseline_execution_id'], None)
+        summarize.assert_not_called()
 
     def test_panel_list_and_history_expose_execution_progress_and_metadata_readiness(self):
         panel = self._create_panel()
