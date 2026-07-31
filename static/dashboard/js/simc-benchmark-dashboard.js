@@ -106,10 +106,11 @@ function renderAggregatedResults(aggregate,compact=false){
 function renderRunProgress(execution,compact=false){
   const host=el('div',{class:`benchmark-run-progress${compact?' compact':''}`});
   if(!execution)return host;
-  const counts=execution.run_counts||{},total=Math.max(0,Number(execution.total_runs ?? execution.run_count)||0);
+  const counts=execution.run_counts||{},total=Math.max(0,Number(execution.total_runs ?? execution.run_count)||0),materialized=Math.max(0,Number(execution.materialized_runs)||0);
   const done=(Number(counts.success)||0)+(Number(counts.failed)||0)+(Number(counts.cancelled)||0);
   const percent=total?Math.round(done*100/total):0;
-  const head=el('div',{class:'benchmark-run-progress-head'});head.append(el('strong',{},'候选 Run'),el('span',{},`${done}/${total} 已结束 · ${percent}%`));
+  const head=el('div',{class:'benchmark-run-progress-head'});head.append(el('strong',{},'本次补充候选 Run'),el('span',{},`${done}/${total} 已结束 · ${percent}%`));
+  if(materialized<total)head.append(el('span',{class:'benchmark-run-materializing'},`已生成 ${materialized}/${total} · 尚有 ${total-materialized} 个待 Worker 创建`));
   const statuses=el('div',{class:'benchmark-status-counts'});statuses.append(statusCount('成功',counts.success,'good'),statusCount('失败',counts.failed,'bad'),statusCount('运行',counts.running,'running'),statusCount('等待',counts.pending,'warn'),statusCount('取消',counts.cancelled,'muted'));
   host.append(head,statuses);return host;
 }

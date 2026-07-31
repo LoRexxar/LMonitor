@@ -76,6 +76,12 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn('个受影响坐标 / ${runs} 个缺失候选 Run', JS)
         self.assertIn("body:JSON.stringify({mode})", JS)
 
+    def test_supplement_progress_keeps_frozen_run_workload_visible_before_lazy_materialization(self):
+        run_progress = JS[JS.index('function renderRunProgress('):JS.index('function renderExecutionProgress(')]
+        self.assertIn('materialized_runs', run_progress)
+        self.assertIn('本次补充候选 Run', run_progress)
+        self.assertIn('尚有 ${total-materialized} 个待 Worker 创建', run_progress)
+
     def test_fetch_contract_and_stale_request_protection(self):
         for contract in ("resolved.origin !== window.location.origin",
                          "credentials:'same-origin'", "X-CSRFToken",

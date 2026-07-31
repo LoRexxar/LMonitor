@@ -256,7 +256,10 @@ class SimcBenchmarkDashboardApiTests(TestCase):
 
     def test_panel_list_and_history_expose_execution_progress_and_metadata_readiness(self):
         panel = self._create_panel()
-        snapshot = {'version': 2, 'case_count': 4, 'run_count': 4}
+        # Execution owns four Case Tasks, but the Worker materializes each
+        # comparison candidate Run lazily.  The frozen supplement workload must
+        # remain visible before all planned Runs have database rows.
+        snapshot = {'version': 2, 'case_count': 4, 'run_count': 9}
         execution = SimcBenchmarkExecution.objects.create(
             panel=panel,
             config_snapshot=snapshot,
@@ -321,14 +324,15 @@ class SimcBenchmarkDashboardApiTests(TestCase):
             'pending': 1, 'running': 1, 'success': 1,
             'failed': 1, 'cancelled': 0,
         })
-        self.assertEqual(progress['total_runs'], 4)
+        self.assertEqual(progress['total_runs'], 9)
+        self.assertEqual(progress['materialized_runs'], 4)
         coverage = response.json()['data'][0]['panel_coverage']
         self.assertEqual(coverage, {
             'aggregate_baseline_execution_id': execution.id,
             'coordinates': 4,
-            'candidate_runs': 4,
+            'candidate_runs': 9,
             'available_results': 0,
-            'missing_results': 4,
+            'missing_results': 9,
             'source_executions': [],
         })
         self.assertEqual(progress['metadata'], {

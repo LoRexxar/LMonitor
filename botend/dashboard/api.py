@@ -8295,7 +8295,14 @@ def _benchmark_execution_progress(execution, cases, *, is_active=False, case_cou
         'is_active': is_active,
         'progress': progress,
         'case_count': total_cases,
-        'total_runs': total_runs,
+        # Snapshot run_count is the frozen, scheduled workload.  Runs are
+        # materialized lazily by comparison Tasks, so a live supplement can have
+        # fewer rows than this until every Task has been consumed.
+        'total_runs': _benchmark_safe_count(
+            (execution.config_snapshot or {}).get('run_count')
+            if isinstance(execution.config_snapshot, dict) else total_runs
+        ),
+        'materialized_runs': total_runs,
         'run_counts': run_counts,
         'counts': counts,
         'current_cases': current_cases[:3],
@@ -8415,8 +8422,11 @@ def _benchmark_safe_detail(summary, execution):
     source_run_counts = summary.get('run_counts')
     if not isinstance(source_run_counts, dict):
         source_run_counts = {}
-    status = summary.get('status')
+    materialized_runs = _benchmark_safe_count(summary.get('total_runs'))
     snapshot = execution.config_snapshot
+    planned_runs = (snapshot.get('run_count') if isinstance(snapshot, dict) else None)
+    total_runs = planned_runs if type(planned_runs) is int and planned_runs >= 0 else materialized_runs
+    status = summary.get('status')
     declared_cases = snapshot.get('case_count') if isinstance(snapshot, dict) else None
     total_cases = (declared_cases if type(declared_cases) is int and declared_cases >= 0
                    else _benchmark_safe_count(summary.get('total_cases')))
@@ -8454,7 +8464,8 @@ def _benchmark_safe_detail(summary, execution):
         'created_at': _benchmark_iso(execution.created_at),
         'completed_at': _benchmark_iso(execution.completed_at),
         'total_cases': total_cases,
-        'total_runs': _benchmark_safe_count(summary.get('total_runs')),
+        'total_runs': total_runs,
+        'materialized_runs': materialized_runs,
         'progress': progress,
         'counts': safe_counts,
         'run_counts': {
