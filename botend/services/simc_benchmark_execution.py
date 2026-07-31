@@ -18,6 +18,7 @@ from django.db.models import CharField, Count, Prefetch, Q, Value
 from django.db.models.functions import Concat
 from django.utils import timezone
 
+from botend.constants.wow import SPEC_CN
 from botend.models import (
     SimcBenchmarkCase, SimcBenchmarkExecution, SimcBenchmarkPanel,
     SimcBenchmarkResult, SimcTask, SimulationRun,
@@ -50,6 +51,10 @@ RUN_STATUS_NAMES = {
     'pending': 'pending', 'running': 'running', 'completed': 'success',
     'failed': 'failed', 'cancelled': 'cancelled', 'canceled': 'cancelled',
 }
+_SPEC_CN_BY_NORMALIZED_NAME = {
+    re.sub(r'[^a-z0-9]', '', name.lower()): label
+    for name, label in SPEC_CN.items()
+}
 _ERROR_LIMIT = 240
 _ABSOLUTE_PATH = re.compile(
     r'(?:[A-Za-z]:[\\/]|/)(?:[^\s;:,]+[\\/])*[^\s;:,]*'
@@ -71,6 +76,13 @@ def _requester_id(requested_by):
     if type(value) is not int or value <= 0:
         _validation_error('requested_by 必须是有效用户', 'requested_by')
     return value
+
+
+def _spec_display_name(value):
+    """Translate known specialization names for read-model display only."""
+    text = str(value or '').strip()
+    normalized = re.sub(r'[^a-z0-9]', '', text.lower())
+    return _SPEC_CN_BY_NORMALIZED_NAME.get(normalized, text)
 
 
 def _normalize_trigger_slot(trigger, scheduled_slot):
@@ -697,6 +709,9 @@ def serialize_incremental_panel_results(panel):
                 profile_details[profile_id] = None
             else:
                 detail = parse_manual_player_config(profile.player_equipment, profile.spec)
+                identity = detail.get('identity')
+                if isinstance(identity, dict):
+                    identity['spec'] = _spec_display_name(identity.get('spec'))
                 if not detail['talents']['build_code']:
                     detail['talents']['build_code'] = profile.talent
                 profile_details[profile_id] = detail
@@ -721,7 +736,7 @@ def serialize_incremental_panel_results(panel):
             'spec_key': coordinate['spec_key'], 'scenario_key': coordinate['scenario_key'],
             'profile_key': coordinate['profile_key'],
             'labels': {
-                'spec': coordinate['spec_label'],
+                'spec': _spec_display_name(coordinate['spec_label']),
                 'scenario': coordinate['scenario_label'],
                 'profile': coordinate['profile_label'],
             },

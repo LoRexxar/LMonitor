@@ -214,7 +214,7 @@ class SimcBenchmarkExecutionTests(TestCase):
         aggregate = serialize_incremental_panel_results(self.panel)
         coordinates = {row['scenario_key']: row for row in aggregate['coordinates']}
         self.assertEqual(coordinates['patchwerk']['labels'], {
-            'spec': 'Fury', 'scenario': 'Patchwerk', 'profile': 'Raid profile',
+            'spec': '狂怒', 'scenario': 'Patchwerk', 'profile': 'Raid profile',
         })
         self.assertEqual(coordinates['patchwerk']['scenario_detail'], {
             'desired_targets': 1, 'max_time': 300,
@@ -257,6 +257,7 @@ class SimcBenchmarkExecutionTests(TestCase):
         profile = serialize_incremental_panel_results(self.panel)['coordinates'][0]['profile_detail']
 
         self.assertEqual(profile['identity']['name'], 'Profile Player')
+        self.assertEqual(profile['identity']['spec'], '狂怒')
         self.assertEqual(profile['identity']['level'], 90)
         self.assertEqual(profile['talents']['build_code'], 'abc123')
         self.assertEqual([item['slot'] for item in profile['equipment']], ['head', 'main_hand'])

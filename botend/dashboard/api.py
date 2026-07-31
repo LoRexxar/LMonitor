@@ -79,6 +79,7 @@ from django.db.models.deletion import ProtectedError
 from collections import defaultdict, deque
 
 from botend.models import SimcBenchmarkCase, SimcBenchmarkExecution, SimcBenchmarkPanel
+from botend.constants.wow import SPEC_CN
 from botend.services.simc_benchmark_config import (
     MAX_CANDIDATES, MAX_CASES, MAX_PROFILES_PER_SPEC, MAX_RUNS_PER_TASK,
     MAX_SCENARIOS, MAX_SPECS, benchmark_resource_querysets,
@@ -8361,6 +8362,15 @@ def _benchmark_safe_key(value):
     return _benchmark_safe_string(value, limit=200) or ''
 
 
+def _benchmark_spec_display_name(value):
+    text = _benchmark_safe_key(value)
+    normalized = re.sub(r'[^a-z0-9]', '', text.lower())
+    for name, label in SPEC_CN.items():
+        if re.sub(r'[^a-z0-9]', '', name.lower()) == normalized:
+            return label
+    return text
+
+
 def _benchmark_safe_count(value):
     return value if type(value) is int and value >= 0 else 0
 
@@ -8408,7 +8418,7 @@ def _benchmark_safe_detail(summary, execution):
                 'profile_key': _benchmark_safe_key(row.get('profile_key')),
             },
             'labels': {
-                'spec': _benchmark_safe_key(labels.get('spec')),
+                'spec': _benchmark_spec_display_name(labels.get('spec')),
                 'scenario': _benchmark_safe_key(labels.get('scenario')),
                 'profile': _benchmark_safe_key(labels.get('profile')),
             },
