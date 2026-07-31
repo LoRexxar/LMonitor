@@ -232,7 +232,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn('function loadExecutionPage()', JS)
         self.assertIn('function rerunFailedPage(id,button)', JS)
         self.assertIn("dataset:{rerunFailed:data.id}", JS)
-        self.assertIn('?v=20260731b', INDEX)
+        self.assertIn('?v=20260801a', INDEX)
         self.assertIn("if(!configPage){document.body.classList.add", JS)
         self.assertIn("data-benchmark-notification", JS)
         self.assertNotIn('data-create-only', CONFIG_PAGE)
