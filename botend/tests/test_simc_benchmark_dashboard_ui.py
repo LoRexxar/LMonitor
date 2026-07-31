@@ -118,20 +118,19 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn('.profile-choice { grid-template-columns:', CSS)
         self.assertIn('.history-runs-scroll', CSS)
 
-    def test_panel_page_surfaces_batch_progress_statuses_and_metadata(self):
+    def test_panel_page_surfaces_frozen_candidate_run_progress_not_orchestration_tasks(self):
         soup = BeautifulSoup(PARTIAL, "html.parser")
         headers = [node.get_text(' ', strip=True) for node in soup.select('.simc-benchmark-table th')]
         self.assertIn('当前执行', headers)
         for contract in (
-            'renderExecutionProgress', 'current_cases', 'config_frozen',
-            'task_bindings', '成功', '失败', '进行中', 'background:true',
+            'renderExecutionProgress', '成功', '失败', '运行', 'background:true',
             'BENCHMARK_POLL_MS', 'forceDiscoveryUntil', 'listFetchInFlight',
-            '子任务（Case）', '候选 Run', 'run_counts', 'renderRunProgress',
+            '候选 Run', 'run_counts', 'renderRunProgress',
         ):
             self.assertIn(contract, JS)
         for selector in (
-            '.benchmark-progress-track', '.benchmark-status-counts',
-            '.benchmark-current-case', '.benchmark-metadata',
+            '.benchmark-status-counts',
+            '.benchmark-run-progress', '.benchmark-run-progress-head',
         ):
             self.assertIn(selector, CSS)
 
