@@ -115,12 +115,18 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIn('portal/js/simc-benchmarks.js', self.RESULTS_TEMPLATE)
         self.assertIn('/portal/simc-benchmarks/', self.TEMPLATE)
 
-    def test_public_renderer_uses_dimensioned_immediate_projection(self):
+    def test_public_renderer_uses_spec_driven_profile_and_scenario_filters(self):
         for contract in ('payload?.results?.coordinates', 'spec_key', 'scenario_key', 'profile_key',
+                         'syncFilterOptions', 'availableCoordinates', 'profile_key',
                          'renderCoordinate', 'sortCandidates', 'relative', 'baseline'):
             self.assertIn(contract, self.JS)
         self.assertNotIn('innerHTML', self.JS)
         self.assertNotIn('results_finalized_at', self.JS)
+
+    def test_single_panel_uses_editable_panel_copy_for_page_heading(self):
+        self.assertIn('applyPanelHeading', self.JS)
+        self.assertIn("document.title", self.JS)
+        self.assertIn('simc-benchmarks-description', self.RESULTS_TEMPLATE)
 
     def test_dense_chart_and_mobile_rows_have_explicit_layout_contracts(self):
         for contract in ('simc-benchmark-candidate-grid', 'simc-benchmark-candidate-source',

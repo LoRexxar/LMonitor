@@ -95,29 +95,56 @@
   function renderResults(shell, payload) {
     const coordinates = Array.isArray(payload?.results?.coordinates) ? payload.results.coordinates : [];
     if (!coordinates.length) { shell.body.replaceChildren(state("暂无已完成模拟结果", "not-ready")); return; }
-    const dimensions = [["spec_key", "spec", "专精"], ["scenario_key", "scenario", "场景"], ["profile_key", "profile", "Profile"]];
+    const dimensions = [["spec_key", "spec", "专精"], ["profile_key", "profile", "Profile"], ["scenario_key", "scenario", "场景"]];
     const filters = node("div", "simc-benchmark-filters");
     const selected = {};
     dimensions.forEach(([key, labelKey, title]) => {
       const label = node("label", "simc-benchmark-filter"); label.appendChild(node("span", "simc-benchmark-filter-label", title));
       const select = node("select", "simc-benchmark-filter-select"); select.dataset.dimension = key;
-      const options = new Map();
-      coordinates.forEach((coordinate) => { const value = String(coordinate?.[key] || ""); if (value && !options.has(value)) options.set(value, String(coordinate?.labels?.[labelKey] || value)); });
-      options.forEach((text, value) => { const option = node("option", "", text); option.value = value; select.appendChild(option); });
-      select.value = String(coordinates[0]?.[key] || ""); selected[key] = select;
-      label.appendChild(select); filters.appendChild(label);
+      selected[key] = select; label.appendChild(select); filters.appendChild(label);
     });
+
+    const availableCoordinates = (key) => coordinates.filter((coordinate) => {
+      if (key !== "spec_key" && String(coordinate?.spec_key || "") !== selected.spec_key.value) return false;
+      if (key === "scenario_key" && String(coordinate?.profile_key || "") !== selected.profile_key.value) return false;
+      return true;
+    });
+    const syncFilterOptions = (key) => {
+      const [, labelKey] = dimensions.find(([dimension]) => dimension === key);
+      const select = selected[key]; const previous = select.value; const options = new Map();
+      availableCoordinates(key).forEach((coordinate) => {
+        const value = String(coordinate?.[key] || "");
+        if (value && !options.has(value)) options.set(value, String(coordinate?.labels?.[labelKey] || value));
+      });
+      select.replaceChildren();
+      options.forEach((label, value) => { const option = node("option", "", label); option.value = value; select.appendChild(option); });
+      select.value = options.has(previous) ? previous : (options.keys().next().value || "");
+    };
+    const syncDependentFilters = () => {
+      syncFilterOptions("profile_key");
+      syncFilterOptions("scenario_key");
+    };
+    syncFilterOptions("spec_key"); syncDependentFilters();
+
     const selectedResult = node("div", "simc-benchmark-cases");
-    const render = (event) => {
-      let coordinate = coordinates.find((item) => dimensions.every(([key]) => String(item?.[key] || "") === selected[key].value));
-      if (!coordinate && event?.target) {
-        coordinate = coordinates.find((item) => String(item?.[event.target.dataset.dimension] || "") === event.target.value);
-        if (coordinate) dimensions.forEach(([key]) => { selected[key].value = String(coordinate[key] || ""); });
-      }
+    const render = () => {
+      const coordinate = coordinates.find((item) => dimensions.every(([key]) => String(item?.[key] || "") === selected[key].value));
       selectedResult.replaceChildren(coordinate ? renderCoordinate(coordinate) : state("当前筛选条件下没有结果", "empty"));
     };
-    filters.addEventListener("change", render); render();
+    selected.spec_key.addEventListener("change", () => { syncDependentFilters(); render(); });
+    selected.profile_key.addEventListener("change", () => { syncFilterOptions("scenario_key"); render(); });
+    selected.scenario_key.addEventListener("change", render); render();
     shell.body.replaceChildren(node("div", "simc-benchmark-meta", `${coordinates.length} 个已完成模拟坐标`), filters, selectedResult);
+  }
+
+  function applyPanelHeading(panel) {
+    const name = String(panel?.name || "模拟结果");
+    const description = String(panel?.description || "");
+    const title = document.getElementById("simc-benchmarks-title");
+    const copy = document.getElementById("simc-benchmarks-description");
+    if (title) title.textContent = name;
+    if (copy) { copy.textContent = description; copy.hidden = !description; }
+    document.title = `${name} · WowDaily.cn`;
   }
 
   function panelShell(panel) {
@@ -129,12 +156,14 @@
     const body = node("div", "simc-benchmark-panel-body"); article.append(header, body); return { article, body };
   }
 
-  async function loadPanel(panel, root) {
+  async function loadPanel(panel, root, { setPageHeading = false } = {}) {
     const shell = panelShell(panel); root.appendChild(shell.article); shell.body.appendChild(state("正在加载模拟结果…", "loading"));
     try {
       const payload = await requestJson(`${LIST_URL}${encodeURIComponent(String(panel.slug || ""))}/`);
-      if (payload.status === "ready") renderResults(shell, payload);
-      else shell.body.replaceChildren(state("暂无已完成模拟结果", "not-ready"));
+      if (payload.status === "ready") {
+        if (setPageHeading) applyPanelHeading(payload.panel || panel);
+        renderResults(shell, payload);
+      } else shell.body.replaceChildren(state("暂无已完成模拟结果", "not-ready"));
     } catch (_) { shell.body.replaceChildren(state("Benchmark 结果加载失败，请稍后重试", "error")); }
   }
 
@@ -143,7 +172,7 @@
     const requested = new URLSearchParams(window.location.search).get("benchmark"); root.setAttribute("aria-busy", "true");
     try {
       root.replaceChildren();
-      if (requested) await loadPanel({ slug: requested }, root);
+      if (requested) await loadPanel({ slug: requested }, root, { setPageHeading: true });
       else {
         const payload = await requestJson(LIST_URL);
         const panels = payload.status === "ready" && Array.isArray(payload.panels) ? payload.panels : [];
