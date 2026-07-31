@@ -123,6 +123,12 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertNotIn('innerHTML', self.JS)
         self.assertNotIn('results_finalized_at', self.JS)
 
+    def test_public_renderer_hides_baseline_candidates_but_keeps_comparison_data(self):
+        self.assertIn('candidate.type === "base"', self.JS)
+        self.assertIn('allCandidates.find(isBaseline)', self.JS)
+        self.assertIn('allCandidates.filter((candidate) => !isBaseline(candidate))', self.JS)
+        self.assertIn('[baseline, ...candidates].filter(Boolean)', self.JS)
+
     def test_result_renderer_shows_percentage_axis_and_selected_basic_info(self):
         for contract in (
             'simc-benchmark-basic-info', 'simc-benchmark-info-spec',

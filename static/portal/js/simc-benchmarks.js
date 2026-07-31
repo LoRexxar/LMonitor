@@ -38,7 +38,10 @@
     } catch (_) { return null; }
   }
 
-  function isBaseline(candidate) { return candidate && (candidate.type === "baseline" || candidate.key === "baseline"); }
+  function isBaseline(candidate) {
+    return candidate && (candidate.type === "base" || candidate.type === "baseline"
+      || candidate.key === "base" || candidate.key === "baseline");
+  }
   function sortCandidates(candidates) { return candidates.slice().sort((a, b) => (validDps(b?.dps) ?? -1) - (validDps(a?.dps) ?? -1)); }
 
   function comparisonText(candidate, candidates, scale) {
@@ -85,7 +88,9 @@
   }
 
   function renderCoordinate(coordinate) {
-    const candidates = sortCandidates(Array.isArray(coordinate?.candidates) ? coordinate.candidates : []);
+    const allCandidates = Array.isArray(coordinate?.candidates) ? coordinate.candidates : [];
+    const baseline = allCandidates.find(isBaseline);
+    const candidates = sortCandidates(allCandidates.filter((candidate) => !isBaseline(candidate)));
     const caseNode = node("section", "simc-benchmark-case");
     if (!candidates.length) { caseNode.appendChild(state("当前坐标暂无已完成候选结果", "empty")); return caseNode; }
     const values = candidates.map((candidate) => validDps(candidate?.dps)).filter((value) => value !== null);
@@ -105,7 +110,7 @@
     const axis = node("div", "simc-benchmark-axis-labels");
     [0, 25, 50, 75, 100].forEach((value) => axis.appendChild(node("span", "simc-benchmark-axis-label", `${value}%`)));
     const chart = node("div", "simc-benchmark-chart");
-    candidates.forEach((candidate) => chart.appendChild(renderCandidate(candidate || {}, candidates, scale)));
+    candidates.forEach((candidate) => chart.appendChild(renderCandidate(candidate || {}, [baseline, ...candidates].filter(Boolean), scale)));
     const range = node("div", "simc-benchmark-range-note", scale.range > 0
       ? `区间对比：${numberFormat.format(lowest)} DPS = 0%，${numberFormat.format(highest)} DPS = 100%`
       : "区间内结果相同");
