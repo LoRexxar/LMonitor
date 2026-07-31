@@ -128,15 +128,15 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         """完整 Panel 覆盖与当前 Execution 不能挤在同一个“进度”格内。"""
         soup = BeautifulSoup(PARTIAL, "html.parser")
         headers = [node.get_text(' ', strip=True) for node in soup.select('.simc-benchmark-table th')]
-        self.assertIn('完整面板总计', headers)
+        self.assertIn('基准任务总计', headers)
         self.assertIn('当前执行', headers)
         render_list = JS[JS.index('function renderList()'):JS.index('function field(', JS.index('function renderList()'))]
         self.assertIn("class:'benchmark-total-cell'", render_list)
         self.assertIn("class:'benchmark-current-execution-cell'", render_list)
         self.assertLess(render_list.index("class:'benchmark-total-cell'"), render_list.index("class:'benchmark-current-execution-cell'"))
 
-        aggregate = JS[JS.index('function renderPanelCoverage('):JS.index('function renderExecution(', JS.index('function renderPanelCoverage('))]
-        for contract in ('完整面板总计', '可用结果', '仍缺结果', 'candidate_runs', 'available_results', 'missing_results'):
+        aggregate = JS[JS.index('function renderBenchmarkTaskTotal('):JS.index('function renderExecution(', JS.index('function renderBenchmarkTaskTotal('))]
+        for contract in ('基准任务总计', '基准坐标', '候选 Run', '可用结果', '缺失结果', 'candidate_runs', 'available_results', 'missing_results'):
             self.assertIn(contract, aggregate)
         self.assertIn('panel_coverage', JS)
 
