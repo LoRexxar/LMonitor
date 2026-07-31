@@ -1,4 +1,4 @@
-/* SimC 十模型内联工作台：专用 API、事件委托和安全结果预览。version: 20260716f */
+/* SimC 十模型内联工作台：专用 API、事件委托和安全结果预览。version: 20260716g */
 (() => {
     'use strict';
     const apiRoot = '/api/simc-workbench/';
@@ -185,10 +185,18 @@
                 const executionId = idOf(row.execution_id);
                 const expanded = expandedExecutionIds.has(executionId);
                 const taskCounts = row.task_counts || {};
+                const runCounts = row.run_counts || {};
+                const baseline = row.baseline_counts;
                 const count = key => Math.max(0, Number(taskCounts[key]) || 0);
-                const statusSummary = `独立任务：完成 ${count('success')} / ${Number(row.case_count) || 0} · 运行中 ${count('running')} · 待运行 ${count('pending')}`
+                const runCount = key => Math.max(0, Number(runCounts[key]) || 0);
+                const statusSummary = `本次子任务：完成 ${count('success')} / ${Number(row.case_count) || 0} · 运行中 ${count('running')} · 待运行 ${count('pending')}`
                     + (count('failed') ? ` · 失败 ${count('failed')}` : '')
                     + (count('cancelled') ? ` · 已取消 ${count('cancelled')}` : '');
+                const runSummary = `本次候选 Run：完成 ${runCount('success')} / ${Number(row.run_count) || 0} · 运行中 ${runCount('running')} · 待运行 ${runCount('pending')}`
+                    + (runCount('failed') ? ` · 失败 ${runCount('failed')}` : '');
+                const baselineSummary = baseline
+                    ? `<span>来源基线 #${idOf(baseline.execution_id) || '—'}：${Number(baseline.cases) || 0} 子任务 / ${Number(baseline.runs) || 0} Run；已完成 ${Number(baseline.case_counts?.success) || 0} 子任务、${Number(baseline.run_counts?.success) || 0} Run</span>`
+                    : '';
                 const cases = (row.cases || []).map(item => {
                     const itemProgress = Number.isFinite(Number(item.progress))
                         ? Math.max(0, Math.min(100, Number(item.progress))) : null;
@@ -197,7 +205,7 @@
                     const title = `${esc(item.labels?.spec || item.coordinate?.spec_key || '—')} / ${esc(item.labels?.scenario || item.coordinate?.scenario_key || '—')} / ${esc(item.labels?.profile || item.coordinate?.profile_key || '—')}`;
                     return `<div class="simc-benchmark-task-case" data-status="${itemStatus}"><div class="simc-benchmark-task-case__header"><span class="simc-benchmark-task-case__title"><span class="simc-task-id">Task #${idOf(item.task_id)}</span>${title}</span><span class="simc-task-status is-${itemStatus}">${esc(item.status_label || '未知')}</span></div>${itemProgress == null ? '<div class="simc-benchmark-task-case__progress is-unknown">等待 Worker 上报进度</div>' : `<div class="simc-benchmark-task-case__progress"><div class="simc-task-progress__track"><div class="simc-task-progress__fill" style="width:${itemProgress}%"></div></div><strong>${itemProgress}%</strong></div>`}</div>`;
                 }).join('');
-                return `<article class="simc-task-card simc-benchmark-task-group"><div class="simc-benchmark-task-summary"><div class="simc-task-card__main"><div class="simc-task-card__eyebrow"><span class="simc-task-type">基准面板</span><span class="simc-task-id">执行 #${executionId}</span></div><h4 class="simc-task-card__title">${esc(row.name)}</h4><div class="simc-task-card__meta"><span class="simc-task-status is-${esc(row.status)}">${esc(row.status_label)}</span><span>${esc(statusSummary)}</span></div>${row.progress == null ? '' : `<div class="simc-task-progress"><div class="simc-task-progress__track"><div class="simc-task-progress__fill" style="width:${row.progress}%"></div></div><span>总进度 ${row.progress}%</span></div>`}</div><button type="button" data-benchmark-task-toggle="${executionId}" aria-expanded="${expanded}" aria-controls="simc-benchmark-task-cases-${executionId}" class="simc-touch-action">${expanded ? '收起子任务进度' : '展开子任务进度'}</button></div><div id="simc-benchmark-task-cases-${executionId}" class="simc-benchmark-task-cases" data-benchmark-task-cases="${executionId}"${expanded ? '' : ' hidden'}>${cases || '暂无独立任务'}</div></article>`;
+                return `<article class="simc-task-card simc-benchmark-task-group"><div class="simc-benchmark-task-summary"><div class="simc-task-card__main"><div class="simc-task-card__eyebrow"><span class="simc-task-type">基准面板</span><span class="simc-task-id">执行 #${executionId}</span></div><h4 class="simc-task-card__title">${esc(row.name)}</h4><div class="simc-task-card__meta"><span class="simc-task-status is-${esc(row.status)}">${esc(row.status_label)}</span><span>${esc(statusSummary)}</span><span>${esc(runSummary)}</span>${baselineSummary}</div>${row.progress == null ? '' : `<div class="simc-task-progress"><div class="simc-task-progress__track"><div class="simc-task-progress__fill" style="width:${row.progress}%"></div></div><span>总进度 ${row.progress}%</span></div>`}</div><button type="button" data-benchmark-task-toggle="${executionId}" aria-expanded="${expanded}" aria-controls="simc-benchmark-task-cases-${executionId}" class="simc-touch-action">${expanded ? '收起子任务进度' : '展开子任务进度'}</button></div><div id="simc-benchmark-task-cases-${executionId}" class="simc-benchmark-task-cases" data-benchmark-task-cases="${executionId}"${expanded ? '' : ' hidden'}>${cases || '暂无独立任务'}</div></article>`;
             }
             const status = Number(row.status);
             const isActive = [0, 1, 4].includes(status);

@@ -5690,12 +5690,21 @@ class SimcWorkbenchAPIView(View):
                 'id', 'execution_id', 'task_id', 'status',
                 'spec_key', 'scenario_key', 'profile_key',
                 'spec_label', 'scenario_label', 'profile_label',
-                'task__id', 'task__current_status', 'task__ext',
+                'task__id', 'task__current_status', 'task__ext', 'task__source_task_id',
             ).order_by('id'))
+
+        task_ids = [case.task_id for case in case_rows if case.task_id]
+        runs_by_task = defaultdict(list)
+        for task_id, run_status, count in SimulationRun.objects.filter(task_id__in=task_ids).values_list(
+            'task_id', 'status',
+        ).annotate(count=models.Count('id')):
+            runs_by_task[task_id].append((run_status, count))
 
         cases = []
         progress_values = []
         task_counts = {key: 0 for key in ('pending', 'running', 'success', 'failed', 'cancelled')}
+        run_counts = {key: 0 for key in ('pending', 'running', 'success', 'failed', 'cancelled')}
+        current_run_count = 0
         for case in case_rows:
             task = case.task if active else None
             task_status = task_status_names.get(task.current_status, 'failed') if task else case.status
@@ -5706,8 +5715,15 @@ class SimcWorkbenchAPIView(View):
             progress_values.append(effective_progress)
             if task_status in task_counts:
                 task_counts[task_status] += 1
+            if task is not None:
+                for run_status, count in runs_by_task[task.id]:
+                    normalized_status = 'success' if run_status == 'completed' else run_status
+                    if normalized_status in run_counts:
+                        run_counts[normalized_status] += count
+                    current_run_count += count
             cases.append({
                 'case_id': case.pk, 'task_id': case.task_id,
+                'source_task_id': task.source_task_id if task is not None else None,
                 'coordinate': {
                     'spec_key': case.spec_key,
                     'scenario_key': case.scenario_key,
@@ -5725,9 +5741,43 @@ class SimcWorkbenchAPIView(View):
             })
         progress = int(sum(progress_values) / len(progress_values)) if progress_values else None
         snapshot = execution.config_snapshot if isinstance(execution.config_snapshot, dict) else {}
-        run_count = snapshot.get('run_count')
-        if type(run_count) is not int or run_count < 0:
-            run_count = 0
+        baseline_case_count = snapshot.get('case_count')
+        baseline_run_count = snapshot.get('run_count')
+        if type(baseline_case_count) is not int or baseline_case_count < 0:
+            baseline_case_count = len(cases)
+        if type(baseline_run_count) is not int or baseline_run_count < 0:
+            baseline_run_count = current_run_count
+        is_retry = bool(cases) and all(case['source_task_id'] is not None for case in cases)
+        baseline_counts = None
+        if is_retry:
+            source_execution_ids = set()
+            source_task_ids = [case['source_task_id'] for case in cases]
+            source_cases = SimcBenchmarkCase.objects.filter(task_id__in=source_task_ids)
+            source_execution_ids.update(source_cases.values_list('execution_id', flat=True))
+            if len(source_execution_ids) == 1:
+                source_execution_id = source_execution_ids.pop()
+                source_execution = SimcBenchmarkExecution.objects.get(pk=source_execution_id)
+                source_status_counts = dict(SimcBenchmarkCase.objects.filter(
+                    execution_id=source_execution_id,
+                ).values_list('status').annotate(count=models.Count('id')))
+                source_run_counts = {key: 0 for key in ('pending', 'running', 'success', 'failed', 'cancelled')}
+                for run_status, count in SimulationRun.objects.filter(
+                    task__benchmark_case__execution_id=source_execution_id,
+                ).values_list('status').annotate(count=models.Count('id')):
+                    normalized_status = 'success' if run_status == 'completed' else run_status
+                    if normalized_status in source_run_counts:
+                        source_run_counts[normalized_status] += count
+                baseline_counts = {
+                    'execution_id': source_execution_id,
+                    'cases': source_execution.config_snapshot.get('case_count', source_cases.count()),
+                    'runs': source_execution.config_snapshot.get('run_count', 0),
+                    'case_counts': {key: source_status_counts.get(key, 0) for key in (
+                        'pending', 'running', 'success', 'partial', 'failed', 'cancelled',
+                    )},
+                    'run_counts': source_run_counts,
+                }
+            else:
+                baseline_counts = {'cases': baseline_case_count, 'runs': baseline_run_count}
         return {
             'row_type': 'benchmark_execution', 'id': execution.pk,
             'execution_id': execution.pk, 'panel_id': execution.panel_id,
@@ -5736,9 +5786,10 @@ class SimcWorkbenchAPIView(View):
             'status_label': status_labels.get(execution.status, '未知'),
             'progress': progress, 'case_count': len(cases),
             'task_counts': task_counts,
+            'run_count': current_run_count, 'run_counts': run_counts,
+            'baseline_counts': baseline_counts,
             'created_at': execution.created_at,
-            'detail_resource': 'benchmark_executions',
-            'run_count': run_count, 'cases': cases,
+            'detail_resource': 'benchmark_executions', 'cases': cases,
         }
 
     @staticmethod

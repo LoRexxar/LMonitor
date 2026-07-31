@@ -54,9 +54,12 @@ class SimcHistoryPaginationContractTests(unittest.TestCase):
         self.assertIn("taskResponseSignature", JS)
         self.assertIn("background && responseSignature === state.taskResponseSignature", JS)
 
-    def test_benchmark_progress_shows_task_counts_and_per_case_progress_bar(self):
+    def test_benchmark_progress_shows_retry_work_and_baseline_separately(self):
         self.assertIn("row.task_counts", JS)
-        self.assertIn("独立任务：", JS)
+        self.assertIn("本次子任务：", JS)
+        self.assertIn("本次候选 Run：", JS)
+        self.assertIn("来源基线 #", JS)
+        self.assertIn("baseline_counts", JS)
         self.assertIn("simc-benchmark-task-case__progress", JS)
 
     def test_batch_compare_is_rendered_inline(self):
@@ -186,6 +189,50 @@ class SimcHistoryBackendPaginationTests(TestCase):
         self.assertEqual(row['status'], SimcBenchmarkExecution.STATUS_RUNNING)
         self.assertEqual(row['task_counts']['pending'], 1)
         self.assertEqual(row['task_counts']['failed'], 0)
+
+    def test_history_distinguishes_retry_work_from_frozen_baseline_scale(self):
+        panel = SimcBenchmarkPanel.objects.create(
+            name='重跑规模', slug='history-benchmark-retry-scale', created_by_id=self.user.id,
+        )
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, status=SimcBenchmarkExecution.STATUS_RUNNING,
+            config_snapshot={'case_count': 65, 'run_count': 3407}, config_hash='e' * 64,
+        )
+        source_task = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            name='外部基线任务', current_status=2, is_active=True,
+        )
+        SimcBenchmarkCase.objects.create(
+            execution=SimcBenchmarkExecution.objects.create(
+                panel=panel, status=SimcBenchmarkExecution.STATUS_PARTIAL,
+                config_snapshot={'case_count': 65, 'run_count': 3407}, config_hash='d' * 64,
+            ),
+            task=source_task, status=SimcBenchmarkExecution.STATUS_PARTIAL,
+            spec_key='warrior_fury', scenario_key='patchwerk', profile_key='raid',
+            spec_label='狂怒', scenario_label='木桩', profile_label='Raid', coordinate_hash='d' * 64,
+        )
+        retry_task = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            name='重跑任务', current_status=1, is_active=True, source_task=source_task,
+        )
+        SimulationRun.objects.create(task=retry_task, sequence=1, candidate_key='retry', status='pending')
+        SimcBenchmarkCase.objects.create(
+            execution=execution, task=retry_task, status=SimcBenchmarkExecution.STATUS_RUNNING,
+            spec_key='warrior_fury', scenario_key='patchwerk', profile_key='raid',
+            spec_label='狂怒', scenario_label='木桩', profile_label='Raid', coordinate_hash='f' * 64,
+        )
+
+        row = self.view._benchmark_history_row(execution)
+
+        self.assertEqual(row['case_count'], 1)
+        self.assertEqual(row['run_count'], 1)
+        self.assertEqual(row['baseline_counts'], {
+            'execution_id': source_task.benchmark_case.execution_id,
+            'cases': 65, 'runs': 3407,
+            'case_counts': {'pending': 0, 'running': 0, 'success': 0, 'partial': 1, 'failed': 0, 'cancelled': 0},
+            'run_counts': {'pending': 0, 'running': 0, 'success': 0, 'failed': 0, 'cancelled': 0},
+        })
+        self.assertEqual(row['cases'][0]['source_task_id'], source_task.id)
 
     def test_history_expands_only_benchmark_executions_on_requested_page(self):
         panel = SimcBenchmarkPanel.objects.create(
