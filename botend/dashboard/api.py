@@ -8191,6 +8191,9 @@ def _benchmark_panel_summary(panel, execution=None):
             is_active=panel.active_execution_id == execution.pk,
         ) if execution is not None else None
     )
+    # The Panel's full logical surface is independent from the latest Execution:
+    # a retry may contain only failed coordinates from an earlier complete plan.
+    data['panel_coverage'] = summarize_incremental_panel_coverage(panel)
     return data
 
 

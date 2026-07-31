@@ -196,6 +196,22 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         self.assertNotIn('aggregated_results', row)
         serialize.assert_not_called()
 
+    def test_panel_list_exposes_full_panel_coverage_next_to_latest_execution(self):
+        panel = self._create_panel()
+        coverage = {
+            'coordinates': 96, 'candidate_runs': 5031,
+            'available_results': 4342, 'missing_results': 689,
+            'source_executions': [{'execution_id': 4, 'results': 1511}],
+        }
+        with patch(
+            'botend.dashboard.api.summarize_incremental_panel_coverage',
+            return_value=coverage,
+        ) as summarize:
+            response = self.client.get('/api/simc-benchmarks/panels/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['data'][0]['panel_coverage'], coverage)
+        summarize.assert_called_once_with(panel)
+
     def test_panel_list_and_history_expose_execution_progress_and_metadata_readiness(self):
         panel = self._create_panel()
         snapshot = {'version': 2, 'case_count': 4, 'run_count': 4}

@@ -124,6 +124,12 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         ):
             self.assertIn(selector, CSS)
 
+    def test_panel_page_surfaces_full_panel_coverage_separately_from_execution(self):
+        aggregate = JS[JS.index('function renderPanelCoverage('):JS.index('function renderExecution(', JS.index('function renderPanelCoverage('))]
+        for contract in ('当前面板聚合覆盖', '可用结果', '仍缺结果', 'candidate_runs', 'available_results', 'missing_results'):
+            self.assertIn(contract, aggregate)
+        self.assertIn('panel_coverage', JS)
+
     def test_cross_execution_results_are_a_selectable_dimensioned_ranking(self):
         """The aggregate is a result list, not a flattened coordinate preview."""
         aggregate = JS[JS.index('function renderAggregatedResults('):JS.index('function renderRunProgress(')]
