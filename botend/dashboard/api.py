@@ -5732,7 +5732,7 @@ class SimcWorkbenchAPIView(View):
                     'profile_key': case.profile_key,
                 },
                 'labels': {
-                    'spec': case.spec_label,
+                    'spec': _benchmark_spec_display_name(case.spec_label, case.spec_key),
                     'scenario': case.scenario_label,
                     'profile': case.profile_label,
                 },
@@ -8362,7 +8362,7 @@ def _benchmark_safe_key(value):
     return _benchmark_safe_string(value, limit=200) or ''
 
 
-def _benchmark_spec_display_name(value):
+def _benchmark_spec_display_name(value, spec_key=None):
     text = _benchmark_safe_key(value)
     normalized = re.sub(r'[^a-z0-9]', '', text.lower())
     names = {
@@ -8370,12 +8370,25 @@ def _benchmark_spec_display_name(value):
         for name, label in SPEC_CN.items()
     }
     direct = names.get(normalized)
-    if direct:
-        return direct
-    for name, label in sorted(names.items(), key=lambda item: -len(item[0])):
-        if normalized.endswith(name):
-            return label
-    return text
+    if not direct:
+        for name, label in sorted(names.items(), key=lambda item: -len(item[0])):
+            if normalized.endswith(name):
+                direct = label
+                break
+    if not direct:
+        normalized_key = re.sub(r'[^a-z0-9]', '', _benchmark_safe_key(spec_key).lower())
+        for name, label in sorted(names.items(), key=lambda item: -len(item[0])):
+            if normalized_key.endswith(name):
+                direct = label
+                break
+    if not direct:
+        return text
+
+    normalized_key = re.sub(r'[^a-z0-9]', '', _benchmark_safe_key(spec_key).lower())
+    for name, label in CLASS_CN.items():
+        if normalized_key.startswith(re.sub(r'[^a-z0-9]', '', name.lower())):
+            return f'{direct}-{label}'
+    return direct
 
 
 def _benchmark_safe_count(value):
@@ -8425,7 +8438,9 @@ def _benchmark_safe_detail(summary, execution):
                 'profile_key': _benchmark_safe_key(row.get('profile_key')),
             },
             'labels': {
-                'spec': _benchmark_spec_display_name(labels.get('spec')),
+                'spec': _benchmark_spec_display_name(
+                    labels.get('spec'), row.get('spec_key'),
+                ),
                 'scenario': _benchmark_safe_key(labels.get('scenario')),
                 'profile': _benchmark_safe_key(labels.get('profile')),
             },

@@ -18,7 +18,7 @@ from django.db.models import CharField, Count, Prefetch, Q, Value
 from django.db.models.functions import Concat
 from django.utils import timezone
 
-from botend.constants.wow import SPEC_CN
+from botend.constants.wow import CLASS_CN, SPEC_CN
 from botend.models import (
     SimcBenchmarkCase, SimcBenchmarkExecution, SimcBenchmarkPanel,
     SimcBenchmarkResult, SimcTask, SimulationRun,
@@ -78,17 +78,32 @@ def _requester_id(requested_by):
     return value
 
 
-def _spec_display_name(value):
-    """Translate known specialization names for read-model display only."""
+def _spec_display_name(value, spec_key=None):
+    """Format known specializations as Chinese ``spec-class`` read-model text."""
     text = str(value or '').strip()
     normalized = re.sub(r'[^a-z0-9]', '', text.lower())
     direct = _SPEC_CN_BY_NORMALIZED_NAME.get(normalized)
-    if direct:
-        return direct
-    for name, label in sorted(_SPEC_CN_BY_NORMALIZED_NAME.items(), key=lambda item: -len(item[0])):
-        if normalized.endswith(name):
-            return label
-    return text
+    if not direct:
+        for name, label in sorted(_SPEC_CN_BY_NORMALIZED_NAME.items(), key=lambda item: -len(item[0])):
+            if normalized.endswith(name):
+                direct = label
+                break
+    if not direct:
+        normalized_key = re.sub(r'[^a-z0-9]', '', str(spec_key or '').lower())
+        for name, label in sorted(_SPEC_CN_BY_NORMALIZED_NAME.items(), key=lambda item: -len(item[0])):
+            if normalized_key.endswith(name):
+                direct = label
+                break
+    if not direct:
+        return text
+
+    class_name = ''
+    normalized_key = re.sub(r'[^a-z0-9]', '', str(spec_key or '').lower())
+    for name, label in CLASS_CN.items():
+        if normalized_key.startswith(re.sub(r'[^a-z0-9]', '', name.lower())):
+            class_name = label
+            break
+    return f'{direct}-{class_name}' if class_name else direct
 
 
 def _normalize_trigger_slot(trigger, scheduled_slot):
@@ -717,7 +732,9 @@ def serialize_incremental_panel_results(panel):
                 detail = parse_manual_player_config(profile.player_equipment, profile.spec)
                 identity = detail.get('identity')
                 if isinstance(identity, dict):
-                    identity['spec'] = _spec_display_name(identity.get('spec'))
+                    identity['spec'] = _spec_display_name(
+                        identity.get('spec'), coordinate['spec_key'],
+                    )
                 if not detail['talents']['build_code']:
                     detail['talents']['build_code'] = profile.talent
                 profile_details[profile_id] = detail
@@ -742,7 +759,7 @@ def serialize_incremental_panel_results(panel):
             'spec_key': coordinate['spec_key'], 'scenario_key': coordinate['scenario_key'],
             'profile_key': coordinate['profile_key'],
             'labels': {
-                'spec': _spec_display_name(coordinate['spec_label']),
+                'spec': _spec_display_name(coordinate['spec_label'], coordinate['spec_key']),
                 'scenario': coordinate['scenario_label'],
                 'profile': coordinate['profile_label'],
             },

@@ -150,6 +150,7 @@ class SimcHistoryBackendPaginationTests(TestCase):
         self.assertEqual(len(benchmark_rows), 1)
         self.assertFalse(any(row.get('id') == task.id for row in rows if row.get('row_type') != 'benchmark_execution'))
         self.assertEqual(benchmark_rows[0]['cases'][0]['task_id'], task.id)
+        self.assertEqual(benchmark_rows[0]['cases'][0]['labels']['spec'], '狂怒-战士')
         self.assertEqual(benchmark_rows[0]['cases'][0]['progress'], 37)
         self.assertEqual(benchmark_rows[0]['task_counts'], {
             'pending': 0, 'running': 1, 'success': 0, 'partial': 0, 'failed': 0, 'cancelled': 0,
