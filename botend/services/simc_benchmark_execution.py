@@ -14,7 +14,7 @@ from datetime import timezone as datetime_timezone
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Prefetch
+from django.db.models import Count, Prefetch
 from django.utils import timezone
 
 from botend.models import (
@@ -554,6 +554,54 @@ def rerun_failed_cases(execution, requested_by=None):
                 coordinate_hash=source_case.coordinate_hash,
             )
         return new_execution
+
+
+def summarize_panel_coverage_counts(panels):
+    """Return list-safe current-execution counts with one grouped ORM query.
+
+    Cross-Execution result coverage is identity-deduplicated and belongs to the
+    detail surface.  The list exposes the selected baseline/current Execution's
+    own frozen work and Result rows, without scanning historic Executions.
+    """
+    panels = list(panels)
+    coverage = {
+        panel.pk: {
+            'aggregate_baseline_execution_id': panel.aggregate_baseline_execution_id,
+            'coordinates': 0,
+            'candidate_runs': 0,
+            'available_results': 0,
+            'missing_results': 0,
+            'source_executions': [],
+        }
+        for panel in panels
+    }
+    execution_ids = {
+        panel.aggregate_baseline_execution_id
+        or panel.active_execution_id
+        or getattr(panel, 'dashboard_latest_execution_id', None)
+        for panel in panels
+        if panel.aggregate_baseline_execution_id
+        or panel.active_execution_id
+        or getattr(panel, 'dashboard_latest_execution_id', None)
+    }
+    if not execution_ids:
+        return coverage
+    rows = SimcBenchmarkExecution.objects.filter(pk__in=execution_ids).annotate(
+        result_count=Count('cases__results', distinct=True),
+    ).values('id', 'panel_id', 'config_snapshot', 'result_count')
+    for row in rows:
+        snapshot = row['config_snapshot'] if isinstance(row['config_snapshot'], dict) else {}
+        item = coverage[row['panel_id']]
+        runs = snapshot.get('run_count', 0)
+        results = row['result_count']
+        item.update({
+            'coordinates': snapshot.get('case_count', 0),
+            'candidate_runs': runs,
+            'available_results': results,
+            'missing_results': max(0, runs - results),
+            'source_executions': [{'execution_id': row['id'], 'results': results}],
+        })
+    return coverage
 
 
 def summarize_incremental_panel_coverage(panel):

@@ -203,8 +203,8 @@ class SimcBenchmarkDashboardApiTests(TestCase):
             response = self.client.get('/api/simc-benchmarks/panels/')
         self.assertEqual(response.status_code, 200)
         row = response.json()['data'][0]
-        self.assertNotIn('panel_coverage', row)
         self.assertEqual(row['aggregate_baseline_execution_id'], None)
+        self.assertIn('panel_coverage', row)
         summarize.assert_not_called()
 
     def test_panel_list_and_history_expose_execution_progress_and_metadata_readiness(self):
@@ -275,6 +275,15 @@ class SimcBenchmarkDashboardApiTests(TestCase):
             'failed': 1, 'cancelled': 0,
         })
         self.assertEqual(progress['total_runs'], 4)
+        coverage = response.json()['data'][0]['panel_coverage']
+        self.assertEqual(coverage, {
+            'aggregate_baseline_execution_id': None,
+            'coordinates': 4,
+            'candidate_runs': 4,
+            'available_results': 0,
+            'missing_results': 4,
+            'source_executions': [{'execution_id': execution.id, 'results': 0}],
+        })
         self.assertEqual(progress['metadata'], {
             'config_frozen': True,
             'task_bindings': 4,

@@ -88,7 +88,7 @@ from botend.services.simc_benchmark_execution import (
     BenchmarkExecutionConflict, create_execution, reconcile_execution,
     rerun_failed_cases, serialize_incremental_panel_results,
     summarize_execution, summarize_incremental_panel_coverage,
-    task_progress, _canonical_hash,
+    summarize_panel_coverage_counts, task_progress, _canonical_hash,
 )
 from botend.services.simc_task_service import TaskValidationUnavailable
 
@@ -8172,7 +8172,7 @@ class _BenchmarkAdminAPIView(View):
         return panel, None
 
 
-def _benchmark_panel_summary(panel, execution=None):
+def _benchmark_panel_summary(panel, execution=None, panel_coverage=None):
     data = {
         'id': panel.pk, 'slug': panel.slug, 'name': panel.name,
         'is_active': panel.is_active, 'is_public': panel.is_public,
@@ -8194,6 +8194,14 @@ def _benchmark_panel_summary(panel, execution=None):
             is_active=panel.active_execution_id == execution.pk,
         ) if execution is not None else None
     )
+    data['panel_coverage'] = panel_coverage or {
+        'aggregate_baseline_execution_id': panel.aggregate_baseline_execution_id,
+        'coordinates': 0,
+        'candidate_runs': 0,
+        'available_results': 0,
+        'missing_results': 0,
+        'source_executions': [],
+    }
     return data
 
 
@@ -8495,12 +8503,14 @@ class SimcBenchmarkPanelListAPIView(_BenchmarkAdminAPIView):
             models.Prefetch('cases', queryset=case_queryset, to_attr='_dashboard_cases'),
         )
         execution_by_id = {execution.pk: execution for execution in executions}
+        coverage_by_panel = summarize_panel_coverage_counts(rows)
         return JsonResponse({'success': True, 'data': [
             _benchmark_panel_summary(
                 panel,
                 execution_by_id.get(
                     panel.active_execution_id or panel.dashboard_latest_execution_id,
                 ),
+                coverage_by_panel[panel.pk],
             )
             for panel in rows
         ]})
