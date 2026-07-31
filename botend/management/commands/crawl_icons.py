@@ -15,44 +15,55 @@ class Command(BaseCommand):
             choices=['all', 'small', 'medium', 'tiny'],
             help='要下载的图标尺寸 (默认: small)'
         )
+        parser.add_argument(
+            '--icon', action='append', default=[],
+            help='只下载指定图标名；可重复传入，且不会扫描业务数据',
+        )
 
     def handle(self, *args, **options):
         from botend.models import SpecDungeonRanking, SpecRaidRanking, PlayerSpecTopPlayer, WowItemSnapshot
 
-        icons = set()
-
-        # 分批收集 icon 名，避免一次性加载全部数据
-        models = [SpecDungeonRanking, SpecRaidRanking, PlayerSpecTopPlayer]
-        for model in models:
-            self.stdout.write(f'扫描 {model.__name__}...')
-            count = 0
-            # 用 iterator 逐条读取，不缓存到内存
-            for row in model.objects.values_list('talents_json', 'gear_json').iterator(chunk_size=200):
-                for json_data in row:
-                    if not json_data or not isinstance(json_data, list):
-                        continue
-                    for item in json_data:
-                        if isinstance(item, dict):
-                            self._collect_icon_from_payload(item, icons)
-                count += 1
-                if count % 1000 == 0:
-                    gc.collect()  # 主动回收内存
-
-            self.stdout.write(f'  {model.__name__}: {count} 条记录, {len(icons)} 个图标')
-
-        self.stdout.write('扫描 WowItemSnapshot...')
-        snapshot_count = 0
-        for icon_name in WowItemSnapshot.objects.exclude(icon='').values_list('icon', flat=True).iterator(chunk_size=500):
-            normalized = self._normalize_icon_name(icon_name)
-            if normalized:
-                icons.add(normalized)
-            snapshot_count += 1
-            if snapshot_count % 2000 == 0:
-                gc.collect()
-        self.stdout.write(f'  WowItemSnapshot: {snapshot_count} 条记录, {len(icons)} 个图标')
-
-        icons.discard(None)
+        icons = {
+            self._normalize_icon_name(icon_name)
+            for icon_name in options.get('icon', [])
+        }
         icons.discard('')
+
+        if icons:
+            self.stdout.write(f'定向下载 {len(icons)} 个图标，不扫描业务数据')
+        else:
+            # 分批收集 icon 名，避免一次性加载全部数据
+            models = [SpecDungeonRanking, SpecRaidRanking, PlayerSpecTopPlayer]
+            for model in models:
+                self.stdout.write(f'扫描 {model.__name__}...')
+                count = 0
+                # 用 iterator 逐条读取，不缓存到内存
+                for row in model.objects.values_list('talents_json', 'gear_json').iterator(chunk_size=200):
+                    for json_data in row:
+                        if not json_data or not isinstance(json_data, list):
+                            continue
+                        for item in json_data:
+                            if isinstance(item, dict):
+                                self._collect_icon_from_payload(item, icons)
+                    count += 1
+                    if count % 1000 == 0:
+                        gc.collect()  # 主动回收内存
+
+                self.stdout.write(f'  {model.__name__}: {count} 条记录, {len(icons)} 个图标')
+
+            self.stdout.write('扫描 WowItemSnapshot...')
+            snapshot_count = 0
+            for icon_name in WowItemSnapshot.objects.exclude(icon='').values_list('icon', flat=True).iterator(chunk_size=500):
+                normalized = self._normalize_icon_name(icon_name)
+                if normalized:
+                    icons.add(normalized)
+                snapshot_count += 1
+                if snapshot_count % 2000 == 0:
+                    gc.collect()
+            self.stdout.write(f'  WowItemSnapshot: {snapshot_count} 条记录, {len(icons)} 个图标')
+
+            icons.discard(None)
+            icons.discard('')
         self.stdout.write(f'共发现 {len(icons)} 个唯一图标')
 
         # 确定下载尺寸
