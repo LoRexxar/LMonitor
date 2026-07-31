@@ -45,6 +45,11 @@ COMPLETION_TEXT_MAX_BYTES = 256 * 1024
 COMPLETION_ATTEMPTS = 3
 COMPLETION_RETRY_DELAY_SECONDS = 0.25
 COMPLETION_RETRY_MAX_DELAY_SECONDS = 2.0
+# A control-plane restart can briefly return a 5xx or close the connection
+# before the web process is ready again. Registration must survive that window
+# in the long-running Agent process instead of becoming a fatal exit.
+CONTROL_PLANE_RETRY_DELAY_SECONDS = 1.0
+CONTROL_PLANE_RETRY_MAX_DELAY_SECONDS = 30.0
 TRUSTED_REPOSITORY_URLS = {
     'git@github.com:LoRexxar/LMonitor.git',
     'https://github.com/LoRexxar/LMonitor.git',
@@ -178,6 +183,11 @@ class APIError(RuntimeError):
         self.status = status
         self.details = details or {}
         super().__init__(message)
+
+
+def _is_transient_control_plane_error(exc: Exception) -> bool:
+    """Return whether an API failure is safe to retry without changing state."""
+    return isinstance(exc, APIError) and (exc.status is None or 500 <= exc.status < 600)
 
 
 def _is_windows() -> bool:
@@ -948,6 +958,28 @@ class SimcAgentConsumer:
         self.lease_seconds = self._positive_number(response.get('lease_seconds', 90), 'lease_seconds')
         self._set_maintenance_policy(response)
 
+    def register_until_available(self, *, once: bool = False) -> None:
+        """Register while the control plane is restarting.
+
+        Authentication and protocol errors remain fatal. Only transport/5xx
+        failures are retried because they do not change Agent credentials.
+        """
+        delay = CONTROL_PLANE_RETRY_DELAY_SECONDS
+        while not self.stop_event.is_set():
+            try:
+                self.register()
+                return
+            except Exception as exc:
+                if not _is_transient_control_plane_error(exc) or once:
+                    raise
+                self.logger.warning(
+                    'control plane unavailable during registration; retrying in %.1fs: %s',
+                    delay, exc,
+                )
+                self.stop_event.wait(delay)
+                delay = min(CONTROL_PLANE_RETRY_MAX_DELAY_SECONDS, delay * 2)
+        raise APIError('Agent stopped while waiting for control plane registration')
+
     @staticmethod
     def _positive_number(value: Any, name: str) -> float:
         if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
@@ -1482,7 +1514,7 @@ class SimcAgentConsumer:
             thread.join(timeout=2)
 
     def run(self, once: bool = False) -> None:
-        self.register()
+        self.register_until_available(once=once)
         self.logger.info(
             'Agent %s registered; instance=%s backend=%s',
             VERSION, self.instance_id, self.config.backend_identifier or 'enrollment-bound',

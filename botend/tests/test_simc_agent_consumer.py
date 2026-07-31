@@ -52,6 +52,36 @@ class SimcAgentConsumerTests(SimpleTestCase):
                 {'status': 'running'}, {'status': 'success'},
             ])
 
+    def test_registration_retries_control_plane_500_until_service_returns(self):
+        from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(self.config(root)), transport=MagicMock())
+            consumer.register = MagicMock(side_effect=[
+                APIError('temporarily restarting', status=500),
+                APIError('temporarily restarting', status=502),
+                None,
+            ])
+            consumer.stop_event.wait = MagicMock()
+
+            consumer.register_until_available()
+
+            self.assertEqual(consumer.register.call_count, 3)
+            self.assertEqual(consumer.stop_event.wait.call_args_list[0].args, (1.0,))
+            self.assertEqual(consumer.stop_event.wait.call_args_list[1].args, (2.0,))
+
+    def test_registration_keeps_authentication_errors_fatal(self):
+        from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(self.config(root)), transport=MagicMock())
+            consumer.register = MagicMock(side_effect=APIError('invalid token', status=401))
+
+            with self.assertRaises(APIError):
+                consumer.register_until_available()
+
+            consumer.register.assert_called_once_with()
+
     def test_config_is_independent_and_rejects_unknown_or_insecure_values(self):
         from simc_agent_consumer import AgentConfig, ConfigError
 
