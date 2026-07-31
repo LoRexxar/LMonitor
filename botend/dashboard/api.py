@@ -5702,13 +5702,13 @@ class SimcWorkbenchAPIView(View):
 
         cases = []
         progress_values = []
-        task_counts = {key: 0 for key in ('pending', 'running', 'success', 'failed', 'cancelled')}
+        task_counts = {key: 0 for key in ('pending', 'running', 'success', 'partial', 'failed', 'cancelled')}
         run_counts = {key: 0 for key in ('pending', 'running', 'success', 'failed', 'cancelled')}
         current_run_count = 0
         for case in case_rows:
-            task = case.task if active else None
-            task_status = task_status_names.get(task.current_status, 'failed') if task else case.status
-            progress = task_progress(task) if task else (None if active else 100)
+            task = case.task
+            task_status = task_status_names.get(task.current_status, 'failed') if active and task else case.status
+            progress = task_progress(task) if active and task else (None if active else 100)
             effective_progress = progress
             if effective_progress is None:
                 effective_progress = 100 if task_status in {'success', 'failed', 'cancelled'} else 0

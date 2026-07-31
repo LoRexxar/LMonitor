@@ -150,7 +150,7 @@ class SimcHistoryBackendPaginationTests(TestCase):
         self.assertEqual(benchmark_rows[0]['cases'][0]['task_id'], task.id)
         self.assertEqual(benchmark_rows[0]['cases'][0]['progress'], 37)
         self.assertEqual(benchmark_rows[0]['task_counts'], {
-            'pending': 0, 'running': 1, 'success': 0, 'failed': 0, 'cancelled': 0,
+            'pending': 0, 'running': 1, 'success': 0, 'partial': 0, 'failed': 0, 'cancelled': 0,
         })
 
     def test_history_keeps_rebound_benchmark_retry_lineage_inside_execution(self):
@@ -195,7 +195,7 @@ class SimcHistoryBackendPaginationTests(TestCase):
             name='重跑规模', slug='history-benchmark-retry-scale', created_by_id=self.user.id,
         )
         execution = SimcBenchmarkExecution.objects.create(
-            panel=panel, status=SimcBenchmarkExecution.STATUS_RUNNING,
+            panel=panel, status=SimcBenchmarkExecution.STATUS_PARTIAL,
             config_snapshot={'case_count': 65, 'run_count': 3407}, config_hash='e' * 64,
         )
         source_task = SimcTask.objects.create(
@@ -232,6 +232,8 @@ class SimcHistoryBackendPaginationTests(TestCase):
             'case_counts': {'pending': 0, 'running': 0, 'success': 0, 'partial': 1, 'failed': 0, 'cancelled': 0},
             'run_counts': {'pending': 0, 'running': 0, 'success': 0, 'failed': 0, 'cancelled': 0},
         })
+        self.assertEqual(row['task_counts']['partial'], 0)
+        self.assertEqual(row['run_counts']['pending'], 1)
         self.assertEqual(row['cases'][0]['source_task_id'], source_task.id)
 
     def test_history_expands_only_benchmark_executions_on_requested_page(self):
