@@ -170,6 +170,23 @@ def _task_candidate_identities(task):
     }
 
 
+def _task_candidate_identities_through_source_chain(task):
+    """Merge frozen candidate identities from a retry Task and its provenance."""
+    tasks = []
+    current = task
+    seen = set()
+    while current is not None and current.pk not in seen:
+        tasks.append(current)
+        seen.add(current.pk)
+        if current.source_task_id is None:
+            break
+        current = SimcTask.objects.select_related('source_task').get(pk=current.source_task_id)
+    identities = {}
+    for source in reversed(tasks):
+        identities.update(_task_candidate_identities(source))
+    return identities
+
+
 def _coordinate_input_identity(coordinate):
     return _canonical_hash({
         'spec_key': coordinate['spec_key'], 'scenario_key': coordinate['scenario_key'],
@@ -206,7 +223,7 @@ def _reusable_candidate_tasks_by_coordinate(panel):
             'backend_id': task.backend_id, 'simulation_params': task.simulation_params or {},
         })
         candidates = coordinates.setdefault(coordinate, {})
-        identities = _task_candidate_identities(task)
+        identities = _task_candidate_identities_through_source_chain(task)
         for result in case.results.all():
             identity = identities.get(result.candidate_key)
             if identity and identity not in candidates:
@@ -1025,10 +1042,9 @@ def backfill_completed_case_results(execution):
         if layout is None:
             _validation_error('Execution 缺少有效冻结快照', 'execution')
         expected = dict(layout)
-        cases = list(SimcBenchmarkCase.objects.filter(execution_id=locked.pk).prefetch_related(
-            Prefetch('task__simulation_runs', queryset=SimulationRun.objects.order_by('sequence', 'id'),
-                     to_attr='_backfill_runs'),
-        ).order_by('id'))
+        cases = list(SimcBenchmarkCase.objects.filter(
+            execution_id=locked.pk,
+        ).select_related('task').order_by('id'))
         rows = []
         existing = {
             (row.case_id, row.candidate_key): row.dps
@@ -1038,20 +1054,22 @@ def backfill_completed_case_results(execution):
             coordinate = (case.spec_key, case.scenario_key, case.profile_key)
             candidate_keys = expected.get(coordinate)
             task = case.task
-            runs = task._backfill_runs if task is not None else []
-            if case.status != SimcBenchmarkExecution.STATUS_SUCCESS:
-                continue
-            if candidate_keys is None or [run.candidate_key for run in runs] != candidate_keys:
+            runs_by_key = _runs_through_source_chain(task) if task is not None else {}
+            ordered_runs = [runs_by_key[key] for key in candidate_keys if key in runs_by_key] \
+                if candidate_keys is not None else []
+            # A Result can be restored for every independently verified completed
+            # candidate. The Case lifecycle remains unchanged unless reconcile owns it.
+            if candidate_keys is None:
                 continue
             case_rows = []
-            for run in runs:
+            for run in ordered_runs:
                 summary = run.result_summary if isinstance(run.result_summary, dict) else {}
                 dps = summary.get('dps')
-                if (run.status != 'completed' or isinstance(dps, bool)
-                        or not isinstance(dps, (int, float)) or not math.isfinite(dps)
-                        or dps <= 0):
-                    case_rows = []
-                    break
+                if run.status != 'completed':
+                    continue
+                if (isinstance(dps, bool) or not isinstance(dps, (int, float))
+                        or not math.isfinite(dps) or dps <= 0):
+                    continue
                 expected_dps = float(dps)
                 current_dps = existing.get((case.pk, run.candidate_key))
                 if current_dps is not None:

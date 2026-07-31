@@ -748,6 +748,43 @@ class SimcBenchmarkExecutionTests(TestCase):
             [('baseline', 1234.0), ('trinket', 1260.0)],
         )
 
+    def test_backfill_restores_completed_source_runs_for_partial_retry_without_promoting_case(self):
+        execution = self._create()
+        source_task = execution.cases.get().task
+        source_task.current_status = 3
+        source_task.save(update_fields=['current_status'])
+        self._run(source_task, 1, 'completed', 'baseline', dps=1234)
+        self._run(source_task, 2, 'failed', 'trinket')
+        reconcile_execution(execution)
+
+        retry = rerun_failed_cases(execution, requested_by=self.user_id)
+        retry_case = retry.cases.get()
+        retry_task = retry_case.task
+        retry_task.current_status = 3
+        retry_task.save(update_fields=['current_status'])
+        reconcile_execution(retry)
+        retry.refresh_from_db()
+        self.assertEqual(retry.status, 'failed')
+        self.assertEqual(retry_case.results.count(), 0)
+
+        self.assertEqual(backfill_completed_case_results(retry), 1)
+        self.assertEqual(
+            list(retry_case.results.values_list('candidate_key', 'dps')),
+            [('baseline', 1234.0)],
+        )
+        self.assertEqual(backfill_completed_case_results(retry), 0)
+        retry.refresh_from_db()
+        retry_case.refresh_from_db()
+        self.assertEqual(retry.status, 'failed')
+        self.assertEqual(retry_case.status, 'failed')
+        self.assertEqual(retry_task.simulation_runs.count(), 1)
+        self.assertEqual(source_task.simulation_runs.count(), 2)
+
+        aggregate = serialize_incremental_panel_results(self.panel)
+        self.assertEqual(aggregate['coordinates'][0]['candidates'], [
+            self._aggregate_candidate('baseline', 1234.0, retry_task.id, label='Baseline'),
+        ])
+
     def test_success_task_with_mixed_terminal_runs_is_partial_and_not_published(self):
         execution = self._create()
         task = execution.cases.get().task
