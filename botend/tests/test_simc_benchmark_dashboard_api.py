@@ -140,7 +140,7 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         self.assertEqual(response.json()['data']['id'], execution.id)
         rerun.assert_called_once_with(execution, requested_by=self.staff)
 
-    def test_panel_list_projects_cross_execution_immutable_result_aggregation(self):
+    def test_panel_list_does_not_project_results_for_the_configuration_page(self):
         panel = self._create_panel()
         aggregate = {
             'panel_id': panel.id,
@@ -161,8 +161,8 @@ class SimcBenchmarkDashboardApiTests(TestCase):
             response = self.client.get('/api/simc-benchmarks/panels/')
         self.assertEqual(response.status_code, 200, response.content)
         row = response.json()['data'][0]
-        self.assertEqual(row['aggregated_results'], aggregate)
-        serialize.assert_called_once_with(panel)
+        self.assertNotIn('aggregated_results', row)
+        serialize.assert_not_called()
 
     def test_panel_list_and_history_expose_execution_progress_and_metadata_readiness(self):
         panel = self._create_panel()

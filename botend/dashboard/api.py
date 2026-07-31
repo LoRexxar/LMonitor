@@ -8139,9 +8139,6 @@ def _benchmark_panel_summary(panel, execution=None):
             is_active=panel.active_execution_id == execution.pk,
         ) if execution is not None else None
     )
-    # Results are a read projection across immutable Case/Task/Result records;
-    # a single Execution only represents the latest scheduling boundary.
-    data['aggregated_results'] = serialize_incremental_panel_results(panel)
     return data
 
 

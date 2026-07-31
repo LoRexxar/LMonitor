@@ -207,7 +207,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         for text in ('面板概览', '高级配置', '定时策略', '专精配置', '场景', '候选装备'):
             self.assertIn(text, CONFIG_PAGE)
         self.assertIn("actionButton('history','子任务状态'", JS)
-        self.assertIn("actionButton('results','查看结果'", JS)
+        self.assertIn("actionButton('results','独立结果页'", JS)
         self.assertIn("actionButton('rerun-failed','批量失败重跑'", JS)
         self.assertIn("['failed','partial','cancelled'].includes(execution.status)", JS)
         self.assertIn("benchmarkFetch(`${API}executions/${id}/rerun-failed/`", JS)

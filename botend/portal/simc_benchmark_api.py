@@ -4,10 +4,24 @@ from django.http import JsonResponse
 from django.views import View
 
 from botend.models import SimcBenchmarkPanel
-from botend.services.simc_benchmark_execution import serialize_public_execution
+from botend.services.simc_benchmark_execution import serialize_incremental_panel_results
 
 
-_NOT_READY = {'status': 'not_ready', 'execution': None}
+_NOT_READY = {'status': 'not_ready', 'results': {'coordinates': []}}
+
+
+def _public_result_payload(panel):
+    results = serialize_incremental_panel_results(panel)
+    coordinates = results.get('coordinates', [])
+    return {
+        'status': 'ready' if coordinates else 'not_ready',
+        'panel': {
+            'slug': panel.slug,
+            'name': panel.name,
+            'description': panel.description,
+        },
+        'results': {'coordinates': coordinates},
+    }
 
 
 class PortalSimcBenchmarkPanelListAPIView(View):
@@ -21,26 +35,23 @@ class PortalSimcBenchmarkPanelListAPIView(View):
             is_active=True, is_public=True,
         ).order_by('name', 'id')
         for panel in queryset:
-            public = serialize_public_execution(panel)
+            payload = _public_result_payload(panel)
             panels.append({
                 'slug': panel.slug,
                 'name': panel.name,
                 'description': panel.description,
-                'status': 'ready' if public.get('status') == 'ready' else 'not_ready',
+                'status': payload['status'],
             })
         return JsonResponse({'status': 'ready', 'panels': panels})
 
 
 class PortalSimcBenchmarkPanelDetailAPIView(View):
-    """Return a sealed aggregate by active slug; private panels are simply unlisted."""
+    """Return an immediate projection for a publicly visible benchmark panel."""
 
     http_method_names = ['get', 'head', 'options']
 
     def get(self, request, slug):
         panel = SimcBenchmarkPanel.objects.filter(
-            is_active=True, slug=slug,
+            is_active=True, is_public=True, slug=slug,
         ).first()
-        payload = serialize_public_execution(panel) if panel is not None else _NOT_READY
-        if payload.get('status') not in {'ready', 'not_ready'}:
-            payload = _NOT_READY
-        return JsonResponse(payload)
+        return JsonResponse(_public_result_payload(panel) if panel else _NOT_READY)

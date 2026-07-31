@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="/favicon.ico">
+    <title>SimC 基准结果 · WowDaily.cn</title>
+    {% load static %}
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260708_news_index">
+    <link rel="stylesheet" href="{% static 'portal/css/simc-benchmarks.css' %}?v=20260728_bloodmallet">
+</head>
+<body class="portal-bg font-sans">
+    <header class="portal-header">
+        <div class="portal-header-inner">
+            <div class="portal-header-left">
+                <a href="/" class="portal-header-brand" aria-label="返回 WowDaily 首页">
+                    <div class="portal-header-logo">
+                        <svg class="portal-logo-fallback-icon w-5 h-5 text-indigo-700" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-globe"></use></svg>
+                        <img class="portal-logo-img" src="{% static 'portal/images/portal-logo.webp' %}" alt="魔兽世界每日节奏徽章" loading="lazy" onload="this.previousElementSibling.style.display='none'" onerror="this.style.display='none'">
+                    </div>
+                    <div class="portal-header-title">魔兽世界每日节奏 WowDaily.cn</div>
+                </a>
+            </div>
+            <div class="portal-header-actions">
+                <a href="/" class="portal-pill portal-action-btn text-slate-700 hover:text-slate-900">首页</a>
+                <a href="/portal/news/" class="portal-pill portal-action-btn text-slate-700 hover:text-slate-900">新闻聚合</a>
+                <a href="/dashboard/" class="portal-pill portal-action-btn text-slate-700 hover:text-slate-900">后台</a>
+            </div>
+        </div>
+    </header>
+    <main class="max-w-[1200px] mx-auto px-4 py-8">
+        <section class="portal-card portal-card-accent portal-accent-indigo shadow-sm border border-slate-200/70 p-5">
+            <div class="simc-benchmark-heading">
+                <div>
+                    <div class="text-xs font-semibold tracking-[0.18em] text-indigo-500">SIMC BENCHMARK RESULTS</div>
+                    <h1 id="simc-benchmarks-title">模拟结果</h1>
+                    <p>独立展示已发布的基准模拟结果。选择专精、战斗场景和 Profile，查看当前组合下候选方案的 DPS 排名。</p>
+                </div>
+            </div>
+            <div id="simc-benchmark-root" class="simc-benchmark-panels" aria-live="polite" aria-busy="true">
+                <div class="simc-benchmark-state" role="status">正在加载 Benchmark 结果…</div>
+            </div>
+        </section>
+    </main>
+    <script src="{% static 'portal/js/simc-benchmarks.js' %}?v=20260728_bloodmallet"></script>
+</body>
+</html>

@@ -39,6 +39,10 @@
                     <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-tools"></use></svg>
                     <span>MDT</span>
                 </a>
+                <a href="/portal/simc-benchmarks/" class="portal-pill portal-action-btn inline-flex items-center gap-2 text-slate-700 hover:text-slate-900">
+                    <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chart"></use></svg>
+                    <span>SimC 结果</span>
+                </a>
                 <a href="/dashboard/" class="portal-pill portal-action-btn portal-action-btn--icon inline-flex items-center justify-center text-slate-700 hover:text-slate-900" aria-label="后台" title="后台">
                     <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-tools"></use></svg>
                 </a>
@@ -132,17 +136,6 @@
             <div id="wow-skill-diff-list" class="mt-3 text-sm"></div>
         </div>
 
-        <section id="section-simc-benchmarks" class="mt-6" aria-labelledby="simc-benchmarks-title" hidden>
-            <div class="simc-benchmark-heading">
-                <div>
-                    <h2 id="simc-benchmarks-title">SimC Benchmark</h2>
-                    <p>已发布候选方案 DPS 聚合对比</p>
-                </div>
-            </div>
-            <div id="simc-benchmark-root" class="simc-benchmark-panels" aria-live="polite" aria-busy="true">
-                <div class="simc-benchmark-state" role="status">正在加载 Benchmark…</div>
-            </div>
-        </section>
 
         <div id="section-nga" class="snap-section mt-4 portal-card portal-card-accent portal-accent-amber shadow-sm border border-slate-200/70 p-4">
             <div class="flex items-center justify-between gap-3">
@@ -244,6 +237,5 @@
     <nav id="snap-dots" class="snap-dots" aria-label="首页板块导航"></nav>
 
     <script src="{% static 'portal/js/main.js' %}?v=20260703_daily_report_card"></script>
-    <script src="{% static 'portal/js/simc-benchmarks.js' %}?v=20260728_bloodmallet"></script>
 </body>
 </html>
