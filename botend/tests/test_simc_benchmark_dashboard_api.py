@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from botend.models import (
     SimcApl, SimcBackendBinary, SimcBenchmarkCase, SimcBenchmarkExecution,
-    SimcBenchmarkPanel, SimcContentTemplate, SimcProfile, SimcTask,
+    SimcBenchmarkPanel, SimcBenchmarkResult, SimcContentTemplate, SimcProfile, SimcTask,
     SimulationRun,
 )
 from botend.services.simc_benchmark_execution import BenchmarkExecutionConflict
@@ -196,15 +196,62 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         self.assertNotIn('aggregated_results', row)
         serialize.assert_not_called()
 
-    def test_panel_list_does_not_build_cross_execution_coverage(self):
-        """The configuration list must not rebuild plans or scan historic Results."""
-        self._create_panel()
+    def test_panel_list_keeps_full_coverage_when_active_supplement_owns_every_coordinate(self):
+        """A supplement can contain 96 Case Tasks but only the missing candidate Runs."""
+        panel = self._create_panel()
+        full_snapshot = {'version': 2, 'case_count': 2, 'run_count': 4}
+        full = SimcBenchmarkExecution.objects.create(
+            panel=panel, config_snapshot=full_snapshot, config_hash='a' * 64,
+            status='partial', completed_at=timezone.now(),
+        )
+        for index, coordinate_hash in enumerate(('a' * 64, 'b' * 64)):
+            case = SimcBenchmarkCase.objects.create(
+                execution=full, status='success', spec_key='warrior_fury',
+                scenario_key=f'full-{index}', profile_key=str(index), spec_label='Fury',
+                scenario_label=f'Full {index}', profile_label='Raid',
+                coordinate_hash=coordinate_hash,
+            )
+            for key in ('baseline', 'candidate'):
+                SimcBenchmarkResult.objects.create(
+                    case=case, candidate_key=key, dps=1000 + index,
+                )
+
+        supplement_snapshot = {'version': 2, 'case_count': 2, 'run_count': 2, 'execution_mode': 'supplement'}
+        supplement = SimcBenchmarkExecution.objects.create(
+            panel=panel, config_snapshot=supplement_snapshot, config_hash='b' * 64,
+            status='running',
+        )
+        panel.active_execution = supplement
+        panel.save(update_fields=['active_execution'])
+        for index, coordinate_hash in enumerate(('a' * 64, 'b' * 64)):
+            task = SimcTask.objects.create(
+                user_id=self.staff.id, name=f'supplement-{index}', mode='comparison',
+                simc_profile_id=self.profile.id, backend=self.backend, current_status=0,
+                ext='{}',
+            )
+            SimulationRun.objects.create(task=task, sequence=1, status='pending')
+            SimcBenchmarkCase.objects.create(
+                execution=supplement, task=task, status='pending', spec_key='warrior_fury',
+                scenario_key=f'supplement-{index}', profile_key=str(index), spec_label='Fury',
+                scenario_label=f'Supplement {index}', profile_label='Raid',
+                coordinate_hash=coordinate_hash,
+            )
+
         with patch('botend.dashboard.api.summarize_incremental_panel_coverage') as summarize:
             response = self.client.get('/api/simc-benchmarks/panels/')
         self.assertEqual(response.status_code, 200)
         row = response.json()['data'][0]
         self.assertEqual(row['aggregate_baseline_execution_id'], None)
-        self.assertIn('panel_coverage', row)
+        self.assertEqual(row['execution']['case_count'], 2)
+        self.assertEqual(row['execution']['total_runs'], 2)
+        self.assertEqual(row['panel_coverage'], {
+            'aggregate_baseline_execution_id': full.id,
+            'coordinates': 2,
+            'candidate_runs': 4,
+            'available_results': 4,
+            'missing_results': 0,
+            'source_executions': [],
+        })
         summarize.assert_not_called()
 
     def test_panel_list_and_history_expose_execution_progress_and_metadata_readiness(self):
@@ -277,12 +324,12 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         self.assertEqual(progress['total_runs'], 4)
         coverage = response.json()['data'][0]['panel_coverage']
         self.assertEqual(coverage, {
-            'aggregate_baseline_execution_id': None,
+            'aggregate_baseline_execution_id': execution.id,
             'coordinates': 4,
             'candidate_runs': 4,
             'available_results': 0,
             'missing_results': 4,
-            'source_executions': [{'execution_id': execution.id, 'results': 0}],
+            'source_executions': [],
         })
         self.assertEqual(progress['metadata'], {
             'config_frozen': True,

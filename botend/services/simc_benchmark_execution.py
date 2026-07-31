@@ -14,7 +14,8 @@ from datetime import timezone as datetime_timezone
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Prefetch
+from django.db.models import CharField, Count, Prefetch, Q, Value
+from django.db.models.functions import Concat
 from django.utils import timezone
 
 from botend.models import (
@@ -557,11 +558,14 @@ def rerun_failed_cases(execution, requested_by=None):
 
 
 def summarize_panel_coverage_counts(panels):
-    """Return list-safe current-execution counts with one grouped ORM query.
+    """Return list-safe full-surface coverage with grouped database aggregates.
 
-    Cross-Execution result coverage is identity-deduplicated and belongs to the
-    detail surface.  The list exposes the selected baseline/current Execution's
-    own frozen work and Result rows, without scanning historic Executions.
+    A supplement Execution owns only missing candidate Runs, so it must never
+    replace the Panel's full-surface denominator or hide immutable Results from
+    earlier Executions.  The list selects the aggregate baseline (or, for legacy
+    Panels, the largest frozen full-surface snapshot), then counts distinct
+    coordinate/candidate Result identities at and after that boundary in SQL.
+    It deliberately does not build a plan or load Result rows into Python.
     """
     panels = list(panels)
     coverage = {
@@ -575,32 +579,63 @@ def summarize_panel_coverage_counts(panels):
         }
         for panel in panels
     }
-    execution_ids = {
-        panel.aggregate_baseline_execution_id
-        or panel.active_execution_id
-        or getattr(panel, 'dashboard_latest_execution_id', None)
-        for panel in panels
-        if panel.aggregate_baseline_execution_id
-        or panel.active_execution_id
-        or getattr(panel, 'dashboard_latest_execution_id', None)
-    }
-    if not execution_ids:
+    if not panels:
         return coverage
-    rows = SimcBenchmarkExecution.objects.filter(pk__in=execution_ids).annotate(
-        result_count=Count('cases__results', distinct=True),
-    ).values('id', 'panel_id', 'config_snapshot', 'result_count')
-    for row in rows:
-        snapshot = row['config_snapshot'] if isinstance(row['config_snapshot'], dict) else {}
-        item = coverage[row['panel_id']]
-        runs = snapshot.get('run_count', 0)
-        results = row['result_count']
-        item.update({
-            'coordinates': snapshot.get('case_count', 0),
-            'candidate_runs': runs,
-            'available_results': results,
-            'missing_results': max(0, runs - results),
-            'source_executions': [{'execution_id': row['id'], 'results': results}],
-        })
+
+    # Old Panels predate aggregate_baseline_execution.  Their largest frozen
+    # snapshot is the complete surface; a later supplement is only its delta.
+    executions_by_panel = {}
+    for row in SimcBenchmarkExecution.objects.filter(panel__in=panels).values(
+        'id', 'panel_id', 'config_snapshot',
+    ):
+        executions_by_panel.setdefault(row['panel_id'], []).append(row)
+
+    boundaries = {}
+    for panel in panels:
+        rows = executions_by_panel.get(panel.pk, [])
+        selected = next((row for row in rows if row['id'] == panel.aggregate_baseline_execution_id), None)
+        if selected is None:
+            selected = max(
+                rows,
+                key=lambda row: (
+                    int((row['config_snapshot'] or {}).get('run_count') or 0),
+                    int((row['config_snapshot'] or {}).get('case_count') or 0),
+                    row['id'],
+                ),
+                default=None,
+            )
+        if selected is None:
+            continue
+        snapshot = selected['config_snapshot'] if isinstance(selected['config_snapshot'], dict) else {}
+        item = coverage[panel.pk]
+        item['aggregate_baseline_execution_id'] = selected['id']
+        item['coordinates'] = int(snapshot.get('case_count') or 0)
+        item['candidate_runs'] = int(snapshot.get('run_count') or 0)
+        item['missing_results'] = item['candidate_runs']
+        boundaries[panel.pk] = selected['id']
+
+    # Result rows use the stable display key, whereas reuse identity includes the
+    # executable parameters.  A full baseline freezes those parameters, so this
+    # grouped SQL projection is exact for its frozen surface and avoids loading
+    # every Result into Python.  Count all Panels in one query; the CASE predicate
+    # applies each Panel's independently selected baseline boundary.
+    identity_expression = Concat(
+        'case__coordinate_hash', Value(':'), 'candidate_key',
+        output_field=CharField(),
+    )
+    boundary_filter = Q()
+    for panel_id, boundary_id in boundaries.items():
+        boundary_filter |= Q(case__execution__panel_id=panel_id, case__execution_id__gte=boundary_id)
+    grouped_results = SimcBenchmarkResult.objects.filter(boundary_filter).values(
+        'case__execution__panel_id',
+    ).annotate(available=Count(identity_expression, distinct=True))
+    for row in grouped_results:
+        panel_id = row['case__execution__panel_id']
+        item = coverage[panel_id]
+        result_count = row['available'] or 0
+        item['available_results'] = result_count
+        item['missing_results'] = max(0, item['candidate_runs'] - result_count)
+
     return coverage
 
 

@@ -71,6 +71,11 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertNotIn('name="simulation_params"', PARTIAL)
         self.assertNotIn('csrf_exempt', JS + PARTIAL)
 
+    def test_supplement_confirmation_distinguishes_coordinates_from_missing_runs(self):
+        self.assertIn('不会因面板有 96 个坐标就重跑 96 个完整任务', JS)
+        self.assertIn('个受影响坐标 / ${runs} 个缺失候选 Run', JS)
+        self.assertIn("body:JSON.stringify({mode})", JS)
+
     def test_fetch_contract_and_stale_request_protection(self):
         for contract in ("resolved.origin !== window.location.origin",
                          "credentials:'same-origin'", "X-CSRFToken",

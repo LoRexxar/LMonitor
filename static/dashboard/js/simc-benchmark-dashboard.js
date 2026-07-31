@@ -249,10 +249,10 @@ async function runPanel(id,button,mode='supplement'){
   const full=mode==='full';
   const message=full
     ? '全量重新计算会新建并重新执行当前面板全部候选 Run。旧 Task/Run/Result 保留审计，但立即从当前结果聚合排除；新结果会逐步形成新的基线。继续吗？'
-    : '失败/补充重跑只创建当前基线中缺失结果、失败、部分完成或新加入候选的 Run。已完成 Run 和历史结果不会重跑。继续吗？';
+    : '补充执行会先按缺失候选 Run 规划：同一坐标只会创建仍缺失的候选 Run，不会因面板有 96 个坐标就重跑 96 个完整任务。已完成 Run 和历史结果不会重跑。继续吗？';
   if(!window.confirm(message))return;
   setBusy(button,true);
-  try{await benchmarkFetch(`${API}panels/${id}/run/`,{method:'POST',body:JSON.stringify({mode})});forceDiscoveryUntil=Date.now()+BENCHMARK_DISCOVERY_MS;notify(full?'全量重新计算已创建，新基线开始重建':'失败/补充重跑已创建','success');await loadPanels(true,{background:true});}
+  try{const created=await benchmarkFetch(`${API}panels/${id}/run/`,{method:'POST',body:JSON.stringify({mode})});forceDiscoveryUntil=Date.now()+BENCHMARK_DISCOVERY_MS;const cases=Number(created.case_count)||0,runs=Number(created.run_count)||0;notify(full?`全量重新计算已创建：${cases} 个坐标 / ${runs} 个候选 Run`:`补充执行已创建：${cases} 个受影响坐标 / ${runs} 个缺失候选 Run`,'success');await loadPanels(true,{background:true});}
   catch(e){notify(`创建失败：${e.message}`,'error');}
   finally{setBusy(button,false);}
 }
