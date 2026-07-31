@@ -137,6 +137,13 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         ):
             self.assertIn(contract, self.JS)
 
+    def test_result_renderer_has_collapsible_profile_detail_panel(self):
+        for contract in (
+            'profile_detail', 'simc-benchmark-profile-details', 'profile-details-toggle',
+            'identity', 'equipment', 'talents',
+        ):
+            self.assertIn(contract, self.JS)
+
     def test_result_styles_make_percentage_comparison_and_baseline_contrasting(self):
         for contract in (
             'simc-benchmark-axis-labels', 'simc-benchmark-axis-label',

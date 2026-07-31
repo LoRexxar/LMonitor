@@ -77,6 +77,35 @@
 .simc-benchmark-basic-info > div { min-width: 0; }
 .simc-benchmark-info-label { color: #475569; display: block; font-size: 0.62rem; font-weight: 650; }
 .simc-benchmark-info-value { color: #0f172a; display: block; font-size: 0.78rem; margin-top: 0.12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.simc-benchmark-profile-details {
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.55rem;
+    margin-bottom: 0.8rem;
+}
+.simc-benchmark-profile-details > summary {
+    color: #1e3a8a;
+    cursor: pointer;
+    font-size: 0.74rem;
+    font-weight: 700;
+    list-style-position: inside;
+    padding: 0.55rem 0.7rem;
+}
+.simc-benchmark-profile-detail-body { border-top: 1px solid #e2e8f0; padding: 0.65rem 0.7rem; }
+.simc-benchmark-profile-section + .simc-benchmark-profile-section { border-top: 1px solid #e2e8f0; margin-top: 0.7rem; padding-top: 0.7rem; }
+.simc-benchmark-profile-section h4 { color: #334155; font-size: 0.68rem; margin: 0 0 0.45rem; }
+.simc-benchmark-profile-identity { display: grid; gap: 0.25rem 0.7rem; grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr); margin: 0; }
+.simc-benchmark-profile-identity dt { color: #64748b; font-size: 0.64rem; }
+.simc-benchmark-profile-identity dd { color: #0f172a; font-size: 0.68rem; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.simc-benchmark-profile-talent-code { background: #f1f5f9; border-radius: 0.3rem; color: #334155; display: block; font-size: 0.68rem; overflow-wrap: anywhere; padding: 0.4rem 0.5rem; }
+.simc-benchmark-profile-equipment { display: grid; gap: 0.25rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.simc-benchmark-profile-equipment-row { align-items: baseline; background: #f8fafc; border-radius: 0.3rem; display: grid; gap: 0.35rem; grid-template-columns: 5.5rem minmax(0, 1fr); padding: 0.35rem 0.45rem; }
+.simc-benchmark-profile-equipment-slot { color: #64748b; font-size: 0.62rem; }
+.simc-benchmark-profile-equipment-copy { min-width: 0; }
+.simc-benchmark-profile-equipment-copy strong { color: #0f172a; display: block; font-size: 0.66rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.simc-benchmark-profile-equipment-copy small { color: #64748b; display: block; font-size: 0.58rem; margin-top: 0.1rem; }
+.simc-benchmark-profile-empty { color: #64748b; font-size: 0.68rem; padding: 0.65rem 0.7rem; }
+
 .simc-benchmark-range-note { color: #334155; font-size: 0.65rem; margin: 0.1rem 0 0.25rem; }
 .simc-benchmark-axis-labels { color: #475569; display: flex; font-size: 0.62rem; justify-content: space-between; margin: 0 0.35rem 0.25rem; padding-left: min(15rem, 25%); padding-right: 9.5rem; }
 .simc-benchmark-axis-label { font-variant-numeric: tabular-nums; }
@@ -131,6 +160,9 @@
     .simc-benchmark-case { padding: 0.5rem; }
     .simc-benchmark-chart { max-height: 75vh; }
     .simc-benchmark-basic-info { grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 0.55rem; }
+    .simc-benchmark-profile-identity { grid-template-columns: auto minmax(0, 1fr); }
+    .simc-benchmark-profile-equipment { grid-template-columns: minmax(0, 1fr); }
+    .simc-benchmark-profile-equipment-row { grid-template-columns: 5rem minmax(0, 1fr); }
     .simc-benchmark-axis-labels { padding-left: 0; padding-right: 0; }
     .simc-benchmark-candidate-grid {
         gap: 0.3rem 0.5rem;

@@ -87,16 +87,60 @@
     grid.append(identity, track, metrics); row.appendChild(grid); return row;
   }
 
+  function renderProfileDetails(profileDetail) {
+    const details = node("details", "simc-benchmark-profile-details");
+    const summary = node("summary", "profile-details-toggle", "展开 Profile 配置");
+    details.appendChild(summary);
+    if (!profileDetail || typeof profileDetail !== "object") {
+      details.appendChild(node("div", "simc-benchmark-profile-empty", "该 Profile 没有可展示的配置内容"));
+      return details;
+    }
+    const identity = profileDetail.identity || {};
+    const basics = node("dl", "simc-benchmark-profile-identity");
+    [
+      ["角色", identity.name], ["职业", identity.class_name], ["专精", identity.spec],
+      ["种族", identity.race], ["等级", identity.level], ["服务器", identity.realm],
+    ].forEach(([label, value]) => {
+      if (value === null || value === undefined || value === "") return;
+      basics.append(node("dt", "", label), node("dd", "", value));
+    });
+    const body = node("div", "simc-benchmark-profile-detail-body");
+    if (basics.childElementCount) {
+      const section = node("section", "simc-benchmark-profile-section");
+      section.append(node("h4", "", "基础信息"), basics); body.appendChild(section);
+    }
+    const talentCode = profileDetail?.talents?.build_code;
+    if (talentCode) {
+      const section = node("section", "simc-benchmark-profile-section");
+      const code = node("code", "simc-benchmark-profile-talent-code", talentCode);
+      section.append(node("h4", "", "天赋"), code); body.appendChild(section);
+    }
+    const equipment = Array.isArray(profileDetail.equipment) ? profileDetail.equipment : [];
+    if (equipment.length) {
+      const section = node("section", "simc-benchmark-profile-section");
+      const list = node("div", "simc-benchmark-profile-equipment");
+      equipment.forEach((item) => {
+        const row = node("div", "simc-benchmark-profile-equipment-row");
+        const name = item?.display_name || item?.name_zh || item?.name || `#${item?.item_id || "—"}`;
+        const meta = [item?.item_level ? `装等 ${item.item_level}` : "", item?.enchant?.display_name ? `附魔：${item.enchant.display_name}` : ""]
+          .filter(Boolean).join(" · ");
+        row.append(node("span", "simc-benchmark-profile-equipment-slot", item?.slot_label || item?.slot || "装备"));
+        const copy = node("span", "simc-benchmark-profile-equipment-copy");
+        copy.append(node("strong", "", name));
+        if (meta) copy.appendChild(node("small", "", meta));
+        list.appendChild(row); row.appendChild(copy);
+      });
+      section.append(node("h4", "", `装备 (${equipment.length})`), list); body.appendChild(section);
+    }
+    details.appendChild(body);
+    return details;
+  }
+
   function renderCoordinate(coordinate) {
     const allCandidates = Array.isArray(coordinate?.candidates) ? coordinate.candidates : [];
     const baseline = allCandidates.find(isBaseline);
     const candidates = sortCandidates(allCandidates.filter((candidate) => !isBaseline(candidate)));
     const caseNode = node("section", "simc-benchmark-case");
-    if (!candidates.length) { caseNode.appendChild(state("当前坐标暂无已完成候选结果", "empty")); return caseNode; }
-    const values = candidates.map((candidate) => validDps(candidate?.dps)).filter((value) => value !== null);
-    const lowest = values.length ? Math.min(...values) : 0;
-    const highest = values.length ? Math.max(...values) : 0;
-    const scale = { lowest, highest, range: highest - lowest };
     const info = node("div", "simc-benchmark-basic-info");
     [
       ["simc-benchmark-info-spec", "专精", coordinate?.labels?.spec || coordinate?.spec_key],
@@ -107,6 +151,12 @@
       item.append(node("span", "simc-benchmark-info-label", label), node("strong", "simc-benchmark-info-value", value || "—"));
       info.appendChild(item);
     });
+    caseNode.append(info, renderProfileDetails(coordinate?.profile_detail));
+    if (!candidates.length) { caseNode.appendChild(state("当前坐标暂无已完成候选结果", "empty")); return caseNode; }
+    const values = candidates.map((candidate) => validDps(candidate?.dps)).filter((value) => value !== null);
+    const lowest = values.length ? Math.min(...values) : 0;
+    const highest = values.length ? Math.max(...values) : 0;
+    const scale = { lowest, highest, range: highest - lowest };
     const axis = node("div", "simc-benchmark-axis-labels");
     [0, 25, 50, 75, 100].forEach((value) => axis.appendChild(node("span", "simc-benchmark-axis-label", `${value}%`)));
     const chart = node("div", "simc-benchmark-chart");
@@ -114,7 +164,7 @@
     const range = node("div", "simc-benchmark-range-note", scale.range > 0
       ? `区间对比：${numberFormat.format(lowest)} DPS = 0%，${numberFormat.format(highest)} DPS = 100%`
       : "区间内结果相同");
-    caseNode.append(info, range, axis, chart); return caseNode;
+    caseNode.append(range, axis, chart); return caseNode;
   }
 
   function renderResults(shell, payload) {

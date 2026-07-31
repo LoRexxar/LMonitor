@@ -25,6 +25,7 @@ from botend.models import (
 from botend.services.simc_benchmark_config import (
     MAX_PANEL_CONFIG_BYTES, build_execution_plan,
 )
+from botend.services.simc_player_config import parse_manual_player_config
 from botend.services.simc_task_service import (
     TaskCreationError, TaskPreparedResourceChanged, TaskValidationUnavailable,
     create_task, prepare_task_creation,
@@ -678,11 +679,27 @@ def summarize_incremental_panel_coverage(panel):
 
 
 def serialize_incremental_panel_results(panel):
-    """Aggregate immutable successful Results across independent executions by input identity."""
+    """Aggregate reusable Results and the selected Profile's readable configuration."""
     plan = build_execution_plan(panel, lock=False)
     reusable_by_coordinate = _reusable_candidate_tasks_by_coordinate(panel)
+    profiles = {
+        row.profile_id: row.profile
+        for spec in panel.specs.prefetch_related('profiles__profile')
+        for row in spec.profiles.all()
+    }
+    profile_details = {}
     coordinates = []
     for coordinate in plan['cases']:
+        profile_id = coordinate['profile_id']
+        if profile_id not in profile_details:
+            profile = profiles.get(profile_id)
+            if profile is None:
+                profile_details[profile_id] = None
+            else:
+                detail = parse_manual_player_config(profile.player_equipment, profile.spec)
+                if not detail['talents']['build_code']:
+                    detail['talents']['build_code'] = profile.talent
+                profile_details[profile_id] = detail
         reusable = _reusable_candidate_tasks(panel, coordinate, reusable_by_coordinate)
         rows = []
         for candidate in coordinate['candidates']:
@@ -704,6 +721,7 @@ def serialize_incremental_panel_results(panel):
                 'scenario': coordinate['scenario_label'],
                 'profile': coordinate['profile_label'],
             },
+            'profile_detail': profile_details[profile_id],
             'candidates': rows,
         })
     return {'panel_id': panel.pk, 'coordinates': coordinates}

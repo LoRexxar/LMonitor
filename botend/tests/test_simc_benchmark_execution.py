@@ -237,6 +237,23 @@ class SimcBenchmarkExecutionTests(TestCase):
             self._aggregate_candidate('trinket', 1300.0, original_case.task_id, label='Trinket'),
         ])
 
+    def test_incremental_projection_exposes_profile_detail_for_selected_coordinate(self):
+        self.profile.player_equipment = (
+            'warrior="Profile Player"\nlevel=90\nspec=fury\n'
+            'talents=abc123\nhead=,id=100\nmain_hand=,id=200\n'
+        )
+        self.profile.talent = 'abc123'
+        self.profile.save(update_fields=['player_equipment', 'talent'])
+        self._published_success()
+
+        profile = serialize_incremental_panel_results(self.panel)['coordinates'][0]['profile_detail']
+
+        self.assertEqual(profile['identity']['name'], 'Profile Player')
+        self.assertEqual(profile['identity']['level'], 90)
+        self.assertEqual(profile['talents']['build_code'], 'abc123')
+        self.assertEqual([item['slot'] for item in profile['equipment']], ['head', 'main_hand'])
+        self.assertNotIn('player_equipment', profile)
+
     def test_incremental_result_projection_scans_finalized_cases_once_for_all_coordinates(self):
         self._published_success()
         SimcBenchmarkScenario.objects.create(
