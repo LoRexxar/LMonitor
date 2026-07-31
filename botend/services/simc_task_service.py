@@ -341,6 +341,9 @@ def _normalize_candidates(candidates, round_number=1):
             'candidate_label': str(candidate.get('candidate_label') or candidate.get('label') or key)[:200],
             'round_number': max(1, int(candidate.get('round_number') or round_number)),
             'candidate_params': params,
+            'display_metadata': {
+                'icon_url': str(candidate.get('icon_url') or '')[:500],
+            },
         })
     return frozen
 
@@ -365,6 +368,7 @@ def initialize_task_runs(task, expected_started_at=None):
             candidate_label=candidate['candidate_label'],
             round_number=candidate['round_number'],
             candidate_params=candidate['candidate_params'],
+            display_metadata=candidate['display_metadata'],
             status='pending',
         ) for index, candidate in enumerate(candidates, 1)]
         SimulationRun.objects.bulk_create(rows)
@@ -389,7 +393,8 @@ def append_candidate_runs(task, candidates, round_number=1, expected_started_at=
                 candidate_key=candidate['candidate_key'],
                 candidate_label=candidate['candidate_label'],
                 round_number=candidate['round_number'],
-                candidate_params=candidate['candidate_params'], status='pending',
+                candidate_params=candidate['candidate_params'],
+                display_metadata=candidate['display_metadata'], status='pending',
             ))
         SimulationRun.objects.bulk_create(rows)
         if locked.current_status in (2, 3):

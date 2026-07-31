@@ -459,12 +459,14 @@ def _copy_failed_runs_for_retry(source_task, rerun_task):
             'candidate_label': run.candidate_label if run else candidate_key,
             'round_number': run.round_number if run else 1,
             'candidate_params': deepcopy(run.candidate_params) if run else {},
+            'display_metadata': deepcopy(run.display_metadata) if run else {},
         }
         retry_candidates.append(candidate)
         retry_runs.append(SimulationRun(
             task=rerun_task, sequence=len(retry_runs) + 1, status='pending',
             candidate_key=candidate_key, candidate_label=candidate['candidate_label'],
             round_number=candidate['round_number'], candidate_params=candidate['candidate_params'],
+            display_metadata=candidate['display_metadata'],
         ))
     if not retry_runs:
         _validation_error('失败子任务没有可重跑的 Run', 'execution')
@@ -522,7 +524,9 @@ def rerun_failed_cases(execution, requested_by=None):
             _validation_error('失败子任务缺少冻结坐标', 'execution')
         new_execution = SimcBenchmarkExecution.objects.create(
             panel=panel, trigger=SimcBenchmarkExecution.TRIGGER_MANUAL,
-            config_snapshot=snapshot, config_hash=_canonical_hash(snapshot),
+            config_snapshot=snapshot,
+            display_metadata=deepcopy(source.display_metadata),
+            config_hash=_canonical_hash(snapshot),
         )
         panel.active_execution = new_execution
         panel.save(update_fields=['active_execution'])
@@ -1382,6 +1386,7 @@ def serialize_public_execution(panel_or_execution):
     ).first()
     if execution is None:
         return {'status': 'not_ready', 'execution': None}
+    display_metadata = execution.display_metadata if isinstance(execution.display_metadata, dict) else {}
     raw_snapshot = execution.config_snapshot
     snapshot = raw_snapshot if isinstance(raw_snapshot, dict) else {}
     # ``config_hash`` is the publication seal, not optional historical metadata.
@@ -1521,6 +1526,8 @@ def serialize_public_execution(panel_or_execution):
         candidates = []
         for run in row['runs']:
             candidate = candidate_metadata[run['key']]
+            display = display_metadata.get(run['key'])
+            display = display if isinstance(display, dict) else {}
             seal_rows.append({
                 'spec_key': row['spec_key'], 'scenario_key': row['scenario_key'],
                 'profile_key': row['profile_key'],
@@ -1532,9 +1539,9 @@ def serialize_public_execution(panel_or_execution):
             })
             candidates.append({
                 'key': run['key'],
-                'label': candidate['label'],
+                'label': str(display.get('label') or candidate['label']),
                 'type': candidate['candidate_type'],
-                'icon_url': candidate['icon_url'],
+                'icon_url': str(display.get('icon_url') or candidate['icon_url']),
                 'source_label': candidate['source_label'],
                 'status': run['status'], 'dps': run['dps'],
             })

@@ -1151,6 +1151,7 @@ class SimulationRun(models.Model):
     candidate_label = models.CharField(max_length=200, default='', blank=True, help_text="候选标签，如 baseline/crit+1000/apl_variant_2")
     round_number = models.PositiveIntegerField(default=1, help_text="候选轮次")
     candidate_params = models.JSONField(default=dict, blank=True, help_text="候选参数快照")
+    display_metadata = models.JSONField(default=dict, blank=True, help_text="冻结的候选展示元数据")
 
     status = models.CharField(max_length=20, default='pending', help_text="状态：pending/running/completed/failed")
     input_hash = models.CharField(max_length=64, default='', blank=True, help_text="本次输入的SHA256")
@@ -1662,6 +1663,7 @@ class SimcBenchmarkExecution(models.Model):
     )
     scheduled_slot = models.DateTimeField(null=True, blank=True)
     config_snapshot = models.JSONField(default=dict, blank=True)
+    display_metadata = models.JSONField(default=dict, blank=True)
     config_hash = models.CharField(max_length=64)
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING)
     result_hash = models.CharField(max_length=64, blank=True, default='')

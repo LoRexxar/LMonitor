@@ -1212,6 +1212,30 @@ class SimcBenchmarkExecutionTests(TestCase):
             'profile': 'New sealed profile',
         })
 
+    def test_public_serializer_uses_execution_display_metadata_without_changing_seal(self):
+        execution = self._published_success()
+        config_snapshot = deepcopy(execution.config_snapshot)
+        config_hash = execution.config_hash
+        execution.display_metadata = {
+            'trinket': {
+                'label': '冻结中文饰品',
+                'icon_url': '/static/wow_icons/small/inv_trinket_raid_01.jpg',
+            },
+        }
+        execution.save(update_fields=['display_metadata'])
+
+        public = serialize_public_execution(execution)
+        trinket = next(
+            row for row in public['execution']['cases'][0]['candidates']
+            if row['key'] == 'trinket'
+        )
+        execution.refresh_from_db()
+        self.assertEqual(public['status'], 'ready')
+        self.assertEqual(trinket['label'], '冻结中文饰品')
+        self.assertEqual(trinket['icon_url'], '/static/wow_icons/small/inv_trinket_raid_01.jpg')
+        self.assertEqual(execution.config_snapshot, config_snapshot)
+        self.assertEqual(execution.config_hash, config_hash)
+
     def test_public_serializer_rejects_snapshot_changed_without_matching_hash(self):
         execution = self._published_success()
         self._replace_snapshot(

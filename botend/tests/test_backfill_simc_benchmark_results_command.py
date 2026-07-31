@@ -1,9 +1,13 @@
 from io import StringIO
+from copy import deepcopy
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
-from botend.models import SimcBenchmarkResult
+from botend.models import (
+    SimcBenchmarkExecution, SimcBenchmarkResult, SimcBenchmarkCandidate, SimulationRun,
+    WowItemSnapshot,
+)
 from botend.tests.test_simc_benchmark_execution import SimcBenchmarkExecutionTests
 
 
@@ -28,3 +32,49 @@ class BackfillSimcBenchmarkResultsCommandTests(SimcBenchmarkExecutionTests):
 
         self.assertIn('backfilled 2 result rows', output.getvalue())
         self.assertEqual(execution.cases.get().results.count(), 2)
+
+    def test_backfills_existing_candidate_and_run_display_metadata(self):
+        execution = self._create()
+        task = execution.cases.get().task
+        candidate = SimcBenchmarkCandidate.objects.get(panel=execution.panel, key='trinket')
+        run = SimulationRun.objects.create(
+            task=task, sequence=1, candidate_key='trinket', candidate_label='Trinket',
+            candidate_params={
+                'candidate_type': 'gear_swap', 'is_base': False,
+                'gear_swap': {'item_id': 123, 'slot': 'trinket1'},
+            },
+        )
+        self.assertEqual(candidate.label, 'Trinket')
+        self.assertEqual(run.candidate_label, 'Trinket')
+        self.assertFalse(run.candidate_params.get('icon_url'))
+        self.assertFalse(run.display_metadata.get('icon_url'))
+        WowItemSnapshot.objects.create(
+            item_id=123, name='Test Trinket', name_zh='测试饰品', icon='inv_trinket_raid_01',
+        )
+
+        snapshot_before = deepcopy(execution.config_snapshot)
+        hash_before = execution.config_hash
+        output = StringIO()
+        call_command('backfill_simc_benchmark_display_metadata', stdout=output)
+
+        candidate.refresh_from_db()
+        run.refresh_from_db()
+        execution.refresh_from_db()
+        self.assertEqual(candidate.label, '测试饰品')
+        self.assertEqual(candidate.icon_url, '/static/wow_icons/small/inv_trinket_raid_01.jpg')
+        self.assertEqual(run.candidate_label, '测试饰品')
+        self.assertEqual(
+            run.display_metadata['icon_url'],
+            '/static/wow_icons/small/inv_trinket_raid_01.jpg',
+        )
+        self.assertEqual(execution.config_snapshot, snapshot_before)
+        self.assertEqual(execution.config_hash, hash_before)
+        self.assertEqual(execution.display_metadata['trinket'], {
+            'label': '测试饰品',
+            'icon_url': '/static/wow_icons/small/inv_trinket_raid_01.jpg',
+        })
+        self.assertIn('updated 1 candidates, 1 runs, and 1 executions', output.getvalue())
+
+        repeat = StringIO()
+        call_command('backfill_simc_benchmark_display_metadata', stdout=repeat)
+        self.assertIn('updated 0 candidates, 0 runs, and 0 executions', repeat.getvalue())

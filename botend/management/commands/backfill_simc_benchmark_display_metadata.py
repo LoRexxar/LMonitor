@@ -1,0 +1,164 @@
+from copy import deepcopy
+
+from django.core.management.base import BaseCommand
+from django.db import transaction
+
+from botend.models import (
+    SimcBenchmarkCandidate, SimcBenchmarkExecution, SimulationRun, WowItemSnapshot,
+)
+
+
+def _item_id(candidate_params):
+    if not isinstance(candidate_params, dict):
+        return None
+    swap = candidate_params.get('gear_swap')
+    if not isinstance(swap, dict):
+        return None
+    value = swap.get('item_id')
+    return value if isinstance(value, int) and value > 0 else None
+
+
+def _display_metadata(items, item_id):
+    item = items.get(item_id)
+    if item is None:
+        return '', ''
+    label = str(item.name_zh or item.name or '').strip()
+    icon_name = str(item.icon or '').strip().split('?', 1)[0].rsplit('/', 1)[-1]
+    while icon_name.rsplit('.', 1)[-1].lower() in {'jpg', 'jpeg', 'png', 'gif', 'webp'}:
+        icon_name = icon_name.rsplit('.', 1)[0]
+    icon_url = f'/static/wow_icons/small/{icon_name}.jpg' if icon_name else ''
+    return label, icon_url
+
+
+def _execution_candidate_metadata(items, snapshot):
+    if not isinstance(snapshot, dict):
+        return {}
+    definitions = snapshot.get('candidates')
+    if not isinstance(definitions, list):
+        return {}
+    metadata = {}
+    for candidate in definitions:
+        if not isinstance(candidate, dict):
+            continue
+        key = candidate.get('key')
+        params = candidate.get('params')
+        if not isinstance(key, str) or not key or not isinstance(params, dict):
+            continue
+        label, icon_url = _display_metadata(items, _item_id(params))
+        if label or icon_url:
+            metadata[key] = {
+                **({'label': label} if label else {}),
+                **({'icon_url': icon_url} if icon_url else {}),
+            }
+    return metadata
+
+
+class Command(BaseCommand):
+    help = (
+        'Backfill local Chinese item labels and icon URLs into existing Benchmark '
+        'candidate and Run display snapshots without creating or rerunning work.'
+    )
+
+    def add_arguments(self, parser):
+        parser.add_argument('--dry-run', action='store_true')
+
+    def handle(self, *args, **options):
+        dry_run = options['dry_run']
+        candidates = list(SimcBenchmarkCandidate.objects.only(
+            'id', 'label', 'icon_url', 'params',
+        ).order_by('id'))
+        executions = list(SimcBenchmarkExecution.objects.only(
+            'id', 'config_snapshot', 'display_metadata',
+        ).order_by('id'))
+        runs = list(SimulationRun.objects.filter(
+            task__benchmark_case__isnull=False,
+        ).only('id', 'candidate_label', 'candidate_params', 'display_metadata').order_by('id'))
+        item_ids = {
+            item_id for item_id in (
+                *(_item_id(candidate.params) for candidate in candidates),
+                *(_item_id(candidate.get('params')) for execution in executions
+                  if isinstance(execution.config_snapshot, dict)
+                  for candidate in (execution.config_snapshot.get('candidates') or [])
+                  if isinstance(candidate, dict)),
+                *(_item_id(run.candidate_params) for run in runs),
+            ) if item_id is not None
+        }
+        items = {
+            item.item_id: item for item in WowItemSnapshot.objects.filter(
+                item_id__in=item_ids,
+            ).only('item_id', 'name_zh', 'name', 'icon')
+        }
+
+        candidate_updates = []
+        for candidate in candidates:
+            label, icon_url = _display_metadata(items, _item_id(candidate.params))
+            if not label and not icon_url:
+                continue
+            changed = False
+            if label and candidate.label != label:
+                candidate.label = label
+                changed = True
+            if icon_url and candidate.icon_url != icon_url:
+                candidate.icon_url = icon_url
+                changed = True
+            if changed:
+                candidate_updates.append(candidate)
+
+        run_updates = []
+        for run in runs:
+            label, icon_url = _display_metadata(items, _item_id(run.candidate_params))
+            if not label and not icon_url:
+                continue
+            changed = False
+            if label and run.candidate_label != label:
+                run.candidate_label = label
+                changed = True
+            if icon_url and run.display_metadata.get('icon_url') != icon_url:
+                metadata = deepcopy(run.display_metadata)
+                metadata['icon_url'] = icon_url
+                run.display_metadata = metadata
+                changed = True
+            if changed:
+                run_updates.append(run)
+
+        execution_updates = []
+        for execution in executions:
+            desired = _execution_candidate_metadata(items, execution.config_snapshot)
+            if not desired:
+                continue
+            metadata = deepcopy(execution.display_metadata)
+            changed = False
+            for key, values in desired.items():
+                current = metadata.get(key)
+                current = current if isinstance(current, dict) else {}
+                merged = {**current}
+                for field, value in values.items():
+                    if not merged.get(field):
+                        merged[field] = value
+                        changed = True
+                metadata[key] = merged
+            if changed:
+                execution.display_metadata = metadata
+                execution_updates.append(execution)
+
+        if not dry_run:
+            with transaction.atomic():
+                if candidate_updates:
+                    SimcBenchmarkCandidate.objects.bulk_update(
+                        candidate_updates, ['label', 'icon_url'], batch_size=500,
+                    )
+                if run_updates:
+                    SimulationRun.objects.bulk_update(
+                        run_updates, ['candidate_label', 'display_metadata'], batch_size=500,
+                    )
+                if execution_updates:
+                    SimcBenchmarkExecution.objects.bulk_update(
+                        execution_updates, ['display_metadata'], batch_size=500,
+                    )
+
+        action = 'would update' if dry_run else 'updated'
+        self.stdout.write(self.style.SUCCESS(
+            f'{action} {len(candidate_updates)} candidates, {len(run_updates)} runs, and '
+            f'{len(execution_updates)} executions '
+            f'from {len(items)} local item snapshots.'
+        ))

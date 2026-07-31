@@ -605,6 +605,7 @@ class SimcHistoryBackendPaginationTests(TestCase):
                     'raw_value': '候选头盔,id=333,ilevel=660,bonus_id=10/20,gem_id=30,enchant_id=40',
                 },
             }, result_summary={'dps': 1100},
+            display_metadata={'icon_url': '/static/wow_icons/small/inv_helmet_151.jpg'},
         )
         equivalent = SimulationRun.objects.create(
             task=task, sequence=3, candidate_key='head-111', candidate_label='等价头盔复核',
@@ -632,7 +633,7 @@ class SimcHistoryBackendPaginationTests(TestCase):
         self.assertEqual(row['change']['before']['name'], '基准头盔')
         self.assertEqual(row['change']['after']['item_id'], 333)
         self.assertEqual(row['change']['after']['name'], '候选头盔')
-        self.assertEqual(row['candidate_icon_url'], '/static/wow_icons/inv_helmet_151.webp')
+        self.assertEqual(row['candidate_icon_url'], '/static/wow_icons/small/inv_helmet_151.jpg')
         self.assertEqual(row['change']['after']['modifiers']['bonus_id'], ['10', '20'])
         self.assertEqual(row['change']['after']['modifiers']['gem_id'], ['30'])
         self.assertEqual(row['change']['after']['modifiers']['enchant_id'], '40')
