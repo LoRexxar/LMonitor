@@ -141,6 +141,26 @@ def agent_upstream_revision(repository: Path | None = None) -> str:
     return revision if result.returncode == 0 and re.fullmatch(r'[0-9a-f]{40}', revision) else agent_revision(repository)
 
 
+def agent_revision_contains(required_revision: str, repository: Path | None = None) -> bool:
+    """Return whether the required control-plane commit is in this checkout."""
+    required_revision = str(required_revision).strip().lower()
+    if not re.fullmatch(r'[0-9a-f]{40}', required_revision):
+        return False
+    repository = (repository or Path(__file__).resolve().parent).expanduser().resolve()
+    current_revision = agent_revision(repository)
+    if not current_revision:
+        return False
+    try:
+        result = subprocess.run(
+            ['git', '-C', str(repository), 'merge-base', '--is-ancestor',
+             required_revision, current_revision],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+
 def configure_logging(log_path: str, *, max_bytes: int = 10 * 1024 * 1024,
                       backup_count: int = 5) -> logging.Logger:
     """Create a process-local rotating log without exposing Agent credentials."""
@@ -550,6 +570,7 @@ class SimcAgentConsumer:
         self.stop_event = threading.Event()
         self.logger = logging.getLogger(LOGGER_NAME)
         self._last_simc_check = 0.0
+        self._server_required_revision = ''
         self._maintenance_slot_path = Path(self.config.token_path).with_name('simc-maintenance-slots.json')
         self._completed_maintenance_slots = self._load_completed_maintenance_slots()
         self._maintenance_policy: dict[str, Any] | None = None
@@ -970,6 +991,23 @@ class SimcAgentConsumer:
                 self.register()
                 return
             except Exception as exc:
+                if (isinstance(exc, APIError) and exc.status == 426
+                        and exc.details.get('code') == 'agent_update_required'):
+                    required_revision = exc.details.get('required_revision')
+                    if (isinstance(required_revision, str)
+                            and agent_revision(Path(self.config.repository_path)) != required_revision.lower()
+                            and agent_revision_contains(required_revision, Path(self.config.repository_path))):
+                        self._server_required_revision = required_revision.lower()
+                        self.logger.error(
+                            'Agent revision %s is ahead of control plane revision %s; stopping until deployment',
+                            agent_revision(Path(__file__).resolve().parent),
+                            required_revision.lower(),
+                        )
+                        raise APIError(
+                            'Agent revision is ahead of the deployed control plane', 426,
+                            {'code': 'agent_ahead_of_control_plane',
+                             'required_revision': required_revision.lower()},
+                        )
                 if not _is_transient_control_plane_error(exc) or once:
                     raise
                 self.logger.warning(
@@ -1592,7 +1630,18 @@ class SimcAgentConsumer:
                     return
             except APIError as exc:
                 self.logger.error('control-plane operation failed: %s', exc)
+                if exc.status == 426 and exc.details.get('code') == 'agent_ahead_of_control_plane':
+                    raise
                 if exc.status == 426 and exc.details.get('code') == 'agent_update_required':
+                    required_revision = exc.details.get('required_revision')
+                    if (isinstance(required_revision, str)
+                            and agent_revision(Path(self.config.repository_path)) != required_revision.lower()
+                            and agent_revision_contains(required_revision, Path(self.config.repository_path))):
+                        raise APIError(
+                            'Agent revision is ahead of the deployed control plane', 426,
+                            {'code': 'agent_ahead_of_control_plane',
+                             'required_revision': required_revision.lower()},
+                        )
                     self._self_update(
                         exc.details.get('required_version'),
                         required_revision=exc.details.get('required_revision'),

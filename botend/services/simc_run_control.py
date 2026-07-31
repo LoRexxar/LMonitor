@@ -178,6 +178,7 @@ def claim_run(payload, authorization):
     if agent_revision is not None and (not isinstance(agent_revision, str)
                                        or not re.fullmatch(r'[0-9a-f]{40}', agent_revision)):
         raise AgentAPIError('agent_revision must be a 40-character Git commit')
+
     if (protocol_version is not None and (
             isinstance(protocol_version, bool) or not isinstance(protocol_version, int)
             or protocol_version < 1)):

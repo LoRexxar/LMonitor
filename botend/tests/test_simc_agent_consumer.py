@@ -916,6 +916,33 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertEqual(transport.json.call_args_list[0].kwargs['authorization'], 'Bearer ' + stale_token)
             self.assertEqual(transport.json.call_args_list[1].kwargs['authorization'], 'Enrollment enroll-secret')
 
+    def test_ahead_of_control_plane_revision_stops_without_update_loop(self):
+        from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            values['repository_path'] = root
+            values['enrollment_token'] = ''
+            self.write_token(values, 'token-id.' + ('u' * 43))
+            transport = MagicMock()
+            transport.json.side_effect = [
+                {'success': True, 'heartbeat_interval_seconds': 20, 'lease_seconds': 60},
+                None,
+                APIError(
+                    'Agent update required', 426,
+                    {'code': 'agent_update_required', 'required_revision': 'a' * 40},
+                ),
+            ]
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=transport)
+            with patch('simc_agent_consumer.agent_revision', return_value='b' * 40), patch(
+                'simc_agent_consumer.agent_revision_contains', return_value=True,
+            ), patch.object(consumer, '_self_update') as self_update:
+                with self.assertRaisesRegex(APIError, 'ahead of the deployed control plane') as raised:
+                    consumer.run(once=True)
+            self.assertEqual(raised.exception.status, 426)
+            self.assertEqual(raised.exception.details['code'], 'agent_ahead_of_control_plane')
+            self_update.assert_not_called()
+
     def test_update_required_claim_commits_tracked_local_changes_then_merges_matching_control_plane_revision(self):
         from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
 
