@@ -23,7 +23,6 @@ def _public_result_payload(panel):
         'results': {'coordinates': coordinates},
     }
 
-
 class PortalSimcBenchmarkPanelListAPIView(View):
     """List public panels without exposing mutable benchmark configuration."""
 
@@ -52,6 +51,6 @@ class PortalSimcBenchmarkPanelDetailAPIView(View):
 
     def get(self, request, slug):
         panel = SimcBenchmarkPanel.objects.filter(
-            is_active=True, is_public=True, slug=slug,
+            is_active=True, slug=slug,
         ).first()
         return JsonResponse(_public_result_payload(panel) if panel else _NOT_READY)

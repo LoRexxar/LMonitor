@@ -1,7 +1,7 @@
 import json
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from bs4 import BeautifulSoup
 from django.test import TestCase, override_settings
@@ -68,15 +68,21 @@ class PortalSimcBenchmarkAPITests(TestCase):
         self.assertNotIn('execution', payload)
 
     @patch('botend.portal.simc_benchmark_api.serialize_incremental_panel_results')
-    def test_private_panel_is_hidden_and_not_openable_by_slug(self, serializer):
+    def test_private_panel_is_hidden_from_list_but_openable_by_known_slug(self, serializer):
         serializer.return_value = {'coordinates': [{'spec_key': 'private'}]}
         list_response = self.client.get('/portal/api/simc-benchmarks/panels/')
         private_response = self.client.get('/portal/api/simc-benchmarks/panels/secret-panel/')
         self.assertEqual(list_response.status_code, 200)
         self.assertEqual(private_response.status_code, 200)
         self.assertNotIn('secret-panel', json.dumps(json.loads(list_response.content)))
-        self.assertEqual(json.loads(private_response.content), {'status': 'not_ready', 'results': {'coordinates': []}})
-        serializer.assert_called_once_with(self.public)
+        self.assertEqual(json.loads(private_response.content), {
+            'status': 'ready',
+            'panel': {
+                'slug': 'secret-panel', 'name': 'Secret panel', 'description': 'Secret config',
+            },
+            'results': {'coordinates': [{'spec_key': 'private'}]},
+        })
+        serializer.assert_has_calls([call(self.public), call(self.private)])
 
     @patch('botend.portal.simc_benchmark_api.serialize_incremental_panel_results')
     def test_disabled_and_missing_slugs_are_not_ready(self, serializer):
