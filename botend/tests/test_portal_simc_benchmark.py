@@ -123,6 +123,22 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertNotIn('innerHTML', self.JS)
         self.assertNotIn('results_finalized_at', self.JS)
 
+    def test_result_renderer_shows_percentage_axis_and_selected_basic_info(self):
+        for contract in (
+            'simc-benchmark-basic-info', 'simc-benchmark-info-spec',
+            'simc-benchmark-axis-labels', '[0, 25, 50, 75, 100]', '`${value}%`',
+            'ratio.toFixed(1)', '最高 DPS',
+        ):
+            self.assertIn(contract, self.JS)
+
+    def test_result_styles_make_percentage_comparison_and_baseline_contrasting(self):
+        for contract in (
+            'simc-benchmark-axis-labels', 'simc-benchmark-axis-label',
+            'simc-benchmark-bar--baseline', '#0f766e', '#1d4ed8',
+            'background: #e2e8f0',
+        ):
+            self.assertIn(contract, self.CSS)
+
     def test_single_panel_uses_editable_panel_copy_for_page_heading(self):
         self.assertIn('applyPanelHeading', self.JS)
         self.assertIn("document.title", self.JS)

@@ -46,7 +46,7 @@
     if (dps === null) return "无有效结果";
     const baseline = candidates.find(isBaseline);
     const baselineDps = baseline ? validDps(baseline.dps) : null;
-    const highestText = highest > 0 ? `${((dps / highest) * 100).toFixed(1)}% of highest` : "—";
+    const highestText = highest > 0 ? `${((dps / highest) * 100).toFixed(1)}% · 最高 DPS` : "—";
     if (baselineDps !== null && baselineDps > 0) {
       const delta = ((dps - baselineDps) / baselineDps) * 100;
       return `${delta > 0 ? "+" : ""}${delta.toFixed(1)}% vs baseline · ${highestText}`;
@@ -87,9 +87,21 @@
     const caseNode = node("section", "simc-benchmark-case");
     if (!candidates.length) { caseNode.appendChild(state("当前坐标暂无已完成候选结果", "empty")); return caseNode; }
     const highest = candidates.reduce((maximum, candidate) => Math.max(maximum, validDps(candidate?.dps) ?? 0), 0);
+    const info = node("div", "simc-benchmark-basic-info");
+    [
+      ["simc-benchmark-info-spec", "专精", coordinate?.labels?.spec || coordinate?.spec_key],
+      ["simc-benchmark-info-profile", "Profile", coordinate?.labels?.profile || coordinate?.profile_key],
+      ["simc-benchmark-info-scenario", "场景", coordinate?.labels?.scenario || coordinate?.scenario_key],
+    ].forEach(([className, label, value]) => {
+      const item = node("div", className);
+      item.append(node("span", "simc-benchmark-info-label", label), node("strong", "simc-benchmark-info-value", value || "—"));
+      info.appendChild(item);
+    });
+    const axis = node("div", "simc-benchmark-axis-labels");
+    [0, 25, 50, 75, 100].forEach((value) => axis.appendChild(node("span", "simc-benchmark-axis-label", `${value}%`)));
     const chart = node("div", "simc-benchmark-chart");
     candidates.forEach((candidate) => chart.appendChild(renderCandidate(candidate || {}, candidates, highest)));
-    caseNode.appendChild(chart); return caseNode;
+    caseNode.append(info, axis, chart); return caseNode;
   }
 
   function renderResults(shell, payload) {
