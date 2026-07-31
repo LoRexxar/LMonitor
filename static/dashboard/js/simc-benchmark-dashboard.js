@@ -138,9 +138,19 @@ async function loadPanels(force=false,{background=false}={}){
   finally{if(listController===controller)listFetchInFlight=false;}
 }
 function visiblePanels(){ const q=$('[data-benchmark-search]',root).value.trim().toLowerCase(), status=$('[data-benchmark-status]',root).value; return panels.filter(p=>{ const hit=!q || `${p.name} ${p.slug}`.toLowerCase().includes(q); const state=status==='all'||(status==='active'&&p.is_active)||(status==='inactive'&&!p.is_active)||(status==='published'&&p.published_execution_id); return hit&&state; }); }
-function actionButton(action,label,panel,extra={}){ const b=el('button',{type:'button',class:`benchmark-action ${extra.danger?'danger':''}`,dataset:{action,id:panel.id}},label); if(extra.disabled){b.disabled=true;b.title=extra.title||'';} return b; }
+function actionButton(action,label,panel,extra={}){ const b=el('button',{type:'button',class:`benchmark-action ${action}${extra.danger?' danger':''}`,dataset:{action,id:panel.id}},label); if(extra.disabled){b.disabled=true;b.title=extra.title||'';} return b; }
+function actionGroup(label,kind,buttons){ const group=el('section',{class:`benchmark-action-group ${kind}`});group.append(el('div',{class:'benchmark-action-group-title'},label));const controls=el('div',{class:'benchmark-action-group-controls'});controls.append(...buttons);group.append(controls);return group; }
 function executionUrl(id){return `/dashboard/simc/benchmarks/executions/${encodeURIComponent(id)}/`;}
-function appendActions(host,p){ const execution=p.execution;host.append(actionButton('edit','配置',p),actionButton('run-supplement','失败/补充重跑',p,{disabled:!p.is_active,title:'未启用的面板不能运行'}),actionButton('run-full','全量重新计算',p,{disabled:!p.is_active,title:'未启用的面板不能运行'}),actionButton('history','子任务状态',p));if(execution){host.append(actionButton('results','独立结果页',p));if(['failed','partial','cancelled'].includes(execution.status))host.append(actionButton('rerun-failed','重跑当前执行失败项',p));}host.append(actionButton('portal','Portal',p),actionButton('delete','删除',p,{danger:true})); }
+function appendActions(host,p){
+  const execution=p.execution;
+  const browse=[actionButton('edit','配置',p),actionButton('history','子任务状态',p)];
+  if(execution)browse.push(actionButton('results','独立结果页',p));
+  host.append(actionGroup('配置与查看','browse',browse));
+  const runs=[actionButton('run-supplement','失败/补充重跑',p,{disabled:!p.is_active,title:'未启用的面板不能运行'}),actionButton('run-full','全量重新计算',p,{disabled:!p.is_active,title:'未启用的面板不能运行'})];
+  if(execution&&['failed','partial','cancelled'].includes(execution.status))runs.push(actionButton('rerun-failed','重跑当前执行失败项',p));
+  host.append(actionGroup('运行','run',runs));
+  host.append(actionGroup('危险操作','danger-zone',[actionButton('portal','Portal',p),actionButton('delete','删除',p,{danger:true})]));
+}
 function configUrl(id){return `/dashboard/simc/benchmarks/${encodeURIComponent(id)}/config/`;}
 function renderList(){
   const rows=visiblePanels(), state=$('[data-benchmark-list-state]',root), tbody=$('[data-benchmark-list]',root), cards=$('[data-benchmark-cards]',root); clear(tbody);clear(cards);

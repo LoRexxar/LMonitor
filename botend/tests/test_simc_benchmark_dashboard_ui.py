@@ -229,6 +229,14 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn("body:JSON.stringify({mode})", JS)
         self.assertIn("mode==='full'", JS)
         self.assertIn("actionButton('rerun-failed','重跑当前执行失败项'", JS)
+
+    def test_panel_actions_are_grouped_by_operation_type(self):
+        self.assertIn("actionGroup('配置与查看'", JS)
+        self.assertIn("actionGroup('运行'", JS)
+        self.assertIn("actionGroup('危险操作'", JS)
+        self.assertIn("benchmark-action-group", CSS)
+        self.assertIn("benchmark-action.run-supplement", CSS)
+        self.assertIn("benchmark-action.run-full", CSS)
         self.assertIn("['failed','partial','cancelled'].includes(execution.status)", JS)
         self.assertIn("benchmarkFetch(`${API}executions/${id}/rerun-failed/`", JS)
         self.assertIn('function executionUrl(id)', JS)
@@ -236,7 +244,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn('function loadExecutionPage()', JS)
         self.assertIn('function rerunFailedPage(id,button)', JS)
         self.assertIn("dataset:{rerunFailed:data.id}", JS)
-        self.assertIn('?v=20260801a', INDEX)
+        self.assertIn('?v=20260801b', INDEX)
         self.assertIn("if(!configPage){document.body.classList.add", JS)
         self.assertIn("data-benchmark-notification", JS)
         self.assertNotIn('data-create-only', CONFIG_PAGE)
