@@ -301,13 +301,50 @@ class SimcBenchmarkExecutionTests(TestCase):
     def test_incremental_execution_reuses_complete_coordinate_without_copying_task(self):
         original = self._published_success()
         original_case = original.cases.get()
-
         incremental = self._create()
 
         self.assertEqual(incremental.cases.count(), 0)
         self.assertEqual(SimcTask.objects.count(), 1)
         aggregate = serialize_incremental_panel_results(self.panel)
         self.assertEqual(aggregate['coordinates'][0]['candidates'][0]['task_id'], original_case.task_id)
+
+    def test_full_rerun_creates_all_runs_and_replaces_current_aggregate_baseline(self):
+        original = self._published_success()
+        original_task_count = SimcTask.objects.count()
+
+        rerun = self._create(execution_mode='full')
+
+        self.assertNotEqual(rerun.id, original.id)
+        self.assertEqual(rerun.cases.count(), 1)
+        self.assertEqual(
+            [row['candidate_key'] for row in rerun.cases.get().task.mode_params['initial_candidates']],
+            ['baseline', 'trinket'],
+        )
+        self.assertEqual(SimcTask.objects.count(), original_task_count + 1)
+        self.panel.refresh_from_db()
+        self.assertEqual(self.panel.aggregate_baseline_execution_id, rerun.id)
+        self.assertEqual(
+            serialize_incremental_panel_results(self.panel)['coordinates'][0]['candidates'], [],
+        )
+
+    def test_supplement_rerun_only_schedules_missing_candidates_from_current_baseline(self):
+        original = self._published_success()
+        task = original.cases.get().task
+        original.cases.get().results.filter(candidate_key='trinket').delete()
+        task.mode_params['initial_candidates'] = [
+            {'candidate_key': 'baseline'}, {'candidate_key': 'trinket'},
+        ]
+        task.save(update_fields=['mode_params'])
+
+        supplement = self._create(execution_mode='supplement')
+
+        self.assertEqual(supplement.cases.count(), 1)
+        supplement_case = supplement.cases.get()
+        self.assertEqual(
+            [row['candidate_key'] for row in supplement_case.task.mode_params['initial_candidates']],
+            ['trinket'],
+        )
+        self.assertEqual(supplement_case.task.simulation_runs.count(), 0)
 
     def test_running_execution_persists_complete_case_results_for_incremental_aggregation(self):
         SimcBenchmarkScenario.objects.create(

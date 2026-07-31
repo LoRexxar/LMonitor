@@ -95,7 +95,7 @@ def _canonical_hash(value):
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _safe_snapshot(panel, plan):
+def _safe_snapshot(panel, plan, *, execution_mode='supplement'):
     """Freeze normalized definitions once; cases contain references only."""
     resources, profiles, cases = {}, {}, []
     candidate_definitions = [{
@@ -123,6 +123,7 @@ def _safe_snapshot(panel, plan):
         'specs': deepcopy(plan['specs']), 'scenarios': deepcopy(plan['scenarios']),
         'profiles': list(profiles.values()),
         'candidates': candidate_definitions, 'resources': resources,
+        'execution_mode': execution_mode,
         'cases': cases, 'case_count': plan['case_count'], 'run_count': plan['run_count'],
     }
     size = len(json.dumps(snapshot, sort_keys=True, separators=(',', ':'),
@@ -198,18 +199,19 @@ def _coordinate_input_identity(coordinate):
 
 
 def _reusable_candidate_tasks_by_coordinate(panel):
-    """Load finalized candidate provenance once, keyed by frozen coordinate identity.
+    """Load reusable candidate provenance from the current full-rerun baseline onward.
 
-    A panel can contain dozens of coordinates.  Querying the same finalized Cases
-    for every coordinate made the dashboard result projection scale as N×M and
-    blocked its API response for minutes.  Ordering is retained so the newest
-    execution remains authoritative for each reusable candidate identity.
+    A full rerun changes the Panel's aggregate baseline. Older Result rows remain
+    immutable audit history but must not leak into the new result surface.
     """
     coordinates = {}
     cases = SimcBenchmarkCase.objects.filter(
         execution__panel_id=panel.pk,
         results__isnull=False,
-    ).select_related('task', 'execution').prefetch_related('results').order_by(
+    )
+    if panel.aggregate_baseline_execution_id:
+        cases = cases.filter(execution_id__gte=panel.aggregate_baseline_execution_id)
+    cases = cases.select_related('task', 'execution').prefetch_related('results').order_by(
         '-execution_id', '-id',
     ).distinct()
     for case in cases:
@@ -262,8 +264,11 @@ def _plan_for_coordinates(plan, coordinates):
     return plan
 
 
-def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=None):
-    """Preflight outside locks, then atomically persist from an identical locked plan."""
+def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=None,
+                     execution_mode='supplement'):
+    """Create either a full fresh baseline or a failure/missing-result supplement."""
+    if execution_mode not in {'full', 'supplement'}:
+        _validation_error('execution_mode 必须是 full 或 supplement', 'execution_mode')
     slot = _normalize_trigger_slot(trigger, scheduled_slot)
     requester_id = _requester_id(requested_by)
     if trigger == SimcBenchmarkExecution.TRIGGER_MANUAL and requester_id is None:
@@ -349,13 +354,17 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
                 'Panel configuration changed during execution preflight'
             )
         incremental_coordinates = _incremental_coordinates(locked_panel, locked_plan)
-        # No missing candidate inputs means this execution is only a bookkeeping
-        # record; it owns no Task/Case. Existing complete Results remain reusable.
-        execution_coordinates = incremental_coordinates
+        # Full rerun schedules the entire frozen surface and immediately establishes
+        # a new aggregate boundary. Supplement mode only creates missing candidate
+        # inputs, preserving completed provenance at/after that boundary.
+        execution_coordinates = (locked_plan['cases'] if execution_mode == 'full'
+                                 else incremental_coordinates)
         # Execution freezes only work it owns.  The Panel configuration remains
         # authoritative for display; completed immutable Results are reused there.
         incremental_plan = _plan_for_coordinates(locked_plan, execution_coordinates)
-        snapshot = _safe_snapshot(locked_panel, incremental_plan)
+        snapshot = _safe_snapshot(
+            locked_panel, incremental_plan, execution_mode=execution_mode,
+        )
         config_hash = _canonical_hash(snapshot)
 
         # Only the Execution slot claim is caught. Any later Task/Case integrity
@@ -367,7 +376,15 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
                     config_snapshot=snapshot, config_hash=config_hash,
                 )
                 locked_panel.active_execution = execution
-                locked_panel.save(update_fields=['active_execution'])
+                if execution_mode == 'full':
+                    # The new full Execution atomically establishes the Result
+                    # aggregate boundary; old Result history stays auditable only.
+                    locked_panel.aggregate_baseline_execution = execution
+                    locked_panel.save(update_fields=[
+                        'active_execution', 'aggregate_baseline_execution',
+                    ])
+                else:
+                    locked_panel.save(update_fields=['active_execution'])
         except IntegrityError:
             if slot is not None:
                 winner = SimcBenchmarkExecution.objects.filter(
@@ -561,6 +578,7 @@ def summarize_incremental_panel_coverage(panel):
             source_counts[execution_id] = source_counts.get(execution_id, 0) + 1
     candidate_runs = sum(len(coordinate['candidates']) for coordinate in plan['cases'])
     return {
+        'aggregate_baseline_execution_id': panel.aggregate_baseline_execution_id,
         'coordinates': len(plan['cases']),
         'candidate_runs': candidate_runs,
         'available_results': available_results,

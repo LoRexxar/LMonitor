@@ -1488,6 +1488,11 @@ class SimcBenchmarkPanel(models.Model):
         'SimcBenchmarkExecution', null=True, blank=True,
         on_delete=models.SET_NULL, related_name='published_by_panels',
     )
+    aggregate_baseline_execution = models.ForeignKey(
+        'SimcBenchmarkExecution', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='aggregate_baseline_for_panels',
+        help_text='Full rerun boundary; older Results remain auditable but are excluded from current aggregation.',
+    )
     active_execution = models.OneToOneField(
         'SimcBenchmarkExecution', null=True, blank=True,
         on_delete=models.SET_NULL, related_name='active_for_panel',

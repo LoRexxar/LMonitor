@@ -199,6 +199,7 @@ class SimcBenchmarkDashboardApiTests(TestCase):
     def test_panel_list_exposes_full_panel_coverage_next_to_latest_execution(self):
         panel = self._create_panel()
         coverage = {
+            'aggregate_baseline_execution_id': 8,
             'coordinates': 96, 'candidate_runs': 5031,
             'available_results': 4342, 'missing_results': 689,
             'source_executions': [{'execution_id': 4, 'results': 1511}],
@@ -210,6 +211,7 @@ class SimcBenchmarkDashboardApiTests(TestCase):
             response = self.client.get('/api/simc-benchmarks/panels/')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['data'][0]['panel_coverage'], coverage)
+        self.assertEqual(response.json()['data'][0]['aggregate_baseline_execution_id'], None)
         summarize.assert_called_once_with(panel)
 
     def test_panel_list_and_history_expose_execution_progress_and_metadata_readiness(self):
@@ -470,7 +472,19 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         self.assertEqual(response.status_code, 202)
         self.assertEqual(response.json()['data']['case_count'], 2)
         self.assertEqual(response.json()['data']['run_count'], 3)
-        mocked.assert_called_once_with(panel, requested_by=self.staff)
+        mocked.assert_called_once_with(
+            panel, requested_by=self.staff, execution_mode='supplement',
+        )
+
+        with patch('botend.dashboard.api.create_execution', return_value=execution) as mocked:
+            response = self._json(
+                self.client, 'post',
+                f'/api/simc-benchmarks/panels/{panel.id}/run/', {'mode': 'full'},
+            )
+        self.assertEqual(response.status_code, 202)
+        mocked.assert_called_once_with(
+            panel, requested_by=self.staff, execution_mode='full',
+        )
 
         with patch('botend.dashboard.api.create_execution',
                    side_effect=BenchmarkExecutionConflict('private drift')):

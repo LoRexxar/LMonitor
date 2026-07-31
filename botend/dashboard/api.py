@@ -8098,7 +8098,7 @@ class _BenchmarkAPIError(Exception):
         super().__init__(code)
 
 
-def _benchmark_json_object(request, *, empty=False):
+def _benchmark_json_object(request, *, empty=False, allowed_fields=None):
     content_type = (request.META.get('CONTENT_TYPE') or '').split(';', 1)[0].strip().lower()
     if content_type != 'application/json':
         raise _BenchmarkAPIError('unsupported_media_type', 415)
@@ -8115,6 +8115,8 @@ def _benchmark_json_object(request, *, empty=False):
     if not isinstance(payload, dict):
         raise ValidationError({'body': ['请求体必须是 JSON 对象']})
     if empty and payload:
+        raise _BenchmarkAPIError('unknown_fields', 400)
+    if allowed_fields is not None and set(payload).difference(allowed_fields):
         raise _BenchmarkAPIError('unknown_fields', 400)
     return payload
 
@@ -8179,6 +8181,7 @@ def _benchmark_panel_summary(panel, execution=None):
         'next_run_at': _benchmark_iso(panel.next_run_at),
         'last_scheduled_at': _benchmark_iso(panel.last_scheduled_at),
         'published_execution_id': panel.published_execution_id,
+        'aggregate_baseline_execution_id': panel.aggregate_baseline_execution_id,
         'counts': {
             'specs': panel.spec_count, 'scenarios': panel.scenario_count,
             'profiles': panel.profile_count, 'candidates': panel.candidate_count,
@@ -8741,13 +8744,18 @@ class SimcBenchmarkPanelDetailAPIView(_BenchmarkAdminAPIView):
 
 class SimcBenchmarkPanelRunAPIView(_BenchmarkAdminAPIView):
     def post(self, request, panel_id):
-        _benchmark_json_object(request, empty=True)
+        payload = _benchmark_json_object(request, allowed_fields={'mode'})
+        mode = payload.get('mode', 'supplement')
+        if mode not in {'full', 'supplement'}:
+            raise ValidationError({'mode': ['必须是 full 或 supplement']})
         panel, error = self.panel_or_404(panel_id)
         if error:
             return error
         if not panel.is_active:
             raise ValidationError({'panel': ['Panel 未启用，无法执行']})
-        execution = create_execution(panel, requested_by=request.user)
+        execution = create_execution(
+            panel, requested_by=request.user, execution_mode=mode,
+        )
         return JsonResponse({
             'success': True,
             'data': _benchmark_execution_summary(
