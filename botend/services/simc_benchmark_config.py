@@ -38,12 +38,13 @@ from botend.services.simc_candidate_options import normalize_controlled_simc_opt
 MAX_SPECS = len(SUPPORTED_SIMC_SPEC_IDENTITIES)
 MAX_PROFILES_PER_SPEC = 5
 MAX_SCENARIOS = 8
-MAX_CANDIDATES = 66
-MAX_CASES = 120
-MAX_RUNS_PER_TASK = 67
 MAX_GEAR_RAW_VALUE_CHARS = 2048
 MAX_CANDIDATE_PARAMS_BYTES = 16 * 1024
 MAX_PANEL_CONFIG_BYTES = 2 * 1024 * 1024
+# Keep the catalog bound aligned with the existing panel/candidate payload budgets.
+MAX_CANDIDATES = MAX_PANEL_CONFIG_BYTES // MAX_CANDIDATE_PARAMS_BYTES
+MAX_CASES = 120
+MAX_RUNS_PER_TASK = MAX_CANDIDATES + 1
 
 _PANEL_FIELDS = {
     'name', 'slug', 'description', 'is_active', 'is_public', 'schedule_enabled',

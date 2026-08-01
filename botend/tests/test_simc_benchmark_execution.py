@@ -433,6 +433,46 @@ class SimcBenchmarkExecutionTests(TestCase):
         )
         self.assertEqual(supplement_case.task.simulation_runs.count(), 0)
 
+    def test_adding_another_item_level_supplements_only_the_new_level(self):
+        candidate = self.panel.candidates.get()
+        original = self._published_success()
+        original_case = original.cases.get()
+        original_task = original_case.task
+        result = original_case.results.get(candidate_key=candidate.key)
+        candidate.key = 'item-123-ilvl-700'
+        candidate.params['gear_swap']['raw_value'] = ',id=123,ilevel=700'
+        candidate.save(update_fields=['key', 'params'])
+        old_manifest = original_task.mode_params['request_manifest']['candidates'][1]
+        frozen = dict(
+            old_manifest,
+            candidate_key=candidate.key,
+            candidate_params=deepcopy(candidate.params),
+        )
+        original_task.mode_params['initial_candidates'][1] = deepcopy(frozen)
+        original_task.mode_params['request_manifest']['candidates'][1] = deepcopy(frozen)
+        original_task.save(update_fields=['mode_params'])
+        result.candidate_key = candidate.key
+        result.save(update_fields=['candidate_key'])
+        SimcBenchmarkCandidate.objects.create(
+            panel=self.panel, key='item-123-ilvl-710', label='Trinket 710',
+            candidate_type='gear_swap', params={
+                'candidate_type': 'gear_swap', 'is_base': False,
+                'gear_swap': {
+                    'slot': 'trinket1', 'raw_value': ',id=123,ilevel=710',
+                    'item_id': 123, 'source': 'manual',
+                },
+            },
+        )
+
+        supplement = self._create(execution_mode='supplement')
+
+        self.assertEqual(supplement.cases.count(), 1)
+        self.assertEqual(
+            [row['candidate_key'] for row in
+             supplement.cases.get().task.mode_params['initial_candidates']],
+            ['item-123-ilvl-710'],
+        )
+
     def test_running_execution_persists_complete_case_results_for_incremental_aggregation(self):
         SimcBenchmarkScenario.objects.create(
             panel=self.panel, key='pending-coordinate', name='Pending coordinate',

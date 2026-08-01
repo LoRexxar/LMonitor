@@ -1618,7 +1618,8 @@ class SimcBenchmarkCandidate(models.Model):
     candidate_type = models.CharField(max_length=50)
     params = models.JSONField(default=dict, blank=True)
     spec_keys = models.JSONField(default=list, blank=True)
-    icon_url = models.URLField(max_length=500, default='', blank=True)
+    # Supports absolute remote URLs and application-local /static/... paths.
+    icon_url = models.CharField(max_length=500, default='', blank=True)
     source_label = models.CharField(max_length=200, default='', blank=True)
     is_enabled = models.BooleanField(default=True)
     display_order = models.PositiveIntegerField(default=0)

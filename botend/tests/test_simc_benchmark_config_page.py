@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
@@ -63,3 +65,10 @@ class SimcBenchmarkConfigPageTests(TestCase):
         self.client.force_login(self.regular)
         self.assertEqual(self.client.get(url).status_code, 200)
         self.assertEqual(self.client.get(f'/api/simc-benchmarks/executions/{execution.id}/').status_code, 200)
+
+    def test_existing_candidate_keeps_key_when_another_item_level_is_added(self):
+        script = Path('static/dashboard/js/simc-benchmark-dashboard.js').read_text()
+        self.assertIn('originalItemId:parts.itemId', script)
+        self.assertIn('originalItemLevel:parts.itemLevel', script)
+        self.assertIn('sameOriginalIdentity', script)
+        self.assertNotIn("levels.length>1?`${meta.key}-${itemLevel}`:meta.key", script)

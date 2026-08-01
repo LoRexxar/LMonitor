@@ -59,7 +59,7 @@ class SimcBenchmarkConfigServiceTests(TestCase):
 
     def test_published_limits(self):
         self.assertEqual((MAX_SPECS, MAX_PROFILES_PER_SPEC, MAX_SCENARIOS), (40, 5, 8))
-        self.assertEqual((MAX_CANDIDATES, MAX_CASES, MAX_RUNS_PER_TASK), (66, 120, 67))
+        self.assertEqual((MAX_CANDIDATES, MAX_CASES, MAX_RUNS_PER_TASK), (128, 120, 129))
 
     def test_normalize_strict_shapes_unknown_options_and_types(self):
         for field in ('specs', 'scenarios', 'candidates'):
@@ -313,7 +313,7 @@ class SimcBenchmarkConfigServiceTests(TestCase):
         with self.assertRaisesMessage(ValidationError, '重复'):
             normalize_panel_payload(payload, self.user_id)
 
-    def test_empty_candidates_is_baseline_only_and_fifty_comparisons_are_allowed(self):
+    def test_empty_candidates_is_baseline_only_and_more_than_catalog_size_is_allowed(self):
         payload = dict(self.payload, candidates=[])
         panel, plan = replace_panel_config(payload, self.user_id)
         self.assertEqual(panel.candidates.count(), 0)
@@ -331,15 +331,34 @@ class SimcBenchmarkConfigServiceTests(TestCase):
                 'spec_keys': [],
             }
 
-        payload = dict(self.payload, slug='fifty-candidates', candidates=[
-            candidate(index) for index in range(MAX_CANDIDATES)
+        payload = dict(self.payload, slug='expanded-candidates', candidates=[
+            candidate(index) for index in range(67)
         ])
         _panel, plan = replace_panel_config(payload, self.user_id)
-        self.assertEqual(plan['run_count'], MAX_RUNS_PER_TASK)
+        self.assertEqual(plan['run_count'], 68)
 
-        payload['candidates'] = [candidate(index) for index in range(MAX_CANDIDATES + 1)]
-        with self.assertRaises(ValidationError):
-            normalize_panel_payload(payload, self.user_id)
+    def test_internal_or_blank_candidate_icon_is_valid_display_metadata(self):
+        for icon_url in ('', '/static/wow_icons/small/inv_trinket.jpg'):
+            payload = dict(self.payload, slug=f'icon-{int(bool(icon_url))}', candidates=[dict(
+                self.payload['candidates'][0], icon_url=icon_url,
+            )])
+            with self.subTest(icon_url=icon_url):
+                panel, _plan = replace_panel_config(payload, self.user_id)
+                self.assertEqual(panel.candidates.get().icon_url, icon_url)
+
+    def test_same_item_at_different_item_levels_has_distinct_stable_keys(self):
+        candidates = [{
+            'label': f'Item 123 {item_level}', 'candidate_type': 'gear_swap',
+            'params': {'slot': 'trinket1', 'raw_value': f'id=123,ilevel={item_level}'},
+            'spec_keys': [],
+        } for item_level in (700, 710)]
+        normalized = normalize_panel_payload(
+            dict(self.payload, candidates=candidates), self.user_id,
+        )
+        self.assertEqual(
+            [row['key'] for row in normalized['candidates']],
+            ['item-123-ilvl-700', 'item-123-ilvl-710'],
+        )
 
     def test_replace_is_atomic_owner_checked_and_calls_full_clean(self):
         panel, estimate = replace_panel_config(self.payload, self.user_id)
