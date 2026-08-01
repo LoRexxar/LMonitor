@@ -19,6 +19,22 @@ def _item_id(candidate_params):
     return value if isinstance(value, int) and value > 0 else None
 
 
+def _bonus_id(swap):
+    value = swap.get('bonus_id')
+    if isinstance(value, int) and value > 0:
+        return value
+    raw_value = swap.get('raw_value')
+    if not isinstance(raw_value, str):
+        return None
+    for assignment in raw_value.split(','):
+        key, separator, raw_bonus_id = assignment.partition('=')
+        if key.strip() != 'bonus_id' or not separator:
+            continue
+        raw_bonus_id = raw_bonus_id.strip()
+        return int(raw_bonus_id) if raw_bonus_id.isdigit() and int(raw_bonus_id) > 0 else None
+    return None
+
+
 def _bonus_label(candidate_params):
     if not isinstance(candidate_params, dict):
         return ''
@@ -26,7 +42,11 @@ def _bonus_label(candidate_params):
     if not isinstance(swap, dict):
         return ''
     item_id = swap.get('item_id')
-    bonus_id = swap.get('bonus_id')
+    if not isinstance(item_id, int) or item_id <= 0:
+        return ''
+    bonus_id = _bonus_id(swap)
+    if bonus_id is None:
+        return ''
     return SPECIAL_BONUS_LABELS.get(item_id, {}).get(bonus_id, '')
 
 

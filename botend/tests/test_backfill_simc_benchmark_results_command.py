@@ -37,17 +37,21 @@ class BackfillSimcBenchmarkResultsCommandTests(SimcBenchmarkExecutionTests):
         execution = self._create()
         task = execution.cases.get().task
         candidate = SimcBenchmarkCandidate.objects.get(panel=execution.panel, key='trinket')
-        candidate.params['gear_swap'].update({'item_id': 248583, 'bonus_id': 13183})
+        gear_swap = {
+            'item_id': 248583,
+            'slot': 'trinket1',
+            'source': 'manual',
+            'raw_value': ',id=248583,ilevel=285,bonus_id=13183',
+        }
+        candidate.params['gear_swap'].update(gear_swap)
         candidate.save(update_fields=['params'])
-        execution.config_snapshot['candidates'][1]['params']['gear_swap'].update(
-            {'item_id': 248583, 'bonus_id': 13183},
-        )
+        execution.config_snapshot['candidates'][1]['params']['gear_swap'].update(gear_swap)
         execution.save(update_fields=['config_snapshot'])
         run = SimulationRun.objects.create(
             task=task, sequence=1, candidate_key='trinket', candidate_label='Trinket',
             candidate_params={
                 'candidate_type': 'gear_swap', 'is_base': False,
-                'gear_swap': {'item_id': 248583, 'bonus_id': 13183, 'slot': 'trinket1'},
+                'gear_swap': gear_swap,
             },
         )
         self.assertEqual(candidate.label, 'Trinket')
