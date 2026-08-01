@@ -12,6 +12,7 @@ CONFIG_PATH = ROOT / "templates/dashboard/simc_benchmark_config.html"
 CONFIG_PAGE = CONFIG_PATH.read_text(encoding="utf-8") if CONFIG_PATH.exists() else ''
 PANEL_EDIT_PATH = ROOT / "templates/dashboard/simc_benchmark_panel_edit.html"
 PANEL_EDIT_PAGE = PANEL_EDIT_PATH.read_text(encoding="utf-8") if PANEL_EDIT_PATH.exists() else ''
+EXECUTION_PAGE = (ROOT / "templates/dashboard/simc_benchmark_execution.html").read_text(encoding="utf-8")
 JS = (ROOT / "static/dashboard/js/simc-benchmark-dashboard.js").read_text(encoding="utf-8")
 CSS = (ROOT / "static/dashboard/css/simc-benchmark-dashboard.css").read_text(encoding="utf-8")
 
@@ -53,6 +54,13 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIsNotNone(soup.select_one('#simc-benchmarks[data-simc-benchmark-root]'))
         title = cast(Tag, soup.select_one('#simc-benchmarks h2'))
         self.assertEqual(title.get_text(strip=True), 'SimC 基准面板')
+
+    def test_shared_benchmark_assets_use_current_cache_version(self):
+        expected = '?v=20260802b'
+        for page in (INDEX, CONFIG_PAGE, PANEL_EDIT_PAGE, EXECUTION_PAGE):
+            for line in page.splitlines():
+                if 'simc-benchmark-dashboard.' in line:
+                    self.assertIn(expected, line)
 
     def test_editor_and_history_are_independent_accessible_dialogs(self):
         soup = BeautifulSoup(PARTIAL, "html.parser")
@@ -289,7 +297,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn('function loadExecutionPage()', JS)
         self.assertIn('function rerunFailedPage(id,button)', JS)
         self.assertIn("dataset:{rerunFailed:data.id}", JS)
-        self.assertIn('?v=20260801b', INDEX)
+        self.assertIn('?v=20260802b', INDEX)
         self.assertIn("if(!configPage){document.body.classList.add", JS)
         self.assertIn("data-benchmark-notification", JS)
         self.assertNotIn('data-create-only', CONFIG_PAGE)
