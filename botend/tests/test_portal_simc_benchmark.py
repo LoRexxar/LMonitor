@@ -34,7 +34,7 @@ class PortalSimcBenchmarkAPITests(TestCase):
         self.assertEqual(payload, {
             'status': 'ready',
             'panels': [{
-                'slug': 'public-panel', 'name': 'Public panel',
+                'id': self.public.id, 'slug': 'public-panel', 'name': 'Public panel',
                 'description': 'Public description', 'status': 'not_ready',
             }],
         })
@@ -61,7 +61,7 @@ class PortalSimcBenchmarkAPITests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload, {
             'status': 'ready',
-            'panel': {'slug': 'public-panel', 'name': 'Public panel', 'description': 'Public description'},
+            'panel': {'id': self.public.id, 'slug': 'public-panel', 'name': 'Public panel', 'description': 'Public description'},
             'results': {'coordinates': projection['coordinates']},
         })
         serializer.assert_called_once_with(self.public)
@@ -78,11 +78,21 @@ class PortalSimcBenchmarkAPITests(TestCase):
         self.assertEqual(json.loads(private_response.content), {
             'status': 'ready',
             'panel': {
-                'slug': 'secret-panel', 'name': 'Secret panel', 'description': 'Secret config',
+                'id': self.private.id, 'slug': 'secret-panel', 'name': 'Secret panel', 'description': 'Secret config',
             },
             'results': {'coordinates': [{'spec_key': 'private'}]},
         })
         serializer.assert_has_calls([call(self.public), call(self.private)])
+
+    @patch('botend.portal.simc_benchmark_api.serialize_incremental_panel_results')
+    def test_detail_is_openable_by_stable_numeric_panel_id(self, serializer):
+        serializer.return_value = {'coordinates': [{'spec_key': 'fury'}]}
+        response = self.client.get(f'/portal/api/simc-benchmarks/panels/{self.public.id}/')
+        payload = json.loads(response.content)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload['status'], 'ready')
+        self.assertEqual(payload['panel']['id'], self.public.id)
+        serializer.assert_called_once_with(self.public)
 
     @patch('botend.portal.simc_benchmark_api.serialize_incremental_panel_results')
     def test_disabled_and_missing_slugs_are_not_ready(self, serializer):
@@ -96,6 +106,18 @@ class PortalSimcBenchmarkAPITests(TestCase):
     def test_public_endpoints_are_read_only(self):
         self.assertEqual(self.client.post('/portal/api/simc-benchmarks/panels/').status_code, 405)
         self.assertEqual(self.client.post('/portal/api/simc-benchmarks/panels/public-panel/').status_code, 405)
+
+
+@override_settings(ALLOWED_HOSTS=['testserver'])
+class PortalSimcBenchmarkPageTests(TestCase):
+    def test_numeric_panel_route_renders_panel_identity_for_javascript(self):
+        response = self.client.get(
+            '/portal/simc-benchmarks/1/?spec=fury&profile=raid&scenario=patchwerk',
+        )
+        self.assertEqual(response.status_code, 200)
+        soup = BeautifulSoup(response.content, 'html.parser')
+        root = soup.select_one('#simc-benchmark-root')
+        self.assertEqual(root.get('data-panel-id'), '1')
 
 
 class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
@@ -122,6 +144,22 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             self.assertIn(contract, self.JS)
         self.assertNotIn('innerHTML', self.JS)
         self.assertNotIn('results_finalized_at', self.JS)
+
+    def test_numeric_panel_route_and_filter_query_are_synchronized(self):
+        for contract in (
+            'root.dataset.panelId',
+            'params.get("spec")', 'params.get("profile")', 'params.get("scenario")',
+            'params.set("spec"', 'params.set("profile"', 'params.set("scenario"',
+            'window.history.replaceState',
+            '${encodeURIComponent(String(panelId))}/',
+        ):
+            self.assertIn(contract, self.JS)
+        self.assertNotIn('get("benchmark")', self.JS)
+
+    def test_dashboard_opens_numeric_panel_route_instead_of_slug_query(self):
+        dashboard_js = (self.ROOT / 'static/dashboard/js/simc-benchmark-dashboard.js').read_text(encoding='utf-8')
+        self.assertIn('/portal/simc-benchmarks/${encodeURIComponent(id)}/', dashboard_js)
+        self.assertNotIn('/portal/simc-benchmarks/?benchmark=', dashboard_js)
 
     def test_public_renderer_hides_baseline_candidates_but_keeps_comparison_data(self):
         self.assertIn('candidate.type === "base"', self.JS)

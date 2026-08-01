@@ -70,8 +70,10 @@ class PortalHomeView(View):
 class PortalSimcBenchmarkResultsView(View):
     """Standalone Portal shell for published SimC benchmark results."""
 
-    def get(self, request):
-        return render(request, 'portal/simc_benchmark_results.html')
+    def get(self, request, panel_id=None):
+        return render(request, 'portal/simc_benchmark_results.html', {
+            'benchmark_panel_id': panel_id,
+        })
 
 
 class PortalNewsView(View):

@@ -16,6 +16,7 @@ def _public_result_payload(panel):
     return {
         'status': 'ready' if coordinates else 'not_ready',
         'panel': {
+            'id': panel.id,
             'slug': panel.slug,
             'name': panel.name,
             'description': panel.description,
@@ -36,6 +37,7 @@ class PortalSimcBenchmarkPanelListAPIView(View):
         for panel in queryset:
             payload = _public_result_payload(panel)
             panels.append({
+                'id': panel.id,
                 'slug': panel.slug,
                 'name': panel.name,
                 'description': panel.description,
@@ -49,8 +51,7 @@ class PortalSimcBenchmarkPanelDetailAPIView(View):
 
     http_method_names = ['get', 'head', 'options']
 
-    def get(self, request, slug):
-        panel = SimcBenchmarkPanel.objects.filter(
-            is_active=True, slug=slug,
-        ).first()
+    def get(self, request, panel_id=None, slug=None):
+        lookup = {'id': panel_id} if panel_id is not None else {'slug': slug}
+        panel = SimcBenchmarkPanel.objects.filter(is_active=True, **lookup).first()
         return JsonResponse(_public_result_payload(panel) if panel else _NOT_READY)

@@ -102,7 +102,8 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn("['iterations','desired_targets'].includes(key)", JS)
         self.assertIn("['target_error','max_time','vary_combat_length'].includes(key)", JS)
         self.assertIn("input.step='any'", JS)
-        self.assertIn("encodeURIComponent(panel.slug)", JS)
+        self.assertIn("/portal/simc-benchmarks/${encodeURIComponent(id)}/", JS)
+        self.assertNotIn("?benchmark=${encodeURIComponent(panel.slug)}", JS)
         self.assertIn("'_blank','noopener'", JS)
 
     def test_failed_loads_cannot_restore_stale_data_or_enable_saving(self):

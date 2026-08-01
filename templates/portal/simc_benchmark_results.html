@@ -37,11 +37,11 @@
                     <p id="simc-benchmarks-description">独立展示已发布的基准模拟结果。选择专精、战斗场景和 Profile，查看当前组合下候选方案的 DPS 排名。</p>
                 </div>
             </div>
-            <div id="simc-benchmark-root" class="simc-benchmark-panels" aria-live="polite" aria-busy="true">
+            <div id="simc-benchmark-root" class="simc-benchmark-panels" aria-live="polite" aria-busy="true"{% if benchmark_panel_id is not None %} data-panel-id="{{ benchmark_panel_id }}"{% endif %}>
                 <div class="simc-benchmark-state" role="status">正在加载 Benchmark 结果…</div>
             </div>
         </section>
     </main>
-    <script src="{% static 'portal/js/simc-benchmarks.js' %}?v=20260801_compact_heading"></script>
+    <script src="{% static 'portal/js/simc-benchmarks.js' %}?v=20260801_url_state"></script>
 </body>
 </html>

@@ -201,9 +201,15 @@
     caseNode.append(range, axis, chart); return caseNode;
   }
 
-  function renderResults(shell, payload) {
+  function renderResults(shell, payload, { syncLocation = false } = {}) {
     const coordinates = Array.isArray(payload?.results?.coordinates) ? payload.results.coordinates : [];
     if (!coordinates.length) { shell.body.replaceChildren(state("暂无已完成模拟结果", "not-ready")); return; }
+    const params = new URLSearchParams(syncLocation ? window.location.search : "");
+    const requested = {
+      spec: params.get("spec") || "",
+      profile: params.get("profile") || "",
+      scenario: params.get("scenario") || "",
+    };
     const dimensions = [["spec_key", "spec", "专精"], ["profile_key", "profile", "Profile"], ["scenario_key", "scenario", "场景"]];
     const filters = node("div", "simc-benchmark-filters");
     const selected = {};
@@ -218,9 +224,9 @@
       if (key === "scenario_key" && String(coordinate?.profile_key || "") !== selected.profile_key.value) return false;
       return true;
     });
-    const syncFilterOptions = (key) => {
+    const syncFilterOptions = (key, preferred = "") => {
       const [, labelKey] = dimensions.find(([dimension]) => dimension === key);
-      const select = selected[key]; const previous = select.value; const options = new Map();
+      const select = selected[key]; const previous = preferred || select.value; const options = new Map();
       availableCoordinates(key).forEach((coordinate) => {
         const value = String(coordinate?.[key] || "");
         const label = key === "scenario_key"
@@ -232,16 +238,26 @@
       options.forEach((label, value) => { const option = node("option", "", label); option.value = value; select.appendChild(option); });
       select.value = options.has(previous) ? previous : (options.keys().next().value || "");
     };
-    const syncDependentFilters = () => {
-      syncFilterOptions("profile_key");
-      syncFilterOptions("scenario_key");
+    const syncDependentFilters = (preferredProfile = "", preferredScenario = "") => {
+      syncFilterOptions("profile_key", preferredProfile);
+      syncFilterOptions("scenario_key", preferredScenario);
     };
-    syncFilterOptions("spec_key"); syncDependentFilters();
+    syncFilterOptions("spec_key", requested.spec);
+    syncDependentFilters(requested.profile, requested.scenario);
 
     const selectedResult = node("div", "simc-benchmark-cases");
+    const syncUrl = () => {
+      if (!syncLocation) return;
+      const params = new URLSearchParams(window.location.search);
+      params.set("spec", selected.spec_key.value);
+      params.set("profile", selected.profile_key.value);
+      params.set("scenario", selected.scenario_key.value);
+      window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
+    };
     const render = () => {
       const coordinate = coordinates.find((item) => dimensions.every(([key]) => String(item?.[key] || "") === selected[key].value));
       selectedResult.replaceChildren(coordinate ? renderCoordinate(coordinate) : state("当前筛选条件下没有结果", "empty"));
+      syncUrl();
     };
     selected.spec_key.addEventListener("change", () => { syncDependentFilters(); render(); });
     selected.profile_key.addEventListener("change", () => { syncFilterOptions("scenario_key"); render(); });
@@ -260,7 +276,7 @@
   }
 
   function panelShell(panel) {
-    const article = node("article", "simc-benchmark-panel"); article.dataset.benchmarkSlug = String(panel.slug || "");
+    const article = node("article", "simc-benchmark-panel"); article.dataset.benchmarkPanelId = String(panel.id || "");
     const header = node("header", "simc-benchmark-panel-header"); const copy = node("div", "simc-benchmark-panel-copy");
     copy.append(node("h3", "simc-benchmark-panel-title", panel.name || panel.slug || "Benchmark Panel"));
     if (panel.description) copy.appendChild(node("p", "simc-benchmark-panel-description", panel.description));
@@ -271,20 +287,21 @@
   async function loadPanel(panel, root, { setPageHeading = false } = {}) {
     const shell = panelShell(panel); root.appendChild(shell.article); shell.body.appendChild(state("正在加载模拟结果…", "loading"));
     try {
-      const payload = await requestJson(`${LIST_URL}${encodeURIComponent(String(panel.slug || ""))}/`);
+      const panelId = panel.id;
+      const payload = await requestJson(`${LIST_URL}${encodeURIComponent(String(panelId))}/`);
       if (payload.status === "ready") {
         if (setPageHeading) applyPanelHeading(payload.panel || panel);
-        renderResults(shell, payload);
+        renderResults(shell, payload, { syncLocation: setPageHeading });
       } else shell.body.replaceChildren(state("暂无已完成模拟结果", "not-ready"));
     } catch (_) { shell.body.replaceChildren(state("Benchmark 结果加载失败，请稍后重试", "error")); }
   }
 
   async function loadBenchmarks() {
     const root = document.getElementById("simc-benchmark-root"); if (!root) return;
-    const requested = new URLSearchParams(window.location.search).get("benchmark"); root.setAttribute("aria-busy", "true");
+    const panelId = root.dataset.panelId; root.setAttribute("aria-busy", "true");
     try {
       root.replaceChildren();
-      if (requested) await loadPanel({ slug: requested }, root, { setPageHeading: true });
+      if (panelId) await loadPanel({ id: panelId }, root, { setPageHeading: true });
       else {
         const payload = await requestJson(LIST_URL);
         const panels = payload.status === "ready" && Array.isArray(payload.panels) ? payload.panels : [];
