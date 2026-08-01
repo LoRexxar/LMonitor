@@ -54,6 +54,11 @@ class BackfillSimcBenchmarkResultsCommandTests(SimcBenchmarkExecutionTests):
                 'gear_swap': gear_swap,
             },
         )
+        # Stale recovery/retry atomically rebinds the Case to a replacement Task;
+        # the original Task and its Runs remain valid Benchmark history.
+        benchmark_case = execution.cases.get()
+        benchmark_case.task = None
+        benchmark_case.save(update_fields=['task'])
         self.assertEqual(candidate.label, 'Trinket')
         self.assertEqual(run.candidate_label, 'Trinket')
         self.assertFalse(run.candidate_params.get('icon_url'))

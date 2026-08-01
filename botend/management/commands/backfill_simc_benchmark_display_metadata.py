@@ -2,6 +2,7 @@ from copy import deepcopy
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.db.models import Q
 
 from botend.models import (
     SimcBenchmarkCandidate, SimcBenchmarkExecution, SimulationRun, WowItemSnapshot,
@@ -101,13 +102,14 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         dry_run = options['dry_run']
         candidates = list(SimcBenchmarkCandidate.objects.only(
-            'id', 'label', 'icon_url', 'params',
+            'id', 'key', 'label', 'icon_url', 'params',
         ).order_by('id'))
         executions = list(SimcBenchmarkExecution.objects.only(
             'id', 'config_snapshot', 'display_metadata',
         ).order_by('id'))
+        candidate_keys = {candidate.key for candidate in candidates}
         runs = list(SimulationRun.objects.filter(
-            task__benchmark_case__isnull=False,
+            Q(task__benchmark_case__isnull=False) | Q(candidate_key__in=candidate_keys),
         ).only('id', 'candidate_label', 'candidate_params', 'display_metadata').order_by('id'))
         item_ids = {
             item_id for item_id in (
