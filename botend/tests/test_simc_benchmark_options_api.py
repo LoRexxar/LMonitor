@@ -10,6 +10,10 @@ from botend.models import (
     SimcApl, SimcBackendBinary, SimcBenchmarkPanel, SimcContentTemplate,
     SimcProfile,
 )
+from botend.services.simc_benchmark_config import (
+    MAX_CANDIDATES, MAX_CASES, MAX_PROFILES_PER_SPEC, MAX_RUNS_PER_TASK,
+    MAX_SCENARIOS, MAX_SPECS,
+)
 
 
 class SimcBenchmarkOptionsApiTests(TestCase):
@@ -114,11 +118,15 @@ class SimcBenchmarkOptionsApiTests(TestCase):
                        'SECRET_CHARACTER', 'SECRET_EQUIPMENT'):
             self.assertNotIn(secret, body)
         self.assertEqual(response.json()['data']['limits'], {
-            'max_specs': 40, 'max_profiles_per_spec': 5, 'max_scenarios': 8,
-            'max_candidates': 50, 'max_cases': 100, 'max_runs_per_task': 51,
+            'max_specs': MAX_SPECS,
+            'max_profiles_per_spec': MAX_PROFILES_PER_SPEC,
+            'max_scenarios': MAX_SCENARIOS,
+            'max_candidates': MAX_CANDIDATES,
+            'max_cases': MAX_CASES,
+            'max_runs_per_task': MAX_RUNS_PER_TASK,
         })
 
-    def test_create_defaults_are_authoritative_and_reject_ambiguous_resources(self):
+    def test_create_defaults_are_authoritative_and_allow_multiple_active_profiles(self):
         response = self.client.get('/api/simc-benchmarks/options/')
         defaults = response.json()['data']['create_defaults']['warrior_fury']
         self.assertTrue(defaults['available'])
@@ -128,8 +136,30 @@ class SimcBenchmarkOptionsApiTests(TestCase):
         self.assertEqual(defaults['template_id'], self.template.id)
         self.assertEqual(defaults['profile_id'], self.default_profile.id)
 
+        later_profile = SimcProfile.objects.create(
+            user_id=None, name='ZZZ later system profile', spec='warrior_fury',
+            class_name='warrior', source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            is_active=False,
+        )
+        SimcProfile.objects.filter(pk=later_profile.pk).update(
+            is_active=True, system_key='simc_upstream:warrior_fury:12.1',
+        )
+        defaults = self.client.get('/api/simc-benchmarks/options/').json()['data'][
+            'create_defaults'
+        ]['warrior_fury']
+        self.assertTrue(defaults['available'])
+        self.assertEqual(defaults['profile_id'], self.default_profile.id)
+        self.assertEqual(defaults['profile_label'], self.default_profile.name)
+
         self.default_profile.is_active = False
         self.default_profile.save(update_fields=['is_active'])
+        defaults = self.client.get('/api/simc-benchmarks/options/').json()['data'][
+            'create_defaults'
+        ]['warrior_fury']
+        self.assertTrue(defaults['available'])
+        self.assertEqual(defaults['profile_id'], later_profile.id)
+
+        SimcProfile.objects.filter(pk=later_profile.pk).update(is_active=False)
         defaults = self.client.get('/api/simc-benchmarks/options/').json()['data'][
             'create_defaults'
         ]['warrior_fury']

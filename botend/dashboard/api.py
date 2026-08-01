@@ -8666,17 +8666,20 @@ def _benchmark_create_defaults(resources, specs):
         )]
         problems = []
         for label, rows in (('正式 Backend', production_backends), ('系统默认 APL', apls),
-                            ('基础 Template', templates), ('系统默认 Profile', profiles)):
+                            ('基础 Template', templates)):
             if len(rows) != 1:
                 problems.append(f'{label}{"缺少" if not rows else "不唯一"}')
+        if not profiles:
+            problems.append('系统默认 Profile缺少')
         if problems:
             result[spec_key] = {'available': False, 'reason': '、'.join(problems)}
         else:
+            default_profile = profiles[0]
             result[spec_key] = {
                 'available': True, 'backend_id': production_backends[0].pk,
                 'apl_id': apls[0].pk,
-                'template_id': templates[0].pk, 'profile_id': profiles[0].pk,
-                'profile_label': profiles[0].name,
+                'template_id': templates[0].pk, 'profile_id': default_profile.pk,
+                'profile_label': default_profile.name,
             }
     return result
 
