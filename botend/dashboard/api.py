@@ -63,7 +63,7 @@ from botend.services.simc_attribute_search import (
 from botend.services.task_rerun import create_rerun, TaskRerunError
 from botend.services.battlenet_preflight import fetch_battlenet_character_preflight
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
-from botend.constants.wow import CLASS_SPEC_MAP, CLASS_CN, SPEC_CN
+from botend.constants.wow import CLASS_SPEC_MAP, CLASS_CN, SPEC_CN, SPEC_ROLE
 from botend.services.simc_apl.catalog import query_symbol_catalog
 from botend.services.simc_apl.validation import validate_payload
 from botend.services.simc_apl.authoritative_validator import RestrictedSimcValidator
@@ -8586,6 +8586,7 @@ def _benchmark_spec_options():
                 'value': value, 'spec_key': value, 'class_name': class_name,
                 'class_label': class_label, 'spec_label': spec_label,
                 'label': f'{class_label} · {spec_label}',
+                'role': SPEC_ROLE[(class_display, spec_display)],
             })
     return rows
 

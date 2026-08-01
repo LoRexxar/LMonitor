@@ -128,6 +128,7 @@ SPEC_ROLE = {
     ("DeathKnight", "Unholy"):        "dps",
     ("DemonHunter", "Havoc"):         "dps",
     ("DemonHunter", "Vengeance"):     "tank",
+    ("DemonHunter", "Devourer"):      "dps",
     ("Druid", "Balance"):             "dps",
     ("Druid", "Feral"):               "dps",
     ("Druid", "Guardian"):            "tank",

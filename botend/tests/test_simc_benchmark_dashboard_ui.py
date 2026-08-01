@@ -229,6 +229,29 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn("create-spec-unavailable", JS)
         self.assertIn("candidates:[]", JS)
 
+    def test_create_spec_picker_groups_roles_and_supports_bulk_selection(self):
+        picker = JS[JS.index('function renderCreateSpecPicker()'):JS.index('function createPayload()')]
+        for contract in (
+            "const CREATE_SPEC_ROLE_GROUPS",
+            "{key:'dps',label:'DPS'}",
+            "{key:'tank',label:'坦克'}",
+            "{key:'healer',label:'治疗'}",
+            "dataset:{selectAllSpecs:''}",
+            "dataset:{selectSpecRole:group.key}",
+            "spec.role===group.key",
+            "inputs.filter(input=>!input.disabled)",
+            "dispatchEvent(new Event('change'",
+            "syncCreateSpecBulkControls();",
+            "(resources?.specs||[]).filter(spec=>selected.has(spec.value))",
+        ):
+            self.assertIn(contract, JS)
+        self.assertIn("min-height:44px", CSS)
+        for selector in (
+            '.create-spec-picker-toolbar', '.create-spec-role-group',
+            '.create-spec-role-heading', '.create-spec-role-grid',
+        ):
+            self.assertIn(selector, CSS)
+
     def test_panel_editing_is_separate_from_task_matrix_configuration(self):
         self.assertIn('dashboard/simc/benchmarks/', JS)
         self.assertNotIn("if(action.dataset.action==='edit')openEditor(id)", JS)

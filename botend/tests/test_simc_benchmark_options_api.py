@@ -68,9 +68,19 @@ class SimcBenchmarkOptionsApiTests(TestCase):
         self.assertEqual(len({row['value'] for row in specs}), 40)
         devourer = next(row for row in specs if row['value'] == 'demonhunter_devourer')
         self.assertEqual(devourer['spec_label'], '噬灭')
+        self.assertEqual(devourer['role'], 'dps')
         self.assertEqual(set(devourer), {
-            'value', 'spec_key', 'class_name', 'class_label', 'spec_label', 'label',
+            'value', 'spec_key', 'class_name', 'class_label', 'spec_label', 'label', 'role',
         })
+        self.assertEqual({row['role'] for row in specs}, {'dps', 'tank', 'healer'})
+        self.assertEqual(
+            next(row for row in specs if row['value'] == 'deathknight_blood')['role'],
+            'tank',
+        )
+        self.assertEqual(
+            next(row for row in specs if row['value'] == 'priest_holy')['role'],
+            'healer',
+        )
 
     def test_create_and_edit_use_different_immutable_ownership_contexts(self):
         created = self.client.get('/api/simc-benchmarks/options/').json()['data']
