@@ -37,11 +37,17 @@ class BackfillSimcBenchmarkResultsCommandTests(SimcBenchmarkExecutionTests):
         execution = self._create()
         task = execution.cases.get().task
         candidate = SimcBenchmarkCandidate.objects.get(panel=execution.panel, key='trinket')
+        candidate.params['gear_swap'].update({'item_id': 248583, 'bonus_id': 13183})
+        candidate.save(update_fields=['params'])
+        execution.config_snapshot['candidates'][1]['params']['gear_swap'].update(
+            {'item_id': 248583, 'bonus_id': 13183},
+        )
+        execution.save(update_fields=['config_snapshot'])
         run = SimulationRun.objects.create(
             task=task, sequence=1, candidate_key='trinket', candidate_label='Trinket',
             candidate_params={
                 'candidate_type': 'gear_swap', 'is_base': False,
-                'gear_swap': {'item_id': 123, 'slot': 'trinket1'},
+                'gear_swap': {'item_id': 248583, 'bonus_id': 13183, 'slot': 'trinket1'},
             },
         )
         self.assertEqual(candidate.label, 'Trinket')
@@ -49,7 +55,7 @@ class BackfillSimcBenchmarkResultsCommandTests(SimcBenchmarkExecutionTests):
         self.assertFalse(run.candidate_params.get('icon_url'))
         self.assertFalse(run.display_metadata.get('icon_url'))
         WowItemSnapshot.objects.create(
-            item_id=123, name='Test Trinket', name_zh='测试饰品', icon='inv_trinket_raid_01',
+            item_id=248583, name='Drum of Renewed Bonds', name_zh='焕新羁绊之鼓', icon='inv_trinket_raid_01',
         )
 
         snapshot_before = deepcopy(execution.config_snapshot)
@@ -60,9 +66,9 @@ class BackfillSimcBenchmarkResultsCommandTests(SimcBenchmarkExecutionTests):
         candidate.refresh_from_db()
         run.refresh_from_db()
         execution.refresh_from_db()
-        self.assertEqual(candidate.label, '测试饰品')
+        self.assertEqual(candidate.label, '焕新羁绊之鼓 · 暴击')
         self.assertEqual(candidate.icon_url, '/static/wow_icons/small/inv_trinket_raid_01.jpg')
-        self.assertEqual(run.candidate_label, '测试饰品')
+        self.assertEqual(run.candidate_label, '焕新羁绊之鼓 · 暴击')
         self.assertEqual(
             run.display_metadata['icon_url'],
             '/static/wow_icons/small/inv_trinket_raid_01.jpg',
@@ -70,7 +76,7 @@ class BackfillSimcBenchmarkResultsCommandTests(SimcBenchmarkExecutionTests):
         self.assertEqual(execution.config_snapshot, snapshot_before)
         self.assertEqual(execution.config_hash, hash_before)
         self.assertEqual(execution.display_metadata['trinket'], {
-            'label': '测试饰品',
+            'label': '焕新羁绊之鼓 · 暴击',
             'icon_url': '/static/wow_icons/small/inv_trinket_raid_01.jpg',
         })
         self.assertIn('updated 1 candidates, 1 runs, and 1 executions', output.getvalue())

@@ -532,6 +532,7 @@ def normalize_panel_payload(payload, user_id, panel=None):
         spec_keys = [_key(item, 'spec_keys') for item in spec_keys]
         if len(set(spec_keys)) != len(spec_keys): _error('spec_keys 包含重复值', 'spec_keys')
         metadata_label, metadata_icon_url = _benchmark_item_display_metadata(item_id)
+        requested_label = _text(raw.get('label', ''), 'candidate.label', required=False, max_length=200)
         icon_url = metadata_icon_url or _text(raw.get('icon_url', ''), 'icon_url', required=False,
                                                 max_length=500)
         if icon_url and not icon_url.startswith('/static/'):
@@ -539,7 +540,12 @@ def normalize_panel_payload(payload, user_id, panel=None):
                 URLValidator()(icon_url)
             except ValidationError:
                 _error('icon_url 必须是有效 URL', 'icon_url')
-        candidate_label = metadata_label or f'物品 {item_id}'
+        variant_suffix = requested_label.rpartition(' · ')[2] if ' · ' in requested_label else ''
+        candidate_label = (
+            f'{metadata_label} · {variant_suffix}'
+            if metadata_label and variant_suffix
+            else (metadata_label or f'物品 {item_id}')
+        )
         if item_level:
             candidate_label = f'{candidate_label} · {item_level}'
         normalized['candidates'].append({

@@ -17,6 +17,8 @@ MID1_DEFAULT_SCENARIOS = (
 )
 _SCALAR=re.compile(r'^[a-z][a-z0-9_.-]{0,79}=[a-zA-Z0-9_./+:-]{0,120}$')
 SPECIAL_BONUS_IDS={250462:{'crit':606,'haste':604,'mastery':605,'versatility':607},248583:{'crit':13183,'haste':13184,'mastery':13185,'versatility':13186}}
+SPECIAL_OPTION_LABELS={'crit':'暴击','haste':'急速','mastery':'精通','versatility':'全能'}
+SPECIAL_BONUS_LABELS={item_id:{bonus_id:SPECIAL_OPTION_LABELS[option] for option,bonus_id in options.items()} for item_id,options in SPECIAL_BONUS_IDS.items()}
 SPECIAL_OPTIONS={264507:{'violence':('midnight.crucible_of_erratic_energies_violence=1',),'sustenance':('midnight.crucible_of_erratic_energies_sustenance=1',),'predation':('midnight.crucible_of_erratic_energies_predation=1',),'predation+sustenance+violence+':('midnight.crucible_of_erratic_energies_predation=1','midnight.crucible_of_erratic_energies_sustenance=1','midnight.crucible_of_erratic_energies_violence=1')}}
 @dataclass(frozen=True)
 class TrinketVariant:
@@ -65,7 +67,10 @@ def build_mid1_panel_payload(catalog,user_id,slug='midnight-s1-trinkets'):
   if variant.bonus_id is not None: raw+=f',bonus_id={variant.bonus_id}'
   params={'slot':'trinket1','raw_value':raw}
   if variant.simc_options: params['simc_options']=list(variant.simc_options)
-  candidates.append({'key':variant.candidate_key,'label':f'{variant.name} ({variant.item_level})','candidate_type':'gear_swap','params':params,'spec_keys':list(variant.spec_keys),'source_label':variant.source_label,'display_order':order})
+  label=variant.name
+  if variant.option_key != 'default':
+   label=f'{label} · {SPECIAL_OPTION_LABELS.get(variant.option_key,variant.option_key)}'
+  candidates.append({'key':variant.candidate_key,'label':label,'candidate_type':'gear_swap','params':params,'spec_keys':list(variant.spec_keys),'source_label':variant.source_label,'display_order':order})
  return {'name':'Midnight Season 1 Trinkets','slug':slug,'description':'Audited MID1 trinket matrix','is_active':True,'is_public':True,'schedule_enabled':False,'interval_seconds':86400,'specs':specs,'scenarios':[dict(scenario, simulation_params=dict(scenario['simulation_params'])) for scenario in MID1_DEFAULT_SCENARIOS],'candidates':candidates}
 
 def mid1_matrix_plan(payload):

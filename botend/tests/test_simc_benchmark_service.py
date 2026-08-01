@@ -133,6 +133,17 @@ class SimcBenchmarkConfigServiceTests(TestCase):
         self.assertEqual(candidate['icon_url'], '/static/wow_icons/small/inv_trinket_raid_01.jpg')
         self.assertEqual(candidate['source_label'], '物品 #123')
 
+    def test_preserves_explicit_variant_suffix_when_localizing_item_name(self):
+        WowItemSnapshot.objects.create(
+            item_id=123, name='Test Trinket', name_zh='测试饰品', icon='inv_trinket_raid_01',
+        )
+        payload = dict(self.payload)
+        payload['candidates'] = [dict(payload['candidates'][0], label='测试饰品 · 暴击')]
+
+        result = normalize_panel_payload(payload, self.user_id)
+
+        self.assertEqual(result['candidates'][0]['label'], '测试饰品 · 暴击 · 700')
+
     def test_generated_keys_distinguish_execution_relevant_gear_params(self):
         candidates = [
             {'candidate_type': 'gear_swap',

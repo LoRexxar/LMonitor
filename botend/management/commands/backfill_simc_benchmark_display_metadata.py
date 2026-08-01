@@ -6,6 +6,7 @@ from django.db import transaction
 from botend.models import (
     SimcBenchmarkCandidate, SimcBenchmarkExecution, SimulationRun, WowItemSnapshot,
 )
+from botend.services.midnight_trinket_catalog import SPECIAL_BONUS_LABELS
 
 
 def _item_id(candidate_params):
@@ -18,11 +19,26 @@ def _item_id(candidate_params):
     return value if isinstance(value, int) and value > 0 else None
 
 
-def _display_metadata(items, item_id):
+def _bonus_label(candidate_params):
+    if not isinstance(candidate_params, dict):
+        return ''
+    swap = candidate_params.get('gear_swap')
+    if not isinstance(swap, dict):
+        return ''
+    item_id = swap.get('item_id')
+    bonus_id = swap.get('bonus_id')
+    return SPECIAL_BONUS_LABELS.get(item_id, {}).get(bonus_id, '')
+
+
+def _display_metadata(items, candidate_params):
+    item_id = _item_id(candidate_params)
     item = items.get(item_id)
     if item is None:
         return '', ''
     label = str(item.name_zh or item.name or '').strip()
+    variant = _bonus_label(candidate_params)
+    if label and variant:
+        label = f'{label} · {variant}'
     icon_name = str(item.icon or '').strip().split('?', 1)[0].rsplit('/', 1)[-1]
     while icon_name.rsplit('.', 1)[-1].lower() in {'jpg', 'jpeg', 'png', 'gif', 'webp'}:
         icon_name = icon_name.rsplit('.', 1)[0]
@@ -44,7 +60,7 @@ def _execution_candidate_metadata(items, snapshot):
         params = candidate.get('params')
         if not isinstance(key, str) or not key or not isinstance(params, dict):
             continue
-        label, icon_url = _display_metadata(items, _item_id(params))
+        label, icon_url = _display_metadata(items, params)
         if label or icon_url:
             metadata[key] = {
                 **({'label': label} if label else {}),
@@ -91,7 +107,7 @@ class Command(BaseCommand):
 
         candidate_updates = []
         for candidate in candidates:
-            label, icon_url = _display_metadata(items, _item_id(candidate.params))
+            label, icon_url = _display_metadata(items, candidate.params)
             if not label and not icon_url:
                 continue
             changed = False
@@ -106,7 +122,7 @@ class Command(BaseCommand):
 
         run_updates = []
         for run in runs:
-            label, icon_url = _display_metadata(items, _item_id(run.candidate_params))
+            label, icon_url = _display_metadata(items, run.candidate_params)
             if not label and not icon_url:
                 continue
             changed = False
@@ -133,7 +149,7 @@ class Command(BaseCommand):
                 current = current if isinstance(current, dict) else {}
                 merged = {**current}
                 for field, value in values.items():
-                    if not merged.get(field):
+                    if merged.get(field) != value:
                         merged[field] = value
                         changed = True
                 metadata[key] = merged

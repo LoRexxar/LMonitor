@@ -1,8 +1,9 @@
 import json
 from pathlib import Path
 from unittest import TestCase
+from unittest.mock import patch
 
-from botend.services.midnight_trinket_catalog import parse_mid1_catalog
+from botend.services.midnight_trinket_catalog import build_mid1_panel_payload, parse_mid1_catalog
 
 
 FIXTURE = Path(__file__).parent / 'fixtures' / 'mid1_trinkets.json'
@@ -30,6 +31,27 @@ class MidnightTrinketCatalogTests(TestCase):
             [v.candidate_key for v in catalog.variants],
             [v.candidate_key for v in parse_mid1_catalog(raw).variants],
         )
+
+    def test_payload_keeps_distinct_labels_for_stat_bonus_variants(self):
+        catalog = parse_mid1_catalog(json.loads(FIXTURE.read_text()))
+        with patch(
+            'botend.services.simc_benchmark_config.resolve_default_benchmark_resources',
+            return_value={spec_key: {'apl': type('R', (), {'pk': 1})(),
+                                    'template': type('R', (), {'pk': 2})(),
+                                    'backend': type('R', (), {'pk': 3})(),
+                                    'profile': type('R', (), {'pk': 4, 'name': 'Profile'})()}
+                          for spec_key in catalog.spec_keys},
+        ):
+            payload = build_mid1_panel_payload(catalog, user_id=1)
+
+        drum_labels = {
+            candidate['label'] for candidate in payload['candidates']
+            if candidate['params']['raw_value'].startswith('id=248583,')
+        }
+        self.assertEqual(len(drum_labels), 4)
+        self.assertEqual({label.rpartition(' · ')[2] for label in drum_labels}, {
+            '暴击', '急速', '精通', '全能',
+        })
 
     def test_rejects_wrong_tier_missing_spec_or_untrusted_directive(self):
         raw = json.loads(FIXTURE.read_text())
