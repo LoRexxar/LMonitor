@@ -174,11 +174,20 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIn("document.title", self.JS)
         self.assertIn('simc-benchmarks-description', self.RESULTS_TEMPLATE)
 
-    def test_dense_chart_and_mobile_rows_have_explicit_layout_contracts(self):
-        for contract in ('simc-benchmark-candidate-grid', 'simc-benchmark-candidate-source',
-                         'max-height: min(70vh, 64rem)', 'overflow-y: auto',
-                         '@media (max-width: 640px)', 'grid-template-areas'):
+    def test_result_list_uses_page_scroll_instead_of_an_internal_vertical_scroller(self):
+        """候选结果必须自然展开，不能截留页面滚轮。"""
+        chart_start = self.CSS.index('.simc-benchmark-chart {')
+        chart_end = self.CSS.index('}', chart_start) + 1
+        chart_css = self.CSS[chart_start:chart_end]
+        mobile_start = self.CSS.index('@media (max-width: 640px)')
+        mobile_css = self.CSS[mobile_start:]
+
+        for contract in ('display: grid', 'simc-benchmark-candidate-grid',
+                         'simc-benchmark-candidate-source', 'grid-template-areas'):
             self.assertIn(contract, self.CSS)
+        self.assertNotIn('max-height', chart_css)
+        self.assertNotIn('overflow-y', chart_css)
+        self.assertNotIn('.simc-benchmark-chart { max-height', mobile_css)
 
     def test_mobile_layout_and_no_scroll_snap(self):
         self.assertIn('@media (max-width: 640px)', self.CSS)

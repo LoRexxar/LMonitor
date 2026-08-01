@@ -115,10 +115,7 @@
 .simc-benchmark-chart {
     display: grid;
     gap: 0.2rem;
-    max-height: min(70vh, 64rem);
-    overflow-y: auto;
     padding-right: 0.25rem;
-    scrollbar-gutter: stable;
 }
 .simc-benchmark-candidate { border-radius: 0.35rem; min-width: 0; padding: 0.25rem 0.35rem; }
 .simc-benchmark-candidate:nth-child(even) { background: rgba(226, 232, 240, 0.38); }
@@ -161,7 +158,6 @@
     .simc-benchmark-filters { grid-template-columns: minmax(0, 1fr); }
     .simc-benchmark-cases { grid-template-columns: minmax(0, 1fr); }
     .simc-benchmark-case { padding: 0.5rem; }
-    .simc-benchmark-chart { max-height: 75vh; }
     .simc-benchmark-basic-info { grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 0.55rem; }
     .simc-benchmark-profile-identity { grid-template-columns: auto minmax(0, 1fr); }
     .simc-benchmark-profile-equipment { grid-template-columns: minmax(0, 1fr); }

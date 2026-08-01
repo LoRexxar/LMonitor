@@ -64,6 +64,15 @@ class SimcHistoryPaginationContractTests(unittest.TestCase):
         self.assertIn("baseline_counts", JS)
         self.assertIn("simc-benchmark-task-case__progress", JS)
 
+    def test_benchmark_case_list_expands_into_the_page_without_internal_scrolling(self):
+        """展开后的基准子任务由页面滚动，不能被 34rem 列表滚轮截留。"""
+        cases_start = HTML.index('#simc-workbench .simc-benchmark-task-cases {')
+        cases_end = HTML.index('}', cases_start) + 1
+        cases_css = HTML[cases_start:cases_end]
+        self.assertIn('display: grid', cases_css)
+        self.assertNotIn('max-height', cases_css)
+        self.assertNotIn('overflow-y', cases_css)
+
     def test_batch_compare_is_rendered_inline(self):
         self.assertIn('data-wb-action="compare"', JS)
         self.assertIn("/api/simc-regular-compare/?task_id=", JS)
