@@ -11,9 +11,9 @@ MID1_EXCLUDED_SPEC_KEYS = frozenset({
  'shaman_restoration',
 })
 MID1_DEFAULT_SCENARIOS = (
- {'key':'castingpatchwerk','name':'Casting Patchwerk (1 Target)','simulation_params':{'iterations':10000,'fight_style':'CastingPatchwerk','desired_targets':1}},
- {'key':'castingpatchwerk3','name':'Casting Patchwerk (3 Targets)','simulation_params':{'iterations':10000,'fight_style':'CastingPatchwerk','desired_targets':3}},
- {'key':'castingpatchwerk5','name':'Casting Patchwerk (5 Targets)','simulation_params':{'iterations':10000,'fight_style':'CastingPatchwerk','desired_targets':5}},
+ {'key':'castingpatchwerk','name':'Casting Patchwerk (1 Target / 300s)','simulation_params':{'iterations':10000,'fight_style':'CastingPatchwerk','desired_targets':1,'max_time':300}},
+ {'key':'castingpatchwerk5','name':'Casting Patchwerk (5 Targets / 40s)','simulation_params':{'iterations':10000,'fight_style':'CastingPatchwerk','desired_targets':5,'max_time':40}},
+ {'key':'castingpatchwerk20','name':'Casting Patchwerk (20 Targets / 40s)','simulation_params':{'iterations':10000,'fight_style':'CastingPatchwerk','desired_targets':20,'max_time':40}},
 )
 _SCALAR=re.compile(r'^[a-z][a-z0-9_.-]{0,79}=[a-zA-Z0-9_./+:-]{0,120}$')
 SPECIAL_BONUS_IDS={250462:{'crit':606,'haste':604,'mastery':605,'versatility':607},248583:{'crit':13183,'haste':13184,'mastery':13185,'versatility':13186}}

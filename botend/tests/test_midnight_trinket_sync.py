@@ -74,11 +74,12 @@ class MidnightTrinketSyncTests(TestCase):
         self.assertEqual((panel.specs.count(), panel.scenarios.count(), panel.candidates.count()),
                          (32, 3, 66))
         self.assertEqual(list(panel.scenarios.order_by('display_order', 'id').values_list(
-            'key', 'simulation_params__fight_style', 'simulation_params__desired_targets'
+            'key', 'simulation_params__fight_style',
+            'simulation_params__desired_targets', 'simulation_params__max_time',
         )), [
-            ('castingpatchwerk', 'CastingPatchwerk', 1),
-            ('castingpatchwerk3', 'CastingPatchwerk', 3),
-            ('castingpatchwerk5', 'CastingPatchwerk', 5),
+            ('castingpatchwerk', 'CastingPatchwerk', 1, 300),
+            ('castingpatchwerk5', 'CastingPatchwerk', 5, 40),
+            ('castingpatchwerk20', 'CastingPatchwerk', 20, 40),
         ])
 
     def test_existing_slug_owned_by_another_user_is_rejected(self):
