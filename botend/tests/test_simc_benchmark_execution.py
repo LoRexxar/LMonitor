@@ -267,6 +267,25 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual([item['slot'] for item in profile['equipment']], ['head', 'main_hand'])
         self.assertNotIn('player_equipment', profile)
 
+    def test_incremental_projection_exposes_frozen_candidate_item_level(self):
+        candidate = self.panel.candidates.get(key='trinket')
+        candidate.params = {
+            **candidate.params,
+            'gear_swap': {
+                **candidate.params['gear_swap'],
+                'raw_value': ',id=123,ilevel=285,bonus_id=42',
+            },
+        }
+        candidate.save(update_fields=['params'])
+        self._published_success()
+
+        candidates = serialize_incremental_panel_results(
+            self.panel,
+        )['coordinates'][0]['candidates']
+
+        trinket = next(row for row in candidates if row['key'] == 'trinket')
+        self.assertEqual(trinket['item_level'], 285)
+
     def test_incremental_result_projection_scans_finalized_cases_once_for_all_coordinates(self):
         self._published_success()
         SimcBenchmarkScenario.objects.create(

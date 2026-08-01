@@ -284,6 +284,14 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         ):
             self.assertIn(contract, self.JS)
 
+    def test_result_renderer_shows_candidate_item_level_next_to_item_name(self):
+        render_candidate = self.JS[
+            self.JS.index('function renderCandidate('):
+            self.JS.index('function profileTalentSimulatorUrl(')
+        ]
+        self.assertIn('candidate.item_level', render_candidate)
+        self.assertIn('装等', render_candidate)
+
     def test_result_renderer_uses_frozen_target_count_and_duration_for_scenarios(self):
         for contract in (
             'scenario_detail', 'scenarioLabel', 'desired_targets', 'max_time',

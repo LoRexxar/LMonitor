@@ -193,6 +193,29 @@ def _candidate_input_identity(candidate):
     })
 
 
+def _candidate_item_level(candidate):
+    """Read optional item level from the frozen executable candidate input."""
+    params = candidate.get('candidate_params')
+    if not isinstance(params, dict):
+        return None
+    gear_swap = params.get('gear_swap')
+    if not isinstance(gear_swap, dict):
+        gear_swap = params
+    for key in ('item_level', 'ilevel'):
+        value = gear_swap.get(key)
+        if value is None:
+            continue
+        try:
+            item_level = int(value)
+        except (TypeError, ValueError):
+            continue
+        if item_level > 0:
+            return item_level
+    raw_value = str(gear_swap.get('raw_value') or '')
+    match = re.search(r'(?:^|,)\s*(?:ilevel|item_level)=(\d+)(?=,|$)', raw_value, re.I)
+    return int(match.group(1)) if match and int(match.group(1)) > 0 else None
+
+
 def _task_candidate_identities(task):
     mode_params = task.mode_params if isinstance(task.mode_params, dict) else {}
     manifest = mode_params.get('request_manifest') if isinstance(mode_params, dict) else None
@@ -808,14 +831,18 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
         for candidate in coordinate['candidates']:
             match = reusable.get(_candidate_input_identity(candidate))
             if match:
-                rows.append({
+                row = {
                     'key': candidate['candidate_key'],
                     'label': candidate['candidate_label'],
                     'type': candidate['candidate_type'],
                     'icon_url': candidate['icon_url'],
                     'source_label': candidate['source_label'],
                     'dps': float(match['result'].dps), 'task_id': match['task'].pk,
-                })
+                }
+                item_level = _candidate_item_level(candidate)
+                if item_level is not None:
+                    row['item_level'] = item_level
+                rows.append(row)
         coordinates.append({
             'spec_key': coordinate['spec_key'], 'scenario_key': coordinate['scenario_key'],
             'profile_key': coordinate['profile_key'],

@@ -130,6 +130,7 @@
 .simc-benchmark-candidate-icon { background: #e2e8f0; border-radius: 0.25rem; flex: 0 0 auto; height: 1.75rem; object-fit: cover; width: 1.75rem; }
 .simc-benchmark-candidate-copy { min-width: 0; }
 .simc-benchmark-candidate-name { color: #334155; font-size: 0.74rem; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.simc-benchmark-item-level { background: #e0e7ff; border-radius: 999px; color: #3730a3; font-size: 0.58rem; margin-left: 0.35rem; padding: 0.08rem 0.3rem; }
 .simc-benchmark-candidate-source { color: #64748b; font-size: 0.62rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .simc-benchmark-baseline-badge { background: #fef3c7; border-radius: 999px; color: #92400e; font-size: 0.55rem; margin-left: 0.35rem; padding: 0.08rem 0.3rem; text-transform: uppercase; }
 .simc-benchmark-candidate-metrics { min-width: 0; text-align: right; }

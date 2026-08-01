@@ -84,6 +84,9 @@
     }
     const copy = node("div", "simc-benchmark-candidate-copy");
     const name = node("div", "simc-benchmark-candidate-name", candidate.label || candidate.key || "候选方案");
+    if (Number.isFinite(Number(candidate.item_level)) && Number(candidate.item_level) > 0) {
+      name.appendChild(node("span", "simc-benchmark-item-level", `装等 ${Number(candidate.item_level)}`));
+    }
     if (baseline) name.appendChild(node("span", "simc-benchmark-baseline-badge", "Baseline"));
     copy.append(name, node("div", "simc-benchmark-candidate-source", candidate.source_label || "—"));
     identity.appendChild(copy);
