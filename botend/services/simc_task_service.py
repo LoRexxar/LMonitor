@@ -271,6 +271,7 @@ def _build_profile_payload(profile: SimcProfile) -> dict:
     return {
         'name': profile.name,
         'spec': profile.spec,
+        'use_ptr': bool(getattr(profile, 'use_ptr', False)),
         'player_config_mode': profile.player_config_mode,
         'battlenet_region': profile.battlenet_region,
         'battlenet_realm': profile.battlenet_realm,
@@ -476,6 +477,10 @@ def create_task_from_request(
                 profile.name = profile_fields['name']
             profile.spec = profile_fields.get('spec', profile.spec)
             profile.player_config_mode = profile_fields.get('player_config_mode', profile.player_config_mode)
+            if 'use_ptr' in profile_fields:
+                if type(profile_fields['use_ptr']) is not bool:
+                    raise TaskCreationError('use_ptr must be a boolean')
+                profile.use_ptr = profile_fields['use_ptr']
             profile.battlenet_region = profile_fields.get('battlenet_region', profile.battlenet_region or '')
             profile.battlenet_realm = profile_fields.get('battlenet_realm', profile.battlenet_realm or '')
             profile.battlenet_character = profile_fields.get('battlenet_character', profile.battlenet_character or '')
@@ -498,6 +503,7 @@ def create_task_from_request(
                 name=profile_name,
                 spec=profile_fields.get('spec', 'fury'),
                 player_config_mode=profile_fields.get('player_config_mode', 'manual_equipment'),
+                use_ptr=profile_fields.get('use_ptr') is True,
                 battlenet_region=profile_fields.get('battlenet_region', ''),
                 battlenet_realm=profile_fields.get('battlenet_realm', ''),
                 battlenet_character=profile_fields.get('battlenet_character', ''),

@@ -95,6 +95,23 @@ class ImportSimcPlayerTemplatesTests(TestCase):
         'botend.management.commands.import_simc_player_templates.REQUIRED_PROFILE_SPECS',
         {('warrior', 'fury')},
     )
+    def test_explicit_ptr_import_marks_profile_without_version_inference(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, 'MID1_Warrior_Fury.simc').write_text(DEFAULT_PLAYER, encoding='utf-8')
+            call_command(
+                'import_simc_player_templates',
+                source_dir=tmp,
+                use_ptr=True,
+            )
+
+        profile = SimcProfile.objects.get(system_key='simc_upstream:warrior_fury')
+        self.assertEqual(profile.version, '12.0')
+        self.assertIs(profile.use_ptr, True)
+
+    @patch(
+        'botend.management.commands.import_simc_player_templates.REQUIRED_PROFILE_SPECS',
+        {('warrior', 'fury')},
+    )
     def test_dry_run_does_not_write(self):
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, 'MID1_Warrior_Fury.simc').write_text(DEFAULT_PLAYER, encoding='utf-8')

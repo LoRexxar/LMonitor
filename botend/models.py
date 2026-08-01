@@ -1209,6 +1209,7 @@ class SimcProfile(models.Model):
     system_key = models.CharField(max_length=200, null=True, blank=True, unique=True, help_text="系统配置稳定标识")
     class_name = models.CharField(max_length=50, default='', blank=True, help_text="职业英文名，如 warrior")
     version = models.CharField(max_length=16, default='12.0', help_text="Profile 游戏版本，如 12.0")
+    use_ptr = models.BooleanField(default=False, help_text="模拟时使用 PTR 数据库")
     sync_version = models.CharField(max_length=128, default='', blank=True, help_text="同步来源版本/提交")
     spec = models.CharField(max_length=100, default="fury", help_text="专精标识，如 fury/arms/fire")
     player_config_mode = models.CharField(max_length=50, default="battlenet", help_text="玩家配置来源：battlenet/manual_equipment")

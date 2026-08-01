@@ -56,6 +56,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('--source-dir', default=DEFAULT_SOURCE_DIR)
         parser.add_argument('--sync-version', default='')
+        parser.add_argument('--use-ptr', action='store_true', help='将本次导入的 Profile 显式标记为 PTR')
         parser.add_argument('--dry-run', action='store_true')
 
     @staticmethod
@@ -147,6 +148,7 @@ class Command(BaseCommand):
                             'source': SimcProfile.SOURCE_SIMC_UPSTREAM,
                             'name': f'MID1 默认玩家 {spec_key}', 'class_name': class_name,
                             'spec': spec_key, 'player_config_mode': 'manual_equipment',
+                            'use_ptr': bool(options.get('use_ptr', False)),
                             'player_equipment': baseline, 'talent': '',
                             'sync_version': options['sync_version'], 'is_active': True,
                         },

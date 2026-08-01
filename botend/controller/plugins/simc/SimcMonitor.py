@@ -528,6 +528,7 @@ class SimcMonitor(BaseScan):
                 'battlenet_realm': profile_payload.get('battlenet_realm', ''),
                 'battlenet_character': profile_payload.get('battlenet_character', ''),
                 'talent': profile_payload.get('talent', ''),
+                'use_ptr': profile_payload.get('use_ptr') is True,
                 'gear_strength': profile_payload.get('gear_strength'),
                 'gear_crit': profile_payload.get('gear_crit'),
                 'gear_haste': profile_payload.get('gear_haste'),
@@ -1109,6 +1110,10 @@ class SimcMonitor(BaseScan):
                 timeout=300  # 5分钟超时
             )
             
+            combined_output = f'{result.stdout or ""}\n{result.stderr or ""}'
+            if "SimulationCraft has not been built with PTR data" in combined_output:
+                raise RuntimeError('当前 SimC 二进制不支持 PTR 数据，已拒绝按 Live 静默执行')
+
             if result.returncode == 0:
                 logger.info(f"[SimC Monitor] SimC execution successful for task {simc_task.id}")
                 if result.stdout:

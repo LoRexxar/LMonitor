@@ -90,6 +90,39 @@ class SimcComposerEquipmentSlotResolutionTests(ComposerTestCase):
         self.assertIn('actions=/bloodthirst', content)
         self.assertIn('html=validation-result.html', content)
 
+    def test_ptr_profile_validation_uses_ptr_database(self):
+        from types import SimpleNamespace
+
+        profile = SimpleNamespace(
+            spec='fury', use_ptr=True, player_config_mode='manual_equipment',
+            player_equipment='warrior="Validator"\nspec=fury\nhead=,id=212048',
+            talent='', battlenet_region='', battlenet_realm='', battlenet_character='',
+            gear_crit=None, gear_haste=None, gear_mastery=None, gear_versatility=None,
+        )
+
+        content = SimcComposer(self.user.id).compose_validation_input(
+            profile, 'actions=/bloodthirst')
+
+        self.assertEqual(content.splitlines().count('ptr=1'), 1)
+        self.assertLess(content.index('ptr=1'), content.index('warrior="Validator"'))
+
+    def test_simulation_options_render_ptr_only_when_frozen_profile_requests_it(self):
+        ptr_template = self.template(
+            content='{simulation_options}\n{player_identity}\n{equipment}\n{action_list}\n{output_options}',
+            name='PTR option template', owner_user_id=self.user.id,
+        )
+
+        ptr_content, _, ptr_error = self.compose(ptr_template, use_ptr=True)
+        live_content, _, live_error = self.compose(ptr_template, use_ptr=False)
+        legacy_content, _, legacy_error = self.compose(ptr_template)
+
+        self.assertIsNone(ptr_error)
+        self.assertIsNone(live_error)
+        self.assertIsNone(legacy_error)
+        self.assertEqual(ptr_content.splitlines().count('ptr=1'), 1)
+        self.assertNotIn('ptr=', live_content)
+        self.assertNotIn('ptr=', legacy_content)
+
     def test_authoritative_validation_disambiguates_short_spec_with_trusted_class(self):
         from types import SimpleNamespace
 

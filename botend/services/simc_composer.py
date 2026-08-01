@@ -153,6 +153,7 @@ class SimcComposer:
         _, validation_spec = canonical_simc_spec_identity(profile.spec)
         request = {
             'spec': validation_spec or profile.spec,
+            'use_ptr': bool(getattr(profile, 'use_ptr', False)),
             'player_import_mode': profile.player_config_mode,
             # Validation profiles are server-owned.  Carry their canonical class
             # separately so ambiguous short specs (frost/protection/holy/etc.) do
@@ -734,6 +735,10 @@ class SimcComposer:
             'override.battle_shout=1',
             f"iterations={request_data.get('iterations', 10000)}",
         ]
+        # PTR is frozen with the Profile resource. Missing keys on historical
+        # versions remain Live; only the explicit boolean true enables PTR.
+        if request_data.get('use_ptr') is True:
+            options.insert(0, 'ptr=1')
         if request_data.get('target_error') is not None:
             options.append(f"target_error={request_data['target_error']}")
         if request_data.get('vary_combat_length') is not None:

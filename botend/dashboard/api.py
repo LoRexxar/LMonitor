@@ -1496,12 +1496,14 @@ class SimcTaskAPIView(View):
                         'success': False,
                         'error': f'专精 {default_key} 默认玩家配置{("缺少" if count == 0 else f"存在多个（{count} 个）")}，需要且只能解析到一个',
                     }, status=409)
+                default_profile = default_rows.get()
                 try:
-                    baseline = validate_default_player_baseline(default_key, default_rows.get().player_equipment)
+                    baseline = validate_default_player_baseline(default_key, default_profile.player_equipment)
                 except ValueError as exc:
                     return JsonResponse({'success': False, 'error': str(exc)}, status=400)
                 profile_fields = {
                     'name': f'本次默认配置 · {target_spec}', 'spec': target_spec,
+                    'use_ptr': default_profile.use_ptr,
                     'player_config_mode': 'manual_equipment', 'player_equipment': baseline,
                 }
             elif source_type == 'simc_addon':
@@ -2231,10 +2233,12 @@ class SimcComparisonTaskAPIView(View):
                         raise ValueError(
                             f'专精 {default_key} 默认玩家配置{("缺少" if count == 0 else f"存在多个（{count} 个）")}，需要且只能解析到一个'
                         )
-                    baseline = validate_default_player_baseline(default_key, default_rows.get().player_equipment)
+                    default_profile = default_rows.get()
+                    baseline = validate_default_player_baseline(default_key, default_profile.player_equipment)
                     parsed = parse_manual_player_config(baseline, target_spec)
                     profile_fields = {
                         'name': f'本次默认配置 · {target_spec}', 'spec': target_spec,
+                        'use_ptr': default_profile.use_ptr,
                         'player_config_mode': 'manual_equipment', 'player_equipment': baseline,
                         'talent': str(parsed.get('talents', {}).get('build_code') or ''),
                     }
@@ -3325,6 +3329,7 @@ class SimcProfileAPIView(View):
                     'id': profile.id,
                     'name': profile.name,
                     'spec': profile.spec,
+                    'use_ptr': bool(profile.use_ptr),
                     'player_config_mode': self._profile_mode(profile),
                     'battlenet_region': getattr(profile, 'battlenet_region', '') or '',
                     'battlenet_realm': getattr(profile, 'battlenet_realm', '') or '',
@@ -3366,6 +3371,7 @@ class SimcProfileAPIView(View):
                         'name': profile.name,
                         'spec': profile.spec,
                         'version': profile.version,
+                        'use_ptr': bool(profile.use_ptr),
                         'class_name': getattr(profile, 'class_name', '') or '',
                         'player_config_mode': self._profile_mode(profile),
                         'battlenet_region': getattr(profile, 'battlenet_region', '') or '',
@@ -3411,9 +3417,13 @@ class SimcProfileAPIView(View):
         if mode not in ('battlenet', 'manual_equipment', 'attribute_only'):
             raise ValueError('玩家信息导入方式必须是 battlenet、manual_equipment 或 attribute_only')
 
+        raw_use_ptr = data['use_ptr'] if 'use_ptr' in data else fallback.get('use_ptr', False)
+        if type(raw_use_ptr) is not bool:
+            raise ValueError('use_ptr 必须是布尔值')
         values = {
             'mode': mode,
             'spec': str(data.get('spec', fallback.get('spec', 'fury')) or 'fury').strip().lower() or 'fury',
+            'use_ptr': raw_use_ptr,
             'battlenet_region': str(data.get('battlenet_region', fallback.get('battlenet_region', '')) or '').strip().lower(),
             'battlenet_realm': str(data.get('battlenet_realm', fallback.get('battlenet_realm', '')) or '').strip(),
             'battlenet_character': str(data.get('battlenet_character', fallback.get('battlenet_character', '')) or '').strip(),
@@ -3474,6 +3484,8 @@ class SimcProfileAPIView(View):
         """创建新的SimC配置或复制现有配置，或者为现有配置创建模拟任务"""
         try:
             data = json.loads(request.body)
+            if 'use_ptr' in data and type(data['use_ptr']) is not bool:
+                return JsonResponse({'success': False, 'error': 'use_ptr 必须是布尔值'}, status=400)
             if 'task_type' in data:
                 return JsonResponse({
                     'success': False,
@@ -3557,6 +3569,7 @@ class SimcProfileAPIView(View):
                     profile_fields = {
                         'name': name,
                         'spec': values['spec'],
+                        'use_ptr': values['use_ptr'],
                         'player_config_mode': values['mode'],
                         'battlenet_region': values['battlenet_region'],
                         'battlenet_realm': values['battlenet_realm'],
@@ -3610,6 +3623,7 @@ class SimcProfileAPIView(View):
                         user_id=request.user.id,
                         name=name,
                         spec=source_profile.spec,
+                        use_ptr=source_profile.use_ptr,
                         player_config_mode=self._profile_mode(source_profile),
                         battlenet_region=getattr(source_profile, 'battlenet_region', '') or '',
                         battlenet_realm=getattr(source_profile, 'battlenet_realm', '') or '',
@@ -3672,6 +3686,7 @@ class SimcProfileAPIView(View):
                     user_id=request.user.id,
                     name=name,
                     spec=values['spec'],
+                    use_ptr=values['use_ptr'],
                     player_config_mode=values['mode'],
                     battlenet_region=values['battlenet_region'],
                     battlenet_realm=values['battlenet_realm'],
@@ -3752,6 +3767,7 @@ class SimcProfileAPIView(View):
             profile_fields = {
                 'simc_profile_id': profile.id,
                 'spec': profile.spec,
+                'use_ptr': bool(profile.use_ptr),
                 'player_config_mode': profile.player_config_mode,
                 'battlenet_region': profile.battlenet_region or '',
                 'battlenet_realm': profile.battlenet_realm or '',
@@ -3806,6 +3822,8 @@ class SimcProfileAPIView(View):
         """更新SimC配置"""
         try:
             data = json.loads(request.body)
+            if 'use_ptr' in data and type(data['use_ptr']) is not bool:
+                return JsonResponse({'success': False, 'error': 'use_ptr 必须是布尔值'}, status=400)
             profile_id = data.get('id')
             
             if not profile_id:
@@ -3893,6 +3911,8 @@ class SimcProfileAPIView(View):
                 values = self._validate_profile_payload(data, {
                     'mode': self._profile_mode(profile),
                     'spec': profile.spec,
+                    'use_ptr': bool(profile.use_ptr),
+                    'player_config_mode': self._profile_mode(profile),
                     'battlenet_region': profile.battlenet_region,
                     'battlenet_realm': profile.battlenet_realm,
                     'battlenet_character': profile.battlenet_character,
@@ -3907,6 +3927,7 @@ class SimcProfileAPIView(View):
                 return JsonResponse({'success': False, 'error': str(e)})
             profile.name = name
             profile.spec = values['spec']
+            profile.use_ptr = values['use_ptr']
             profile.player_config_mode = values['mode']
             profile.battlenet_region = values['battlenet_region']
             profile.battlenet_realm = values['battlenet_realm']

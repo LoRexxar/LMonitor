@@ -1496,6 +1496,9 @@ class SimcAgentConsumer:
                     raw_stdout, raw_stderr = process.communicate()
                     raw_stderr = self._text(raw_stderr) + '\nSimC execution timed out'
                 stdout, stderr = self._text(raw_stdout), self._text(raw_stderr)
+                if 'SimulationCraft has not been built with PTR data' in f'{stdout}\n{stderr}':
+                    stderr = (stderr + '\nCurrent SimC binary does not support PTR data; refusing Live fallback').strip()
+                    process.returncode = process.returncode or 1
                 if lease_lost.is_set():
                     return  # Never complete work after losing its fencing lease.
 

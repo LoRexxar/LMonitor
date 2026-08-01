@@ -1158,6 +1158,42 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertEqual(completion['payload']['stdout'], 'Player: A\nDPS=1234')
             self.assertEqual(completion['payload']['report']['size'], len(report))
 
+    def test_execute_job_rejects_ptr_binary_live_fallback_warning(self):
+        from simc_agent_consumer import AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            token = 'token-id.' + ('p' * 43)
+            self.write_token(values, token)
+            process = MagicMock(returncode=0)
+            process.communicate.return_value = (
+                'SimulationCraft 1200-01',
+                "SimulationCraft has not been built with PTR data. The 'ptr=' option is ignored.",
+            )
+            input_text = 'ptr=1\nwarrior="A"\nhtml=simc_task_1_run_18.html'
+            job = {
+                'run_id': 18, 'task_id': 9, 'sequence': 3,
+                'lease_token': 'lease-secret', 'input': input_text,
+                'input_hash': hashlib.sha256(input_text.encode()).hexdigest(),
+                'output_filename': 'simc_task_1_run_18.html',
+                'timeout_seconds': 600, 'lease_expires_at': '2999-01-01T00:00:00+00:00',
+            }
+
+            def create_report(*args, **kwargs):
+                (Path(kwargs['cwd']) / job['output_filename']).write_text('<html>live fallback</html>', encoding='utf-8')
+                return process
+
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=MagicMock())
+            consumer.agent_token = token
+            consumer._complete = MagicMock()
+            with patch('simc_agent_consumer.subprocess.Popen', side_effect=create_report):
+                consumer.execute_job(job)
+
+            args = consumer._complete.call_args.args
+            self.assertEqual(args[3], 'failed')
+            self.assertIn('does not support PTR data', args[5])
+            self.assertIsNone(args[6])
+
     def test_execute_job_keeps_lease_heartbeat_alive_through_upload_and_completion(self):
         from simc_agent_consumer import AgentConfig, SimcAgentConsumer
 

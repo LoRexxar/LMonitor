@@ -458,6 +458,8 @@ class SimcTaskServiceTests(TestCase):
         from botend.services.simc_task_service import create_task
         from botend.models import SimcResourceVersion
 
+        self.profile.use_ptr = True
+        self.profile.save(update_fields=['use_ptr'])
         task = create_task(
             user_id=self.user_id,
             name="Task",
@@ -477,6 +479,12 @@ class SimcTaskServiceTests(TestCase):
         self.assertEqual(profile_version.resource_type, 'profile')
         self.assertEqual(profile_version.resource_id, self.profile.id)
         self.assertIn('player_equipment', profile_version.payload)
+        self.assertIs(profile_version.payload['use_ptr'], True)
+
+        self.profile.use_ptr = False
+        self.profile.save(update_fields=['use_ptr'])
+        profile_version.refresh_from_db()
+        self.assertIs(profile_version.payload['use_ptr'], True)
 
     def test_task_service_reuses_existing_version(self):
         """RED: create_task should reuse version if content_hash matches."""

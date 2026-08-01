@@ -2252,6 +2252,7 @@ function simcWbToggleProfileForm(mode, profileData) {
         formWrap.querySelector('input[name="name"]').value = '';
         formWrap.querySelector('select[name="spec"]').value = 'fury';
         formWrap.querySelector('select[name="player_config_mode"]').value = 'battlenet';
+        formWrap.querySelector('input[name="use_ptr"]').checked = false;
         formWrap.querySelector('input[name="battlenet_region"]').value = 'eu';
         formWrap.querySelector('input[name="battlenet_realm"]').value = '';
         formWrap.querySelector('input[name="battlenet_character"]').value = '';
@@ -2279,6 +2280,7 @@ function simcWbToggleProfileForm(mode, profileData) {
         }
         const profileMode = getSimcProfileMode(profileData);
         formWrap.querySelector('select[name="player_config_mode"]').value = profileMode;
+        formWrap.querySelector('input[name="use_ptr"]').checked = profileData.use_ptr === true;
         formWrap.querySelector('input[name="battlenet_region"]').value = profileData.battlenet_region || '';
         formWrap.querySelector('input[name="battlenet_realm"]').value = profileData.battlenet_realm || '';
         formWrap.querySelector('input[name="battlenet_character"]').value = profileData.battlenet_character || '';
@@ -2328,6 +2330,7 @@ async function simcWbSaveProfile() {
         spec: gv('spec'),
         player_config_mode: gv('player_config_mode'),
         player_import_mode: gv('player_config_mode'),
+        use_ptr: formWrap.querySelector('[name="use_ptr"]')?.checked === true,
         battlenet_region: gv('battlenet_region'),
         battlenet_realm: gv('battlenet_realm'),
         battlenet_character: gv('battlenet_character'),

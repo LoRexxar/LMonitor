@@ -116,6 +116,7 @@ def build_frozen_run_input(task, run, output_filename=None):
         'time': resolved.simulation_params.get('max_time', 300),
         'target_count': resolved.simulation_params.get('desired_targets', 1),
         'iterations': resolved.simulation_params.get('iterations', 10000),
+        'use_ptr': profile_payload.get('use_ptr') is True,
         'target_error': resolved.simulation_params.get('target_error'),
         'vary_combat_length': resolved.simulation_params.get('vary_combat_length'),
         'enemy_type': resolved.simulation_params.get('enemy_type'),

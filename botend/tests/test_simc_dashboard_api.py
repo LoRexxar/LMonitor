@@ -360,6 +360,51 @@ class SimcProfileResourceListTests(TestCase):
         self.assertIsNone(listed[profile.id]['gear_strength'])
         self.assertIsNone(listed[profile.id]['gear_crit'])
 
+    def test_profile_api_persists_and_serializes_explicit_ptr_attribute(self):
+        create = self.client.post(
+            '/api/simc-profile/',
+            data=json.dumps({
+                'name': 'PTR 配置', 'spec': 'fury', 'use_ptr': True,
+                'player_config_mode': 'manual_equipment',
+                'player_equipment': 'warrior="Tester"\\nspec=fury\\nhead=,id=1',
+            }),
+            content_type='application/json',
+        )
+        self.assertTrue(create.json()['success'], create.content)
+        profile = SimcProfile.objects.get(pk=create.json()['data']['id'])
+        self.assertIs(profile.use_ptr, True)
+
+        listed = {row['id']: row for row in self.client.get('/api/simc-profile/').json()['data']}
+        self.assertIs(listed[profile.id]['use_ptr'], True)
+
+        update = self.client.put(
+            '/api/simc-profile/',
+            data=json.dumps({
+                'id': profile.id, 'name': profile.name, 'use_ptr': False,
+                'spec': profile.spec, 'player_config_mode': profile.player_config_mode,
+                'player_equipment': profile.player_equipment,
+            }),
+            content_type='application/json',
+        )
+        self.assertTrue(update.json()['success'], update.content)
+        profile.refresh_from_db()
+        self.assertIs(profile.use_ptr, False)
+
+    def test_profile_api_rejects_non_boolean_ptr_attribute(self):
+        response = self.client.post(
+            '/api/simc-profile/',
+            data=json.dumps({
+                'name': '错误 PTR 配置', 'spec': 'fury', 'use_ptr': 'true',
+                'player_config_mode': 'manual_equipment',
+                'player_equipment': 'warrior="Tester"\\nspec=fury\\nhead=,id=1',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.json()['success'])
+        self.assertIn('use_ptr', response.json()['error'])
+
     def test_regular_user_cannot_mutate_upstream_profile(self):
         system = SimcProfile.objects.create(
             user_id=None, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
@@ -1380,6 +1425,36 @@ main_hand=,id=222222
             )
             self.assertEqual(run.call_args.kwargs['env']['LANG'], 'C')
             self.assertEqual(run.call_args.kwargs['env']['LC_ALL'], 'C')
+
+    def test_execute_simc_command_rejects_ptr_binary_live_fallback_warning(self):
+        from unittest.mock import patch
+        import tempfile
+        import os
+        monitor = object.__new__(SimcMonitor)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            monitor.result_path = tmpdir
+            task = SimpleNamespace(
+                id=188, result_file='simc_task_188.html', ext='{}',
+                result_summary='', error_detail='', save=lambda **kwargs: None,
+                backend=self.backend, backend_id=self.backend.id,
+            )
+            expected = os.path.join(tmpdir, task.result_file)
+            with patch(
+                    'botend.controller.plugins.simc.SimcMonitor.os.path.isfile',
+                    side_effect=lambda path: path == self.backend.simc_path or Path(path).is_file()), \
+                 patch('botend.controller.plugins.simc.SimcMonitor.os.access', return_value=True), \
+                 patch('botend.controller.plugins.simc.SimcMonitor.os.sched_getaffinity', return_value={0, 1}), \
+                 patch('botend.controller.plugins.simc.SimcMonitor.subprocess.run') as run:
+                def execute_and_warn(*args, **kwargs):
+                    Path(expected).write_text('<html></html>', encoding='utf-8')
+                    return SimpleNamespace(
+                        returncode=0,
+                        stdout='SimulationCraft 1200-01',
+                        stderr="SimulationCraft has not been built with PTR data. The 'ptr=' option is ignored.",
+                    )
+                run.side_effect = execute_and_warn
+                self.assertFalse(monitor.execute_simc_command('/tmp/ptr.simc', task, task.result_file))
+            self.assertIn('不支持 PTR 数据', task.error_detail)
 
     def test_execute_simc_command_caps_requested_threads_to_leave_one_cpu_for_web(self):
         task = SimpleNamespace(simulation_params={'threads': 4})
