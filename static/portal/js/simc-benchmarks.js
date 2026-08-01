@@ -246,7 +246,7 @@
     selected.spec_key.addEventListener("change", () => { syncDependentFilters(); render(); });
     selected.profile_key.addEventListener("change", () => { syncFilterOptions("scenario_key"); render(); });
     selected.scenario_key.addEventListener("change", render); render();
-    shell.body.replaceChildren(node("div", "simc-benchmark-meta", `${coordinates.length} 个已完成模拟坐标`), filters, selectedResult);
+    shell.body.replaceChildren(filters, selectedResult);
   }
 
   function applyPanelHeading(panel) {
@@ -264,7 +264,7 @@
     const header = node("header", "simc-benchmark-panel-header"); const copy = node("div", "simc-benchmark-panel-copy");
     copy.append(node("h3", "simc-benchmark-panel-title", panel.name || panel.slug || "Benchmark Panel"));
     if (panel.description) copy.appendChild(node("p", "simc-benchmark-panel-description", panel.description));
-    header.append(copy, node("span", "simc-benchmark-status", "结果投影"));
+    header.appendChild(copy);
     const body = node("div", "simc-benchmark-panel-body"); article.append(header, body); return { article, body };
   }
 

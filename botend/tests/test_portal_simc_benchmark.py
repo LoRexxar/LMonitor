@@ -174,6 +174,14 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIn("document.title", self.JS)
         self.assertIn('simc-benchmarks-description', self.RESULTS_TEMPLATE)
 
+    def test_result_page_omits_redundant_projection_copy(self):
+        for redundant_copy in (
+            'SIMC BENCHMARK RESULTS',
+            '已完成模拟坐标',
+            '结果投影',
+        ):
+            self.assertNotIn(redundant_copy, self.RESULTS_TEMPLATE + self.JS)
+
     def test_result_list_uses_page_scroll_instead_of_an_internal_vertical_scroller(self):
         """候选结果必须自然展开，不能截留页面滚轮。"""
         chart_start = self.CSS.index('.simc-benchmark-chart {')
