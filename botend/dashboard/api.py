@@ -1541,12 +1541,30 @@ class SimcTaskAPIView(View):
                 if source_spec != target_spec or (source_class and source_class != target_class):
                     return JsonResponse({'success': False, 'error': 'Battle.net 角色专精与目标专精不一致'}, status=400)
                 profile_fields = {
-                    **values,
                     'name': f"本次 Battle.net · {values['battlenet_character']}",
                     'spec': target_spec,
+                    'player_config_mode': 'battlenet',
+                    'battlenet_region': values.get('battlenet_region', ''),
+                    'battlenet_realm': values.get('battlenet_realm', ''),
+                    'battlenet_character': values.get('battlenet_character', ''),
+                    'player_equipment': values.get('player_equipment', ''),
+                    'talent': values.get('talent', ''),
                 }
             else:
                 return JsonResponse({'success': False, 'error': '请选择玩家配置来源'}, status=400)
+
+            # Transient profiles inherit their equipment/player snapshot by default.
+            # Only request-authored numeric fields become final SimC overrides.
+            if profile_fields is not None:
+                for field, value in (
+                    ('gear_strength', gear_strength),
+                    ('gear_crit', gear_crit),
+                    ('gear_haste', gear_haste),
+                    ('gear_mastery', gear_mastery),
+                    ('gear_versatility', gear_versatility),
+                ):
+                    if value is not None:
+                        profile_fields[field] = value
 
             # 构建 simulation_params
             simulation_params = {}
@@ -3563,7 +3581,10 @@ class SimcProfileAPIView(View):
             if simulate_now and not copy_from_id:
                 try:
                     values = self._validate_profile_payload(data)
-                    numeric_values = self._profile_numeric_values(values)
+                    # Battle.net preflight returns observed character stats as display
+                    # metadata. They are part of the frozen equipment snapshot, not
+                    # user-authored overrides. Only request fields may populate gear_*.
+                    numeric_values = self._profile_numeric_values(data)
                     from botend.services.simc_task_service import create_task_from_request, TaskCreationError
 
                     profile_fields = {
@@ -3678,7 +3699,10 @@ class SimcProfileAPIView(View):
                 # 创建新配置：与更新操作使用同一模式校验，避免保存不可运行的预设。
                 try:
                     values = self._validate_profile_payload(data)
-                    numeric_values = self._profile_numeric_values(values)
+                    # Battle.net preflight returns observed character stats as display
+                    # metadata. They are part of the frozen equipment snapshot, not
+                    # user-authored overrides. Only request fields may populate gear_*.
+                    numeric_values = self._profile_numeric_values(data)
                 except ValueError as e:
                     return JsonResponse({'success': False, 'error': str(e)})
 

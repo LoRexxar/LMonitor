@@ -486,6 +486,58 @@ class SimcTaskServiceTests(TestCase):
         profile_version.refresh_from_db()
         self.assertIs(profile_version.payload['use_ptr'], True)
 
+    def test_manual_profile_freezes_only_explicit_attribute_overrides(self):
+        from botend.services.simc_task_service import create_task
+
+        self.profile.gear_strength = None
+        self.profile.gear_crit = 1234
+        self.profile.gear_haste = None
+        self.profile.gear_mastery = 2345
+        self.profile.gear_versatility = None
+        self.profile.save(update_fields=[
+            'gear_strength', 'gear_crit', 'gear_haste',
+            'gear_mastery', 'gear_versatility',
+        ])
+
+        task = create_task(
+            user_id=self.user_id,
+            name='Explicit manual overrides',
+            profile_id=self.profile.id,
+            template_id=self.template.id,
+            apl_id=self.apl.id,
+        )
+
+        payload = task.profile_version.payload
+        self.assertIsNone(payload['gear_strength'])
+        self.assertEqual(payload['gear_crit'], 1234)
+        self.assertIsNone(payload['gear_haste'])
+        self.assertEqual(payload['gear_mastery'], 2345)
+        self.assertIsNone(payload['gear_versatility'])
+
+    def test_new_profile_without_authored_attributes_freezes_null_overrides(self):
+        from botend.services.simc_task_service import create_task_from_request
+
+        task = create_task_from_request(
+            user_id=self.user_id,
+            profile_fields={
+                'name': 'No attribute overrides',
+                'spec': 'warrior_fury',
+                'player_config_mode': 'manual_equipment',
+                'player_equipment': self.profile.player_equipment,
+                'talent': 'BUILD',
+            },
+            base_template_id=self.template.id,
+            selected_apl_id=self.apl.id,
+            name='No attribute override task',
+        )
+
+        payload = task.profile_version.payload
+        self.assertIsNone(payload['gear_strength'])
+        self.assertIsNone(payload['gear_crit'])
+        self.assertIsNone(payload['gear_haste'])
+        self.assertIsNone(payload['gear_mastery'])
+        self.assertIsNone(payload['gear_versatility'])
+
     def test_task_service_reuses_existing_version(self):
         """RED: create_task should reuse version if content_hash matches."""
         from botend.services.simc_task_service import create_task

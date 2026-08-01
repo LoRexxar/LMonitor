@@ -360,6 +360,49 @@ class SimcProfileResourceListTests(TestCase):
         self.assertIsNone(listed[profile.id]['gear_strength'])
         self.assertIsNone(listed[profile.id]['gear_crit'])
 
+    @patch('botend.dashboard.api.fetch_battlenet_character_preflight')
+    def test_battlenet_snapshot_stats_are_not_saved_as_explicit_overrides(self, preflight):
+        preflight.return_value = {
+            'simc_ready': True,
+            'warnings': [],
+            'simc_config': {
+                'player_config_mode': 'battlenet',
+                'battlenet_region': 'eu',
+                'battlenet_realm': 'Kazzak',
+                'battlenet_character': 'Snapshotter',
+                'spec': 'fury',
+                'talent': 'BUILD',
+                'player_equipment': 'warrior="Snapshotter"\nspec=fury\nhead=,id=1',
+                'gear_strength': 5000,
+                'gear_crit': 1000,
+                'gear_haste': 2000,
+                'gear_mastery': 3000,
+                'gear_versatility': 4000,
+            },
+        }
+
+        response = self.client.post(
+            '/api/simc-profile/',
+            data=json.dumps({
+                'name': 'Battle.net 不覆盖属性',
+                'spec': 'fury',
+                'player_config_mode': 'battlenet',
+                'battlenet_region': 'eu',
+                'battlenet_realm': 'Kazzak',
+                'battlenet_character': 'Snapshotter',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        profile = SimcProfile.objects.get(pk=response.json()['data']['id'])
+        self.assertEqual(profile.player_equipment, 'warrior="Snapshotter"\nspec=fury\nhead=,id=1')
+        self.assertIsNone(profile.gear_strength)
+        self.assertIsNone(profile.gear_crit)
+        self.assertIsNone(profile.gear_haste)
+        self.assertIsNone(profile.gear_mastery)
+        self.assertIsNone(profile.gear_versatility)
+
     def test_profile_api_persists_and_serializes_explicit_ptr_attribute(self):
         create = self.client.post(
             '/api/simc-profile/',

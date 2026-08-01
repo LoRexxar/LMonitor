@@ -163,6 +163,7 @@ class SimcComposer:
             'battlenet_region': profile.battlenet_region,
             'battlenet_realm': profile.battlenet_realm,
             'battlenet_character': profile.battlenet_character,
+            'gear_strength': getattr(profile, 'gear_strength', None),
             'gear_crit': profile.gear_crit, 'gear_haste': profile.gear_haste,
             'gear_mastery': profile.gear_mastery, 'gear_versatility': profile.gear_versatility,
             'override_action_list': apl_source,
@@ -771,11 +772,14 @@ class SimcComposer:
         """Resolve stat_overrides slot (gear_crit, gear_haste, etc)."""
         overrides = []
 
+        gear_strength = request_data.get('gear_strength')
         gear_crit = request_data.get('gear_crit')
         gear_haste = request_data.get('gear_haste')
         gear_mastery = request_data.get('gear_mastery')
         gear_versatility = request_data.get('gear_versatility')
 
+        if gear_strength is not None:
+            overrides.append(f'gear_strength={gear_strength}')
         if gear_crit is not None:
             overrides.append(f'gear_crit_rating={gear_crit}')
         if gear_haste is not None:
@@ -914,7 +918,8 @@ class SimcComposer:
                 stale_player_keys = (
                     'spec', 'level', 'race', 'role', 'position', 'professions',
                     'talents', 'potion', 'flask', 'food', 'augmentation',
-                    'temporary_enchant', 'gear_crit_rating', 'gear_haste_rating',
+                    'temporary_enchant', 'gear_strength',
+                    'gear_crit_rating', 'gear_haste_rating',
                     'gear_mastery_rating', 'gear_versatility_rating',
                 )
                 stale_pattern = '|'.join(re.escape(key) for key in stale_player_keys)

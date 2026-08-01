@@ -74,6 +74,45 @@ class SimcComposerEquipmentSlotResolutionTests(ComposerTestCase):
         self.base = self.template()
         self.default_equipment()
 
+    def test_stat_overrides_emit_only_explicit_values_including_strength(self):
+        base = self.base
+        base.content = (
+            '{player_identity}\n{equipment}\n{stat_overrides}\n'
+            '{action_list}\n{simulation_options}\n{output_options}'
+        )
+        base.save(update_fields=['content'])
+        content, _, error = self.compose(
+            base, gear_strength=12345, gear_crit=None, gear_haste=678,
+            gear_mastery=None, gear_versatility=None,
+        )
+
+        self.assertIsNone(error)
+        self.assertIn('gear_strength=12345', content)
+        self.assertIn('gear_haste_rating=678', content)
+        self.assertNotIn('gear_crit_rating=', content)
+        self.assertNotIn('gear_mastery_rating=', content)
+
+    def test_battlenet_null_strength_removes_stale_template_override(self):
+        self.base.content = (
+            'warrior="Legacy"\nspec=fury\ngear_strength=93330\n'
+            '{action_list}\n{simulation_options}\n{output_options}'
+        )
+        self.base.save(update_fields=['content'])
+
+        content, _, error = self.compose(
+            self.base,
+            player_import_mode='battlenet',
+            player_equipment='',
+            battlenet_region='eu',
+            battlenet_realm='kazzak',
+            battlenet_character='tester',
+            gear_strength=None,
+        )
+
+        self.assertIsNone(error)
+        self.assertNotIn('gear_strength=', content)
+        self.assertNotIn('warrior="Legacy"', content)
+
     def test_authoritative_validation_uses_service_template_and_requested_apl(self):
         from types import SimpleNamespace
 

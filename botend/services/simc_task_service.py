@@ -263,11 +263,6 @@ def _build_profile_payload(profile: SimcProfile) -> dict:
     if profile.player_config_mode == 'manual_equipment' and player_equipment:
         from botend.services.simc_player_config import parse_simc_player_profile
         player_equipment = parse_simc_player_profile(player_equipment)['profile']['raw_player_block']
-    # A manual/addon export is already a complete SimC player block. Its
-    # legacy secondary-stat columns are UI metadata and may be zero when the
-    # values were not entered separately. Passing those zeros to Composer
-    # emits gear_*_rating=0 and deletes the ratings encoded by the items.
-    manual_export = profile.player_config_mode in ('manual_equipment', 'addon_full_export') and bool(player_equipment)
     return {
         'name': profile.name,
         'spec': profile.spec,
@@ -278,14 +273,13 @@ def _build_profile_payload(profile: SimcProfile) -> dict:
         'battlenet_character': profile.battlenet_character,
         'player_equipment': player_equipment,
         'talent': profile.talent,
-        # A complete exported/manual player block already carries the primary
-        # stat through its equipment.  The legacy UI column must not become a
-        # final ``gear_strength=0`` override either.
-        'gear_strength': None if manual_export else profile.gear_strength,
-        'gear_crit': None if manual_export else profile.gear_crit,
-        'gear_haste': None if manual_export else profile.gear_haste,
-        'gear_mastery': None if manual_export else profile.gear_mastery,
-        'gear_versatility': None if manual_export else profile.gear_versatility,
+        # NULL means inherit the complete player/equipment snapshot. A numeric
+        # value exists only when the user explicitly authored an override.
+        'gear_strength': profile.gear_strength,
+        'gear_crit': profile.gear_crit,
+        'gear_haste': profile.gear_haste,
+        'gear_mastery': profile.gear_mastery,
+        'gear_versatility': profile.gear_versatility,
     }
 
 
@@ -509,11 +503,11 @@ def create_task_from_request(
                 battlenet_character=profile_fields.get('battlenet_character', ''),
                 player_equipment=profile_fields.get('player_equipment', ''),
                 talent=profile_fields.get('talent', ''),
-                gear_strength=profile_fields.get('gear_strength', 0),
-                gear_crit=profile_fields.get('gear_crit', 0),
-                gear_haste=profile_fields.get('gear_haste', 0),
-                gear_mastery=profile_fields.get('gear_mastery', 0),
-                gear_versatility=profile_fields.get('gear_versatility', 0),
+                gear_strength=profile_fields.get('gear_strength'),
+                gear_crit=profile_fields.get('gear_crit'),
+                gear_haste=profile_fields.get('gear_haste'),
+                gear_mastery=profile_fields.get('gear_mastery'),
+                gear_versatility=profile_fields.get('gear_versatility'),
                 is_active=True,
             )
 
