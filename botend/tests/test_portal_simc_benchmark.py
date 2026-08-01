@@ -1,3 +1,4 @@
+import hashlib
 import json
 import unittest
 from pathlib import Path
@@ -6,7 +7,10 @@ from unittest.mock import call, patch
 from bs4 import BeautifulSoup
 from django.test import TestCase, override_settings
 
-from botend.models import SimcBenchmarkPanel
+from botend.models import (
+    SimcApl, SimcBackendBinary, SimcBenchmarkPanel, SimcBenchmarkProfile,
+    SimcBenchmarkScenario, SimcBenchmarkSpec, SimcContentTemplate, SimcProfile,
+)
 
 
 @override_settings(ALLOWED_HOSTS=['testserver'])
@@ -27,8 +31,8 @@ class PortalSimcBenchmarkAPITests(TestCase):
 
     @patch('botend.portal.simc_benchmark_api.serialize_incremental_panel_results')
     def test_list_contains_only_public_fields_and_public_panels(self, serializer):
-        serializer.return_value = {'coordinates': []}
-        response = self.client.get('/portal/api/simc-benchmarks/panels/')
+        with self.assertNumQueries(1):
+            response = self.client.get('/portal/api/simc-benchmarks/panels/')
         payload = json.loads(response.content)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload, {
@@ -38,11 +42,53 @@ class PortalSimcBenchmarkAPITests(TestCase):
                 'description': 'Public description', 'status': 'not_ready',
             }],
         })
-        serializer.assert_called_once_with(self.public)
+        serializer.assert_not_called()
         serialized = json.dumps(payload)
         for forbidden in ('created_by_id', 'schedule_enabled', 'interval_seconds',
                           'published_execution_id', 'config', 'task', 'run'):
             self.assertNotIn(forbidden, serialized.lower())
+
+    def test_list_marks_baseline_only_configured_panel_ready(self):
+        backend = SimcBackendBinary.objects.create(
+            identifier='portal-baseline-only', name='Portal baseline',
+            current_version='a' * 40, is_active=True,
+        )
+        apl_content = 'actions=/auto_attack'
+        apl = SimcApl.objects.create(
+            name='Portal baseline APL', spec='warrior_fury', content=apl_content,
+            owner_user_id=10, is_active=True, is_selectable=True,
+            validation_status=SimcApl.VALIDATION_VALID,
+            validated_content_hash=hashlib.sha256(apl_content.encode()).hexdigest(),
+            validation_revision='a' * 40, validation_game_build='12.0.1',
+        )
+        template = SimcContentTemplate.objects.create(
+            name='Portal baseline template', spec='warrior_fury',
+            content='iterations=1000', owner_user_id=10,
+        )
+        profile = SimcProfile.objects.create(
+            user_id=10, name='Portal baseline profile', class_name='warrior',
+            spec='warrior_fury', is_active=True,
+        )
+        panel_spec = SimcBenchmarkSpec.objects.create(
+            panel=self.public, class_name='warrior', spec_key='warrior_fury',
+            label='Fury', apl=apl, template=template, backend=backend,
+        )
+        SimcBenchmarkProfile.objects.create(
+            panel_spec=panel_spec, profile=profile, label='Raid profile',
+        )
+        SimcBenchmarkScenario.objects.create(
+            panel=self.public, key='patchwerk', name='Patchwerk',
+            simulation_params={'iterations': 1000},
+        )
+
+        with self.assertNumQueries(1):
+            response = self.client.get('/portal/api/simc-benchmarks/panels/')
+
+        public_panel = next(
+            panel for panel in json.loads(response.content)['panels']
+            if panel['id'] == self.public.id
+        )
+        self.assertEqual(public_panel['status'], 'ready')
 
     @patch('botend.portal.simc_benchmark_api.serialize_incremental_panel_results')
     def test_detail_returns_immediate_result_projection(self, serializer):
@@ -68,6 +114,49 @@ class PortalSimcBenchmarkAPITests(TestCase):
         self.assertNotIn('execution', payload)
 
     @patch('botend.portal.simc_benchmark_api.serialize_incremental_panel_results')
+    def test_detail_supports_on_demand_coordinate_projection(self, serializer):
+        projection = {
+            'panel_id': self.public.id,
+            'coordinate_options': [
+                {'spec_key': 'fury', 'scenario_key': 'st', 'profile_key': 'raid',
+                 'labels': {'spec': 'Fury', 'scenario': 'Single target', 'profile': 'Raid'},
+                 'scenario_detail': {'desired_targets': 1, 'max_time': 300}},
+                {'spec_key': 'fury', 'scenario_key': 'aoe', 'profile_key': 'raid',
+                 'labels': {'spec': 'Fury', 'scenario': 'AoE', 'profile': 'Raid'},
+                 'scenario_detail': {'desired_targets': 5, 'max_time': 60}},
+            ],
+            'coordinates': [{'spec_key': 'fury', 'scenario_key': 'st', 'profile_key': 'raid'}],
+        }
+        serializer.return_value = projection
+
+        for panel_ref in (str(self.public.id), self.public.slug):
+            with self.subTest(panel_ref=panel_ref):
+                response = self.client.get(
+                    f'/portal/api/simc-benchmarks/panels/{panel_ref}/',
+                    {'selected': '1', 'spec': 'fury', 'profile': 'raid', 'scenario': 'st'},
+                )
+                payload = json.loads(response.content)
+
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(payload['results'], {
+                    'coordinate_options': projection['coordinate_options'],
+                    'coordinates': projection['coordinates'],
+                })
+        self.assertEqual(serializer.call_count, 2)
+        serializer.assert_has_calls([
+            call(
+                self.public,
+                coordinate_filter={'spec_key': 'fury', 'profile_key': 'raid', 'scenario_key': 'st'},
+                include_coordinate_options=True,
+            ),
+            call(
+                self.public,
+                coordinate_filter={'spec_key': 'fury', 'profile_key': 'raid', 'scenario_key': 'st'},
+                include_coordinate_options=True,
+            ),
+        ])
+
+    @patch('botend.portal.simc_benchmark_api.serialize_incremental_panel_results')
     def test_private_panel_is_hidden_from_list_but_openable_by_known_slug(self, serializer):
         serializer.return_value = {'coordinates': [{'spec_key': 'private'}]}
         list_response = self.client.get('/portal/api/simc-benchmarks/panels/')
@@ -82,7 +171,7 @@ class PortalSimcBenchmarkAPITests(TestCase):
             },
             'results': {'coordinates': [{'spec_key': 'private'}]},
         })
-        serializer.assert_has_calls([call(self.public), call(self.private)])
+        serializer.assert_called_once_with(self.private)
 
     @patch('botend.portal.simc_benchmark_api.serialize_incremental_panel_results')
     def test_detail_is_openable_by_stable_numeric_panel_id(self, serializer):
@@ -138,12 +227,32 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIn('/portal/simc-benchmarks/', self.TEMPLATE)
 
     def test_public_renderer_uses_spec_driven_profile_and_scenario_filters(self):
-        for contract in ('payload?.results?.coordinates', 'spec_key', 'scenario_key', 'profile_key',
+        for contract in ('payload?.results?.coordinate_options', 'spec_key', 'scenario_key', 'profile_key',
                          'syncFilterOptions', 'availableCoordinates', 'profile_key',
                          'renderCoordinate', 'sortCandidates', 'relative', 'baseline'):
             self.assertIn(contract, self.JS)
         self.assertNotIn('innerHTML', self.JS)
         self.assertNotIn('results_finalized_at', self.JS)
+
+    def test_single_panel_fetches_only_the_selected_coordinate_on_filter_changes(self):
+        for contract in (
+            'params.set("selected", "1")',
+            'params.set("spec"', 'params.set("profile"', 'params.set("scenario"',
+            'AbortController', 'coordinateRequestController.abort()',
+            'await requestJson(`${detailUrl}?${params.toString()}`',
+        ):
+            self.assertIn(contract, self.JS)
+        self.assertIn('payload?.results?.coordinates', self.JS)
+
+    def test_selected_coordinate_response_reconciles_filters_after_config_change(self):
+        for contract in (
+            'nextPayload?.results?.coordinate_options',
+            'coordinateOptions = nextOptions',
+            'syncFilterOptions("spec_key", String(resolved?.spec_key || ""))',
+            'syncDependentFilters(',
+            'syncUrl()',
+        ):
+            self.assertIn(contract, self.JS)
 
     def test_numeric_panel_route_and_filter_query_are_synchronized(self):
         for contract in (

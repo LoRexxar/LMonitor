@@ -17,8 +17,12 @@
     return element;
   }
 
-  async function requestJson(url) {
-    const response = await fetch(url, { credentials: "same-origin", headers: { Accept: "application/json" } });
+  async function requestJson(url, options = {}) {
+    const response = await fetch(url, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+      signal: options.signal,
+    });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     if (!data || typeof data !== "object") throw new Error("Invalid response");
@@ -201,9 +205,12 @@
     caseNode.append(range, axis, chart); return caseNode;
   }
 
-  function renderResults(shell, payload, { syncLocation = false } = {}) {
+  function renderResults(shell, payload, { syncLocation = false, detailUrl = "" } = {}) {
     const coordinates = Array.isArray(payload?.results?.coordinates) ? payload.results.coordinates : [];
-    if (!coordinates.length) { shell.body.replaceChildren(state("暂无已完成模拟结果", "not-ready")); return; }
+    let coordinateOptions = Array.isArray(payload?.results?.coordinate_options)
+      ? payload.results.coordinate_options
+      : coordinates;
+    if (!coordinateOptions.length) { shell.body.replaceChildren(state("暂无已完成模拟结果", "not-ready")); return; }
     const params = new URLSearchParams(syncLocation ? window.location.search : "");
     const requested = {
       spec: params.get("spec") || "",
@@ -219,7 +226,7 @@
       selected[key] = select; label.appendChild(select); filters.appendChild(label);
     });
 
-    const availableCoordinates = (key) => coordinates.filter((coordinate) => {
+    const availableCoordinates = (key) => coordinateOptions.filter((coordinate) => {
       if (key !== "spec_key" && String(coordinate?.spec_key || "") !== selected.spec_key.value) return false;
       if (key === "scenario_key" && String(coordinate?.profile_key || "") !== selected.profile_key.value) return false;
       return true;
@@ -252,16 +259,59 @@
       params.set("spec", selected.spec_key.value);
       params.set("profile", selected.profile_key.value);
       params.set("scenario", selected.scenario_key.value);
+      params.delete("selected");
       window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
     };
-    const render = () => {
-      const coordinate = coordinates.find((item) => dimensions.every(([key]) => String(item?.[key] || "") === selected[key].value));
+    const matchesSelection = (item) => dimensions.every(
+      ([key]) => String(item?.[key] || "") === selected[key].value,
+    );
+    const renderCoordinateResult = (rows) => {
+      const coordinate = rows.find(matchesSelection) || rows[0];
       selectedResult.replaceChildren(coordinate ? renderCoordinate(coordinate) : state("当前筛选条件下没有结果", "empty"));
-      syncUrl();
     };
-    selected.spec_key.addEventListener("change", () => { syncDependentFilters(); render(); });
-    selected.profile_key.addEventListener("change", () => { syncFilterOptions("scenario_key"); render(); });
-    selected.scenario_key.addEventListener("change", render); render();
+    let coordinateRequestController = null;
+    const loadSelectedCoordinate = async () => {
+      syncUrl();
+      if (!detailUrl) {
+        renderCoordinateResult(coordinates);
+        return;
+      }
+      if (coordinateRequestController) coordinateRequestController.abort();
+      coordinateRequestController = new AbortController();
+      const requestController = coordinateRequestController;
+      const params = new URLSearchParams();
+      params.set("selected", "1");
+      params.set("spec", selected.spec_key.value);
+      params.set("profile", selected.profile_key.value);
+      params.set("scenario", selected.scenario_key.value);
+      selectedResult.replaceChildren(state("正在加载当前结果…", "loading"));
+      try {
+        const nextPayload = await requestJson(`${detailUrl}?${params.toString()}`, { signal: requestController.signal });
+        if (requestController !== coordinateRequestController) return;
+        const rows = Array.isArray(nextPayload?.results?.coordinates) ? nextPayload.results.coordinates : [];
+        const nextOptions = Array.isArray(nextPayload?.results?.coordinate_options)
+          ? nextPayload.results.coordinate_options
+          : [];
+        if (nextOptions.length) coordinateOptions = nextOptions;
+        const resolved = rows[0] || null;
+        syncFilterOptions("spec_key", String(resolved?.spec_key || ""));
+        syncDependentFilters(
+          String(resolved?.profile_key || ""),
+          String(resolved?.scenario_key || ""),
+        );
+        syncUrl();
+        renderCoordinateResult(rows);
+      } catch (error) {
+        if (error?.name !== "AbortError" && requestController === coordinateRequestController) {
+          selectedResult.replaceChildren(state("当前结果加载失败，请稍后重试", "error"));
+        }
+      }
+    };
+    selected.spec_key.addEventListener("change", () => { syncDependentFilters(); loadSelectedCoordinate(); });
+    selected.profile_key.addEventListener("change", () => { syncFilterOptions("scenario_key"); loadSelectedCoordinate(); });
+    selected.scenario_key.addEventListener("change", loadSelectedCoordinate);
+    renderCoordinateResult(coordinates);
+    syncUrl();
     shell.body.replaceChildren(filters, selectedResult);
   }
 
@@ -288,10 +338,13 @@
     const shell = panelShell(panel); root.appendChild(shell.article); shell.body.appendChild(state("正在加载模拟结果…", "loading"));
     try {
       const panelId = panel.id;
-      const payload = await requestJson(`${LIST_URL}${encodeURIComponent(String(panelId))}/`);
+      const detailUrl = `${LIST_URL}${encodeURIComponent(String(panelId))}/`;
+      const params = new URLSearchParams(setPageHeading ? window.location.search : "");
+      params.set("selected", "1");
+      const payload = await requestJson(`${detailUrl}?${params.toString()}`);
       if (payload.status === "ready") {
         if (setPageHeading) applyPanelHeading(payload.panel || panel);
-        renderResults(shell, payload, { syncLocation: setPageHeading });
+        renderResults(shell, payload, { syncLocation: setPageHeading, detailUrl });
       } else shell.body.replaceChildren(state("暂无已完成模拟结果", "not-ready"));
     } catch (_) { shell.body.replaceChildren(state("Benchmark 结果加载失败，请稍后重试", "error")); }
   }

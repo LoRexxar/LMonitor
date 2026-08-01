@@ -233,17 +233,24 @@ def _coordinate_input_identity(coordinate):
     })
 
 
-def _reusable_candidate_tasks_by_coordinate(panel):
+def _reusable_candidate_tasks_by_coordinate(panel, coordinate_filter=None):
     """Load reusable candidate provenance from the current full-rerun baseline onward.
 
     A full rerun changes the Panel's aggregate baseline. Older Result rows remain
-    immutable audit history but must not leak into the new result surface.
+    immutable audit history but must not leak into the new result surface. Public
+    selected-coordinate reads pass stable keys so unrelated Result/Task rows are not loaded.
     """
     coordinates = {}
-    cases = SimcBenchmarkCase.objects.filter(
-        execution__panel_id=panel.pk,
-        results__isnull=False,
-    )
+    case_filters = {
+        'execution__panel_id': panel.pk,
+        'results__isnull': False,
+    }
+    if isinstance(coordinate_filter, dict):
+        for key in ('spec_key', 'profile_key', 'scenario_key'):
+            value = coordinate_filter.get(key)
+            if value:
+                case_filters[key] = str(value)
+    cases = SimcBenchmarkCase.objects.filter(**case_filters)
     if panel.aggregate_baseline_execution_id:
         cases = cases.filter(execution_id__gte=panel.aggregate_baseline_execution_id)
     cases = cases.select_related('task', 'execution').prefetch_related('results').order_by(
@@ -711,18 +718,72 @@ def summarize_incremental_panel_coverage(panel):
     }
 
 
-def serialize_incremental_panel_results(panel):
-    """Aggregate reusable Results and the selected Profile's readable configuration."""
+def _selected_plan_coordinate(cases, requested):
+    """Resolve possibly-invalid URL keys to the first compatible plan coordinate."""
+    if not cases:
+        return None
+    requested = requested if isinstance(requested, dict) else {}
+    spec_key = str(requested.get('spec_key') or '')
+    matching_specs = [row for row in cases if row['spec_key'] == spec_key]
+    spec_cases = matching_specs or [row for row in cases if row['spec_key'] == cases[0]['spec_key']]
+
+    profile_key = str(requested.get('profile_key') or '')
+    matching_profiles = [row for row in spec_cases if row['profile_key'] == profile_key]
+    profile_cases = matching_profiles or [
+        row for row in spec_cases if row['profile_key'] == spec_cases[0]['profile_key']
+    ]
+
+    scenario_key = str(requested.get('scenario_key') or '')
+    return next(
+        (row for row in profile_cases if row['scenario_key'] == scenario_key),
+        profile_cases[0],
+    )
+
+
+def _coordinate_option(coordinate):
+    params = coordinate.get('simulation_params') or {}
+    return {
+        'spec_key': coordinate['spec_key'],
+        'scenario_key': coordinate['scenario_key'],
+        'profile_key': coordinate['profile_key'],
+        'labels': {
+            'spec': _spec_display_name(coordinate['spec_label'], coordinate['spec_key']),
+            'scenario': coordinate['scenario_label'],
+            'profile': coordinate['profile_label'],
+        },
+        'scenario_detail': {
+            'desired_targets': params.get('desired_targets', 1),
+            'max_time': params.get('max_time', 300),
+        },
+    }
+
+
+def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
+                                        include_coordinate_options=False):
+    """Aggregate reusable Results, optionally projecting only one selected coordinate."""
     plan = build_execution_plan(panel, lock=False)
-    reusable_by_coordinate = _reusable_candidate_tasks_by_coordinate(panel)
+    plan_cases = plan['cases']
+    selected = (
+        _selected_plan_coordinate(plan_cases, coordinate_filter)
+        if coordinate_filter is not None else None
+    )
+    projected_cases = (
+        [selected] if selected is not None
+        else ([] if coordinate_filter is not None else plan_cases)
+    )
+    selected_filter = {
+        key: selected[key] for key in ('spec_key', 'profile_key', 'scenario_key')
+    } if selected is not None else None
+    reusable_by_coordinate = _reusable_candidate_tasks_by_coordinate(panel, selected_filter)
     profiles = {
         row.profile_id: row.profile
         for spec in panel.specs.prefetch_related('profiles__profile')
         for row in spec.profiles.all()
+        if selected is None or row.profile_id == selected['profile_id']
     }
     profile_details = {}
     coordinates = []
-    for coordinate in plan['cases']:
+    for coordinate in projected_cases:
         profile_id = coordinate['profile_id']
         if profile_id not in profile_details:
             profile = profiles.get(profile_id)
@@ -770,7 +831,10 @@ def serialize_incremental_panel_results(panel):
             },
             'candidates': rows,
         })
-    return {'panel_id': panel.pk, 'coordinates': coordinates}
+    payload = {'panel_id': panel.pk, 'coordinates': coordinates}
+    if include_coordinate_options:
+        payload['coordinate_options'] = [_coordinate_option(row) for row in plan_cases]
+    return payload
 
 
 def _safe_error(value):

@@ -289,6 +289,44 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(len(result['coordinates']), 2)
         self.assertEqual(result_lookup_calls, 1)
 
+    def test_selected_projection_filters_result_query_before_building_coordinate_detail(self):
+        self._published_success()
+        SimcBenchmarkScenario.objects.create(
+            panel=self.panel, key='single-target', name='Single target',
+            simulation_params={'iterations': 1200, 'desired_targets': 1, 'max_time': 300},
+        )
+        seen_filters = []
+        original_filter = SimcBenchmarkCase.objects.filter
+
+        def capture_filter(*args, **kwargs):
+            if kwargs.get('execution__panel_id') == self.panel.id and kwargs.get('results__isnull') is False:
+                seen_filters.append(kwargs.copy())
+            return original_filter(*args, **kwargs)
+
+        with patch.object(SimcBenchmarkCase.objects, 'filter', side_effect=capture_filter):
+            result = serialize_incremental_panel_results(
+                self.panel,
+                coordinate_filter={
+                    'spec_key': 'warrior_fury',
+                    'profile_key': str(self.profile.id),
+                    'scenario_key': 'patchwerk',
+                },
+                include_coordinate_options=True,
+            )
+
+        self.assertEqual(len(result['coordinate_options']), 2)
+        self.assertEqual(len(result['coordinates']), 1)
+        self.assertEqual(result['coordinates'][0]['scenario_key'], 'patchwerk')
+        self.assertEqual(seen_filters, [{
+            'execution__panel_id': self.panel.id,
+            'results__isnull': False,
+            'spec_key': 'warrior_fury',
+            'profile_key': str(self.profile.id),
+            'scenario_key': 'patchwerk',
+        }])
+        self.assertNotIn('candidates', result['coordinate_options'][0])
+        self.assertNotIn('profile_detail', result['coordinate_options'][0])
+
     def test_incremental_candidate_creates_only_missing_candidate_task_and_aggregates_old_result(self):
         original = self._published_success()
         original_case = original.cases.get()
