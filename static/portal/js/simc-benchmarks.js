@@ -70,37 +70,110 @@
     return highestText;
   }
 
-  function renderCandidate(candidate, candidates, scale) {
-    const baseline = isBaseline(candidate);
-    const row = node("div", `simc-benchmark-candidate${baseline ? " simc-benchmark-candidate--baseline" : ""}`);
-    const grid = node("div", "simc-benchmark-candidate-grid");
-    const identity = node("div", "simc-benchmark-candidate-identity");
-    const iconUrl = safeIconUrl(candidate.icon_url);
-    if (iconUrl) {
-      const icon = node("img", "simc-benchmark-candidate-icon");
-      icon.src = iconUrl; icon.alt = ""; icon.loading = "lazy"; icon.decoding = "async"; icon.referrerPolicy = "no-referrer";
-      icon.addEventListener("error", () => icon.remove(), { once: true });
-      identity.appendChild(icon);
-    }
-    const copy = node("div", "simc-benchmark-candidate-copy");
-    const name = node("div", "simc-benchmark-candidate-name", candidate.label || candidate.key || "候选方案");
-    if (Number.isFinite(Number(candidate.item_level)) && Number(candidate.item_level) > 0) {
-      name.appendChild(node("span", "simc-benchmark-item-level", `装等 ${Number(candidate.item_level)}`));
-    }
-    if (baseline) name.appendChild(node("span", "simc-benchmark-baseline-badge", "Baseline"));
-    copy.append(name, node("div", "simc-benchmark-candidate-source", candidate.source_label || "—"));
-    identity.appendChild(copy);
-    const dps = validDps(candidate.dps);
-    const ratio = dps !== null && scale.range > 0
-      ? Math.max(0, Math.min(100, ((dps - scale.lowest) / scale.range) * 100))
-      : (dps !== null ? 100 : 0);
-    const track = node("div", "simc-benchmark-bar-track");
-    const bar = node("div", "simc-benchmark-bar");
-    bar.style.width = `${ratio}%`; track.appendChild(bar);
-    track.setAttribute("role", "meter"); track.setAttribute("aria-valuemin", "0"); track.setAttribute("aria-valuemax", "100"); track.setAttribute("aria-valuenow", ratio.toFixed(1));
-    const metrics = node("div", "simc-benchmark-candidate-metrics");
-    metrics.append(node("div", "simc-benchmark-candidate-value", dps === null ? "—" : `${numberFormat.format(dps)} DPS`), node("div", "simc-benchmark-relative", comparisonText(candidate, candidates, scale)));
-    grid.append(identity, track, metrics); row.appendChild(grid); return row;
+  function candidateGearLabel(candidate) {
+    const label = String(candidate.label || candidate.key || "候选方案");
+    const level = Number(candidate.item_level);
+    if (!Number.isFinite(level) || level <= 0) return label;
+    return label.replace(new RegExp(`(?:\\s*·\\s*|\\s+装等\\s*)${level}$`), "");
+  }
+
+  function groupGearCandidates(candidates) {
+    const groups = new Map();
+    candidates.forEach((candidate) => {
+      const itemId = Number(candidate.item_id);
+      const label = candidateGearLabel(candidate);
+      const itemIdentity = Number.isFinite(itemId) && itemId > 0 ? `item-${itemId}` : `candidate-${candidate.key || label}`;
+      const variantIdentity = candidate.item_variant_key || label;
+      const key = `${itemIdentity}|${variantIdentity}`;
+      if (!groups.has(key)) groups.set(key, { key, label, icon_url: candidate.icon_url || "", variants: [] });
+      groups.get(key).variants.push(candidate);
+    });
+    return Array.from(groups.values()).map((group) => {
+      group.variants.sort((left, right) => Number(left.item_level || Number.MAX_SAFE_INTEGER) - Number(right.item_level || Number.MAX_SAFE_INTEGER));
+      group.bestDps = Math.max(...group.variants.map((candidate) => validDps(candidate.dps) ?? 0));
+      return group;
+    }).sort((left, right) => right.bestDps - left.bestDps);
+  }
+
+  function buildItemLevelColorMap(groups) {
+    const palette = ["#2563eb", "#7c3aed", "#db2777", "#ea580c", "#ca8a04", "#16a34a", "#0891b2", "#4f46e5"];
+    const levels = Array.from(new Set(groups.flatMap((group) => group.variants
+      .map((candidate) => Number(candidate.item_level))
+      .filter((level) => Number.isFinite(level) && level > 0)))).sort((a, b) => a - b);
+    return new Map(levels.map((level, index) => [level, palette[index % palette.length]]));
+  }
+
+  function renderGearResultChart(candidates, baseline, scale) {
+    const groups = groupGearCandidates(candidates);
+    const levelColors = buildItemLevelColorMap(groups);
+    const chart = node("div", "simc-benchmark-gear-chart");
+    const legend = node("div", "simc-benchmark-gear-level-legend");
+    legend.setAttribute("aria-label", "装等颜色图例");
+    levelColors.forEach((color, level) => {
+      const key = node("span", "simc-benchmark-gear-level-key");
+      const swatch = node("i"); swatch.style.backgroundColor = color; swatch.setAttribute("aria-hidden", "true");
+      key.append(swatch, node("span", "", `${level} 装等`)); legend.appendChild(key);
+    });
+    if (levelColors.size) chart.appendChild(legend);
+
+    const body = node("div", "simc-benchmark-gear-chart-body");
+    const guide = node("div", "simc-benchmark-gear-hover-guide"); guide.hidden = true; guide.setAttribute("aria-hidden", "true");
+    const tooltip = node("div", "simc-benchmark-gear-tooltip"); tooltip.hidden = true; tooltip.setAttribute("role", "tooltip");
+    body.append(guide, tooltip);
+    const position = (dps) => scale.range > 0 ? Math.max(0, Math.min(100, ((dps - scale.lowest) / scale.range) * 100)) : 100;
+    const baselineDps = baseline ? validDps(baseline.dps) : null;
+
+    groups.forEach((group) => {
+      const row = node("div", "simc-benchmark-gear-row");
+      const identity = node("div", "simc-benchmark-gear-identity");
+      const iconUrl = safeIconUrl(group.icon_url);
+      if (iconUrl) {
+        const icon = node("img", "simc-benchmark-candidate-icon");
+        icon.src = iconUrl; icon.alt = ""; icon.loading = "lazy"; icon.addEventListener("error", () => icon.remove(), { once: true });
+        identity.appendChild(icon);
+      }
+      identity.appendChild(node("strong", "simc-benchmark-gear-name", group.label));
+      const plot = node("div", "simc-benchmark-gear-plot");
+      let previousDps = scale.lowest;
+      group.variants.forEach((candidate) => {
+        const dps = validDps(candidate.dps) ?? previousDps;
+        const level = Number(candidate.item_level);
+        const start = position(previousDps); const end = position(dps);
+        const segment = node("button", "simc-benchmark-gear-segment", Number.isFinite(level) && level > 0 ? String(level) : "装备");
+        segment.type = "button";
+        segment.style.left = `${Math.min(start, end)}%`;
+        segment.style.width = `${Math.max(0.45, Math.abs(end - start))}%`;
+        segment.style.backgroundColor = levelColors.get(level) || "#64748b";
+        segment.setAttribute("aria-label", `${group.label} ${Number.isFinite(level) && level > 0 ? `${level} 装等` : ""} ${numberFormat.format(dps)} DPS`);
+        const moveTooltip = (event) => {
+          const rect = body.getBoundingClientRect();
+          if (Number.isFinite(event?.clientX) && Number.isFinite(event?.clientY)) {
+            tooltip.style.left = `${Math.min(Math.max(8, rect.width - 190), Math.max(8, event.clientX - rect.left + 12))}px`;
+            tooltip.style.top = `${Math.max(8, event.clientY - rect.top - 58)}px`;
+          } else {
+            tooltip.style.left = `${Math.max(8, rect.width / 2 - 90)}px`;
+            tooltip.style.top = `${Math.max(8, row.offsetTop - 8)}px`;
+          }
+        };
+        const showComparison = (event) => {
+          row.classList.add("is-hovered"); guide.hidden = false; tooltip.hidden = false;
+          const plotRect = plot.getBoundingClientRect(); const bodyRect = body.getBoundingClientRect();
+          guide.style.left = `${plotRect.left - bodyRect.left + plotRect.width * end / 100}px`;
+          const delta = baselineDps && baselineDps > 0 ? (dps - baselineDps) * 100 / baselineDps : null;
+          tooltip.replaceChildren(node("strong", "", group.label), node("span", "", `${Number.isFinite(level) && level > 0 ? `${level} 装等 · ` : ""}${numberFormat.format(dps)} DPS`), node("span", "", delta === null ? "无基准对比" : `相对基准 ${delta >= 0 ? "+" : ""}${delta.toFixed(2)}%`));
+          moveTooltip(event);
+        };
+        const hideComparison = () => { row.classList.remove("is-hovered"); guide.hidden = true; tooltip.hidden = true; };
+        segment.addEventListener("pointerenter", showComparison); segment.addEventListener("pointermove", moveTooltip); segment.addEventListener("pointerleave", hideComparison);
+        segment.addEventListener("focus", showComparison); segment.addEventListener("blur", hideComparison);
+        plot.appendChild(segment); previousDps = dps;
+      });
+      const best = group.variants.reduce((winner, candidate) => (validDps(candidate.dps) ?? -1) > (validDps(winner.dps) ?? -1) ? candidate : winner, group.variants[0]);
+      const metrics = node("div", "simc-benchmark-candidate-metrics");
+      metrics.append(node("div", "simc-benchmark-candidate-value", `${numberFormat.format(validDps(best.dps) ?? 0)} DPS`), node("div", "simc-benchmark-relative", comparisonText(best, [baseline, ...candidates].filter(Boolean), scale)));
+      row.append(identity, plot, metrics); body.appendChild(row);
+    });
+    chart.appendChild(body); return chart;
   }
 
   function profileTalentSimulatorUrl(identity, buildCode) {
@@ -200,8 +273,7 @@
     const scale = { lowest, highest, range: highest - lowest };
     const axis = node("div", "simc-benchmark-axis-labels");
     [0, 25, 50, 75, 100].forEach((value) => axis.appendChild(node("span", "simc-benchmark-axis-label", `${value}%`)));
-    const chart = node("div", "simc-benchmark-chart");
-    candidates.forEach((candidate) => chart.appendChild(renderCandidate(candidate || {}, [baseline, ...candidates].filter(Boolean), scale)));
+    const chart = renderGearResultChart(candidates, baseline, scale);
     const range = node("div", "simc-benchmark-range-note", scale.range > 0
       ? `区间对比：${numberFormat.format(lowest)} DPS = 0%，${numberFormat.format(highest)} DPS = 100%`
       : "区间内结果相同");

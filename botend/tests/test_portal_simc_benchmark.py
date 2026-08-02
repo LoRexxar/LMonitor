@@ -280,17 +280,24 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         for contract in (
             'simc-benchmark-basic-info', 'simc-benchmark-info-spec',
             'simc-benchmark-range-note', 'scale.range > 0', '((dps - scale.lowest) / scale.range)',
-            'ratio.toFixed(1)', '最高 DPS',
+            'const position = (dps)', '最高 DPS',
         ):
             self.assertIn(contract, self.JS)
 
     def test_result_renderer_shows_candidate_item_level_next_to_item_name(self):
-        render_candidate = self.JS[
-            self.JS.index('function renderCandidate('):
-            self.JS.index('function profileTalentSimulatorUrl(')
-        ]
-        self.assertIn('candidate.item_level', render_candidate)
-        self.assertIn('装等', render_candidate)
+        self.assertIn('candidate.item_level', self.JS)
+        self.assertIn('装等', self.JS)
+
+    def test_result_renderer_groups_gear_levels_into_shared_colored_rows(self):
+        for contract in (
+            'groupGearCandidates', 'candidate.item_id', 'candidate.item_variant_key',
+            'buildItemLevelColorMap', 'renderGearResultChart',
+            'simc-benchmark-gear-level-legend', 'simc-benchmark-gear-segment',
+            'pointerenter', 'pointermove', 'focus', 'blur',
+            'simc-benchmark-gear-hover-guide', 'simc-benchmark-gear-tooltip',
+        ):
+            self.assertIn(contract, self.JS + self.CSS)
+        self.assertIn('?v=20260802_gear_chart', self.RESULTS_TEMPLATE)
 
     def test_result_renderer_uses_frozen_target_count_and_duration_for_scenarios(self):
         for contract in (
