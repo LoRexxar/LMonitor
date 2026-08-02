@@ -362,7 +362,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             'simc-benchmark-gear-hover-guide', 'simc-benchmark-gear-tooltip',
         ):
             self.assertIn(contract, self.JS + self.CSS)
-        self.assertIn('?v=20260803_profile_on_demand', self.RESULTS_TEMPLATE)
+        self.assertIn('?v=20260803_talent_button', self.RESULTS_TEMPLATE)
 
     def test_result_renderer_uses_frozen_target_count_and_duration_for_scenarios(self):
         for contract in (
@@ -378,17 +378,18 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         ):
             self.assertIn(contract, self.JS)
 
-    def test_profile_talent_code_links_directly_to_the_frozen_ptr_simulator(self):
+    def test_profile_talent_code_is_read_only_with_separate_ptr_simulator_button(self):
         for contract in (
             'profileTalentSimulatorUrl', "params.set('class'", "params.set('spec'",
             "params.set('code'", '/portal/talents/?${params.toString()}',
             'simc-benchmark-profile-talent-code', 'simc-benchmark-profile-talent-link',
             'profileDetail?.talent_version', "params.set('version'", 'target',
-            'noopener noreferrer',
+            'noopener noreferrer', '打开天赋模拟器',
         ):
             self.assertIn(contract, self.JS)
-        self.assertIn('node("a", "simc-benchmark-profile-talent-code', self.JS)
-        self.assertNotIn('打开天赋模拟器', self.JS)
+        self.assertIn('node("code", "simc-benchmark-profile-talent-code", talentCode)', self.JS)
+        self.assertIn('node("a", "simc-benchmark-profile-talent-link", "打开天赋模拟器")', self.JS)
+        self.assertNotIn('node("a", "simc-benchmark-profile-talent-code', self.JS)
 
     def test_result_styles_make_percentage_comparison_and_baseline_contrasting(self):
         for contract in (

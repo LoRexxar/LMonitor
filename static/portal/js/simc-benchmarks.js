@@ -223,15 +223,13 @@
         identity, talentCode, profileDetail?.talent_version,
       );
       const talentRow = node("div", "simc-benchmark-profile-talent-row");
+      talentRow.appendChild(node("code", "simc-benchmark-profile-talent-code", talentCode));
       if (simulatorUrl) {
-        const link = node("a", "simc-benchmark-profile-talent-code simc-benchmark-profile-talent-link", talentCode);
+        const link = node("a", "simc-benchmark-profile-talent-link", "打开天赋模拟器");
         link.href = simulatorUrl;
         link.target = "_blank";
         link.rel = "noopener noreferrer";
-        link.setAttribute("aria-label", "在天赋模拟器中打开当前天赋");
         talentRow.appendChild(link);
-      } else {
-        talentRow.appendChild(node("code", "simc-benchmark-profile-talent-code", talentCode));
       }
       section.append(node("h4", "", "天赋"), talentRow); body.appendChild(section);
     }
