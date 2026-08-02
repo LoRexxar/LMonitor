@@ -280,7 +280,111 @@
     caseNode.append(range, axis, chart); return caseNode;
   }
 
+  function renderSpecComparison(shell, payload, { syncLocation = false, detailUrl = "" } = {}) {
+    let coordinateOptions = Array.isArray(payload?.results?.coordinate_options)
+      ? payload.results.coordinate_options : [];
+    let rows = Array.isArray(payload?.results?.coordinates) ? payload.results.coordinates : [];
+    if (!coordinateOptions.length) coordinateOptions = rows;
+    const scenarios = new Map();
+    coordinateOptions.forEach((coordinate) => {
+      const key = String(coordinate?.scenario_key || "");
+      if (key && !scenarios.has(key)) scenarios.set(key, scenarioLabel(coordinate));
+    });
+    if (!scenarios.size) {
+      shell.body.replaceChildren(state("暂无可对比的职业专精结果", "not-ready"));
+      return;
+    }
+
+    const params = new URLSearchParams(syncLocation ? window.location.search : "");
+    const currentScenario = String(rows[0]?.scenario_key || "");
+    const requestedScenario = params.get("scenario") || currentScenario;
+    const selectedScenario = scenarios.has(requestedScenario)
+      ? requestedScenario : scenarios.keys().next().value;
+    const controls = node("div", "simc-benchmark-spec-controls");
+    const label = node("label", "simc-benchmark-filter");
+    label.appendChild(node("span", "simc-benchmark-filter-label", "场景"));
+    const select = node("select", "simc-benchmark-filter-select");
+    scenarios.forEach((text, value) => {
+      const option = node("option", "", text); option.value = value; select.appendChild(option);
+    });
+    select.value = selectedScenario;
+    label.appendChild(select);
+    controls.append(label, node("p", "simc-benchmark-spec-axis-note", "纵轴：职业专精 · 横向条：DPS（相对本场景最高值）"));
+    const result = node("div", "simc-benchmark-spec-results");
+
+    const syncUrl = () => {
+      if (!syncLocation) return;
+      const next = new URLSearchParams(window.location.search);
+      next.set("scenario", select.value);
+      next.delete("spec"); next.delete("profile"); next.delete("selected");
+      window.history.replaceState(null, "", `${window.location.pathname}?${next.toString()}`);
+    };
+    const renderRows = (coordinates) => {
+      const projected = coordinates.map((coordinate) => {
+        const candidates = Array.isArray(coordinate?.candidates) ? coordinate.candidates : [];
+        const baseline = candidates.find(isBaseline);
+        return { coordinate, dps: baseline ? validDps(baseline.dps) : null };
+      }).sort((left, right) => {
+        if (left.dps === null) return right.dps === null ? 0 : 1;
+        if (right.dps === null) return -1;
+        return right.dps - left.dps;
+      });
+      const highest = projected.reduce((value, row) => Math.max(value, row.dps || 0), 0);
+      const chart = node("div", "simc-benchmark-spec-chart");
+      projected.forEach((entry, index) => {
+        const coordinate = entry.coordinate;
+        const row = node("div", "simc-benchmark-spec-row");
+        const identity = node("div", "simc-benchmark-spec-identity");
+        identity.appendChild(node("span", "simc-benchmark-spec-rank", entry.dps === null ? "—" : String(index + 1)));
+        const copy = node("div", "simc-benchmark-spec-copy");
+        copy.appendChild(node("strong", "simc-benchmark-spec-name", coordinate?.labels?.spec || coordinate?.spec_key || "未知专精"));
+        const profile = coordinate?.labels?.profile || coordinate?.profile_key;
+        if (profile) copy.appendChild(node("small", "simc-benchmark-spec-profile", profile));
+        identity.appendChild(copy);
+        const track = node("div", "simc-benchmark-spec-track");
+        const bar = node("div", "simc-benchmark-spec-bar");
+        bar.style.width = `${highest > 0 && entry.dps !== null ? Math.max(0.8, entry.dps * 100 / highest) : 0}%`;
+        track.appendChild(bar);
+        const metrics = node("div", "simc-benchmark-spec-metrics");
+        metrics.appendChild(node("strong", "simc-benchmark-spec-dps", entry.dps === null ? "暂无结果" : `${numberFormat.format(entry.dps)} DPS`));
+        metrics.appendChild(node("small", "simc-benchmark-spec-relative", entry.dps === null || highest <= 0 ? "该场景未完成" : `相对最高 ${(entry.dps * 100 / highest).toFixed(1)}%`));
+        row.append(identity, track, metrics); chart.appendChild(row);
+      });
+      result.replaceChildren(projected.length ? chart : state("该场景暂无职业专精结果", "empty"));
+    };
+    renderRows(rows);
+    syncUrl();
+
+    let requestController = null;
+    select.addEventListener("change", async () => {
+      syncUrl();
+      if (!detailUrl) return;
+      if (requestController) requestController.abort();
+      requestController = new AbortController();
+      const current = requestController;
+      const query = new URLSearchParams();
+      query.set("selected", "1");
+      query.set("scenario", select.value);
+      result.replaceChildren(state("正在加载场景对比…", "loading"));
+      try {
+        const nextPayload = await requestJson(`${detailUrl}?${query.toString()}`, { signal: current.signal });
+        if (current !== requestController) return;
+        rows = Array.isArray(nextPayload?.results?.coordinates) ? nextPayload.results.coordinates : [];
+        renderRows(rows);
+      } catch (error) {
+        if (error?.name !== "AbortError" && current === requestController) {
+          result.replaceChildren(state("场景对比加载失败，请稍后重试", "error"));
+        }
+      }
+    });
+    shell.body.replaceChildren(controls, result);
+  }
+
   function renderResults(shell, payload, { syncLocation = false, detailUrl = "" } = {}) {
+    if (payload?.result_view === "spec_comparison") {
+      renderSpecComparison(shell, payload, { syncLocation, detailUrl });
+      return;
+    }
     const coordinates = Array.isArray(payload?.results?.coordinates) ? payload.results.coordinates : [];
     let coordinateOptions = Array.isArray(payload?.results?.coordinate_options)
       ? payload.results.coordinate_options

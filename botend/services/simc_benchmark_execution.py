@@ -867,21 +867,36 @@ def _coordinate_option(coordinate):
 
 
 def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
+                                        scenario_filter=None,
                                         include_coordinate_options=False):
-    """Aggregate reusable Results, optionally projecting only one selected coordinate."""
+    """Aggregate reusable Results for all, one coordinate, or one scenario."""
     plan = build_execution_plan(panel, lock=False)
     plan_cases = plan['cases']
     selected = (
         _selected_plan_coordinate(plan_cases, coordinate_filter)
         if coordinate_filter is not None else None
     )
-    projected_cases = (
-        [selected] if selected is not None
-        else ([] if coordinate_filter is not None else plan_cases)
-    )
-    selected_filter = {
-        key: selected[key] for key in ('spec_key', 'profile_key', 'scenario_key')
-    } if selected is not None else None
+    selected_scenario = None
+    if coordinate_filter is None and scenario_filter is not None and plan_cases:
+        requested_scenario = str(scenario_filter or '')
+        selected_scenario = next(
+            (row['scenario_key'] for row in plan_cases
+             if row['scenario_key'] == requested_scenario),
+            plan_cases[0]['scenario_key'],
+        )
+    if selected is not None:
+        projected_cases = [selected]
+        selected_filter = {
+            key: selected[key] for key in ('spec_key', 'profile_key', 'scenario_key')
+        }
+    elif selected_scenario is not None:
+        projected_cases = [
+            row for row in plan_cases if row['scenario_key'] == selected_scenario
+        ]
+        selected_filter = {'scenario_key': selected_scenario}
+    else:
+        projected_cases = [] if coordinate_filter is not None else plan_cases
+        selected_filter = None
     reusable_by_coordinate = _reusable_candidate_tasks_by_coordinate(panel, selected_filter)
     profiles = {
         row.profile_id: row.profile

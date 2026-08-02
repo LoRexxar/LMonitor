@@ -8,8 +8,9 @@ from bs4 import BeautifulSoup
 from django.test import TestCase, override_settings
 
 from botend.models import (
-    SimcApl, SimcBackendBinary, SimcBenchmarkPanel, SimcBenchmarkProfile,
-    SimcBenchmarkScenario, SimcBenchmarkSpec, SimcContentTemplate, SimcProfile,
+    SimcApl, SimcBackendBinary, SimcBenchmarkCandidate, SimcBenchmarkPanel,
+    SimcBenchmarkProfile, SimcBenchmarkScenario, SimcBenchmarkSpec,
+    SimcContentTemplate, SimcProfile,
 )
 
 
@@ -115,6 +116,10 @@ class PortalSimcBenchmarkAPITests(TestCase):
 
     @patch('botend.portal.simc_benchmark_api.serialize_incremental_panel_results')
     def test_detail_supports_on_demand_coordinate_projection(self, serializer):
+        SimcBenchmarkCandidate.objects.create(
+            panel=self.public, key='trinket', label='Trinket',
+            candidate_type='gear_swap', params={'candidate_type': 'gear_swap'},
+        )
         projection = {
             'panel_id': self.public.id,
             'coordinate_options': [
@@ -155,6 +160,35 @@ class PortalSimcBenchmarkAPITests(TestCase):
                 include_coordinate_options=True,
             ),
         ])
+
+    @patch('botend.portal.simc_benchmark_api.serialize_incremental_panel_results')
+    def test_baseline_only_detail_projects_all_specs_for_selected_scenario(self, serializer):
+        serializer.return_value = {
+            'panel_id': self.public.id,
+            'coordinate_options': [
+                {'spec_key': 'warrior_fury', 'scenario_key': 'st', 'profile_key': 'fury'},
+                {'spec_key': 'mage_fire', 'scenario_key': 'st', 'profile_key': 'fire'},
+            ],
+            'coordinates': [
+                {'spec_key': 'warrior_fury', 'scenario_key': 'st', 'profile_key': 'fury'},
+                {'spec_key': 'mage_fire', 'scenario_key': 'st', 'profile_key': 'fire'},
+            ],
+        }
+
+        response = self.client.get(
+            f'/portal/api/simc-benchmarks/panels/{self.public.id}/',
+            {'selected': '1', 'scenario': 'st'},
+        )
+        payload = json.loads(response.content)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload['result_view'], 'spec_comparison')
+        self.assertEqual(len(payload['results']['coordinates']), 2)
+        serializer.assert_called_once_with(
+            self.public,
+            scenario_filter='st',
+            include_coordinate_options=True,
+        )
 
     @patch('botend.portal.simc_benchmark_api.serialize_incremental_panel_results')
     def test_private_panel_is_hidden_from_list_but_openable_by_known_slug(self, serializer):
@@ -233,6 +267,16 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             self.assertIn(contract, self.JS)
         self.assertNotIn('innerHTML', self.JS)
         self.assertNotIn('results_finalized_at', self.JS)
+
+    def test_baseline_only_renderer_compares_specs_on_vertical_axis(self):
+        for contract in (
+            'spec_comparison', 'renderSpecComparison', 'simc-benchmark-spec-chart',
+            'simc-benchmark-spec-row', 'simc-benchmark-spec-name',
+            'simc-benchmark-spec-bar', '相对最高',
+        ):
+            self.assertIn(contract, self.JS + self.CSS)
+        self.assertIn('params.set("scenario"', self.JS)
+        self.assertIn('纵轴：职业专精', self.JS)
 
     def test_single_panel_fetches_only_the_selected_coordinate_on_filter_changes(self):
         for contract in (

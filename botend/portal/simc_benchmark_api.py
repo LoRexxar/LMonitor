@@ -12,8 +12,14 @@ from botend.services.simc_benchmark_execution import serialize_incremental_panel
 _NOT_READY = {'status': 'not_ready', 'results': {'coordinates': []}}
 
 
-def _public_result_payload(panel, *, coordinate_filter=None):
-    if coordinate_filter is None:
+def _public_result_payload(panel, *, coordinate_filter=None, scenario_filter=None):
+    if scenario_filter is not None:
+        results = serialize_incremental_panel_results(
+            panel,
+            scenario_filter=scenario_filter,
+            include_coordinate_options=True,
+        )
+    elif coordinate_filter is None:
         results = serialize_incremental_panel_results(panel)
     else:
         results = serialize_incremental_panel_results(
@@ -34,6 +40,8 @@ def _public_result_payload(panel, *, coordinate_filter=None):
     }
     if isinstance(results.get('coordinate_options'), list):
         payload['results']['coordinate_options'] = results['coordinate_options']
+    if scenario_filter is not None:
+        payload['result_view'] = 'spec_comparison'
     return payload
 
 class PortalSimcBenchmarkPanelListAPIView(View):
@@ -85,10 +93,18 @@ class PortalSimcBenchmarkPanelDetailAPIView(View):
         if panel is None:
             return JsonResponse(_NOT_READY)
         coordinate_filter = None
+        scenario_filter = None
         if request.GET.get('selected') == '1':
-            coordinate_filter = {
-                'spec_key': request.GET.get('spec', ''),
-                'profile_key': request.GET.get('profile', ''),
-                'scenario_key': request.GET.get('scenario', ''),
-            }
-        return JsonResponse(_public_result_payload(panel, coordinate_filter=coordinate_filter))
+            if panel.candidates.filter(is_enabled=True).exists():
+                coordinate_filter = {
+                    'spec_key': request.GET.get('spec', ''),
+                    'profile_key': request.GET.get('profile', ''),
+                    'scenario_key': request.GET.get('scenario', ''),
+                }
+            else:
+                scenario_filter = request.GET.get('scenario', '')
+        return JsonResponse(_public_result_payload(
+            panel,
+            coordinate_filter=coordinate_filter,
+            scenario_filter=scenario_filter,
+        ))
