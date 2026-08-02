@@ -52,7 +52,7 @@ echo "=== 6. 重启 lmweb ==="
 screen -S lmweb -X quit 2>/dev/null || true
 kill_processes 'manage.py runserver 0.0.0.0:18000'
 sleep 2
-screen -dmS lmweb bash -lc "cd ~/LMonitor && $PYTHON_BIN manage.py runserver 0.0.0.0:18000"
+screen -dmS lmweb bash -lc "cd ~/LMonitor && $PYTHON_BIN manage.py runserver 0.0.0.0:18000 --noreload"
 
 echo "=== 7. 重启 lmback ==="
 screen -S lmback -X quit 2>/dev/null || true
@@ -67,6 +67,22 @@ sleep 2
 screen -dmS lmsimc bash -lc "cd ~/LMonitor && $PYTHON_BIN manage.py simc_worker"
 
 echo "=== 9. 检查 screen 会话 ==="
+for session in lmweb lmback lmsimc; do
+    screen -list | grep -q "\.${session}" || {
+        echo "screen 会话 ${session} 启动失败"
+        exit 1
+    }
+done
+
+web_ready=0
+for _ in $(seq 1 15); do
+    if curl -fsS http://127.0.0.1:18000/ >/dev/null; then
+        web_ready=1
+        break
+    fi
+    sleep 1
+done
+[ "$web_ready" = "1" ] || { echo "lmweb HTTP 健康检查失败"; exit 1; }
 screen -list | grep -E '\.(lmweb|lmback|lmsimc)'
 
 echo "=== 部署完成 ==="

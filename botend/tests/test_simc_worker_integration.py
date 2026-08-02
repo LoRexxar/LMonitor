@@ -25,13 +25,16 @@ class SimcWorkerIntegrationTests(SimpleTestCase):
     def test_deploy_manages_dedicated_lmsimc_screen(self):
         with open('deploy.sh', 'r', encoding='utf-8') as handle:
             script = handle.read()
+        self.assertIn("manage.py runserver 0.0.0.0:18000 --noreload", script)
+        self.assertIn("for session in lmweb lmback lmsimc", script)
+        self.assertIn('curl -fsS http://127.0.0.1:18000/', script)
         self.assertIn("screen -S lmsimc -X quit", script)
         self.assertIn("screen -dmS lmsimc", script)
         self.assertIn("manage.py simc_worker", script)
         self.assertIn("lmweb|lmback|lmsimc", script)
-        self.assertNotIn("manage.py update_simc_binary", script)
+        self.assertIn("manage.py update_simc_binary --apply-patches", script)
         self.assertIn("flock -n 9", script)
         self.assertGreater(
             script.index("screen -S lmsimc -X quit"),
-            script.index("=== 6. 重启 lmsimc ==="),
+            script.index("=== 8. 重启 lmsimc ==="),
         )
