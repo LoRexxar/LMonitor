@@ -41,10 +41,6 @@ MAX_SCENARIOS = 8
 MAX_GEAR_RAW_VALUE_CHARS = 2048
 MAX_CANDIDATE_PARAMS_BYTES = 16 * 1024
 MAX_PANEL_CONFIG_BYTES = 2 * 1024 * 1024
-# Keep the catalog bound aligned with the existing panel/candidate payload budgets.
-MAX_CANDIDATES = MAX_PANEL_CONFIG_BYTES // MAX_CANDIDATE_PARAMS_BYTES
-MAX_CASES = 120
-MAX_RUNS_PER_TASK = MAX_CANDIDATES + 1
 
 _PANEL_FIELDS = {
     'name', 'slug', 'description', 'is_active', 'is_public', 'schedule_enabled',
@@ -413,7 +409,6 @@ def normalize_panel_payload(payload, user_id, panel=None):
     candidates = _require_list(payload.get('candidates'), 'candidates')
     if len(specs) > MAX_SPECS: _error(f'specs 最多 {MAX_SPECS} 项', 'specs')
     if len(scenarios) > MAX_SCENARIOS: _error(f'scenarios 最多 {MAX_SCENARIOS} 项', 'scenarios')
-    if len(candidates) > MAX_CANDIDATES: _error(f'candidates 最多 {MAX_CANDIDATES} 项', 'candidates')
 
     normalized = {
         'name': _text(payload.get('name'), 'name', max_length=200),
@@ -768,8 +763,6 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
             if not item.spec_keys or spec.spec_key in item.spec_keys
         ]
         case_candidates = [baseline] + [_candidate_snapshot(item) for item in applicable]
-        if validate_for_execution and len(case_candidates) > MAX_RUNS_PER_TASK:
-            _error(f'专精 {spec.spec_key} 每 Task runs 超过 {MAX_RUNS_PER_TASK}')
         for scenario in scenarios:
             for selected in profiles:
                 cases.append({
@@ -785,8 +778,6 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
                 })
     case_count = len(cases)
     run_count = sum(len(item['candidates']) for item in cases)
-    if validate_for_execution and case_count > MAX_CASES:
-        _error(f'执行 cases 超过 {MAX_CASES}（当前 {case_count}）')
     return {
         'panel': {
             'id': panel.pk, 'name': panel.name, 'slug': panel.slug,

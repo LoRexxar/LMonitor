@@ -81,8 +81,7 @@ from collections import defaultdict, deque
 from botend.models import SimcBenchmarkCase, SimcBenchmarkExecution, SimcBenchmarkPanel
 from botend.constants.wow import SPEC_CN
 from botend.services.simc_benchmark_config import (
-    MAX_CANDIDATES, MAX_CASES, MAX_PROFILES_PER_SPEC, MAX_RUNS_PER_TASK,
-    MAX_SCENARIOS, MAX_SPECS, benchmark_resource_querysets,
+    MAX_PROFILES_PER_SPEC, MAX_SCENARIOS, MAX_SPECS, benchmark_resource_querysets,
     replace_panel_config, serialize_panel_config,
 )
 from botend.services.simc_benchmark_execution import (
@@ -8770,9 +8769,6 @@ def _benchmark_options_payload(owner_id, ownership_context):
             'max_specs': MAX_SPECS,
             'max_profiles_per_spec': MAX_PROFILES_PER_SPEC,
             'max_scenarios': MAX_SCENARIOS,
-            'max_candidates': MAX_CANDIDATES,
-            'max_cases': MAX_CASES,
-            'max_runs_per_task': MAX_RUNS_PER_TASK,
         },
         'ownership_context': ownership_context,
     }

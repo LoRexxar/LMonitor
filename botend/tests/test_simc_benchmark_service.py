@@ -13,8 +13,8 @@ from botend.models import (
     SimcContentTemplate, SimcProfile, WowItemSnapshot,
 )
 from botend.services.simc_benchmark_config import (
-    MAX_CANDIDATES, MAX_CASES, MAX_PROFILES_PER_SPEC, MAX_RUNS_PER_TASK,
-    MAX_SCENARIOS, MAX_SPECS, build_execution_plan, normalize_panel_payload,
+    MAX_PROFILES_PER_SPEC, MAX_SCENARIOS, MAX_SPECS,
+    build_execution_plan, normalize_panel_payload,
     replace_panel_config, serialize_panel_config, _locked_panel_snapshot_queryset,
 )
 
@@ -57,9 +57,8 @@ class SimcBenchmarkConfigServiceTests(TestCase):
             }],
         }
 
-    def test_published_limits(self):
+    def test_published_limits_only_cover_structural_choices(self):
         self.assertEqual((MAX_SPECS, MAX_PROFILES_PER_SPEC, MAX_SCENARIOS), (40, 5, 8))
-        self.assertEqual((MAX_CANDIDATES, MAX_CASES, MAX_RUNS_PER_TASK), (128, 120, 129))
 
     def test_normalize_strict_shapes_unknown_options_and_types(self):
         for field in ('specs', 'scenarios', 'candidates'):
@@ -313,7 +312,7 @@ class SimcBenchmarkConfigServiceTests(TestCase):
         with self.assertRaisesMessage(ValidationError, '重复'):
             normalize_panel_payload(payload, self.user_id)
 
-    def test_empty_candidates_is_baseline_only_and_more_than_catalog_size_is_allowed(self):
+    def test_empty_candidates_is_baseline_only_and_candidate_runs_have_no_fixed_count_cap(self):
         payload = dict(self.payload, candidates=[])
         panel, plan = replace_panel_config(payload, self.user_id)
         self.assertEqual(panel.candidates.count(), 0)
@@ -332,10 +331,10 @@ class SimcBenchmarkConfigServiceTests(TestCase):
             }
 
         payload = dict(self.payload, slug='expanded-candidates', candidates=[
-            candidate(index) for index in range(67)
+            candidate(index) for index in range(130)
         ])
         _panel, plan = replace_panel_config(payload, self.user_id)
-        self.assertEqual(plan['run_count'], 68)
+        self.assertEqual(plan['run_count'], 131)
 
     def test_internal_or_blank_candidate_icon_is_valid_display_metadata(self):
         for icon_url in ('', '/static/wow_icons/small/inv_trinket.jpg'):
@@ -409,7 +408,7 @@ class SimcBenchmarkConfigServiceTests(TestCase):
         ])
         self.assertEqual([c['candidate_key'] for c in plan['cases'][0]['candidates']], ['baseline', 'all'])
 
-    def test_execution_validation_is_layered_from_save_estimate(self):
+    def test_execution_plan_has_no_fixed_case_count_cap(self):
         panel, estimate = replace_panel_config(self.payload, self.user_id)
         self.assertEqual(estimate['case_count'], 1)
         # Saving an oversized Cartesian product is allowed.
@@ -427,9 +426,11 @@ class SimcBenchmarkConfigServiceTests(TestCase):
             )
             for profile in SimcProfile.objects.filter(user_id=self.user_id)[:5]:
                 SimcBenchmarkProfile.objects.create(panel_spec=extra, profile=profile, label=profile.name)
-        self.assertGreater(build_execution_plan(panel, validate_for_execution=False)['case_count'], 120)
-        with self.assertRaisesMessage(ValidationError, '120'):
-            build_execution_plan(panel, validate_for_execution=True)
+        estimate = build_execution_plan(panel, validate_for_execution=False)
+        execution_plan = build_execution_plan(panel, validate_for_execution=True)
+        self.assertGreater(estimate['case_count'], 120)
+        self.assertEqual(execution_plan['case_count'], estimate['case_count'])
+        self.assertEqual(execution_plan['run_count'], estimate['run_count'])
 
     def test_plan_rejects_missing_enabled_axes_but_allows_no_enabled_candidates(self):
         panel, _ = replace_panel_config(self.payload, self.user_id)

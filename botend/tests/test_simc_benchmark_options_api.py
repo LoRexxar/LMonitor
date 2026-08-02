@@ -11,8 +11,7 @@ from botend.models import (
     SimcProfile,
 )
 from botend.services.simc_benchmark_config import (
-    MAX_CANDIDATES, MAX_CASES, MAX_PROFILES_PER_SPEC, MAX_RUNS_PER_TASK,
-    MAX_SCENARIOS, MAX_SPECS,
+    MAX_PROFILES_PER_SPEC, MAX_SCENARIOS, MAX_SPECS,
 )
 
 
@@ -131,9 +130,6 @@ class SimcBenchmarkOptionsApiTests(TestCase):
             'max_specs': MAX_SPECS,
             'max_profiles_per_spec': MAX_PROFILES_PER_SPEC,
             'max_scenarios': MAX_SCENARIOS,
-            'max_candidates': MAX_CANDIDATES,
-            'max_cases': MAX_CASES,
-            'max_runs_per_task': MAX_RUNS_PER_TASK,
         })
 
     def test_create_defaults_are_authoritative_and_allow_multiple_active_profiles(self):

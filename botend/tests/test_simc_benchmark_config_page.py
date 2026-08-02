@@ -73,6 +73,15 @@ class SimcBenchmarkConfigPageTests(TestCase):
         self.assertIn('sameOriginalIdentity', script)
         self.assertNotIn("levels.length>1?`${meta.key}-${itemLevel}`:meta.key", script)
 
+    def test_candidate_name_is_the_first_primary_field_and_execution_size_has_no_fixed_cap(self):
+        script = Path('static/dashboard/js/simc-benchmark-dashboard.js').read_text()
+        self.assertIn('primary.append(name,itemId,itemLevel)', script)
+        self.assertNotIn('limits.max_candidates', script)
+        self.assertNotIn('limits.max_cases', script)
+        self.assertNotIn('limits.max_runs_per_task', script)
+        self.assertNotIn('/ ${limits.max_cases} cases', script)
+        self.assertNotIn('/ ${limits.max_runs_per_task} runs', script)
+
     def test_scenario_editor_exposes_core_simc_parameters_without_opening_advanced_settings(self):
         script = Path('static/dashboard/js/simc-benchmark-dashboard.js').read_text()
         self.assertIn("const SCENARIO_PRIMARY_PARAMS = ['desired_targets','max_time','iterations','fight_style'];", script)
