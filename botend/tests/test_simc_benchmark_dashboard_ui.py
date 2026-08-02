@@ -385,6 +385,26 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         ):
             self.assertNotIn(removed_field, segment)
 
+    def test_configuration_rows_keep_controls_horizontally_aligned_and_compact(self):
+        spec_resources = JS[JS.index('function updateSpecResources('):JS.index('function addScenario(')]
+        scenario = JS[JS.index('function addScenario('):JS.index('function addCandidate(')]
+        candidate = JS[JS.index('function addCandidate('):JS.index('function localDate(')]
+
+        self.assertIn("class:'profile-choice profile-choice-row'", spec_resources)
+        self.assertIn("class:'config-card-primary scenario-primary'", scenario)
+        self.assertIn("class:'config-card candidate-config-row'", candidate)
+        self.assertIn(
+            '.spec-config-row .config-card-primary > .config-check { min-height:34px; margin:0 0 .38rem; align-self:end;',
+            CSS,
+        )
+        for selector in (
+            '.profile-choice-row > .config-check',
+            '.scenario-primary',
+            '.candidate-config-row',
+        ):
+            self.assertIn(selector, CSS)
+        self.assertIn('?v=20260803a', CONFIG_PAGE)
+
     def test_panel_name_does_not_collide_with_nested_scenario_names(self):
         soup = BeautifulSoup(PARTIAL, "html.parser")
         form = cast(Tag, soup.select_one('[data-benchmark-form]'))

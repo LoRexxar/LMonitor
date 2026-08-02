@@ -136,6 +136,8 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
 .simc-benchmark-config-page .config-card-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
 .simc-benchmark-config-page .profile-picker,.simc-benchmark-config-page .candidate-spec-picker { border-color:#dfe5ec; background:#fff; }
 .simc-benchmark-config-page .profile-choice { border-bottom:1px solid #edf0f3; padding:.45rem .2rem; }.simc-benchmark-config-page .profile-choice:last-child { border-bottom:0; }
+.simc-benchmark-config-page .profile-choice-row > .config-check { display:flex !important; min-height:36px; grid-template-columns:none !important; align-items:center; gap:.4rem !important; border:1px solid #e0e6ed; border-radius:.55rem; padding:.35rem .45rem; background:#f9fafb; white-space:nowrap; }
+.simc-benchmark-config-page .profile-choice-row > .config-check input { flex:0 0 auto; margin:0; }
 .simc-benchmark-config-page .structured-params { grid-template-columns:repeat(4,minmax(0,1fr)); }
 .simc-benchmark-config-page .simc-benchmark-summary { position:static; display:flex; align-items:center; flex-wrap:wrap; gap:.35rem .8rem; margin-bottom:.85rem; border-color:#c9d8ef; border-radius:.8rem; padding:.7rem .9rem; background:#f5f8fd; color:#40547b; box-shadow:none; }
 .simc-benchmark-config-page .simc-benchmark-summary strong { margin:0 .25rem 0 0; color:#26457e; font-size:.76rem; }.simc-benchmark-config-page .simc-benchmark-summary > div { font-size:.68rem; }.simc-benchmark-config-page .simc-benchmark-summary .summary-error { flex-basis:100%; margin:.2rem 0 0; border-top:1px solid #efcaca; padding-top:.45rem; color:#a23636; }
@@ -149,7 +151,7 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
 .simc-benchmark-config-page .spec-config-row:last-child { border-bottom:0; }
 .spec-config-row .config-card-primary { display:contents; }
 .spec-config-row .config-card-primary > label { padding:.38rem .7rem; }
-.spec-config-row .config-card-primary > .config-check { min-height:34px; margin:0; padding:.35rem .55rem; }
+.spec-config-row .config-card-primary > .config-check { min-height:34px; margin:0 0 .38rem; align-self:end; padding:.35rem .55rem; }
 .spec-config-row .config-card-primary select { min-height:34px; padding:.35rem .55rem; }
 .simc-benchmark-config-page .spec-config-row .config-card-head { grid-column:4; grid-row:1; min-height:0; border:0; padding:.25rem .35rem; background:transparent; }
 .spec-config-row .config-card-title { display:none; }
@@ -159,6 +161,19 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
 .spec-config-row .config-card-advanced summary small { display:none; }
 .spec-config-row .config-card-advanced[open] { grid-column:1/-1; grid-row:2; border-top:1px solid #edf0f3; background:#f7f9fb; }
 .spec-config-row .config-card-advanced[open] > summary { border:0; border-radius:0; padding:.5rem .7rem; background:#f7f9fb; }
+
+/* 场景主输入与启用控件按输入框顶边对齐，帮助文字不再拉低启用列。 */
+.scenario-primary { align-items:start; }
+.scenario-primary > .config-check { align-self:start; margin-top:1.15rem; }
+
+/* 候选装备使用单行紧凑管理布局：名称、ID、装等、操作。 */
+.simc-benchmark-config-page .candidate-config-row { display:grid; grid-template-columns:minmax(10rem,1.4fr) minmax(8rem,.65fr) minmax(12rem,1fr) 4.5rem; align-items:center; gap:.65rem; overflow:visible; border-radius:0; }
+.candidate-config-row .config-card-primary { display:contents; }
+.candidate-config-row .candidate-primary > label { padding:.42rem 0; }
+.candidate-config-row .candidate-item-name { min-height:44px; padding-left:.8rem; }
+.simc-benchmark-config-page .candidate-config-row .config-card-head { grid-column:4; grid-row:1; min-height:0; margin:0; border:0; padding:.25rem .35rem; background:transparent; }
+.candidate-config-row .config-card-title { display:none; }
+.simc-benchmark-config-page .candidate-config-row .config-card-head .danger { width:100%; min-height:34px; }
 
 @media (max-width: 900px) {
   .simc-benchmark-primary-section { grid-template-columns:1fr; gap:.85rem; }
@@ -198,4 +213,10 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
   .spec-config-table-head,.simc-benchmark-config-page .spec-config-row { min-width:34rem; }
   .spec-config-row .config-card-primary { display:contents; }
   .spec-config-row .config-card-advanced[open] { grid-column:1/-1; }
+  .simc-benchmark-config-page .candidate-config-row { display:block; overflow:hidden; border-radius:.85rem; }
+  .candidate-config-row .config-card-primary { display:grid; grid-template-columns:minmax(0,1fr); }
+  .candidate-config-row .candidate-item-name { padding:.7rem .8rem 0; }
+  .candidate-config-row .candidate-primary > label { padding:0 .8rem .8rem; }
+  .simc-benchmark-config-page .candidate-config-row .config-card-head { display:flex; min-height:2.65rem; border-bottom:1px solid #edf0f4; padding:.45rem .65rem .45rem .85rem; background:#fafbfc; }
+  .candidate-config-row .config-card-title { display:block; }
 }
