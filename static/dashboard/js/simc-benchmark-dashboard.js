@@ -10,7 +10,7 @@ const SCENARIO_PARAM_VIEW = {
   desired_targets:{label:'目标数',type:'number',step:'1',placeholder:'SimC 默认 1'},
   max_time:{label:'战斗时间（秒）',type:'number',step:'any',placeholder:'SimC 默认 300'},
   iterations:{label:'迭代次数',type:'number',step:'1',placeholder:'SimC 默认 10000'},
-  fight_style:{label:'战斗类型',type:'text',placeholder:'SimC 默认 Patchwerk'},
+  fight_style:{label:'战斗类型',type:'select',placeholder:'请选择战斗类型'},
   target_error:{label:'目标误差',type:'number',step:'any'},
   vary_combat_length:{label:'战斗时长浮动',type:'number',step:'any'},
   enemy_type:{label:'敌人类型',type:'text'},
@@ -178,7 +178,7 @@ function renderList(){
 }
 
 function field(label,name,type='text',value=''){ const wrap=el('label',{},label); const input=el('input',{name,type}); input.value=value??'';wrap.append(input);return wrap; }
-function scenarioParamField(key,data={}){const view=SCENARIO_PARAM_VIEW[key]||{label:key,type:'text'},wrap=field(view.label,key,view.type,data?.[key]??''),input=wrap.querySelector('input');if(view.step)input.step=view.step;if(view.placeholder)input.placeholder=view.placeholder;return wrap;}
+function scenarioParamField(key,data={}){const view=SCENARIO_PARAM_VIEW[key]||{label:key,type:'text'},value=data?.[key]??(key==='fight_style'?'Patchwerk':'');if(view.type==='select'){const items=resources?.fight_styles||[],wrap=selectField(view.label,key,items,value,view.placeholder);if(value&&!items.some(item=>String(item.value)===String(value))){const select=wrap.querySelector('select'),option=el('option',{value},`${value}（历史配置）`);option.selected=true;select.append(option);}return wrap;}const wrap=field(view.label,key,view.type,value),input=wrap.querySelector('input');if(view.step)input.step=view.step;if(view.placeholder)input.placeholder=view.placeholder;return wrap;}
 function checkbox(label,name,checked=true){ const wrap=el('label',{class:'config-check'});wrap.append(el('input',{type:'checkbox',name,checked}),document.createTextNode(label));return wrap; }
 function selectField(label,name,items,value,placeholder='请选择'){ const wrap=el('label',{},label), select=el('select',{name});select.append(el('option',{value:''},placeholder));items.forEach(item=>{ const option=el('option',{value:item.value},item.label);option.selected=String(item.value)===String(value??'');select.append(option);});wrap.append(select);return wrap; }
 function removeButton(kind){ return el('button',{type:'button',class:'simc-benchmark-btn danger',dataset:{remove:kind}},'删除'); }
@@ -222,7 +222,7 @@ function updateSpecResources(card,selected=[],original={}){ const spec=card.quer
 function addScenario(data={}){
   if($$('[data-config="scenario"]',root).length>=limits.max_scenarios){notify(`场景最多 ${limits.max_scenarios} 项`,'warning');return;}
   const card=el('div',{class:'config-card',dataset:{config:'scenario'}}),head=el('div',{class:'config-card-head'});head.append(el('div',{class:'config-card-title'},'战斗场景'),removeButton('scenario'));
-  const primary=el('div',{class:'config-card-primary'});primary.append(field('key *','key','text',data.key||''),field('名称 *','name','text',data.name||''),checkbox('启用','is_enabled',data.is_enabled!==false));
+  const primary=el('div',{class:'config-card-primary'}),stableKey=field('稳定标识 *','key','text',data.key||''),displayName=field('显示名称 *','name','text',data.name||'');stableKey.append(el('small',{class:'field-help'},'用于结果坐标和跨次补算匹配，创建后不建议修改'));displayName.append(el('small',{class:'field-help'},'仅用于界面展示，可随时修改'));primary.append(stableKey,displayName,checkbox('启用','is_enabled',data.is_enabled!==false));
   const essential=el('div',{class:'scenario-essential-params'});SCENARIO_PRIMARY_PARAMS.forEach(key=>essential.append(scenarioParamField(key,data.simulation_params)));
   const advanced=advancedGroup('高级 SimC 参数','留空时沿用 Template 或 SimC 默认值'),params=el('div',{class:'structured-params'});
   SCENARIO_ADVANCED_PARAMS.forEach(key=>params.append(scenarioParamField(key,data.simulation_params)));

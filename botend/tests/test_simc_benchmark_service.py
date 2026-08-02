@@ -208,6 +208,31 @@ class SimcBenchmarkConfigServiceTests(TestCase):
             with self.subTest(value=value), self.assertRaises(ValidationError):
                 normalize_panel_payload(payload, self.user_id)
 
+    def test_fight_style_must_be_a_value_accepted_by_current_simc_source(self):
+        accepted = [
+            'Patchwerk', 'CastingPatchwerk', 'HecticAddCleave', 'DungeonSlice',
+            'DungeonRoute', 'CleaveAdd', 'LightMovement', 'HeavyMovement',
+            'beastlord', 'HelterSkelter', 'Ultraxion',
+        ]
+        for fight_style in accepted:
+            payload = dict(self.payload)
+            payload['scenarios'] = [dict(
+                self.payload['scenarios'][0], simulation_params={'fight_style': fight_style},
+            )]
+            with self.subTest(fight_style=fight_style):
+                self.assertEqual(
+                    normalize_panel_payload(payload, self.user_id)['scenarios'][0]
+                    ['simulation_params']['fight_style'],
+                    fight_style,
+                )
+
+        payload = dict(self.payload)
+        payload['scenarios'] = [dict(
+            self.payload['scenarios'][0], simulation_params={'fight_style': '自己输入'},
+        )]
+        with self.assertRaisesMessage(ValidationError, 'fight_style'):
+            normalize_panel_payload(payload, self.user_id)
+
     def test_rejects_unsafe_gear_and_unsupported_candidate_types(self):
         bad_values = [
             'trinket1=id=1\nactions=/kill', 'actions=id=1', 'input=id=1',

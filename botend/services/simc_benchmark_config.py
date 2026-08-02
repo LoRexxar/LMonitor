@@ -38,6 +38,23 @@ from botend.services.simc_candidate_options import normalize_controlled_simc_opt
 MAX_SPECS = len(SUPPORTED_SIMC_SPEC_IDENTITIES)
 MAX_PROFILES_PER_SPEC = 5
 MAX_SCENARIOS = 8
+
+# SimulationCraft commit 32ceb18d81557965afa5e240dc32b8659549c53d,
+# engine/util/util.cpp::parse_fight_style(). Keep values byte-for-byte identical.
+SIMC_FIGHT_STYLES = (
+    ('Patchwerk', 'Patchwerk（木桩）'),
+    ('CastingPatchwerk', 'CastingPatchwerk（施法木桩）'),
+    ('HecticAddCleave', 'HecticAddCleave（高频小怪顺劈）'),
+    ('DungeonSlice', 'DungeonSlice（地下城切片）'),
+    ('DungeonRoute', 'DungeonRoute（地下城路线）'),
+    ('CleaveAdd', 'CleaveAdd（周期小怪顺劈）'),
+    ('LightMovement', 'LightMovement（轻度移动）'),
+    ('HeavyMovement', 'HeavyMovement（重度移动）'),
+    ('beastlord', 'beastlord（兽王达玛克）'),
+    ('HelterSkelter', 'HelterSkelter（混乱战斗）'),
+    ('Ultraxion', 'Ultraxion（奥卓克希昂）'),
+)
+SIMC_FIGHT_STYLE_VALUES = frozenset(value for value, _label in SIMC_FIGHT_STYLES)
 MAX_GEAR_RAW_VALUE_CHARS = 2048
 MAX_CANDIDATE_PARAMS_BYTES = 16 * 1024
 MAX_PANEL_CONFIG_BYTES = 2 * 1024 * 1024
@@ -241,6 +258,9 @@ def _normalize_simulation_params(value):
     options_error = validate_simulation_options(value)
     if options_error:
         _error(options_error, 'simulation_params')
+    fight_style = value.get('fight_style')
+    if fight_style is not None and fight_style not in SIMC_FIGHT_STYLE_VALUES:
+        _error('simulation_params.fight_style 不是当前 SimC 支持的战斗类型', 'simulation_params')
     return deepcopy(value)
 
 

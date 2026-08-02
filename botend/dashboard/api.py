@@ -81,7 +81,8 @@ from collections import defaultdict, deque
 from botend.models import SimcBenchmarkCase, SimcBenchmarkExecution, SimcBenchmarkPanel
 from botend.constants.wow import SPEC_CN
 from botend.services.simc_benchmark_config import (
-    MAX_PROFILES_PER_SPEC, MAX_SCENARIOS, MAX_SPECS, benchmark_resource_querysets,
+    MAX_PROFILES_PER_SPEC, MAX_SCENARIOS, MAX_SPECS, SIMC_FIGHT_STYLES,
+    benchmark_resource_querysets,
     replace_panel_config, serialize_panel_config,
 )
 from botend.services.simc_benchmark_execution import (
@@ -8736,6 +8737,9 @@ def _benchmark_options_payload(owner_id, ownership_context):
     backend_game_versions = _benchmark_backend_game_versions(resources['backends'])
     return {
         'specs': specs,
+        'fight_styles': [
+            {'value': value, 'label': label} for value, label in SIMC_FIGHT_STYLES
+        ],
         'create_defaults': _benchmark_create_defaults(resources, specs),
         'resources': {
             'backends': [{

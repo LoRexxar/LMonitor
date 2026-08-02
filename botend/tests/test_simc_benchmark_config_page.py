@@ -91,3 +91,14 @@ class SimcBenchmarkConfigPageTests(TestCase):
         self.assertIn("fight_style:{label:'战斗类型'", script)
         self.assertIn("class:'scenario-essential-params'", script)
         self.assertIn("placeholder:'SimC 默认 300'", script)
+
+    def test_scenario_editor_uses_published_fight_style_options_and_clear_key_name_labels(self):
+        script = Path('static/dashboard/js/simc-benchmark-dashboard.js').read_text()
+        self.assertIn("resources?.fight_styles", script)
+        self.assertIn("view.type==='select'", script)
+        self.assertIn("fight_style:{label:'战斗类型',type:'select'", script)
+        self.assertIn("field('稳定标识 *','key'", script)
+        self.assertIn("field('显示名称 *','name'", script)
+        self.assertIn('用于结果坐标和跨次补算匹配', script)
+        self.assertIn('仅用于界面展示，可随时修改', script)
+        self.assertNotIn("field('key *','key'", script)

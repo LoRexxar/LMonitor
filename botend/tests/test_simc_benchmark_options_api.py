@@ -81,6 +81,15 @@ class SimcBenchmarkOptionsApiTests(TestCase):
             'healer',
         )
 
+    def test_options_publish_exact_fight_styles_accepted_by_current_simc_source(self):
+        data = self.client.get('/api/simc-benchmarks/options/').json()['data']
+        self.assertEqual([row['value'] for row in data['fight_styles']], [
+            'Patchwerk', 'CastingPatchwerk', 'HecticAddCleave', 'DungeonSlice',
+            'DungeonRoute', 'CleaveAdd', 'LightMovement', 'HeavyMovement',
+            'beastlord', 'HelterSkelter', 'Ultraxion',
+        ])
+        self.assertEqual(data['fight_styles'][0]['label'], 'Patchwerk（木桩）')
+
     def test_create_and_edit_use_different_immutable_ownership_contexts(self):
         created = self.client.get('/api/simc-benchmarks/options/').json()['data']
         self.assertEqual(created['ownership_context'], 'current_user')
