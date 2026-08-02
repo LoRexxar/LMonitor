@@ -17,12 +17,12 @@ from botend.models import (
     SimcBenchmarkExecution, SimcBenchmarkPanel, SimcBenchmarkProfile,
     SimcBenchmarkResult,
     SimcBenchmarkScenario, SimcBenchmarkSpec, SimcContentTemplate, SimcProfile,
-    SimcTask, SimulationRun,
+    SimcTask, SimulationRun, WowItemSnapshot,
 )
 from botend.services.simc_benchmark_execution import (
     BenchmarkExecutionConflict, backfill_completed_case_results, create_execution, reconcile_execution,
     rerun_failed_cases, serialize_incremental_panel_results,
-    serialize_public_execution, summarize_execution,
+    serialize_public_execution, summarize_execution, _spec_icon_url,
 )
 
 
@@ -357,22 +357,38 @@ class SimcBenchmarkExecutionTests(TestCase):
         ])
 
     def test_incremental_projection_exposes_profile_detail_for_selected_coordinate(self):
+        WowItemSnapshot.objects.create(
+            item_id=100, name='Helm of Tests', name_zh='测试头盔',
+            icon='inv_helmet_01',
+        )
         self.profile.player_equipment = (
             'warrior="Profile Player"\nlevel=90\nspec=fury\n'
             'talents=abc123\nhead=,id=100\nmain_hand=,id=200\n'
         )
         self.profile.talent = 'abc123'
-        self.profile.save(update_fields=['player_equipment', 'talent'])
+        self.profile.use_ptr = True
+        self.profile.save(update_fields=['player_equipment', 'talent', 'use_ptr'])
         self._published_success()
 
-        profile = serialize_incremental_panel_results(self.panel)['coordinates'][0]['profile_detail']
+        coordinate = serialize_incremental_panel_results(self.panel)['coordinates'][0]
+        profile = coordinate['profile_detail']
 
         self.assertEqual(profile['identity']['name'], 'Profile Player')
+        self.assertEqual(profile['identity']['class_name'], 'warrior')
         self.assertEqual(profile['identity']['spec'], '狂怒-战士')
+        self.assertEqual(profile['identity']['spec_key'], 'fury')
         self.assertEqual(profile['identity']['level'], 90)
         self.assertEqual(profile['talents']['build_code'], 'abc123')
+        self.assertIs(profile['is_ptr'], True)
+        self.assertEqual(profile['talent_version'], 'ptr-12.1.0')
+        self.assertTrue(coordinate['spec_icon_url'])
         self.assertEqual([item['slot'] for item in profile['equipment']], ['head', 'main_hand'])
+        self.assertEqual(profile['equipment'][0]['display_name'], '测试头盔')
         self.assertNotIn('player_equipment', profile)
+
+    def test_spec_icons_cover_underscore_and_new_specialization_keys(self):
+        self.assertIn('bestialdiscipline', _spec_icon_url('hunter_beast_mastery'))
+        self.assertIn('classicon_demonhunter_void', _spec_icon_url('demonhunter_devourer'))
 
     def test_incremental_projection_uses_profile_frozen_by_result_source_task(self):
         self.profile.player_equipment = (

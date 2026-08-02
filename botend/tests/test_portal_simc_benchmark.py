@@ -285,9 +285,16 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
 
         self.assertIn('renderProfileDetails(', renderer)
         self.assertIn('coordinate?.profile_detail', renderer)
-        self.assertIn('展开本次模拟 Profile', renderer)
+        self.assertIn('simc-benchmark-spec-row-toggle', renderer)
+        self.assertIn('aria-expanded', renderer)
         self.assertIn('simc-benchmark-spec-profile-details', renderer)
         self.assertIn('.simc-benchmark-spec-profile-details', self.CSS)
+        self.assertNotIn('展开本次模拟 Profile', renderer)
+
+    def test_baseline_only_rows_show_spec_icons(self):
+        self.assertIn('coordinate?.spec_icon_url', self.JS)
+        self.assertIn('simc-benchmark-spec-icon', self.JS)
+        self.assertIn('.simc-benchmark-spec-icon', self.CSS)
 
     def test_single_panel_fetches_only_the_selected_coordinate_on_filter_changes(self):
         for contract in (
@@ -368,15 +375,17 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         ):
             self.assertIn(contract, self.JS)
 
-    def test_profile_talent_code_stays_read_only_with_separate_simulator_link(self):
+    def test_profile_talent_code_links_directly_to_the_frozen_ptr_simulator(self):
         for contract in (
             'profileTalentSimulatorUrl', "params.set('class'", "params.set('spec'",
             "params.set('code'", '/portal/talents/?${params.toString()}',
             'simc-benchmark-profile-talent-code', 'simc-benchmark-profile-talent-link',
-            '打开天赋模拟器', 'target', 'noopener noreferrer',
+            'profileDetail?.talent_version', "params.set('version'", 'target',
+            'noopener noreferrer',
         ):
             self.assertIn(contract, self.JS)
-        self.assertNotIn('node("a", "simc-benchmark-profile-talent-code"', self.JS)
+        self.assertIn('node("a", "simc-benchmark-profile-talent-code', self.JS)
+        self.assertNotIn('打开天赋模拟器', self.JS)
 
     def test_result_styles_make_percentage_comparison_and_baseline_contrasting(self):
         for contract in (

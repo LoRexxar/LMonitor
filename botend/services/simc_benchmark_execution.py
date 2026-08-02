@@ -18,7 +18,7 @@ from django.db.models import CharField, Count, Prefetch, Q, Value
 from django.db.models.functions import Concat
 from django.utils import timezone
 
-from botend.constants.wow import CLASS_CN, SPEC_CN
+from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON
 from botend.models import (
     SimcBenchmarkCandidate, SimcBenchmarkCase, SimcBenchmarkExecution,
     SimcBenchmarkPanel, SimcBenchmarkProfile, SimcBenchmarkResult,
@@ -33,6 +33,7 @@ from botend.services.simc_task_service import (
     create_task, prepare_task_creation,
 )
 from botend.services.task_rerun import create_rerun, TaskRerunError
+from botend.wow.talents.default_versions import DEFAULT_TALENT_VERSIONS
 
 TASK_PENDING = 0
 TASK_RUNNING = 1
@@ -55,6 +56,14 @@ RUN_STATUS_NAMES = {
 _SPEC_CN_BY_NORMALIZED_NAME = {
     re.sub(r'[^a-z0-9]', '', name.lower()): label
     for name, label in SPEC_CN.items()
+}
+_SPEC_ICON_BY_NORMALIZED_KEY = {
+    f"{re.sub(r'[^a-z0-9]', '', class_name.lower())}_"
+    f"{re.sub(r'[^a-z0-9]', '', spec_name.lower())}": icon_url
+    for (class_name, spec_name), icon_url in SPEC_ICON.items()
+}
+_TALENT_VERSION_BY_BRANCH = {
+    item['branch']: item['key'] for item in DEFAULT_TALENT_VERSIONS
 }
 _ERROR_LIMIT = 240
 _ABSOLUTE_PATH = re.compile(
@@ -903,10 +912,25 @@ def _profile_detail_from_payload(payload, spec_key):
     )
     identity = detail.get('identity')
     if isinstance(identity, dict):
+        class_key, _, fallback_spec_key = str(spec_key or '').partition('_')
+        identity['class_name'] = identity.get('class_name') or class_key
+        identity['spec_key'] = identity.get('spec') or fallback_spec_key
         identity['spec'] = _spec_display_name(identity.get('spec'), spec_key)
     if not detail['talents']['build_code']:
         detail['talents']['build_code'] = payload.get('talent') or ''
+    is_ptr = payload.get('use_ptr') is True
+    detail['is_ptr'] = is_ptr
+    detail['talent_version'] = _TALENT_VERSION_BY_BRANCH['ptr' if is_ptr else 'retail']
     return detail
+
+
+def _spec_icon_url(spec_key):
+    class_key, _, spec_name = str(spec_key or '').lower().partition('_')
+    normalized = (
+        f"{re.sub(r'[^a-z0-9]', '', class_key)}_"
+        f"{re.sub(r'[^a-z0-9]', '', spec_name)}"
+    )
+    return _SPEC_ICON_BY_NORMALIZED_KEY.get(normalized, '')
 
 
 def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
@@ -976,6 +1000,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                         'player_equipment': profile.player_equipment,
                         'spec': profile.spec,
                         'talent': profile.talent,
+                        'use_ptr': profile.use_ptr,
                     }, coordinate['spec_key'])
                     if profile is not None else None
                 )
@@ -1006,6 +1031,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
         coordinates.append({
             'spec_key': coordinate['spec_key'], 'scenario_key': coordinate['scenario_key'],
             'profile_key': coordinate['profile_key'],
+            'spec_icon_url': _spec_icon_url(coordinate['spec_key']),
             'labels': {
                 'spec': _spec_display_name(coordinate['spec_label'], coordinate['spec_key']),
                 'scenario': coordinate['scenario_label'],

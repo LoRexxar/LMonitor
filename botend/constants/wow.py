@@ -172,6 +172,7 @@ SPEC_ICON = {
     ("DeathKnight", "Unholy"):        "https://wow.zamimg.com/images/wow/icons/medium/spell_deathknight_unholypresence.jpg",
     ("DemonHunter", "Havoc"):         "https://wow.zamimg.com/images/wow/icons/medium/ability_demonhunter_specdps.jpg",
     ("DemonHunter", "Vengeance"):     "https://wow.zamimg.com/images/wow/icons/medium/ability_demonhunter_spectank.jpg",
+    ("DemonHunter", "Devourer"):      "https://render.worldofwarcraft.com/us/icons/56/classicon_demonhunter_void.jpg",
     ("Druid", "Balance"):             "https://wow.zamimg.com/images/wow/icons/medium/spell_nature_starfall.jpg",
     ("Druid", "Feral"):               "https://wow.zamimg.com/images/wow/icons/medium/ability_druid_catform.jpg",
     ("Druid", "Guardian"):            "https://wow.zamimg.com/images/wow/icons/medium/ability_racial_bearform.jpg",
