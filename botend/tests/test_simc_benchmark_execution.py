@@ -374,6 +374,29 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual([item['slot'] for item in profile['equipment']], ['head', 'main_hand'])
         self.assertNotIn('player_equipment', profile)
 
+    def test_incremental_projection_uses_profile_frozen_by_result_source_task(self):
+        self.profile.player_equipment = (
+            'warrior="Frozen Player"\nlevel=80\nspec=fury\n'
+            'talents=frozen-build\nhead=,id=100\n'
+        )
+        self.profile.talent = 'frozen-build'
+        self.profile.save(update_fields=['player_equipment', 'talent'])
+        self._published_success()
+        self.profile.player_equipment = (
+            'warrior="Changed Player"\nlevel=80\nspec=fury\n'
+            'talents=changed-build\nhead=,id=999\n'
+        )
+        self.profile.talent = 'changed-build'
+        self.profile.save(update_fields=['player_equipment', 'talent'])
+
+        profile = serialize_incremental_panel_results(
+            self.panel,
+        )['coordinates'][0]['profile_detail']
+
+        self.assertEqual(profile['identity']['name'], 'Frozen Player')
+        self.assertEqual(profile['talents']['build_code'], 'frozen-build')
+        self.assertEqual(profile['equipment'][0]['item_id'], 100)
+
     def test_incremental_projection_exposes_frozen_candidate_item_level(self):
         candidate = self.panel.candidates.get(key='trinket')
         candidate.params = {

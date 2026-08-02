@@ -191,9 +191,9 @@
     return `/portal/talents/?${params.toString()}`;
   }
 
-  function renderProfileDetails(profileDetail) {
+  function renderProfileDetails(profileDetail, summaryText = "展开 Profile 配置") {
     const details = node("details", "simc-benchmark-profile-details");
-    const summary = node("summary", "profile-details-toggle", "展开 Profile 配置");
+    const summary = node("summary", "profile-details-toggle", summaryText);
     details.appendChild(summary);
     if (!profileDetail || typeof profileDetail !== "object") {
       details.appendChild(node("div", "simc-benchmark-profile-empty", "该 Profile 没有可展示的配置内容"));
@@ -348,7 +348,11 @@
         const metrics = node("div", "simc-benchmark-spec-metrics");
         metrics.appendChild(node("strong", "simc-benchmark-spec-dps", entry.dps === null ? "暂无结果" : `${numberFormat.format(entry.dps)} DPS`));
         metrics.appendChild(node("small", "simc-benchmark-spec-relative", entry.dps === null || highest <= 0 ? "该场景未完成" : `相对最高 ${(entry.dps * 100 / highest).toFixed(1)}%`));
-        row.append(identity, track, metrics); chart.appendChild(row);
+        const profileDetails = renderProfileDetails(
+          coordinate?.profile_detail, "展开本次模拟 Profile",
+        );
+        profileDetails.classList.add("simc-benchmark-spec-profile-details");
+        row.append(identity, track, metrics, profileDetails); chart.appendChild(row);
       });
       result.replaceChildren(projected.length ? chart : state("该场景暂无职业专精结果", "empty"));
     };

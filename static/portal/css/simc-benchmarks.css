@@ -156,6 +156,9 @@
 .simc-benchmark-spec-track { background: #e2e8f0; border-radius: 999px; height: 0.8rem; min-width: 0; overflow: hidden; }
 .simc-benchmark-spec-bar { background: linear-gradient(90deg, #2563eb, #0891b2); border-radius: inherit; height: 100%; min-width: 0; transition: width 180ms ease; }
 .simc-benchmark-spec-metrics { display: grid; min-width: 0; text-align: right; }
+.simc-benchmark-spec-profile-details { grid-column: 1 / -1; margin: -0.05rem 0 0.15rem; width: 100%; }
+.simc-benchmark-spec-profile-details > summary { background: #f8fafc; border-radius: 0.4rem; padding: 0.42rem 0.55rem; }
+.simc-benchmark-spec-profile-details[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 .simc-benchmark-spec-dps { color: #0f172a; font-size: 0.72rem; font-variant-numeric: tabular-nums; }
 .simc-benchmark-spec-relative { color: #64748b; font-size: 0.58rem; white-space: nowrap; }
 

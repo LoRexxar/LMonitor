@@ -278,6 +278,17 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIn('params.set("scenario"', self.JS)
         self.assertIn('纵轴：职业专精', self.JS)
 
+    def test_baseline_only_rows_expand_the_corresponding_frozen_profile(self):
+        spec_start = self.JS.index('function renderSpecComparison')
+        spec_end = self.JS.index('\n  function renderResults', spec_start)
+        renderer = self.JS[spec_start:spec_end]
+
+        self.assertIn('renderProfileDetails(', renderer)
+        self.assertIn('coordinate?.profile_detail', renderer)
+        self.assertIn('展开本次模拟 Profile', renderer)
+        self.assertIn('simc-benchmark-spec-profile-details', renderer)
+        self.assertIn('.simc-benchmark-spec-profile-details', self.CSS)
+
     def test_single_panel_fetches_only_the_selected_coordinate_on_filter_changes(self):
         for contract in (
             'params.set("selected", "1")',
@@ -341,7 +352,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             'simc-benchmark-gear-hover-guide', 'simc-benchmark-gear-tooltip',
         ):
             self.assertIn(contract, self.JS + self.CSS)
-        self.assertIn('?v=20260802_gear_chart', self.RESULTS_TEMPLATE)
+        self.assertIn('?v=20260802_frozen_profile', self.RESULTS_TEMPLATE)
 
     def test_result_renderer_uses_frozen_target_count_and_duration_for_scenarios(self):
         for contract in (

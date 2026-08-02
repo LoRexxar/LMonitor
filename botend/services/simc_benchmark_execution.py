@@ -324,7 +324,9 @@ def _reusable_candidate_tasks_by_coordinate(panel, coordinate_filter=None):
     cases = SimcBenchmarkCase.objects.filter(**case_filters)
     if panel.aggregate_baseline_execution_id:
         cases = cases.filter(execution_id__gte=panel.aggregate_baseline_execution_id)
-    cases = cases.select_related('task', 'execution').prefetch_related('results').order_by(
+    cases = cases.select_related(
+        'task', 'task__profile_version', 'execution',
+    ).prefetch_related('results').order_by(
         '-execution_id', '-id',
     ).distinct()
     for case in cases:
@@ -866,6 +868,20 @@ def _coordinate_option(coordinate):
     }
 
 
+def _profile_detail_from_payload(payload, spec_key):
+    """Project the immutable Profile snapshot used by a result-producing Task."""
+    payload = payload if isinstance(payload, dict) else {}
+    detail = parse_manual_player_config(
+        payload.get('player_equipment') or '', payload.get('spec') or spec_key,
+    )
+    identity = detail.get('identity')
+    if isinstance(identity, dict):
+        identity['spec'] = _spec_display_name(identity.get('spec'), spec_key)
+    if not detail['talents']['build_code']:
+        detail['talents']['build_code'] = payload.get('talent') or ''
+    return detail
+
+
 def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                                         scenario_filter=None,
                                         include_coordinate_options=False):
@@ -908,21 +924,33 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
     coordinates = []
     for coordinate in projected_cases:
         profile_id = coordinate['profile_id']
-        if profile_id not in profile_details:
-            profile = profiles.get(profile_id)
-            if profile is None:
-                profile_details[profile_id] = None
-            else:
-                detail = parse_manual_player_config(profile.player_equipment, profile.spec)
-                identity = detail.get('identity')
-                if isinstance(identity, dict):
-                    identity['spec'] = _spec_display_name(
-                        identity.get('spec'), coordinate['spec_key'],
-                    )
-                if not detail['talents']['build_code']:
-                    detail['talents']['build_code'] = profile.talent
-                profile_details[profile_id] = detail
         reusable = _reusable_candidate_tasks(panel, coordinate, reusable_by_coordinate)
+        source_task = next(
+            (
+                reusable[identity]['task']
+                for candidate in coordinate['candidates']
+                for identity in [_candidate_input_identity(candidate)]
+                if identity in reusable
+            ),
+            None,
+        )
+        profile_version = source_task.profile_version if source_task is not None else None
+        detail_key = (profile_id, profile_version.pk if profile_version is not None else None)
+        if detail_key not in profile_details:
+            if profile_version is not None:
+                profile_details[detail_key] = _profile_detail_from_payload(
+                    profile_version.payload, coordinate['spec_key'],
+                )
+            else:
+                profile = profiles.get(profile_id)
+                profile_details[detail_key] = (
+                    _profile_detail_from_payload({
+                        'player_equipment': profile.player_equipment,
+                        'spec': profile.spec,
+                        'talent': profile.talent,
+                    }, coordinate['spec_key'])
+                    if profile is not None else None
+                )
         scenario_params = next(
             (match['task'].simulation_params or {} for match in reusable.values()),
             coordinate['simulation_params'],
@@ -955,7 +983,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                 'scenario': coordinate['scenario_label'],
                 'profile': coordinate['profile_label'],
             },
-            'profile_detail': profile_details[profile_id],
+            'profile_detail': profile_details[detail_key],
             'scenario_detail': {
                 'desired_targets': scenario_params.get('desired_targets', 1),
                 'max_time': scenario_params.get('max_time', 300),
