@@ -64,6 +64,13 @@ class SimcHistoryPaginationContractTests(unittest.TestCase):
         self.assertIn("baseline_counts", JS)
         self.assertIn("simc-benchmark-task-case__progress", JS)
 
+    def test_terminal_benchmark_labels_unfinished_runs_as_residue(self):
+        """终态 Execution 内未完成的 Run 不能继续显示成活跃队列。"""
+        self.assertIn("row.is_active", JS)
+        self.assertIn("未执行遗留", JS)
+        self.assertIn("中断遗留", JS)
+        self.assertIn("子任务收口", JS)
+
     def test_benchmark_case_list_expands_into_the_page_without_internal_scrolling(self):
         """展开后的基准子任务由页面滚动，不能被 34rem 列表滚轮截留。"""
         cases_start = HTML.index('#simc-workbench .simc-benchmark-task-cases {')
@@ -247,6 +254,32 @@ class SimcHistoryBackendPaginationTests(TestCase):
         self.assertEqual(row['task_counts']['partial'], 0)
         self.assertEqual(row['run_counts']['pending'], 1)
         self.assertEqual(row['cases'][0]['source_task_id'], source_task.id)
+
+    def test_terminal_history_marks_pending_and_running_runs_as_inactive(self):
+        panel = SimcBenchmarkPanel.objects.create(
+            name='终态遗留 Run', slug='history-terminal-run-residue', created_by_id=self.user.id,
+        )
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, status=SimcBenchmarkExecution.STATUS_PARTIAL,
+            config_snapshot={'case_count': 1, 'run_count': 2}, config_hash='9' * 64,
+        )
+        task = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            name='已失败的基准子任务', current_status=3, is_active=True,
+        )
+        SimulationRun.objects.create(task=task, sequence=1, candidate_key='pending', status='pending')
+        SimulationRun.objects.create(task=task, sequence=2, candidate_key='running', status='running')
+        SimcBenchmarkCase.objects.create(
+            execution=execution, task=task, status=SimcBenchmarkExecution.STATUS_FAILED,
+            spec_key='warrior_fury', scenario_key='patchwerk', profile_key='raid',
+            spec_label='狂怒', scenario_label='木桩', profile_label='Raid', coordinate_hash='8' * 64,
+        )
+
+        row = self.view._benchmark_history_row(execution)
+
+        self.assertFalse(row['is_active'])
+        self.assertEqual(row['run_counts']['pending'], 1)
+        self.assertEqual(row['run_counts']['running'], 1)
 
     def test_history_expands_only_benchmark_executions_on_requested_page(self):
         panel = SimcBenchmarkPanel.objects.create(

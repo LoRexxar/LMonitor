@@ -5837,6 +5837,7 @@ class SimcWorkbenchAPIView(View):
             'name': f'{execution.panel.name} · 执行 #{execution.pk}',
             'status': execution.status,
             'status_label': status_labels.get(execution.status, '未知'),
+            'is_active': active,
             'progress': progress, 'case_count': len(cases),
             'task_counts': task_counts,
             'run_count': current_run_count, 'run_counts': run_counts,
