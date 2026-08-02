@@ -123,5 +123,7 @@ class SimcBenchmarkConfigPageTests(TestCase):
 
         styles = Path('static/dashboard/css/simc-benchmark-dashboard.css').read_text()
         self.assertIn('.raid-buff-toggle input,.raid-buff-choice input', styles)
+        self.assertIn('.simc-benchmark-config-page .raid-buff-toggle,.simc-benchmark-config-page .raid-buff-choice', styles)
+        self.assertIn('display:flex !important', styles)
         self.assertIn('width:1rem', styles)
         self.assertIn('flex:0 0 auto', styles)
