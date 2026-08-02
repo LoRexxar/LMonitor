@@ -91,6 +91,20 @@ class SimcBenchmarkExecutionTests(TestCase):
                 self.panel, requested_by=self.user_id, **kwargs,
             )
 
+    def test_scenario_core_parameters_are_frozen_into_execution_and_task(self):
+        scenario = self.panel.scenarios.get(key='patchwerk')
+        scenario.simulation_params = {
+            'desired_targets': 5, 'max_time': 40, 'iterations': 10000,
+            'fight_style': 'CastingPatchwerk',
+        }
+        scenario.save(update_fields=['simulation_params'])
+
+        execution = self._create()
+
+        frozen = execution.config_snapshot['scenarios'][0]['simulation_params']
+        self.assertEqual(frozen, scenario.simulation_params)
+        self.assertEqual(execution.cases.get().task.simulation_params, scenario.simulation_params)
+
     def _run(self, task, sequence, status, key=None, label=None, dps=None):
         return SimulationRun.objects.create(
             task=task, sequence=sequence, candidate_key=key or f'candidate-{sequence}',

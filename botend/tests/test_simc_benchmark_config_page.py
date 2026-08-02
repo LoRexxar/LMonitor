@@ -72,3 +72,13 @@ class SimcBenchmarkConfigPageTests(TestCase):
         self.assertIn('originalItemLevel:parts.itemLevel', script)
         self.assertIn('sameOriginalIdentity', script)
         self.assertNotIn("levels.length>1?`${meta.key}-${itemLevel}`:meta.key", script)
+
+    def test_scenario_editor_exposes_core_simc_parameters_without_opening_advanced_settings(self):
+        script = Path('static/dashboard/js/simc-benchmark-dashboard.js').read_text()
+        self.assertIn("const SCENARIO_PRIMARY_PARAMS = ['desired_targets','max_time','iterations','fight_style'];", script)
+        self.assertIn("desired_targets:{label:'目标数'", script)
+        self.assertIn("max_time:{label:'战斗时间（秒）'", script)
+        self.assertIn("iterations:{label:'迭代次数'", script)
+        self.assertIn("fight_style:{label:'战斗类型'", script)
+        self.assertIn("class:'scenario-essential-params'", script)
+        self.assertIn("placeholder:'SimC 默认 300'", script)
