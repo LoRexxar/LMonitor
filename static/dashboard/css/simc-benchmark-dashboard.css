@@ -150,8 +150,8 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
 .simc-benchmark-config-page .spec-config-row { display:grid; grid-template-columns:minmax(13rem,1fr) 7rem minmax(12rem,.8fr) 4.5rem; align-items:center; gap:.65rem; overflow:visible; border:0; border-bottom:1px solid #edf0f3; border-radius:0; box-shadow:none; }
 .simc-benchmark-config-page .spec-config-row:last-child { border-bottom:0; }
 .spec-config-row .config-card-primary { display:contents; }
-.spec-config-row .config-card-primary > label { padding:.38rem .7rem; }
-.spec-config-row .config-card-primary > .config-check { min-height:34px; margin:0 0 .38rem; align-self:end; padding:.35rem .55rem; }
+.spec-config-row .config-card-primary > label:not(.config-check) { display:grid; grid-template-columns:max-content minmax(0,1fr); align-items:center; gap:.5rem; padding:.38rem .7rem; }
+.spec-config-row .config-card-primary > .config-check { min-height:34px; margin:0; align-self:center; padding:.35rem .55rem; }
 .spec-config-row .config-card-primary select { min-height:34px; padding:.35rem .55rem; }
 .simc-benchmark-config-page .spec-config-row .config-card-head { grid-column:4; grid-row:1; min-height:0; border:0; padding:.25rem .35rem; background:transparent; }
 .spec-config-row .config-card-title { display:none; }
@@ -169,8 +169,9 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
 /* 候选装备使用单行紧凑管理布局：名称、ID、装等、操作。 */
 .simc-benchmark-config-page .candidate-config-row { display:grid; grid-template-columns:minmax(10rem,1.4fr) minmax(8rem,.65fr) minmax(12rem,1fr) 4.5rem; align-items:center; gap:.65rem; overflow:visible; border-radius:0; }
 .candidate-config-row .config-card-primary { display:contents; }
-.candidate-config-row .candidate-primary > label { padding:.42rem 0; }
-.candidate-config-row .candidate-item-name { min-height:44px; padding-left:.8rem; }
+.candidate-config-row .candidate-primary > label { display:grid; grid-template-columns:max-content minmax(0,1fr); align-items:center; gap:.5rem; padding:.35rem 0; }
+.candidate-config-row .candidate-primary input { min-height:34px; padding:.35rem .55rem; }
+.candidate-config-row .candidate-item-name { min-height:34px; padding-left:.8rem; }
 .simc-benchmark-config-page .candidate-config-row .config-card-head { grid-column:4; grid-row:1; min-height:0; margin:0; border:0; padding:.25rem .35rem; background:transparent; }
 .candidate-config-row .config-card-title { display:none; }
 .simc-benchmark-config-page .candidate-config-row .config-card-head .danger { width:100%; min-height:34px; }

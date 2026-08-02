@@ -394,7 +394,15 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn("class:'config-card-primary scenario-primary'", scenario)
         self.assertIn("class:'config-card candidate-config-row'", candidate)
         self.assertIn(
-            '.spec-config-row .config-card-primary > .config-check { min-height:34px; margin:0 0 .38rem; align-self:end;',
+            '.spec-config-row .config-card-primary > label:not(.config-check) { display:grid; grid-template-columns:max-content minmax(0,1fr); align-items:center;',
+            CSS,
+        )
+        self.assertIn(
+            '.spec-config-row .config-card-primary > .config-check { min-height:34px; margin:0; align-self:center;',
+            CSS,
+        )
+        self.assertIn(
+            '.candidate-config-row .candidate-primary > label { display:grid; grid-template-columns:max-content minmax(0,1fr); align-items:center;',
             CSS,
         )
         for selector in (
@@ -403,7 +411,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
             '.candidate-config-row',
         ):
             self.assertIn(selector, CSS)
-        self.assertIn('?v=20260803a', CONFIG_PAGE)
+        self.assertIn('?v=20260803b', CONFIG_PAGE)
 
     def test_panel_name_does_not_collide_with_nested_scenario_names(self):
         soup = BeautifulSoup(PARTIAL, "html.parser")
