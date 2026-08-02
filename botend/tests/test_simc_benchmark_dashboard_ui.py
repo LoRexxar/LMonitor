@@ -56,7 +56,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertEqual(title.get_text(strip=True), 'SimC 基准面板')
 
     def test_shared_benchmark_assets_use_current_cache_version(self):
-        expected = '?v=20260802b'
+        expected = '?v=20260802f'
         for page in (INDEX, CONFIG_PAGE, PANEL_EDIT_PAGE, EXECUTION_PAGE):
             for line in page.splitlines():
                 if 'simc-benchmark-dashboard.' in line:
@@ -149,7 +149,8 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         """完整 Panel 覆盖与当前 Execution 不能挤在同一个“进度”格内。"""
         soup = BeautifulSoup(PARTIAL, "html.parser")
         headers = [node.get_text(' ', strip=True) for node in soup.select('.simc-benchmark-table th')]
-        self.assertIn('基准任务总计', headers)
+        self.assertIn('聚合基线覆盖', headers)
+        self.assertNotIn('基准任务总计', headers)
         self.assertIn('当前执行', headers)
         render_list = JS[JS.index('function renderList()'):JS.index('function field(', JS.index('function renderList()'))]
         self.assertIn("class:'benchmark-total-cell'", render_list)
@@ -157,8 +158,10 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertLess(render_list.index("class:'benchmark-total-cell'"), render_list.index("class:'benchmark-current-execution-cell'"))
 
         aggregate = JS[JS.index('function renderBenchmarkTaskTotal('):JS.index('function renderExecution(', JS.index('function renderBenchmarkTaskTotal('))]
-        for contract in ('基准任务总计', '基准坐标', '候选 Run', '可用结果', '缺失结果', 'candidate_runs', 'available_results', 'missing_results'):
+        for contract in ('聚合基线覆盖', '基准坐标总数', 'Run 总数', '已有结果', '尚缺结果', 'candidate_runs', 'available_results', 'missing_results'):
             self.assertIn(contract, aggregate)
+        for misleading_label in ('基准任务总计', "metric('候选 Run'", "metric('缺失结果'"):
+            self.assertNotIn(misleading_label, aggregate)
         self.assertIn('panel_coverage', JS)
 
     def test_cross_execution_results_are_a_selectable_dimensioned_ranking(self):
