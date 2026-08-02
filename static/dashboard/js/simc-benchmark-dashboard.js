@@ -325,10 +325,15 @@ async function executionDetail(id){const token=historyGeneration,panelId=history
 function renderBenchmarkTaskTotal(coverage){
   const host=el('section',{class:'benchmark-task-total'});
   const coordinates=Math.max(0,Number(coverage?.coordinates)||0),runs=Math.max(0,Number(coverage?.candidate_runs)||0),available=Math.max(0,Number(coverage?.available_results)||0),missing=Math.max(0,Number(coverage?.missing_results)||0);
+  const currentPlanValue=Number(coverage?.current_plan_runs),deltaValue=Number(coverage?.plan_delta_runs);
+  const hasCurrentPlan=Number.isFinite(currentPlanValue),hasPlanDelta=coverage?.plan_delta_runs!==null&&coverage?.plan_delta_runs!==undefined&&Number.isFinite(deltaValue);
+  const currentPlan=hasCurrentPlan?Math.max(0,currentPlanValue):0,planDelta=hasPlanDelta?deltaValue:0;
   const completion=runs?Math.round(available/runs*100):0;
   const head=el('div',{class:'benchmark-task-total-head'});head.append(el('strong',{},'聚合基线覆盖'),badge(`${completion}% 已有结果`,completion===100?'good':'warn'));
   const metrics=el('div',{class:'benchmark-task-total-metrics'});
   metrics.append(metric('基准坐标总数',coordinates),metric('Run 总数',runs),metric('已有结果',available,'good'),metric('尚缺结果',missing,missing?'warn':'good'));
+  if(hasCurrentPlan)metrics.append(metric('当前配置计划',currentPlan));
+  if(hasPlanDelta)metrics.append(metric('较聚合基线',planDelta>0?`+${planDelta}`:planDelta,planDelta?'warn':'good'));
   const track=el('div',{class:'benchmark-task-total-track',ariaLabel:`基准任务结果覆盖 ${completion}%`});track.append(el('span',{style:{width:`${completion}%`}}));
   host.append(head,metrics,track);
   const sources=Array.isArray(coverage?.source_executions)?coverage.source_executions:[];

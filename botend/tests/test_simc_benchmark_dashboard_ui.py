@@ -56,7 +56,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertEqual(title.get_text(strip=True), 'SimC 基准面板')
 
     def test_shared_benchmark_assets_use_current_cache_version(self):
-        expected = '?v=20260802f'
+        expected = '?v=20260802g'
         for page in (INDEX, CONFIG_PAGE, PANEL_EDIT_PAGE, EXECUTION_PAGE):
             for line in page.splitlines():
                 if 'simc-benchmark-dashboard.' in line:
@@ -158,7 +158,11 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertLess(render_list.index("class:'benchmark-total-cell'"), render_list.index("class:'benchmark-current-execution-cell'"))
 
         aggregate = JS[JS.index('function renderBenchmarkTaskTotal('):JS.index('function renderExecution(', JS.index('function renderBenchmarkTaskTotal('))]
-        for contract in ('聚合基线覆盖', '基准坐标总数', 'Run 总数', '已有结果', '尚缺结果', 'candidate_runs', 'available_results', 'missing_results'):
+        for contract in (
+            '聚合基线覆盖', '基准坐标总数', 'Run 总数', '已有结果', '尚缺结果',
+            '当前配置计划', '较聚合基线', 'candidate_runs', 'available_results',
+            'missing_results', 'current_plan_runs', 'plan_delta_runs',
+        ):
             self.assertIn(contract, aggregate)
         for misleading_label in ('基准任务总计', "metric('候选 Run'", "metric('缺失结果'"):
             self.assertNotIn(misleading_label, aggregate)

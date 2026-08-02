@@ -196,6 +196,35 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         self.assertNotIn('aggregated_results', row)
         serialize.assert_not_called()
 
+    def test_panel_list_exposes_current_plan_growth_separately_from_aggregate_baseline(self):
+        panel = self._create_panel()
+        SimcBenchmarkExecution.objects.create(
+            panel=panel,
+            config_snapshot={'version': 2, 'case_count': 1, 'run_count': 1},
+            config_hash='a' * 64,
+            status='partial',
+            completed_at=timezone.now(),
+        )
+        updated = dict(self.payload)
+        updated['candidates'] = [{
+            'key': 'new-item-level',
+            'label': 'New item level',
+            'candidate_type': 'gear_swap',
+            'params': {'slot': 'trinket1', 'raw_value': 'trinket1=id=249343,ilevel=289'},
+            'spec_keys': ['warrior_fury'],
+        }]
+        response = self._json(
+            self.client, 'put', f'/api/simc-benchmarks/panels/{panel.id}/', updated,
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+
+        response = self.client.get('/api/simc-benchmarks/panels/')
+        self.assertEqual(response.status_code, 200, response.content)
+        coverage = response.json()['data'][0]['panel_coverage']
+        self.assertEqual(coverage['candidate_runs'], 1)
+        self.assertEqual(coverage['current_plan_runs'], 2)
+        self.assertEqual(coverage['plan_delta_runs'], 1)
+
     def test_panel_list_keeps_full_coverage_when_active_supplement_owns_every_coordinate(self):
         """A supplement can contain 96 Case Tasks but only the missing candidate Runs."""
         panel = self._create_panel()
@@ -248,6 +277,8 @@ class SimcBenchmarkDashboardApiTests(TestCase):
             'aggregate_baseline_execution_id': full.id,
             'coordinates': 2,
             'candidate_runs': 4,
+            'current_plan_runs': 1,
+            'plan_delta_runs': -3,
             'available_results': 4,
             'missing_results': 0,
             'source_executions': [],
@@ -331,6 +362,8 @@ class SimcBenchmarkDashboardApiTests(TestCase):
             'aggregate_baseline_execution_id': execution.id,
             'coordinates': 4,
             'candidate_runs': 9,
+            'current_plan_runs': 1,
+            'plan_delta_runs': -8,
             'available_results': 0,
             'missing_results': 9,
             'source_executions': [],

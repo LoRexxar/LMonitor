@@ -20,8 +20,9 @@ from django.utils import timezone
 
 from botend.constants.wow import CLASS_CN, SPEC_CN
 from botend.models import (
-    SimcBenchmarkCase, SimcBenchmarkExecution, SimcBenchmarkPanel,
-    SimcBenchmarkResult, SimcTask, SimulationRun,
+    SimcBenchmarkCandidate, SimcBenchmarkCase, SimcBenchmarkExecution,
+    SimcBenchmarkPanel, SimcBenchmarkProfile, SimcBenchmarkResult,
+    SimcBenchmarkScenario, SimcTask, SimulationRun,
 )
 from botend.services.simc_benchmark_config import (
     MAX_PANEL_CONFIG_BYTES, build_execution_plan,
@@ -641,6 +642,8 @@ def summarize_panel_coverage_counts(panels):
             'aggregate_baseline_execution_id': panel.aggregate_baseline_execution_id,
             'coordinates': 0,
             'candidate_runs': 0,
+            'current_plan_runs': 0,
+            'plan_delta_runs': None,
             'available_results': 0,
             'missing_results': 0,
             'source_executions': [],
@@ -649,6 +652,40 @@ def summarize_panel_coverage_counts(panels):
     }
     if not panels:
         return coverage
+
+    panel_ids = [panel.pk for panel in panels]
+    scenario_counts = {
+        row['panel_id']: row['count']
+        for row in SimcBenchmarkScenario.objects.filter(
+            panel_id__in=panel_ids, is_enabled=True,
+        ).values('panel_id').annotate(count=Count('id'))
+    }
+    profile_counts = list(SimcBenchmarkProfile.objects.filter(
+        panel_spec__panel_id__in=panel_ids,
+        panel_spec__is_enabled=True,
+        is_enabled=True,
+    ).values(
+        'panel_spec__panel_id', 'panel_spec__spec_key',
+    ).annotate(count=Count('id')))
+    candidates_by_panel = {}
+    for row in SimcBenchmarkCandidate.objects.filter(
+        panel_id__in=panel_ids, is_enabled=True,
+    ).values('panel_id', 'spec_keys'):
+        candidates_by_panel.setdefault(row['panel_id'], []).append(row['spec_keys'])
+
+    for row in profile_counts:
+        panel_id = row['panel_spec__panel_id']
+        spec_key = row['panel_spec__spec_key']
+        applicable_candidates = sum(
+            1
+            for spec_keys in candidates_by_panel.get(panel_id, [])
+            if not spec_keys or spec_key in spec_keys
+        )
+        coverage[panel_id]['current_plan_runs'] += (
+            row['count']
+            * scenario_counts.get(panel_id, 0)
+            * (1 + applicable_candidates)
+        )
 
     # Old Panels predate aggregate_baseline_execution.  Their largest frozen
     # snapshot is the complete surface; a later supplement is only its delta.
@@ -679,6 +716,7 @@ def summarize_panel_coverage_counts(panels):
         item['aggregate_baseline_execution_id'] = selected['id']
         item['coordinates'] = int(snapshot.get('case_count') or 0)
         item['candidate_runs'] = int(snapshot.get('run_count') or 0)
+        item['plan_delta_runs'] = item['current_plan_runs'] - item['candidate_runs']
         item['missing_results'] = item['candidate_runs']
         boundaries[panel.pk] = selected['id']
 
