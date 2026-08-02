@@ -51,7 +51,8 @@ from botend.services.simc_player_config import (
     validate_player_baseline,
     SUPPORTED_SIMC_SPEC_IDENTITIES,
 )
-from botend.services.simc_composer import SimcComposer
+from botend.services.simc_composer import SimcComposer, validate_simulation_options
+from botend.services.simc_benchmark_config import SIMC_RAID_BUFFS
 from botend.services.spec_stats_service import SpecStatsService
 from botend.services.simc_task_service import create_task, create_task_from_request, TaskCreationError
 from botend.services.simc_attribute_search import (
@@ -1576,6 +1577,11 @@ class SimcTaskAPIView(View):
                 simulation_params['max_time'] = fight_time
             if target_count is not None:
                 simulation_params['desired_targets'] = target_count
+            if 'raid_buffs' in data:
+                simulation_params['raid_buffs'] = data['raid_buffs']
+            option_error = validate_simulation_options(simulation_params)
+            if option_error:
+                return JsonResponse({'success': False, 'error': option_error}, status=400)
 
             try:
                 if profile_fields is not None:
@@ -2530,11 +2536,20 @@ class SimcComparisonTaskAPIView(View):
                 'gear_versatility': profile.gear_versatility,
             }
             task_mode = 'attribute_sweep' if kind == 'attribute_variants' else 'comparison'
+            simulation_params = {
+                'fight_style': fight_style,
+                'max_time': fight_time,
+                'desired_targets': target_count,
+            }
+            if 'raid_buffs' in data:
+                simulation_params['raid_buffs'] = data['raid_buffs']
+            option_error = validate_simulation_options(simulation_params)
+            if option_error:
+                raise ValueError(option_error)
             task = create_task_from_request(
                 user_id=request.user.id, profile_fields=profile_fields,
                 base_template_id=base_template_id, selected_apl_id=selected_apl_id,
-                simulation_params={'fight_style': fight_style, 'max_time': fight_time,
-                                   'desired_targets': target_count},
+                simulation_params=simulation_params,
                 name=name, mode=task_mode,
                 mode_params={'request_manifest': {
                     'kind': kind, 'category': category or kind, 'candidate_count': len(specs),
@@ -8799,6 +8814,17 @@ class SimcBenchmarkOptionsAPIView(_BenchmarkAdminAPIView):
             'success': True,
             'data': _benchmark_options_payload(request.user.id, 'current_user'),
         })
+
+
+@method_decorator(login_required, name='dispatch')
+class SimcRaidBuffOptionsAPIView(View):
+    """Small shared catalog for regular simulations and benchmark configuration."""
+
+    def get(self, request):
+        return JsonResponse({'success': True, 'data': [
+            {'value': value, 'label': label, 'simc_option': f'override.{value}'}
+            for value, label in SIMC_RAID_BUFFS
+        ]})
 
 
 class SimcBenchmarkPanelOptionsAPIView(_BenchmarkAdminAPIView):

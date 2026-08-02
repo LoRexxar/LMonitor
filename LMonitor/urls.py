@@ -37,6 +37,7 @@ from botend.dashboard.api import (
     SimcBenchmarkExecutionDetailAPIView, SimcBenchmarkExecutionRerunFailedAPIView,
     SimcBenchmarkExecutionReconcileAPIView,
     SimcBenchmarkOptionsAPIView, SimcBenchmarkPanelOptionsAPIView, SimcBenchmarkItemLookupAPIView,
+    SimcRaidBuffOptionsAPIView,
 )
 from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, ChangePasswordView
 from botend.portal.views import PortalHomeView, PortalSimcBenchmarkResultsView
@@ -182,6 +183,7 @@ urlpatterns = [
     path('api/apl-storage/', AplStorageAPIView.as_view(), name="apl_storage"),
     path('api/apl-storage/<int:apl_id>/', AplDetailAPIView.as_view(), name="apl_detail"),
     path('api/simc-task/', SimcTaskAPIView.as_view(), name="simc_task"),
+    path('api/simc-raid-buffs/options/', SimcRaidBuffOptionsAPIView.as_view(), name='simc_raid_buff_options'),
     path('api/simc-task/comparison/', SimcComparisonTaskAPIView.as_view(), name="simc_task_comparison"),
     path('api/simc-task/preview/', SimcTaskPreviewAPIView.as_view(), name="simc_task_preview"),
     path('api/simc-profile/', SimcProfileAPIView.as_view(), name="simc_profile"),

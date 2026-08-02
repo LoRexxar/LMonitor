@@ -87,6 +87,18 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn('提交时即时来源会原子固化为 Profile 不可变版本', workflow)
         self.assertNotIn('id="simc-sim-attribute-search-status"', workflow)
 
+    def test_combat_advanced_raid_buffs_use_server_catalog_and_explicit_three_state_payload(self):
+        workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
+        self.assertIn('id="simc-sim-combat-advanced"', workflow)
+        self.assertIn('id="simc-sim-raid-buffs"', workflow)
+        self.assertIn("fetch('/api/simc-raid-buffs/options/')", SIMC_MAIN)
+        self.assertIn('renderSimcRaidBuffOptions', SIMC_MAIN)
+        self.assertIn('dataset.raidBuffExplicit', SIMC_MAIN)
+        self.assertIn('scenario.raid_buffs', SIMC_MAIN)
+        self.assertIn('delete scenario.raid_buffs', SIMC_MAIN)
+        self.assertIn('indeterminate', SIMC_MAIN)
+        self.assertNotIn('const SIMC_RAID_BUFF', SIMC_MAIN)
+
     def test_system_default_profile_is_selected_as_a_real_profile_and_renders_detail(self):
         loader = MAIN[
             MAIN.index('async function loadSimcSimProfileSelect'):

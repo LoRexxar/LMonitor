@@ -16,6 +16,7 @@ from django.test import Client, TestCase, override_settings
 from botend.management.commands.import_simc_apl import Command as ImportSimcAplCommand
 from botend.management.commands.update_simc_binary import Command as UpdateSimcBinaryCommand
 from botend.models import SimcApl, SimcContentTemplate, SimcProfile, SimcTask
+from botend.services.simc_task_service import initialize_task_runs
 
 
 BASE_CONTENT = (
@@ -124,7 +125,9 @@ class SimcTaskReferenceContracts(TestCase):
             'valid': True, 'content_hash': hashlib.sha256(APL_CONTENT.encode()).hexdigest(),
             'revision': 'a' * 40, 'game_build': '12.0.1.70000', 'diagnostics': [],
         }
-        with patch('botend.services.simc_task_service.validate_apl_for_profile', return_value=valid):
+        with patch('botend.services.simc_task_service.current_validation_identity', return_value=('a' * 40, '12.0.1.70000')), \
+             patch('botend.services.simc_task_service.validate_apl_for_profile', return_value=valid), \
+             patch('botend.dashboard.api.validate_apl_for_profile', return_value=valid):
             response = self.client.post(
                 '/api/simc-task/', data=json.dumps(self.payload(**overrides)),
                 content_type='application/json',
@@ -154,6 +157,29 @@ class SimcTaskReferenceContracts(TestCase):
         self.assertNotIn('base_template_content', ext)
         self.assertNotIn('override_action_list', ext)
         self.assertNotIn('player_equipment', ext)
+
+    def test_normal_task_freezes_explicit_raid_buffs_and_preserves_missing_state(self):
+        selected = self.create_task(raid_buffs=['arcane_intellect', 'battle_shout'])
+        self.assertEqual(selected.simulation_params['raid_buffs'], ['arcane_intellect', 'battle_shout'])
+        initialize_task_runs(selected)
+        run = selected.simulation_runs.get()
+        self.assertEqual(
+            run.task.simulation_params['raid_buffs'],
+            ['arcane_intellect', 'battle_shout'],
+        )
+
+        missing = self.create_task(name='Missing raid buffs')
+        self.assertNotIn('raid_buffs', missing.simulation_params or {})
+
+    def test_normal_task_rejects_raid_buff_option_injection(self):
+        response = self.client.post(
+            '/api/simc-task/',
+            data=json.dumps(self.payload(raid_buffs=['override.battle_shout=1\nactions=/cancel'])) ,
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.json()['success'])
+        self.assertIn('raid_buffs', response.json()['error'])
 
     def test_version_payloads_do_not_change_when_live_resources_change(self):
         task = self.create_task()

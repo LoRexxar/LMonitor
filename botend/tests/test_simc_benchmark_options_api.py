@@ -59,6 +59,21 @@ class SimcBenchmarkOptionsApiTests(TestCase):
             is_active=True,
         )
 
+    def test_regular_simulation_raid_buff_catalog_is_available_to_authenticated_users(self):
+        self.client.force_login(self.other)
+        response = self.client.get('/api/simc-raid-buffs/options/')
+        self.assertEqual(response.status_code, 200)
+        rows = response.json()['data']
+        self.assertEqual([row['value'] for row in rows], [
+            'arcane_intellect', 'battle_shout', 'mark_of_the_wild',
+            'power_word_fortitude', 'skyfury', 'chaos_brand', 'mystic_touch',
+            'hunters_mark', 'mortal_wounds', 'bleeding', 'bloodlust',
+        ])
+        self.assertEqual(rows[0], {
+            'value': 'arcane_intellect', 'label': '奥术智慧',
+            'simc_option': 'override.arcane_intellect',
+        })
+
     def test_specs_are_exact_supported_catalog_and_devourer_is_localized(self):
         response = self.client.get('/api/simc-benchmarks/options/')
         self.assertEqual(response.status_code, 200)

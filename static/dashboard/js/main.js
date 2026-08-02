@@ -2944,11 +2944,19 @@ function requireSimcRunReferences() {
 }
 
 function currentSimcScenario() {
-    return {
+    const scenario = {
         fight_style: document.getElementById('simc-sim-fight-style')?.value || 'Patchwerk',
         time: Math.max(1, Number.parseInt(document.getElementById('simc-sim-time')?.value || '300', 10) || 300),
         target_count: Math.max(1, Number.parseInt(document.getElementById('simc-sim-target-count')?.value || '1', 10) || 1),
     };
+    const control = document.getElementById('simc-sim-raid-buff-control');
+    if (control?.dataset.raidBuffExplicit === '1') {
+        scenario.raid_buffs = Array.from(document.querySelectorAll('#simc-sim-raid-buffs input[type="checkbox"]:checked'))
+            .map(input => input.value);
+    } else {
+        delete scenario.raid_buffs;
+    }
+    return scenario;
 }
 
 let simcProfileSwitchGeneration = 0;
@@ -3625,6 +3633,67 @@ async function submitSimcHomeCreation() {
     }
 }
 
+async function loadSimcRaidBuffOptions() {
+    const response = await fetch('/api/simc-raid-buffs/options/');
+    const payload = await response.json();
+    if (!response.ok || !payload.success || !Array.isArray(payload.data)) {
+        throw new Error(payload.error || '加载团队增益失败');
+    }
+    renderSimcRaidBuffOptions(payload.data);
+}
+
+function renderSimcRaidBuffOptions(options) {
+    const host = document.getElementById('simc-sim-raid-buffs');
+    if (!host) return;
+    host.innerHTML = options.map(option => `
+        <label class="simc-raid-buff-option inline-flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs text-slate-700">
+            <input type="checkbox" value="${escapeHtml(option.value)}" class="h-4 w-4 shrink-0 rounded border-slate-300">
+            <span class="truncate" title="${escapeHtml(option.label)}">${escapeHtml(option.label)}</span>
+        </label>`).join('');
+    host.querySelectorAll('input[type="checkbox"]').forEach(input => {
+        input.addEventListener('change', () => {
+            const control = document.getElementById('simc-sim-raid-buff-control');
+            if (control) control.dataset.raidBuffExplicit = '1';
+            syncSimcRaidBuffSummary();
+        });
+    });
+    syncSimcRaidBuffSummary();
+}
+
+function syncSimcRaidBuffSummary() {
+    const control = document.getElementById('simc-sim-raid-buff-control');
+    const boxes = Array.from(document.querySelectorAll('#simc-sim-raid-buffs input[type="checkbox"]'));
+    const selected = boxes.filter(box => box.checked).length;
+    const master = document.getElementById('simc-sim-raid-buff-all');
+    const summary = document.getElementById('simc-sim-raid-buff-summary');
+    if (master) {
+        master.checked = boxes.length > 0 && selected === boxes.length;
+        master.indeterminate = selected > 0 && selected < boxes.length;
+    }
+    if (summary) summary.textContent = control?.dataset.raidBuffExplicit === '1'
+        ? `已选择 ${selected} / ${boxes.length}` : '使用历史默认';
+}
+
+function bindSimcRaidBuffControls() {
+    const control = document.getElementById('simc-sim-raid-buff-control');
+    const master = document.getElementById('simc-sim-raid-buff-all');
+    master?.addEventListener('change', () => {
+        document.querySelectorAll('#simc-sim-raid-buffs input[type="checkbox"]').forEach(box => { box.checked = master.checked; });
+        if (control) control.dataset.raidBuffExplicit = '1';
+        syncSimcRaidBuffSummary();
+    });
+    document.querySelector('[data-simc-raid-buff-action="clear"]')?.addEventListener('click', () => {
+        document.querySelectorAll('#simc-sim-raid-buffs input[type="checkbox"]').forEach(box => { box.checked = false; });
+        if (control) control.dataset.raidBuffExplicit = '1';
+        syncSimcRaidBuffSummary();
+    });
+    document.querySelector('[data-simc-raid-buff-action="default"]')?.addEventListener('click', () => {
+        document.querySelectorAll('#simc-sim-raid-buffs input[type="checkbox"]').forEach(box => { box.checked = false; });
+        if (control) control.dataset.raidBuffExplicit = '0';
+        syncSimcRaidBuffSummary();
+    });
+}
+
 async function loadSimcBackendOptions() {
     const select = document.getElementById('simc-sim-backend');
     if (!select) return;
@@ -3696,6 +3765,11 @@ function bindSimcWorkbenchSimulationControls() {
     });
     const preset = document.getElementById('simc-sim-fight-preset');
     preset?.addEventListener('change', () => applySimcFightPreset(preset.value));
+    bindSimcRaidBuffControls();
+    loadSimcRaidBuffOptions().catch(error => {
+        const host = document.getElementById('simc-sim-raid-buffs');
+        if (host) host.textContent = String(error.message || error);
+    });
     loadSimcBackendOptions().catch(error => showMessage(String(error.message || error), 'error'));
     updateSimcHomeMode();
     switchSimcPlayerImportMode({ resolve: false });
