@@ -304,6 +304,33 @@ def _coordinate_input_identity(coordinate):
     })
 
 
+def _latest_source_tasks_by_coordinate(panel, coordinate_filter=None):
+    """Load the latest frozen Task for each coordinate, including failed Cases."""
+    case_filters = {'execution__panel_id': panel.pk, 'task__isnull': False}
+    if isinstance(coordinate_filter, dict):
+        for key in ('spec_key', 'profile_key', 'scenario_key'):
+            value = coordinate_filter.get(key)
+            if value:
+                case_filters[key] = str(value)
+    cases = SimcBenchmarkCase.objects.filter(**case_filters)
+    if panel.aggregate_baseline_execution_id:
+        cases = cases.filter(execution_id__gte=panel.aggregate_baseline_execution_id)
+    cases = cases.select_related('task', 'task__profile_version').order_by(
+        '-execution_id', '-id',
+    )
+    source_tasks = {}
+    for case in cases:
+        task = case.task
+        coordinate = _coordinate_input_identity({
+            'spec_key': case.spec_key, 'scenario_key': case.scenario_key,
+            'profile_key': case.profile_key, 'profile_id': task.profile_id,
+            'apl_id': task.apl_id, 'template_id': task.template_id,
+            'backend_id': task.backend_id, 'simulation_params': task.simulation_params or {},
+        })
+        source_tasks.setdefault(coordinate, task)
+    return source_tasks
+
+
 def _reusable_candidate_tasks_by_coordinate(panel, coordinate_filter=None):
     """Load reusable candidate provenance from the current full-rerun baseline onward.
 
@@ -914,6 +941,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
         projected_cases = [] if coordinate_filter is not None else plan_cases
         selected_filter = None
     reusable_by_coordinate = _reusable_candidate_tasks_by_coordinate(panel, selected_filter)
+    source_tasks_by_coordinate = _latest_source_tasks_by_coordinate(panel, selected_filter)
     profiles = {
         row.profile_id: row.profile
         for spec in panel.specs.prefetch_related('profiles__profile')
@@ -932,7 +960,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                 for identity in [_candidate_input_identity(candidate)]
                 if identity in reusable
             ),
-            None,
+            source_tasks_by_coordinate.get(_coordinate_input_identity(coordinate)),
         )
         profile_version = source_task.profile_version if source_task is not None else None
         detail_key = (profile_id, profile_version.pk if profile_version is not None else None)

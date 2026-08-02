@@ -397,6 +397,32 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(profile['talents']['build_code'], 'frozen-build')
         self.assertEqual(profile['equipment'][0]['item_id'], 100)
 
+    def test_incremental_projection_uses_profile_frozen_by_failed_source_task(self):
+        self.profile.player_equipment = (
+            'warrior="Frozen Failure"\nlevel=80\nspec=fury\n'
+            'talents=frozen-failure-build\nhead=,id=101\n'
+        )
+        self.profile.talent = 'frozen-failure-build'
+        self.profile.save(update_fields=['player_equipment', 'talent'])
+        execution = self._create()
+        case = execution.cases.get()
+        case.status = SimcBenchmarkExecution.STATUS_FAILED
+        case.save(update_fields=['status'])
+        self.profile.player_equipment = (
+            'warrior="Changed After Failure"\nlevel=80\nspec=fury\n'
+            'talents=changed-build\nhead=,id=999\n'
+        )
+        self.profile.talent = 'changed-build'
+        self.profile.save(update_fields=['player_equipment', 'talent'])
+
+        profile = serialize_incremental_panel_results(
+            self.panel,
+        )['coordinates'][0]['profile_detail']
+
+        self.assertEqual(profile['identity']['name'], 'Frozen Failure')
+        self.assertEqual(profile['talents']['build_code'], 'frozen-failure-build')
+        self.assertEqual(profile['equipment'][0]['item_id'], 101)
+
     def test_incremental_projection_exposes_frozen_candidate_item_level(self):
         candidate = self.panel.candidates.get(key='trinket')
         candidate.params = {
