@@ -71,7 +71,15 @@ class SimcBenchmarkConfigPageTests(TestCase):
         self.assertIn('originalItemId:parts.itemId', script)
         self.assertIn('originalItemLevel:parts.itemLevel', script)
         self.assertIn('sameOriginalIdentity', script)
+        self.assertIn('keysByLevel', script)
         self.assertNotIn("levels.length>1?`${meta.key}-${itemLevel}`:meta.key", script)
+
+    def test_saved_item_level_variants_are_coalesced_back_into_one_editor_row(self):
+        script = Path('static/dashboard/js/simc-benchmark-dashboard.js').read_text()
+        self.assertIn('function coalesceCandidateEditorRows', script)
+        self.assertIn('coalesceCandidateEditorRows(data.candidates||[]).forEach(addCandidate)', script)
+        self.assertIn("editorLevels.join(', ')", script)
+        self.assertIn('editorKeys', script)
 
     def test_candidate_name_is_the_first_primary_field_and_execution_size_has_no_fixed_cap(self):
         script = Path('static/dashboard/js/simc-benchmark-dashboard.js').read_text()
