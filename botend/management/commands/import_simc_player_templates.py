@@ -1,5 +1,6 @@
 """Import sanitized per-spec player baselines from SimC profiles/MID1."""
 import os
+import re
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
@@ -74,6 +75,17 @@ class Command(BaseCommand):
         return None
 
     @staticmethod
+    def _normalize_equipment_line(line):
+        key, sep, raw_value = line.partition('=')
+        if not sep or key.strip().lower() not in EQUIPMENT:
+            return line
+        match = re.fullmatch(r'\s*(\d+)\s*(,.*)?', raw_value)
+        if not match:
+            return line
+        suffix = match.group(2) or ''
+        return f'{key.strip()}=,id={match.group(1)}{suffix}'
+
+    @staticmethod
     def _extract_baseline(content):
         lines = []
         actor_seen = False
@@ -91,7 +103,7 @@ class Command(BaseCommand):
                 actor_seen = True
                 lines.append(line)
             elif key in ALLOWED_SCALARS or key in EQUIPMENT:
-                lines.append(line)
+                lines.append(Command._normalize_equipment_line(line))
         return validate_player_baseline('\n'.join(lines))
 
     def handle(self, *args, **options):

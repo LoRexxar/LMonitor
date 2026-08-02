@@ -1,4 +1,5 @@
 import hashlib
+import importlib
 import json
 import tempfile
 from io import StringIO
@@ -46,6 +47,56 @@ APL_CONTENT = 'actions=/auto_attack\nactions+=/bloodthirst'
 
 
 class ImportSimcPlayerTemplatesTests(TestCase):
+    def test_data_migration_normalizes_existing_upstream_profiles_only(self):
+        upstream = SimcProfile.objects.create(
+            user_id=None, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury', name='12.1 PTR Fury',
+            player_equipment=(
+                'warrior="Fury"\nptr=1\nshoulders=249312,ilevel=334\n'
+                'wrists=249315,ilevel=334\nmain_hand=268213,ilevel=334'
+            ),
+        )
+        user_profile = SimcProfile.objects.create(
+            user_id=123, source=SimcProfile.SOURCE_USER, name='User Profile',
+            player_equipment='main_hand=268213,ilevel=334',
+        )
+        migration = importlib.import_module(
+            'botend.migrations.0150_normalize_mid_profile_equipment'
+        )
+
+        from django.apps import apps
+        migration.normalize_current_upstream_profiles(apps, None)
+
+        upstream.refresh_from_db()
+        user_profile.refresh_from_db()
+        self.assertNotIn('\nptr=', f'\n{upstream.player_equipment}')
+        self.assertIn('shoulders=,id=249312,ilevel=334', upstream.player_equipment)
+        self.assertIn('wrists=,id=249315,ilevel=334', upstream.player_equipment)
+        self.assertIn('main_hand=,id=268213,ilevel=334', upstream.player_equipment)
+        self.assertEqual(user_profile.player_equipment, 'main_hand=268213,ilevel=334')
+
+    @patch(
+        'botend.management.commands.import_simc_player_templates.REQUIRED_PROFILE_SPECS',
+        {('warrior', 'fury')},
+    )
+    def test_import_normalizes_numeric_item_shorthand_and_drops_embedded_ptr(self):
+        upstream = DEFAULT_PLAYER.replace(
+            'head=,id=212048,ilevel=639',
+            'head=212048,ilevel=639',
+        ).replace(
+            'main_hand=,id=222222,ilevel=639',
+            'main_hand=222222,ilevel=639',
+        ).replace('level=90', 'ptr=1\nlevel=90')
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, 'MID1_Warrior_Fury.simc').write_text(upstream, encoding='utf-8')
+            call_command('import_simc_player_templates', source_dir=tmp, use_ptr=True)
+
+        profile = SimcProfile.objects.get(system_key='simc_upstream:warrior_fury')
+        self.assertIn('head=,id=212048,ilevel=639', profile.player_equipment)
+        self.assertIn('main_hand=,id=222222,ilevel=639', profile.player_equipment)
+        self.assertNotIn('\nptr=', f'\n{profile.player_equipment}')
+        self.assertIs(profile.use_ptr, True)
+
     def test_required_mid1_profiles_match_the_supported_32_spec_execution_scope(self):
         from botend.management.commands.import_simc_player_templates import REQUIRED_PROFILE_SPECS
 

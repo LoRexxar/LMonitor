@@ -126,6 +126,7 @@ class PreparedTaskCreation:
     template_payload_json: str
     resource_token: str
     validation_identity: tuple
+    is_admin: bool
     seal: object = field(repr=False, compare=False)
 
 
@@ -164,6 +165,7 @@ def validate_resource_ownership(
     resource,
     resource_type: str,
     user_id: int,
+    is_admin: bool = False,
 ) -> None:
     """
     Validate resource ownership and active/selectable status.
@@ -180,7 +182,7 @@ def validate_resource_ownership(
             and resource.source == SimcProfile.SOURCE_SIMC_UPSTREAM
             and bool(resource.system_key)
         )
-        if resource.user_id != user_id and not is_system_default:
+        if resource.user_id != user_id and not is_system_default and not is_admin:
             raise TaskCreationError(
                 f"Profile {resource.id} belongs to user {resource.user_id}, not {user_id}"
             )
@@ -190,7 +192,8 @@ def validate_resource_ownership(
     elif resource_type == 'template':
         if not isinstance(resource, SimcContentTemplate):
             raise TaskCreationError(f"Invalid template resource")
-        if resource.owner_user_id is not None and resource.owner_user_id != user_id:
+        if (resource.owner_user_id is not None and resource.owner_user_id != user_id
+                and not is_admin):
             raise TaskCreationError(
                 f"Template {resource.id} belongs to user {resource.owner_user_id}, not {user_id}"
             )
@@ -203,7 +206,8 @@ def validate_resource_ownership(
         if not isinstance(resource, SimcApl):
             raise TaskCreationError(f"Invalid APL resource")
         # Allow system APLs (is_system=True or owner_user_id=None) or user's own
-        if not resource.is_system and resource.owner_user_id is not None and resource.owner_user_id != user_id:
+        if (not resource.is_system and resource.owner_user_id is not None
+                and resource.owner_user_id != user_id and not is_admin):
             raise TaskCreationError(
                 f"APL {resource.id} belongs to user {resource.owner_user_id}, not {user_id}"
             )
@@ -215,8 +219,11 @@ def validate_resource_ownership(
 
 # Compatibility for existing imports/call sites. Keep forwarding dynamically so
 # monkeypatches and future fixes to the public policy are consistently observed.
-def _validate_resource_ownership(resource, resource_type: str, user_id: int) -> None:
-    return validate_resource_ownership(resource, resource_type, user_id)
+def _validate_resource_ownership(resource, resource_type: str, user_id: int,
+                                 is_admin: bool = False) -> None:
+    return validate_resource_ownership(
+        resource, resource_type, user_id, is_admin=is_admin,
+    )
 
 
 def _create_or_reuse_version(
@@ -423,6 +430,7 @@ def create_task_from_request(
     mode_params: Optional[Dict[str, Any]] = None,
     candidates: Optional[list] = None,
     backend_id: Optional[int] = None,
+    is_admin: bool = False,
 ) -> SimcTask:
     """
     Unified entry for homepage "auto-save/update player config and create Task" atomic operation.
@@ -467,11 +475,12 @@ def create_task_from_request(
         if simc_profile_id:
             # Update existing profile
             try:
-                profile = SimcProfile.objects.select_for_update().get(
-                    id=simc_profile_id,
-                    user_id=user_id,
-                    is_active=True,
+                profile_query = SimcProfile.objects.select_for_update().filter(
+                    id=simc_profile_id, is_active=True,
                 )
+                if not is_admin:
+                    profile_query = profile_query.filter(user_id=user_id)
+                profile = profile_query.get()
             except SimcProfile.DoesNotExist:
                 raise TaskCreationError(
                     f"Profile {simc_profile_id} does not exist or does not belong to user {user_id}"
@@ -544,6 +553,7 @@ def create_task_from_request(
             mode_params=mode_params,
             candidates=candidates,
             backend_id=backend_id,
+            is_admin=is_admin,
         )
 
         return task
@@ -601,7 +611,8 @@ def _check_resource_specs(profile, apl, template):
         raise TaskCreationError('APL 专精与玩家配置专精不一致')
 
 
-def _load_resources(user_id, profile_id, template_id, apl_id, backend_id, *, lock=False):
+def _load_resources(user_id, profile_id, template_id, apl_id, backend_id, *,
+                    lock=False, is_admin=False):
     if not profile_id or not template_id or not apl_id:
         raise TaskCreationError(
             'Complete references required: profile_id, template_id, and apl_id must all be provided'
@@ -637,18 +648,21 @@ def _load_resources(user_id, profile_id, template_id, apl_id, backend_id, *, loc
         template = template_qs.get(pk=template_id)
     except SimcContentTemplate.DoesNotExist:
         raise TaskCreationError(f'Template {template_id} does not exist')
-    validate_resource_ownership(profile, 'profile', user_id)
-    validate_resource_ownership(apl, 'apl', user_id)
-    validate_resource_ownership(template, 'template', user_id)
+    validate_resource_ownership(profile, 'profile', user_id, is_admin=is_admin)
+    validate_resource_ownership(apl, 'apl', user_id, is_admin=is_admin)
+    validate_resource_ownership(template, 'template', user_id, is_admin=is_admin)
     _check_resource_specs(profile, apl, template)
     return backend, profile, apl, template
 
 
 def prepare_task_creation(user_id: int, profile_id: int, template_id: int,
-                          apl_id: int, backend_id: Optional[int] = None):
+                          apl_id: int, backend_id: Optional[int] = None,
+                          is_admin: bool = False):
     """Perform authoritative binary preflight without holding database row locks."""
+    is_admin = bool(is_admin)
     backend, profile, apl, template = _load_resources(
-        user_id, profile_id, template_id, apl_id, backend_id, lock=False,
+        user_id, profile_id, template_id, apl_id, backend_id,
+        lock=False, is_admin=is_admin,
     )
     identity = current_validation_identity(backend=backend)
     stale_reason = apl.validation_staleness(identity)
@@ -659,7 +673,10 @@ def prepare_task_creation(user_id: int, profile_id: int, template_id: int,
 
     # Re-read after the external process. This is an optimistic check only; the
     # definitive check occurs under locks in create_task_from_prepared.
-    current = _load_resources(user_id, profile_id, template_id, apl_id, backend.pk, lock=False)
+    current = _load_resources(
+        user_id, profile_id, template_id, apl_id, backend.pk,
+        lock=False, is_admin=is_admin,
+    )
     final_identity = current_validation_identity(backend=current[0])
     if not final_identity:
         raise TaskPreparedResourceChanged(
@@ -692,14 +709,15 @@ def prepare_task_creation(user_id: int, profile_id: int, template_id: int,
         profile_payload_json=_canonical_json(_build_profile_payload(profile)),
         apl_payload_json=_canonical_json(_build_apl_payload(apl)),
         template_payload_json=_canonical_json(_build_template_payload(template)),
-        resource_token=after, validation_identity=tuple(identity), seal=_PREPARED_SEAL,
+        resource_token=after, validation_identity=tuple(identity),
+        is_admin=is_admin, seal=_PREPARED_SEAL,
     )
 
 
 def create_task_from_prepared(*, prepared, user_id: int, name: str,
                               profile_id: int, template_id: int, apl_id: int,
                               mode='normal', simulation_params=None, mode_params=None,
-                              candidates=None, backend_id=None):
+                              candidates=None, backend_id=None, is_admin=False):
     """Persist a preflighted Task in a short transaction, failing closed if stale."""
     if not isinstance(prepared, PreparedTaskCreation) or prepared.seal is not _PREPARED_SEAL:
         raise TaskCreationError('Invalid prepared task creation token')
@@ -707,6 +725,8 @@ def create_task_from_prepared(*, prepared, user_id: int, name: str,
     prepared_ids = (prepared.user_id, prepared.backend_id, prepared.profile_id,
                     prepared.apl_id, prepared.template_id)
     if requested_ids != prepared_ids:
+        raise TaskCreationError('Prepared task creation token does not match request')
+    if bool(is_admin) != prepared.is_admin:
         raise TaskCreationError('Prepared task creation token does not match request')
     allowed_modes = {'normal', 'comparison', 'attribute_sweep'}
     if mode not in allowed_modes:
@@ -721,7 +741,8 @@ def create_task_from_prepared(*, prepared, user_id: int, name: str,
     with transaction.atomic():
         try:
             backend, profile, apl, template = _load_resources(
-                user_id, profile_id, template_id, apl_id, prepared.backend_id, lock=True,
+                user_id, profile_id, template_id, apl_id, prepared.backend_id,
+                lock=True, is_admin=is_admin,
             )
         except TaskCreationError as exc:
             # The opaque token proves these resources were valid at preflight time.
@@ -761,15 +782,16 @@ def create_task(user_id: int, name: str, profile_id: Optional[int] = None,
                 template_id: Optional[int] = None, apl_id: Optional[int] = None,
                 mode: str = 'normal', simulation_params=None, mode_params=None,
                 candidates=None, backend_id: Optional[int] = None,
-                prepared=None) -> SimcTask:
+                prepared=None, is_admin: bool = False) -> SimcTask:
     """Compatibility entry point; unprepared calls retain authoritative validation."""
     if prepared is None:
         prepared = prepare_task_creation(
             user_id, profile_id, template_id, apl_id, backend_id=backend_id,
+            is_admin=is_admin,
         )
     return create_task_from_prepared(
         prepared=prepared, user_id=user_id, name=name, profile_id=profile_id,
         template_id=template_id, apl_id=apl_id, backend_id=backend_id,
         mode=mode, simulation_params=simulation_params, mode_params=mode_params,
-        candidates=candidates,
+        candidates=candidates, is_admin=is_admin,
     )

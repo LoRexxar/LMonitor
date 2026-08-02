@@ -94,10 +94,12 @@ from botend.services.simc_benchmark_execution import (
 from botend.services.simc_task_service import TaskValidationUnavailable
 
 
-def _accessible_simc_profile_q(user_id):
-    """Profiles usable in read/execute flows: owner records plus global upstream defaults."""
+def _accessible_simc_profile_q(user):
+    """Profiles usable in read/execute flows under the product-admin policy."""
+    if _is_simc_admin(user):
+        return models.Q()
     return (
-        models.Q(user_id=user_id)
+        models.Q(user_id=user.id)
         | models.Q(
             user_id__isnull=True,
             source=SimcProfile.SOURCE_SIMC_UPSTREAM,
@@ -1282,7 +1284,7 @@ class SimcTaskAPIView(View):
             profile_map = {
                 p['id']: p
                 for p in SimcProfile.objects.filter(
-                    _accessible_simc_profile_q(request.user.id),
+                    _accessible_simc_profile_q(request.user),
                     id__in=profile_ids,
                     is_active=True,
                 ).values('id', 'name', 'spec')
@@ -1460,7 +1462,7 @@ class SimcTaskAPIView(View):
             target_class, target_spec = canonical_simc_spec_identity(spec)
             if source_type == 'saved_profile' and simc_profile_id and not target_class:
                 existing_profile = SimcProfile.objects.filter(
-                    _accessible_simc_profile_q(request.user.id),
+                    _accessible_simc_profile_q(request.user),
                     id=simc_profile_id,
                     is_active=True,
                 ).first()
@@ -1474,7 +1476,7 @@ class SimcTaskAPIView(View):
             if source_type == 'saved_profile':
                 profile_id = player_source.get('profile_id') or simc_profile_id
                 profile = SimcProfile.objects.filter(
-                    _accessible_simc_profile_q(request.user.id),
+                    _accessible_simc_profile_q(request.user),
                     id=profile_id,
                     is_active=True,
                 ).first()
@@ -1586,6 +1588,7 @@ class SimcTaskAPIView(View):
                         simulation_params=simulation_params if simulation_params else None,
                         name=name,
                         backend_id=data.get('backend_id'),
+                        is_admin=_is_simc_admin(request.user),
                     )
                 else:
                     task = create_task(
@@ -1596,6 +1599,7 @@ class SimcTaskAPIView(View):
                         simulation_params=simulation_params if simulation_params else None,
                         name=name,
                         backend_id=data.get('backend_id'),
+                        is_admin=_is_simc_admin(request.user),
                     )
             except TaskCreationError as e:
                 return JsonResponse({
@@ -2537,6 +2541,7 @@ class SimcComparisonTaskAPIView(View):
                 }},
                 candidates=candidates,
                 backend_id=data.get('backend_id'),
+                is_admin=_is_simc_admin(request.user),
             )
             return JsonResponse({'success': True, 'data': {
                 'task_id': task.id, 'run_ids': [],
@@ -2562,7 +2567,7 @@ class SimcPlayerConfigDetailAPIView(View):
         if not profile_id:
             return JsonResponse({'success': False, 'error': '请先选择已有 Profile'}, status=400)
         profile = SimcProfile.objects.filter(
-            (_accessible_simc_profile_q(request.user.id) if not _is_simc_admin(request.user) else models.Q(id=profile_id)),
+            _accessible_simc_profile_q(request.user),
             id=profile_id,
             **({} if _is_simc_admin(request.user) else {'is_active': True}),
         ).first()
@@ -3612,6 +3617,7 @@ class SimcProfileAPIView(View):
                         selected_apl_id=data.get('selected_apl_id'),
                         simulation_params=simulation_params or None,
                         name=f'{name}_常规模拟',
+                        is_admin=_is_simc_admin(request.user),
                     )
                 except (ValueError, TaskCreationError) as e:
                     return JsonResponse({'success': False, 'error': str(e)})

@@ -199,6 +199,44 @@ class SimcTaskServiceTests(TestCase):
             )
         self.assertIn("belongs to user", str(ctx.exception))
 
+    def test_product_admin_can_execute_active_foreign_resources(self):
+        from botend.services.simc_task_service import create_task
+
+        foreign_profile = SimcProfile.objects.create(
+            user_id=9999, name='Foreign Profile', spec='warrior_fury', is_active=True,
+        )
+        foreign_template = SimcContentTemplate.objects.create(
+            owner_user_id=9999, name='Foreign Template', spec='warrior_fury',
+            content='iterations=1000', is_active=True, is_selectable=True,
+        )
+        foreign_apl = SimcApl.objects.create(
+            owner_user_id=9999, name='Foreign APL', spec='warrior_fury',
+            content='actions=/auto_attack', is_active=True, is_selectable=True,
+        )
+        mark_apl_valid(foreign_apl)
+        validation = {
+            'valid': True,
+            'content_hash': hashlib.sha256(foreign_apl.content.encode()).hexdigest(),
+            'revision': TEST_VALIDATION_IDENTITY[0],
+            'game_build': TEST_VALIDATION_IDENTITY[1],
+        }
+        with patch(
+            'botend.services.simc_task_service.validate_apl_for_profile',
+            return_value=validation,
+        ):
+            task = create_task(
+                user_id=self.user_id,
+                name='Admin task',
+                profile_id=foreign_profile.id,
+                template_id=foreign_template.id,
+                apl_id=foreign_apl.id,
+                backend_id=self.backend.id,
+                is_admin=True,
+            )
+
+        self.assertEqual(task.user_id, self.user_id)
+        self.assertEqual(task.profile_id, foreign_profile.id)
+
     def test_prepared_creation_validates_once_and_persistence_does_not_revalidate(self):
         from botend.services.simc_task_service import (
             create_task_from_prepared, prepare_task_creation,

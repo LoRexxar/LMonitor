@@ -310,9 +310,9 @@ class SimcProfileResourceListTests(TestCase):
         self.assertEqual(rows[system.id]['sync_version'], 'revision-1')
         self.assertEqual(rows[system.id]['equipment_line_count'], 3)
 
-    def test_admin_list_includes_inactive_and_other_owned_profiles_with_status(self):
+    def test_staff_product_admin_list_includes_inactive_and_other_owned_profiles_with_status(self):
         admin = User.objects.create_user(
-            username='profile_resource_admin', password='pwd', is_superuser=True,
+            username='profile_resource_admin', password='pwd', is_staff=True,
         )
         self.client.force_login(admin)
         inactive_system = SimcProfile.objects.create(

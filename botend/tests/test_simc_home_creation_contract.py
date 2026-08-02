@@ -1,5 +1,6 @@
 import hashlib
 import json
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
@@ -37,6 +38,34 @@ BUILD = '12.0.1.70000'
 
 @override_settings(SIMC_APL_CURRENT_IDENTITY=(REVISION, BUILD))
 class SimcHomeCreationResourceContractTests(TestCase):
+    def test_staff_submission_passes_product_admin_policy_to_task_service(self):
+        owner = User.objects.create_user(username='foreign-owner', password='pwd')
+        staff = User.objects.create_user(username='product-admin', password='pwd', is_staff=True)
+        profile = SimcProfile.objects.create(
+            user_id=owner.id, name='Foreign Fury', spec='warrior_fury',
+            player_config_mode='manual_equipment', player_equipment=DEFAULT_PLAYER,
+            is_active=True,
+        )
+        template, apl = self._task_resources()
+        self.client.force_login(staff)
+        created = SimpleNamespace(
+            id=987, name='Admin task', simc_profile_id=profile.id,
+            current_status=0, mode='normal', create_time=None, modified_time=None,
+        )
+
+        with patch('botend.dashboard.api.create_task', return_value=created) as create:
+            response = self.client.post('/api/simc-task/', data=json.dumps({
+                'name': 'Admin task', 'spec': 'warrior_fury',
+                'simc_profile_id': profile.id,
+                'player_source': {'type': 'saved_profile', 'profile_id': profile.id},
+                'base_template_id': template.id, 'selected_apl_id': apl.id,
+            }), content_type='application/json')
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(response.json()['success'], response.json())
+        self.assertIs(create.call_args.kwargs['is_admin'], True)
+        self.assertEqual(create.call_args.kwargs['profile_id'], profile.id)
+
     def setUp(self):
         self.user = User.objects.create_user(username='home-flow', password='pwd')
         self.client.force_login(self.user)
