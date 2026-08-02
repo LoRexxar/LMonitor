@@ -298,7 +298,9 @@ class SimcBenchmarkExecutionTests(TestCase):
         )['coordinates'][0]['candidates']
 
         trinket = next(row for row in candidates if row['key'] == 'trinket')
+        self.assertEqual(trinket['item_id'], 123)
         self.assertEqual(trinket['item_level'], 285)
+        self.assertTrue(trinket['item_variant_key'])
 
     def test_incremental_result_projection_scans_finalized_cases_once_for_all_coordinates(self):
         self._published_success()

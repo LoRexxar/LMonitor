@@ -56,7 +56,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertEqual(title.get_text(strip=True), 'SimC 基准面板')
 
     def test_shared_benchmark_assets_use_current_cache_version(self):
-        expected = '?v=20260802g'
+        expected = '?v=20260802h'
         for page in (INDEX, CONFIG_PAGE, PANEL_EDIT_PAGE, EXECUTION_PAGE):
             for line in page.splitlines():
                 if 'simc-benchmark-dashboard.' in line:
@@ -192,6 +192,24 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
             '.benchmark-aggregate-filters', '.benchmark-aggregate-filter',
             '.benchmark-aggregate-list-title', '.benchmark-aggregate-row',
             '.benchmark-aggregate-candidate', '.benchmark-aggregate-delta',
+        ):
+            self.assertIn(selector, CSS)
+
+    def test_gear_results_group_item_levels_into_colored_comparison_bars(self):
+        """同装备多装等共用一行，装等颜色全局一致，悬停端点显示跨行参考线。"""
+        aggregate = JS[JS.index('function renderAggregatedResults('):JS.index('function renderRunProgress(')]
+        for contract in (
+            'groupGearResultRows', 'buildItemLevelColorMap', 'candidate.item_id',
+            'candidate.item_level', 'benchmark-gear-icon', 'benchmark-gear-segment',
+            'benchmark-gear-level-legend', 'benchmark-gear-hover-guide',
+            'benchmark-gear-tooltip', 'pointerenter', 'pointerleave',
+        ):
+            self.assertIn(contract, aggregate)
+        for selector in (
+            '.benchmark-gear-chart', '.benchmark-gear-row', '.benchmark-gear-icon',
+            '.benchmark-gear-plot', '.benchmark-gear-segment',
+            '.benchmark-gear-level-legend', '.benchmark-gear-hover-guide',
+            '.benchmark-gear-tooltip',
         ):
             self.assertIn(selector, CSS)
 

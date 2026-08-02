@@ -108,18 +108,72 @@ function renderAggregatedResults(aggregate,compact=false){
     const title=el('div',{class:'benchmark-aggregate-list-title'},`${rows.length} 个候选结果${matches.length?` · ${matches.length} 个匹配坐标`:''}`);
     list.append(title);
     if(!rows.length){list.append(el('div',{class:'benchmark-aggregate-empty'},'当前筛选条件下暂无已完成候选结果'));return;}
-    rows.forEach(({coordinate,candidate,dps,baseline_dps})=>{
-      const row=el('div',{class:'benchmark-aggregate-row'});
-      const identity=el('div',{class:'benchmark-aggregate-candidate'},candidate.label||candidate.key||'候选方案');
-      const coordinateLabel=el('div',{class:'benchmark-aggregate-coordinate'},`${coordinate?.labels?.spec||coordinate.spec_key} · ${scenarioLabel(coordinate)} · ${coordinate?.labels?.profile||coordinate.profile_key}`);
-      const result=el('div',{class:'benchmark-aggregate-result'});
-      result.append(el('strong',{class:'benchmark-aggregate-dps'},formatDps(dps)));
-      const delta_percent=Number.isFinite(baseline_dps)&&baseline_dps>0?(dps-baseline_dps)*100/baseline_dps:null;
-      result.append(el('span',{class:`benchmark-aggregate-delta ${delta_percent!==null&&delta_percent<0?'negative':'positive'}`},delta_percent===null?'无基准对比':`相对基准 ${delta_percent>=0?'+':''}${delta_percent.toFixed(1)}%`));
-      row.append(identity,coordinateLabel,result);list.append(row);
-    });
+    list.append(renderGearResultChart(rows));
   };
   host.append(filters,list);render();return host;
+}
+function candidateGearLabel(candidate){
+  const label=String(candidate.label||candidate.key||'候选方案'),level=Number(candidate.item_level);
+  if(!Number.isFinite(level)||level<=0)return label;
+  const suffix=` · ${level}`;
+  return label.endsWith(suffix)?label.slice(0,-suffix.length):label;
+}
+function groupGearResultRows(rows){
+  const groups=new Map();
+  rows.forEach(row=>{
+    const candidate=row.candidate||{},coordinate=row.coordinate||{},label=candidateGearLabel(candidate),itemId=Number(candidate.item_id);
+    const itemIdentity=Number.isFinite(itemId)&&itemId>0?`item-${itemId}`:`candidate-${candidate.key||label}`;
+    const variantIdentity=candidate.item_variant_key||label;
+    const key=[coordinate.spec_key,coordinate.scenario_key,coordinate.profile_key,itemIdentity,variantIdentity].join('|');
+    if(!groups.has(key))groups.set(key,{key,label,icon_url:candidate.icon_url||'',coordinate,variants:[]});
+    const deltaPercent=Number.isFinite(row.baseline_dps)&&row.baseline_dps>0?(row.dps-row.baseline_dps)*100/row.baseline_dps:null;
+    groups.get(key).variants.push({...row,item_level:Number(candidate.item_level),delta_percent:deltaPercent});
+  });
+  return Array.from(groups.values()).map(group=>{
+    group.variants.sort((left,right)=>(Number.isFinite(left.item_level)?left.item_level:Number.MAX_SAFE_INTEGER)-(Number.isFinite(right.item_level)?right.item_level:Number.MAX_SAFE_INTEGER)||left.dps-right.dps);
+    group.best_dps=Math.max(...group.variants.map(variant=>variant.dps));
+    return group;
+  }).sort((left,right)=>right.best_dps-left.best_dps);
+}
+function buildItemLevelColorMap(groups){
+  const palette=['#2563eb','#7c3aed','#db2777','#ea580c','#ca8a04','#16a34a','#0891b2','#4f46e5','#9333ea','#e11d48'];
+  const levels=Array.from(new Set(groups.flatMap(group=>group.variants.map(variant=>variant.item_level).filter(level=>Number.isFinite(level)&&level>0)))).sort((a,b)=>a-b);
+  return new Map(levels.map((level,index)=>[level,palette[index%palette.length]]));
+}
+function renderGearResultChart(rows){
+  const groups=groupGearResultRows(rows),levelColorMap=buildItemLevelColorMap(groups),chart=el('div',{class:'benchmark-gear-chart'});
+  const legend=el('div',{class:'benchmark-gear-level-legend','aria-label':'装等颜色图例'});
+  levelColorMap.forEach((color,level)=>{const item=el('span',{class:'benchmark-gear-level-key'}),swatch=el('i',{'aria-hidden':'true'});swatch.style.backgroundColor=color;item.append(swatch,el('span',{},`${level} 装等`));legend.append(item);});
+  if(levelColorMap.size)chart.append(legend);
+  const finiteDeltas=groups.flatMap(group=>group.variants.map(variant=>variant.delta_percent)).filter(Number.isFinite);
+  let scaleMin=Math.min(0,...finiteDeltas),scaleMax=Math.max(0,...finiteDeltas);
+  if(scaleMin===scaleMax)scaleMax=scaleMin+1;
+  const scaleSpan=scaleMax-scaleMin;scaleMin-=scaleSpan*.04;scaleMax+=scaleSpan*.08;
+  const position=value=>Math.max(0,Math.min(100,(value-scaleMin)*100/(scaleMax-scaleMin)));
+  const body=el('div',{class:'benchmark-gear-chart-body'}),guide=el('div',{class:'benchmark-gear-hover-guide','aria-hidden':'true'}),tooltip=el('div',{class:'benchmark-gear-tooltip',role:'tooltip'});
+  guide.hidden=true;tooltip.hidden=true;body.append(guide,tooltip);
+  groups.forEach(group=>{
+    const row=el('div',{class:'benchmark-gear-row'}),identity=el('div',{class:'benchmark-gear-identity'});
+    identity.append(group.icon_url?el('img',{class:'benchmark-gear-icon',src:group.icon_url,alt:'',loading:'lazy'}):el('span',{class:'benchmark-gear-icon placeholder','aria-hidden':'true'},'◈'));
+    const identityText=el('span',{class:'benchmark-gear-identity-text'});identityText.append(el('strong',{},group.label),el('small',{},`${group.coordinate?.labels?.spec||group.coordinate?.spec_key||'—'} · ${scenarioLabel(group.coordinate)}`));identity.append(identityText);
+    const plot=el('div',{class:'benchmark-gear-plot'}),zero=el('i',{class:'benchmark-gear-zero','aria-hidden':'true'});zero.style.left=`${position(0)}%`;plot.append(zero);
+    let previous=0;
+    group.variants.forEach(variant=>{
+      const endpoint=Number.isFinite(variant.delta_percent)?variant.delta_percent:0,startPosition=position(previous),endPosition=position(endpoint);
+      const itemLevel=Number.isFinite(variant.item_level)&&variant.item_level>0?variant.item_level:null;
+      const segment=el('button',{class:'benchmark-gear-segment',type:'button',dataset:{itemLevel:itemLevel||'',endpoint:endPosition},'aria-label':`${group.label} ${itemLevel?`${itemLevel} 装等`:''} ${formatDps(variant.dps)}`});
+      segment.style.left=`${Math.min(startPosition,endPosition)}%`;segment.style.width=`${Math.max(.35,Math.abs(endPosition-startPosition))}%`;segment.style.backgroundColor=levelColorMap.get(itemLevel)||'#64748b';segment.append(el('span',{},itemLevel||'装备'));
+      const moveTooltip=event=>{const bodyRect=body.getBoundingClientRect(),hasPointer=Number.isFinite(event?.clientX)&&Number.isFinite(event?.clientY);tooltip.style.left=`${hasPointer?Math.min(Math.max(8,bodyRect.width-190),Math.max(8,event.clientX-bodyRect.left+12)):Math.max(8,bodyRect.width/2-90)}px`;tooltip.style.top=`${hasPointer?Math.max(8,event.clientY-bodyRect.top-58):Math.max(8,row.offsetTop-8)}px`;};
+      const showComparison=event=>{row.classList.add('is-hovered');guide.hidden=false;tooltip.hidden=false;const plotRect=plot.getBoundingClientRect(),bodyRect=body.getBoundingClientRect();guide.style.left=`${plotRect.left-bodyRect.left+plotRect.width*endPosition/100}px`;clear(tooltip);tooltip.append(el('strong',{},group.label),el('span',{},`${itemLevel?`${itemLevel} 装等 · `:''}${formatDps(variant.dps)}`),el('span',{},Number.isFinite(variant.delta_percent)?`相对基准 ${variant.delta_percent>=0?'+':''}${variant.delta_percent.toFixed(2)}%`:'无基准对比'));moveTooltip(event);};
+      const hideComparison=()=>{row.classList.remove('is-hovered');guide.hidden=true;tooltip.hidden=true;};
+      segment.addEventListener('pointerenter',showComparison);segment.addEventListener('pointermove',moveTooltip);segment.addEventListener('pointerleave',hideComparison);segment.addEventListener('focus',showComparison);segment.addEventListener('blur',hideComparison);
+      plot.append(segment);previous=endpoint;
+    });
+    const best=group.variants.reduce((winner,variant)=>variant.dps>winner.dps?variant:winner,group.variants[0]),result=el('div',{class:'benchmark-aggregate-result'});
+    result.append(el('strong',{class:'benchmark-aggregate-dps'},formatDps(best.dps)),el('span',{class:`benchmark-aggregate-delta ${best.delta_percent<0?'negative':'positive'}`},Number.isFinite(best.delta_percent)?`最高 ${best.delta_percent>=0?'+':''}${best.delta_percent.toFixed(1)}%`:'无基准对比'));
+    row.append(identity,plot,result);body.append(row);
+  });
+  chart.append(body);return chart;
 }
 function renderRunProgress(execution,compact=false){
   const host=el('div',{class:`benchmark-run-progress${compact?' compact':''}`});

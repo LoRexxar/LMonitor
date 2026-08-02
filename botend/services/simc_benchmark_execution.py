@@ -217,6 +217,53 @@ def _candidate_item_level(candidate):
     return int(match.group(1)) if match and int(match.group(1)) > 0 else None
 
 
+def _candidate_item_id(candidate):
+    """Read the canonical item id used to group item-level variants in result charts."""
+    params = candidate.get('candidate_params')
+    if not isinstance(params, dict):
+        return None
+    gear_swap = params.get('gear_swap')
+    if not isinstance(gear_swap, dict):
+        gear_swap = params
+    for key in ('item_id', 'id'):
+        value = gear_swap.get(key)
+        if value is None:
+            continue
+        try:
+            item_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if item_id > 0:
+            return item_id
+    raw_value = str(gear_swap.get('raw_value') or '')
+    match = re.search(r'(?:^|,)\s*(?:id|item_id)=(\d+)(?=,|$)', raw_value, re.I)
+    return int(match.group(1)) if match and int(match.group(1)) > 0 else None
+
+
+def _candidate_item_variant_key(candidate):
+    """Stable display identity for item attributes, excluding only item level."""
+    params = deepcopy(candidate.get('candidate_params'))
+    if not isinstance(params, dict):
+        return None
+    gear_swap = params.get('gear_swap')
+    if not isinstance(gear_swap, dict):
+        gear_swap = params
+    gear_swap.pop('ilevel', None)
+    gear_swap.pop('item_level', None)
+    if gear_swap.get('raw_value'):
+        gear_swap['raw_value'] = re.sub(
+            r'(^|,)\s*(?:ilevel|item_level)=\d+(?=,|$)',
+            r'\1ilevel=*',
+            str(gear_swap['raw_value']),
+            flags=re.I,
+        )
+    canonical = json.dumps(
+        {'type': candidate.get('candidate_type'), 'params': params},
+        ensure_ascii=False, sort_keys=True, separators=(',', ':'),
+    )
+    return hashlib.sha256(canonical.encode('utf-8')).hexdigest()[:20]
+
+
 def _task_candidate_identities(task):
     mode_params = task.mode_params if isinstance(task.mode_params, dict) else {}
     manifest = mode_params.get('request_manifest') if isinstance(mode_params, dict) else None
@@ -877,7 +924,11 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                     'source_label': candidate['source_label'],
                     'dps': float(match['result'].dps), 'task_id': match['task'].pk,
                 }
+                item_id = _candidate_item_id(candidate)
                 item_level = _candidate_item_level(candidate)
+                if item_id is not None and item_level is not None:
+                    row['item_id'] = item_id
+                    row['item_variant_key'] = _candidate_item_variant_key(candidate)
                 if item_level is not None:
                     row['item_level'] = item_level
                 rows.append(row)
