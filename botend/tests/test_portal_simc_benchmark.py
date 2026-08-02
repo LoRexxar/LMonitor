@@ -362,7 +362,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             'simc-benchmark-gear-hover-guide', 'simc-benchmark-gear-tooltip',
         ):
             self.assertIn(contract, self.JS + self.CSS)
-        self.assertIn('?v=20260803_talent_button', self.RESULTS_TEMPLATE)
+        self.assertIn('?v=20260803_raw_report', self.RESULTS_TEMPLATE)
 
     def test_result_renderer_uses_frozen_target_count_and_duration_for_scenarios(self):
         for contract in (
@@ -390,6 +390,18 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIn('node("code", "simc-benchmark-profile-talent-code", talentCode)', self.JS)
         self.assertIn('node("a", "simc-benchmark-profile-talent-link", "打开天赋模拟器")', self.JS)
         self.assertNotIn('node("a", "simc-benchmark-profile-talent-code', self.JS)
+
+    def test_selected_scenario_profile_has_dedicated_oss_raw_report_button(self):
+        for contract in (
+            'candidate?.raw_report_url',
+            'simc-benchmark-profile-report-link',
+            '查看 SimC 原始报告',
+            'target = "_blank"',
+            'noopener noreferrer',
+        ):
+            self.assertIn(contract, self.JS + self.CSS)
+        self.assertIn('nextRows.find(', self.JS)
+        self.assertIn('row?.spec_key === coordinate?.spec_key', self.JS)
 
     def test_result_styles_make_percentage_comparison_and_baseline_contrasting(self):
         for contract in (

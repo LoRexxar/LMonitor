@@ -46,6 +46,11 @@
     return candidate && (candidate.type === "base" || candidate.type === "baseline"
       || candidate.key === "base" || candidate.key === "baseline");
   }
+  function rawReportUrlForCoordinate(coordinate) {
+    const candidates = Array.isArray(coordinate?.candidates) ? coordinate.candidates : [];
+    const candidate = candidates.find(isBaseline) || candidates[0];
+    return safeIconUrl(candidate?.raw_report_url);
+  }
   function sortCandidates(candidates) { return candidates.slice().sort((a, b) => (validDps(b?.dps) ?? -1) - (validDps(a?.dps) ?? -1)); }
 
   function scenarioLabel(coordinate) {
@@ -193,7 +198,7 @@
     return `/portal/talents/?${params.toString()}`;
   }
 
-  function renderProfileDetails(profileDetail, summaryText = "展开 Profile 配置") {
+  function renderProfileDetails(profileDetail, summaryText = "展开 Profile 配置", reportUrl = "") {
     const details = node("details", "simc-benchmark-profile-details");
     const summary = node("summary", "profile-details-toggle", summaryText);
     if (!summaryText) summary.hidden = true;
@@ -212,6 +217,15 @@
       basics.append(node("dt", "", label), node("dd", "", value));
     });
     const body = node("div", "simc-benchmark-profile-detail-body");
+    if (reportUrl) {
+      const actions = node("div", "simc-benchmark-profile-actions");
+      const link = node("a", "simc-benchmark-profile-report-link", "查看 SimC 原始报告");
+      link.href = reportUrl;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      actions.appendChild(link);
+      body.appendChild(actions);
+    }
     if (basics.childElementCount) {
       const section = node("section", "simc-benchmark-profile-section");
       section.append(node("h4", "", "基础信息"), basics); body.appendChild(section);
@@ -269,7 +283,9 @@
       item.append(node("span", "simc-benchmark-info-label", label), node("strong", "simc-benchmark-info-value", value || "—"));
       info.appendChild(item);
     });
-    caseNode.append(info, renderProfileDetails(coordinate?.profile_detail));
+    caseNode.append(info, renderProfileDetails(
+      coordinate?.profile_detail, "展开 Profile 配置", rawReportUrlForCoordinate(coordinate),
+    ));
     if (!candidates.length) { caseNode.appendChild(state("当前坐标暂无已完成候选结果", "empty")); return caseNode; }
     const values = candidates.map((candidate) => validDps(candidate?.dps)).filter((value) => value !== null);
     const lowest = values.length ? Math.min(...values) : 0;
@@ -361,7 +377,9 @@
         const metrics = node("div", "simc-benchmark-spec-metrics");
         metrics.appendChild(node("strong", "simc-benchmark-spec-dps", entry.dps === null ? "暂无结果" : `${numberFormat.format(entry.dps)} DPS`));
         metrics.appendChild(node("small", "simc-benchmark-spec-relative", entry.dps === null || highest <= 0 ? "该场景未完成" : `相对最高 ${(entry.dps * 100 / highest).toFixed(1)}%`));
-        let profileDetails = renderProfileDetails(coordinate?.profile_detail, "");
+        let profileDetails = renderProfileDetails(
+          coordinate?.profile_detail, "", rawReportUrlForCoordinate(coordinate),
+        );
         const detailId = `simc-benchmark-spec-profile-${index}`;
         profileDetails.id = detailId;
         profileDetails.classList.add("simc-benchmark-spec-profile-details");
@@ -392,10 +410,17 @@
             const nextPayload = await requestJson(`${detailUrl}?${query.toString()}`);
             const nextRows = Array.isArray(nextPayload?.results?.coordinates)
               ? nextPayload.results.coordinates : [];
-            const nextCoordinate = nextRows[0];
+            const nextCoordinate = nextRows.find((row) => (
+              row?.spec_key === coordinate?.spec_key
+              && row?.profile_key === coordinate?.profile_key
+              && row?.scenario_key === coordinate?.scenario_key
+            ));
             if (!nextCoordinate?.profile_detail) throw new Error("Frozen profile detail unavailable");
             coordinate.profile_detail = nextCoordinate.profile_detail;
-            const loadedDetails = renderProfileDetails(nextCoordinate?.profile_detail, "");
+            coordinate.candidates = nextCoordinate.candidates;
+            const loadedDetails = renderProfileDetails(
+              nextCoordinate?.profile_detail, "", rawReportUrlForCoordinate(nextCoordinate),
+            );
             loadedDetails.id = detailId;
             loadedDetails.classList.add("simc-benchmark-spec-profile-details");
             loadedDetails.open = true;

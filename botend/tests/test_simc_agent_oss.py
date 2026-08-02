@@ -11,6 +11,7 @@ from botend.services.simc_agent_oss import (
     ReportStorageError,
     ReportValidationError,
     issue_upload_ticket,
+    public_legacy_report_url,
     public_report_url,
     verify_uploaded_report,
 )
@@ -39,6 +40,21 @@ class SimcAgentOSSTests(SimpleTestCase):
             with self.subTest(invalid_key=invalid_key):
                 with self.assertRaises(ReportStorageError):
                     public_report_url(invalid_key)
+
+    @override_settings(
+        OSS_CONFIG={'base_url': 'https://reports.example/base'},
+        ALLOWED_HOSTS=['testserver'],
+    )
+    def test_legacy_report_url_uses_uploaded_basename_only(self):
+        filename = 'a' * 32 + '_run_17.html'
+        self.assertEqual(
+            public_legacy_report_url(f'simc_results/{filename}'),
+            f'https://reports.example/base/{filename}',
+        )
+        for invalid_path in ('../report.html', 'simc_results/../report.html',
+                             'simc_results/not-a-run.html'):
+            with self.subTest(invalid_path=invalid_path), self.assertRaises(ReportStorageError):
+                public_legacy_report_url(invalid_path)
 
     def test_public_report_url_rejects_unsafe_base_url(self):
         key = 'simc_agent_results/simc_task_9_run_17.html'

@@ -14,6 +14,7 @@ REPORT_PREFIX = 'simc_agent_results/'
 REPORT_KEY_RE = re.compile(
     r'^simc_agent_results/simc_task_[1-9][0-9]*_run_[1-9][0-9]*\.html$'
 )
+LEGACY_REPORT_RE = re.compile(r'^[0-9a-f]{32}_run_[1-9][0-9]*\.html$')
 
 
 class ReportStorageError(RuntimeError):
@@ -124,9 +125,7 @@ def verify_uploaded_report(*, object_key: str, size: int, sha256: str,
         raise ReportValidationError('OSS report Content-Type mismatch')
 
 
-def public_report_url(object_key: str) -> str:
-    if not isinstance(object_key, str) or not REPORT_KEY_RE.fullmatch(object_key):
-        raise ReportStorageError('Invalid Agent report object key')
+def _validated_public_base_url() -> str:
     config = getattr(settings, 'OSS_CONFIG', {}) or {}
     base_url = str(config.get('base_url') or '').strip()
     parsed = urlsplit(base_url)
@@ -150,5 +149,22 @@ def public_report_url(object_key: str) -> str:
                 raise ReportStorageError('OSS report HTML must use a separate origin')
         elif report_host == application_host:
             raise ReportStorageError('OSS report HTML must use a separate origin')
+    return base_url.rstrip('/')
+
+
+def public_report_url(object_key: str) -> str:
+    if not isinstance(object_key, str) or not REPORT_KEY_RE.fullmatch(object_key):
+        raise ReportStorageError('Invalid Agent report object key')
     encoded = '/'.join(quote(part) for part in object_key.split('/'))
-    return base_url.rstrip('/') + '/' + encoded
+    return _validated_public_base_url() + '/' + encoded
+
+
+def public_legacy_report_url(file_path: str) -> str:
+    """Build the OSS URL for a local Worker report uploaded by basename."""
+    normalized = str(file_path or '').replace('\\', '/').strip()
+    if not normalized.startswith('simc_results/'):
+        raise ReportStorageError('Invalid legacy report path')
+    filename = normalized.rsplit('/', 1)[-1]
+    if not LEGACY_REPORT_RE.fullmatch(filename):
+        raise ReportStorageError('Invalid legacy report filename')
+    return _validated_public_base_url() + '/' + quote(filename)

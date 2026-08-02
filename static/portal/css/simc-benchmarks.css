@@ -92,6 +92,10 @@
     padding: 0.55rem 0.7rem;
 }
 .simc-benchmark-profile-detail-body { border-top: 1px solid #e2e8f0; padding: 0.65rem 0.7rem; }
+.simc-benchmark-profile-actions { display: flex; justify-content: flex-end; margin-bottom: 0.65rem; }
+.simc-benchmark-profile-report-link { align-items: center; background: #0f766e; border: 1px solid #0f766e; border-radius: 0.35rem; color: #fff; display: inline-flex; font-size: 0.68rem; font-weight: 700; min-height: 2rem; padding: 0.35rem 0.65rem; text-decoration: none; }
+.simc-benchmark-profile-report-link:hover { background: #115e59; border-color: #115e59; color: #fff; }
+.simc-benchmark-profile-report-link:focus-visible { outline: 2px solid #0f766e; outline-offset: 2px; }
 .simc-benchmark-profile-section + .simc-benchmark-profile-section { border-top: 1px solid #e2e8f0; margin-top: 0.7rem; padding-top: 0.7rem; }
 .simc-benchmark-profile-section h4 { color: #334155; font-size: 0.68rem; margin: 0 0 0.45rem; }
 .simc-benchmark-profile-identity { display: grid; gap: 0.25rem 0.7rem; grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr); margin: 0; }

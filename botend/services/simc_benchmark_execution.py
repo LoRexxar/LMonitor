@@ -22,7 +22,10 @@ from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON
 from botend.models import (
     SimcBenchmarkCandidate, SimcBenchmarkCase, SimcBenchmarkExecution,
     SimcBenchmarkPanel, SimcBenchmarkProfile, SimcBenchmarkResult,
-    SimcBenchmarkScenario, SimcTask, SimulationRun,
+    SimcBenchmarkScenario, SimcTask, SimcTaskArtifact, SimulationRun,
+)
+from botend.services.simc_agent_oss import (
+    ReportStorageError, public_legacy_report_url, public_report_url,
 )
 from botend.services.simc_benchmark_config import (
     MAX_PANEL_CONFIG_BYTES, build_execution_plan,
@@ -382,6 +385,35 @@ def _reusable_candidate_tasks_by_coordinate(panel, coordinate_filter=None):
             if identity and identity not in candidates:
                 candidates[identity] = {'task': task, 'result': result}
     return coordinates
+
+
+def _candidate_raw_report_urls(reusable_by_coordinate):
+    task_ids = {
+        match['task'].id
+        for candidates in reusable_by_coordinate.values()
+        for match in candidates.values()
+    }
+    if not task_ids:
+        return {}
+    urls = {}
+    artifacts = SimcTaskArtifact.objects.filter(
+        task_id__in=task_ids,
+        run_id__isnull=False,
+        artifact_type='html_report',
+    ).select_related('run').order_by('-created_at', '-id')
+    for artifact in artifacts:
+        lookup = (artifact.task_id, artifact.run.candidate_key)
+        if lookup in urls:
+            continue
+        try:
+            if str(artifact.file_path or '').startswith('simc_agent_results/'):
+                url = public_report_url(artifact.file_path)
+            else:
+                url = public_legacy_report_url(artifact.file_path)
+        except ReportStorageError:
+            continue
+        urls[lookup] = url
+    return urls
 
 
 def _reusable_candidate_tasks(panel, coordinate, reusable_by_coordinate=None):
@@ -965,6 +997,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
         projected_cases = [] if coordinate_filter is not None else plan_cases
         selected_filter = None
     reusable_by_coordinate = _reusable_candidate_tasks_by_coordinate(panel, selected_filter)
+    report_urls = _candidate_raw_report_urls(reusable_by_coordinate)
     source_tasks_by_coordinate = _latest_source_tasks_by_coordinate(panel, selected_filter)
     profiles = {
         row.profile_id: row.profile
@@ -1020,6 +1053,9 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                     'source_label': candidate['source_label'],
                     'dps': float(match['result'].dps), 'task_id': match['task'].pk,
                 }
+                report_url = report_urls.get((match['task'].pk, candidate['candidate_key']))
+                if report_url:
+                    row['raw_report_url'] = report_url
                 item_id = _candidate_item_id(candidate)
                 item_level = _candidate_item_level(candidate)
                 if item_id is not None and item_level is not None:

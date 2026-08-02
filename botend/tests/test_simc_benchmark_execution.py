@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -17,7 +17,7 @@ from botend.models import (
     SimcBenchmarkExecution, SimcBenchmarkPanel, SimcBenchmarkProfile,
     SimcBenchmarkResult,
     SimcBenchmarkScenario, SimcBenchmarkSpec, SimcContentTemplate, SimcProfile,
-    SimcTask, SimulationRun, WowItemSnapshot,
+    SimcTask, SimcTaskArtifact, SimulationRun, WowItemSnapshot,
 )
 from botend.services.simc_benchmark_execution import (
     BenchmarkExecutionConflict, backfill_completed_case_results, create_execution, reconcile_execution,
@@ -355,6 +355,31 @@ class SimcBenchmarkExecutionTests(TestCase):
             self._aggregate_candidate('baseline', 1234.0, original_case.task_id, label='Baseline'),
             self._aggregate_candidate('trinket', 1300.0, original_case.task_id, label='Trinket'),
         ])
+
+    @override_settings(
+        ALLOWED_HOSTS=['testserver'],
+        OSS_CONFIG={'base_url': 'https://reports.example.test'},
+    )
+    def test_incremental_projection_exposes_candidate_oss_raw_report_url(self):
+        execution = self._published_success()
+        task = execution.cases.get().task
+        baseline_run = task.simulation_runs.get(candidate_key='baseline')
+        SimcTaskArtifact.objects.create(
+            task=task,
+            run=baseline_run,
+            artifact_type='html_report',
+            file_path=f'simc_agent_results/simc_task_{task.id}_run_{baseline_run.id}.html',
+            file_size=123,
+        )
+
+        coordinate = serialize_incremental_panel_results(self.panel)['coordinates'][0]
+        baseline = next(row for row in coordinate['candidates'] if row['key'] == 'baseline')
+
+        self.assertEqual(
+            baseline['raw_report_url'],
+            f'https://reports.example.test/simc_agent_results/'
+            f'simc_task_{task.id}_run_{baseline_run.id}.html',
+        )
 
     def test_incremental_projection_exposes_profile_detail_for_selected_coordinate(self):
         WowItemSnapshot.objects.create(
