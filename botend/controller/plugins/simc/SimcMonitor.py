@@ -411,6 +411,40 @@ class SimcMonitor(BaseScan):
         """
         request_data = dict(composer_request or {})
         params = mode_params or {}
+        equipment_preset = params.get('equipment_preset')
+        if equipment_preset is not None:
+            if not isinstance(equipment_preset, dict) or set(equipment_preset) != {
+                'trinket1', 'trinket2',
+            }:
+                raise ValueError('benchmark equipment_preset 必须精确包含两个饰品槽')
+            if equipment_preset['trinket1'] != '' or not isinstance(
+                equipment_preset['trinket2'], str
+            ):
+                raise ValueError('benchmark equipment_preset 必须清空 trinket1 并固定 trinket2')
+            pending = {
+                'trinket1': '',
+                'trinket2': normalize_gear_candidate_value(
+                    'trinket2', equipment_preset['trinket2'],
+                ),
+            }
+            lines = []
+            in_candidate_section = False
+            for line in str(request_data.get('player_equipment') or '').splitlines():
+                stripped = line.strip()
+                if stripped.startswith('###'):
+                    in_candidate_section = True
+                current = line.partition('=')[0].strip().lower()
+                canonical = EQUIPMENT_SLOT_ALIASES.get(current, current)
+                if canonical in pending and not in_candidate_section:
+                    lines.append(f'{current}={pending.pop(canonical)}')
+                else:
+                    lines.append(line)
+            if pending:
+                raise ValueError(
+                    '基准玩家块未包含装备预设所需槽位: '
+                    + ', '.join(sorted(pending))
+                )
+            request_data['player_equipment'] = '\n'.join(lines)
         if 'simc_options' in params:
             from botend.services.simc_candidate_options import normalize_controlled_simc_options
             request_data['_candidate_simc_options'] = normalize_controlled_simc_options(

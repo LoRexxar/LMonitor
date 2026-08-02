@@ -4,6 +4,9 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from botend.services.midnight_trinket_catalog import build_mid1_panel_payload, parse_mid1_catalog
+from botend.services.simc_benchmark_config import (
+    _AGILITY_TRINKET_SPECS, _INTELLECT_TRINKET_SPECS, _STRENGTH_TRINKET_SPECS,
+)
 
 
 FIXTURE = Path(__file__).parent / 'fixtures' / 'mid1_trinkets.json'
@@ -52,6 +55,38 @@ class MidnightTrinketCatalogTests(TestCase):
         self.assertEqual({label.rpartition(' · ')[2] for label in drum_labels}, {
             '暴击', '急速', '精通', '全能',
         })
+
+    def test_payload_freezes_standard_trinket_reference_strategy(self):
+        catalog = parse_mid1_catalog(json.loads(FIXTURE.read_text()))
+        with patch(
+            'botend.services.simc_benchmark_config.resolve_default_benchmark_resources',
+            return_value={spec_key: {'apl': type('R', (), {'pk': 1})(),
+                                    'template': type('R', (), {'pk': 2})(),
+                                    'backend': type('R', (), {'pk': 3})(),
+                                    'profile': type('R', (), {'pk': 4, 'name': 'Profile'})()}
+                          for spec_key in catalog.spec_keys},
+        ):
+            payload = build_mid1_panel_payload(catalog, user_id=1)
+
+        self.assertTrue(payload['candidates'])
+        self.assertTrue(all(candidate['params']['benchmark_profile'] == {
+            'kind': 'trinket_standard_reference',
+            'item_level': 240,
+        } for candidate in payload['candidates']))
+        mapped_specs = (
+            _AGILITY_TRINKET_SPECS
+            | _INTELLECT_TRINKET_SPECS
+            | _STRENGTH_TRINKET_SPECS
+        )
+        self.assertEqual(mapped_specs, set(catalog.spec_keys))
+        self.assertEqual(
+            sum(map(len, (
+                _AGILITY_TRINKET_SPECS,
+                _INTELLECT_TRINKET_SPECS,
+                _STRENGTH_TRINKET_SPECS,
+            ))),
+            len(mapped_specs),
+        )
 
     def test_rejects_wrong_tier_missing_spec_or_untrusted_directive(self):
         raw = json.loads(FIXTURE.read_text())

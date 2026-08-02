@@ -297,7 +297,10 @@ def _normalize_candidate_params(candidate_type, params):
         # Canonical snapshots may be resubmitted by the Dashboard, but their
         # executor-control fields must be asserted rather than silently repaired.
         if 'gear_swap' in params:
-            if set(params) - {'candidate_type', 'is_base', 'gear_swap', 'simc_options'}:
+            if set(params) - {
+                'candidate_type', 'is_base', 'gear_swap', 'simc_options',
+                'benchmark_profile',
+            }:
                 _error('canonical gear params 包含未知字段', 'params')
             if params.get('candidate_type') != 'gear_swap':
                 _error('canonical candidate_type 必须是 gear_swap', 'params')
@@ -310,7 +313,9 @@ def _normalize_candidate_params(candidate_type, params):
                 _error('gear_swap 包含未知字段', 'params')
             slot, raw_value = swap.get('slot'), swap.get('raw_value')
         else:
-            unknown = set(params) - {'slot', 'raw_value', 'simc_options'}
+            unknown = set(params) - {
+                'slot', 'raw_value', 'simc_options', 'benchmark_profile',
+            }
             if unknown:
                 _error(f'gear_swap 包含未知字段: {", ".join(sorted(unknown))}', 'params')
             slot, raw_value = params.get('slot'), params.get('raw_value')
@@ -343,6 +348,20 @@ def _normalize_candidate_params(candidate_type, params):
             result['simc_options'] = normalize_controlled_simc_options(options)
         except ValueError as exc:
             _error(str(exc), 'params')
+    benchmark_profile = params.get('benchmark_profile') if isinstance(params, dict) else None
+    if benchmark_profile is not None:
+        if canonical_slot != 'trinket1':
+            _error('trinket benchmark_profile 只允许用于 trinket1 候选', 'params')
+        if not isinstance(benchmark_profile, dict) or set(benchmark_profile) != {
+            'kind', 'item_level',
+        }:
+            _error('benchmark_profile 必须是完整的受控对象', 'params')
+        if benchmark_profile.get('kind') != 'trinket_standard_reference':
+            _error('不支持的 benchmark_profile 类型', 'params')
+        item_level = benchmark_profile.get('item_level')
+        if type(item_level) is not int or not 1 <= item_level <= 1000:
+            _error('benchmark_profile item_level 无效', 'params')
+        result['benchmark_profile'] = deepcopy(benchmark_profile)
     size = len(json.dumps(result, sort_keys=True, separators=(',', ':'),
                           ensure_ascii=False).encode('utf-8'))
     if size > MAX_CANDIDATE_PARAMS_BYTES:
@@ -656,6 +675,74 @@ def _candidate_snapshot(candidate):
     }
 
 
+_STRENGTH_TRINKET_SPECS = frozenset({
+    'deathknight_blood', 'deathknight_frost', 'deathknight_unholy',
+    'paladin_protection', 'paladin_retribution',
+    'warrior_arms', 'warrior_fury', 'warrior_protection',
+})
+_AGILITY_TRINKET_SPECS = frozenset({
+    'demonhunter_devourer', 'demonhunter_havoc', 'demonhunter_vengeance',
+    'druid_feral', 'druid_guardian',
+    'hunter_beast_mastery', 'hunter_marksmanship', 'hunter_survival',
+    'monk_brewmaster', 'monk_windwalker',
+    'rogue_assassination', 'rogue_outlaw', 'rogue_subtlety',
+    'shaman_enhancement',
+})
+_INTELLECT_TRINKET_SPECS = frozenset({
+    'druid_balance', 'evoker_devastation',
+    'mage_arcane', 'mage_fire', 'mage_frost',
+    'priest_shadow', 'shaman_elemental',
+    'warlock_affliction', 'warlock_demonology', 'warlock_destruction',
+})
+_VERSATILITY_TRINKET_IDS = {
+    'agility': 142506, 'intellect': 142507, 'strength': 142508,
+}
+
+
+def _freeze_trinket_benchmark_preset(spec_key, benchmark_profile):
+    if spec_key in _STRENGTH_TRINKET_SPECS:
+        primary_stat = 'strength'
+    elif spec_key in _AGILITY_TRINKET_SPECS:
+        primary_stat = 'agility'
+    elif spec_key in _INTELLECT_TRINKET_SPECS:
+        primary_stat = 'intellect'
+    else:
+        _error(f'专精 {spec_key} 没有标准饰品主属性映射')
+    item_level = benchmark_profile['item_level']
+    return {
+        'trinket1': '',
+        'trinket2': (
+            f'id={_VERSATILITY_TRINKET_IDS[primary_stat]},'
+            f'ilevel={item_level},bonus_id=607'
+        ),
+    }
+
+
+def _freeze_case_candidates(spec_key, applicable):
+    profiles = [item.params.get('benchmark_profile') for item in applicable]
+    marked = [profile for profile in profiles if profile is not None]
+    if marked and len(marked) != len(applicable):
+        _error(f'专精 {spec_key} 的候选混用了不同 Benchmark Profile 语义')
+    if marked and any(profile != marked[0] for profile in marked[1:]):
+        _error(f'专精 {spec_key} 的候选 Benchmark Profile 不一致')
+
+    baseline = {
+        'candidate_key': 'baseline', 'candidate_label': 'Baseline',
+        'candidate_params': {'candidate_type': 'base', 'is_base': True},
+        'candidate_type': 'base', 'icon_url': '', 'source_label': '',
+    }
+    candidates = [_candidate_snapshot(item) for item in applicable]
+    if not marked:
+        return [baseline] + candidates
+
+    preset = _freeze_trinket_benchmark_preset(spec_key, marked[0])
+    baseline['candidate_params']['equipment_preset'] = deepcopy(preset)
+    for candidate in candidates:
+        candidate['candidate_params'].pop('benchmark_profile', None)
+        candidate['candidate_params']['equipment_preset'] = deepcopy(preset)
+    return [baseline] + candidates
+
+
 def _resource_display_snapshot(spec, selected):
     """Freeze display/version identities, deliberately excluding bodies and paths."""
     return {
@@ -768,11 +855,6 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
     if any(item.candidate_type != 'gear_swap' for item in candidates):
         _error('持久化候选只允许 gear_swap；baseline 由系统注入')
 
-    baseline = {
-        'candidate_key': 'baseline', 'candidate_label': 'Baseline',
-        'candidate_params': {'candidate_type': 'base', 'is_base': True},
-        'candidate_type': 'base', 'icon_url': '', 'source_label': '',
-    }
     cases = []
     for spec in specs:
         profiles = spec._snapshot_profiles
@@ -782,7 +864,7 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
             item for item in candidates
             if not item.spec_keys or spec.spec_key in item.spec_keys
         ]
-        case_candidates = [baseline] + [_candidate_snapshot(item) for item in applicable]
+        case_candidates = _freeze_case_candidates(spec.spec_key, applicable)
         for scenario in scenarios:
             for selected in profiles:
                 cases.append({

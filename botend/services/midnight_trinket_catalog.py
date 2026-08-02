@@ -65,7 +65,12 @@ def build_mid1_panel_payload(catalog,user_id,slug='midnight-s1-trinkets'):
  for order,variant in enumerate(catalog.variants):
   raw=f'id={variant.item_id},ilevel={variant.item_level}'
   if variant.bonus_id is not None: raw+=f',bonus_id={variant.bonus_id}'
-  params={'slot':'trinket1','raw_value':raw}
+  params={
+   'slot':'trinket1','raw_value':raw,
+   'benchmark_profile': {
+    'kind': 'trinket_standard_reference', 'item_level': 240,
+   },
+  }
   if variant.simc_options: params['simc_options']=list(variant.simc_options)
   label=variant.name
   if variant.option_key != 'default':

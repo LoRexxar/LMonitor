@@ -105,6 +105,99 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(frozen, scenario.simulation_params)
         self.assertEqual(execution.cases.get().task.simulation_params, scenario.simulation_params)
 
+    def test_trinket_benchmark_replaces_both_profile_slots_with_frozen_reference_pair(self):
+        candidate = self.panel.candidates.get(key='trinket')
+        candidate.params = {
+            **candidate.params,
+            'benchmark_profile': {
+                'kind': 'trinket_standard_reference',
+                'item_level': 240,
+            },
+        }
+        candidate.save(update_fields=['params'])
+        self.profile.player_equipment = (
+            'warrior="Tester"\nlevel=80\nspec=fury\n'
+            'trinket1=Original One,id=111,ilevel=300\n'
+            'trinket2=Original Two,id=123,ilevel=300\n'
+        )
+        self.profile.save(update_fields=['player_equipment'])
+
+        execution = self._create()
+        task = execution.cases.get().task
+        frozen = task.mode_params['initial_candidates']
+        self.assertEqual(frozen[0]['candidate_params']['equipment_preset'], {
+            'trinket1': '',
+            'trinket2': 'id=142508,ilevel=240,bonus_id=607',
+        })
+        self.assertEqual(
+            frozen[1]['candidate_params']['equipment_preset'],
+            frozen[0]['candidate_params']['equipment_preset'],
+        )
+
+        from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
+        rendered = [SimcMonitor.apply_candidate_overrides(
+            {'player_equipment': self.profile.player_equipment}, row['candidate_params'],
+        )['player_equipment'] for row in frozen]
+        self.assertIn('trinket1=', rendered[0])
+        self.assertNotIn('id=111', rendered[0])
+        self.assertNotIn('id=123', rendered[0])
+        self.assertIn('trinket2=,id=142508,ilevel=240,bonus_id=607', rendered[0])
+        self.assertIn('trinket1=,id=123', rendered[1])
+        self.assertEqual(rendered[1].count('id=123'), 1)
+
+        candidate.params['benchmark_profile']['item_level'] = 999
+        candidate.save(update_fields=['params'])
+        task.refresh_from_db()
+        self.assertEqual(
+            task.mode_params['initial_candidates'][0]['candidate_params']['equipment_preset'],
+            frozen[0]['candidate_params']['equipment_preset'],
+        )
+
+    def test_trinket_benchmark_internal_controls_reject_wrong_slot_and_malformed_preset(self):
+        from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
+        from botend.services.simc_benchmark_config import _normalize_candidate_params
+        from botend.services.simc_task_service import TaskCreationError, _normalize_candidates
+
+        with self.assertRaises(ValidationError):
+            _normalize_candidate_params('gear_swap', {
+                'slot': 'trinket2', 'raw_value': 'id=123,ilevel=240',
+                'benchmark_profile': {
+                    'kind': 'trinket_standard_reference', 'item_level': 240,
+                },
+            })
+
+        malformed = {
+            'candidate_key': 'invalid-preset',
+            'candidate_params': {
+                'candidate_type': 'base', 'is_base': True,
+                'equipment_preset': {'trinket1': '', 'head': 'id=1'},
+            },
+        }
+        with self.assertRaises(TaskCreationError):
+            _normalize_candidates([malformed])
+        with self.assertRaisesRegex(ValueError, '精确包含两个饰品槽'):
+            SimcMonitor.apply_candidate_overrides(
+                {'player_equipment': 'trinket1=id=1\ntrinket2=id=2'},
+                malformed['candidate_params'],
+            )
+
+    def test_historical_gear_swap_without_benchmark_profile_keeps_original_second_slot(self):
+        from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
+
+        original = (
+            'warrior="Tester"\nlevel=80\nspec=fury\n'
+            'trinket1=Original One,id=111,ilevel=300\n'
+            'trinket2=Original Two,id=123,ilevel=300\n'
+        )
+        rendered = SimcMonitor.apply_candidate_overrides(
+            {'player_equipment': original},
+            {'candidate_type': 'gear_swap', 'gear_swap': {
+                'slot': 'trinket1', 'raw_value': 'id=456,ilevel=300',
+            }},
+        )['player_equipment']
+        self.assertIn('trinket1=,id=456,ilevel=300', rendered)
+        self.assertIn('trinket2=Original Two,id=123,ilevel=300', rendered)
+
     def _run(self, task, sequence, status, key=None, label=None, dps=None):
         return SimulationRun.objects.create(
             task=task, sequence=sequence, candidate_key=key or f'candidate-{sequence}',

@@ -29,6 +29,7 @@ from botend.services.simc_apl.publish import (
     validate_apl_for_profile,
 )
 from botend.services.simc_composer import validate_simulation_options
+from botend.services.simc_player_config import normalize_gear_candidate_value
 
 
 class TaskCreationError(Exception):
@@ -149,7 +150,7 @@ MODE_PARAMS_WHITELIST = {
 CANDIDATE_PARAMS_WHITELIST = {
     'candidate_type', 'is_base', 'gear_swap', 'talent_override',
     'talent_candidate', 'apl_override', 'attribute_ratings', 'search',
-    'simc_options',
+    'simc_options', 'equipment_preset',
 }
 
 
@@ -330,6 +331,17 @@ def _normalize_candidates(candidates, round_number=1):
                 )
             except ValueError as exc:
                 raise TaskCreationError(str(exc)) from exc
+        if 'equipment_preset' in params:
+            preset = params['equipment_preset']
+            if not isinstance(preset, dict) or set(preset) != {'trinket1', 'trinket2'}:
+                raise TaskCreationError('benchmark equipment_preset 必须精确包含两个饰品槽')
+            if preset['trinket1'] != '' or not isinstance(preset['trinket2'], str):
+                raise TaskCreationError('benchmark equipment_preset 必须清空 trinket1 并固定 trinket2')
+            try:
+                normalize_gear_candidate_value('trinket2', preset['trinket2'])
+            except ValueError as exc:
+                raise TaskCreationError(str(exc)) from exc
+            params['equipment_preset'] = deepcopy(preset)
         key = str(candidate.get('candidate_key') or candidate.get('key') or f'candidate-{index}')[:200]
         frozen.append({
             'candidate_key': key,
