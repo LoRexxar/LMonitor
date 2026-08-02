@@ -105,6 +105,23 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(frozen, scenario.simulation_params)
         self.assertEqual(execution.cases.get().task.simulation_params, scenario.simulation_params)
 
+    def test_explicit_raid_buffs_are_frozen_into_execution_and_task(self):
+        scenario = self.panel.scenarios.get(key='patchwerk')
+        scenario.simulation_params = {
+            'iterations': 1000,
+            'raid_buffs': ['arcane_intellect', 'battle_shout'],
+        }
+        scenario.save(update_fields=['simulation_params'])
+
+        execution = self._create()
+
+        frozen = execution.config_snapshot['scenarios'][0]['simulation_params']
+        self.assertEqual(frozen['raid_buffs'], ['arcane_intellect', 'battle_shout'])
+        self.assertEqual(
+            execution.cases.get().task.simulation_params['raid_buffs'],
+            frozen['raid_buffs'],
+        )
+
     def test_trinket_benchmark_replaces_both_profile_slots_with_frozen_reference_pair(self):
         candidate = self.panel.candidates.get(key='trinket')
         candidate.params = {

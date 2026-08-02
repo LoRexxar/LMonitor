@@ -92,6 +92,30 @@ class SimcComposerEquipmentSlotResolutionTests(ComposerTestCase):
         self.assertNotIn('gear_crit_rating=', content)
         self.assertNotIn('gear_mastery_rating=', content)
 
+    def test_explicit_raid_buffs_render_all_managed_overrides_and_empty_really_clears(self):
+        base = self.base
+        base.content = '{player_identity}\n{equipment}\n{simulation_options}\n{output_options}'
+        base.save(update_fields=['content'])
+
+        selected, _, error = self.compose(
+            base, raid_buffs=['arcane_intellect', 'battle_shout'],
+        )
+        self.assertIsNone(error)
+        self.assertIn('override.arcane_intellect=1', selected)
+        self.assertIn('override.battle_shout=1', selected)
+        self.assertIn('override.mark_of_the_wild=0', selected)
+
+        cleared, _, error = self.compose(base, raid_buffs=[])
+        self.assertIsNone(error)
+        self.assertIn('optimal_raid=0', cleared)
+        self.assertIn('override.arcane_intellect=0', cleared)
+        self.assertIn('override.battle_shout=0', cleared)
+
+        historical, _, error = self.compose(base)
+        self.assertIsNone(error)
+        self.assertIn('override.battle_shout=1', historical)
+        self.assertNotIn('override.arcane_intellect=', historical)
+
     def test_battlenet_null_strength_removes_stale_template_override(self):
         self.base.content = (
             'warrior="Legacy"\nspec=fury\ngear_strength=93330\n'

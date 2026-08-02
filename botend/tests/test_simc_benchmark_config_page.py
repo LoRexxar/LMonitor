@@ -110,3 +110,13 @@ class SimcBenchmarkConfigPageTests(TestCase):
         self.assertIn('用于结果坐标和跨次补算匹配', script)
         self.assertIn('仅用于界面展示，可随时修改', script)
         self.assertNotIn("field('key *','key'", script)
+
+    def test_scenario_advanced_editor_has_server_catalog_raid_buff_bulk_controls(self):
+        script = Path('static/dashboard/js/simc-benchmark-dashboard.js').read_text()
+        self.assertIn("resources?.raid_buffs", script)
+        self.assertIn("dataset:{raidBuff", script)
+        self.assertIn("dataset:{raidBuffToggle", script)
+        self.assertIn('全选 Raid Buffs', script)
+        self.assertIn('清空 Raid Buffs', script)
+        self.assertIn('indeterminate', script)
+        self.assertIn('simulation_params.raid_buffs', script)

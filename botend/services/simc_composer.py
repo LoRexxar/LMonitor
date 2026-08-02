@@ -28,6 +28,24 @@ from botend.models import SimcContentTemplate, SimcApl, SimcProfile
 from botend.services.simc_player_config import SPEC_CLASS, canonical_simc_spec_identity
 
 
+# Server-owned SimulationCraft raid-buff contract. Persisted values are bare
+# keys; rendering is the only place that adds the executable ``override.``
+# prefix. Keep this order stable for snapshots and UI presentation.
+SIMC_RAID_BUFF_VALUES = (
+    'arcane_intellect',
+    'battle_shout',
+    'mark_of_the_wild',
+    'power_word_fortitude',
+    'skyfury',
+    'chaos_brand',
+    'mystic_touch',
+    'hunters_mark',
+    'mortal_wounds',
+    'bleeding',
+    'bloodlust',
+)
+
+
 def validate_simulation_options(params: Dict[str, Any]) -> str:
     """Validate canonical persisted options, with request-name compatibility."""
     def value(canonical_name, request_name, default):
@@ -65,6 +83,16 @@ def validate_simulation_options(params: Dict[str, Any]) -> str:
         errors.append(bounded_number('time', params['time'], 1, 86400))
     if 'desired_targets' in params and 'target_count' in params:
         errors.append(integer('target_count', params['target_count'], 1, 1000))
+    if 'raid_buffs' in params:
+        raid_buffs = params['raid_buffs']
+        if not isinstance(raid_buffs, list):
+            errors.append('raid_buffs 必须是列表')
+        elif any(not isinstance(item, str) for item in raid_buffs):
+            errors.append('raid_buffs 只能包含字符串')
+        elif len(set(raid_buffs)) != len(raid_buffs):
+            errors.append('raid_buffs 不允许重复值')
+        elif any(item not in SIMC_RAID_BUFF_VALUES for item in raid_buffs):
+            errors.append('raid_buffs 包含不支持的 Raid Buff')
     for error in errors:
         if error:
             return error
@@ -733,9 +761,17 @@ class SimcComposer:
             f"max_time={request_data.get('time', 300)}",
             f"desired_targets={request_data.get('target_count', 1)}",
             'optimal_raid=0',
-            'override.battle_shout=1',
-            f"iterations={request_data.get('iterations', 10000)}",
         ]
+        if 'raid_buffs' in request_data:
+            selected_raid_buffs = set(request_data['raid_buffs'])
+            options.extend(
+                f'override.{name}={1 if name in selected_raid_buffs else 0}'
+                for name in SIMC_RAID_BUFF_VALUES
+            )
+        else:
+            # Preserve the exact historical default when the new field is absent.
+            options.append('override.battle_shout=1')
+        options.append(f"iterations={request_data.get('iterations', 10000)}")
         # PTR is frozen with the Profile resource. Missing keys on historical
         # versions remain Live; only the explicit boolean true enables PTR.
         if request_data.get('use_ptr') is True:

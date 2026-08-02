@@ -183,6 +183,19 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
   .candidate-item-name { grid-column:1/-1; }
 }
 
+.scenario-raid-buffs { display:grid; gap:.65rem; border-top:1px solid #e8edf3; padding-top:.8rem; }
+.scenario-raid-buffs-head { display:flex; align-items:center; justify-content:space-between; gap:.75rem; }
+.scenario-raid-buffs-head > div:first-child { display:flex; align-items:baseline; gap:.55rem; min-width:0; }
+.scenario-raid-buffs-head small { color:#64748b; font-size:.72rem; }
+.scenario-raid-buffs-actions { display:flex; align-items:center; gap:.45rem; flex-wrap:wrap; }
+.raid-buff-toggle,.raid-buff-choice { display:flex; align-items:center; gap:.42rem; cursor:pointer; }
+.raid-buff-toggle { min-height:34px; border:1px solid #d7dee8; border-radius:.45rem; padding:.35rem .58rem; background:#fff; font-size:.76rem; font-weight:600; }
+.scenario-raid-buff-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.42rem; }
+.raid-buff-choice { min-width:0; min-height:34px; border:1px solid #e2e8f0; border-radius:.45rem; padding:.35rem .52rem; background:#fff; font-size:.76rem; }
+.raid-buff-choice:has(input:checked) { border-color:#93c5fd; background:#eff6ff; color:#1d4ed8; }
+.raid-buff-choice span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.simc-benchmark-btn.compact { min-height:34px; padding:.35rem .58rem; font-size:.76rem; }
+
 @media (max-width: 640px) {
   .main-content:has(#simc-benchmarks.active) { padding: .75rem !important; overflow-x: hidden; }
   #simc-benchmarks { width: 100%; max-width: 100vw; }
@@ -207,6 +220,7 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
   .simc-benchmark-config-page .section-heading-copy p { font-size:.75rem; }.simc-benchmark-config-page .section-kicker { font-size:.68rem; }
   .simc-benchmark-config-page .config-card-head .danger { min-width:44px; min-height:44px; }
   .advanced-section-body { padding:.75rem; }.advanced-section-body > section { padding:.75rem; }
+  .scenario-raid-buffs-head { align-items:stretch; flex-direction:column; }.scenario-raid-buffs-actions { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); }.scenario-raid-buff-grid { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }.raid-buff-toggle,.simc-benchmark-btn.compact { min-height:44px; justify-content:center; }
   .simc-benchmark-advanced-section > summary { padding:.7rem .85rem; }
   .simc-benchmark-config-page .config-card-grid,.simc-benchmark-config-page .structured-params { grid-template-columns:minmax(0,1fr); }
   .simc-benchmark-config-page .config-card-grid .span-all,.simc-benchmark-config-page .candidate-spec-picker.span-all { grid-column:auto; }

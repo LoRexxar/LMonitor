@@ -90,6 +90,18 @@ class SimcBenchmarkOptionsApiTests(TestCase):
         ])
         self.assertEqual(data['fight_styles'][0]['label'], 'Patchwerk（木桩）')
 
+    def test_options_publish_server_owned_raid_buff_catalog(self):
+        data = self.client.get('/api/simc-benchmarks/options/').json()['data']
+        self.assertEqual([row['value'] for row in data['raid_buffs']], [
+            'arcane_intellect', 'battle_shout', 'mark_of_the_wild',
+            'power_word_fortitude', 'skyfury', 'chaos_brand', 'mystic_touch',
+            'hunters_mark', 'mortal_wounds', 'bleeding', 'bloodlust',
+        ])
+        self.assertEqual(data['raid_buffs'][0], {
+            'value': 'arcane_intellect', 'label': '奥术智慧',
+            'simc_option': 'override.arcane_intellect',
+        })
+
     def test_create_and_edit_use_different_immutable_ownership_contexts(self):
         created = self.client.get('/api/simc-benchmarks/options/').json()['data']
         self.assertEqual(created['ownership_context'], 'current_user')

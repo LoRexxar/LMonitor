@@ -82,6 +82,31 @@ class SimcBenchmarkConfigServiceTests(TestCase):
         with self.assertRaises(ValidationError):
             normalize_panel_payload(payload, self.user_id)
 
+    def test_raid_buffs_are_explicit_ordered_whitelist_and_missing_is_preserved(self):
+        missing = normalize_panel_payload(self.payload, self.user_id)
+        self.assertNotIn('raid_buffs', missing['scenarios'][0]['simulation_params'])
+
+        params = dict(self.payload['scenarios'][0]['simulation_params'])
+        params['raid_buffs'] = ['battle_shout', 'arcane_intellect']
+        payload = dict(self.payload, scenarios=[dict(
+            self.payload['scenarios'][0], simulation_params=params,
+        )])
+        normalized = normalize_panel_payload(payload, self.user_id)
+        self.assertEqual(
+            normalized['scenarios'][0]['simulation_params']['raid_buffs'],
+            ['arcane_intellect', 'battle_shout'],
+        )
+
+        for invalid in (None, 'battle_shout', ['battle_shout', 'battle_shout'],
+                        ['battle_shout', 'override.foo=1\nptr=1']):
+            params = dict(self.payload['scenarios'][0]['simulation_params'])
+            params['raid_buffs'] = invalid
+            payload = dict(self.payload, scenarios=[dict(
+                self.payload['scenarios'][0], simulation_params=params,
+            )])
+            with self.subTest(invalid=invalid), self.assertRaises(ValidationError):
+                normalize_panel_payload(payload, self.user_id)
+
     def test_normalizes_single_line_and_structured_gear_to_executor_shape(self):
         payload = dict(self.payload)
         payload['candidates'] = [

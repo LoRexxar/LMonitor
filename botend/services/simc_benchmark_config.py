@@ -32,7 +32,7 @@ from botend.services.simc_player_config import (
 from botend.services.simc_task_service import (
     SIMULATION_PARAMS_WHITELIST, TaskCreationError, validate_resource_ownership,
 )
-from botend.services.simc_composer import validate_simulation_options
+from botend.services.simc_composer import SIMC_RAID_BUFF_VALUES, validate_simulation_options
 from botend.services.simc_candidate_options import normalize_controlled_simc_options
 
 MAX_SPECS = len(SUPPORTED_SIMC_SPEC_IDENTITIES)
@@ -55,6 +55,21 @@ SIMC_FIGHT_STYLES = (
     ('Ultraxion', 'Ultraxion（奥卓克希昂）'),
 )
 SIMC_FIGHT_STYLE_VALUES = frozenset(value for value, _label in SIMC_FIGHT_STYLES)
+
+SIMC_RAID_BUFFS = (
+    ('arcane_intellect', '奥术智慧'),
+    ('battle_shout', '战斗怒吼'),
+    ('mark_of_the_wild', '野性印记'),
+    ('power_word_fortitude', '真言术：韧'),
+    ('skyfury', '天怒'),
+    ('chaos_brand', '混乱烙印'),
+    ('mystic_touch', '秘法之触'),
+    ('hunters_mark', '猎人印记'),
+    ('mortal_wounds', '致死重伤'),
+    ('bleeding', '流血'),
+    ('bloodlust', '嗜血 / 英勇'),
+)
+assert tuple(value for value, _label in SIMC_RAID_BUFFS) == SIMC_RAID_BUFF_VALUES
 MAX_GEAR_RAW_VALUE_CHARS = 2048
 MAX_CANDIDATE_PARAMS_BYTES = 16 * 1024
 MAX_PANEL_CONFIG_BYTES = 2 * 1024 * 1024
@@ -249,8 +264,10 @@ def _normalize_simulation_params(value):
     unknown = sorted(set(value) - SIMULATION_PARAMS_WHITELIST)
     if unknown:
         _error(f'simulation_params 包含未知字段: {", ".join(unknown)}', 'simulation_params')
-    # JSON scalars only. In particular, nested objects/lists are not executable options.
+    # JSON scalars only except for the server-owned raid-buff key list.
     for key, item in value.items():
+        if key == 'raid_buffs':
+            continue
         if item is not None and not isinstance(item, (str, int, float, bool)):
             _error(f'simulation_params.{key} 类型无效', 'simulation_params')
         if isinstance(item, float) and not math.isfinite(item):
@@ -258,10 +275,14 @@ def _normalize_simulation_params(value):
     options_error = validate_simulation_options(value)
     if options_error:
         _error(options_error, 'simulation_params')
+    normalized = deepcopy(value)
+    if 'raid_buffs' in normalized:
+        selected = set(normalized['raid_buffs'])
+        normalized['raid_buffs'] = [name for name in SIMC_RAID_BUFF_VALUES if name in selected]
     fight_style = value.get('fight_style')
     if fight_style is not None and fight_style not in SIMC_FIGHT_STYLE_VALUES:
         _error('simulation_params.fight_style 不是当前 SimC 支持的战斗类型', 'simulation_params')
-    return deepcopy(value)
+    return normalized
 
 
 def _normalize_item_options(raw_value):
