@@ -189,6 +189,7 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
 .scenario-raid-buffs-head small { color:#64748b; font-size:.72rem; }
 .scenario-raid-buffs-actions { display:flex; align-items:center; gap:.45rem; flex-wrap:wrap; }
 .raid-buff-toggle,.raid-buff-choice { display:flex; align-items:center; gap:.42rem; cursor:pointer; }
+.raid-buff-toggle input,.raid-buff-choice input { flex:0 0 auto; width:1rem !important; height:1rem; min-height:1rem !important; margin:0; padding:0; box-shadow:none; accent-color:#315db6; }
 .raid-buff-toggle { min-height:34px; border:1px solid #d7dee8; border-radius:.45rem; padding:.35rem .58rem; background:#fff; font-size:.76rem; font-weight:600; }
 .scenario-raid-buff-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.42rem; }
 .raid-buff-choice { min-width:0; min-height:34px; border:1px solid #e2e8f0; border-radius:.45rem; padding:.35rem .52rem; background:#fff; font-size:.76rem; }

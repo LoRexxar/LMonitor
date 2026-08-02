@@ -120,3 +120,8 @@ class SimcBenchmarkConfigPageTests(TestCase):
         self.assertIn('清空 Raid Buffs', script)
         self.assertIn('indeterminate', script)
         self.assertIn('simulation_params.raid_buffs', script)
+
+        styles = Path('static/dashboard/css/simc-benchmark-dashboard.css').read_text()
+        self.assertIn('.raid-buff-toggle input,.raid-buff-choice input', styles)
+        self.assertIn('width:1rem', styles)
+        self.assertIn('flex:0 0 auto', styles)
