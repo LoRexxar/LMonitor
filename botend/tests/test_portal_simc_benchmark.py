@@ -288,6 +288,9 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIn('simc-benchmark-spec-row-toggle', renderer)
         self.assertIn('aria-expanded', renderer)
         self.assertIn('simc-benchmark-spec-profile-details', renderer)
+        self.assertIn('query.set("spec", coordinate?.spec_key', renderer)
+        self.assertIn('query.set("profile", coordinate?.profile_key', renderer)
+        self.assertIn('nextCoordinate?.profile_detail', renderer)
         self.assertIn('.simc-benchmark-spec-profile-details', self.CSS)
         self.assertNotIn('展开本次模拟 Profile', renderer)
 
@@ -359,7 +362,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             'simc-benchmark-gear-hover-guide', 'simc-benchmark-gear-tooltip',
         ):
             self.assertIn(contract, self.JS + self.CSS)
-        self.assertIn('?v=20260802_frozen_profile', self.RESULTS_TEMPLATE)
+        self.assertIn('?v=20260803_profile_on_demand', self.RESULTS_TEMPLATE)
 
     def test_result_renderer_uses_frozen_target_count_and_duration_for_scenarios(self):
         for contract in (

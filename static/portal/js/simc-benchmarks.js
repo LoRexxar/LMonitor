@@ -363,17 +363,52 @@
         const metrics = node("div", "simc-benchmark-spec-metrics");
         metrics.appendChild(node("strong", "simc-benchmark-spec-dps", entry.dps === null ? "暂无结果" : `${numberFormat.format(entry.dps)} DPS`));
         metrics.appendChild(node("small", "simc-benchmark-spec-relative", entry.dps === null || highest <= 0 ? "该场景未完成" : `相对最高 ${(entry.dps * 100 / highest).toFixed(1)}%`));
-        const profileDetails = renderProfileDetails(coordinate?.profile_detail, "");
+        let profileDetails = renderProfileDetails(coordinate?.profile_detail, "");
         const detailId = `simc-benchmark-spec-profile-${index}`;
         profileDetails.id = detailId;
         profileDetails.classList.add("simc-benchmark-spec-profile-details");
         toggle.setAttribute("aria-expanded", "false");
         toggle.setAttribute("aria-controls", detailId);
         toggle.setAttribute("aria-label", `${coordinate?.labels?.spec || coordinate?.spec_key || "职业专精"} Profile`);
-        toggle.addEventListener("click", () => {
-          profileDetails.open = !profileDetails.open;
-          toggle.setAttribute("aria-expanded", String(profileDetails.open));
-          row.classList.toggle("is-expanded", profileDetails.open);
+        let profileLoading = false;
+        toggle.addEventListener("click", async () => {
+          if (profileDetails.open) {
+            profileDetails.open = false;
+            toggle.setAttribute("aria-expanded", "false");
+            row.classList.remove("is-expanded");
+            return;
+          }
+          profileDetails.open = true;
+          toggle.setAttribute("aria-expanded", "true");
+          row.classList.add("is-expanded");
+          if (coordinate?.profile_detail || !detailUrl || profileLoading) return;
+          profileLoading = true;
+          toggle.setAttribute("aria-busy", "true");
+          profileDetails.replaceChildren(state("正在加载冻结 Profile…", "loading"));
+          const query = new URLSearchParams();
+          query.set("selected", "1");
+          query.set("spec", coordinate?.spec_key || "");
+          query.set("profile", coordinate?.profile_key || "");
+          query.set("scenario", coordinate?.scenario_key || select.value);
+          try {
+            const nextPayload = await requestJson(`${detailUrl}?${query.toString()}`);
+            const nextRows = Array.isArray(nextPayload?.results?.coordinates)
+              ? nextPayload.results.coordinates : [];
+            const nextCoordinate = nextRows[0];
+            if (!nextCoordinate?.profile_detail) throw new Error("Frozen profile detail unavailable");
+            coordinate.profile_detail = nextCoordinate.profile_detail;
+            const loadedDetails = renderProfileDetails(nextCoordinate?.profile_detail, "");
+            loadedDetails.id = detailId;
+            loadedDetails.classList.add("simc-benchmark-spec-profile-details");
+            loadedDetails.open = true;
+            profileDetails.replaceWith(loadedDetails);
+            profileDetails = loadedDetails;
+          } catch (error) {
+            profileDetails.replaceChildren(state("冻结 Profile 加载失败，请稍后重试", "error"));
+          } finally {
+            profileLoading = false;
+            toggle.removeAttribute("aria-busy");
+          }
         });
         toggle.append(identity, track, metrics);
         row.append(toggle, profileDetails); chart.appendChild(row);
