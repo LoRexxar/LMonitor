@@ -366,6 +366,23 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIn('panel?.result_updated_at', self.JS)
         self.assertNotIn('Promise.all(panels.map((panel) => loadPanel', self.JS)
 
+    def test_benchmark_collection_has_clear_list_columns_metrics_and_action(self):
+        renderer_start = self.JS.index('function renderPanelList')
+        renderer_end = self.JS.index('\n  async function loadBenchmarks', renderer_start)
+        renderer = self.JS[renderer_start:renderer_end]
+
+        for contract in (
+            'simc-benchmark-list-header', '模拟任务', '数据概览',
+            'role", "list"', 'role", "listitem"',
+            'simc-benchmark-list-kicker', '公开模拟任务',
+            'simc-benchmark-list-metric', 'simc-benchmark-list-metric-label',
+            'simc-benchmark-list-metric-value', '查看结果',
+            'simc-benchmark-list-action',
+        ):
+            self.assertIn(contract, renderer)
+        self.assertIn('.simc-benchmark-list-header', self.CSS)
+        self.assertIn('.simc-benchmark-list-action', self.CSS)
+
     def test_public_renderer_uses_spec_driven_profile_and_scenario_filters(self):
         for contract in ('payload?.results?.coordinate_options', 'spec_key', 'scenario_key', 'profile_key',
                          'syncFilterOptions', 'availableCoordinates', 'profile_key',
@@ -468,7 +485,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             'simc-benchmark-gear-hover-guide', 'simc-benchmark-gear-tooltip',
         ):
             self.assertIn(contract, self.JS + self.CSS)
-        self.assertIn('?v=20260803_panel_list', self.RESULTS_TEMPLATE)
+        self.assertIn('?v=20260803_list_rows', self.RESULTS_TEMPLATE)
 
     def test_result_renderer_uses_frozen_target_count_and_duration_for_scenarios(self):
         for contract in (

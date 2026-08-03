@@ -626,24 +626,55 @@
 
   function renderPanelList(root, panels) {
     const list = node("div", "simc-benchmark-list");
+    list.setAttribute("role", "list");
+
+    const listHeader = node("div", "simc-benchmark-list-header");
+    listHeader.setAttribute("aria-hidden", "true");
+    listHeader.append(
+      node("span", "", "模拟任务"),
+      node("span", "", "数据概览"),
+      node("span", "", "操作"),
+    );
+    list.appendChild(listHeader);
+
     panels.forEach((panel) => {
       const panelId = Number(panel?.id);
       if (!Number.isInteger(panelId) || panelId <= 0) return;
+      const panelName = panel?.name || "未命名基线任务";
       const link = node("a", "simc-benchmark-list-row");
       link.href = `/portal/simc-benchmarks/${encodeURIComponent(String(panel.id))}/`;
+      link.setAttribute("role", "listitem");
+      link.setAttribute("aria-label", `查看 ${panelName} 的模拟结果`);
+
       const copy = node("div", "simc-benchmark-list-copy");
-      copy.appendChild(node("h2", "simc-benchmark-list-name", panel?.name || "未命名基线任务"));
+      copy.append(
+        node("span", "simc-benchmark-list-kicker", "公开模拟任务"),
+        node("h2", "simc-benchmark-list-name", panelName),
+      );
       if (panel?.description) {
         copy.appendChild(node("p", "simc-benchmark-list-description", panel.description));
       }
+
       const meta = node("div", "simc-benchmark-list-meta");
       const resultCount = Math.max(0, Number(panel?.result_count) || 0);
-      meta.append(
-        node("span", "", `数据量 ${numberFormat.format(resultCount)}`),
-        node("span", "", `更新于 ${formatResultUpdateTime(panel?.result_updated_at)}`),
+      const resultMetric = node("span", "simc-benchmark-list-metric");
+      resultMetric.append(
+        node("span", "simc-benchmark-list-metric-label", "数据量"),
+        node("strong", "simc-benchmark-list-metric-value", numberFormat.format(resultCount)),
+      );
+      const updateMetric = node("span", "simc-benchmark-list-metric");
+      updateMetric.append(
+        node("span", "simc-benchmark-list-metric-label", "数据更新"),
+        node("strong", "simc-benchmark-list-metric-value", formatResultUpdateTime(panel?.result_updated_at)),
+      );
+      meta.append(resultMetric, updateMetric);
+
+      const action = node("span", "simc-benchmark-list-action");
+      action.append(
+        node("span", "", "查看结果"),
         node("span", "simc-benchmark-list-arrow", "→"),
       );
-      link.append(copy, meta);
+      link.append(copy, meta, action);
       list.appendChild(link);
     });
     root.replaceChildren(list);
