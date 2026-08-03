@@ -1438,9 +1438,9 @@ function getSpecDotClass(specValue) {
     return 'bg-gray-500 text-white';
 }
 
-function renderSpecBadgeHtml(specValue) {
+function renderSpecBadgeHtml(specValue, displayValue = '') {
     const spec = String(specValue || '').trim();
-    const text = spec || '-';
+    const text = String(displayValue || spec || '-').trim();
     const cls = getSpecBadgeClass(spec);
     const dotCls = getSpecDotClass(spec);
     const mark = spec ? spec.charAt(0).toUpperCase() : '?';
@@ -1823,6 +1823,7 @@ function loadSimcWorkbenchProfiles(page) {
             const id = row.id || 0;
             const name = escapeHtml(row.name || '-');
             const spec = row.spec || '';
+            const specLabel = row.spec_label || spec;
             const mode = row.player_config_mode || 'battlenet';
             const isSystem = row.is_system === true;
             const equipmentLineCount = Number(row.equipment_line_count || 0);
@@ -1847,7 +1848,7 @@ function loadSimcWorkbenchProfiles(page) {
             return `<tr class="hover:bg-gray-50 border-b border-gray-100">
                 <td class="px-3 py-3 text-center text-gray-500 text-xs">${offset}</td>
                 <td class="px-3 py-3 text-sm font-medium text-gray-900 max-w-[200px] truncate" title="${name}">${name}</td>
-                <td class="px-3 py-3 text-center">${renderSpecBadgeHtml(spec)}</td>
+                <td class="px-3 py-3 text-center">${renderSpecBadgeHtml(spec, specLabel)}</td>
                 <td class="px-3 py-3 text-xs text-gray-500 max-w-[220px] truncate" title="${sourceTitle}">${sourceTitle}</td>
                 <td class="px-3 py-3 text-center"><span class="rounded-full px-2 py-1 text-xs ${statusClass}">${statusText}</span></td>
                 <td class="px-3 py-3 text-center">
@@ -1880,7 +1881,7 @@ function renderSimcProfileDetailDialog(detail) {
     const body = document.getElementById('simc-dialog-body');
     if (!body) return;
     const syncNotice = profile.is_system && profile.can_edit ? '<p class="mt-2 text-xs text-amber-700">这是自动同步的默认配置；允许编辑，但下次同步可能覆盖本次修改。</p>' : '';
-    body.innerHTML = `<div class="space-y-4" data-profile-detail-id="${esc(profile.id)}"><div class="flex flex-wrap gap-3 text-sm"><span>配置：<b>${esc(profile.name)}</b></span><span>专精：<b>${esc(profile.spec)}</b></span><span>状态：<b>${profile.is_active ? '生效中' : '未生效'}</b></span></div>${syncNotice}<section><div class="mb-2 flex items-center justify-between gap-3"><h4 class="font-semibold">装备、附魔与宝石</h4>${profile.can_edit ? '<button type="button" onclick="simcWbSaveProfileEquipment()" class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700">保存装备修改</button>' : ''}</div><p class="mb-2 text-xs text-slate-500">只需修改装备 ID 和装等；名称、附魔、宝石等信息保存后由后端重新解析。</p><div class="grid gap-2 sm:grid-cols-2">${equipment}</div></section><section><h4 class="mb-2 font-semibold">原始玩家配置字符串</h4><pre class="max-h-[28rem] overflow-auto rounded-xl bg-slate-950 p-3 text-xs leading-5 text-slate-100 whitespace-pre-wrap">${esc(profile.raw_player_equipment)}</pre></section></div>`;
+    body.innerHTML = `<div class="space-y-4" data-profile-detail-id="${esc(profile.id)}"><div class="flex flex-wrap gap-3 text-sm"><span>配置：<b>${esc(profile.name)}</b></span><span>专精：<b>${esc(profile.spec_label || profile.spec)}</b></span><span>状态：<b>${profile.is_active ? '生效中' : '未生效'}</b></span></div>${syncNotice}<section><div class="mb-2 flex items-center justify-between gap-3"><h4 class="font-semibold">装备、附魔与宝石</h4>${profile.can_edit ? '<button type="button" onclick="simcWbSaveProfileEquipment()" class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700">保存装备修改</button>' : ''}</div><p class="mb-2 text-xs text-slate-500">只需修改装备 ID 和装等；名称、附魔、宝石等信息保存后由后端重新解析。</p><div class="grid gap-2 sm:grid-cols-2">${equipment}</div></section><section><h4 class="mb-2 font-semibold">原始玩家配置字符串</h4><pre class="max-h-[28rem] overflow-auto rounded-xl bg-slate-950 p-3 text-xs leading-5 text-slate-100 whitespace-pre-wrap">${esc(profile.raw_player_equipment)}</pre></section></div>`;
 }
 
 async function simcWbSaveProfileEquipment() {
@@ -3060,7 +3061,7 @@ async function loadSimcAplCandidates(spec, control = null) {
         container.innerHTML = rows.length ? rows.map(row => `
             <label class="mb-2 flex cursor-pointer items-start gap-2 rounded-xl border bg-white p-3">
                 <input type="radio" name="simc-sim-apl" value="${Number(row.id) || ''}" ${row.is_default === true ? 'checked' : ''}>
-                <span><b>${escapeHtml(row.name || `APL #${row.id}`)}</b><span class="block text-xs text-gray-500">${escapeHtml(row.spec || '')} · ${escapeHtml(row.source || '')}</span></span>
+                <span><b>${escapeHtml(row.name || `APL #${row.id}`)}</b><span class="block text-xs text-gray-500">${escapeHtml(row.spec_label || row.spec || '')} · ${escapeHtml(row.source || '')}</span></span>
             </label>`).join('') : '<span class="text-amber-700">当前 Profile 专精没有可选 APL。</span>';
     } catch (error) {
         simcResolvedBaseTemplateId = 0;
@@ -3092,7 +3093,7 @@ async function loadSimcSimProfileSelect(preferredId = 0, control = null) {
             const label = profile.is_system === true
                 ? `系统默认配置 · ${profile.name || `Profile #${profile.id}`}`
                 : (profile.name || `Profile #${profile.id}`);
-            return `<option value="${Number(profile.id) || ''}" data-spec="${escapeHtml(profile.spec || '')}">${escapeHtml(label)} (${escapeHtml(profile.spec || '-')})</option>`;
+            return `<option value="${Number(profile.id) || ''}" data-spec="${escapeHtml(profile.spec || '')}">${escapeHtml(label)} (${escapeHtml(profile.spec_label || profile.spec || '-')})</option>`;
         }).join('');
         if (matchingProfiles.some(profile => String(profile.id) === previous)) {
             select.value = previous;
@@ -3189,7 +3190,7 @@ async function loadSimcSimSavedProfiles() {
         container.innerHTML = profiles.length ? profiles.map(profile => `
             <button type="button" class="simc-sim-load-profile mb-1 flex w-full items-center gap-2 rounded-md border bg-white px-2.5 py-1.5 text-left text-xs" data-profile-id="${Number(profile.id) || ''}">
                 <span class="min-w-0 flex-1 truncate font-medium">${escapeHtml(profile.name || `Profile #${profile.id}`)}</span>
-                <span class="text-gray-500">${escapeHtml(profile.spec || '-')}</span>
+                <span class="text-gray-500">${escapeHtml(profile.spec_label || profile.spec || '-')}</span>
             </button>`).join('') : '<div class="text-xs text-gray-500">暂无 Profile，请先在 Profile 管理中创建。</div>';
         container.querySelectorAll('.simc-sim-load-profile').forEach(button => button.addEventListener('click', async () => {
             const select = document.getElementById('simc-sim-profile-select');

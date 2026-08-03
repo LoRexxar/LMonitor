@@ -409,6 +409,9 @@
     }
 
 
+    function specLabel(row, fallback = '未标记') {
+        return String(row?.spec_label || fallback);
+    }
     async function loadTemplates() {
         const host = document.getElementById('simc-wb-template-list');
         const request = beginResourceRequest('templates');
@@ -437,7 +440,7 @@
                     <td data-label="模板名称"><div class="simc-template-name">${esc(row.name)}</div></td>
                     <td data-label="类型"><span class="simc-template-badge bg-indigo-50 text-indigo-700">${esc(row.type_label)}</span></td>
                     <td data-label="职业" class="simc-template-class-col"><span class="simc-template-scope-value">${esc(row.class_name || '通用职业')}</span></td>
-                    <td data-label="专精" class="simc-template-spec-col"><span class="simc-template-scope-value">${esc(row.spec || 'default')}</span></td>
+                    <td data-label="专精" class="simc-template-spec-col"><span class="simc-template-scope-value">${esc(specLabel(row, '通用'))}</span></td>
                     <td data-label="来源"><span class="simc-template-badge ${sourceClass}">${esc(ownership)}</span></td>
                     <td data-label="状态"><span class="simc-template-badge ${statusClass}">${active ? '启用' : '已停用'}</span></td>
                     <td data-label="操作" class="simc-template-actions-col"><div class="simc-template-row-actions">${!readOnly ? `<button data-wb-action="template-edit" data-resource="templates" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50"><i class="fas fa-pen mr-1"></i>编辑</button>` : ''}<button data-wb-action="template-detail" data-resource="templates" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700 hover:bg-slate-100"><i class="fas fa-code mr-1"></i>查看</button></div></td>
@@ -514,7 +517,7 @@
         const sourceLabel = row.source === 'simc_upstream' ? 'SimC 上游' : (row.read_only ? '系统内置' : '用户维护');
         host.innerHTML = `<div class="space-y-4">
             <div class="rounded-2xl bg-gradient-to-br from-slate-900 to-indigo-950 p-4 text-white"><div class="flex flex-wrap items-start justify-between gap-3"><div><p class="text-xs font-bold uppercase tracking-wider text-indigo-200">ContentTemplate</p><h4 class="mt-1 text-lg font-bold">${esc(row.name)}</h4></div><span class="simc-template-badge ${active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'}">${active ? '启用' : '已停用'}</span></div></div>
-            <dl class="simc-template-detail-meta text-sm"><div><dt class="text-xs font-medium text-slate-500">类型</dt><dd class="mt-1 font-semibold text-slate-900">${esc(row.type_label)}</dd></div><div><dt class="text-xs font-medium text-slate-500">来源</dt><dd class="mt-1 font-semibold text-slate-900">${esc(sourceLabel)}</dd></div><div><dt class="text-xs font-medium text-slate-500">专精</dt><dd class="mt-1 font-semibold text-slate-900">${esc(row.spec || 'default')}</dd></div><div><dt class="text-xs font-medium text-slate-500">职业</dt><dd class="mt-1 font-semibold text-slate-900">${esc(row.class_name || '通用')}</dd></div></dl>
+            <dl class="simc-template-detail-meta text-sm"><div><dt class="text-xs font-medium text-slate-500">类型</dt><dd class="mt-1 font-semibold text-slate-900">${esc(row.type_label)}</dd></div><div><dt class="text-xs font-medium text-slate-500">来源</dt><dd class="mt-1 font-semibold text-slate-900">${esc(sourceLabel)}</dd></div><div><dt class="text-xs font-medium text-slate-500">专精</dt><dd class="mt-1 font-semibold text-slate-900">${esc(specLabel(row, '通用'))}</dd></div><div><dt class="text-xs font-medium text-slate-500">职业</dt><dd class="mt-1 font-semibold text-slate-900">${esc(row.class_name || '通用')}</dd></div></dl>
             <section class="simc-editor-section"><div class="simc-editor-section__heading"><div><h5 class="text-sm font-bold text-slate-900">模板内容</h5><p class="mt-1 text-xs text-slate-500">只读预览，保持原始换行与缩进。</p></div><span class="text-xs text-slate-500">${codeStats(row.content)}</span></div><pre class="template-code-preview">${esc(row.content)}</pre></section>
         </div>`;
     }
@@ -687,7 +690,7 @@
             const searchable = [
                 row.title, row.name,
                 row.kind === 'personal' ? row.apl_code : '',
-                row.class_name, row.spec
+                row.class_name, row.spec, row.spec_label
             ].map(v => String(v || '').toLowerCase()).join('\n');
             return searchable.includes(query);
         }) : allRows;
@@ -721,7 +724,7 @@
             return `<tr>
                 <td data-label="APL 名称"><div class="simc-apl-name">${esc(name)}</div></td>
                 <td data-label="职业" class="simc-apl-class-col"><span class="simc-apl-scope-value">${esc(row.class_name || '通用职业')}</span></td>
-                <td data-label="专精" class="simc-apl-spec-col"><span class="simc-apl-scope-value">${esc(row.spec || '未标记')}</span></td>
+                <td data-label="专精" class="simc-apl-spec-col"><span class="simc-apl-scope-value">${esc(specLabel(row))}</span></td>
                 <td data-label="来源"><span class="simc-template-badge ${sourceClass}">${esc(sourceLabel)}</span></td>
                 <td data-label="状态"><span class="simc-template-badge ${statusClass}">${active ? '启用' : '已停用'}</span></td>
                 <td data-label="操作" class="simc-apl-actions-col"><div class="simc-apl-row-actions">${actions}</div></td>
@@ -815,7 +818,7 @@
         }
         if (!isCurrentDetailRequest(detailRequest)) return;
         const row = data.data || {};
-        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2 mb-3"><h4 class="font-bold">我的APL详情</h4><button class="simc-touch-action" data-my-apl-detail-action="close">关闭</button></div><dl class="grid gap-2 text-sm"><div>标题：${esc(row.title)}</div><div>专精：${esc(row.spec || '未标记')}</div><div>状态：${row.is_active !== false ? '启用' : '已停用'}</div></dl><div class="mt-3"><label class="text-sm font-medium text-gray-700">APL内容</label><pre class="mt-1 rounded border bg-slate-50 p-3 text-xs overflow-auto max-h-96">${esc(row.apl_code)}</pre></div>`;
+        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2 mb-3"><h4 class="font-bold">我的APL详情</h4><button class="simc-touch-action" data-my-apl-detail-action="close">关闭</button></div><dl class="grid gap-2 text-sm"><div>标题：${esc(row.title)}</div><div>专精：${esc(specLabel(row))}</div><div>状态：${row.is_active !== false ? '启用' : '已停用'}</div></dl><div class="mt-3"><label class="text-sm font-medium text-gray-700">APL内容</label><pre class="mt-1 rounded border bg-slate-50 p-3 text-xs overflow-auto max-h-96">${esc(row.apl_code)}</pre></div>`;
     }
     async function showDefaultAplDetail(id) {
         const host = openDialog('default-apl-detail');
@@ -831,7 +834,7 @@
         }
         if (!isCurrentDetailRequest(detailRequest)) return;
         const row = data.data || {};
-        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2 mb-3"><h4 class="font-bold">默认APL详情</h4><button class="simc-touch-action" data-default-apl-detail-action="close">关闭</button></div><dl class="grid gap-2 text-sm"><div>名称：${esc(row.name)}</div><div>职业：${esc(row.class_name)}</div><div>专精：${esc(row.spec)}</div><div>来源：${esc(row.source === 'simc_upstream' ? 'SimC上游' : '其他')}</div></dl><div class="mt-3"><label class="text-sm font-medium text-gray-700">内容（只读）</label><pre readonly class="mt-1 rounded border bg-slate-50 p-3 text-xs overflow-auto max-h-96">${esc(row.content)}</pre></div>`;
+        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2 mb-3"><h4 class="font-bold">默认APL详情</h4><button class="simc-touch-action" data-default-apl-detail-action="close">关闭</button></div><dl class="grid gap-2 text-sm"><div>名称：${esc(row.name)}</div><div>职业：${esc(row.class_name)}</div><div>专精：${esc(specLabel(row))}</div><div>来源：${esc(row.source === 'simc_upstream' ? 'SimC上游' : '其他')}</div></dl><div class="mt-3"><label class="text-sm font-medium text-gray-700">内容（只读）</label><pre readonly class="mt-1 rounded border bg-slate-50 p-3 text-xs overflow-auto max-h-96">${esc(row.content)}</pre></div>`;
     }
     async function copyDefaultAplToMy(templateId, button) {
         if (state.defaultAplCopyInFlight.has(templateId)) return;
@@ -1113,7 +1116,7 @@
             throw error;
         }
         if (!isCurrentDetailRequest(request)) return;
-        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2 mb-3"><h4 class="font-bold">APL 详情</h4><button class="simc-touch-action" data-apl-action="cancel">关闭</button></div><dl class="grid gap-2 text-sm"><div>名称：${esc(row.name)}</div><div>专精：${esc(row.spec)}</div><div>来源：${esc(row.is_system ? '系统默认' : '个人')}</div></dl><div class="mt-3"><label class="text-sm font-medium text-gray-700">APL 内容</label><pre class="mt-1 rounded border bg-slate-50 p-3 text-xs overflow-auto max-h-96">${esc(row.content)}</pre></div>`;
+        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2 mb-3"><h4 class="font-bold">APL 详情</h4><button class="simc-touch-action" data-apl-action="cancel">关闭</button></div><dl class="grid gap-2 text-sm"><div>名称：${esc(row.name)}</div><div>专精：${esc(specLabel(row))}</div><div>来源：${esc(row.is_system ? '系统默认' : '个人')}</div></dl><div class="mt-3"><label class="text-sm font-medium text-gray-700">APL 内容</label><pre class="mt-1 rounded border bg-slate-50 p-3 text-xs overflow-auto max-h-96">${esc(row.content)}</pre></div>`;
     }
     async function editManagedApl(id) {
         const host = openDialog('apl-form');

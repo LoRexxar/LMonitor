@@ -3417,7 +3417,7 @@ class SimcBattlenetPreflightTests(TestCase):
             'region': 'eu',
             'realm': 'Realm 0',
             'character': 'Player0',
-            'label': 'Player0 · Realm 0 · EU · Fury',
+            'label': 'Player0 · Realm 0 · EU · 狂怒',
         })
         self.assertNotIn('Oldplayer', [row['character'] for row in payload['data']])
 

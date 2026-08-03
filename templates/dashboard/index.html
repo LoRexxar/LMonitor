@@ -340,8 +340,8 @@
     {% if page_name == 'dashboard' %}
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>window.SIMC_APL_EDITOR_MODULE_URL = "{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260727b";</script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260803h"></script>
-    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260803a"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260803i"></script>
+    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260803b"></script>
     <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260803f"></script>
     {% else %}
     <script src="{% static 'dashboard/js/dashboard_shell.js' %}?v=20260728b" defer></script>
@@ -1259,19 +1259,19 @@
                                         <label class="block"><span class="text-gray-600">名称 *</span><input name="name" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="配置名"></label>
                                         <label class="block"><span class="text-gray-600">专精 *</span>
                                             <select name="spec" class="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-                                                <option value="arms">arms</option><option value="fury">fury</option><option value="protection_warrior">protection_warrior</option>
-                                                <option value="havoc">havoc</option><option value="vengeance">vengeance</option>
-                                                <option value="balance">balance</option><option value="feral">feral</option><option value="guardian">guardian</option><option value="restoration_druid">restoration_druid</option>
-                                                <option value="devastation">devastation</option><option value="preservation">preservation</option><option value="augmentation">augmentation</option>
-                                                <option value="beast_mastery">beast_mastery</option><option value="marksmanship">marksmanship</option><option value="survival">survival</option>
-                                                <option value="arcane">arcane</option><option value="fire">fire</option><option value="frost_mage">frost_mage</option>
-                                                <option value="brewmaster">brewmaster</option><option value="mistweaver">mistweaver</option><option value="windwalker">windwalker</option>
-                                                <option value="holy_priest">holy_priest</option><option value="discipline">discipline</option><option value="shadow">shadow</option>
-                                                <option value="holy_paladin">holy_paladin</option><option value="protection_paladin">protection_paladin</option><option value="retribution">retribution</option>
-                                                <option value="assassination">assassination</option><option value="outlaw">outlaw</option><option value="subtlety">subtlety</option>
-                                                <option value="elemental">elemental</option><option value="enhancement">enhancement</option><option value="restoration_shaman">restoration (shaman)</option>
-                                                <option value="affliction">affliction</option><option value="demonology">demonology</option><option value="destruction">destruction</option>
-                                                <option value="blood">blood</option><option value="frost_death_knight">frost_death_knight</option><option value="unholy">unholy</option>
+                                                <option value="arms">武器</option><option value="fury">狂怒</option><option value="protection_warrior">防护（战士）</option>
+                                                <option value="havoc">浩劫</option><option value="vengeance">复仇</option>
+                                                <option value="balance">平衡</option><option value="feral">野性</option><option value="guardian">守护</option><option value="restoration_druid">恢复（德鲁伊）</option>
+                                                <option value="devastation">湮灭</option><option value="preservation">恩护</option><option value="augmentation">增辉</option>
+                                                <option value="beast_mastery">野兽控制</option><option value="marksmanship">射击</option><option value="survival">生存</option>
+                                                <option value="arcane">奥术</option><option value="fire">火焰</option><option value="frost_mage">冰霜（法师）</option>
+                                                <option value="brewmaster">酒仙</option><option value="mistweaver">织雾</option><option value="windwalker">踏风</option>
+                                                <option value="holy_priest">神圣（牧师）</option><option value="discipline">戒律</option><option value="shadow">暗影</option>
+                                                <option value="holy_paladin">神圣（圣骑士）</option><option value="protection_paladin">防护（圣骑士）</option><option value="retribution">惩戒</option>
+                                                <option value="assassination">奇袭</option><option value="outlaw">狂徒</option><option value="subtlety">敏锐</option>
+                                                <option value="elemental">元素</option><option value="enhancement">增强</option><option value="restoration_shaman">恢复（萨满祭司）</option>
+                                                <option value="affliction">痛苦</option><option value="demonology">恶魔学识</option><option value="destruction">毁灭</option>
+                                                <option value="blood">鲜血</option><option value="frost_death_knight">冰霜（死亡骑士）</option><option value="unholy">邪恶</option>
                                             </select>
                                         </label>
                                         <label class="block"><span class="text-gray-600">导入来源 *</span>
@@ -1777,12 +1777,12 @@
                             <div class="flex flex-col md:flex-row items-start md:items-center gap-2">
                                 <select id="simc-profile-spec-filter" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
                                     <option value="">全部专精</option>
-                                    <option value="fury">fury</option>
-                                    <option value="arms">arms</option>
-                                    <option value="protection">protection</option>
-                                    <option value="fire">fire</option>
-                                    <option value="frost">frost</option>
-                                    <option value="arcane">arcane</option>
+                                    <option value="fury">狂怒</option>
+                                    <option value="arms">武器</option>
+                                    <option value="protection">防护</option>
+                                    <option value="fire">火焰</option>
+                                    <option value="frost">冰霜</option>
+                                    <option value="arcane">奥术</option>
                                 </select>
                                 <select id="simc-profile-fight-style-filter" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
                                     <option value="">全部战斗风格</option>

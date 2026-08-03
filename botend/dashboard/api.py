@@ -128,6 +128,7 @@ def _simc_spec_options():
 
 SIMC_SPEC_OPTIONS = _simc_spec_options()
 SIMC_SPEC_VALUES = frozenset(row['value'] for row in SIMC_SPEC_OPTIONS)
+SIMC_SPEC_LABELS = {row['value']: row['spec_label'] for row in SIMC_SPEC_OPTIONS}
 SIMC_SPEC_CLASS_NAMES = {row['value']: row['class_name'] for row in SIMC_SPEC_OPTIONS}
 SIMC_CLASS_DB_NAMES = {
     re.sub(r'(?<!^)(?=[A-Z])', '_', class_name).lower()
@@ -145,6 +146,18 @@ SIMC_SPEC_DB_IDENTITIES = {
 def _canonical_simc_spec(value):
     normalized = str(value or '').strip().lower()
     return normalized if normalized in SIMC_SPEC_VALUES else None
+
+
+def _simc_spec_label(spec, class_name=''):
+    """Return a Chinese display label without changing the stable SimC key."""
+    normalized = str(spec or '').strip().lower()
+    if normalized in ('', 'default', 'all', '*'):
+        return '通用' if normalized else '未标记'
+    if normalized in SIMC_SPEC_LABELS:
+        return SIMC_SPEC_LABELS[normalized]
+    normalized_class = str(class_name or '').strip().lower().replace('death_knight', 'deathknight').replace('demon_hunter', 'demonhunter')
+    combined = f'{normalized_class}_{normalized}' if normalized_class else ''
+    return SIMC_SPEC_LABELS.get(combined, str(spec or '').strip() or '未标记')
 
 
 def _simc_class_for_spec(spec):
@@ -2605,6 +2618,7 @@ class SimcPlayerConfigDetailAPIView(View):
             'id': profile.id,
             'name': profile.name,
             'spec': profile.spec,
+            'spec_label': _simc_spec_label(profile.spec, profile.class_name),
             'version': profile.version,
             'is_active': profile.is_active,
             'is_system': profile.user_id is None and profile.source == SimcProfile.SOURCE_SIMC_UPSTREAM,
@@ -3203,6 +3217,7 @@ class AplDetailAPIView(View):
                     'id': apl_storage.id,
                     'title': apl_storage.name,
                     'spec': apl_storage.spec,
+                    'spec_label': _simc_spec_label(apl_storage.spec, apl_storage.class_name),
                     'apl_code': apl_storage.content
                 }
             })
@@ -3305,7 +3320,7 @@ class SimcBattlenetTopPlayersAPIView(View):
                 'region': region,
                 'realm': player['realm'],
                 'character': player['character_name'],
-                'label': f"{player['character_name']} · {player['realm']} · {region.upper()} · {player['spec_name']}",
+                'label': f"{player['character_name']} · {player['realm']} · {region.upper()} · {_simc_spec_label(row_spec, db_class_name)}",
             })
             if len(rows) == 10:
                 break
@@ -3367,6 +3382,7 @@ class SimcProfileAPIView(View):
                     'id': profile.id,
                     'name': profile.name,
                     'spec': profile.spec,
+                    'spec_label': _simc_spec_label(profile.spec, profile.class_name),
                     'use_ptr': bool(profile.use_ptr),
                     'player_config_mode': self._profile_mode(profile),
                     'battlenet_region': getattr(profile, 'battlenet_region', '') or '',
@@ -3408,6 +3424,7 @@ class SimcProfileAPIView(View):
                         'id': profile.id,
                         'name': profile.name,
                         'spec': profile.spec,
+                        'spec_label': _simc_spec_label(profile.spec, profile.class_name),
                         'version': profile.version,
                         'use_ptr': bool(profile.use_ptr),
                         'class_name': getattr(profile, 'class_name', '') or '',
@@ -4130,6 +4147,7 @@ class SimcAplCandidatesAPIView(View):
             )
             for row in data:
                 row['is_default'] = row['id'] == default_apl.id
+                row['spec_label'] = _simc_spec_label(row.get('spec'), row.get('class_name'))
             return JsonResponse({
                 'success': True,
                 'data': data,
@@ -5322,6 +5340,7 @@ class SimcTemplateAPIView(View):
                     'template_content': template.content,
                     'content': template.content,
                     'spec': template.spec,
+                    'spec_label': _simc_spec_label(template.spec, template.class_name),
                     'class_name': template.class_name,
                     'name': template.name,
                     'template_type': 'base_template',
@@ -5337,6 +5356,7 @@ class SimcTemplateAPIView(View):
                     'id': template.id,
                     'preview': preview,
                     'spec': template.spec,
+                    'spec_label': _simc_spec_label(template.spec, template.class_name),
                     'class_name': template.class_name,
                     'name': template.name,
                     'template_type': 'base_template',
@@ -6241,6 +6261,7 @@ class SimcWorkbenchAPIView(View):
                     return JsonResponse({'success': False, 'error': 'APL 不存在'}, status=404)
                 return JsonResponse({'success': True, 'data': {
                     'id': apl.id, 'name': apl.name, 'spec': apl.spec,
+                    'spec_label': _simc_spec_label(apl.spec, apl.class_name),
                     'class_name': apl.class_name, 'source': apl.source,
                     'is_system': apl.is_system, 'is_active': apl.is_active,
                     'is_selectable': apl.is_selectable, 'content': apl.content,
@@ -6255,6 +6276,7 @@ class SimcWorkbenchAPIView(View):
                 }, 'can_write': _is_simc_admin(request.user) or not apl.is_system})
             return JsonResponse({'success': True, 'data': [{
                 'id': apl.id, 'name': apl.name, 'spec': apl.spec,
+                    'spec_label': _simc_spec_label(apl.spec, apl.class_name),
                 'class_name': apl.class_name, 'source': apl.source,
                 'is_system': apl.is_system, 'is_active': apl.is_active,
                 'is_selectable': apl.is_selectable,
@@ -6278,6 +6300,7 @@ class SimcWorkbenchAPIView(View):
                 item = {
                     'id': row.id, 'name': row.name, 'template_type': 'base_template',
                     'type_label': '基础模板', 'source': row.source, 'spec': row.spec,
+                    'spec_label': _simc_spec_label(row.spec, row.class_name),
                     'class_name': row.class_name, 'is_active': row.is_active,
                     'is_selectable': row.is_selectable, 'is_system': row.owner_user_id is None,
                     'read_only': not self._template_is_writable(request, row),
@@ -6318,6 +6341,7 @@ class SimcWorkbenchAPIView(View):
                     'id': row.id,
                     'title': row.name,
                     'spec': row.spec,
+                    'spec_label': _simc_spec_label(row.spec, row.class_name),
                     'apl_code': row.content,
                     'is_active': row.is_active,
                 }})
@@ -6327,6 +6351,7 @@ class SimcWorkbenchAPIView(View):
                     'id': row.id,
                     'title': row.name,
                     'spec': row.spec,
+                    'spec_label': _simc_spec_label(row.spec, row.class_name),
                     'apl_code': row.content,
                     'is_active': row.is_active,
                 })

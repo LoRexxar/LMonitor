@@ -1065,6 +1065,12 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
         self.assertNotIn('id="simc-wb-profile-form"', HTML)
         self.assertIn("openSimcWorkbenchDialog('profile-form'", MAIN)
 
+    def test_simc_management_uses_chinese_spec_labels(self):
+        self.assertIn("row.spec_label || row.spec", MAIN)
+        self.assertIn("specLabel(row", JS)
+        self.assertIn('<option value="fury">狂怒</option>', HTML)
+        self.assertNotIn('<option value="fury">fury</option>', HTML)
+
     def test_template_and_apl_view_edit_use_dialog_not_bottom_slots(self):
         self.assertIn("openSimcWorkbenchDialog('template-detail'", JS)
         self.assertIn("openSimcWorkbenchDialog('template-form'", JS)
