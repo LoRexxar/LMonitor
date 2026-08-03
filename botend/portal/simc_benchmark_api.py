@@ -1,5 +1,5 @@
 """Public, read-only SimC benchmark endpoints for the Portal."""
-from django.db.models import Exists, OuterRef
+from django.db.models import Count, Exists, Max, OuterRef
 from django.http import JsonResponse
 from django.views import View
 
@@ -66,6 +66,8 @@ class PortalSimcBenchmarkPanelListAPIView(View):
                     is_enabled=True,
                 )
             ),
+            result_count=Count('executions__cases__results', distinct=True),
+            result_updated_at=Max('executions__cases__results__created_at'),
         ).order_by('name', 'id')
         for panel in queryset:
             is_ready = (
@@ -78,6 +80,11 @@ class PortalSimcBenchmarkPanelListAPIView(View):
                 'name': panel.name,
                 'description': panel.description,
                 'status': 'ready' if is_ready else 'not_ready',
+                'result_count': panel.result_count,
+                'result_updated_at': (
+                    panel.result_updated_at.isoformat()
+                    if panel.result_updated_at else None
+                ),
             })
         return JsonResponse({'status': 'ready', 'panels': panels})
 

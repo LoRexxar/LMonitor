@@ -9,7 +9,8 @@ from django.test import TestCase, override_settings
 
 from botend.models import (
     SimcApl, SimcBackendBinary, SimcBenchmarkCandidate, SimcBenchmarkPanel,
-    SimcBenchmarkProfile, SimcBenchmarkScenario, SimcBenchmarkSpec,
+    SimcBenchmarkCase, SimcBenchmarkExecution, SimcBenchmarkProfile,
+    SimcBenchmarkResult, SimcBenchmarkScenario, SimcBenchmarkSpec,
     SimcContentTemplate, SimcProfile,
 )
 
@@ -41,6 +42,7 @@ class PortalSimcBenchmarkAPITests(TestCase):
             'panels': [{
                 'id': self.public.id, 'slug': 'public-panel', 'name': 'Public panel',
                 'description': 'Public description', 'status': 'not_ready',
+                'result_count': 0, 'result_updated_at': None,
             }],
         })
         serializer.assert_not_called()
@@ -48,6 +50,30 @@ class PortalSimcBenchmarkAPITests(TestCase):
         for forbidden in ('created_by_id', 'schedule_enabled', 'interval_seconds',
                           'published_execution_id', 'config', 'task', 'run'):
             self.assertNotIn(forbidden, serialized.lower())
+
+    def test_list_exposes_result_count_and_latest_result_update_time(self):
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=self.public, config_hash='a' * 64,
+        )
+        case = SimcBenchmarkCase.objects.create(
+            execution=execution, spec_key='warrior_fury', scenario_key='single',
+            profile_key='raid', spec_label='Fury', scenario_label='Single',
+            profile_label='Raid', coordinate_hash='b' * 64,
+        )
+        first = SimcBenchmarkResult.objects.create(
+            case=case, candidate_key='baseline', dps=100000,
+        )
+        latest = SimcBenchmarkResult.objects.create(
+            case=case, candidate_key='trinket-1', dps=101000,
+        )
+
+        with self.assertNumQueries(1):
+            response = self.client.get('/portal/api/simc-benchmarks/panels/')
+
+        panel = json.loads(response.content)['panels'][0]
+        self.assertEqual(panel['result_count'], 2)
+        self.assertEqual(panel['result_updated_at'], latest.created_at.isoformat())
+        self.assertNotEqual(panel['result_updated_at'], first.created_at.isoformat())
 
     def test_list_marks_baseline_only_configured_panel_ready(self):
         backend = SimcBackendBinary.objects.create(
@@ -274,14 +300,33 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIsNotNone(title_link)
         self.assertEqual(title_link.get_text(' ', strip=True), 'SimC 基线任务')
         self.assertIsNotNone(baseline_section.select_one('#simc-baseline-list'))
+        self.assertIn(
+            'divide-y', baseline_section.select_one('#simc-baseline-list').get('class', [])
+        )
 
         for contract in (
             'loadPublicBaselines',
             '/portal/api/simc-benchmarks/panels/',
             'Array.isArray(payload?.panels)',
             '/portal/simc-benchmarks/${encodeURIComponent(String(panel.id))}/',
+            'panel?.result_count',
+            'panel?.result_updated_at',
         ):
             self.assertIn(contract, self.PORTAL_JS)
+
+    def test_benchmark_collection_page_renders_panel_list_instead_of_all_results(self):
+        soup = BeautifulSoup(self.TEMPLATE, 'html.parser')
+        result_button = next(
+            link for link in soup.select('a')
+            if link.get_text(' ', strip=True) == 'SimC 结果'
+        )
+        self.assertEqual(result_button.get('href'), '/portal/simc-benchmarks/')
+
+        self.assertIn('function renderPanelList', self.JS)
+        self.assertIn('/portal/simc-benchmarks/${encodeURIComponent(String(panel.id))}/', self.JS)
+        self.assertIn('panel?.result_count', self.JS)
+        self.assertIn('panel?.result_updated_at', self.JS)
+        self.assertNotIn('Promise.all(panels.map((panel) => loadPanel', self.JS)
 
     def test_public_renderer_uses_spec_driven_profile_and_scenario_filters(self):
         for contract in ('payload?.results?.coordinate_options', 'spec_key', 'scenario_key', 'profile_key',
@@ -385,7 +430,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             'simc-benchmark-gear-hover-guide', 'simc-benchmark-gear-tooltip',
         ):
             self.assertIn(contract, self.JS + self.CSS)
-        self.assertIn('?v=20260803_raw_report', self.RESULTS_TEMPLATE)
+        self.assertIn('?v=20260803_panel_list', self.RESULTS_TEMPLATE)
 
     def test_result_renderer_uses_frozen_target_count_and_duration_for_scenarios(self):
         for contract in (

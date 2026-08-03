@@ -8,7 +8,7 @@
     {% load static %}
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260708_news_index">
-    <link rel="stylesheet" href="{% static 'portal/css/simc-benchmarks.css' %}?v=20260803_raw_report">
+    <link rel="stylesheet" href="{% static 'portal/css/simc-benchmarks.css' %}?v=20260803_panel_list">
 </head>
 <body class="portal-bg font-sans">
     <header class="portal-header">
@@ -33,8 +33,8 @@
         <section class="portal-card portal-card-accent portal-accent-indigo shadow-sm border border-slate-200/70 p-5">
             <div class="simc-benchmark-heading">
                 <div>
-                    <h1 id="simc-benchmarks-title">模拟结果</h1>
-                    <p id="simc-benchmarks-description">独立展示已发布的基准模拟结果。选择专精、战斗场景和 Profile，查看当前组合下候选方案的 DPS 排名。</p>
+                    <h1 id="simc-benchmarks-title">{% if benchmark_panel_id is None %}SimC 基线任务{% else %}模拟结果{% endif %}</h1>
+                    <p id="simc-benchmarks-description">{% if benchmark_panel_id is None %}查看公开基线任务的数据量、更新时间及模拟结果。{% else %}独立展示已发布的基准模拟结果。选择专精、战斗场景和 Profile，查看当前组合下候选方案的 DPS 排名。{% endif %}</p>
                 </div>
             </div>
             <div id="simc-benchmark-root" class="simc-benchmark-panels" aria-live="polite" aria-busy="true"{% if benchmark_panel_id is not None %} data-panel-id="{{ benchmark_panel_id }}"{% endif %}>
@@ -42,6 +42,6 @@
             </div>
         </section>
     </main>
-    <script src="{% static 'portal/js/simc-benchmarks.js' %}?v=20260803_raw_report"></script>
+    <script src="{% static 'portal/js/simc-benchmarks.js' %}?v=20260803_panel_list"></script>
 </body>
 </html>

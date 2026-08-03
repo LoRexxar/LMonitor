@@ -201,7 +201,47 @@
 .simc-benchmark-state--error { background: #fff1f2; border-color: #fecdd3; color: #be123c; }
 .simc-benchmark-state--not-ready { background: #fffbeb; border-color: #fde68a; color: #92400e; }
 
+.simc-benchmark-list {
+    border-bottom: 1px solid #e2e8f0;
+    border-top: 1px solid #e2e8f0;
+}
+.simc-benchmark-list-row {
+    align-items: center;
+    color: inherit;
+    display: flex;
+    gap: 1.5rem;
+    justify-content: space-between;
+    padding: 1rem 0.5rem;
+    text-decoration: none;
+    transition: background-color 160ms ease;
+}
+.simc-benchmark-list-row + .simc-benchmark-list-row { border-top: 1px solid #e2e8f0; }
+.simc-benchmark-list-row:hover { background: rgba(238, 242, 255, 0.7); }
+.simc-benchmark-list-copy { min-width: 0; }
+.simc-benchmark-list-name { color: #0f172a; font-size: 1rem; font-weight: 700; margin: 0; }
+.simc-benchmark-list-row:hover .simc-benchmark-list-name { color: #4338ca; }
+.simc-benchmark-list-description {
+    color: #64748b;
+    font-size: 0.78rem;
+    margin: 0.25rem 0 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.simc-benchmark-list-meta {
+    align-items: center;
+    color: #64748b;
+    display: flex;
+    flex: 0 0 auto;
+    font-size: 0.75rem;
+    gap: 1rem;
+}
+.simc-benchmark-list-arrow { color: #4f46e5; font-size: 1rem; }
+
 @media (max-width: 640px) {
+    .simc-benchmark-list-row { align-items: flex-start; flex-direction: column; gap: 0.6rem; }
+    .simc-benchmark-list-description { white-space: normal; }
+    .simc-benchmark-list-meta { flex-wrap: wrap; gap: 0.5rem 1rem; }
     .simc-benchmark-panel-header,
     .simc-benchmark-panel-body { padding-left: 0.75rem; padding-right: 0.75rem; }
     .simc-benchmark-filters { grid-template-columns: minmax(0, 1fr); }

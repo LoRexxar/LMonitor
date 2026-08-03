@@ -3,6 +3,16 @@
 
   const LIST_URL = "/portal/api/simc-benchmarks/panels/";
   const numberFormat = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 });
+  const dateTimeFormat = new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  });
+
+  function formatResultUpdateTime(value) {
+    if (!value) return "暂无数据";
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? "暂无数据" : dateTimeFormat.format(date);
+  }
 
   function node(tag, className, text) {
     const element = document.createElement(tag);
@@ -614,6 +624,31 @@
     } catch (_) { shell.body.replaceChildren(state("Benchmark 结果加载失败，请稍后重试", "error")); }
   }
 
+  function renderPanelList(root, panels) {
+    const list = node("div", "simc-benchmark-list");
+    panels.forEach((panel) => {
+      const panelId = Number(panel?.id);
+      if (!Number.isInteger(panelId) || panelId <= 0) return;
+      const link = node("a", "simc-benchmark-list-row");
+      link.href = `/portal/simc-benchmarks/${encodeURIComponent(String(panel.id))}/`;
+      const copy = node("div", "simc-benchmark-list-copy");
+      copy.appendChild(node("h2", "simc-benchmark-list-name", panel?.name || "未命名基线任务"));
+      if (panel?.description) {
+        copy.appendChild(node("p", "simc-benchmark-list-description", panel.description));
+      }
+      const meta = node("div", "simc-benchmark-list-meta");
+      const resultCount = Math.max(0, Number(panel?.result_count) || 0);
+      meta.append(
+        node("span", "", `数据量 ${numberFormat.format(resultCount)}`),
+        node("span", "", `更新于 ${formatResultUpdateTime(panel?.result_updated_at)}`),
+        node("span", "simc-benchmark-list-arrow", "→"),
+      );
+      link.append(copy, meta);
+      list.appendChild(link);
+    });
+    root.replaceChildren(list);
+  }
+
   async function loadBenchmarks() {
     const root = document.getElementById("simc-benchmark-root"); if (!root) return;
     const panelId = root.dataset.panelId; root.setAttribute("aria-busy", "true");
@@ -624,7 +659,7 @@
         const payload = await requestJson(LIST_URL);
         const panels = payload.status === "ready" && Array.isArray(payload.panels) ? payload.panels : [];
         if (!panels.length) root.appendChild(state("暂无公开的 Benchmark 面板", "empty"));
-        else await Promise.all(panels.map((panel) => loadPanel(panel || {}, root)));
+        else renderPanelList(root, panels);
       }
     } catch (_) { root.replaceChildren(state("Benchmark 列表加载失败，请稍后重试", "error")); }
     finally { root.setAttribute("aria-busy", "false"); }

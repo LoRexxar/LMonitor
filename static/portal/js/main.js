@@ -311,6 +311,16 @@ function renderSkeleton(containerId, lines = 8) {
   el.innerHTML = `<div class="mt-2">${blocks.join("")}</div>`;
 }
 
+function formatPortalDateTime(value) {
+  if (!value) return "暂无数据";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "暂无数据";
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).format(date);
+}
+
 async function loadPublicBaselines() {
   const el = document.getElementById("simc-baseline-list");
   if (!el) return;
@@ -327,17 +337,17 @@ async function loadPublicBaselines() {
       const href = `/portal/simc-benchmarks/${encodeURIComponent(String(panel.id))}/`;
       const name = escapeHtml(panel?.name || "未命名基线任务");
       const description = escapeHtml(panel?.description || "查看各职业专精的基线模拟结果");
-      const status = panel?.status === "ready" ? "已有结果" : "等待结果";
-      const statusClass = panel?.status === "ready"
-        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-        : "bg-slate-50 text-slate-500 border-slate-200";
-      return `<a href="${href}" class="group rounded-xl border border-slate-200/80 bg-white/80 px-4 py-3 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md">
-        <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0">
-            <div class="font-semibold text-slate-900 group-hover:text-indigo-700">${name}</div>
-            <div class="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">${description}</div>
-          </div>
-          <span class="shrink-0 rounded-full border px-2 py-1 text-[11px] font-medium ${statusClass}">${status}</span>
+      const resultCount = Math.max(0, Number(panel?.result_count) || 0);
+      const updatedAt = escapeHtml(formatPortalDateTime(panel?.result_updated_at));
+      return `<a href="${href}" class="group flex flex-col gap-2 py-3 transition hover:bg-indigo-50/50 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-2">
+        <div class="min-w-0">
+          <div class="font-semibold text-slate-900 group-hover:text-indigo-700">${name}</div>
+          <div class="mt-0.5 truncate text-xs text-slate-500">${description}</div>
+        </div>
+        <div class="flex shrink-0 items-center gap-4 text-xs text-slate-500">
+          <span>数据量 <strong class="font-semibold text-slate-700">${resultCount.toLocaleString("zh-CN")}</strong></span>
+          <span>更新于 <time>${updatedAt}</time></span>
+          <span class="text-indigo-600" aria-hidden="true">→</span>
         </div>
       </a>`;
     }).join("");
