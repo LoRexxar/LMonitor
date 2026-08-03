@@ -315,7 +315,7 @@ class SimcBenchmarkConfigServiceTests(TestCase):
 
         global_wcl = SimcProfile.objects.create(
             user_id=None, source=SimcProfile.SOURCE_WCL, name='Global WCL Fury',
-            class_name='warrior', spec='warrior_fury', player_config_mode='wcl',
+            class_name='warrior_fury', spec='warrior_fury', player_config_mode='wcl',
             is_active=True,
         )
         payload['specs'] = [dict(

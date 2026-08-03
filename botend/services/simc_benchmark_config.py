@@ -88,6 +88,12 @@ _ITEM_OPTION_KEYS = {
 _SAFE_KEY = re.compile(r'^[a-z0-9][a-z0-9_-]{0,99}$')
 
 
+def _profile_class_name(profile):
+    """Accept both canonical class names and legacy ``class_spec`` values."""
+    profile_class, _profile_spec = canonical_simc_spec_identity(profile.class_name)
+    return profile_class or normalize_battlenet_class_name(profile.class_name)
+
+
 def benchmark_resource_access_q(kind, user_id):
     """Return the single access policy used by benchmark writes and option lists."""
     if kind == 'backend':
@@ -163,7 +169,7 @@ def resolve_default_benchmark_resources(spec_keys, user_id):
             _error(f'{spec_key}: APL specialization mismatch', 'resources')
         if not _same_spec(template.spec, expected_class, expected_spec, allow_generic=True):
             _error(f'{spec_key}: Template specialization mismatch', 'resources')
-        profile_class = normalize_battlenet_class_name(profile.class_name)
+        profile_class = _profile_class_name(profile)
         if profile_class and profile_class != expected_class:
             _error(f'{spec_key}: Profile class mismatch', 'resources')
         if not _same_spec(profile.spec, expected_class, expected_spec):
@@ -546,7 +552,7 @@ def normalize_panel_payload(payload, user_id, panel=None):
             profile = _resource(SimcProfile, profile_raw.get('profile_id'), 'profile', user_id)
             if profile.pk in seen_profiles: _error('profiles 包含重复 Profile', 'profiles')
             seen_profiles.add(profile.pk)
-            profile_class = normalize_battlenet_class_name(profile.class_name)
+            profile_class = _profile_class_name(profile)
             if profile_class and profile_class != expected_class:
                 _error('Profile 职业不一致', 'profiles')
             if not _same_spec(profile.spec, expected_class, expected_spec): _error('Profile 专精不一致', 'profiles')
