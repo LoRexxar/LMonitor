@@ -74,7 +74,7 @@ class SimcComposerEquipmentSlotResolutionTests(ComposerTestCase):
         self.base = self.template()
         self.default_equipment()
 
-    def test_stat_overrides_emit_only_explicit_values_including_strength(self):
+    def test_manual_equipment_does_not_emit_profile_total_stat_overrides(self):
         base = self.base
         base.content = (
             '{player_identity}\n{equipment}\n{stat_overrides}\n'
@@ -82,13 +82,34 @@ class SimcComposerEquipmentSlotResolutionTests(ComposerTestCase):
         )
         base.save(update_fields=['content'])
         content, _, error = self.compose(
-            base, gear_strength=12345, gear_crit=None, gear_haste=678,
-            gear_mastery=None, gear_versatility=None,
+            base, gear_strength=93330, gear_crit=10730, gear_haste=18641,
+            gear_mastery=21785, gear_versatility=6757,
         )
 
         self.assertIsNone(error)
-        self.assertIn('gear_strength=12345', content)
+        self.assertNotIn('gear_strength=', content)
+        self.assertNotIn('gear_crit_rating=', content)
+        self.assertNotIn('gear_haste_rating=', content)
+        self.assertNotIn('gear_mastery_rating=', content)
+        self.assertNotIn('gear_versatility_rating=', content)
+
+    def test_attribute_only_emits_explicit_secondary_overrides_but_not_strength(self):
+        base = self.base
+        base.content = (
+            '{player_identity}\n{equipment}\n{stat_overrides}\n'
+            '{action_list}\n{simulation_options}\n{output_options}'
+        )
+        base.save(update_fields=['content'])
+        content, _, error = self.compose(
+            base, player_import_mode='attribute_only', gear_strength=93330,
+            gear_crit=None, gear_haste=678, gear_mastery=None,
+            gear_versatility=456,
+        )
+
+        self.assertIsNone(error)
+        self.assertNotIn('gear_strength=', content)
         self.assertIn('gear_haste_rating=678', content)
+        self.assertIn('gear_versatility_rating=456', content)
         self.assertNotIn('gear_crit_rating=', content)
         self.assertNotIn('gear_mastery_rating=', content)
 
@@ -115,6 +136,19 @@ class SimcComposerEquipmentSlotResolutionTests(ComposerTestCase):
         self.assertIsNone(error)
         self.assertIn('override.battle_shout=1', historical)
         self.assertNotIn('override.arcane_intellect=', historical)
+
+    def test_manual_equipment_removes_stale_template_stat_overrides(self):
+        self.base.content = (
+            '{player_identity}\n{equipment}\ngear_strength=93330\n'
+            'gear_crit_rating=10730\n{simulation_options}\n{output_options}'
+        )
+        self.base.save(update_fields=['content'])
+
+        content, _, error = self.compose(self.base)
+
+        self.assertIsNone(error)
+        self.assertNotIn('gear_strength=', content)
+        self.assertNotIn('gear_crit_rating=', content)
 
     def test_battlenet_null_strength_removes_stale_template_override(self):
         self.base.content = (
@@ -498,6 +532,7 @@ class SimcComposerTemplateRenderingTests(ComposerTestCase):
         )
         final, _, error = self.compose(
             base, fight_style="Patchwerk", time=300, target_count=1,
+            player_import_mode="attribute_only",
             override_action_list="actions=/execute", gear_crit=123,
         )
         self.assertIsNone(error)

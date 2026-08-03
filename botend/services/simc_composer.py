@@ -805,25 +805,26 @@ class SimcComposer:
         return validate_simulation_options(request_data)
 
     def _resolve_stat_overrides(self, request_data: Dict[str, Any]) -> SlotResolution:
-        """Resolve stat_overrides slot (gear_crit, gear_haste, etc)."""
+        """Resolve secondary-rating overrides for attribute-search tasks only.
+
+        Manual equipment and Battle.net inputs already define the actor's real gear.
+        Persisted profile totals are descriptive snapshots, not executable overrides;
+        applying them would replace the stats calculated from the equipped items.
+        Attribute search intentionally overrides only the four secondary ratings and
+        keeps the primary stat authoritative to the frozen equipment baseline.
+        """
+        if request_data.get('player_import_mode') != 'attribute_only':
+            return SlotResolution(
+                slot_name='stat_overrides',
+                value=None,
+                status='empty',
+            )
+
         overrides = []
-
-        gear_strength = request_data.get('gear_strength')
-        gear_crit = request_data.get('gear_crit')
-        gear_haste = request_data.get('gear_haste')
-        gear_mastery = request_data.get('gear_mastery')
-        gear_versatility = request_data.get('gear_versatility')
-
-        if gear_strength is not None:
-            overrides.append(f'gear_strength={gear_strength}')
-        if gear_crit is not None:
-            overrides.append(f'gear_crit_rating={gear_crit}')
-        if gear_haste is not None:
-            overrides.append(f'gear_haste_rating={gear_haste}')
-        if gear_mastery is not None:
-            overrides.append(f'gear_mastery_rating={gear_mastery}')
-        if gear_versatility is not None:
-            overrides.append(f'gear_versatility_rating={gear_versatility}')
+        for field in ('crit', 'haste', 'mastery', 'versatility'):
+            value = request_data.get(f'gear_{field}')
+            if value is not None:
+                overrides.append(f'gear_{field}_rating={value}')
 
         if overrides:
             content = '\n'.join(overrides)
@@ -928,8 +929,18 @@ class SimcComposer:
         All placeholders must be replaced.
         """
         result = template_content
+        player_import_mode = request_data.get('player_import_mode')
+        if player_import_mode != 'attribute_only':
+            # Real equipment/Armory is authoritative outside attribute search. Strip
+            # legacy template totals before slot rendering so an old base template
+            # cannot silently replace stats calculated from the equipped items.
+            result = re.sub(
+                r'(?mi)^\s*gear_(?:strength|crit|haste|mastery|versatility)(?:_rating)?\s*=.*(?:\n|$)',
+                '',
+                result,
+            )
         battlenet_actor_replaced = False
-        if request_data.get('player_import_mode') == 'battlenet':
+        if player_import_mode == 'battlenet':
             # Legacy upstream base templates contain the actor-scoped options
             # immediately after a static actor. Replace that actor in place with
             # the armory actor; deleting it and inserting armory later would make
