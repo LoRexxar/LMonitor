@@ -272,6 +272,7 @@ def _build_profile_payload(profile: SimcProfile) -> dict:
     if profile.player_config_mode == 'manual_equipment' and player_equipment:
         from botend.services.simc_player_config import parse_simc_player_profile
         player_equipment = parse_simc_player_profile(player_equipment)['profile']['raw_player_block']
+    attribute_only = profile.player_config_mode == 'attribute_only'
     return {
         'name': profile.name,
         'spec': profile.spec,
@@ -282,13 +283,14 @@ def _build_profile_payload(profile: SimcProfile) -> dict:
         'battlenet_character': profile.battlenet_character,
         'player_equipment': player_equipment,
         'talent': profile.talent,
-        # NULL means inherit the complete player/equipment snapshot. A numeric
-        # value exists only when the user explicitly authored an override.
-        'gear_strength': profile.gear_strength,
-        'gear_crit': profile.gear_crit,
-        'gear_haste': profile.gear_haste,
-        'gear_mastery': profile.gear_mastery,
-        'gear_versatility': profile.gear_versatility,
+        # Executable stat overrides are exclusive to attribute-only profiles.
+        # Normalize again at the immutable freeze boundary so historical or
+        # externally-written manual/BNet values cannot leak into a new task.
+        'gear_strength': profile.gear_strength if attribute_only else None,
+        'gear_crit': profile.gear_crit if attribute_only else None,
+        'gear_haste': profile.gear_haste if attribute_only else None,
+        'gear_mastery': profile.gear_mastery if attribute_only else None,
+        'gear_versatility': profile.gear_versatility if attribute_only else None,
     }
 
 
@@ -502,11 +504,17 @@ def create_task_from_request(
             profile.battlenet_character = profile_fields.get('battlenet_character', profile.battlenet_character or '')
             profile.player_equipment = profile_fields.get('player_equipment', profile.player_equipment or '')
             profile.talent = profile_fields.get('talent', profile.talent or '')
-            profile.gear_strength = profile_fields.get('gear_strength', profile.gear_strength)
-            profile.gear_crit = profile_fields.get('gear_crit', profile.gear_crit)
-            profile.gear_haste = profile_fields.get('gear_haste', profile.gear_haste)
-            profile.gear_mastery = profile_fields.get('gear_mastery', profile.gear_mastery)
-            profile.gear_versatility = profile_fields.get('gear_versatility', profile.gear_versatility)
+            attribute_fields = (
+                'gear_strength', 'gear_crit', 'gear_haste',
+                'gear_mastery', 'gear_versatility',
+            )
+            if profile.player_config_mode == 'attribute_only':
+                for field in attribute_fields:
+                    if field in profile_fields:
+                        setattr(profile, field, profile_fields[field])
+            else:
+                for field in attribute_fields:
+                    setattr(profile, field, None)
             profile.save()
         else:
             # Create new profile
@@ -514,22 +522,26 @@ def create_task_from_request(
             if not profile_name:
                 raise TaskCreationError("Profile name is required when creating new profile")
 
+            profile_mode = profile_fields.get('player_config_mode', 'manual_equipment')
+            attribute_values = {
+                field: profile_fields.get(field) if profile_mode == 'attribute_only' else None
+                for field in (
+                    'gear_strength', 'gear_crit', 'gear_haste',
+                    'gear_mastery', 'gear_versatility',
+                )
+            }
             profile = SimcProfile.objects.create(
                 user_id=user_id,
                 name=profile_name,
                 spec=profile_fields.get('spec', 'fury'),
-                player_config_mode=profile_fields.get('player_config_mode', 'manual_equipment'),
+                player_config_mode=profile_mode,
                 use_ptr=profile_fields.get('use_ptr') is True,
                 battlenet_region=profile_fields.get('battlenet_region', ''),
                 battlenet_realm=profile_fields.get('battlenet_realm', ''),
                 battlenet_character=profile_fields.get('battlenet_character', ''),
                 player_equipment=profile_fields.get('player_equipment', ''),
                 talent=profile_fields.get('talent', ''),
-                gear_strength=profile_fields.get('gear_strength'),
-                gear_crit=profile_fields.get('gear_crit'),
-                gear_haste=profile_fields.get('gear_haste'),
-                gear_mastery=profile_fields.get('gear_mastery'),
-                gear_versatility=profile_fields.get('gear_versatility'),
+                **attribute_values,
                 is_active=True,
             )
 

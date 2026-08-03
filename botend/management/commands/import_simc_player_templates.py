@@ -162,6 +162,9 @@ class Command(BaseCommand):
                             'spec': spec_key, 'player_config_mode': 'manual_equipment',
                             'use_ptr': bool(options.get('use_ptr', False)),
                             'player_equipment': baseline, 'talent': '',
+                            'gear_strength': None, 'gear_crit': None,
+                            'gear_haste': None, 'gear_mastery': None,
+                            'gear_versatility': None,
                             'sync_version': options['sync_version'], 'is_active': True,
                         },
                     )

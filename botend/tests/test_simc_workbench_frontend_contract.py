@@ -121,7 +121,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
     def test_profile_form_normalizes_legacy_spec_and_leaves_optional_attribute_overrides_blank(self):
         """编辑旧 class_spec 记录必须选中实际专精；未填写属性不得伪造覆盖值。"""
         form = MAIN[MAIN.index('function simcWbToggleProfileForm'):MAIN.index('function simcWbCloseProfileForm')]
-        save = MAIN[MAIN.index('async function simcWbSaveProfile'):MAIN.index('async function simcWbDeleteProfile')]
+        save = MAIN[MAIN.index('async function simcWbSaveProfile()'):MAIN.index('async function simcWbDeleteProfile')]
         self.assertIn("const profileSpec = normalizeSimcSpecKey(profileData.spec || '');", form)
         self.assertIn('specSel.value = profileSpec;', form)
         self.assertIn("profileData.gear_strength ?? ''", form)
@@ -129,7 +129,9 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("profileData.gear_haste ?? ''", form)
         self.assertIn("profileData.gear_mastery ?? ''", form)
         self.assertIn("profileData.gear_versatility ?? ''", form)
-        self.assertIn("gear_strength: gv('gear_strength') === '' ? null", save)
+        self.assertIn("if (payload.player_config_mode === 'attribute_only')", save)
+        self.assertIn("payload.gear_strength = gv('gear_strength') === '' ? null", save)
+        self.assertNotIn("gear_strength: gv('gear_strength') === '' ? null", save)
         self.assertIn("gear_strength: attributeConfig?.gear_strength ?? null", MAIN)
         self.assertIn("cellText === null || cellText === undefined || cellText === '' ? '-' : cellText", MAIN)
         self.assertIn('name="gear_strength" type="number"', HTML)

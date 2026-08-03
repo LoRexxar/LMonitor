@@ -3537,7 +3537,15 @@ class SimcProfileAPIView(View):
             raise ValueError(f'{field} 必须是整数')
 
     @classmethod
-    def _profile_numeric_values(cls, data, fallback=None):
+    def _profile_numeric_values(cls, data, fallback=None, mode=None):
+        # Attribute overrides are a capability of attribute_only profiles only.
+        # Values sent by hidden/stale controls in Battle.net or manual-equipment
+        # requests must never become persisted execution overrides.
+        if mode != 'attribute_only':
+            return {
+                field: None
+                for field in ('gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility')
+            }
         fallback = fallback or {}
         return {
             field: cls._coerce_profile_number(data, field, fallback.get(field))
@@ -3630,7 +3638,7 @@ class SimcProfileAPIView(View):
                     # Battle.net preflight returns observed character stats as display
                     # metadata. They are part of the frozen equipment snapshot, not
                     # user-authored overrides. Only request fields may populate gear_*.
-                    numeric_values = self._profile_numeric_values(data)
+                    numeric_values = self._profile_numeric_values(data, mode=values['mode'])
                     from botend.services.simc_task_service import create_task_from_request, TaskCreationError
 
                     profile_fields = {
@@ -3698,11 +3706,11 @@ class SimcProfileAPIView(View):
                         battlenet_character=getattr(source_profile, 'battlenet_character', '') or '',
                         player_equipment=getattr(source_profile, 'player_equipment', '') or '',
                         talent=source_profile.talent,
-                        gear_strength=source_profile.gear_strength,
-                        gear_crit=source_profile.gear_crit,
-                        gear_haste=source_profile.gear_haste,
-                        gear_mastery=source_profile.gear_mastery,
-                        gear_versatility=source_profile.gear_versatility,
+                        gear_strength=source_profile.gear_strength if self._profile_mode(source_profile) == 'attribute_only' else None,
+                        gear_crit=source_profile.gear_crit if self._profile_mode(source_profile) == 'attribute_only' else None,
+                        gear_haste=source_profile.gear_haste if self._profile_mode(source_profile) == 'attribute_only' else None,
+                        gear_mastery=source_profile.gear_mastery if self._profile_mode(source_profile) == 'attribute_only' else None,
+                        gear_versatility=source_profile.gear_versatility if self._profile_mode(source_profile) == 'attribute_only' else None,
                         is_active=True
                     )
                     
@@ -3749,7 +3757,7 @@ class SimcProfileAPIView(View):
                     # Battle.net preflight returns observed character stats as display
                     # metadata. They are part of the frozen equipment snapshot, not
                     # user-authored overrides. Only request fields may populate gear_*.
-                    numeric_values = self._profile_numeric_values(data)
+                    numeric_values = self._profile_numeric_values(data, mode=values['mode'])
                 except ValueError as e:
                     return JsonResponse({'success': False, 'error': str(e)})
 
@@ -3955,7 +3963,14 @@ class SimcProfileAPIView(View):
                 if missing:
                     output.extend(f'{slot}=,id={updates[slot][0]},ilevel={updates[slot][1]}' for slot in missing)
                 profile.player_equipment = '\n'.join(output)
-                profile.save(update_fields=['player_equipment', 'update_time'] if hasattr(profile, 'update_time') else ['player_equipment'])
+                update_fields = ['player_equipment']
+                if profile.player_config_mode != 'attribute_only':
+                    for field in ('gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility'):
+                        setattr(profile, field, None)
+                    update_fields.extend(('gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility'))
+                if hasattr(profile, 'update_time'):
+                    update_fields.append('update_time')
+                profile.save(update_fields=update_fields)
                 return JsonResponse({'success': True, 'message': '装备配置更新成功'})
             
             # 验证名称
@@ -3993,7 +4008,7 @@ class SimcProfileAPIView(View):
                 numeric_values = self._profile_numeric_values(data, {
                     field: getattr(profile, field, None)
                     for field in ('gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility')
-                })
+                }, mode=values['mode'])
             except ValueError as e:
                 return JsonResponse({'success': False, 'error': str(e)})
             profile.name = name

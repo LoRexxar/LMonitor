@@ -2362,12 +2362,14 @@ async function simcWbSaveProfile() {
         battlenet_character: gv('battlenet_character'),
         player_equipment: gv('player_equipment'),
         talent: gv('talent'),
-        gear_strength: gv('gear_strength') === '' ? null : parseInt(gv('gear_strength')),
-        gear_crit: gv('gear_crit') === '' ? null : parseInt(gv('gear_crit')),
-        gear_haste: gv('gear_haste') === '' ? null : parseInt(gv('gear_haste')),
-        gear_mastery: gv('gear_mastery') === '' ? null : parseInt(gv('gear_mastery')),
-        gear_versatility: gv('gear_versatility') === '' ? null : parseInt(gv('gear_versatility')),
     };
+    if (payload.player_config_mode === 'attribute_only') {
+        payload.gear_strength = gv('gear_strength') === '' ? null : parseInt(gv('gear_strength'));
+        payload.gear_crit = gv('gear_crit') === '' ? null : parseInt(gv('gear_crit'));
+        payload.gear_haste = gv('gear_haste') === '' ? null : parseInt(gv('gear_haste'));
+        payload.gear_mastery = gv('gear_mastery') === '' ? null : parseInt(gv('gear_mastery'));
+        payload.gear_versatility = gv('gear_versatility') === '' ? null : parseInt(gv('gear_versatility'));
+    }
     if (!payload.name) { showMessage('请输入配置名称', 'error'); return; }
     if (!payload.spec) { showMessage('请输入专精', 'error'); return; }
     const csrf = getCSRFToken();

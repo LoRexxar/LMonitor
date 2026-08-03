@@ -360,6 +360,156 @@ class SimcProfileResourceListTests(TestCase):
         self.assertIsNone(listed[profile.id]['gear_strength'])
         self.assertIsNone(listed[profile.id]['gear_crit'])
 
+    def test_manual_equipment_cannot_persist_hidden_attribute_overrides(self):
+        response = self.client.post(
+            '/api/simc-profile/',
+            data=json.dumps({
+                'name': '手动装备不接受隐藏属性',
+                'spec': 'fury',
+                'player_config_mode': 'manual_equipment',
+                'player_equipment': 'warrior="Tester"\\nhead=,id=1',
+                'gear_strength': 93330,
+                'gear_crit': 10730,
+                'gear_haste': 18641,
+                'gear_mastery': 21785,
+                'gear_versatility': 6757,
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        profile = SimcProfile.objects.get(pk=response.json()['data']['id'])
+        for field in ('gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility'):
+            self.assertIsNone(getattr(profile, field), field)
+
+    def test_switching_from_attribute_only_to_manual_equipment_clears_overrides(self):
+        profile = SimcProfile.objects.create(
+            user_id=self.user.id,
+            name='属性转手动装备',
+            spec='fury',
+            player_config_mode='attribute_only',
+            player_equipment='warrior="Tester"\\nhead=,id=1',
+            talent='BUILD',
+            gear_strength=0,
+            gear_crit=10730,
+            gear_haste=18641,
+            gear_mastery=21785,
+            gear_versatility=6757,
+        )
+
+        response = self.client.put(
+            '/api/simc-profile/',
+            data=json.dumps({
+                'id': profile.id,
+                'name': profile.name,
+                'spec': profile.spec,
+                'player_config_mode': 'manual_equipment',
+                'player_equipment': profile.player_equipment,
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(response.json()['success'], response.content)
+        profile.refresh_from_db()
+        for field in ('gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility'):
+            self.assertIsNone(getattr(profile, field), field)
+
+    def test_attribute_only_persists_explicit_zero_override(self):
+        numeric = SimcProfileAPIView._profile_numeric_values(
+            {'gear_strength': 0},
+            mode='attribute_only',
+        )
+        self.assertEqual(numeric['gear_strength'], 0)
+        self.assertIsNone(numeric['gear_crit'])
+
+    def test_equipment_update_clears_hidden_manual_overrides(self):
+        profile = SimcProfile.objects.create(
+            user_id=self.user.id,
+            name='装备快速更新清理',
+            spec='warrior_fury',
+            player_config_mode='manual_equipment',
+            player_equipment='warrior="Tester"\nlevel=90\nspec=fury\nhead=,id=1,ilevel=100',
+            gear_strength=93330,
+            gear_crit=10730,
+            gear_haste=18641,
+            gear_mastery=21785,
+            gear_versatility=6757,
+        )
+
+        response = self.client.put(
+            '/api/simc-profile/',
+            data=json.dumps({
+                'id': profile.id,
+                'equipment': [{'slot': 'head', 'item_id': 2, 'item_level': 200}],
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        profile.refresh_from_db()
+        self.assertIn('head=,id=2,ilevel=200', profile.player_equipment)
+        for field in ('gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility'):
+            self.assertIsNone(getattr(profile, field), field)
+
+    def test_copying_manual_profile_does_not_propagate_hidden_overrides(self):
+        source = SimcProfile.objects.create(
+            user_id=self.user.id,
+            name='历史污染手动配置',
+            spec='fury',
+            player_config_mode='manual_equipment',
+            player_equipment='warrior="Tester"\\nhead=,id=1',
+            gear_strength=93330,
+            gear_crit=10730,
+            gear_haste=18641,
+            gear_mastery=21785,
+            gear_versatility=6757,
+        )
+
+        response = self.client.post(
+            '/api/simc-profile/',
+            data=json.dumps({'name': '手动配置副本', 'copy_from_id': source.id}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        copied = SimcProfile.objects.get(pk=response.json()['data']['id'])
+        for field in ('gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility'):
+            self.assertIsNone(getattr(copied, field), field)
+
+    def test_copying_attribute_only_profile_preserves_null_and_zero(self):
+        source = SimcProfile.objects.create(
+            user_id=self.user.id,
+            name='属性配置',
+            spec='fury',
+            player_config_mode='attribute_only',
+            player_equipment=(
+                'warrior="Tester"\nlevel=90\nspec=fury\nhead=,id=1\nneck=,id=2\nshoulders=,id=3\n'
+                'back=,id=4\nchest=,id=5\nwrists=,id=6\nhands=,id=7\n'
+                'waist=,id=8\nlegs=,id=9\nfeet=,id=10\nfinger1=,id=11\n'
+                'finger2=,id=12\ntrinket1=,id=13\ntrinket2=,id=14\nmain_hand=,id=15'
+            ),
+            gear_strength=0,
+            gear_crit=None,
+            gear_haste=333,
+            gear_mastery=444,
+            gear_versatility=555,
+        )
+
+        response = self.client.post(
+            '/api/simc-profile/',
+            data=json.dumps({'name': '属性配置副本', 'copy_from_id': source.id}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        copied = SimcProfile.objects.get(pk=response.json()['data']['id'])
+        self.assertEqual(copied.gear_strength, 0)
+        self.assertIsNone(copied.gear_crit)
+        self.assertEqual(copied.gear_haste, 333)
+        self.assertEqual(copied.gear_mastery, 444)
+        self.assertEqual(copied.gear_versatility, 555)
+
     @patch('botend.dashboard.api.fetch_battlenet_character_preflight')
     def test_battlenet_snapshot_stats_are_not_saved_as_explicit_overrides(self, preflight):
         preflight.return_value = {

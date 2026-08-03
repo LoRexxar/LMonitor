@@ -80,6 +80,19 @@ class ImportSimcPlayerTemplatesTests(TestCase):
         {('warrior', 'fury')},
     )
     def test_import_normalizes_numeric_item_shorthand_and_drops_embedded_ptr(self):
+        SimcProfile.objects.create(
+            user_id=None,
+            source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury',
+            name='Stale upstream Fury',
+            spec='warrior_fury',
+            player_config_mode='manual_equipment',
+            gear_strength=93330,
+            gear_crit=10730,
+            gear_haste=18641,
+            gear_mastery=21785,
+            gear_versatility=6757,
+        )
         upstream = DEFAULT_PLAYER.replace(
             'head=,id=212048,ilevel=639',
             'head=212048,ilevel=639',
@@ -96,6 +109,8 @@ class ImportSimcPlayerTemplatesTests(TestCase):
         self.assertIn('main_hand=,id=222222,ilevel=639', profile.player_equipment)
         self.assertNotIn('\nptr=', f'\n{profile.player_equipment}')
         self.assertIs(profile.use_ptr, True)
+        for field in ('gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility'):
+            self.assertIsNone(getattr(profile, field), field)
 
     def test_required_mid1_profiles_match_the_supported_32_spec_execution_scope(self):
         from botend.management.commands.import_simc_player_templates import REQUIRED_PROFILE_SPECS
