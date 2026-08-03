@@ -1123,6 +1123,8 @@ class SimcTaskArtifact(models.Model):
     artifact_type = models.CharField(max_length=50, help_text="产物类型：html_report/json_stats/log")
     file_path = models.CharField(max_length=500, help_text="相对static/的文件路径")
     file_size = models.BigIntegerField(default=0, help_text="文件大小（字节）")
+    content_hash = models.CharField(max_length=64, default='', blank=True,
+                                    help_text="完成时验证的产物SHA-256")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

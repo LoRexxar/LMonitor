@@ -1,3 +1,4 @@
+import hashlib
 from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -10,6 +11,7 @@ from botend.services.simc_agent_oss import (
     ReportLeaseExpiredError,
     ReportStorageError,
     ReportValidationError,
+    download_report_html,
     issue_upload_ticket,
     public_legacy_report_url,
     public_report_url,
@@ -207,6 +209,93 @@ class SimcAgentOSSTests(SimpleTestCase):
                     object_key='simc_agent_results/simc_task_9_run_17.html',
                     size=16, sha256='a' * 64, lease_fence='sha256:fence',
                 )
+
+    def test_download_report_html_reads_exact_canonical_object(self):
+        payload = '<html>报告</html>'.encode('utf-8')
+        digest = hashlib.sha256(payload).hexdigest()
+        body = MagicMock()
+        body.iter_bytes.return_value = iter((payload[:7], payload[7:]))
+        client = MagicMock()
+        client.get_object.return_value = SimpleNamespace(
+            content_length=len(payload),
+            content_type='text/html; charset=utf-8',
+            metadata={'sha256': digest, 'lease-fence': 'sha256:fence'},
+            body=body,
+        )
+        key = 'simc_agent_results/simc_task_9_run_17.html'
+        with patch('botend.services.simc_agent_oss._client', return_value=(oss, client, 'bucket')):
+            self.assertEqual(
+                download_report_html(
+                    key,
+                    expected_size=len(payload),
+                    expected_sha256=digest,
+                    expected_lease_fence='sha256:fence',
+                ),
+                ('<html>报告</html>', digest),
+            )
+        request = client.get_object.call_args.args[0]
+        self.assertEqual(request.bucket, 'bucket')
+        self.assertEqual(request.key, key)
+        body.__enter__.assert_called_once_with()
+        body.iter_bytes.assert_called_once_with()
+        body.read.assert_not_called()
+        body.__exit__.assert_called_once()
+
+    def test_download_report_html_rejects_wrong_identity_or_size(self):
+        client = MagicMock()
+        with patch('botend.services.simc_agent_oss._client', return_value=(oss, client, 'bucket')):
+            for key, size in (
+                ('../other.html', 16),
+                ('simc_agent_results/simc_task_9_run_17.html', 0),
+            ):
+                with self.subTest(key=key, size=size), self.assertRaises(ReportValidationError):
+                    download_report_html(
+                        key,
+                        expected_size=size,
+                        expected_sha256='a' * 64,
+                        expected_lease_fence='sha256:fence',
+                    )
+        client.get_object.assert_not_called()
+
+        payload = b'<html>ok</html>'
+        body = MagicMock()
+        client.get_object.return_value = SimpleNamespace(
+            content_length=len(payload) + 1,
+            content_type='text/html; charset=utf-8',
+            metadata={'sha256': hashlib.sha256(payload).hexdigest(), 'lease-fence': 'sha256:fence'},
+            body=body,
+        )
+        with patch('botend.services.simc_agent_oss._client', return_value=(oss, client, 'bucket')):
+            with self.assertRaisesRegex(ReportValidationError, 'size mismatch'):
+                download_report_html(
+                    'simc_agent_results/simc_task_9_run_17.html',
+                    expected_size=len(payload),
+                    expected_sha256=hashlib.sha256(payload).hexdigest(),
+                    expected_lease_fence='sha256:fence',
+                )
+        body.__exit__.assert_called_once()
+
+    def test_download_report_html_stops_when_stream_exceeds_verified_size(self):
+        payload = b'<html>ok</html>'
+        digest = hashlib.sha256(payload).hexdigest()
+        body = MagicMock()
+        body.iter_bytes.return_value = iter((payload, b'unexpected-extra-bytes'))
+        client = MagicMock()
+        client.get_object.return_value = SimpleNamespace(
+            content_length=len(payload),
+            content_type='text/html; charset=utf-8',
+            metadata={'sha256': digest, 'lease-fence': 'sha256:fence'},
+            body=body,
+        )
+        with patch('botend.services.simc_agent_oss._client', return_value=(oss, client, 'bucket')):
+            with self.assertRaisesRegex(ReportValidationError, 'body size mismatch'):
+                download_report_html(
+                    'simc_agent_results/simc_task_9_run_17.html',
+                    expected_size=len(payload),
+                    expected_sha256=digest,
+                    expected_lease_fence='sha256:fence',
+                )
+        body.__exit__.assert_called_once()
 
     def test_verify_uploaded_report_classifies_missing_object_as_validation_failure(self):
         class MissingObjectError(Exception):

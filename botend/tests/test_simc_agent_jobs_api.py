@@ -420,6 +420,7 @@ class SimcAgentJobAPITests(TestCase):
         self.assertEqual(run.status, 'completed')
         self.assertEqual(run.result_summary['dps'], 1234.0)
         artifact = SimcTaskArtifact.objects.get(run=run, artifact_type='html_report')
+        self.assertEqual(artifact.content_hash, hashlib.sha256(b'<html>DPS=1234</html>').hexdigest())
         self.assertEqual(
             artifact.file_path,
             f"simc_agent_results/simc_task_{job['task_id']}_run_{job['run_id']}.html",
@@ -478,9 +479,78 @@ class SimcAgentJobAPITests(TestCase):
         self.assertEqual(preview.status_code, 302)
         self.assertEqual(preview['Location'], expected_url)
         from botend.services.simc_result_analysis import analyze_run_artifact
-        with patch('botend.services.simc_result_analysis.simc_artifacts._validated_result') as validated:
-            self.assertIsNone(analyze_run_artifact(run.task, artifact))
+        report_html = b'<html><body><div class="player"><h2>Agent: 1,234 dps</h2></div></body></html>'
+        with patch(
+            'botend.services.simc_result_analysis.simc_agent_oss.download_report_html',
+            return_value=(
+                report_html.decode('utf-8'),
+                artifact.content_hash,
+            ),
+        ) as download, patch(
+            'botend.services.simc_result_analysis.simc_artifacts._validated_result',
+        ) as validated:
+            summary = analyze_run_artifact(run.task, artifact)
+        self.assertEqual(summary['dps'], 1234)
+        download.assert_called_once_with(
+            artifact.file_path,
+            expected_size=artifact.file_size,
+            expected_sha256=artifact.content_hash,
+            expected_lease_fence=run.lease_token_hash,
+        )
         validated.assert_not_called()
+
+    def test_agent_report_analysis_backfills_verified_hash_for_existing_artifact(self):
+        job = self.claim_after_task()
+        self.complete(job)
+        run = SimulationRun.objects.get(pk=job['run_id'])
+        artifact = SimcTaskArtifact.objects.get(run=run, artifact_type='html_report')
+        verified_sha256 = artifact.content_hash
+        artifact.content_hash = ''
+        artifact.save(update_fields=['content_hash'])
+        report_html = '<html><body><div class="player"><h2>Agent: 1,234 dps</h2></div></body></html>'
+        from botend.services.simc_result_analysis import analyze_run_artifact
+
+        with patch(
+            'botend.services.simc_result_analysis.simc_agent_oss.download_report_html',
+            return_value=(report_html, verified_sha256),
+        ) as download:
+            summary = analyze_run_artifact(run.task, artifact)
+        self.assertEqual(summary['dps'], 1234)
+        artifact.refresh_from_db()
+        self.assertEqual(artifact.content_hash, verified_sha256)
+        download.assert_called_once_with(
+            artifact.file_path,
+            expected_size=artifact.file_size,
+            expected_sha256='',
+            expected_lease_fence=run.lease_token_hash,
+        )
+
+    def test_agent_report_analysis_requires_completed_run_bound_to_same_task(self):
+        job = self.claim_after_task()
+        self.complete(job)
+        run = SimulationRun.objects.get(pk=job['run_id'])
+        artifact = SimcTaskArtifact.objects.get(run=run, artifact_type='html_report')
+        other_task = self.task(name='other')
+        from botend.services.simc_result_analysis import analyze_run_artifact
+
+        artifact.task = other_task
+        artifact.save(update_fields=['task'])
+        with patch(
+            'botend.services.simc_result_analysis.simc_agent_oss.download_report_html',
+        ) as download:
+            self.assertIsNone(analyze_run_artifact(other_task, artifact))
+        download.assert_not_called()
+
+        artifact.task = run.task
+        artifact.save(update_fields=['task'])
+        run.status = 'running'
+        run.save(update_fields=['status'])
+        artifact.run.refresh_from_db()
+        with patch(
+            'botend.services.simc_result_analysis.simc_agent_oss.download_report_html',
+        ) as download:
+            self.assertIsNone(analyze_run_artifact(run.task, artifact))
+        download.assert_not_called()
 
     def test_report_upload_ticket_is_bound_to_run_and_lease(self):
         job = self.claim_after_task()

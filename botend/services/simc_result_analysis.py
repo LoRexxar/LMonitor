@@ -7,7 +7,7 @@ the workbench UI.
 import copy
 import re
 
-from botend.services import simc_artifacts
+from botend.services import simc_agent_oss, simc_artifacts
 
 
 _CLASS_NAMES_ZH = {
@@ -489,13 +489,33 @@ def parse_simc_html_report(html_content):
 
 def analyze_run_artifact(task, artifact):
     """Analyze one exact Run-bound HTML artifact without modifying its bytes."""
-    if not artifact or artifact.task_id != task.id or artifact.artifact_type != "html_report" or not artifact.run_id:
+    if (
+        not artifact
+        or artifact.task_id != task.id
+        or artifact.artifact_type != "html_report"
+        or not artifact.run_id
+        or artifact.run.task_id != task.id
+        or artifact.run.status != 'completed'
+    ):
         return None
     artifact_path = str(artifact.file_path or '').replace('\\', '/')
-    # Standalone Agent reports are OSS-only. Never parse a same-named local
-    # leftover as if it were the immutable object that completion verified.
     if artifact_path.startswith('simc_agent_results/'):
-        return None
+        try:
+            expected_key = simc_agent_oss.object_key_for_run(artifact.run)
+            if artifact_path != expected_key:
+                return None
+            html_content, verified_sha256 = simc_agent_oss.download_report_html(
+                artifact_path,
+                expected_size=artifact.file_size,
+                expected_sha256=artifact.content_hash,
+                expected_lease_fence=artifact.run.lease_token_hash,
+            )
+        except simc_agent_oss.ReportStorageError:
+            return None
+        if not artifact.content_hash:
+            artifact.content_hash = verified_sha256
+            artifact.save(update_fields=['content_hash'])
+        return parse_simc_html_report(html_content)
     filename = artifact_path.rsplit('/', 1)[-1]
     validated = simc_artifacts._validated_result(task, filename, run=artifact.run)
     if not validated:

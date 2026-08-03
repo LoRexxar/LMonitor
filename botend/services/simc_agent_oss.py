@@ -1,6 +1,7 @@
 """Public OSS direct-upload protocol for standalone SimC Agent reports."""
 from __future__ import annotations
 
+import hashlib
 import re
 from datetime import timedelta
 from urllib.parse import quote, urlsplit
@@ -15,6 +16,7 @@ REPORT_KEY_RE = re.compile(
     r'^simc_agent_results/simc_task_[1-9][0-9]*_run_[1-9][0-9]*\.html$'
 )
 LEGACY_REPORT_RE = re.compile(r'^[0-9a-f]{32}_run_[1-9][0-9]*\.html$')
+SHA256_RE = re.compile(r'^[0-9a-f]{64}$')
 
 
 class ReportStorageError(RuntimeError):
@@ -123,6 +125,69 @@ def verify_uploaded_report(*, object_key: str, size: int, sha256: str,
     content_type = str(result.content_type or '').lower().replace(' ', '')
     if content_type != 'text/html;charset=utf-8':
         raise ReportValidationError('OSS report Content-Type mismatch')
+
+
+def download_report_html(
+    object_key: str,
+    *,
+    expected_size: int,
+    expected_sha256: str,
+    expected_lease_fence: str,
+) -> tuple[str, str]:
+    """Download one completion-verified Agent report for read-only analysis."""
+    if not isinstance(object_key, str) or not REPORT_KEY_RE.fullmatch(object_key):
+        raise ReportValidationError('Invalid Agent report object key')
+    if not isinstance(expected_size, int) or isinstance(expected_size, bool):
+        raise ReportValidationError('Invalid Agent report size')
+    if expected_size <= 0 or expected_size > MAX_REPORT_BYTES:
+        raise ReportValidationError('Agent report size is outside the allowed range')
+    if expected_sha256 and not SHA256_RE.fullmatch(str(expected_sha256)):
+        raise ReportValidationError('Invalid Agent report SHA-256')
+    if not isinstance(expected_lease_fence, str) or not expected_lease_fence:
+        raise ReportValidationError('Invalid Agent report lease fence')
+
+    oss, client, bucket = _client()
+    try:
+        result = client.get_object(oss.GetObjectRequest(bucket=bucket, key=object_key))
+        if result.body is None:
+            raise ReportValidationError('OSS report body is unavailable')
+        chunks = []
+        body_size = 0
+        digest = hashlib.sha256()
+        with result.body:
+            if int(result.content_length or -1) != expected_size:
+                raise ReportValidationError('OSS report size mismatch')
+            content_type = str(result.content_type or '').lower().replace(' ', '')
+            if content_type != 'text/html;charset=utf-8':
+                raise ReportValidationError('OSS report Content-Type mismatch')
+            metadata = {str(key).lower(): str(value) for key, value in (result.metadata or {}).items()}
+            object_sha256 = metadata.get('sha256', '').lower()
+            if not SHA256_RE.fullmatch(object_sha256):
+                raise ReportValidationError('OSS report SHA-256 metadata mismatch')
+            if expected_sha256 and object_sha256 != expected_sha256.lower():
+                raise ReportValidationError('OSS report SHA-256 metadata mismatch')
+            if metadata.get('lease-fence') != expected_lease_fence:
+                raise ReportValidationError('OSS report lease fence mismatch')
+            for chunk in result.body.iter_bytes():
+                body_size += len(chunk)
+                if body_size > expected_size or body_size > MAX_REPORT_BYTES:
+                    raise ReportValidationError('OSS report body size mismatch')
+                chunks.append(chunk)
+                digest.update(chunk)
+    except ReportValidationError:
+        raise
+    except Exception as exc:
+        status_code = getattr(exc, 'status_code', None)
+        error_code = str(getattr(exc, 'code', '') or getattr(exc, 'error_code', ''))
+        if status_code == 404 or error_code in {'NoSuchKey', 'NotFound', 'NoSuchObject'}:
+            raise ReportValidationError('OSS report object does not exist') from exc
+        raise ReportStorageError('OSS report object is unavailable') from exc
+
+    if body_size != expected_size:
+        raise ReportValidationError('OSS report body size mismatch')
+    if digest.hexdigest() != object_sha256:
+        raise ReportValidationError('OSS report body SHA-256 mismatch')
+    return b''.join(chunks).decode('utf-8', errors='replace'), object_sha256
 
 
 def _validated_public_base_url() -> str:

@@ -621,7 +621,11 @@ def complete_run(run_id, metadata, authorization):
                 raise AgentAPIError('SimC result does not contain DPS')
             SimcTaskArtifact.objects.update_or_create(
                 task=task, run=run, artifact_type='html_report',
-                defaults={'file_path': report['object_key'], 'file_size': report['size']},
+                defaults={
+                    'file_path': report['object_key'],
+                    'file_size': report['size'],
+                    'content_hash': report['sha256'],
+                },
             )
             run.result_summary = summary
             run.error_detail = None
