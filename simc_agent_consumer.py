@@ -1599,6 +1599,14 @@ class SimcAgentConsumer:
                     while not self.stop_event.is_set():
                         while (not self.stop_event.is_set()
                                and len(self._active_jobs) < capacity):
+                            # Once the daily window opens, stop refilling free
+                            # slots. Existing Runs drain normally; maintenance
+                            # then executes from the outer idle cycle instead of
+                            # being starved forever by a continuously non-empty
+                            # queue.
+                            if (self._should_run_scheduled_maintenance()
+                                    and maintenance_error is None):
+                                break
                             job = self.claim()
                             if not job:
                                 break

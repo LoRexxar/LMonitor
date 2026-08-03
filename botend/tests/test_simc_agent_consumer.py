@@ -368,6 +368,58 @@ class SimcAgentConsumerTests(SimpleTestCase):
                 [entry.args[0] for entry in consumer.execute_job.call_args_list], [first, second],
             )
 
+    def test_run_stops_refilling_slots_when_daily_maintenance_becomes_due(self):
+        from simc_agent_consumer import AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            values['max_concurrent_runs'] = 2
+            values['poll_interval_seconds'] = 0.01
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=MagicMock())
+            consumer.register = MagicMock()
+            consumer.flush_completion_outbox = MagicMock(return_value=True)
+            maintenance_due = threading.Event()
+            maintenance_ran = threading.Event()
+            consumer._should_run_scheduled_maintenance = MagicMock(
+                side_effect=lambda: maintenance_due.is_set(),
+            )
+
+            def run_maintenance():
+                if maintenance_due.is_set():
+                    maintenance_ran.set()
+                    consumer.stop_event.set()
+
+            consumer._run_scheduled_maintenance_if_due = MagicMock(side_effect=run_maintenance)
+            consumer.heartbeat = MagicMock(return_value={})
+            first = {'task_id': 1, 'run_id': 1}
+            second = {'task_id': 2, 'run_id': 2}
+            third = {'task_id': 3, 'run_id': 3}
+            consumer.claim = MagicMock(side_effect=[first, second, third])
+            release_first = threading.Event()
+            second_started = threading.Event()
+
+            def execute(job):
+                if job['run_id'] == 1:
+                    self.assertTrue(release_first.wait(timeout=2))
+                elif job['run_id'] == 2:
+                    second_started.set()
+                    maintenance_due.set()
+
+            consumer.execute_job = MagicMock(side_effect=execute)
+            thread = threading.Thread(target=consumer.run, daemon=True)
+            thread.start()
+            self.assertTrue(second_started.wait(timeout=2))
+            release_first.set()
+            self.assertTrue(maintenance_ran.wait(timeout=2))
+            thread.join(timeout=2)
+
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(consumer.claim.call_count, 2)
+            self.assertEqual(
+                [entry.args[0] for entry in consumer.execute_job.call_args_list],
+                [first, second],
+            )
+
     def test_run_refills_a_completed_slot_without_waiting_for_other_active_runs(self):
         from simc_agent_consumer import AgentConfig, SimcAgentConsumer
 
