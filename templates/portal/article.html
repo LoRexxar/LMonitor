@@ -40,19 +40,7 @@
     </style>
 </head>
 <body class="portal-bg font-sans">
-    <header class="portal-header">
-        <div class="portal-header-inner">
-            <div class="portal-header-left">
-                <div class="portal-header-brand">
-                    <div class="portal-header-logo">
-                        <svg class="portal-logo-fallback-icon w-5 h-5 text-indigo-700" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-globe"></use></svg>
-                        <img class="portal-logo-img" src="{% static 'portal/images/portal-logo.webp' %}" alt="" loading="lazy" onload="this.previousElementSibling.style.display='none'" onerror="this.style.display='none'">
-                    </div>
-                    <a href="/" class="portal-header-title hover:text-indigo-700">魔兽世界每日节奏 WowDaily.cn</a>
-                </div>
-            </div>
-        </div>
-    </header>
+    {% include 'portal/_header.html' %}
     <div class="max-w-[1200px] mx-auto px-4 py-6">
         <div id="article-container" class="portal-card shadow-sm border border-slate-200/70 p-6">
             <div class="text-center text-slate-500">加载中...</div>

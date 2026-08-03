@@ -314,20 +314,42 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         ):
             self.assertIn(contract, self.PORTAL_JS)
 
-    def test_results_page_uses_the_same_primary_header_navigation_as_portal_home(self):
-        home_soup = BeautifulSoup(self.TEMPLATE, 'html.parser')
-        results_soup = BeautifulSoup(self.RESULTS_TEMPLATE, 'html.parser')
-
-        def navigation_contract(soup):
-            return [
-                (link.get_text(' ', strip=True), link.get('href'), link.get('aria-label'))
-                for link in soup.select('.portal-header-actions > a')
-            ]
-
-        self.assertEqual(navigation_contract(results_soup), navigation_contract(home_soup))
+    def test_portal_pages_share_one_primary_header_navigation(self):
+        shared_header_path = self.ROOT / 'templates/portal/_header.html'
+        self.assertTrue(shared_header_path.exists())
+        shared_header = shared_header_path.read_text(encoding='utf-8')
+        header_soup = BeautifulSoup(shared_header, 'html.parser')
+        navigation = [
+            (link.get_text(' ', strip=True), link.get('href'), link.get('aria-label'))
+            for link in header_soup.select('.portal-header-actions > a')
+        ]
+        self.assertEqual(
+            navigation,
+            [
+                ('新闻聚合', '/portal/news/', None),
+                ('全职业数据', '/portal/specs/', None),
+                ('天赋模拟器', '/portal/talents/', None),
+                ('MDT', '/portal/mythic-planner/', None),
+                ('simc模拟数据', '/portal/simc-benchmarks/', None),
+                ('', '/dashboard/', '后台'),
+            ],
+        )
+        for template_name in (
+            'index.html',
+            'news.html',
+            'specs.html',
+            'talent_simulator.html',
+            'simc_benchmark_results.html',
+            'article.html',
+            'wow_skill_diff_report.html',
+        ):
+            template = (self.ROOT / 'templates/portal' / template_name).read_text(encoding='utf-8')
+            self.assertIn("{% include 'portal/_header.html' %}", template, template_name)
+            self.assertEqual(template.count('portal-header-actions'), 0, template_name)
 
     def test_benchmark_collection_page_renders_panel_list_instead_of_all_results(self):
-        soup = BeautifulSoup(self.TEMPLATE, 'html.parser')
+        shared_header = (self.ROOT / 'templates/portal/_header.html').read_text(encoding='utf-8')
+        soup = BeautifulSoup(shared_header, 'html.parser')
         result_button = next(
             link for link in soup.select('a')
             if link.get_text(' ', strip=True) == 'simc模拟数据'

@@ -10,36 +10,7 @@
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260708_specs_v3">
 </head>
 <body class="portal-bg font-sans">
-    <header class="portal-header">
-        <div class="portal-header-inner">
-            <div class="portal-header-left">
-                <div class="portal-header-brand">
-                    <div class="portal-header-logo">
-                        <svg class="portal-logo-fallback-icon w-5 h-5 text-indigo-700" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-globe"></use></svg>
-                        <img class="portal-logo-img" src="{% static 'portal/images/portal-logo.webp' %}" alt="魔兽世界每日节奏徽章" loading="lazy" onload="this.previousElementSibling.style.display='none'" onerror="this.style.display='none'">
-                    </div>
-                    <a href="/" class="portal-header-title hover:text-indigo-700 transition-colors">魔兽世界每日节奏 WowDaily.cn</a>
-                </div>
-            </div>
-            <div class="portal-header-actions">
-                <a href="/portal/news/" class="portal-pill portal-action-btn inline-flex items-center gap-2 text-slate-700 hover:text-slate-900">
-                    <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-newspaper"></use></svg>
-                    <span>新闻聚合</span>
-                </a>
-                <a href="/portal/specs/" class="portal-pill portal-action-btn inline-flex items-center gap-2 text-slate-700 hover:text-slate-900">
-                    <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chart"></use></svg>
-                    <span>全职业数据</span>
-                </a>
-                <a href="/portal/talents/" class="portal-pill portal-action-btn inline-flex items-center gap-2 text-slate-700 hover:text-slate-900">
-                    <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chart"></use></svg>
-                    <span>天赋模拟器</span>
-                </a>
-                <a href="/dashboard/" class="portal-pill portal-action-btn portal-action-btn--icon inline-flex items-center justify-center text-slate-700 hover:text-slate-900" aria-label="后台" title="后台">
-                    <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-tools"></use></svg>
-                </a>
-            </div>
-        </div>
-    </header>
+    {% include 'portal/_header.html' %}
 
     <main class="max-w-[1200px] mx-auto px-4 py-6">
         <div class="portal-card shadow-sm border border-slate-200/70 p-4 mb-4">
