@@ -4,7 +4,8 @@ from django.http import JsonResponse
 from django.views import View
 
 from botend.models import (
-    SimcBenchmarkPanel, SimcBenchmarkProfile, SimcBenchmarkScenario,
+    SimcBenchmarkCandidate, SimcBenchmarkPanel, SimcBenchmarkProfile,
+    SimcBenchmarkScenario,
 )
 from botend.services.simc_benchmark_execution import serialize_incremental_panel_results
 
@@ -66,6 +67,11 @@ class PortalSimcBenchmarkPanelListAPIView(View):
                     is_enabled=True,
                 )
             ),
+            has_enabled_candidate=Exists(
+                SimcBenchmarkCandidate.objects.filter(
+                    panel_id=OuterRef('pk'), is_enabled=True,
+                )
+            ),
         ).order_by('name', 'id')
         for panel in queryset:
             is_ready = (
@@ -78,6 +84,10 @@ class PortalSimcBenchmarkPanelListAPIView(View):
                 'name': panel.name,
                 'description': panel.description,
                 'status': 'ready' if is_ready else 'not_ready',
+                'result_view': (
+                    'benchmark' if panel.has_enabled_candidate
+                    else 'spec_comparison'
+                ),
             })
         return JsonResponse({'status': 'ready', 'panels': panels})
 

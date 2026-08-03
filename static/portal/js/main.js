@@ -311,6 +311,43 @@ function renderSkeleton(containerId, lines = 8) {
   el.innerHTML = `<div class="mt-2">${blocks.join("")}</div>`;
 }
 
+async function loadPublicBaselines() {
+  const el = document.getElementById("simc-baseline-list");
+  if (!el) return;
+  try {
+    const payload = await fetchJson("/portal/api/simc-benchmarks/panels/");
+    const panels = Array.isArray(payload?.panels)
+      ? payload.panels.filter((panel) => panel.result_view === "spec_comparison")
+      : [];
+    if (!panels.length) {
+      el.innerHTML = '<div class="text-slate-500 md:col-span-2">暂无公开的基线任务</div>';
+      return;
+    }
+    el.innerHTML = panels.map((panel) => {
+      const panelId = Number(panel?.id);
+      if (!Number.isInteger(panelId) || panelId <= 0) return "";
+      const href = `/portal/simc-benchmarks/${encodeURIComponent(String(panel.id))}/`;
+      const name = escapeHtml(panel?.name || "未命名基线任务");
+      const description = escapeHtml(panel?.description || "查看各职业专精的基线模拟结果");
+      const status = panel?.status === "ready" ? "已有结果" : "等待结果";
+      const statusClass = panel?.status === "ready"
+        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+        : "bg-slate-50 text-slate-500 border-slate-200";
+      return `<a href="${href}" class="group rounded-xl border border-slate-200/80 bg-white/80 px-4 py-3 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="font-semibold text-slate-900 group-hover:text-indigo-700">${name}</div>
+            <div class="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">${description}</div>
+          </div>
+          <span class="shrink-0 rounded-full border px-2 py-1 text-[11px] font-medium ${statusClass}">${status}</span>
+        </div>
+      </a>`;
+    }).join("");
+  } catch (e) {
+    el.innerHTML = '<div class="text-slate-500 md:col-span-2">基线任务加载失败</div>';
+  }
+}
+
 async function loadTools() {
   const topEl = document.getElementById("topbar-tools");
   const gridEl = document.getElementById("tools-nav");
@@ -2209,6 +2246,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   bindLogoBackgroundRemoval();
   loadAll();
+  loadPublicBaselines();
   initSectionDots();
 });
 
@@ -2217,6 +2255,7 @@ const SECTION_DOT_LABELS = {
   "portal-topbar": "搜索",
   "section-news": "新闻速递",
   "section-wow-skill-diff": "数据挖掘",
+  "section-simc-baselines": "SimC基线",
   "section-nga": "NGA热议",
   "section-events": "活动提醒",
   "section-videos": "视频攻略",

@@ -41,6 +41,7 @@ class PortalSimcBenchmarkAPITests(TestCase):
             'panels': [{
                 'id': self.public.id, 'slug': 'public-panel', 'name': 'Public panel',
                 'description': 'Public description', 'status': 'not_ready',
+                'result_view': 'spec_comparison',
             }],
         })
         serializer.assert_not_called()
@@ -90,6 +91,18 @@ class PortalSimcBenchmarkAPITests(TestCase):
             if panel['id'] == self.public.id
         )
         self.assertEqual(public_panel['status'], 'ready')
+        self.assertEqual(public_panel['result_view'], 'spec_comparison')
+
+    def test_list_marks_panel_with_enabled_candidates_as_benchmark_result(self):
+        SimcBenchmarkCandidate.objects.create(
+            panel=self.public, key='trinket', label='Trinket',
+            candidate_type='gear_swap', params={'candidate_type': 'gear_swap'},
+        )
+
+        response = self.client.get('/portal/api/simc-benchmarks/panels/')
+        public_panel = json.loads(response.content)['panels'][0]
+
+        self.assertEqual(public_panel['result_view'], 'benchmark')
 
     @patch('botend.portal.simc_benchmark_api.serialize_incremental_panel_results')
     def test_detail_returns_immediate_result_projection(self, serializer):
@@ -248,6 +261,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
     TEMPLATE = (ROOT / 'templates/portal/index.html').read_text(encoding='utf-8')
     RESULTS_TEMPLATE = (ROOT / 'templates/portal/simc_benchmark_results.html').read_text(encoding='utf-8')
     JS = (ROOT / 'static/portal/js/simc-benchmarks.js').read_text(encoding='utf-8')
+    PORTAL_JS = (ROOT / 'static/portal/js/main.js').read_text(encoding='utf-8')
     CSS = (ROOT / 'static/portal/css/simc-benchmarks.css').read_text(encoding='utf-8')
 
     def test_results_page_owns_the_benchmark_region_and_assets(self):
@@ -259,6 +273,28 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIn('portal/css/simc-benchmarks.css', self.RESULTS_TEMPLATE)
         self.assertIn('portal/js/simc-benchmarks.js', self.RESULTS_TEMPLATE)
         self.assertIn('/portal/simc-benchmarks/', self.TEMPLATE)
+
+    def test_home_lists_public_baseline_tasks_below_wago_monitoring(self):
+        soup = BeautifulSoup(self.TEMPLATE, 'html.parser')
+        sections = soup.select('.snap-section')
+        wago_section = soup.select_one('#section-wow-skill-diff')
+        baseline_section = soup.select_one('#section-simc-baselines')
+        self.assertIsNotNone(baseline_section)
+        self.assertLess(sections.index(wago_section), sections.index(baseline_section))
+        title_link = baseline_section.select_one(
+            'a[href="/portal/simc-benchmarks/"]'
+        )
+        self.assertIsNotNone(title_link)
+        self.assertEqual(title_link.get_text(' ', strip=True), 'SimC 基线任务')
+        self.assertIsNotNone(baseline_section.select_one('#simc-baseline-list'))
+
+        for contract in (
+            'loadPublicBaselines',
+            '/portal/api/simc-benchmarks/panels/',
+            'panel.result_view === "spec_comparison"',
+            '/portal/simc-benchmarks/${encodeURIComponent(String(panel.id))}/',
+        ):
+            self.assertIn(contract, self.PORTAL_JS)
 
     def test_public_renderer_uses_spec_driven_profile_and_scenario_filters(self):
         for contract in ('payload?.results?.coordinate_options', 'spec_key', 'scenario_key', 'profile_key',
