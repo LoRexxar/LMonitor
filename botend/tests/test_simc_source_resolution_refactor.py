@@ -92,6 +92,16 @@ class SimcSourceResolutionApiTests(TestCase):
 
 
 class SimcSourceResolutionFrontendContractTests(unittest.TestCase):
+    def test_saved_profile_talent_is_labeled_as_persisted_execution_value(self):
+        profile_form = HTML[
+            HTML.index('id="simc-wb-profile-form-source"'):
+            HTML.index('<!-- End L1 Panel: 模拟工作流 -->')
+        ]
+        self.assertIn('最终执行天赋码（可选）', profile_form)
+        self.assertIn('这里显示配置中已保存的 Build Code，不是编辑器生成的默认值。', profile_form)
+        self.assertIn('Composer 使用本字段生成最终 talents=', profile_form)
+        self.assertIn('name="talent"', profile_form)
+
     def test_exactly_three_peer_sources_and_spec_is_scoped_to_specified_panel(self):
         source_panel = WORKFLOW[WORKFLOW.index('id="simc-sim-player-sources"'):WORKFLOW.index('id="simc-sim-apl-list"')]
         self.assertEqual(source_panel.count('data-simc-player-source='), 3)
@@ -165,4 +175,4 @@ class SimcSourceResolutionFrontendContractTests(unittest.TestCase):
         self.assertNotIn('\n    onSimcTargetSpecChange().catch', binding)
         self.assertIn('if (sectionId === SIMC_DASHBOARD_SECTIONS.workflow)', navigation)
         self.assertIn('switchSimcPlayerImportMode();', navigation)
-        self.assertIn("dashboard/js/main.js' %}?v=20260803h", HTML)
+        self.assertIn("dashboard/js/main.js' %}?v=20260804a", HTML)
