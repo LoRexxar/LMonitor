@@ -1799,6 +1799,20 @@ main_hand=,id=222222
             ['ff_tarswap', 'ff_aoe', 'ff_st'],
         )
 
+    def test_semantic_validation_accepts_terminal_unconditional_sibling_dispatch(self):
+        stdout = '''Player: Audit deathknight frost 90
+  DPS=177000.0 DPS-Error=125.0/0.07%
+  Priorities (actions.default):
+    run_action_list,name=aoe,if=active_enemies>=3/run_action_list,name=single_target
+  Priorities (actions.single_target):
+    obliterate
+  Actions:
+    obliterate Count=42.0 pDPS=161158
+'''
+        validation = SimcMonitor.validate_simulation_semantics(stdout)
+        self.assertTrue(validation['valid'])
+        self.assertEqual(validation['failure_type'], '')
+
     def test_semantic_validation_accepts_hero_tree_sibling_dispatch_when_talent_branches_are_inactive(self):
         stdout = '''Player: Audit warrior protection 90
   DPS=197565.4 DPS-Error=182.4/0.09%

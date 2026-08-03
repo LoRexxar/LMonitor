@@ -993,7 +993,7 @@ class SimcMonitor(BaseScan):
         dispatch_lists = []
         talent_dispatch_lists = []
         for action_list, condition in re.findall(
-            r'run_action_list,name=([a-z][a-z0-9_]*),((?:(?!/[a-z][a-z0-9_]*,)[^\n])*)',
+            r'run_action_list,name=([a-z][a-z0-9_]*)(?:,([^/\n]*))?',
             default_priority_text,
             flags=re.IGNORECASE,
         ):
