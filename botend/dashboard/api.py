@@ -8878,13 +8878,13 @@ class SimcBenchmarkPanelDetailAPIView(_BenchmarkAdminAPIView):
 
     def patch(self, request, panel_id):
         payload = _benchmark_json_object(request, allowed_fields={
-            'name', 'slug', 'description', 'is_active', 'is_public',
+            'name', 'description', 'is_active', 'is_public',
             'schedule_enabled', 'interval_seconds', 'next_run_at',
         })
         panel, error = self.panel_or_404(panel_id)
         if error:
             return error
-        for field in ('name', 'slug', 'description', 'is_active', 'is_public',
+        for field in ('name', 'description', 'is_active', 'is_public',
                       'schedule_enabled', 'interval_seconds', 'next_run_at'):
             if field in payload:
                 setattr(panel, field, payload[field])

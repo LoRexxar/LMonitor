@@ -71,6 +71,49 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         self.assertEqual(response.status_code, 201, response.content)
         return SimcBenchmarkPanel.objects.get(pk=response.json()['data']['id'])
 
+    def test_create_generates_stable_unique_slug_when_client_omits_it(self):
+        payload = dict(self.payload)
+        payload.pop('slug')
+        payload['name'] = '午夜饰品 基准面板'
+
+        first = self._json(self.client, 'post', '/api/simc-benchmarks/panels/', payload)
+        second = self._json(self.client, 'post', '/api/simc-benchmarks/panels/', payload)
+
+        self.assertEqual(first.status_code, 201, first.content)
+        self.assertEqual(second.status_code, 201, second.content)
+        first_slug = first.json()['data']['slug']
+        second_slug = second.json()['data']['slug']
+        self.assertRegex(first_slug, r'^[a-z0-9][a-z0-9_-]*$')
+        self.assertRegex(second_slug, r'^[a-z0-9][a-z0-9_-]*$')
+        self.assertNotEqual(first_slug, second_slug)
+
+    def test_metadata_patch_renames_panel_without_changing_generated_slug(self):
+        payload = dict(self.payload)
+        payload.pop('slug')
+        created = self._json(
+            self.client, 'post', '/api/simc-benchmarks/panels/', payload,
+        ).json()['data']
+
+        response = self._json(
+            self.client, 'patch',
+            f"/api/simc-benchmarks/panels/{created['id']}/",
+            {'name': 'Renamed benchmark'},
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['data']['name'], 'Renamed benchmark')
+        self.assertEqual(response.json()['data']['slug'], created['slug'])
+
+        replacement = dict(self.payload)
+        replacement['name'] = 'Reconfigured benchmark'
+        replacement['slug'] = 'client-attempted-slug-change'
+        replaced = self._json(
+            self.client, 'put',
+            f"/api/simc-benchmarks/panels/{created['id']}/", replacement,
+        )
+        self.assertEqual(replaced.status_code, 200, replaced.content)
+        self.assertEqual(replaced.json()['data']['slug'], created['slug'])
+
     def test_login_and_admin_permissions_are_consistent_json(self):
         anonymous = Client().get('/api/simc-benchmarks/panels/')
         self.assertEqual(anonymous.status_code, 302)

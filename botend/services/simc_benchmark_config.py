@@ -9,6 +9,7 @@ import hashlib
 import json
 import math
 import re
+import uuid
 from copy import deepcopy
 from typing import NoReturn
 
@@ -16,6 +17,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
 from django.db.models import Prefetch, Q
+from django.utils.text import slugify
 
 from botend.constants.wow import SPEC_CN
 from botend.models import (
@@ -222,6 +224,12 @@ def _key(value, field):
     if not _SAFE_KEY.fullmatch(value):
         _error(f'{field} 格式无效', field)
     return value
+
+
+def _generated_panel_slug(name):
+    """Create a stable internal identifier without making users maintain it."""
+    base = slugify(name) or 'benchmark'
+    return f'{base[:167].rstrip("-")}-{uuid.uuid4().hex}'
 
 
 def _candidate_key(value, field):
@@ -470,9 +478,17 @@ def normalize_panel_payload(payload, user_id, panel=None):
     if len(specs) > MAX_SPECS: _error(f'specs 最多 {MAX_SPECS} 项', 'specs')
     if len(scenarios) > MAX_SCENARIOS: _error(f'scenarios 最多 {MAX_SCENARIOS} 项', 'scenarios')
 
+    name = _text(payload.get('name'), 'name', max_length=200)
+    requested_slug = payload.get('slug')
+    if panel is not None:
+        panel_slug = panel.slug
+    elif requested_slug is None:
+        panel_slug = _generated_panel_slug(name)
+    else:
+        panel_slug = _key(requested_slug, 'slug')
     normalized = {
-        'name': _text(payload.get('name'), 'name', max_length=200),
-        'slug': _key(payload.get('slug'), 'slug'),
+        'name': name,
+        'slug': panel_slug,
         'description': _text(payload.get('description', ''), 'description', required=False,
                              max_length=10000),
         'is_active': _strict_bool(payload.get('is_active'), 'is_active', True),

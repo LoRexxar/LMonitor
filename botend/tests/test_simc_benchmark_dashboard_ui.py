@@ -81,7 +81,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertEqual(title.get_text(strip=True), 'SimC 基准面板')
 
     def test_shared_benchmark_assets_use_current_cache_version(self):
-        expected = '?v=20260802h'
+        expected = '?v=20260803f'
         for page in (INDEX, CONFIG_PAGE, PANEL_EDIT_PAGE, EXECUTION_PAGE):
             for line in page.splitlines():
                 if 'simc-benchmark-dashboard.' in line:
@@ -282,6 +282,9 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn('renderCreateSpecPicker', JS)
         self.assertIn("editingId===null", JS)
         self.assertIn("key:'patchwerk'", JS)
+        self.assertNotIn('name="slug"', PARTIAL)
+        create_payload = JS[JS.index('function createPayload('):JS.index('function gearParts(')]
+        self.assertNotIn('slug:', create_payload)
         self.assertIn("schedule_enabled:false", JS)
         self.assertIn("resources?.create_defaults?.[specKey]", JS)
         self.assertIn("create-spec-unavailable", JS)
@@ -322,8 +325,10 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         for field_name in ('panel_name', 'slug', 'description', 'is_public', 'is_active', 'schedule_enabled'):
             self.assertNotIn(f'name="{field_name}"', CONFIG_PAGE)
         self.assertIn('data-benchmark-panel-edit-page', PANEL_EDIT_PAGE)
-        for field_name in ('panel_name', 'slug', 'description', 'is_public', 'is_active', 'schedule_enabled'):
+        for field_name in ('panel_name', 'description', 'is_public', 'is_active', 'schedule_enabled'):
             self.assertIn(f'name="{field_name}"', PANEL_EDIT_PAGE)
+        self.assertNotIn('name="slug"', PANEL_EDIT_PAGE)
+        self.assertNotIn('slug 格式无效', JS)
         self.assertIn('simc-benchmark-panel-edit.js', PANEL_EDIT_PAGE)
         self.assertIn("actionButton('history','子任务状态'", JS)
         self.assertIn("actionButton('results','独立结果页'", JS)
