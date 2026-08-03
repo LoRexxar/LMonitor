@@ -969,6 +969,103 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(events, [('plan', False), ('validator', None), ('plan', True)])
         self.assertEqual(execution.cases.count(), 2)
 
+    def test_full_execution_keeps_valid_coordinates_when_another_preflight_fails(self):
+        rejected_profile = SimcProfile.objects.create(
+            user_id=self.user_id, name='Rejected profile', class_name='warrior',
+            spec='warrior_fury', is_active=True,
+        )
+        SimcBenchmarkProfile.objects.create(
+            panel_spec=self.panel.specs.get(), profile=rejected_profile,
+            label='Rejected profile',
+        )
+        from botend.services.simc_task_service import (
+            TaskCreationError, prepare_task_creation as real_prepare,
+        )
+
+        def prepare(*args, **kwargs):
+            if args[1] == rejected_profile.pk:
+                raise TaskCreationError(
+                    'APL failed authoritative validation for the selected Profile',
+                    details={'diagnostics': [{'message': 'unknown action foo_bar'}]},
+                )
+            return real_prepare(*args, **kwargs)
+
+        with patch(
+            'botend.services.simc_benchmark_execution.prepare_task_creation',
+            side_effect=prepare,
+        ), patch(
+            'botend.services.simc_task_service.current_validation_identity',
+            return_value=('a' * 40, '12.0.1'),
+        ), patch(
+            'botend.services.simc_task_service.validate_apl_for_profile',
+            return_value=self.validation,
+        ):
+            execution = create_execution(
+                self.panel, requested_by=self.user_id, execution_mode='full',
+            )
+
+        cases = list(execution.cases.select_related('task').order_by('profile_key'))
+        self.assertEqual(len(cases), 2)
+        failed = next(case for case in cases if case.profile_key == str(rejected_profile.pk))
+        successful = next(case for case in cases if case.profile_key == str(self.profile.pk))
+        self.assertIsNone(failed.task)
+        self.assertEqual(failed.status, 'failed')
+        self.assertIn('warrior_fury / patchwerk / ' + str(rejected_profile.pk), failed.error_detail)
+        self.assertIn(f'Profile #{rejected_profile.pk}', failed.error_detail)
+        self.assertIn(f'APL #{self.apl.pk}', failed.error_detail)
+        self.assertIn(f'Template #{self.template.pk}', failed.error_detail)
+        self.assertIn(f'Backend #{self.backend.pk}', failed.error_detail)
+        self.assertIn('unknown action foo_bar', failed.error_detail)
+        self.assertIsNotNone(successful.task)
+        summary = summarize_execution(execution)
+        self.assertEqual(summary['failed'], 1)
+        self.assertEqual(summary['run_counts']['failed'], 2)
+        self.assertEqual(summary['total_runs'], 2)
+        self.assertEqual(next(row for row in summary['cases'] if row['task_id'] is None)['error'],
+                         failed.error_detail)
+
+        successful.task.current_status = 2
+        successful.task.save(update_fields=['current_status'])
+        for sequence, candidate in enumerate(
+                successful.task.mode_params['request_manifest']['candidates'], 1):
+            self._run(
+                successful.task, sequence, 'completed', candidate['candidate_key'],
+                dps=100000 + sequence,
+            )
+        reconcile_execution(execution)
+        execution.refresh_from_db()
+        terminal = summarize_execution(execution)
+        self.assertEqual(execution.status, 'partial')
+        self.assertEqual(terminal['run_counts']['failed'], 2)
+        self.assertEqual(terminal['total_runs'], 4)
+        self.assertEqual(
+            next(row for row in terminal['cases'] if row['task_id'] is None)['error'],
+            failed.error_detail,
+        )
+
+    def test_full_execution_with_every_preflight_rejected_finishes_and_releases_panel(self):
+        from botend.services.simc_task_service import TaskCreationError
+
+        with patch(
+            'botend.services.simc_benchmark_execution.prepare_task_creation',
+            side_effect=TaskCreationError('rejected', details={'error': 'safe validator reason'}),
+        ):
+            execution = create_execution(
+                self.panel, requested_by=self.user_id, execution_mode='full',
+            )
+
+        execution.refresh_from_db()
+        self.panel.refresh_from_db()
+        case = execution.cases.get()
+        self.assertEqual(execution.status, 'failed')
+        self.assertIsNotNone(execution.completed_at)
+        self.assertIsNone(self.panel.active_execution_id)
+        self.assertIsNone(case.task_id)
+        self.assertEqual(case.status, 'failed')
+        self.assertIn('safe validator reason', case.error_detail)
+        with self.assertRaisesRegex(ValidationError, '预检失败坐标'):
+            rerun_failed_cases(execution, requested_by=self.user_id)
+
     def test_validator_unavailability_is_conflict_but_content_rejection_is_validation(self):
         retryable_results = [{
             'valid': False, 'content_hash': self.validation['content_hash'],

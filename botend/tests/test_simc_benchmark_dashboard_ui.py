@@ -18,6 +18,12 @@ CSS = (ROOT / "static/dashboard/css/simc-benchmark-dashboard.css").read_text(enc
 
 
 class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
+    def test_full_run_reports_coordinate_preflight_failures_instead_of_generic_error(self):
+        run_panel = JS[JS.index('async function runPanel('):JS.index('async function deletePanel(')]
+        self.assertIn('preflight_failures', run_panel)
+        self.assertIn('预检失败', run_panel)
+        self.assertIn('failure.error', run_panel)
+
     def test_simc_sidebar_entries_share_one_parent_group(self):
         soup = BeautifulSoup(INDEX, "html.parser")
         group = soup.select_one('.nav-item.has-submenu[data-section="simc"]')
@@ -81,7 +87,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertEqual(title.get_text(strip=True), 'SimC 基准面板')
 
     def test_shared_benchmark_assets_use_current_cache_version(self):
-        expected = '?v=20260803f'
+        expected = '?v=20260803g'
         for page in (INDEX, CONFIG_PAGE, PANEL_EDIT_PAGE, EXECUTION_PAGE):
             for line in page.splitlines():
                 if 'simc-benchmark-dashboard.' in line:

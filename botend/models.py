@@ -1711,6 +1711,7 @@ class SimcBenchmarkCase(models.Model):
         max_length=16, choices=SimcBenchmarkExecution.STATUS_CHOICES,
         default=SimcBenchmarkExecution.STATUS_PENDING,
     )
+    error_detail = models.TextField(blank=True, default='')
     spec_key = models.CharField(max_length=100)
     scenario_key = models.CharField(max_length=100)
     profile_key = models.CharField(max_length=100)

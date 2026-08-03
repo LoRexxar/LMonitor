@@ -71,6 +71,40 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         self.assertEqual(response.status_code, 201, response.content)
         return SimcBenchmarkPanel.objects.get(pk=response.json()['data']['id'])
 
+    def test_full_run_response_exposes_preflight_failure_coordinate_and_reason(self):
+        panel = self._create_panel()
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, status='running',
+            config_snapshot={'version': 2, 'case_count': 1, 'run_count': 1},
+            config_hash='a' * 64,
+        )
+        SimcBenchmarkCase.objects.create(
+            execution=execution, task=None, status='failed',
+            error_detail=(
+                'rogue_subtlety / patchwerk / 313 '
+                '(Profile #313, APL #29, Template #3, Backend #1): '
+                'sim_signal_handler: Segmentation fault'
+            ),
+            spec_key='rogue_subtlety', scenario_key='patchwerk', profile_key='313',
+            spec_label='敏锐潜行者', scenario_label='Patchwerk', profile_label='PTR baseline',
+            coordinate_hash='b' * 64,
+        )
+
+        with patch('botend.dashboard.api.create_execution', return_value=execution):
+            response = self._json(
+                self.client, 'post', f'/api/simc-benchmarks/panels/{panel.pk}/run/',
+                {'mode': 'full'},
+            )
+
+        self.assertEqual(response.status_code, 202, response.content)
+        failure = response.json()['data']['preflight_failures'][0]
+        self.assertEqual(failure['coordinate'], {
+            'spec_key': 'rogue_subtlety', 'scenario_key': 'patchwerk', 'profile_key': '313',
+        })
+        self.assertEqual(failure['labels']['spec'], '敏锐-潜行者')
+        self.assertIn('Profile #313', failure['error'])
+        self.assertIn('Segmentation fault', failure['error'])
+
     def test_create_generates_stable_unique_slug_when_client_omits_it(self):
         payload = dict(self.payload)
         payload.pop('slug')

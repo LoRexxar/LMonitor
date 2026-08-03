@@ -377,7 +377,23 @@ async function runPanel(id,button,mode='supplement'){
     : '补充执行会先按缺失候选 Run 规划：同一坐标只会创建仍缺失的候选 Run，不会因面板有 96 个坐标就重跑 96 个完整任务。已完成 Run 和历史结果不会重跑。继续吗？';
   if(!window.confirm(message))return;
   setBusy(button,true);
-  try{const created=await benchmarkFetch(`${API}panels/${id}/run/`,{method:'POST',body:JSON.stringify({mode})});forceDiscoveryUntil=Date.now()+BENCHMARK_DISCOVERY_MS;const cases=Number(created.case_count)||0,runs=Number(created.run_count)||0;notify(full?`全量重新计算已创建：${cases} 个坐标 / ${runs} 个候选 Run`:`补充执行已创建：${cases} 个受影响坐标 / ${runs} 个缺失候选 Run`,'success');await loadPanels(true,{background:true});}
+  try{
+    const created=await benchmarkFetch(`${API}panels/${id}/run/`,{method:'POST',body:JSON.stringify({mode})});
+    forceDiscoveryUntil=Date.now()+BENCHMARK_DISCOVERY_MS;
+    const cases=Number(created.case_count)||0,runs=Number(created.run_count)||0;
+    const failures=Array.isArray(created.preflight_failures)?created.preflight_failures:[];
+    if(failures.length){
+      const details=failures.map(failure=>{
+        const coordinate=failure.coordinate||{},labels=failure.labels||{};
+        const target=[labels.spec||coordinate.spec_key,labels.scenario||coordinate.scenario_key,labels.profile||coordinate.profile_key].filter(Boolean).join(' / ');
+        return `${target}：${failure.error||'预检失败，未创建任务'}`;
+      }).join('\n');
+      notify(`已启动 ${Math.max(0,cases-failures.length)} 个坐标；${failures.length} 个坐标预检失败\n${details}`,'error');
+    }else{
+      notify(full?`全量重新计算已创建：${cases} 个坐标 / ${runs} 个候选 Run`:`补充执行已创建：${cases} 个受影响坐标 / ${runs} 个缺失候选 Run`,'success');
+    }
+    await loadPanels(true,{background:true});
+  }
   catch(e){notify(`创建失败：${e.message}`,'error');}
   finally{setBusy(button,false);}
 }

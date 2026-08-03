@@ -8359,7 +8359,7 @@ def _benchmark_execution_metadata(execution, cases, total_cases=None):
 def _benchmark_progress_case_queryset():
     """Load only lifecycle fields used by the live Dashboard projection."""
     return SimcBenchmarkCase.objects.select_related('task').only(
-        'id', 'execution_id', 'task_id', 'status',
+        'id', 'execution_id', 'task_id', 'status', 'error_detail',
         'spec_key', 'scenario_key', 'profile_key',
         'spec_label', 'scenario_label', 'profile_label',
         'task__id', 'task__current_status', 'task__ext',
@@ -8447,9 +8447,23 @@ def _benchmark_execution_summary(execution, *, published_id=None, case_count=Non
         'is_published': execution.pk == published_id,
     }
     if cases is not None:
+        cases = list(cases)
         data.update(_benchmark_execution_progress(
             execution, cases, case_count=data['case_count'],
         ))
+        data['preflight_failures'] = [{
+            'coordinate': {
+                'spec_key': _benchmark_safe_key(case.spec_key),
+                'scenario_key': _benchmark_safe_key(case.scenario_key),
+                'profile_key': _benchmark_safe_key(case.profile_key),
+            },
+            'labels': {
+                'spec': _benchmark_spec_display_name(case.spec_label, case.spec_key),
+                'scenario': _benchmark_safe_key(case.scenario_label),
+                'profile': _benchmark_safe_key(case.profile_label),
+            },
+            'error': _benchmark_safe_string(case.error_detail),
+        } for case in cases if case.task_id is None and case.status == 'failed']
         data['panel_id'] = execution.panel_id
         data['trigger'] = execution.trigger
         data['scheduled_slot'] = _benchmark_iso(execution.scheduled_slot)

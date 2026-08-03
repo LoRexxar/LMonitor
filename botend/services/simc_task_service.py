@@ -34,7 +34,10 @@ from botend.services.simc_player_config import normalize_gear_candidate_value
 
 class TaskCreationError(Exception):
     """Raised when task creation fails validation."""
-    pass
+
+    def __init__(self, message, *, details=None):
+        super().__init__(message)
+        self.details = deepcopy(details)
 
 
 class TaskValidationUnavailable(TaskCreationError):
@@ -707,7 +710,10 @@ def prepare_task_creation(user_id: int, profile_id: int, template_id: int,
             if _validation_failure_is_retryable(validation)
             else TaskCreationError
         )
-        raise error_class('APL failed authoritative validation for the selected Profile')
+        raise error_class(
+            'APL failed authoritative validation for the selected Profile',
+            details=validation,
+        )
     if (validation.get('content_hash') != apl_content_hash(apl.content)
             or validation.get('revision') != identity[0]
             or validation.get('game_build') != identity[1]):

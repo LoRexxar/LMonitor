@@ -197,6 +197,39 @@ def _task_name(panel_id, execution_id, case):
     return value[:200]
 
 
+def _preflight_error(coordinate, exc):
+    """Project a coordinate-bound, path-scrubbed validator failure."""
+    detail = getattr(exc, 'details', None)
+    messages = []
+    if isinstance(detail, dict):
+        diagnostics = detail.get('diagnostics')
+        if isinstance(diagnostics, list):
+            messages.extend(
+                item.get('message') for item in diagnostics
+                if isinstance(item, dict) and item.get('message')
+            )
+        messages.extend(value for value in (
+            detail.get('error'), detail.get('message'),
+        ) if value)
+        nested = detail.get('details')
+        if isinstance(nested, dict):
+            authoritative = nested.get('authoritative_error')
+            if isinstance(authoritative, dict):
+                messages.extend(value for value in (
+                    authoritative.get('code'), authoritative.get('message'),
+                ) if value)
+    reason = '; '.join(str(item) for item in messages) or str(exc)
+    coordinate_label = ' / '.join(str(coordinate[key]) for key in (
+        'spec_key', 'scenario_key', 'profile_key',
+    ))
+    resource_label = (
+        f'Profile #{coordinate["profile_id"]}, APL #{coordinate["apl_id"]}, '
+        f'Template #{coordinate["template_id"]}, Backend #{coordinate["backend_id"]}'
+    )
+    safe_reason = _safe_error(reason) or '预检失败'
+    return f'{coordinate_label} ({resource_label}): {safe_reason}'
+
+
 def _candidate_input_identity(candidate):
     """Only executable candidate input participates in cross-execution reuse."""
     return _canonical_hash({
@@ -485,22 +518,30 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
     optimistic_plan = build_execution_plan(current_panel, lock=False)
     optimistic_identity = _canonical_hash(optimistic_plan)
     prepared_by_resources = {}
-    try:
-        for coordinate in optimistic_plan['cases']:
-            key = (coordinate['backend_id'], coordinate['profile_id'],
-                   coordinate['apl_id'], coordinate['template_id'])
-            if key not in prepared_by_resources:
-                prepared_by_resources[key] = prepare_task_creation(
-                    current_panel.created_by_id, coordinate['profile_id'],
-                    coordinate['template_id'], coordinate['apl_id'],
-                    backend_id=coordinate['backend_id'],
-                )
-    except (TaskPreparedResourceChanged, TaskValidationUnavailable) as exc:
-        raise BenchmarkExecutionConflict(
-            'Benchmark execution preflight is temporarily unavailable'
-        ) from exc
-    except TaskCreationError as exc:
-        _validation_error(str(exc))
+    preflight_errors = {}
+    for coordinate in optimistic_plan['cases']:
+        key = (coordinate['backend_id'], coordinate['profile_id'],
+               coordinate['apl_id'], coordinate['template_id'])
+        if key in prepared_by_resources or key in preflight_errors:
+            continue
+        try:
+            prepared_by_resources[key] = prepare_task_creation(
+                current_panel.created_by_id, coordinate['profile_id'],
+                coordinate['template_id'], coordinate['apl_id'],
+                backend_id=coordinate['backend_id'],
+            )
+        except TaskPreparedResourceChanged as exc:
+            raise BenchmarkExecutionConflict(
+                'Benchmark execution preflight is temporarily unavailable'
+            ) from exc
+        except (TaskValidationUnavailable, TaskCreationError) as exc:
+            if execution_mode != 'full':
+                if isinstance(exc, TaskValidationUnavailable):
+                    raise BenchmarkExecutionConflict(
+                        'Benchmark execution preflight is temporarily unavailable'
+                    ) from exc
+                _validation_error(str(exc))
+            preflight_errors[key] = exc
 
     with transaction.atomic():
         try:
@@ -586,6 +627,19 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
             for coordinate in execution_coordinates:
                 key = (coordinate['backend_id'], coordinate['profile_id'],
                        coordinate['apl_id'], coordinate['template_id'])
+                preflight_error = preflight_errors.get(key)
+                if preflight_error is not None:
+                    SimcBenchmarkCase.objects.create(
+                        execution=execution, task=None,
+                        status=SimcBenchmarkExecution.STATUS_FAILED,
+                        error_detail=_preflight_error(coordinate, preflight_error),
+                        spec_key=coordinate['spec_key'], scenario_key=coordinate['scenario_key'],
+                        profile_key=coordinate['profile_key'], spec_label=coordinate['spec_label'],
+                        scenario_label=coordinate['scenario_label'],
+                        profile_label=coordinate['profile_label'],
+                        coordinate_hash=_coordinate_hash(coordinate),
+                    )
+                    continue
                 task = create_task(
                     user_id=locked_panel.created_by_id,
                     name=_task_name(locked_panel.pk, execution.pk, coordinate),
@@ -617,6 +671,12 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
             raise BenchmarkExecutionConflict('Prepared task resources changed') from exc
         except TaskCreationError as exc:
             _validation_error(str(exc))
+        if execution_coordinates and not execution.cases.filter(task__isnull=False).exists():
+            execution.status = SimcBenchmarkExecution.STATUS_FAILED
+            execution.completed_at = timezone.now()
+            execution.save(update_fields=['status', 'completed_at'])
+            locked_panel.active_execution = None
+            locked_panel.save(update_fields=['active_execution'])
         return execution
 
 
@@ -681,6 +741,8 @@ def rerun_failed_cases(execution, requested_by=None):
         ).select_related('task').order_by('id'))
         if not failed_cases:
             _validation_error('没有可重跑的失败子任务', 'execution')
+        if any(case.task_id is None for case in failed_cases):
+            _validation_error('预检失败坐标没有冻结任务，不能安全重跑；请发起新的全量执行', 'execution')
         if panel.active_execution_id:
             active = panel.active_execution
             if active and active.completed_at is None:
@@ -1239,6 +1301,10 @@ def _summarize_live_execution(execution):
     for case in cases:
         task = case.task
         if task is None:
+            coordinate = (case.spec_key, case.scenario_key, case.profile_key)
+            failed_runs = len(expected_by_coordinate.get(coordinate) or [])
+            total_runs += failed_runs
+            run_counts['failed'] += failed_runs
             counts['failed'] += 1
             rows.append({
                 'spec_key': case.spec_key, 'scenario_key': case.scenario_key,
@@ -1247,7 +1313,7 @@ def _summarize_live_execution(execution):
                            'profile': case.profile_label},
                 'status': 'failed', 'task_id': None, 'task_status': 'failed',
                 'task_status_label': '失败', 'task_progress': None,
-                'error': None, 'runs': [],
+                'error': case.error_detail or None, 'runs': [],
             })
             continue
         task_status = TASK_STATUS_NAMES.get(task.current_status, 'failed')
@@ -1364,12 +1430,18 @@ def _summarize_active_lifecycle(execution):
     ).select_related('task').order_by('id'))
     names = ('pending', 'running', 'success', 'partial', 'failed', 'cancelled')
     counts = {name: 0 for name in names}
+    expected_by_coordinate = dict(_snapshot_layout(execution) or [])
+    failed_runs = 0
     rows = []
     for case in cases:
         status = case.status if case.status in counts else 'failed'
         counts[status] += 1
         task = case.task
         task_status = TASK_STATUS_NAMES.get(task.current_status, 'failed') if task else None
+        if task is None and status == 'failed':
+            failed_runs += len(expected_by_coordinate.get(
+                (case.spec_key, case.scenario_key, case.profile_key),
+            ) or [])
         rows.append({
             'spec_key': case.spec_key, 'scenario_key': case.scenario_key,
             'profile_key': case.profile_key, '_case_id': case.pk,
@@ -1379,14 +1451,17 @@ def _summarize_active_lifecycle(execution):
             'task_status': task_status,
             'task_status_label': TASK_STATUS_LABELS.get(task_status, '未知'),
             'task_progress': task_progress(task),
-            'error': None, 'runs': [],
+            'error': case.error_detail or None, 'runs': [],
         })
     return {
         'id': execution.pk, 'status': execution.status,
         'created_at': execution.created_at, 'completed_at': execution.completed_at,
-        'total_cases': len(cases), 'total_runs': 0,
+        'total_cases': len(cases), 'total_runs': failed_runs,
         **counts,
-        'run_counts': {name: 0 for name in ('pending', 'running', 'success', 'failed', 'cancelled')},
+        'run_counts': {
+            'pending': 0, 'running': 0, 'success': 0,
+            'failed': failed_runs, 'cancelled': 0,
+        },
         'cases': rows,
     }
 
@@ -1401,14 +1476,21 @@ def _summarize_persisted_execution(execution):
         if isinstance(execution.config_snapshot, dict) else []
     labels = {item.get('key'): item.get('label') for item in definitions
               if isinstance(item, dict)}
-    rows, total_runs = [], 0
+    rows, result_runs = [], 0
+    layout = _snapshot_layout(execution) or []
+    expected_by_coordinate = dict(layout)
+    synthetic_failed_runs = 0
     for case in cases:
         run_rows = [{
             'key': result.candidate_key,
             'label': labels.get(result.candidate_key, result.candidate_key),
             'status': 'success', 'dps': result.dps,
         } for result in case._persisted_results]
-        total_runs += len(run_rows)
+        result_runs += len(run_rows)
+        if case.task_id is None and case.status == SimcBenchmarkExecution.STATUS_FAILED:
+            synthetic_failed_runs += len(expected_by_coordinate.get(
+                (case.spec_key, case.scenario_key, case.profile_key),
+            ) or [])
         rows.append({
             'spec_key': case.spec_key, 'scenario_key': case.scenario_key,
             'profile_key': case.profile_key, '_case_id': case.pk,
@@ -1421,15 +1503,16 @@ def _summarize_persisted_execution(execution):
             'task_status': case.status,
             'task_status_label': TASK_STATUS_LABELS.get(case.status, '未知'),
             'task_progress': 100,
-            'error': None, 'runs': run_rows,
+            'error': case.error_detail or None, 'runs': run_rows,
         })
     names = ('pending', 'running', 'success', 'partial', 'failed', 'cancelled')
     counts = {name: 0 for name in names}
     for case in cases:
         counts[case.status if case.status in counts else 'failed'] += 1
     run_counts = {name: 0 for name in ('pending', 'running', 'success', 'failed', 'cancelled')}
-    if execution.status == 'success':
-        run_counts['success'] = total_runs
+    run_counts['success'] = result_runs
+    run_counts['failed'] = synthetic_failed_runs
+    total_runs = result_runs + synthetic_failed_runs
     return {
         'id': execution.pk, 'status': execution.status,
         'created_at': execution.created_at, 'completed_at': execution.completed_at,
