@@ -142,3 +142,9 @@ media/aggregated/
 /completion-outbox/
 /simc-source/
 *.lmonitor-build.json
+
+# Hermes 本地实施计划（已有的历史跟踪文件不受影响）
+/.hermes/plans/
+
+# 运行时按需下载的 WoW 图标缓存
+/static/wow_icons/
