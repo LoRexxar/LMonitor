@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import errno
 import shutil
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 import hashlib
@@ -555,6 +556,66 @@ class HTTPTransport:
             **headers, 'User-Agent': f'LMonitor-SimC-Agent/{VERSION}',
         })
         self._request(request)
+
+
+class AgentAlreadyRunning(ConfigError):
+    """Raised when another Consumer already owns this local Agent identity."""
+
+
+class AgentProcessLock:
+    """Hold an OS-level lock so one local identity has only one Consumer.
+
+    The lock path is derived from the private long-lived token path.  It therefore
+    fences duplicate Task Scheduler/manual launches that would otherwise share a
+    Bearer identity while reporting different instance IDs and multiplying HTTP
+    connections until Windows returns WSAENOBUFS (10055).
+    """
+
+    def __init__(self, path: str | Path):
+        self.path = Path(path).expanduser().resolve()
+        self._handle = None
+
+    def acquire(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        handle = None
+        try:
+            handle = self.path.open('a+b')
+            handle.seek(0, os.SEEK_END)
+            if os.name == 'nt':
+                import msvcrt
+                if handle.tell() == 0:
+                    handle.write(b'0')
+                    handle.flush()
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (OSError, IOError) as exc:
+            if handle is not None:
+                handle.close()
+            busy_codes = {errno.EACCES, errno.EAGAIN, 13, 33, 36}
+            if getattr(exc, 'errno', None) in busy_codes or getattr(exc, 'winerror', None) in busy_codes:
+                raise AgentAlreadyRunning(
+                    f'SimC Agent is already running for token path {self.path.with_suffix("")}'
+                ) from exc
+            raise ConfigError(f'cannot acquire Agent process lock: {exc}') from exc
+        self._handle = handle
+
+    def release(self) -> None:
+        handle, self._handle = self._handle, None
+        if handle is None:
+            return
+        try:
+            handle.seek(0)
+            if os.name == 'nt':
+                import msvcrt
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
 
 
 class SimcAgentConsumer:
@@ -1686,10 +1747,24 @@ def main() -> int:
             Path(config.token_path).with_name('simc-agent.log')
         )
         logger = configure_logging(log_path)
-        consumer = SimcAgentConsumer(config, config_path=args.config)
-        signal.signal(signal.SIGINT, consumer.stop)
-        signal.signal(signal.SIGTERM, consumer.stop)
-        consumer.run(once=args.once)
+        process_lock = AgentProcessLock(
+            Path(config.token_path).with_name('.simc-agent-process.lock')
+        )
+        process_lock.acquire()
+        try:
+            consumer = SimcAgentConsumer(config, config_path=args.config)
+            signal.signal(signal.SIGINT, consumer.stop)
+            signal.signal(signal.SIGTERM, consumer.stop)
+            consumer.run(once=args.once)
+        finally:
+            process_lock.release()
+    except AgentAlreadyRunning as exc:
+        active_logger = logging.getLogger(LOGGER_NAME)
+        if active_logger.handlers:
+            active_logger.error('%s', exc)
+        else:
+            print(f'[simc-agent] fatal: {exc}', flush=True)
+        return 75
     except (ConfigError, APIError) as exc:
         active_logger = logging.getLogger(LOGGER_NAME)
         if active_logger.handlers:

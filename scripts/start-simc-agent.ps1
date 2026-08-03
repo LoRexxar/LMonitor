@@ -34,6 +34,13 @@ while ($true) {
         exit $exitCode
     }
 
+    # A second Task Scheduler/manual launch for the same token is rejected by
+    # the Consumer's OS lock. Do not turn that deliberate rejection into an
+    # endless five-second restart loop; the original Consumer remains healthy.
+    if ($exitCode -eq 75) {
+        exit $exitCode
+    }
+
     Write-Warning "SimC Agent exited with code $exitCode; restarting in 5 seconds."
     Start-Sleep -Seconds 5
 }

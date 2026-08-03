@@ -138,6 +138,7 @@ media/aggregated/
 # managed SimulationCraft sources, and generated binary revision markers.
 /agent.json
 /agent.token
+/.simc-agent-process.lock
 /simc-agent.log
 /completion-outbox/
 /simc-source/

@@ -330,9 +330,13 @@ class SimcAgentConsumerTests(SimpleTestCase):
             config_class.load.return_value = MagicMock(log_path='', token_path='/tmp/agent.token')
             consumer_class.return_value.run = MagicMock()
 
-            result = simc_agent_consumer.main()
+            with patch.object(simc_agent_consumer, 'AgentProcessLock') as lock_class:
+                result = simc_agent_consumer.main()
 
         self.assertEqual(result, 0)
+        lock_class.assert_called_once_with(Path('/tmp/.simc-agent-process.lock'))
+        lock_class.return_value.acquire.assert_called_once_with()
+        lock_class.return_value.release.assert_called_once_with()
         config_class.load.assert_called_once_with(
             str(Path(simc_agent_consumer.__file__).resolve().with_name('simc_agent.json')),
         )
@@ -340,6 +344,51 @@ class SimcAgentConsumerTests(SimpleTestCase):
             str(Path(simc_agent_consumer.__file__).resolve().with_name('simc_agent.json')),
             interactive=False,
         )
+
+    def test_main_returns_non_restarting_exit_code_when_agent_is_already_running(self):
+        import simc_agent_consumer
+
+        with patch.object(simc_agent_consumer, 'ensure_configuration'), \
+                patch.object(simc_agent_consumer, 'AgentConfig') as config_class, \
+                patch.object(simc_agent_consumer, 'AgentProcessLock') as lock_class, \
+                patch('sys.argv', ['simc_agent_consumer.py']):
+            config_class.load.return_value = MagicMock(log_path='', token_path='/tmp/agent.token')
+            lock_class.return_value.acquire.side_effect = simc_agent_consumer.AgentAlreadyRunning(
+                'Agent is already running',
+            )
+
+            result = simc_agent_consumer.main()
+
+        self.assertEqual(result, 75)
+
+    def test_powershell_launcher_does_not_restart_duplicate_instance_exit(self):
+        launcher = Path(__file__).resolve().parents[2] / 'scripts' / 'start-simc-agent.ps1'
+        content = launcher.read_text(encoding='utf-8')
+
+        self.assertIn('if ($exitCode -eq 75)', content)
+        self.assertLess(content.index('if ($exitCode -eq 75)'), content.index('Start-Sleep -Seconds 5'))
+
+    def test_agent_runtime_process_lock_is_git_ignored(self):
+        ignore_file = Path(__file__).resolve().parents[2] / '.gitignore'
+        self.assertIn('/.simc-agent-process.lock', ignore_file.read_text(encoding='utf-8'))
+
+    def test_agent_process_lock_rejects_a_second_consumer_for_the_same_token(self):
+        from simc_agent_consumer import AgentProcessLock, ConfigError
+
+        with tempfile.TemporaryDirectory() as root:
+            lock_path = Path(root) / 'agent.token.lock'
+            first = AgentProcessLock(lock_path)
+            first.acquire()
+            try:
+                second = AgentProcessLock(lock_path)
+                with self.assertRaisesRegex(ConfigError, 'already running'):
+                    second.acquire()
+            finally:
+                first.release()
+
+            replacement = AgentProcessLock(lock_path)
+            replacement.acquire()
+            replacement.release()
 
     def test_run_claims_and_executes_to_explicit_capacity_in_parallel(self):
         from simc_agent_consumer import AgentConfig, SimcAgentConsumer
