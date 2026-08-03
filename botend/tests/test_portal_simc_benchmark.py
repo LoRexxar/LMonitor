@@ -330,9 +330,13 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         soup = BeautifulSoup(self.TEMPLATE, 'html.parser')
         result_button = next(
             link for link in soup.select('a')
-            if link.get_text(' ', strip=True) == 'SimC 结果'
+            if link.get_text(' ', strip=True) == 'simc模拟数据'
         )
         self.assertEqual(result_button.get('href'), '/portal/simc-benchmarks/')
+        self.assertEqual(
+            result_button.select_one('use').get('href'),
+            "{% static 'portal/icons/icons.svg' %}#icon-refresh",
+        )
 
         self.assertIn('function renderPanelList', self.JS)
         self.assertIn('/portal/simc-benchmarks/${encodeURIComponent(String(panel.id))}/', self.JS)
