@@ -54,15 +54,18 @@ class SimcHistoryPaginationContractTests(unittest.TestCase):
         self.assertIn("taskResponseSignature", JS)
         self.assertIn("background && responseSignature === state.taskResponseSignature", JS)
 
-    def test_benchmark_progress_shows_terminal_work_and_baseline_separately(self):
-        """partial Execution 也必须把终态完成量、部分完成和失败直接展示出来。"""
-        self.assertIn("row.task_counts", JS)
-        self.assertIn("已终态", JS)
-        self.assertIn("部分完成", JS)
-        self.assertIn("本次候选 Run：", JS)
-        self.assertIn("来源基线 #", JS)
-        self.assertIn("baseline_counts", JS)
+    def test_benchmark_history_keeps_only_compact_run_summary(self):
+        """历史首层只显示紧凑 Run 进度，不用 Case、来源基线等小字挤满整行。"""
+        self.assertIn("const runSummaryParts", JS)
+        self.assertIn("`Run ${terminalRunCount}/${totalRunCount}`", JS)
+        self.assertNotIn("本次子任务：", JS)
+        self.assertNotIn("本次候选 Run：", JS)
+        self.assertNotIn("来源基线 #", JS)
         self.assertIn("simc-benchmark-task-case__progress", JS)
+
+    def test_expanded_benchmark_case_omits_low_value_task_id(self):
+        """展开项保留坐标、状态和进度，不重复展示内部 Task 编号。"""
+        self.assertNotIn('<span class="simc-task-id">Task #${idOf(item.task_id)}</span>${title}', JS)
 
     def test_terminal_benchmark_labels_unfinished_runs_as_residue(self):
         """终态 Execution 内未完成的 Run 不能继续显示成活跃队列。"""
