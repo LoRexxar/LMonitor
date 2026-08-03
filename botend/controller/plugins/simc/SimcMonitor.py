@@ -572,6 +572,8 @@ class SimcMonitor(BaseScan):
                 'override_action_list': resolved.apl_content or '',
                 '_result_file_path': simc_task.result_file or f'{simc_task.id}.html',
             }
+            if 'raid_buffs' in resolved.simulation_params:
+                composer_request['raid_buffs'] = list(resolved.simulation_params['raid_buffs'])
             composer_request = self.apply_candidate_overrides(
                 composer_request,
                 run.candidate_params,

@@ -13,6 +13,7 @@ from unittest.mock import patch
 from django.contrib.auth.models import User
 from django.test import Client, TestCase, override_settings
 
+from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.management.commands.import_simc_apl import Command as ImportSimcAplCommand
 from botend.management.commands.update_simc_binary import Command as UpdateSimcBinaryCommand
 from botend.models import SimcApl, SimcContentTemplate, SimcProfile, SimcTask
@@ -170,6 +171,24 @@ class SimcTaskReferenceContracts(TestCase):
 
         missing = self.create_task(name='Missing raid buffs')
         self.assertNotIn('raid_buffs', missing.simulation_params or {})
+
+    def test_local_worker_passes_frozen_raid_buffs_to_composer(self):
+        task = self.create_task(raid_buffs=['arcane_intellect', 'battle_shout'])
+        run = initialize_task_runs(task)[0]
+        captured = {}
+
+        def compose(request):
+            captured.update(request)
+            return None, None, 'stop after capturing composer request'
+
+        monitor = SimcMonitor(None, None)
+        with patch('botend.controller.plugins.simc.SimcMonitor.SimcComposer.compose', side_effect=compose):
+            self.assertFalse(monitor.process_reference_run(task, run))
+
+        self.assertEqual(
+            captured.get('raid_buffs'),
+            ['arcane_intellect', 'battle_shout'],
+        )
 
     def test_normal_task_rejects_raid_buff_option_injection(self):
         response = self.client.post(
