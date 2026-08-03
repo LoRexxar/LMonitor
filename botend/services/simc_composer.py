@@ -1190,6 +1190,11 @@ class SimcComposer:
                 elif key in ('professions', 'region', 'server', 'loot_spec'):
                     identity_lines.append(stripped)
                 elif key in ('talents', 'talent', 'omnium_talents'):
+                    # SimC only recognizes the canonical plural build directive.
+                    # Normalize legacy imported profiles instead of silently running
+                    # the class default build under an ignored `talent=` line.
+                    if key == 'talent':
+                        stripped = f"talents={stripped.split('=', 1)[1].strip()}"
                     # Hero-tree selections are part of the talent slot and must
                     # remain coupled to the class/spec build code.
                     talents_lines.append(stripped)

@@ -473,6 +473,16 @@ class SimcComposerIdentitySlotResolutionTests(ComposerTestCase):
         self.assertIn('server=死亡之翼', parsed['identity'])
         self.assertIn('tabard=,id=35279,content_tuning=394', parsed['equipment'])
 
+    def test_legacy_singular_talent_directive_is_canonicalized_for_simc(self):
+        parsed = SimcComposer(self.user.id)._parse_player_export(
+            'demonhunter="Legacy"\n'
+            'level=90\n'
+            'spec=havoc\n'
+            'talent=LEGACY_BUILD\n'
+            'head=,id=249952\n'
+        )
+        self.assertEqual(parsed['talents'], 'talents=LEGACY_BUILD')
+
     def test_composed_player_block_keeps_profile_fields_outside_known_whitelist(self):
         final, _, error = self.compose(
             self.base,
