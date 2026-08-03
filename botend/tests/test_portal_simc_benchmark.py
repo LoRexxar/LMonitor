@@ -298,7 +298,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             'a[href="/portal/simc-benchmarks/"]'
         )
         self.assertIsNotNone(title_link)
-        self.assertEqual(title_link.get_text(' ', strip=True), 'SimC 基线任务')
+        self.assertEqual(title_link.get_text(' ', strip=True), 'simc模拟数据列表')
         self.assertIsNotNone(baseline_section.select_one('#simc-baseline-list'))
         self.assertIn(
             'divide-y', baseline_section.select_one('#simc-baseline-list').get('class', [])
