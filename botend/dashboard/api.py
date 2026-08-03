@@ -157,7 +157,16 @@ def _simc_spec_label(spec, class_name=''):
         return SIMC_SPEC_LABELS[normalized]
     normalized_class = str(class_name or '').strip().lower().replace('death_knight', 'deathknight').replace('demon_hunter', 'demonhunter')
     combined = f'{normalized_class}_{normalized}' if normalized_class else ''
-    return SIMC_SPEC_LABELS.get(combined, str(spec or '').strip() or '未标记')
+    if combined in SIMC_SPEC_LABELS:
+        return SIMC_SPEC_LABELS[combined]
+    suffix_labels = {
+        label
+        for key, label in SIMC_SPEC_LABELS.items()
+        if key.endswith(f'_{normalized}')
+    }
+    if len(suffix_labels) == 1:
+        return suffix_labels.pop()
+    return str(spec or '').strip() or '未标记'
 
 
 def _simc_class_for_spec(spec):
