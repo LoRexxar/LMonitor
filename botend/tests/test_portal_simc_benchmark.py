@@ -314,6 +314,18 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         ):
             self.assertIn(contract, self.PORTAL_JS)
 
+    def test_results_page_uses_the_same_primary_header_navigation_as_portal_home(self):
+        home_soup = BeautifulSoup(self.TEMPLATE, 'html.parser')
+        results_soup = BeautifulSoup(self.RESULTS_TEMPLATE, 'html.parser')
+
+        def navigation_contract(soup):
+            return [
+                (link.get_text(' ', strip=True), link.get('href'), link.get('aria-label'))
+                for link in soup.select('.portal-header-actions > a')
+            ]
+
+        self.assertEqual(navigation_contract(results_soup), navigation_contract(home_soup))
+
     def test_benchmark_collection_page_renders_panel_list_instead_of_all_results(self):
         soup = BeautifulSoup(self.TEMPLATE, 'html.parser')
         result_button = next(
