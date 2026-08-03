@@ -1749,12 +1749,18 @@ function simcProfileMatchesSpecFilter(row, requestedFilter) {
     const profileSpec = String(row.spec || '').trim().toLowerCase();
     if (profileSpec === filter) return true;
 
-    const className = String(row.class_name || '')
+    const rawClassName = String(row.class_name || '')
         .trim().toLowerCase().replace(/[\s_-]+/g, '');
+    const canonicalClasses = [
+        'deathknight', 'demonhunter', 'druid', 'evoker', 'hunter', 'mage',
+        'monk', 'paladin', 'priest', 'rogue', 'shaman', 'warlock', 'warrior',
+    ];
+    const specClass = canonicalClasses.find(candidate => profileSpec.startsWith(`${candidate}_`)) || '';
+    const className = canonicalClasses.includes(rawClassName) ? rawClassName : specClass;
     let specialization = profileSpec;
-    const systemPrefix = `${className}_`;
-    if (row.is_system === true && className && specialization.startsWith(systemPrefix)) {
-        specialization = specialization.slice(systemPrefix.length);
+    const classPrefix = `${className}_`;
+    if (className && specialization.startsWith(classPrefix)) {
+        specialization = specialization.slice(classPrefix.length);
     }
 
     const disambiguatedSpecs = {

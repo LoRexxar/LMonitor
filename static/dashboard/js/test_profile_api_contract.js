@@ -156,7 +156,43 @@ if (missingCanonicalSpecs.length === 0) {
     failed++;
 }
 
-console.log(`\n${passed}/10 tests passed`);
+// Test 11: Filtering accepts canonical class_spec rows from every Profile source,
+// not only rows marked as SimC upstream system profiles.
+const matcherStart = mainJsContent.indexOf('function simcProfileMatchesSpecFilter(');
+let matcherBlock = '';
+if (matcherStart !== -1) {
+    let depth = 0;
+    let opened = false;
+    for (let i = matcherStart; i < mainJsContent.length; i++) {
+        if (mainJsContent[i] === '{') { depth++; opened = true; }
+        if (mainJsContent[i] === '}') {
+            depth--;
+            if (opened && depth === 0) { matcherBlock = mainJsContent.slice(matcherStart, i + 1); break; }
+        }
+    }
+}
+let canonicalFilteringWorks = false;
+try {
+    const matcher = Function(`${matcherBlock}; return simcProfileMatchesSpecFilter;`)();
+    canonicalFilteringWorks =
+        matcher({spec: 'rogue_subtlety', class_name: 'rogue', is_system: false}, 'subtlety') &&
+        matcher({spec: 'rogue_subtlety', class_name: 'rogue_subtlety', is_system: false}, 'subtlety') &&
+        matcher({spec: 'mage_arcane', class_name: 'mage', is_system: false}, 'arcane') &&
+        matcher({spec: 'mage_frost', class_name: 'mage', is_system: false}, 'frost_mage') &&
+        !matcher({spec: 'deathknight_frost', class_name: 'deathknight', is_system: false}, 'frost_mage') &&
+        matcher({spec: 'fury', class_name: '', is_system: false}, 'fury');
+} catch (_) {
+    canonicalFilteringWorks = false;
+}
+if (canonicalFilteringWorks) {
+    console.log('✓ Profile filtering accepts canonical class_spec rows from all sources');
+    passed++;
+} else {
+    console.log('✗ Profile filtering drops canonical class_spec rows from non-system sources');
+    failed++;
+}
+
+console.log(`\n${passed}/11 tests passed`);
 
 if (failed > 0) {
     console.log(`\n❌ ${failed} test(s) failed`);
