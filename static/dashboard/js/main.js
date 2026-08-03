@@ -348,6 +348,16 @@ function initDashboardQuickEntries() {
     });
 }
 
+const SIMC_DASHBOARD_SECTIONS = Object.freeze({
+    workflow: 'simc-workflow',
+    history: 'simc-history',
+    advanced: 'simc-advanced',
+});
+
+function isSimcDashboardSection(sectionId) {
+    return Object.values(SIMC_DASHBOARD_SECTIONS).includes(sectionId);
+}
+
 function deactivateSimcWorkbench() {
     if (typeof window.simcWorkbenchDeactivatePanel === 'function') {
         window.simcWorkbenchDeactivatePanel('');
@@ -402,7 +412,7 @@ function initNavigation() {
 
             // 获取对应的内容区域ID
             const sectionId = this.getAttribute('data-section');
-            if (sectionId !== 'simc-workbench') deactivateSimcWorkbench();
+            if (!isSimcDashboardSection(sectionId)) deactivateSimcWorkbench();
 
             // 隐藏所有内容区域
             contentSections.forEach(section => {
@@ -427,8 +437,12 @@ function initNavigation() {
                 if (sectionId === 'log-files' && window.loadLogFilesGlobal) {
                     window.loadLogFilesGlobal();
                 }
-                if (sectionId === 'simc-workbench') {
-                    switchSimcWorkbenchL1Tab('workflow');
+                if (isSimcDashboardSection(sectionId)) {
+                    const simcPage = Object.keys(SIMC_DASHBOARD_SECTIONS)
+                        .find(page => SIMC_DASHBOARD_SECTIONS[page] === sectionId);
+                    switchSimcWorkbenchL1Tab(simcPage || 'workflow');
+                }
+                if (sectionId === SIMC_DASHBOARD_SECTIONS.workflow) {
                     switchSimcPlayerImportMode();
                 }
             }
@@ -441,7 +455,7 @@ function initNavigation() {
             e.preventDefault();
             e.stopPropagation(); // 阻止事件冒泡到父级菜单项
             const dashboardSection = this.getAttribute('data-dashboard-section');
-            if (dashboardSection !== 'simc-workbench') deactivateSimcWorkbench();
+            if (!isSimcDashboardSection(dashboardSection)) deactivateSimcWorkbench();
 
             // 移除所有子菜单项的active类
             submenuItems.forEach(i => i.classList.remove('active'));
@@ -467,8 +481,12 @@ function initNavigation() {
                 if (targetSection) {
                     targetSection.style.display = 'block';
                     targetSection.classList.add('active');
-                    if (dashboardSection === 'simc-workbench') {
-                        switchSimcWorkbenchL1Tab('workflow');
+                    if (isSimcDashboardSection(dashboardSection)) {
+                        const simcPage = Object.keys(SIMC_DASHBOARD_SECTIONS)
+                            .find(page => SIMC_DASHBOARD_SECTIONS[page] === dashboardSection);
+                        switchSimcWorkbenchL1Tab(simcPage || 'workflow');
+                    }
+                    if (dashboardSection === SIMC_DASHBOARD_SECTIONS.workflow) {
                         switchSimcPlayerImportMode();
                     }
                     document.dispatchEvent(new CustomEvent('dashboard-section-changed', {
@@ -1537,12 +1555,6 @@ function initSimcWorkbench() {
     if (!workbench || workbench.dataset.initialized === '1') return;
     workbench.dataset.initialized = '1';
 
-    // L1 tab switching
-    document.querySelectorAll('.simc-l1-tab').forEach(tab => {
-        tab.addEventListener('click', function() {
-            switchSimcWorkbenchL1Tab(this.getAttribute('data-simc-l1-tab') || 'workflow');
-        });
-    });
     document.querySelectorAll('[data-simc-workflow-entry]').forEach(button => {
         button.addEventListener('click', function() {
             switchSimcWorkbenchL1Tab('workflow', this.dataset.simcWorkflowEntry || 'import');
@@ -1610,8 +1622,34 @@ function initSimcWorkbench() {
     switchSimcWorkbenchL1Tab('workflow');
 }
 
+function activateSimcDashboardPage(pageName) {
+    const targetSectionId = SIMC_DASHBOARD_SECTIONS[pageName];
+    const activeSection = document.querySelector('[data-simc-page].content-section.active');
+    if (!targetSectionId || !activeSection || activeSection.id === targetSectionId) return;
+
+    document.querySelectorAll('[data-simc-page].content-section').forEach(section => {
+        const isTarget = section.id === targetSectionId;
+        section.style.display = isTarget ? 'block' : 'none';
+        section.classList.toggle('active', isTarget);
+    });
+
+    document.querySelectorAll('.submenu-item[data-dashboard-section]').forEach(item => {
+        item.classList.toggle('active', item.dataset.dashboardSection === targetSectionId);
+    });
+    const targetNav = document.querySelector(`.submenu-item[data-dashboard-section="${targetSectionId}"]`);
+    const parentNav = targetNav?.closest('.nav-item');
+    if (parentNav) {
+        document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+        parentNav.classList.add('active');
+    }
+    document.dispatchEvent(new CustomEvent('dashboard-section-changed', {
+        detail: { section: targetSectionId },
+    }));
+}
+
 function switchSimcWorkbenchL1Tab(l1TabName, childPanelName) {
     const activeL1Tab = l1TabName || 'workflow';
+    activateSimcDashboardPage(activeL1Tab);
     const defaultPanels = { workflow: 'import', history: 'tasks', advanced: 'backend' };
     const activeChildPanel = childPanelName || defaultPanels[activeL1Tab];
 
@@ -1619,19 +1657,6 @@ function switchSimcWorkbenchL1Tab(l1TabName, childPanelName) {
         window.simcWorkbenchDeactivatePanel(activeChildPanel);
     }
     if (activeL1Tab !== 'history') stopSimcAttributeSearch();
-
-    document.querySelectorAll('.simc-l1-tab').forEach(tab => {
-        const isActive = tab.getAttribute('data-simc-l1-tab') === activeL1Tab;
-        tab.classList.toggle('bg-blue-600', isActive);
-        tab.classList.toggle('text-white', isActive);
-        tab.classList.toggle('shadow-sm', isActive);
-        tab.classList.toggle('bg-white', !isActive);
-        tab.classList.toggle('text-gray-700', !isActive);
-        tab.classList.toggle('border', !isActive);
-        tab.classList.toggle('border-gray-200', !isActive);
-        tab.classList.toggle('hover:bg-gray-50', !isActive);
-        tab.setAttribute('aria-selected', String(isActive));
-    });
 
     document.querySelectorAll('[data-simc-workflow-entry]').forEach(button => {
         const selected = activeL1Tab === 'workflow' && button.dataset.simcWorkflowEntry === activeChildPanel;

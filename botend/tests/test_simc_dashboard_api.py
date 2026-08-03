@@ -2189,18 +2189,24 @@ class SimcNewConfigModeTests(TestCase):
             self.assertIsNotNone(section, section_id)
             self.assertIs(section.parent, main_content, section_id)
 
+        workbench = soup.select_one('#simc-workbench')
+        for section_id in ('simc-workflow', 'simc-history', 'simc-advanced'):
+            section = soup.select_one(f'#{section_id}.content-section')
+            self.assertIsNotNone(section, section_id)
+            self.assertIs(getattr(section, 'parent', None), workbench, section_id)
+
     def test_simc_workbench_panels_are_grouped_by_l1_information_architecture(self):
         from bs4 import BeautifulSoup
 
         template = (Path(__file__).resolve().parents[2] / 'templates/dashboard/index.html').read_text(encoding='utf-8')
         soup = BeautifulSoup(template, 'html.parser')
         expected_groups = {
-            'simc-l1-workflow-panel': (
+            'simc-workflow': (
                 'simc-workbench-import-panel', 'simc-workbench-profiles-panel',
                 'simc-workbench-templates-panel', 'simc-workbench-apl-panel',
             ),
-            'simc-l1-history-panel': ('simc-workbench-tasks-panel',),
-            'simc-l1-advanced-panel': (
+            'simc-history': ('simc-workbench-tasks-panel',),
+            'simc-advanced': (
                 'simc-workbench-backend-panel', 'simc-workbench-rules-panel',
             ),
         }

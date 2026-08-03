@@ -312,7 +312,7 @@
     {% if page_name == 'dashboard' %}
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>window.SIMC_APL_EDITOR_MODULE_URL = "{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260727b";</script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260803f"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260803h"></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260803a"></script>
     <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260803e"></script>
     {% else %}
@@ -478,10 +478,22 @@
                             <i class="fas fa-chevron-down ml-auto text-xs rotate-180"></i>
                         </a>
                         <ul id="simc-sidebar-submenu" class="submenu mt-2 ml-6 space-y-1 overflow-hidden transition-all duration-300">
-                            <li class="submenu-item" data-dashboard-section="simc-workbench">
+                            <li class="submenu-item" data-dashboard-section="simc-workflow">
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
-                                    <i class="fas fa-screwdriver-wrench mr-2 text-xs"></i>
-                                    SimC 工具台
+                                    <i class="fas fa-project-diagram mr-2 text-xs"></i>
+                                    模拟工作流
+                                </a>
+                            </li>
+                            <li class="submenu-item" data-dashboard-section="simc-history">
+                                <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
+                                    <i class="fas fa-history mr-2 text-xs"></i>
+                                    历史任务
+                                </a>
+                            </li>
+                            <li class="submenu-item" data-dashboard-section="simc-advanced">
+                                <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
+                                    <i class="fas fa-cogs mr-2 text-xs"></i>
+                                    高级配置
                                 </a>
                             </li>
                             {% if user.is_staff or user.is_superuser %}
@@ -949,33 +961,11 @@
                 </div>
             </div>
 
-            <!-- SimC 工具台 -->
-            <div class="content-section" id="simc-workbench" style="display: none;">
-                <div class="mb-6">
-                    <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
-                        <div>
-                            <h2 class="text-3xl font-bold text-gray-800 mb-2">SimC工具台</h2>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden mb-6">
-                    <div class="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-slate-50 to-blue-50">
-                        <div class="flex flex-wrap gap-2" id="simc-workbench-l1-tabs">
-                            <button type="button" data-simc-l1-tab="workflow" class="simc-l1-tab px-4 py-2 rounded-xl text-sm font-semibold transition-colors duration-200 bg-blue-600 text-white shadow-sm">
-                                <i class="fas fa-project-diagram mr-2"></i>模拟工作流
-                            </button>
-                            <button type="button" data-simc-l1-tab="history" class="simc-l1-tab px-4 py-2 rounded-xl text-sm font-semibold transition-colors duration-200 bg-white text-gray-700 border border-gray-200 hover:bg-gray-50">
-                                <i class="fas fa-history mr-2"></i>历史任务
-                            </button>
-                            <button type="button" data-simc-l1-tab="advanced" class="simc-l1-tab px-4 py-2 rounded-xl text-sm font-semibold transition-colors duration-200 bg-white text-gray-700 border border-gray-200 hover:bg-gray-50">
-                                <i class="fas fa-cogs mr-2"></i>高级设置
-                            </button>
-                        </div>
-                    </div>
-                    <div class="p-5">
-                        <!-- L1 Panel: 模拟工作流 -->
-                        <div class="simc-l1-panel" id="simc-l1-workflow-panel" data-simc-l1-panel="workflow">
+            <!-- SimC pages share one behavior root, but each is an independent Dashboard section. -->
+            <div id="simc-workbench">
+                        <!-- SimC Page: 模拟工作流 -->
+                        <div class="content-section simc-l1-panel" id="simc-workflow" data-simc-page="workflow" data-simc-l1-panel="workflow" style="display: none;">
+                            <h2 data-simc-page-heading class="mb-6 text-3xl font-bold text-gray-800">模拟工作流</h2>
                             <nav class="mb-4 flex flex-wrap gap-2" aria-label="模拟工作流资源">
                                 <button type="button" data-simc-workflow-entry="import" class="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">模拟配置</button>
                                 <button type="button" data-simc-workflow-entry="profiles" class="rounded-lg border bg-white px-3 py-2 text-sm text-gray-700">玩家配置</button>
@@ -1341,8 +1331,9 @@
                         </div>
                         <!-- End L1 Panel: 模拟工作流 -->
 
-                        <!-- L1 Panel: 历史任务 -->
-                        <div class="simc-l1-panel hidden" id="simc-l1-history-panel" data-simc-l1-panel="history">
+                        <!-- SimC Page: 历史任务 -->
+                        <div class="content-section simc-l1-panel hidden" id="simc-history" data-simc-page="history" data-simc-l1-panel="history" style="display: none;">
+                        <h2 data-simc-page-heading class="mb-6 text-3xl font-bold text-gray-800">历史任务</h2>
                         <div class="simc-workbench-panel" id="simc-workbench-tasks-panel" data-simc-panel="tasks">
                             <div class="rounded-2xl border bg-white p-5">
                                 <div class="flex flex-wrap items-center justify-between gap-3"><div><h3 class="text-xl font-bold">任务列表</h3><p class="text-sm text-gray-500">单次模拟、属性模拟和对比模拟统一作为任务展示。</p></div><button type="button" data-simc-refresh="tasks" class="rounded-lg bg-slate-100 px-3 py-2 text-sm">刷新</button></div>
@@ -1354,8 +1345,9 @@
                         </div>
                         <!-- End L1 Panel: 历史任务 -->
 
-                        <!-- L1 Panel: 高级设置 -->
-                        <div class="simc-l1-panel hidden" id="simc-l1-advanced-panel" data-simc-l1-panel="advanced">
+                        <!-- SimC Page: 高级配置 -->
+                        <div class="content-section simc-l1-panel hidden" id="simc-advanced" data-simc-page="advanced" data-simc-l1-panel="advanced" style="display: none;">
+                            <h2 data-simc-page-heading class="mb-6 text-3xl font-bold text-gray-800">高级配置</h2>
                             <nav class="mb-4 flex flex-wrap gap-2" aria-label="SimC 系统模型入口">
                                 <button type="button" data-simc-model="backend" data-simc-tab="backend" class="simc-model-entry rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">执行后端</button>
                                 <button type="button" data-simc-model="secondary-rules" data-simc-tab="rules" data-rule-subtab="secondary-rules" class="simc-model-entry rounded-lg border bg-white px-3 py-2 text-sm text-gray-700">次级属性换算</button>
@@ -1510,8 +1502,6 @@
                         </div>
                         </div>
                         <!-- End L1 Panel: 高级设置 -->
-                    </div>
-                </div>
             </div>
 
             {% if user.is_staff or user.is_superuser %}

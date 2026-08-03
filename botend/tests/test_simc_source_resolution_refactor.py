@@ -163,6 +163,6 @@ class SimcSourceResolutionFrontendContractTests(unittest.TestCase):
         self.assertIn('if (!resolve) return;', switch)
         self.assertIn('switchSimcPlayerImportMode({ resolve: false });', binding)
         self.assertNotIn('\n    onSimcTargetSpecChange().catch', binding)
-        self.assertIn("if (sectionId === 'simc-workbench')", navigation)
+        self.assertIn('if (sectionId === SIMC_DASHBOARD_SECTIONS.workflow)', navigation)
         self.assertIn('switchSimcPlayerImportMode();', navigation)
-        self.assertIn("dashboard/js/main.js' %}?v=20260723b", HTML)
+        self.assertIn("dashboard/js/main.js' %}?v=20260803h", HTML)

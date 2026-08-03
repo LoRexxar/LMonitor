@@ -15,7 +15,7 @@ APL_EDITOR_CSS = (ROOT / "static/dashboard/css/simc-apl-editor.css").read_text(e
 # Scope safety assertions to the complete SimC surfaces. The dashboard template
 # and main.js also contain unrelated legacy modules with their own navigation UI.
 SIMC_HTML = (
-    HTML[HTML.index('<div class="content-section" id="simc-workbench"'):HTML.index('<!-- Tools内容区域 -->')]
+    HTML[HTML.index('<!-- SimC pages share one behavior root'):HTML.index('<!-- Tools内容区域 -->')]
     + HTML[HTML.index('<!-- SimC Workbench Unified Dialog -->'):]
 )
 SIMC_MAIN = MAIN[
@@ -360,7 +360,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('@media (max-width: 640px)', HTML)
         self.assertIn('.simc-responsive-row', HTML)
         self.assertIn('.simc-touch-action', HTML)
-        for group in ("模拟工作流", "历史任务", "高级设置", "执行后端"):
+        for group in ("模拟工作流", "历史任务", "高级配置", "执行后端"):
             self.assertIn(group, HTML)
         workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
         self.assertNotIn('<details', workflow)
@@ -389,18 +389,23 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn('aria-label="规则类型"', advanced)
         self.assertIn('updateSimcAdvancedEntryState(activeL1Tab, activeChildPanel, activeRuleSubtab)', MAIN)
 
-    def test_all_l1_panels_share_the_same_padded_container(self):
+    def test_simc_pages_are_independent_sections_under_one_behavior_root(self):
         self.assertEqual(HTML.count('data-simc-l1-panel="workflow"'), 1)
         self.assertEqual(HTML.count('data-simc-l1-panel="history"'), 1)
         self.assertEqual(HTML.count('data-simc-l1-panel="advanced"'), 1)
-        shell_start = HTML.index('data-simc-l1-panel="workflow"')
-        shell = HTML[max(0, HTML.rfind('<div', 0, shell_start) - 300):shell_start]
-        self.assertIn('p-5', shell)
+        soup = BeautifulSoup(HTML, 'html.parser')
+        root = soup.select_one('#simc-workbench')
+        self.assertIsNotNone(root)
+        self.assertEqual(
+            [node.get('id') for node in soup.select('#simc-workbench > .content-section[data-simc-page]')],
+            ['simc-workflow', 'simc-history', 'simc-advanced'],
+        )
 
-    def test_workflow_is_default_l1_with_history_and_advanced(self):
-        self.assertIn('data-simc-l1-tab="workflow"', HTML)
-        self.assertIn('data-simc-l1-tab="history"', HTML)
-        self.assertIn('data-simc-l1-tab="advanced"', HTML)
+    def test_sidebar_owns_primary_navigation_while_panels_keep_resource_mapping(self):
+        self.assertNotIn('data-simc-l1-tab=', HTML)
+        self.assertIn('data-dashboard-section="simc-workflow"', HTML)
+        self.assertIn('data-dashboard-section="simc-history"', HTML)
+        self.assertIn('data-dashboard-section="simc-advanced"', HTML)
         self.assertIn('data-simc-l1-panel="workflow"', HTML)
         self.assertIn('data-simc-l1-panel="history"', HTML)
         self.assertIn('data-simc-l1-panel="advanced"', HTML)
@@ -714,11 +719,13 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         init_body = MAIN[init_start:init_end]
         self.assertIn("switchSimcWorkbenchL1Tab('workflow')", init_body)
 
-    def test_l1_active_tab_does_not_keep_touch_hover_background(self):
+    def test_primary_page_switch_updates_dashboard_section_and_sidebar_state(self):
         switch_start = MAIN.index("function switchSimcWorkbenchL1Tab(")
         switch_end = MAIN.index("\n\nfunction ", switch_start + 50)
         switch_body = MAIN[switch_start:switch_end]
-        self.assertIn("tab.classList.toggle('hover:bg-gray-50', !isActive);", switch_body)
+        self.assertIn("activateSimcDashboardPage(activeL1Tab);", switch_body)
+        self.assertNotIn(".simc-l1-tab", MAIN)
+        self.assertIn("item.dataset.dashboardSection === targetSectionId", MAIN)
 
     def test_navigation_l1_to_panel_mapping_explicit(self):
         """Each L1 tab must explicitly map to its child panels."""
@@ -784,14 +791,12 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn("switchSimcWorkbenchL1Tab", JS)
         self.assertNotIn("window.switchSimcWorkbenchTab(", JS)
 
-    def test_navigation_default_state_workflow_and_import_visible(self):
-        """Initial state: workflow L1 active, import panel visible."""
-        self.assertIn('data-simc-l1-tab="workflow"', HTML)
-        workflow_tab = HTML[HTML.index('data-simc-l1-tab="workflow"'):HTML.index('data-simc-l1-tab="workflow"') + 300]
-        self.assertIn("bg-blue-600", workflow_tab)
-        self.assertIn("text-white", workflow_tab)
+    def test_navigation_default_state_does_not_force_open_a_simc_page(self):
+        """Dashboard location chooses the page; initialization only selects its child panel."""
+        self.assertIn('id="simc-workflow"', HTML)
+        workflow_section = HTML[HTML.index('id="simc-workflow"'):HTML.index('id="simc-workflow"') + 260]
+        self.assertIn('style="display: none;"', workflow_section)
         workflow_panel = HTML[HTML.index('data-simc-l1-panel="workflow"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
-        self.assertNotIn('class="simc-l1-panel hidden"', workflow_panel[:200])
         self.assertIn('id="simc-workbench-import-panel"', workflow_panel)
 
     def test_rules_management_uses_event_delegation_no_inline_onclick(self):

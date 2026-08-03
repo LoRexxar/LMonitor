@@ -25,11 +25,11 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         children = cast(Tag, group).select('.submenu-item[data-dashboard-section]')
         self.assertEqual(
             [child.get('data-dashboard-section') for child in children],
-            ['simc-workbench', 'simc-benchmarks'],
+            ['simc-workflow', 'simc-history', 'simc-advanced', 'simc-benchmarks'],
         )
         self.assertEqual(
             [child.get_text(' ', strip=True) for child in children],
-            ['SimC 工具台', '基准面板'],
+            ['模拟工作流', '历史任务', '高级配置', '基准面板'],
         )
         self.assertEqual(len(soup.select('.nav-item[data-section="simc-workbench"]')), 0)
         self.assertEqual(len(soup.select('.nav-item[data-section="simc-benchmarks"]')), 0)
@@ -43,6 +43,31 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn("dashboard-section-changed", (ROOT / "static/dashboard/js/main.js").read_text(encoding="utf-8"))
         self.assertIn("dashboard-section-changed", JS)
         self.assertIn("e.detail?.section==='simc-benchmarks'", JS)
+
+    def test_simc_primary_pages_are_independent_dashboard_sections(self):
+        soup = BeautifulSoup(INDEX, "html.parser")
+        expected = {
+            'simc-workflow': '模拟工作流',
+            'simc-history': '历史任务',
+            'simc-advanced': '高级配置',
+        }
+        for section_id, title in expected.items():
+            section = soup.select_one(f'#{section_id}.content-section[data-simc-page]')
+            self.assertIsNotNone(section, section_id)
+            self.assertEqual(cast(Tag, section).get('data-simc-page'), section_id.removeprefix('simc-'))
+            heading = cast(Tag, section).select_one(':scope > [data-simc-page-heading]')
+            self.assertIsNotNone(heading, section_id)
+            self.assertEqual(cast(Tag, heading).get_text(' ', strip=True), title)
+
+        self.assertIsNone(soup.select_one('#simc-workbench.content-section'))
+        self.assertIsNone(soup.select_one('#simc-workbench-l1-tabs'))
+        self.assertEqual(len(soup.select('.simc-l1-tab')), 0)
+
+        main_js = (ROOT / "static/dashboard/js/main.js").read_text(encoding="utf-8")
+        self.assertIn("const SIMC_DASHBOARD_SECTIONS", main_js)
+        self.assertIn("simc-workflow", main_js)
+        self.assertIn("simc-history", main_js)
+        self.assertIn("simc-advanced", main_js)
 
     def test_staff_entry_section_partial_and_assets_are_wired(self):
         self.assertIn('data-dashboard-section="simc-benchmarks"', INDEX)
