@@ -41,7 +41,6 @@ class PortalSimcBenchmarkAPITests(TestCase):
             'panels': [{
                 'id': self.public.id, 'slug': 'public-panel', 'name': 'Public panel',
                 'description': 'Public description', 'status': 'not_ready',
-                'result_view': 'spec_comparison',
             }],
         })
         serializer.assert_not_called()
@@ -91,18 +90,6 @@ class PortalSimcBenchmarkAPITests(TestCase):
             if panel['id'] == self.public.id
         )
         self.assertEqual(public_panel['status'], 'ready')
-        self.assertEqual(public_panel['result_view'], 'spec_comparison')
-
-    def test_list_marks_panel_with_enabled_candidates_as_benchmark_result(self):
-        SimcBenchmarkCandidate.objects.create(
-            panel=self.public, key='trinket', label='Trinket',
-            candidate_type='gear_swap', params={'candidate_type': 'gear_swap'},
-        )
-
-        response = self.client.get('/portal/api/simc-benchmarks/panels/')
-        public_panel = json.loads(response.content)['panels'][0]
-
-        self.assertEqual(public_panel['result_view'], 'benchmark')
 
     @patch('botend.portal.simc_benchmark_api.serialize_incremental_panel_results')
     def test_detail_returns_immediate_result_projection(self, serializer):
@@ -291,7 +278,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         for contract in (
             'loadPublicBaselines',
             '/portal/api/simc-benchmarks/panels/',
-            'panel.result_view === "spec_comparison"',
+            'Array.isArray(payload?.panels)',
             '/portal/simc-benchmarks/${encodeURIComponent(String(panel.id))}/',
         ):
             self.assertIn(contract, self.PORTAL_JS)

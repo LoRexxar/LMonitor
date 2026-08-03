@@ -316,9 +316,7 @@ async function loadPublicBaselines() {
   if (!el) return;
   try {
     const payload = await fetchJson("/portal/api/simc-benchmarks/panels/");
-    const panels = Array.isArray(payload?.panels)
-      ? payload.panels.filter((panel) => panel.result_view === "spec_comparison")
-      : [];
+    const panels = Array.isArray(payload?.panels) ? payload.panels : [];
     if (!panels.length) {
       el.innerHTML = '<div class="text-slate-500 md:col-span-2">暂无公开的基线任务</div>';
       return;
