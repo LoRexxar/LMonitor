@@ -1200,6 +1200,7 @@ class SimcProfile(models.Model):
     """
     SOURCE_USER = 'user'
     SOURCE_SIMC_UPSTREAM = 'simc_upstream'
+    SOURCE_WCL = 'wcl'
     SOURCE_CHOICES = (
         (SOURCE_USER, '用户维护'),
         (SOURCE_SIMC_UPSTREAM, 'SimC源码同步'),

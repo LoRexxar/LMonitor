@@ -312,6 +312,23 @@ class SimcBenchmarkConfigServiceTests(TestCase):
         payload = dict(self.payload)
         payload['specs'] = [dict(self.payload['specs'][0], profiles=[{'profile_id': other_profile.pk}])]
         with self.assertRaises(ValidationError): normalize_panel_payload(payload, self.user_id)
+
+        global_wcl = SimcProfile.objects.create(
+            user_id=None, source=SimcProfile.SOURCE_WCL, name='Global WCL Fury',
+            class_name='warrior', spec='warrior_fury', player_config_mode='wcl',
+            is_active=True,
+        )
+        payload['specs'] = [dict(
+            self.payload['specs'][0], profiles=[{'profile_id': global_wcl.pk}],
+        )]
+        normalized = normalize_panel_payload(payload, self.user_id)
+        self.assertEqual(normalized['specs'][0]['profiles'][0]['profile_id'], global_wcl.pk)
+
+        global_wcl.is_active = False
+        global_wcl.save(update_fields=['is_active'])
+        with self.assertRaises(ValidationError):
+            normalize_panel_payload(payload, self.user_id)
+
         self.backend.is_active = False; self.backend.save(update_fields=['is_active'])
         with self.assertRaises(ValidationError): normalize_panel_payload(self.payload, self.user_id)
         self.backend.is_active = True; self.backend.save(update_fields=['is_active'])

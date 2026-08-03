@@ -133,6 +133,28 @@ class SimcBenchmarkOptionsApiTests(TestCase):
         self.assertNotIn('owner_id', json.dumps(edited))
         self.assertIn(self.profile.id, [row['id'] for row in edited['resources']['profiles']])
 
+    def test_options_include_active_global_wcl_profiles_but_not_unowned_user_profiles(self):
+        global_wcl = SimcProfile.objects.create(
+            user_id=None, name='12.1 WCL Profile', spec='mage_arcane',
+            class_name='mage', source=SimcProfile.SOURCE_WCL,
+            player_config_mode='wcl', version='12.1', use_ptr=True, is_active=True,
+        )
+        unowned_user = SimcProfile.objects.create(
+            user_id=None, name='Unowned user Profile', spec='mage_arcane',
+            class_name='mage', source=SimcProfile.SOURCE_USER, is_active=True,
+        )
+
+        profiles = self.client.get('/api/simc-benchmarks/options/').json()['data'][
+            'resources'
+        ]['profiles']
+        profile_ids = [row['id'] for row in profiles]
+
+        self.assertIn(global_wcl.id, profile_ids)
+        self.assertNotIn(unowned_user.id, profile_ids)
+        projected = next(row for row in profiles if row['id'] == global_wcl.id)
+        self.assertEqual(projected['spec_key'], 'mage_arcane')
+        self.assertTrue(projected['is_system'])
+
     def test_filters_other_owner_inactive_and_nonselectable_but_keeps_system(self):
         other_template = SimcContentTemplate.objects.create(
             name='Other template', spec='mage_fire', content='x',
