@@ -1971,6 +1971,53 @@ async function simcWbViewProfile(id) {
     } catch (error) { showMessage(String(error.message || error), 'error'); }
 }
 
+function simcProfileSpecFilterValue(canonicalValue) {
+    const value = String(canonicalValue || '').trim().toLowerCase();
+    const aliases = {
+        deathknight_frost: 'frost_death_knight',
+        mage_frost: 'frost_mage',
+        druid_restoration: 'restoration_druid',
+        shaman_restoration: 'restoration_shaman',
+        paladin_holy: 'holy_paladin',
+        priest_holy: 'holy_priest',
+        paladin_protection: 'protection_paladin',
+        warrior_protection: 'protection_warrior',
+    };
+    if (aliases[value]) return aliases[value];
+    const separator = value.indexOf('_');
+    return separator >= 0 ? value.slice(separator + 1) : value;
+}
+
+async function loadSimcProfileSpecFilterOptions(specSel) {
+    if (!specSel || specSel.dataset.loaded === '1' || specSel.dataset.loading === '1') return;
+    specSel.dataset.loading = '1';
+    try {
+        const response = await fetch('/api/simc-spec-options/', {
+            headers: { 'X-CSRFToken': getCSRFToken() },
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.error || '加载专精选项失败');
+        const rows = Array.isArray(payload.data) ? payload.data : [];
+        specSel.replaceChildren();
+        const allOption = document.createElement('option');
+        allOption.value = '';
+        allOption.textContent = '全部专精';
+        specSel.appendChild(allOption);
+        rows.forEach(row => {
+            const option = document.createElement('option');
+            option.value = simcProfileSpecFilterValue(row.value);
+            option.textContent = row.label || row.spec_label || '未知专精';
+            specSel.appendChild(option);
+        });
+        specSel.value = simcWbProfileSpecFilter;
+        specSel.dataset.loaded = '1';
+    } catch (error) {
+        console.warn('加载配置管理专精筛选失败:', error);
+    } finally {
+        delete specSel.dataset.loading;
+    }
+}
+
 function bindSimcWorkbenchProfilesControls() {
     const profilePanel = document.getElementById('simc-workbench-profiles-panel');
     if (profilePanel && document.documentElement.dataset.simcProfileActionsBound !== '1') {
@@ -2010,31 +2057,9 @@ function bindSimcWorkbenchProfilesControls() {
             }
         });
     }
-    /* 填充专精下拉选项 - 使用真实专精 key */
+    /* 专精筛选选项由后端统一资源提供，显示中文职业与专精名。 */
     const specSel = document.getElementById('simc-wb-profile-spec-filter');
-    if (specSel && specSel.options.length <= 1 && !specSel.dataset.loaded) {
-        specSel.dataset.loaded = '1';
-        const specs = [
-            'blood','frost_death_knight','unholy',
-            'devourer','havoc','vengeance',
-            'balance','feral','guardian','restoration_druid',
-            'devastation','preservation','augmentation',
-            'beast_mastery','marksmanship','survival',
-            'arcane','fire','frost_mage',
-            'brewmaster','windwalker','mistweaver',
-            'holy_paladin','protection_paladin','retribution',
-            'discipline','holy_priest','shadow',
-            'assassination','outlaw','subtlety',
-            'elemental','enhancement','restoration_shaman',
-            'affliction','demonology','destruction',
-            'arms','fury','protection_warrior'
-        ];
-        specs.forEach(s => {
-            const opt = document.createElement('option');
-            opt.value = s; opt.textContent = s;
-            specSel.appendChild(opt);
-        });
-    }
+    if (specSel) loadSimcProfileSpecFilterOptions(specSel);
     if (specSel && specSel.dataset.bound !== '1') {
         specSel.dataset.bound = '1';
         specSel.addEventListener('change', function() {

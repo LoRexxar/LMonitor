@@ -192,7 +192,32 @@ if (canonicalFilteringWorks) {
     failed++;
 }
 
-console.log(`\n${passed}/11 tests passed`);
+// Test 12: The Chinese option API's class_spec values retain the existing filter keys.
+const filterValueStart = mainJsContent.indexOf('function simcProfileSpecFilterValue(');
+const filterValueEnd = mainJsContent.indexOf('\n}', filterValueStart) + 2;
+let filterValueMappingWorks = false;
+try {
+    const block = mainJsContent.slice(filterValueStart, filterValueEnd);
+    const mapper = Function(`${block}; return simcProfileSpecFilterValue;`)();
+    filterValueMappingWorks =
+        mapper('warrior_fury') === 'fury' &&
+        mapper('hunter_beast_mastery') === 'beast_mastery' &&
+        mapper('deathknight_frost') === 'frost_death_knight' &&
+        mapper('mage_frost') === 'frost_mage' &&
+        mapper('paladin_protection') === 'protection_paladin' &&
+        mapper('warrior_protection') === 'protection_warrior';
+} catch (_) {
+    filterValueMappingWorks = false;
+}
+if (filterValueMappingWorks) {
+    console.log('✓ Chinese spec options preserve canonical profile filtering');
+    passed++;
+} else {
+    console.log('✗ Chinese spec options break one or more profile filter keys');
+    failed++;
+}
+
+console.log(`\n${passed}/12 tests passed`);
 
 if (failed > 0) {
     console.log(`\n❌ ${failed} test(s) failed`);

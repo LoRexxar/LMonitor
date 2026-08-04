@@ -1073,6 +1073,14 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
         self.assertIn('<option value="fury">狂怒</option>', HTML)
         self.assertNotIn('<option value="fury">fury</option>', HTML)
 
+    def test_profile_filter_uses_authoritative_chinese_spec_labels(self):
+        filter_start = MAIN.index('function loadSimcProfileSpecFilterOptions(')
+        filter_end = MAIN.index('\nfunction ', filter_start + 20)
+        filter_body = MAIN[filter_start:filter_end]
+        self.assertIn("fetch('/api/simc-spec-options/'", filter_body)
+        self.assertIn('row.spec_label', filter_body)
+        self.assertNotIn('opt.textContent = s', filter_body)
+
     def test_profile_table_headers_sort_the_complete_filtered_result_before_pagination(self):
         profile_table = HTML[
             HTML.index('<table class="simc-responsive-table min-w-full text-sm">'):
