@@ -102,6 +102,27 @@ class SimcSourceResolutionFrontendContractTests(unittest.TestCase):
         self.assertIn('Composer 使用本字段生成最终 talents=', profile_form)
         self.assertIn('name="talent"', profile_form)
 
+    def test_profile_talent_field_has_adjacent_simulator_link_for_current_spec_and_code(self):
+        profile_form = HTML[
+            HTML.index('id="simc-wb-profile-form-source"'):
+            HTML.index('<!-- End L1 Panel: 模拟工作流 -->')
+        ]
+        talent_row = profile_form[
+            profile_form.index('name="talent"') - 300:
+            profile_form.index('name="gear_strength"')
+        ]
+        self.assertIn('data-profile-talent-simulator-link', talent_row)
+        self.assertIn('target="_blank"', talent_row)
+        self.assertIn('rel="noopener noreferrer"', talent_row)
+        self.assertIn('打开天赋模拟器', talent_row)
+        self.assertIn('function updateSimcProfileTalentSimulatorLink', MAIN)
+        updater = MAIN.split('function updateSimcProfileTalentSimulatorLink', 1)[1].split('\n}', 1)[0]
+        self.assertIn("input[name=\"talent\"]", updater)
+        self.assertIn("select[name=\"spec\"]", updater)
+        self.assertIn('simcProfileFormCanonicalSpec', updater)
+        self.assertIn('simcTalentSimulatorUrl', updater)
+        self.assertIn("link.removeAttribute('href')", updater)
+
     def test_exactly_three_peer_sources_and_spec_is_scoped_to_specified_panel(self):
         source_panel = WORKFLOW[WORKFLOW.index('id="simc-sim-player-sources"'):WORKFLOW.index('id="simc-sim-apl-list"')]
         self.assertEqual(source_panel.count('data-simc-player-source='), 3)

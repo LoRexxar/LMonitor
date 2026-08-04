@@ -2334,6 +2334,45 @@ function getSimcProfileMode(profileData) {
     return 'attribute_only';
 }
 
+function simcProfileFormCanonicalSpec(spec) {
+    const key = String(spec || '').trim().toLowerCase();
+    const disambiguated = {
+        protection_warrior: 'warrior_protection',
+        frost_death_knight: 'deathknight_frost',
+        frost_mage: 'mage_frost',
+        restoration_druid: 'druid_restoration',
+        restoration_shaman: 'shaman_restoration',
+        holy_priest: 'priest_holy',
+        holy_paladin: 'paladin_holy',
+        protection_paladin: 'paladin_protection',
+    };
+    if (disambiguated[key]) return disambiguated[key];
+    const normalizedSpec = normalizeSimcSpecKey(key);
+    const className = getSimcSpecClass(normalizedSpec).replaceAll('_', '');
+    const specName = normalizedSpec === 'frost_dk' ? 'frost' : normalizedSpec;
+    return className && specName ? `${className}_${specName}` : '';
+}
+
+function updateSimcProfileTalentSimulatorLink(formWrap = document.getElementById('simc-wb-profile-form')) {
+    if (!formWrap) return;
+    const input = formWrap.querySelector('input[name="talent"]');
+    const specSelect = formWrap.querySelector('select[name="spec"]');
+    const link = formWrap.querySelector('[data-profile-talent-simulator-link]');
+    if (!input || !specSelect || !link) return;
+    const url = simcTalentSimulatorUrl(input.value, simcProfileFormCanonicalSpec(specSelect.value));
+    if (!url) {
+        link.removeAttribute('href');
+        link.setAttribute('aria-disabled', 'true');
+        link.classList.add('cursor-not-allowed', 'text-violet-300');
+        link.classList.remove('text-violet-700', 'hover:border-violet-400', 'hover:bg-violet-100');
+        return;
+    }
+    link.href = url;
+    link.setAttribute('aria-disabled', 'false');
+    link.classList.remove('cursor-not-allowed', 'text-violet-300');
+    link.classList.add('text-violet-700', 'hover:border-violet-400', 'hover:bg-violet-100');
+}
+
 function simcWbToggleProfileForm(mode, profileData) {
     openSimcWorkbenchDialog('profile-form', { mode, profileData });
     const body = document.getElementById('simc-dialog-body');
@@ -2404,6 +2443,11 @@ function simcWbToggleProfileForm(mode, profileData) {
     if (clonedForm) {
         clonedForm.classList.remove('hidden');
         simcWbSyncProfileFormMode();
+        const talentInput = clonedForm.querySelector('input[name="talent"]');
+        const specSelect = clonedForm.querySelector('select[name="spec"]');
+        talentInput?.addEventListener('input', () => updateSimcProfileTalentSimulatorLink(clonedForm));
+        specSelect?.addEventListener('change', () => updateSimcProfileTalentSimulatorLink(clonedForm));
+        updateSimcProfileTalentSimulatorLink(clonedForm);
     }
 }
 function simcWbCloseProfileForm() {
@@ -3318,9 +3362,9 @@ function updateSimcComparisonSimulationCount() {
     count.innerHTML = `预计模拟 <strong class="text-lg text-violet-700">${total}</strong> 次`;
 }
 
-function simcTalentSimulatorUrl(buildCode) {
+function simcTalentSimulatorUrl(buildCode, requestedCanonicalSpec = '') {
     buildCode = String(buildCode || '').trim();
-    const canonicalSpec = String(simcResolvedCanonicalSpec || '').trim().toLowerCase();
+    const canonicalSpec = String(requestedCanonicalSpec || simcResolvedCanonicalSpec || '').trim().toLowerCase();
     const separator = canonicalSpec.indexOf('_');
     if (!buildCode || separator <= 0) return '';
     const classToken = canonicalSpec.slice(0, separator);
