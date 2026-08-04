@@ -378,6 +378,38 @@ class SimcBenchmarkExecutionTests(TestCase):
         ])
         self.assertEqual(coordinates['failed-coordinate']['candidates'], [])
 
+    def test_failed_rerun_with_invalid_dps_stays_failed(self):
+        execution = self._create()
+        failed_case = execution.cases.select_related('task').get()
+        failed_task = failed_case.task
+        failed_task.current_status = 3
+        failed_task.save(update_fields=['current_status'])
+        self._run(failed_task, 1, 'failed', 'baseline')
+        self._run(failed_task, 2, 'failed', 'trinket')
+        reconcile_execution(execution)
+
+        retry = rerun_failed_cases(execution, requested_by=self.user_id)
+        retry_case = retry.cases.select_related('task').get()
+        retry_task = retry_case.task
+        retry_task.current_status = 2
+        retry_task.save(update_fields=['current_status'])
+        retry_runs = list(retry_task.simulation_runs.order_by('sequence'))
+        retry_runs[0].status = 'completed'
+        retry_runs[0].result_summary = {'dps': 0}
+        retry_runs[0].save(update_fields=['status', 'result_summary'])
+        retry_runs[1].status = 'completed'
+        retry_runs[1].result_summary = {'dps': 1400}
+        retry_runs[1].save(update_fields=['status', 'result_summary'])
+
+        reconcile_execution(retry)
+
+        retry.refresh_from_db()
+        retry_case.refresh_from_db()
+        self.assertEqual(retry.status, 'failed')
+        self.assertEqual(retry_case.status, 'failed')
+        self.assertEqual(retry_case.results.count(), 0)
+        self.assertEqual(summarize_execution(retry)['status'], 'failed')
+
     def test_incremental_projection_reuses_results_from_older_larger_execution(self):
         """A smaller later Execution must not hide results on older panel coordinates."""
         original = self._published_success()
@@ -1098,6 +1130,56 @@ class SimcBenchmarkExecutionTests(TestCase):
             failed.error_detail,
         )
 
+        with patch(
+            'botend.services.simc_task_service.current_validation_identity',
+            return_value=('a' * 40, '12.0.1'),
+        ), patch(
+            'botend.services.simc_task_service.validate_apl_for_profile',
+            return_value=self.validation,
+        ):
+            retry = rerun_failed_cases(execution, requested_by=self.user_id)
+        self.assertEqual(retry.config_snapshot['case_count'], 2)
+        self.assertEqual(retry.config_snapshot['execution_mode'], 'supplement')
+        self.assertEqual(retry.config_snapshot['source_execution_id'], execution.id)
+        self.assertEqual(retry.cases.count(), 1)
+        retry_case = retry.cases.select_related('task').get()
+        retry_task = retry_case.task
+        retry_task.current_status = 2
+        retry_task.save(update_fields=['current_status'])
+        for sequence, candidate in enumerate(
+                retry_task.mode_params['request_manifest']['candidates'], 1):
+            self._run(
+                retry_task, sequence, 'completed', candidate['candidate_key'],
+                dps=120000 + sequence,
+            )
+
+        reconcile_execution(retry)
+
+        retry.refresh_from_db()
+        retry_case.refresh_from_db()
+        self.assertEqual(retry.status, 'success')
+        self.assertIsNotNone(retry.completed_at)
+        self.assertEqual(retry.result_hash, '')
+        self.assertIsNone(retry.results_finalized_at)
+        self.assertEqual(retry_case.status, 'success')
+        self.assertEqual(retry_case.results.count(), 2)
+        retry_summary = summarize_execution(retry)
+        self.assertEqual(retry_summary['status'], 'success')
+        self.assertEqual(retry_summary['success'], 1)
+        self.assertEqual(retry_summary['run_counts']['success'], 2)
+        self.assertEqual(execution.cases.count(), 2)
+        coordinates = {
+            (row['spec_key'], row['profile_key'], row['scenario_key']): row
+            for row in serialize_incremental_panel_results(self.panel)['coordinates']
+        }
+        retry_coordinate = coordinates[(
+            retry_case.spec_key, retry_case.profile_key, retry_case.scenario_key,
+        )]
+        self.assertEqual(
+            [row['task_id'] for row in retry_coordinate['candidates']],
+            [retry_task.id, retry_task.id],
+        )
+
     def test_full_execution_with_every_preflight_rejected_finishes_and_releases_panel(self):
         from botend.services.simc_task_service import TaskCreationError
 
@@ -1133,6 +1215,26 @@ class SimcBenchmarkExecutionTests(TestCase):
             [row['candidate_key'] for row in retry_case.task.mode_params['initial_candidates']],
             ['baseline', 'trinket'],
         )
+        retry_task = retry_case.task
+        retry_task.current_status = 2
+        retry_task.save(update_fields=['current_status'])
+        for sequence, candidate in enumerate(
+                retry_task.mode_params['request_manifest']['candidates'], 1):
+            self._run(
+                retry_task, sequence, 'completed', candidate['candidate_key'],
+                dps=130000 + sequence,
+            )
+
+        reconcile_execution(retry)
+
+        retry.refresh_from_db()
+        retry_case.refresh_from_db()
+        self.assertEqual(retry.status, 'success')
+        self.assertEqual(retry.result_hash, '')
+        self.assertIsNone(retry.results_finalized_at)
+        self.assertEqual(retry_case.results.count(), 2)
+        self.assertEqual(summarize_execution(retry)['status'], 'success')
+        self.assertNotEqual(self.panel.published_execution_id, retry.id)
 
     def test_failed_rerun_materializes_repeated_preflight_error_on_child_case(self):
         from botend.services.simc_task_service import TaskCreationError

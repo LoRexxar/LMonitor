@@ -832,6 +832,8 @@ def rerun_failed_cases(execution, requested_by=None):
         # for failed coordinates, while independently persisted Case Results from
         # earlier Executions remain available to the incremental aggregate.
         snapshot = deepcopy(source.config_snapshot)
+        snapshot['execution_mode'] = 'supplement'
+        snapshot['source_execution_id'] = source.pk
         snapshot_coordinates = {
             (case_data.get('spec_key'), case_data.get('scenario_key'),
              case_data.get('profile_key'))
@@ -1708,14 +1710,37 @@ def summarize_execution(execution):
         seal_rows = []
         expected = {coordinate: keys for coordinate, keys in layout}
         seen = set()
-        valid = (current.completed_at is not None
-                 and current.results_finalized_at is not None
-                 and isinstance(current.result_hash, str)
-                 and len(current.result_hash) == 64)
+        snapshot = current.config_snapshot if isinstance(current.config_snapshot, dict) else {}
+        is_failed_case_retry = (
+            snapshot.get('execution_mode') == 'supplement'
+            and type(snapshot.get('source_execution_id')) is int
+        )
+        valid = current.completed_at is not None
+        if is_failed_case_retry:
+            valid = valid and not current.result_hash and current.results_finalized_at is None
+        else:
+            valid = (
+                valid
+                and current.results_finalized_at is not None
+                and isinstance(current.result_hash, str)
+                and len(current.result_hash) == 64
+            )
         for case in summary['cases']:
             coordinate = (case['spec_key'], case['scenario_key'], case['profile_key'])
             keys = [run['key'] for run in case['runs']]
-            valid = valid and coordinate not in seen and expected.get(coordinate) == keys
+            valid = (
+                valid
+                and case['status'] == SimcBenchmarkExecution.STATUS_SUCCESS
+                and coordinate not in seen
+                and expected.get(coordinate) == keys
+                and all(
+                    isinstance(run['dps'], (int, float))
+                    and not isinstance(run['dps'], bool)
+                    and math.isfinite(run['dps'])
+                    and run['dps'] > 0
+                    for run in case['runs']
+                )
+            )
             seen.add(coordinate)
             for run in case['runs']:
                 seal_rows.append({
@@ -1727,11 +1752,14 @@ def summarize_execution(execution):
                     'status': case['status'], 'candidate_key': run['key'],
                     'dps': run['dps'],
                 })
-        valid = valid and seen == set(expected)
-        try:
-            valid = valid and _result_seal(seal_rows, current.completed_at) == current.result_hash
-        except (TypeError, ValueError):
-            valid = False
+        if is_failed_case_retry:
+            valid = valid and bool(seen) and seen.issubset(expected)
+        else:
+            valid = valid and seen == set(expected)
+            try:
+                valid = valid and _result_seal(seal_rows, current.completed_at) == current.result_hash
+            except (TypeError, ValueError):
+                valid = False
         if not valid:
             summary['status'] = SimcBenchmarkExecution.STATUS_FAILED
             summary['success'] = 0
@@ -1761,11 +1789,20 @@ def _collect_success_results(execution, live, *, require_complete_execution):
             return None
         live_by_coordinate[coordinate] = case
     expected = {coordinate: keys for coordinate, keys in layout}
-    if set(live_by_coordinate) != set(expected):
+    live_coordinates = set(live_by_coordinate)
+    expected_coordinates = set(expected)
+    if require_complete_execution:
+        if live_coordinates != expected_coordinates:
+            return None
+    elif not live_coordinates.issubset(expected_coordinates):
         return None
 
     rows = []
     for coordinate, candidate_keys in layout:
+        if coordinate not in live_by_coordinate:
+            if require_complete_execution:
+                return None
+            continue
         case = live_by_coordinate[coordinate]
         if case['status'] != 'success':
             if require_complete_execution:
@@ -1958,6 +1995,28 @@ def reconcile_execution(execution):
             ])
         if live_status != 'success':
             locked.status = live_status
+            locked.completed_at = now
+            locked.result_hash = ''
+            locked.results_finalized_at = None
+            locked.save(update_fields=[
+                'status', 'completed_at', 'result_hash', 'results_finalized_at',
+            ])
+            if panel.active_execution_id == locked.pk:
+                panel.active_execution = None
+                panel.save(update_fields=['active_execution'])
+            return locked
+
+        is_failed_case_retry = (
+            snapshot.get('execution_mode') == 'supplement'
+            and type(snapshot.get('source_execution_id')) is int
+        )
+        if is_failed_case_retry and partial_rows is not None:
+            # A failed-case retry intentionally materializes only its failed Cases.
+            # The partial collector has verified every materialized Case/candidate,
+            # and those immutable rows can enter the incremental projection.  This
+            # Execution must not claim the full-snapshot publication seal, even when
+            # every coordinate in the source snapshot happened to fail.
+            locked.status = SimcBenchmarkExecution.STATUS_SUCCESS
             locked.completed_at = now
             locked.result_hash = ''
             locked.results_finalized_at = None
