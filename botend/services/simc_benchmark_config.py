@@ -115,7 +115,7 @@ def benchmark_resource_access_q(kind, user_id):
         )
         global_wcl_profile = Q(
             user_id__isnull=True, source=SimcProfile.SOURCE_WCL,
-            player_config_mode='wcl', is_active=True,
+            is_active=True,
         )
         return Q(user_id=user_id, is_active=True) | system_profile | global_wcl_profile
     raise ValueError(f'unknown benchmark resource kind: {kind}')

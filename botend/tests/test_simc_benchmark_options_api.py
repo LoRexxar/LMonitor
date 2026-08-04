@@ -139,6 +139,12 @@ class SimcBenchmarkOptionsApiTests(TestCase):
             class_name='mage', source=SimcProfile.SOURCE_WCL,
             player_config_mode='wcl', version='12.1', use_ptr=True, is_active=True,
         )
+        normalized_wcl = SimcProfile.objects.create(
+            user_id=None, name='12.1 PTR单体 Druid Balance', spec='balance',
+            class_name='druid_balance', source=SimcProfile.SOURCE_WCL,
+            player_config_mode='manual_equipment', version='12.1', use_ptr=True,
+            is_active=True,
+        )
         full_key_wcl = SimcProfile.objects.create(
             user_id=None, name='12.1 PTR 大秘境天赋 Warrior Fury', spec='warrior_fury',
             class_name='warrior_fury', source=SimcProfile.SOURCE_WCL,
@@ -155,11 +161,15 @@ class SimcBenchmarkOptionsApiTests(TestCase):
         profile_ids = [row['id'] for row in profiles]
 
         self.assertIn(global_wcl.id, profile_ids)
+        self.assertIn(normalized_wcl.id, profile_ids)
         self.assertIn(full_key_wcl.id, profile_ids)
         self.assertNotIn(unowned_user.id, profile_ids)
         projected = next(row for row in profiles if row['id'] == global_wcl.id)
         self.assertEqual(projected['spec_key'], 'mage_arcane')
         self.assertTrue(projected['is_system'])
+        projected_normalized = next(row for row in profiles if row['id'] == normalized_wcl.id)
+        self.assertEqual(projected_normalized['spec_key'], 'druid_balance')
+        self.assertTrue(projected_normalized['is_system'])
         projected_full_key = next(row for row in profiles if row['id'] == full_key_wcl.id)
         self.assertEqual(projected_full_key['spec_key'], 'warrior_fury')
 
