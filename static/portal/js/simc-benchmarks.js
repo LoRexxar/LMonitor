@@ -678,7 +678,7 @@
   function panelShell(panel) {
     const article = node("article", "simc-benchmark-panel"); article.dataset.benchmarkPanelId = String(panel.id || "");
     const header = node("header", "simc-benchmark-panel-header"); const copy = node("div", "simc-benchmark-panel-copy");
-    copy.append(node("h3", "simc-benchmark-panel-title", panel.name || panel.slug || "Benchmark Panel"));
+    copy.append(node("h3", "simc-benchmark-panel-title", panel.name || panel.slug || ""));
     if (panel.description) copy.appendChild(renderMarkdownDescription(panel.description, "simc-benchmark-panel-description"));
     header.appendChild(copy);
     const body = node("div", "simc-benchmark-panel-body"); article.append(header, body); return { article, body };

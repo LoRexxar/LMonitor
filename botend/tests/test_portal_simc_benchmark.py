@@ -485,7 +485,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             'simc-benchmark-gear-hover-guide', 'simc-benchmark-gear-tooltip',
         ):
             self.assertIn(contract, self.JS + self.CSS)
-        self.assertIn('?v=20260805_description_card_warm', self.RESULTS_TEMPLATE)
+        self.assertIn('?v=20260805_description_card_clean', self.RESULTS_TEMPLATE)
 
     def test_result_renderer_uses_frozen_target_count_and_duration_for_scenarios(self):
         for contract in (
@@ -546,12 +546,12 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertEqual(description.name, 'div')
         self.assertIn('simc-benchmark-description-card', description.get('class', []))
         for contract in (
-            'simc-benchmark-description-label', '基准任务说明',
             'linear-gradient(135deg', 'border-left: 4px solid',
             'box-shadow:', 'width: 100%', 'max-width: none',
-            '#fff7ed', '#f97316',
         ):
             self.assertIn(contract, self.RESULTS_TEMPLATE + self.CSS)
+        self.assertNotIn('基准任务说明', self.RESULTS_TEMPLATE)
+        self.assertNotIn('Benchmark Panel', self.JS)
 
     def test_panel_description_renders_multiline_markdown_without_raw_html(self):
         for contract in (

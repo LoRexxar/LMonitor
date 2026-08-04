@@ -8,7 +8,7 @@
     {% load static %}
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260708_news_index">
-    <link rel="stylesheet" href="{% static 'portal/css/simc-benchmarks.css' %}?v=20260805_description_card_warm">
+    <link rel="stylesheet" href="{% static 'portal/css/simc-benchmarks.css' %}?v=20260805_description_card_clean">
 </head>
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
@@ -18,7 +18,6 @@
                 <div>
                     <h1 id="simc-benchmarks-title">{% if benchmark_panel_id is None %}simc模拟数据列表{% else %}模拟结果{% endif %}</h1>
                     <div id="simc-benchmarks-description" class="simc-benchmark-description-card">
-                        {% if benchmark_panel_id is not None %}<span class="simc-benchmark-description-label">基准任务说明</span>{% endif %}
                         <div class="simc-benchmark-description-content">{% if benchmark_panel_id is None %}查看公开基线任务的数据量、更新时间及模拟结果。{% else %}独立展示已发布的基准模拟结果。选择专精、战斗场景和 Profile，查看当前组合下候选方案的 DPS 排名。{% endif %}</div>
                     </div>
                 </div>
@@ -28,6 +27,6 @@
             </div>
         </section>
     </main>
-    <script src="{% static 'portal/js/simc-benchmarks.js' %}?v=20260805_description_card_warm"></script>
+    <script src="{% static 'portal/js/simc-benchmarks.js' %}?v=20260805_description_card_clean"></script>
 </body>
 </html>

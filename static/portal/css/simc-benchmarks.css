@@ -35,15 +35,6 @@
     width: 100%;
 }
 
-.simc-benchmark-description-label {
-    color: #c2410c;
-    display: block;
-    font-size: 0.68rem;
-    font-weight: 800;
-    letter-spacing: 0.08em;
-    margin-bottom: 0.35rem;
-}
-
 .simc-benchmark-description-content {
     font-size: 0.84rem;
 }
