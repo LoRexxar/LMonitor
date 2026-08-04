@@ -671,7 +671,16 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
             raise BenchmarkExecutionConflict('Prepared task resources changed') from exc
         except TaskCreationError as exc:
             _validation_error(str(exc))
-        if execution_coordinates and not execution.cases.filter(task__isnull=False).exists():
+        if not execution_coordinates:
+            # A supplement with no missing frozen inputs is a successful no-op.
+            # Complete it immediately without publishing an empty Execution over
+            # the existing aggregate/public result surface.
+            execution.status = SimcBenchmarkExecution.STATUS_SUCCESS
+            execution.completed_at = timezone.now()
+            execution.save(update_fields=['status', 'completed_at'])
+            locked_panel.active_execution = None
+            locked_panel.save(update_fields=['active_execution'])
+        elif not execution.cases.filter(task__isnull=False).exists():
             execution.status = SimcBenchmarkExecution.STATUS_FAILED
             execution.completed_at = timezone.now()
             execution.save(update_fields=['status', 'completed_at'])
@@ -1701,6 +1710,20 @@ def reconcile_execution(execution):
 
         # Completion is the durable idempotency boundary: never inspect Tasks/Runs again.
         if locked.completed_at is not None:
+            if panel.active_execution_id == locked.pk:
+                panel.active_execution = None
+                panel.save(update_fields=['active_execution'])
+            return locked
+        snapshot = locked.config_snapshot if isinstance(locked.config_snapshot, dict) else {}
+        if (snapshot.get('execution_mode') == 'supplement'
+                and snapshot.get('case_count') == 0
+                and not locked.cases.exists()):
+            # Older no-op supplements may predate immediate completion in
+            # create_execution(). Close them without replacing the last
+            # published Execution with an empty result surface.
+            locked.status = SimcBenchmarkExecution.STATUS_SUCCESS
+            locked.completed_at = timezone.now()
+            locked.save(update_fields=['status', 'completed_at'])
             if panel.active_execution_id == locked.pk:
                 panel.active_execution = None
                 panel.save(update_fields=['active_execution'])

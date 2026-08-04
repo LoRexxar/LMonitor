@@ -636,9 +636,39 @@ class SimcBenchmarkExecutionTests(TestCase):
         incremental = self._create()
 
         self.assertEqual(incremental.cases.count(), 0)
+        self.assertEqual(incremental.status, SimcBenchmarkExecution.STATUS_SUCCESS)
+        self.assertIsNotNone(incremental.completed_at)
+        self.panel.refresh_from_db()
+        self.assertIsNone(self.panel.active_execution_id)
+        self.assertEqual(self.panel.published_execution_id, original.id)
         self.assertEqual(SimcTask.objects.count(), 1)
         aggregate = serialize_incremental_panel_results(self.panel)
         self.assertEqual(aggregate['coordinates'][0]['candidates'][0]['task_id'], original_case.task_id)
+
+    def test_reconcile_closes_legacy_empty_supplement_without_publishing_it(self):
+        original = self._published_success()
+        empty = SimcBenchmarkExecution.objects.create(
+            panel=self.panel,
+            status=SimcBenchmarkExecution.STATUS_PENDING,
+            config_snapshot={
+                'version': 2,
+                'execution_mode': 'supplement',
+                'case_count': 0,
+                'run_count': 0,
+            },
+            config_hash='f' * 64,
+        )
+        self.panel.active_execution = empty
+        self.panel.save(update_fields=['active_execution'])
+
+        reconcile_execution(empty)
+
+        empty.refresh_from_db()
+        self.panel.refresh_from_db()
+        self.assertEqual(empty.status, SimcBenchmarkExecution.STATUS_SUCCESS)
+        self.assertIsNotNone(empty.completed_at)
+        self.assertIsNone(self.panel.active_execution_id)
+        self.assertEqual(self.panel.published_execution_id, original.id)
 
     def test_full_rerun_creates_all_runs_and_replaces_current_aggregate_baseline(self):
         original = self._published_success()
