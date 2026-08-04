@@ -237,6 +237,18 @@ def _key(value, field):
     return value
 
 
+def _generated_scenario_key(name, occupied):
+    """Derive a safe unique coordinate key; existing explicit keys stay unchanged."""
+    base = (slugify(name) or 'scenario')[:100].rstrip('-') or 'scenario'
+    candidate = base
+    suffix = 2
+    while candidate in occupied:
+        marker = f'-{suffix}'
+        candidate = f'{base[:100 - len(marker)].rstrip("-")}{marker}'
+        suffix += 1
+    return candidate
+
+
 def _generated_panel_slug(name):
     """Create a stable internal identifier without making users maintain it."""
     base = slugify(name) or 'benchmark'
@@ -541,9 +553,10 @@ def normalize_panel_payload(payload, user_id, panel=None):
         if not _same_spec(template.spec, expected_class, expected_spec, allow_generic=True):
             _error('Template 专精不一致', 'template_id')
 
+        spec_enabled = _strict_bool(raw.get('is_enabled'), 'spec.is_enabled', True)
         profile_payload = raw.get('profiles', [])
         profile_payload = _require_list(profile_payload, 'profiles')
-        if not profile_payload:
+        if not profile_payload and spec_enabled:
             default = _default_profile(spec_key)
             profile_payload = [{'profile_id': default.pk, 'label': default.name}]
         if len(profile_payload) > MAX_PROFILES_PER_SPEC:
@@ -569,6 +582,8 @@ def normalize_panel_payload(payload, user_id, panel=None):
                 'is_enabled': _strict_bool(profile_raw.get('is_enabled'), 'profile.is_enabled', True),
                 'display_order': _order(profile_raw.get('display_order'), 'profile.display_order', profile_index),
             })
+        if spec_enabled and not any(profile['is_enabled'] for profile in normalized_profiles):
+            _error(f'启用专精 {spec_key} 至少需要一个启用 Profile', 'profiles')
         normalized['specs'].append({
             'class_name': class_name, 'spec_key': spec_key,
             'label': SPEC_CN.get(
@@ -576,7 +591,7 @@ def normalize_panel_payload(payload, user_id, panel=None):
             ),
             'apl_id': apl.pk, 'template_id': template.pk, 'backend_id': backend.pk,
             'profiles': normalized_profiles,
-            'is_enabled': _strict_bool(raw.get('is_enabled'), 'spec.is_enabled', True),
+            'is_enabled': spec_enabled,
             'display_order': _order(raw.get('display_order'), 'spec.display_order', index),
         })
 
@@ -585,11 +600,15 @@ def normalize_panel_payload(payload, user_id, panel=None):
         raw = _require_dict(raw, f'scenarios[{index}]')
         unknown = set(raw) - {'key', 'name', 'simulation_params', 'is_enabled', 'display_order'}
         if unknown: _error('scenario 包含未知字段', 'scenarios')
-        key = _key(raw.get('key'), 'scenario.key')
+        name = _text(raw.get('name'), 'scenario.name', max_length=200)
+        raw_key = raw.get('key')
+        key = _key(raw_key, 'scenario.key') if raw_key else _generated_scenario_key(
+            name, seen_scenarios,
+        )
         if key in seen_scenarios: _error(f'重复 scenario key: {key}', 'scenarios')
         seen_scenarios.add(key)
         normalized['scenarios'].append({
-            'key': key, 'name': _text(raw.get('name'), 'scenario.name', max_length=200),
+            'key': key, 'name': name,
             'simulation_params': _normalize_simulation_params(raw.get('simulation_params', {})),
             'is_enabled': _strict_bool(raw.get('is_enabled'), 'scenario.is_enabled', True),
             'display_order': _order(raw.get('display_order'), 'scenario.display_order', index),

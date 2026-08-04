@@ -364,11 +364,35 @@ class SimcBenchmarkConfigServiceTests(TestCase):
         result = normalize_panel_payload(payload, self.user_id)
         self.assertEqual(result['specs'][0]['profiles'][0]['profile_id'], default.pk)
 
+    def test_disabled_spec_may_explicitly_have_no_profile(self):
+        payload = dict(self.payload)
+        payload['specs'] = [dict(
+            self.payload['specs'][0], profiles=[], is_enabled=False,
+        )]
+
+        result = normalize_panel_payload(payload, self.user_id)
+
+        self.assertFalse(result['specs'][0]['is_enabled'])
+        self.assertEqual(result['specs'][0]['profiles'], [])
+
     def test_missing_default_profile_is_explicit(self):
         payload = dict(self.payload)
         payload['specs'] = [dict(self.payload['specs'][0], profiles=[])]
         with self.assertRaisesMessage(ValidationError, '默认'):
             normalize_panel_payload(payload, self.user_id)
+
+    def test_scenario_key_is_generated_from_name_when_omitted(self):
+        payload = dict(self.payload)
+        first = dict(self.payload['scenarios'][0])
+        first.pop('key')
+        payload['scenarios'] = [first, dict(first, name='Patchwerk')]
+
+        result = normalize_panel_payload(payload, self.user_id)
+
+        self.assertEqual(
+            [scenario['key'] for scenario in result['scenarios']],
+            ['patchwerk', 'patchwerk-2'],
+        )
 
     def test_limits_and_duplicate_business_keys(self):
         payload = dict(self.payload); payload['scenarios'] = self.payload['scenarios'] * 9

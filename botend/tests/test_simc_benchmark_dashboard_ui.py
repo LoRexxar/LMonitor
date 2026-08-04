@@ -87,7 +87,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertEqual(title.get_text(strip=True), 'SimC 基准面板')
 
     def test_shared_benchmark_assets_use_current_cache_version(self):
-        expected = '?v=20260803g'
+        expected = '?v=20260804b'
         for page in (INDEX, CONFIG_PAGE, PANEL_EDIT_PAGE, EXECUTION_PAGE):
             for line in page.splitlines():
                 if 'simc-benchmark-dashboard.' in line:
@@ -145,7 +145,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn("is_enabled:enabled.checked", JS)
         self.assertIn("['iterations','desired_targets'].includes(key)", JS)
         self.assertIn("['target_error','max_time','vary_combat_length'].includes(key)", JS)
-        self.assertIn("input.step='any'", JS)
+        self.assertIn("if(view.step)input.step=view.step", JS)
         self.assertIn("/portal/simc-benchmarks/${encodeURIComponent(id)}/", JS)
         self.assertNotIn("?benchmark=${encodeURIComponent(panel.slug)}", JS)
         self.assertIn("'_blank','noopener'", JS)
@@ -276,7 +276,8 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn("key:data.key||''", JS)
         self.assertIn("params:data.params", JS)
         self.assertIn('candidateParams(meta,itemId,itemLevel)', JS)
-        self.assertIn("if(meta.key)candidate.key=levels.length>1", JS)
+        self.assertIn("const stableKey=meta.keysByLevel?.[String(itemLevel)]", JS)
+        self.assertIn("if(stableKey)candidate.key=stableKey", JS)
 
     def test_create_is_lightweight_and_defers_detailed_fields_to_configuration(self):
         soup = BeautifulSoup(PARTIAL, "html.parser")
@@ -363,7 +364,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn('function loadExecutionPage()', JS)
         self.assertIn('function rerunFailedPage(id,button)', JS)
         self.assertIn("dataset:{rerunFailed:data.id}", JS)
-        self.assertIn('?v=20260802b', INDEX)
+        self.assertIn('?v=20260804b', INDEX)
         self.assertIn("if(!configPage){document.body.classList.add", JS)
         self.assertIn("data-benchmark-notification", JS)
         self.assertNotIn('data-create-only', CONFIG_PAGE)
@@ -394,17 +395,29 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
 
     def test_nested_resources_and_simulation_metadata_are_collapsed_per_card(self):
         self.assertIn("advancedGroup('资源与 Profiles'", JS)
-        self.assertIn("advancedGroup('SimC 参数'", JS)
-        self.assertIn("class:'config-card-primary'", JS)
+        self.assertIn("advancedGroup('高级 SimC 参数'", JS)
+        self.assertIn("class:'config-card-primary spec-primary'", JS)
+        self.assertIn("class:'config-card-primary scenario-primary'", JS)
         self.assertIn("class:'config-card-advanced'", JS)
 
-    def test_spec_cards_only_expose_spec_and_enabled_before_expansion(self):
+    def test_spec_catalog_is_complete_and_cards_only_toggle_enabled_state(self):
         segment = JS[JS.index('function addSpec('):JS.index('function updateSpecResources(')]
-        self.assertIn("selectField('专精 *','spec_key'", segment)
+        self.assertIn('function catalogSpecRows(', JS)
+        self.assertIn('(resources?.specs||[]).map(', JS)
+        self.assertIn("type:'hidden',name:'spec_key'", segment)
         self.assertIn("checkbox('启用','is_enabled'", segment)
+        self.assertNotIn("selectField('专精 *','spec_key'", segment)
+        self.assertNotIn("removeButton('spec')", segment)
+        self.assertNotIn("dataset.editorAdd==='spec'", JS)
         self.assertNotIn("field('显示名", segment)
         self.assertIn("advancedGroup('资源与 Profiles'", segment)
         self.assertIn("spec?.spec_label||spec?.label", JS)
+
+        for template in ('templates/dashboard/_simc_benchmark.html',
+                         'templates/dashboard/simc_benchmark_config.html'):
+            source = Path(template).read_text()
+            self.assertNotIn('data-editor-add="spec"', source)
+            self.assertNotIn('添加专精', source)
 
     def test_spec_configuration_uses_compact_table_rows(self):
         segment = JS[JS.index('function addSpec('):JS.index('function updateSpecResources(')]
@@ -452,7 +465,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
             '.candidate-config-row',
         ):
             self.assertIn(selector, CSS)
-        self.assertIn('?v=20260803b', CONFIG_PAGE)
+        self.assertIn('?v=20260804b', CONFIG_PAGE)
 
     def test_panel_name_does_not_collide_with_nested_scenario_names(self):
         soup = BeautifulSoup(PARTIAL, "html.parser")
