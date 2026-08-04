@@ -253,6 +253,31 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.panel.save(update_fields=['is_public'])
         return execution
 
+    def test_semantically_invalid_completed_run_is_not_published_as_benchmark_result(self):
+        execution = self._create()
+        case = execution.cases.get()
+        task = case.task
+        task.current_status = 2
+        task.save(update_fields=['current_status'])
+        invalid = self._run(task, 1, 'completed', 'baseline', dps=3512)
+        invalid.result_summary = {
+            'dps': 3512,
+            'valid': False,
+            'failure_type': 'talent_apl_dispatch',
+            'reason': '英雄天赋未进入任何有效 APL 分流',
+        }
+        invalid.save(update_fields=['result_summary'])
+        self._run(task, 2, 'completed', 'trinket', dps=1300)
+
+        reconcile_execution(execution)
+
+        execution.refresh_from_db()
+        case.refresh_from_db()
+        self.assertEqual(execution.status, 'partial')
+        self.assertEqual(case.status, 'partial')
+        self.assertEqual(case.results.count(), 0)
+        self.assertIn('英雄天赋未进入任何有效 APL 分流', case.error_detail)
+
     def test_failed_case_rerun_copies_only_failed_task_and_keeps_original_result_immutable(self):
         successful = self._published_success()
         original_success_case = successful.cases.get()

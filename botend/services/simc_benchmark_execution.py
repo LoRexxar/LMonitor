@@ -1338,15 +1338,25 @@ def _summarize_live_execution(execution):
                 if expected_keys is not None else list(runs_by_key.values())
         for run in ordered_runs:
             total_runs += 1
-            run_status = _effective_run_status(task_status, run.status)
+            summary = run.result_summary if isinstance(run.result_summary, dict) else {}
+            semantic_error = ''
+            if summary.get('valid') is False:
+                semantic_error = str(
+                    summary.get('reason') or summary.get('error')
+                    or 'SimC 结果语义校验未通过'
+                ).strip()
+            run_status = (
+                'failed' if semantic_error
+                else _effective_run_status(task_status, run.status)
+            )
             effective_statuses.append(run_status)
             run_counts[run_status] += 1
-            errors.append(run.error_detail)
-            summary = run.result_summary if isinstance(run.result_summary, dict) else {}
+            errors.extend((run.error_detail, semantic_error))
             run_rows.append({
                 'key': run.candidate_key, 'label': run.candidate_label,
                 # Live DPS is internal reconciliation input, never display output.
-                'status': run_status, 'dps': None, '_raw_dps': summary.get('dps'),
+                'status': run_status, 'dps': None,
+                '_raw_dps': None if semantic_error else summary.get('dps'),
             })
         actual_keys = [run.candidate_key for run in ordered_runs]
         case_status = _case_status(
@@ -1730,16 +1740,30 @@ def reconcile_execution(execution):
             return locked
         live = _summarize_live_execution(locked)
         live_status = live['status']
-        case_statuses = {
-            row['_case_id']: row['status'] for row in live['cases']
-            if type(row.get('_case_id')) is int
+        case_state = {
+            row['_case_id']: (
+                row['status'],
+                (row.get('error') or '')
+                if row['status'] in ('partial', 'failed', 'cancelled') else '',
+            )
+            for row in live['cases'] if type(row.get('_case_id')) is int
         }
-        for status in ('pending', 'running', 'success', 'partial', 'failed', 'cancelled'):
-            ids = [case_id for case_id, value in case_statuses.items() if value == status]
-            if ids:
-                SimcBenchmarkCase.objects.filter(
-                    execution_id=locked.pk, pk__in=ids,
-                ).update(status=status)
+        persisted_cases = SimcBenchmarkCase.objects.filter(
+            execution_id=locked.pk, pk__in=case_state,
+        ).in_bulk()
+        changed_cases = []
+        for case_id, (status, error_detail) in case_state.items():
+            case = persisted_cases.get(case_id)
+            if case is None:
+                continue
+            if case.status != status or case.error_detail != error_detail:
+                case.status = status
+                case.error_detail = error_detail
+                changed_cases.append(case)
+        if changed_cases:
+            SimcBenchmarkCase.objects.bulk_update(
+                changed_cases, ['status', 'error_detail'],
+            )
         if live_status in ('pending', 'running'):
             partial_rows = _collect_success_results(
                 locked, live, require_complete_execution=False,
