@@ -3250,11 +3250,17 @@ class SimcPlayerConfigDetailTests(TestCase):
 
     def test_get_saved_profile_returns_raw_and_structured_equipment_detail(self):
         profile = self._create_profile('Saved profile', 'warrior="Saved"\nspec=fury\nhead=,id=212048,ilevel=639')
+        profile.use_ptr = True
+        profile.save(update_fields=['use_ptr'])
         response = self.client.get(f'/api/simc-player-config-detail/?profile_id={profile.id}')
         self.assertEqual(response.status_code, 200)
         data = response.json()['data']
         self.assertEqual(data['profile']['id'], profile.id)
         self.assertEqual(data['profile']['raw_player_equipment'], profile.player_equipment)
+        self.assertEqual(data['profile']['canonical_spec'], 'warrior_fury')
+        self.assertEqual(data['profile']['talent'], 'ACTIVE_BUILD')
+        self.assertIs(data['profile']['use_ptr'], True)
+        self.assertIn('talent_versions', data)
         self.assertEqual(data['equipment'][0]['slot'], 'head')
         self.assertEqual(data['equipment'][0]['item_id'], 212048)
 

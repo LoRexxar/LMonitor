@@ -127,6 +127,20 @@ class SimcSourceResolutionFrontendContractTests(unittest.TestCase):
         self.assertIn("link.removeAttribute('href')", updater)
         self.assertIn("params.set('version', versionKey)", MAIN)
 
+    def test_profile_view_dialog_has_independent_talent_simulator_link(self):
+        renderer = MAIN.split('function renderSimcProfileDetailDialog', 1)[1].split(
+            '\nasync function simcWbSaveProfileEquipment', 1,
+        )[0]
+        self.assertIn('profile.talent', renderer)
+        self.assertIn('profile.canonical_spec', renderer)
+        self.assertIn("profile.use_ptr ? 'ptr' : 'retail'", renderer)
+        self.assertIn('detail.talent_versions', renderer)
+        self.assertIn('simcTalentSimulatorUrl', renderer)
+        self.assertIn('data-profile-detail-talent-link', renderer)
+        self.assertIn('target="_blank"', renderer)
+        self.assertIn('rel="noopener noreferrer"', renderer)
+        self.assertIn('打开天赋模拟器', renderer)
+
     def test_exactly_three_peer_sources_and_spec_is_scoped_to_specified_panel(self):
         source_panel = WORKFLOW[WORKFLOW.index('id="simc-sim-player-sources"'):WORKFLOW.index('id="simc-sim-apl-list"')]
         self.assertEqual(source_panel.count('data-simc-player-source='), 3)
@@ -200,4 +214,4 @@ class SimcSourceResolutionFrontendContractTests(unittest.TestCase):
         self.assertNotIn('\n    onSimcTargetSpecChange().catch', binding)
         self.assertIn('if (sectionId === SIMC_DASHBOARD_SECTIONS.workflow)', navigation)
         self.assertIn('switchSimcPlayerImportMode();', navigation)
-        self.assertIn("dashboard/js/main.js' %}?v=20260804a", HTML)
+        self.assertIn("dashboard/js/main.js' %}?v=20260805a", HTML)

@@ -2650,6 +2650,8 @@ class SimcPlayerConfigDetailAPIView(View):
             'spec': profile.spec,
             'canonical_spec': canonical_simc_profile_key(profile.spec, profile.class_name),
             'spec_label': _simc_spec_label(profile.spec, profile.class_name),
+            'talent': profile.talent or '',
+            'use_ptr': bool(profile.use_ptr),
             'version': profile.version,
             'is_active': profile.is_active,
             'is_system': profile.user_id is None and profile.source == SimcProfile.SOURCE_SIMC_UPSTREAM,
@@ -2659,6 +2661,7 @@ class SimcPlayerConfigDetailAPIView(View):
             ),
             'raw_player_equipment': profile.player_equipment or '',
         }
+        detail['talent_versions'] = SimcProfileAPIView._talent_simulator_versions()
         return JsonResponse({'success': True, 'data': detail})
 
     def post(self, request):
