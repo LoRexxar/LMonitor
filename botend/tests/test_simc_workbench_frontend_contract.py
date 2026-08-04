@@ -1073,6 +1073,26 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
         self.assertIn('<option value="fury">狂怒</option>', HTML)
         self.assertNotIn('<option value="fury">fury</option>', HTML)
 
+    def test_profile_table_headers_sort_the_complete_filtered_result_before_pagination(self):
+        profile_table = HTML[
+            HTML.index('<table class="simc-responsive-table min-w-full text-sm">'):
+            HTML.index('id="simc-wb-profile-pagination"')
+        ]
+        for key in ('id', 'name', 'spec', 'source', 'status'):
+            self.assertIn(f'data-profile-sort="{key}"', profile_table)
+        self.assertIn('aria-sort="none"', profile_table)
+
+        load_start = MAIN.index('function loadSimcWorkbenchProfiles(page)')
+        load_end = MAIN.index('function renderSimcProfileDetailDialog', load_start)
+        load_body = MAIN[load_start:load_end]
+        self.assertIn('rows = sortSimcProfileRows(rows, requestedSort)', load_body)
+        self.assertLess(
+            load_body.index('rows = sortSimcProfileRows(rows, requestedSort)'),
+            load_body.index('rows.slice(startIdx, endIdx)'),
+        )
+        self.assertIn("event.target.closest('[data-profile-sort]')", MAIN)
+        self.assertIn('loadSimcWorkbenchProfiles(1)', MAIN)
+
     def test_template_and_apl_view_edit_use_dialog_not_bottom_slots(self):
         self.assertIn("openSimcWorkbenchDialog('template-detail'", JS)
         self.assertIn("openSimcWorkbenchDialog('template-form'", JS)

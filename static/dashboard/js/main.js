@@ -1741,6 +1741,58 @@ let simcWbProfilePage = 1;
 let simcWbProfileTotalPages = 1;
 let simcWbProfileListRequestSerial = 0;
 let simcWbProfileListAbortController = null;
+let simcWbProfileSort = { key: '', direction: 'asc' };
+
+function simcProfileSortValue(row, key) {
+    if (key === 'id') return Number(row.id || 0);
+    if (key === 'name') return String(row.name || '');
+    if (key === 'spec') return String(row.spec_label || row.spec || '');
+    if (key === 'status') return row.is_active ? 1 : 0;
+    if (key === 'source') {
+        if (row.is_system === true) return `系统默认配置 ${row.version || ''} ${row.sync_version || ''}`;
+        const labels = {
+            manual_equipment: '手动配置',
+            attribute_only: '冻结玩家基线 + 绿字覆盖',
+            wcl: 'Warcraft Logs',
+            battlenet: 'Battle.net',
+        };
+        const mode = row.player_config_mode || 'battlenet';
+        return `${labels[mode] || mode} ${row.battlenet_region || ''} ${row.battlenet_realm || ''} ${row.battlenet_character || ''}`;
+    }
+    return '';
+}
+
+function sortSimcProfileRows(rows, sortState) {
+    const key = sortState?.key || '';
+    if (!key) return rows;
+    const multiplier = sortState.direction === 'desc' ? -1 : 1;
+    return rows.map((row, index) => ({ row, index })).sort((left, right) => {
+        const leftValue = simcProfileSortValue(left.row, key);
+        const rightValue = simcProfileSortValue(right.row, key);
+        let compared;
+        if (typeof leftValue === 'number' && typeof rightValue === 'number') {
+            compared = leftValue - rightValue;
+        } else {
+            compared = String(leftValue).localeCompare(String(rightValue), 'zh-CN', {
+                numeric: true,
+                sensitivity: 'base',
+            });
+        }
+        if (compared) return compared * multiplier;
+        return left.index - right.index;
+    }).map(item => item.row);
+}
+
+function updateSimcProfileSortHeaders() {
+    document.querySelectorAll('[data-profile-sort]').forEach(button => {
+        const active = button.dataset.profileSort === simcWbProfileSort.key;
+        const direction = active ? simcWbProfileSort.direction : '';
+        const header = button.closest('th');
+        if (header) header.setAttribute('aria-sort', active ? (direction === 'desc' ? 'descending' : 'ascending') : 'none');
+        const icon = button.querySelector('[data-profile-sort-icon]');
+        if (icon) icon.textContent = active ? (direction === 'desc' ? '▼' : '▲') : '↕';
+    });
+}
 
 function simcProfileMatchesSpecFilter(row, requestedFilter) {
     const filter = String(requestedFilter || '').trim().toLowerCase();
@@ -1783,6 +1835,7 @@ function loadSimcWorkbenchProfiles(page) {
     simcWbProfilePage = page;
     const requestedPage = page;
     const requestedFilter = simcWbProfileSpecFilter;
+    const requestedSort = { ...simcWbProfileSort };
     const requestSerial = ++simcWbProfileListRequestSerial;
     if (simcWbProfileListAbortController) simcWbProfileListAbortController.abort();
     const abortController = new AbortController();
@@ -1811,6 +1864,7 @@ function loadSimcWorkbenchProfiles(page) {
         if (requestedFilter) {
             rows = rows.filter(row => simcProfileMatchesSpecFilter(row, requestedFilter));
         }
+        rows = sortSimcProfileRows(rows, requestedSort);
 
         // Client-side pagination
         const total = rows.length;
@@ -1923,6 +1977,17 @@ function bindSimcWorkbenchProfilesControls() {
                 if (formAction === 'create') simcWbToggleProfileForm('create');
                 if (formAction === 'close') simcWbCloseProfileForm();
                 if (formAction === 'save') simcWbSaveProfile();
+                return;
+            }
+            const sortButton = event.target.closest('[data-profile-sort]');
+            if (sortButton) {
+                const key = sortButton.dataset.profileSort || '';
+                simcWbProfileSort = {
+                    key,
+                    direction: simcWbProfileSort.key === key && simcWbProfileSort.direction === 'asc' ? 'desc' : 'asc',
+                };
+                updateSimcProfileSortHeaders();
+                loadSimcWorkbenchProfiles(1);
                 return;
             }
             const rowActionButton = event.target.closest('[data-profile-row-action]');
