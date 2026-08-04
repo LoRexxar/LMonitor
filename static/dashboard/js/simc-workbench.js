@@ -10,7 +10,7 @@
         detailRequestSerial: 0, detailAbortController: null, detailRequestKey: '',
         dialogStack: [],
         rows: Object.create(null),
-        aplQuery: '',
+        aplQuery: '', aplSpecFilter: '',
         aplLoadState: {
             personal: { loading: false, error: '' },
             default: { loading: false, error: '' },
@@ -687,7 +687,7 @@
         const defaultRows = (state.rows.apls || []).filter(row => row.is_system).map(row => ({ ...row, kind: 'default', managedViaResource: true }));
         const allRows = [...personalRows, ...defaultRows];
         const query = state.aplQuery.trim().toLowerCase();
-        const filteredRows = query ? allRows.filter(row => {
+        const queryRows = query ? allRows.filter(row => {
             const searchable = [
                 row.title, row.name,
                 row.kind === 'personal' ? row.apl_code : '',
@@ -695,6 +695,21 @@
             ].map(v => String(v || '').toLowerCase()).join('\n');
             return searchable.includes(query);
         }) : allRows;
+        const filteredRows = state.aplSpecFilter
+            ? queryRows.filter(row => row.spec === state.aplSpecFilter)
+            : queryRows;
+        const specFilter = document.getElementById('simc-apl-spec-filter');
+        if (specFilter) {
+            const options = Array.from(new Map(allRows
+                .filter(row => row.spec)
+                .map(row => [row.spec, specLabel(row)])).entries())
+                .sort((left, right) => left[1].localeCompare(right[1], 'zh-CN'));
+            const current = state.aplSpecFilter;
+            specFilter.innerHTML = '<option value="">全部专精</option>' + options
+                .map(([value, label]) => `<option value="${esc(value)}">${esc(label)}</option>`).join('');
+            specFilter.value = options.some(([value]) => value === current) ? current : '';
+            if (specFilter.value !== current) state.aplSpecFilter = '';
+        }
         const statusParts = [];
         if (state.aplLoadState.personal.loading || state.aplLoadState.default.loading) {
             statusParts.push('<div class="mb-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-700">正在加载 APL 资源…</div>');
@@ -706,7 +721,7 @@
             statusParts.push(`<div class="mb-3 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-700">${esc(state.aplLoadState.default.error)}</div>`);
         }
         const summary = document.querySelector('[data-apl-list-summary]');
-        if (summary) summary.textContent = query ? `共 ${allRows.length} 个 APL · 筛选后 ${filteredRows.length} 个` : `共 ${allRows.length} 个 APL`;
+        if (summary) summary.textContent = query || state.aplSpecFilter ? `共 ${allRows.length} 个 APL · 筛选后 ${filteredRows.length} 个` : `共 ${allRows.length} 个 APL`;
         const rowsHtml = filteredRows.map(row => {
             const isPersonal = row.kind === 'personal';
             const active = row.is_active !== false;
@@ -716,7 +731,7 @@
             const statusClass = active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500';
             let actions;
             if (isPersonal) {
-                actions = `<button data-apl-action="detail" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700 hover:bg-slate-100">查看</button>${row.read_only ? '<span class="px-2 text-xs text-slate-400">只读</span>' : `<button data-apl-action="edit" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50">编辑</button><button data-apl-action="delete" data-id="${idOf(row.id)}" class="simc-touch-action text-red-700 hover:bg-red-50">删除</button>`}`;
+                actions = `<button data-apl-action="detail" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700 hover:bg-slate-100">查看</button><button data-apl-action="copy" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50">复制</button>${row.read_only ? '<span class="px-2 text-xs text-slate-400">只读</span>' : `<button data-apl-action="edit" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50">编辑</button><button data-apl-action="delete" data-id="${idOf(row.id)}" class="simc-touch-action text-red-700 hover:bg-red-50">删除</button>`}`;
             } else {
                 const writableActions = `<button data-apl-action="edit" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50">编辑</button><button data-apl-action="delete" data-id="${idOf(row.id)}" class="simc-touch-action text-red-700 hover:bg-red-50">删除</button>`;
                 const copyAction = row.can_copy === true ? `<button data-default-apl-action="copy" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50">复制</button>` : '';
@@ -851,6 +866,23 @@
             window.showMessage('已复制到我的APL', 'success');
         } finally {
             state.defaultAplCopyInFlight.delete(templateId);
+            if (button) button.disabled = false;
+        }
+    }
+    async function copyAplToMy(sourceId, button) {
+        if (state.defaultAplCopyInFlight.has(sourceId)) return;
+        state.defaultAplCopyInFlight.add(sourceId);
+        if (button) button.disabled = true;
+        try {
+            await json(resourceUrl('apls'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
+                body: JSON.stringify({ copy_source_id: sourceId }),
+            });
+            await loadApl('apls', 'simc-unified-apl-list');
+            window.showMessage('APL 已复制', 'success');
+        } finally {
+            state.defaultAplCopyInFlight.delete(sourceId);
             if (button) button.disabled = false;
         }
     }
@@ -1275,6 +1307,7 @@
                 const actionName = aplAction.dataset.aplAction;
                 if (actionName === 'cancel') closeAplStorageForm();
                 else if (actionName === 'detail' && id) showManagedAplDetail(id).catch(notify);
+                else if (actionName === 'copy' && id) copyAplToMy(id, aplAction).catch(notify);
                 else if (actionName === 'edit' && id) editManagedApl(id).catch(notify);
                 else if (actionName === 'delete' && id) confirmDeleteApl(id);
                 else if (actionName === 'confirm-delete' && id) deleteApl(id).then(closeDialog).catch(notify);
@@ -1428,6 +1461,12 @@
             editor.dispatchEvent(new Event('input', { bubbles: true }));
         });
         document.addEventListener('change', event => {
+            const aplSpecFilter = event.target.closest('#simc-apl-spec-filter');
+            if (aplSpecFilter) {
+                state.aplSpecFilter = aplSpecFilter.value || '';
+                renderUnifiedAplList();
+                return;
+            }
             const autoUpdate = event.target.closest('[data-backend-auto-update]');
             if (autoUpdate && !autoUpdate.disabled) {
                 runBackendAction({ action: 'set_auto_update', auto_update: autoUpdate.checked }).catch(notify);

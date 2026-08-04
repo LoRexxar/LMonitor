@@ -6577,6 +6577,44 @@ class SimcWorkbenchAPIView(View):
             if action in ('archive', 'restore'):
                 return JsonResponse({'success': False, 'error': '系统基础模板不能停用'}, status=405)
         if resource == 'apls' and not object_id:
+            copy_source_id = data.get('copy_source_id')
+            if copy_source_id is not None:
+                try:
+                    source_id = int(copy_source_id)
+                except (TypeError, ValueError):
+                    return JsonResponse({'success': False, 'error': 'APL ID 无效'}, status=400)
+                source = SimcApl.objects.filter(id=source_id).first()
+                if not source or (not source.is_system and source.owner_user_id != request.user.id):
+                    return JsonResponse({'success': False, 'error': 'APL 不存在'}, status=404)
+                if source.is_system and (not source.is_active or not source.is_selectable):
+                    return JsonResponse({'success': False, 'error': '该 APL 不可复制'}, status=400)
+                spec = _canonical_simc_spec(source.spec)
+                if not spec:
+                    return JsonResponse({'success': False, 'error': '专精标识无效'}, status=400)
+                for suffix in range(1, 9):
+                    name = f'{source.name} 副本 {suffix}'
+                    if SimcApl.objects.filter(
+                        owner_user_id=request.user.id, spec=spec, name=name, is_active=True,
+                    ).exists():
+                        continue
+                    try:
+                        with transaction.atomic():
+                            apl = SimcApl.objects.create(
+                                name=name, spec=spec, class_name=_simc_class_for_spec(spec),
+                                content=source.content, source=SimcApl.SOURCE_USER,
+                                is_system=False, owner_user_id=request.user.id,
+                                is_active=True, is_selectable=False,
+                                validation_status=SimcApl.VALIDATION_DRAFT,
+                            )
+                    except IntegrityError as exc:
+                        if self._is_unique_integrity_error(exc):
+                            continue
+                        raise
+                    return JsonResponse({'success': True, 'data': {'id': apl.id}})
+                return JsonResponse({
+                    'success': False,
+                    'error': '无法分配可用的 APL 副本名称，请稍后重试',
+                }, status=409)
             copy_template_id = data.get('copy_template_id')
             if copy_template_id is not None:
                 try:

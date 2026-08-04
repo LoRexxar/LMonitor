@@ -298,8 +298,7 @@ class SimcAplWorkbenchApiTests(TestCase):
             self.assertFalse(response.json()["success"])
             self.assertIn("不可复制", response.json()["error"])
 
-    def test_copy_rejects_non_system_apl(self):
-        """Copy must reject non-system APL (only system APL can be copied)."""
+    def test_copy_owner_personal_apl_as_new_draft(self):
         user_apl = SimcApl.objects.create(
             name="User APL",
             spec="warrior_fury",
@@ -312,11 +311,28 @@ class SimcAplWorkbenchApiTests(TestCase):
 
         response = self.client.post(
             "/api/simc-workbench/apls/",
-            data=json.dumps({"copy_template_id": user_apl.id}),
+            data=json.dumps({"copy_source_id": user_apl.id}),
             content_type="application/json",
         )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["success"])
+        copies = SimcApl.objects.filter(owner_user_id=self.user.id, content="actions=/user_custom")
+        self.assertEqual(copies.count(), 2)
+        self.assertEqual(copies.exclude(id=user_apl.id).get().name, "User APL 副本 1")
+
+    def test_copy_rejects_another_users_personal_apl(self):
+        foreign_apl = SimcApl.objects.create(
+            name="Foreign APL", spec="warrior_fury", content="actions=/foreign",
+            owner_user_id=self.other.id, is_system=False, is_active=True,
+        )
+        response = self.client.post(
+            "/api/simc-workbench/apls/",
+            data=json.dumps({"copy_source_id": foreign_apl.id}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 404)
         self.assertFalse(response.json()["success"])
-        self.assertIn("不可复制", response.json()["error"])
+        self.assertFalse(SimcApl.objects.filter(owner_user_id=self.user.id, content="actions=/foreign").exists())
 
     def test_copy_handles_title_collision_safely(self):
         """Copy must auto-append safe suffix on title collision."""

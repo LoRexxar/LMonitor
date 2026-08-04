@@ -342,7 +342,7 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>window.SIMC_APL_EDITOR_MODULE_URL = "{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260727b";</script>
     <script src="{% static 'dashboard/js/main.js' %}?v=20260805a"></script>
-    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260803b"></script>
+    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260805_apl_filter_copy"></script>
     <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260804e"></script>
     {% else %}
     <script src="{% static 'dashboard/js/dashboard_shell.js' %}?v=20260728b" defer></script>
@@ -1354,7 +1354,10 @@
                                     <button data-inline-create="apl-storage" class="self-start rounded-lg bg-blue-600 px-3 py-2 text-sm text-white"><i class="fas fa-plus mr-1"></i>新增 APL</button>
                                 </div>
                                 <div class="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                    <label class="relative block w-full sm:max-w-md"><span class="sr-only">搜索 APL</span><i class="fas fa-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400"></i><input type="search" id="simc-apl-search" autocomplete="off" placeholder="搜索名称、职业或专精" class="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"></label>
+                                    <div class="flex w-full flex-col gap-2 sm:max-w-2xl sm:flex-row">
+                                        <label class="relative block min-w-0 flex-1"><span class="sr-only">搜索 APL</span><i class="fas fa-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400"></i><input type="search" id="simc-apl-search" autocomplete="off" placeholder="搜索名称、职业或专精" class="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"></label>
+                                        <label class="block sm:w-56"><span class="sr-only">按专精筛选</span><select id="simc-apl-spec-filter" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"><option value="">全部专精</option></select></label>
+                                    </div>
                                     <p class="text-xs text-slate-500" data-apl-list-summary aria-live="polite">正在加载 APL…</p>
                                 </div>
                                 <div id="simc-unified-apl-list" class="mt-4"></div>

@@ -546,6 +546,19 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('data-default-apl-action="view"', render_body)
         self.assertIn("openSimcWorkbenchDialog('apl-form'", JS)
 
+    def test_apl_library_supports_exact_spec_filter_and_copy_for_all_visible_rows(self):
+        panel = HTML[HTML.index('id="simc-workbench-apl-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
+        render_start = JS.index('function renderUnifiedAplList()')
+        render_end = JS.index('function renderMyAplList()', render_start)
+        render_body = JS[render_start:render_end]
+        self.assertIn('id="simc-apl-spec-filter"', panel)
+        self.assertIn('全部专精', panel)
+        self.assertIn('state.aplSpecFilter', render_body)
+        self.assertIn('row.spec === state.aplSpecFilter', render_body)
+        self.assertIn('data-apl-action="copy"', render_body)
+        self.assertIn('copyAplToMy', JS)
+        self.assertIn('copy_source_id: sourceId', JS)
+
     def test_apl_storage_has_dialog_crud_and_simulation_loading(self):
         self.assertNotIn('id="simc-wb-apl-storage-form"', HTML)
         self.assertIn("openSimcWorkbenchDialog('apl-form'", JS)
