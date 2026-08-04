@@ -614,9 +614,10 @@ class SimcComposer:
 
         talent = (request_data.get('talent') or '').strip()
 
-        # WCL profiles persist the canonical build code separately.  Prefer it over
-        # exporter-specific node lists so SimC receives one versioned talent input.
-        if player_import_mode == 'wcl' and talent:
+        # Saved profiles persist their canonical build code separately. Prefer it
+        # over any stale/exporter-specific talents line retained in the actor block,
+        # so every profile mode renders exactly one authoritative talent input.
+        if talent:
             content = f'talents={talent}'
             content_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
             return SlotResolution(
@@ -647,14 +648,6 @@ class SimcComposer:
                         ),
                         status='resolved'
                     )
-
-        if talent:
-            content_hash = hashlib.sha256(f'talents={talent}'.encode('utf-8')).hexdigest()
-            return SlotResolution(
-                slot_name='talents',
-                value=SlotValue(content=f'talents={talent}', source='user_input', content_hash=content_hash),
-                status='resolved'
-            )
 
         return SlotResolution(
             slot_name='talents',

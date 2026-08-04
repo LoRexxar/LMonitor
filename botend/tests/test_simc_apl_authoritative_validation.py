@@ -75,6 +75,17 @@ class RestrictedAuthoritativeValidationTests(SimpleTestCase):
         result = validator.validate('actions=/x')
         self.assertEqual(result['authoritative_error']['code'], 'output_too_large')
 
+    def test_failed_diagnostic_prioritizes_simc_error_over_banner(self):
+        result = self.validator(
+            "printf '%s\\n' 'SimulationCraft 1205 for World of Warcraft 12.1 PTR' "
+            "'Simulating a long preamble that previously consumed the diagnostic budget' "
+            "\"Error: Hash 'BUILD': Wrong specialization.\"; exit 81\n"
+        ).validate('actions=/x')
+
+        message = result['diagnostics'][0]['message']
+        self.assertIn("Error: Hash 'BUILD': Wrong specialization.", message)
+        self.assertNotIn('SimulationCraft 1205', message)
+
     def test_composed_validation_input_is_bounded_before_runner(self):
         runner = mock.Mock()
         validator = RestrictedSimcValidator(

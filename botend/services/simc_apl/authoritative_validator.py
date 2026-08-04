@@ -160,7 +160,10 @@ class RestrictedSimcValidator:
             return []
         # Never expose filesystem layout or the executable path in user diagnostics.
         text = re.sub(r'(?<![A-Za-z0-9_])/(?:[^\s:]+/?)+', '<path>', text)
-        message = text.strip().encode('utf-8')[:_MAX_DIAGNOSTIC_BYTES].decode('utf-8', 'ignore')
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        error_lines = [line for line in lines if re.search(r'\berror\s*:', line, re.I)]
+        message = '\n'.join(error_lines or lines)
+        message = message.encode('utf-8')[:_MAX_DIAGNOSTIC_BYTES].decode('utf-8', 'ignore')
         return [{'source': 'authoritative', 'severity': 'error', 'code': 'simc-parse-error',
                  'message': message or 'SimC rejected the APL.'}]
 

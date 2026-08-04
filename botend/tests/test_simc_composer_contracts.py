@@ -187,6 +187,28 @@ class SimcComposerEquipmentSlotResolutionTests(ComposerTestCase):
         self.assertIn('actions=/bloodthirst', content)
         self.assertIn('html=validation-result.html', content)
 
+    def test_saved_profile_talent_overrides_embedded_manual_export_talent(self):
+        from types import SimpleNamespace
+
+        profile = SimpleNamespace(
+            spec='balance', class_name='druid_balance', use_ptr=True,
+            player_config_mode='manual_equipment',
+            player_equipment=(
+                'ptr=1\ndruid="Validator"\nspec=balance\n'
+                'talents=sSTALE_EXPORT_BUILD\nhead=,id=212048'
+            ),
+            talent='CANONICAL_PROFILE_BUILD', battlenet_region='', battlenet_realm='',
+            battlenet_character='', gear_crit=None, gear_haste=None,
+            gear_mastery=None, gear_versatility=None,
+        )
+
+        content = SimcComposer(self.user.id).compose_validation_input(
+            profile, 'actions=/wrath')
+
+        self.assertEqual(content.splitlines().count('ptr=1'), 1)
+        self.assertIn('talents=CANONICAL_PROFILE_BUILD', content)
+        self.assertNotIn('sSTALE_EXPORT_BUILD', content)
+
     def test_ptr_profile_validation_uses_ptr_database(self):
         from types import SimpleNamespace
 
