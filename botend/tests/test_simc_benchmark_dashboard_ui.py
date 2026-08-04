@@ -87,7 +87,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertEqual(title.get_text(strip=True), 'SimC 基准面板')
 
     def test_shared_benchmark_assets_use_current_cache_version(self):
-        expected = '?v=20260804d'
+        expected = '?v=20260804e'
         for page in (INDEX, CONFIG_PAGE, PANEL_EDIT_PAGE, EXECUTION_PAGE):
             for line in page.splitlines():
                 if 'simc-benchmark-dashboard.' in line:
@@ -392,7 +392,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn('function loadExecutionPage()', JS)
         self.assertIn('function rerunFailedPage(id,button)', JS)
         self.assertIn("dataset:{rerunFailed:data.id}", JS)
-        self.assertIn('?v=20260804d', INDEX)
+        self.assertIn('?v=20260804e', INDEX)
         self.assertIn("if(!configPage){document.body.classList.add", JS)
         self.assertIn("data-benchmark-notification", JS)
         self.assertNotIn('data-create-only', CONFIG_PAGE)
@@ -422,7 +422,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
             self.assertIsNone(form.select_one(f'[name="{field_name}"]'))
 
     def test_nested_resources_and_simulation_metadata_are_collapsed_per_card(self):
-        self.assertIn("advancedGroup('资源与 Profiles'", JS)
+        self.assertIn("advancedGroup('其他设置'", JS)
         self.assertIn("advancedGroup('高级 SimC 参数'", JS)
         self.assertIn("class:'config-card-primary spec-primary'", JS)
         self.assertIn("class:'config-card-primary scenario-primary'", JS)
@@ -441,7 +441,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertNotIn("removeButton('spec')", segment)
         self.assertNotIn("dataset.editorAdd==='spec'", JS)
         self.assertNotIn("field('显示名", segment)
-        self.assertIn("advancedGroup('资源与 Profiles'", segment)
+        self.assertIn("advancedGroup('其他设置'", segment)
         self.assertIn("spec?.spec_label||spec?.label", JS)
 
         for template in ('templates/dashboard/_simc_benchmark.html',
@@ -456,6 +456,24 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn('.spec-config-list', CSS)
         self.assertIn(".spec-config-row .config-card-primary", CSS)
         self.assertIn("专精", CSS)
+
+    def test_profile_selection_is_visible_without_expanding_resource_details(self):
+        add_spec = JS[JS.index('function addSpec('):JS.index('function updateSpecResources(')]
+        resources = JS[JS.index('function updateSpecResources('):JS.index('function renderRaidBuffEditor(')]
+        self.assertIn("class:'spec-profile-picker'", add_spec)
+        self.assertIn("advancedGroup('其他设置'", add_spec)
+        self.assertLess(add_spec.index("class:'spec-profile-picker'"), add_spec.index("advancedGroup('其他设置'"))
+        self.assertIn("class:'profile-select-chip'", resources)
+        self.assertIn("dataset:{profileIncluded:p.id}", resources)
+        self.assertIn("settingsWrap=el('div'", add_spec)
+        self.assertNotIn("settingsWrap=el('label'", add_spec)
+        self.assertIn("dataset:{profileSettings:''}", add_spec)
+        self.assertIn("dataset:{profileEnabled:p.id}", resources)
+        self.assertIn("dataset:{profileLabel:p.id}", resources)
+        self.assertIn('is_enabled:enabled.checked', JS)
+        self.assertIn('.spec-config-table { overflow-x:auto;', CSS)
+        self.assertIn('@media (max-width: 900px)', CSS)
+        self.assertIn('.spec-config-row .spec-profile-picker { grid-column:1/-1; grid-row:2;', CSS)
 
     def test_candidate_cards_support_optional_rows_item_lookup_and_multiple_levels(self):
         segment = JS[JS.index('function addCandidate('):JS.index('function localDate(')]
@@ -496,7 +514,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
             '.candidate-config-row',
         ):
             self.assertIn(selector, CSS)
-        self.assertIn('?v=20260804d', CONFIG_PAGE)
+        self.assertIn('?v=20260804e', CONFIG_PAGE)
 
     def test_panel_name_does_not_collide_with_nested_scenario_names(self):
         soup = BeautifulSoup(PARTIAL, "html.parser")
