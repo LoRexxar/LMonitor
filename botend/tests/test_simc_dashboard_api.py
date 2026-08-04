@@ -1249,7 +1249,7 @@ main_hand=,id=222222
             use_ptr=True,
             player_config_mode='wcl',
             player_equipment=(
-                'warrior="PTR"\nlevel=90\nspec=fury\ntalents=PTR_BASE\n'
+                'warrior="PTR"\nlevel=90\nspec=fury\n'
                 'head=,id=212048\nmain_hand=,id=222222'
             ),
             talent='PTR_BASE',

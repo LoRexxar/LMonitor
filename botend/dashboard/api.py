@@ -2502,7 +2502,13 @@ class SimcComparisonTaskAPIView(View):
                             else:
                                 lines.append(line)
                         if not replaced:
-                            raise ValueError('基准玩家块未包含 talents 行，无法创建天赋对比')
+                            # Canonical saved Profiles deliberately keep talents in the
+                            # dedicated field instead of duplicating it in the actor export.
+                            # The candidate override is authoritative for this comparison run.
+                            if str(profile.talent or '').strip():
+                                lines.append(f'talents={talent}')
+                            else:
+                                raise ValueError('基准玩家配置未提供可替换的 talents，无法创建天赋对比')
                         specs.append({
                             'label': row['name'] or '候选天赋',
                             'is_base': False,
