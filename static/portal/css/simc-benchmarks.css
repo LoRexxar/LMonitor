@@ -5,6 +5,11 @@
     margin-bottom: 0.75rem;
 }
 
+.simc-benchmark-heading > div {
+    min-width: 0;
+    width: 100%;
+}
+
 .simc-benchmark-heading h2 {
     color: #0f172a;
     font-size: 1.05rem;
@@ -18,19 +23,20 @@
 }
 
 .simc-benchmark-description-card {
-    background: linear-gradient(135deg, #eef2ff 0%, #f8fafc 58%, #ecfeff 100%);
-    border: 1px solid #c7d2fe;
-    border-left: 4px solid #4f46e5;
+    background: linear-gradient(135deg, #fff7ed 0%, #fffbeb 52%, #fff1f2 100%);
+    border: 1px solid #fdba74;
+    border-left: 4px solid #f97316;
     border-radius: 0.75rem;
-    box-shadow: 0 8px 24px rgba(79, 70, 229, 0.09);
-    color: #334155;
+    box-shadow: 0 10px 28px rgba(194, 65, 12, 0.14);
+    color: #431407;
     margin-top: 0.8rem;
-    max-width: 64rem;
-    padding: 0.85rem 1rem 0.9rem;
+    max-width: none;
+    padding: 0.95rem 1.1rem 1rem;
+    width: 100%;
 }
 
 .simc-benchmark-description-label {
-    color: #4338ca;
+    color: #c2410c;
     display: block;
     font-size: 0.68rem;
     font-weight: 800;
