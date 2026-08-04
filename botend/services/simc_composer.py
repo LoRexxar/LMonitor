@@ -305,7 +305,11 @@ class SimcComposer:
         # ``warrior_arms``), while executable SimC actor blocks use ``arms``.
         # Compare and render the canonical SimC identity, not the storage key.
         trusted_class = str(request_data.get('_trusted_class_name') or '').strip().lower()
-        derived_class = trusted_class or canonical_class or (SPEC_CLASS.get(user_spec) if user_spec else None)
+        trusted_canonical_class, _ = canonical_simc_spec_identity(trusted_class)
+        derived_class = (
+            trusted_canonical_class or trusted_class or canonical_class
+            or (SPEC_CLASS.get(user_spec) if user_spec else None)
+        )
         comparable_spec = canonical_spec or user_spec
 
         # For battlenet mode, prefer the frozen actor block. The Battle.net identity
@@ -386,8 +390,8 @@ class SimcComposer:
                 status='resolved',
             )
 
-        # For addon/manual export modes, parse and check for conflicts
-        if player_import_mode in ('addon_full_export', 'manual_equipment'):
+        # For addon/manual/WCL export modes, parse and check for conflicts
+        if player_import_mode in ('addon_full_export', 'manual_equipment', 'wcl'):
             player_equipment = request_data.get('player_equipment', '').strip()
             if player_equipment:
                 parsed = self._parse_player_export(player_equipment)
@@ -419,7 +423,11 @@ class SimcComposer:
                         slot_name='player_identity',
                         value=SlotValue(
                             content=parsed['identity'],
-                            source='addon_export' if player_import_mode == 'addon_full_export' else 'manual_equipment',
+                            source={
+                                'addon_full_export': 'addon_export',
+                                'manual_equipment': 'manual_equipment',
+                                'wcl': 'wcl_export',
+                            }[player_import_mode],
                             content_hash=content_hash,
                         ),
                         status='resolved'
@@ -484,6 +492,18 @@ class SimcComposer:
             return SlotResolution(
                 slot_name='equipment',
                 value=SlotValue(content=equipment_content, source='addon_export', content_hash=content_hash),
+                status='resolved'
+            )
+
+        # WCL profiles are frozen full actor exports, with the same semantic
+        # split as addon exports. They must not fall back to mutable defaults.
+        if player_import_mode == 'wcl' and player_equipment:
+            parsed = self._parse_player_export(player_equipment)
+            equipment_content = parsed['equipment']
+            content_hash = hashlib.sha256(equipment_content.encode('utf-8')).hexdigest()
+            return SlotResolution(
+                slot_name='equipment',
+                value=SlotValue(content=equipment_content, source='wcl_export', content_hash=content_hash),
                 status='resolved'
             )
 
@@ -589,7 +609,7 @@ class SimcComposer:
         player_import_mode = request_data.get('player_import_mode', '').strip()
 
         # Frozen player exports own their talents; the workbench APL remains separate.
-        if player_import_mode in ('addon_full_export', 'manual_equipment', 'battlenet'):
+        if player_import_mode in ('addon_full_export', 'manual_equipment', 'battlenet', 'wcl'):
             player_equipment = request_data.get('player_equipment', '').strip()
             if player_equipment:
                 parsed = self._parse_player_export(player_equipment)
@@ -599,6 +619,7 @@ class SimcComposer:
                         'addon_full_export': 'addon_export',
                         'manual_equipment': 'manual_equipment',
                         'battlenet': 'battlenet_snapshot',
+                        'wcl': 'wcl_export',
                     }[player_import_mode]
                     return SlotResolution(
                         slot_name='talents',
@@ -1189,7 +1210,10 @@ class SimcComposer:
                     identity_lines.append(stripped)
                 elif key in ('professions', 'region', 'server', 'loot_spec'):
                     identity_lines.append(stripped)
-                elif key in ('talents', 'talent', 'omnium_talents'):
+                elif key in (
+                    'talents', 'talent', 'omnium_talents',
+                    'class_talents', 'spec_talents', 'hero_talents',
+                ):
                     # SimC only recognizes the canonical plural build directive.
                     # Normalize legacy imported profiles instead of silently running
                     # the class default build under an ignored `talent=` line.
@@ -1198,6 +1222,10 @@ class SimcComposer:
                     # Hero-tree selections are part of the talent slot and must
                     # remain coupled to the class/spec build code.
                     talents_lines.append(stripped)
+                elif key == 'ptr':
+                    # PTR selection is owned by the frozen profile execution
+                    # property and emitted once in global simulation options.
+                    continue
                 elif key in equipment_slots:
                     equipment_lines.append(stripped)
                 else:

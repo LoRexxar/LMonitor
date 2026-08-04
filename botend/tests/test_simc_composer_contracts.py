@@ -262,6 +262,37 @@ class SimcComposerEquipmentSlotResolutionTests(ComposerTestCase):
         self.assertIn('spec=fury', content)
         self.assertIn('actions=/bloodthirst', content)
 
+    def test_authoritative_validation_composes_canonical_wcl_full_export(self):
+        from types import SimpleNamespace
+
+        profile = SimpleNamespace(
+            id=344, user_id=None,
+            spec='deathknight_frost', class_name='deathknight_frost', use_ptr=True,
+            player_config_mode='wcl',
+            player_equipment=(
+                '# WCL snapshot\nptr=1\ndeathknight=MID2_DeathKnight_Frost\n'
+                'spec=frost\nlevel=90\nrace=orc\ndefault_actions=1\n'
+                'class_talents=s207104:1\nspec_talents=s194912:1\n'
+                'hero_talents=s444040:1\nhead=,id=271474,ilevel=334'
+            ),
+            talent='SHOULD_NOT_OVERRIDE_FROZEN_WCL_TALENTS',
+            battlenet_region='', battlenet_realm='', battlenet_character='',
+            gear_strength=None, gear_crit=None, gear_haste=None,
+            gear_mastery=None, gear_versatility=None,
+        )
+
+        content = SimcComposer(None).compose_validation_input(
+            profile, 'actions=/auto_attack')
+
+        self.assertIn('deathknight=MID2_DeathKnight_Frost', content)
+        self.assertIn('spec=frost', content)
+        self.assertIn('class_talents=s207104:1', content)
+        self.assertIn('spec_talents=s194912:1', content)
+        self.assertIn('hero_talents=s444040:1', content)
+        self.assertIn('head=,id=271474,ilevel=334', content)
+        self.assertNotIn('SHOULD_NOT_OVERRIDE_FROZEN_WCL_TALENTS', content)
+        self.assertEqual(content.splitlines().count('ptr=1'), 1)
+
     def test_authoritative_validation_preserves_battlenet_actor_coordinates(self):
         from types import SimpleNamespace
 
