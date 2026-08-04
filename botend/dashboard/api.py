@@ -9018,8 +9018,17 @@ class SimcRaidBuffOptionsAPIView(View):
     """Small shared catalog for regular simulations and benchmark configuration."""
 
     def get(self, request):
+        from botend.services.simc_composer import SIMC_CLASS_RAID_BUFFS
         return JsonResponse({'success': True, 'data': [
-            {'value': value, 'label': label, 'simc_option': f'override.{value}'}
+            {
+                'value': value,
+                'label': label,
+                'simc_option': f'override.{value}',
+                'default_classes': [
+                    class_name for class_name, buffs in SIMC_CLASS_RAID_BUFFS.items()
+                    if value in buffs
+                ],
+            }
             for value, label in SIMC_RAID_BUFFS
         ]})
 

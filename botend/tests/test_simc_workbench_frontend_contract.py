@@ -93,6 +93,8 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('id="simc-sim-raid-buffs"', workflow)
         self.assertIn("fetch('/api/simc-raid-buffs/options/')", SIMC_MAIN)
         self.assertIn('renderSimcRaidBuffOptions', SIMC_MAIN)
+        self.assertIn('applyImplicitSimcRaidBuffDefaults', SIMC_MAIN)
+        self.assertIn('option.default_classes', SIMC_MAIN)
         self.assertIn('dataset.raidBuffExplicit', SIMC_MAIN)
         self.assertIn('scenario.raid_buffs', SIMC_MAIN)
         self.assertIn('delete scenario.raid_buffs', SIMC_MAIN)

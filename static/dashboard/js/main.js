@@ -3273,6 +3273,7 @@ async function resolveSimcPlayerSource() {
         }
         if (simcSourceResolutionAbortController !== controller) return;
         simcResolvedCanonicalSpec = canonicalSpec;
+        applyImplicitSimcRaidBuffDefaults();
         const control = beginSimcTargetSpecLoad(canonicalSpec);
         await loadSimcAplCandidates(canonicalSpec, control);
         if (type === 'specified_spec') {
@@ -3788,12 +3789,26 @@ async function loadSimcRaidBuffOptions() {
     renderSimcRaidBuffOptions(payload.data);
 }
 
+function simcResolvedClassName() {
+    return String(simcResolvedCanonicalSpec || '').trim().toLowerCase().split('_', 1)[0];
+}
+
+function applyImplicitSimcRaidBuffDefaults() {
+    const control = document.getElementById('simc-sim-raid-buff-control');
+    if (control?.dataset.raidBuffExplicit === '1') return;
+    document.querySelectorAll('#simc-sim-raid-buffs input[type="checkbox"]').forEach(input => {
+        const defaultClasses = JSON.parse(input.dataset.defaultClasses || '[]');
+        input.checked = defaultClasses.includes(simcResolvedClassName());
+    });
+    syncSimcRaidBuffSummary();
+}
+
 function renderSimcRaidBuffOptions(options) {
     const host = document.getElementById('simc-sim-raid-buffs');
     if (!host) return;
     host.innerHTML = options.map(option => `
         <label class="simc-raid-buff-option inline-flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs text-slate-700">
-            <input type="checkbox" value="${escapeHtml(option.value)}" class="h-4 w-4 shrink-0 rounded border-slate-300">
+            <input type="checkbox" value="${escapeHtml(option.value)}" data-default-classes="${escapeHtml(JSON.stringify(option.default_classes || []))}" class="h-4 w-4 shrink-0 rounded border-slate-300">
             <span class="truncate" title="${escapeHtml(option.label)}">${escapeHtml(option.label)}</span>
         </label>`).join('');
     host.querySelectorAll('input[type="checkbox"]').forEach(input => {
@@ -3803,7 +3818,7 @@ function renderSimcRaidBuffOptions(options) {
             syncSimcRaidBuffSummary();
         });
     });
-    syncSimcRaidBuffSummary();
+    applyImplicitSimcRaidBuffDefaults();
 }
 
 function syncSimcRaidBuffSummary() {
@@ -3817,7 +3832,7 @@ function syncSimcRaidBuffSummary() {
         master.indeterminate = selected > 0 && selected < boxes.length;
     }
     if (summary) summary.textContent = control?.dataset.raidBuffExplicit === '1'
-        ? `已选择 ${selected} / ${boxes.length}` : '使用历史默认';
+        ? `已选择 ${selected} / ${boxes.length}` : '默认启用职业自身团队增益';
 }
 
 function bindSimcRaidBuffControls() {
@@ -3834,9 +3849,8 @@ function bindSimcRaidBuffControls() {
         syncSimcRaidBuffSummary();
     });
     document.querySelector('[data-simc-raid-buff-action="default"]')?.addEventListener('click', () => {
-        document.querySelectorAll('#simc-sim-raid-buffs input[type="checkbox"]').forEach(box => { box.checked = false; });
         if (control) control.dataset.raidBuffExplicit = '0';
-        syncSimcRaidBuffSummary();
+        applyImplicitSimcRaidBuffDefaults();
     });
 }
 

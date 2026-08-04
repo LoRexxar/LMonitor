@@ -132,10 +132,26 @@ class SimcComposerEquipmentSlotResolutionTests(ComposerTestCase):
         self.assertIn('override.arcane_intellect=0', cleared)
         self.assertIn('override.battle_shout=0', cleared)
 
-        historical, _, error = self.compose(base)
+        mage_default, _, error = self.compose(
+            base, spec='arcane', _trusted_class_name='mage',
+            player_equipment='mage="Player"\nspec=arcane\nhead=,id=212048',
+        )
         self.assertIsNone(error)
-        self.assertIn('override.battle_shout=1', historical)
-        self.assertNotIn('override.arcane_intellect=', historical)
+        self.assertIn('override.arcane_intellect=1', mage_default)
+        self.assertIn('override.battle_shout=0', mage_default)
+
+        warrior_default, _, error = self.compose(base, spec='warrior_fury')
+        self.assertIsNone(error)
+        self.assertIn('override.arcane_intellect=0', warrior_default)
+        self.assertIn('override.battle_shout=1', warrior_default)
+
+        rogue_default, _, error = self.compose(
+            base, spec='outlaw', _trusted_class_name='rogue',
+            player_equipment='rogue="Player"\nspec=outlaw\nhead=,id=212048',
+        )
+        self.assertIsNone(error)
+        self.assertIn('override.arcane_intellect=0', rogue_default)
+        self.assertIn('override.battle_shout=0', rogue_default)
 
     def test_manual_equipment_removes_stale_template_stat_overrides(self):
         self.base.content = (

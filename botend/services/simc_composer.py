@@ -49,6 +49,30 @@ SIMC_RAID_BUFF_VALUES = (
     'bloodlust',
 )
 
+# Implicit defaults are limited to raid effects supplied by the actor's own
+# class. Explicit ``raid_buffs`` remains authoritative, including ``[]``.
+SIMC_CLASS_RAID_BUFFS = {
+    'mage': ('arcane_intellect',),
+    'warrior': ('battle_shout',),
+    'druid': ('mark_of_the_wild',),
+    'priest': ('power_word_fortitude',),
+    'shaman': ('skyfury',),
+    'demonhunter': ('chaos_brand',),
+    'monk': ('mystic_touch',),
+    'hunter': ('hunters_mark',),
+}
+
+
+def default_raid_buffs_for_actor(request_data: Dict[str, Any]) -> tuple[str, ...]:
+    class_name = str(request_data.get('_trusted_class_name') or '').strip().lower()
+    spec = str(request_data.get('spec') or '').strip().lower()
+    if not class_name:
+        if spec in SPEC_CLASS:
+            class_name = SPEC_CLASS[spec]
+        elif '_' in spec:
+            class_name = spec.split('_', 1)[0]
+    return SIMC_CLASS_RAID_BUFFS.get(class_name, ())
+
 
 def validate_simulation_options(params: Dict[str, Any]) -> str:
     """Validate canonical persisted options, with request-name compatibility."""
@@ -798,8 +822,11 @@ class SimcComposer:
                 for name in SIMC_RAID_BUFF_VALUES
             )
         else:
-            # Preserve the exact historical default when the new field is absent.
-            options.append('override.battle_shout=1')
+            selected_raid_buffs = set(default_raid_buffs_for_actor(request_data))
+            options.extend(
+                f'override.{name}={1 if name in selected_raid_buffs else 0}'
+                for name in SIMC_RAID_BUFF_VALUES
+            )
         options.append(f"iterations={request_data.get('iterations', 10000)}")
         # PTR is frozen with the Profile resource. Missing keys on historical
         # versions remain Live; only the explicit boolean true enables PTR.

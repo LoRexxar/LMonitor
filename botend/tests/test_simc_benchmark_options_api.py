@@ -72,6 +72,7 @@ class SimcBenchmarkOptionsApiTests(TestCase):
         self.assertEqual(rows[0], {
             'value': 'arcane_intellect', 'label': '奥术智慧',
             'simc_option': 'override.arcane_intellect',
+            'default_classes': ['mage'],
         })
 
     def test_specs_are_exact_supported_catalog_and_devourer_is_localized(self):
