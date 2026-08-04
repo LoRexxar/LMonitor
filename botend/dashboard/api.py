@@ -8459,7 +8459,8 @@ def _benchmark_progress_case_queryset():
         'task__id', 'task__current_status', 'task__ext', 'task__error_detail',
         'task__simulation_runs__id', 'task__simulation_runs__status',
         'task__simulation_runs__error_detail',
-    ).prefetch_related('task__simulation_runs').order_by('id')
+        'task__artifacts__id', 'task__artifacts__artifact_type',
+    ).prefetch_related('task__simulation_runs', 'task__artifacts').order_by('id')
 
 
 def _benchmark_failure_rows(execution, cases):
@@ -8479,6 +8480,12 @@ def _benchmark_failure_rows(execution, cases):
         )
         if not error:
             continue
+        report_artifact = None
+        if task is not None:
+            report_artifact = next((
+                artifact for artifact in task.artifacts.all()
+                if artifact.artifact_type == 'html_report'
+            ), None)
         failures.append({
             'case_id': case.pk,
             'task_id': case.task_id,
@@ -8489,8 +8496,8 @@ def _benchmark_failure_rows(execution, cases):
             },
             'error': error,
             'report_url': (
-                f'/api/simc-workbench/tasks/{case.task_id}/report-preview/'
-                if case.task_id else ''
+                f'/api/simc-workbench/artifacts/{report_artifact.id}/preview/'
+                if report_artifact is not None else ''
             ),
             'detail_url': f'/dashboard/simc/benchmarks/executions/{execution.pk}/',
         })

@@ -1118,8 +1118,44 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertIsNone(case.task_id)
         self.assertEqual(case.status, 'failed')
         self.assertIn('safe validator reason', case.error_detail)
-        with self.assertRaisesRegex(ValidationError, '预检失败坐标'):
-            rerun_failed_cases(execution, requested_by=self.user_id)
+        with patch('botend.services.simc_task_service.current_validation_identity',
+                   return_value=('a' * 40, '12.0.1')), patch(
+            'botend.services.simc_task_service.validate_apl_for_profile',
+            return_value=self.validation,
+        ):
+            retry = rerun_failed_cases(execution, requested_by=self.user_id)
+        retry_case = retry.cases.select_related('task').get()
+        self.assertIsNotNone(retry_case.task_id)
+        self.assertEqual(retry_case.status, 'pending')
+        self.assertEqual(retry_case.task.profile_id, self.profile.id)
+        self.assertEqual(retry_case.task.source_task_id, None)
+        self.assertEqual(
+            [row['candidate_key'] for row in retry_case.task.mode_params['initial_candidates']],
+            ['baseline', 'trinket'],
+        )
+
+    def test_failed_rerun_materializes_repeated_preflight_error_on_child_case(self):
+        from botend.services.simc_task_service import TaskCreationError
+
+        with patch(
+            'botend.services.simc_benchmark_execution.prepare_task_creation',
+            side_effect=TaskCreationError('rejected', details={
+                'diagnostics': [{'message': 'talent node 94885 has invalid choice index'}],
+            }),
+        ):
+            execution = create_execution(
+                self.panel, requested_by=self.user_id, execution_mode='full',
+            )
+            retry = rerun_failed_cases(execution, requested_by=self.user_id)
+
+        retry.refresh_from_db()
+        retry_case = retry.cases.get()
+        self.assertEqual(retry.status, 'failed')
+        self.assertIsNotNone(retry.completed_at)
+        self.assertIsNone(retry_case.task_id)
+        self.assertEqual(retry_case.status, 'failed')
+        self.assertIn('talent node 94885 has invalid choice index', retry_case.error_detail)
+        self.assertIn(f'Profile #{self.profile.id}', retry_case.error_detail)
 
     def test_validator_unavailability_is_conflict_but_content_rejection_is_validation(self):
         retryable_results = [{

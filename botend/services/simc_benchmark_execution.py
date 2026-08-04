@@ -732,8 +732,68 @@ def _copy_failed_runs_for_retry(source_task, rerun_task):
 
 
 def rerun_failed_cases(execution, requested_by=None):
-    """Create a full-coordinate retry Execution; only unsuccessful Runs are scheduled."""
+    """Create a retry Execution and materialize validation failures per Case.
+
+    Cases with a frozen source Task keep the immutable Task-rerun path.  A Case
+    rejected before Task creation is rebuilt from the Panel's current coordinate,
+    so Profile/APL fixes can take effect; another rejection becomes a failed child
+    Case instead of aborting the whole rerun request.
+    """
     requester_id = getattr(requested_by, 'id', requested_by)
+
+    preliminary_source = SimcBenchmarkExecution.objects.select_related('panel').get(pk=execution.pk)
+    preliminary_panel = preliminary_source.panel
+    if requester_id != preliminary_panel.created_by_id:
+        raise PermissionDenied('Only the Panel owner may rerun failed benchmark cases')
+    if preliminary_source.completed_at is None:
+        raise BenchmarkExecutionConflict('Only a completed Execution can be rerun')
+    preliminary_failed_cases = list(SimcBenchmarkCase.objects.filter(
+        execution=preliminary_source, status__in=(
+            SimcBenchmarkExecution.STATUS_FAILED,
+            SimcBenchmarkExecution.STATUS_PARTIAL,
+            SimcBenchmarkExecution.STATUS_CANCELLED,
+        ),
+    ).select_related('task').order_by('id'))
+    if not preliminary_failed_cases:
+        _validation_error('没有可重跑的失败子任务', 'execution')
+
+    current_plan = None
+    current_plan_identity = None
+    current_coordinates = {}
+    resource_key_by_coordinate = {}
+    prepared_by_resources = {}
+    preflight_errors = {}
+    if any(case.task_id is None for case in preliminary_failed_cases):
+        current_plan = build_execution_plan(preliminary_panel, lock=False)
+        current_plan_identity = _canonical_hash(current_plan)
+        current_coordinates = {
+            (row['spec_key'], row['scenario_key'], row['profile_key']): row
+            for row in current_plan['cases']
+        }
+        for case in preliminary_failed_cases:
+            if case.task_id is not None:
+                continue
+            coordinate_key = (case.spec_key, case.scenario_key, case.profile_key)
+            coordinate = current_coordinates.get(coordinate_key)
+            if coordinate is None:
+                continue
+            resource_key = (
+                coordinate['backend_id'], coordinate['profile_id'],
+                coordinate['apl_id'], coordinate['template_id'],
+            )
+            resource_key_by_coordinate[coordinate_key] = resource_key
+            if resource_key in prepared_by_resources or resource_key in preflight_errors:
+                continue
+            try:
+                prepared_by_resources[resource_key] = prepare_task_creation(
+                    preliminary_panel.created_by_id, coordinate['profile_id'],
+                    coordinate['template_id'], coordinate['apl_id'],
+                    backend_id=coordinate['backend_id'],
+                )
+            except (TaskPreparedResourceChanged, TaskValidationUnavailable,
+                    TaskCreationError) as exc:
+                preflight_errors[resource_key] = exc
+
     with transaction.atomic():
         source = SimcBenchmarkExecution.objects.select_for_update().get(pk=execution.pk)
         panel = SimcBenchmarkPanel.objects.select_for_update().get(pk=source.panel_id)
@@ -750,8 +810,12 @@ def rerun_failed_cases(execution, requested_by=None):
         ).select_related('task').order_by('id'))
         if not failed_cases:
             _validation_error('没有可重跑的失败子任务', 'execution')
-        if any(case.task_id is None for case in failed_cases):
-            _validation_error('预检失败坐标没有冻结任务，不能安全重跑；请发起新的全量执行', 'execution')
+        if current_plan is not None:
+            locked_current_plan = build_execution_plan(panel, lock=True)
+            if _canonical_hash(locked_current_plan) != current_plan_identity:
+                raise BenchmarkExecutionConflict(
+                    'Panel configuration changed during failed-case preflight'
+                )
         if panel.active_execution_id:
             active = panel.active_execution
             if active and active.completed_at is None:
@@ -791,7 +855,84 @@ def rerun_failed_cases(execution, requested_by=None):
                 continue
             source_case = source_cases[coordinate]
             if source_case.task_id is None:
-                _validation_error('失败子任务缺少冻结任务', 'execution')
+                current_coordinate = current_coordinates.get(coordinate)
+                if current_coordinate is None:
+                    error_detail = (
+                        f'{source_case.spec_key} / {source_case.scenario_key} / '
+                        f'{source_case.profile_key}: 当前 Panel 配置中已找不到该坐标；'
+                        '请恢复对应专精、场景和 Profile 后重跑'
+                    )
+                    SimcBenchmarkCase.objects.create(
+                        execution=new_execution, task=None,
+                        status=SimcBenchmarkExecution.STATUS_FAILED,
+                        error_detail=_safe_error(error_detail),
+                        spec_key=source_case.spec_key,
+                        scenario_key=source_case.scenario_key,
+                        profile_key=source_case.profile_key,
+                        spec_label=source_case.spec_label,
+                        scenario_label=source_case.scenario_label,
+                        profile_label=source_case.profile_label,
+                        coordinate_hash=source_case.coordinate_hash,
+                    )
+                    continue
+                resource_key = resource_key_by_coordinate[coordinate]
+                preflight_error = preflight_errors.get(resource_key)
+                if preflight_error is not None:
+                    SimcBenchmarkCase.objects.create(
+                        execution=new_execution, task=None,
+                        status=SimcBenchmarkExecution.STATUS_FAILED,
+                        error_detail=_preflight_error(current_coordinate, preflight_error),
+                        spec_key=source_case.spec_key,
+                        scenario_key=source_case.scenario_key,
+                        profile_key=source_case.profile_key,
+                        spec_label=current_coordinate['spec_label'],
+                        scenario_label=current_coordinate['scenario_label'],
+                        profile_label=current_coordinate['profile_label'],
+                        coordinate_hash=_coordinate_hash(current_coordinate),
+                    )
+                    continue
+                try:
+                    task = create_task(
+                        user_id=panel.created_by_id,
+                        name=_task_name(panel.pk, new_execution.pk, current_coordinate),
+                        profile_id=current_coordinate['profile_id'],
+                        template_id=current_coordinate['template_id'],
+                        apl_id=current_coordinate['apl_id'],
+                        backend_id=current_coordinate['backend_id'],
+                        mode='comparison',
+                        simulation_params=deepcopy(current_coordinate['simulation_params']),
+                        mode_params={'request_manifest': {
+                            'candidates': deepcopy(current_coordinate['candidates']),
+                        }},
+                        candidates=deepcopy(current_coordinate['candidates']),
+                        prepared=prepared_by_resources[resource_key],
+                    )
+                except (TaskPreparedResourceChanged, TaskValidationUnavailable,
+                        TaskCreationError) as exc:
+                    SimcBenchmarkCase.objects.create(
+                        execution=new_execution, task=None,
+                        status=SimcBenchmarkExecution.STATUS_FAILED,
+                        error_detail=_preflight_error(current_coordinate, exc),
+                        spec_key=source_case.spec_key,
+                        scenario_key=source_case.scenario_key,
+                        profile_key=source_case.profile_key,
+                        spec_label=current_coordinate['spec_label'],
+                        scenario_label=current_coordinate['scenario_label'],
+                        profile_label=current_coordinate['profile_label'],
+                        coordinate_hash=_coordinate_hash(current_coordinate),
+                    )
+                    continue
+                SimcBenchmarkCase.objects.create(
+                    execution=new_execution, task=task,
+                    spec_key=source_case.spec_key,
+                    scenario_key=source_case.scenario_key,
+                    profile_key=source_case.profile_key,
+                    spec_label=current_coordinate['spec_label'],
+                    scenario_label=current_coordinate['scenario_label'],
+                    profile_label=current_coordinate['profile_label'],
+                    coordinate_hash=_coordinate_hash(current_coordinate),
+                )
+                continue
             try:
                 task = create_rerun(
                     source_task_id=source_case.task_id,
@@ -811,6 +952,12 @@ def rerun_failed_cases(execution, requested_by=None):
                 scenario_label=source_case.scenario_label, profile_label=source_case.profile_label,
                 coordinate_hash=source_case.coordinate_hash,
             )
+        if not new_execution.cases.filter(task__isnull=False).exists():
+            new_execution.status = SimcBenchmarkExecution.STATUS_FAILED
+            new_execution.completed_at = timezone.now()
+            new_execution.save(update_fields=['status', 'completed_at'])
+            panel.active_execution = None
+            panel.save(update_fields=['active_execution'])
         return new_execution
 
 

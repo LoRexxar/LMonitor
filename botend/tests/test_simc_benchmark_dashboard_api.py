@@ -10,7 +10,7 @@ from django.utils import timezone
 from botend.models import (
     SimcApl, SimcBackendBinary, SimcBenchmarkCase, SimcBenchmarkExecution,
     SimcBenchmarkPanel, SimcBenchmarkResult, SimcContentTemplate, SimcProfile, SimcTask,
-    SimulationRun,
+    SimcTaskArtifact, SimulationRun,
 )
 from botend.services.simc_benchmark_execution import BenchmarkExecutionConflict
 
@@ -418,6 +418,13 @@ class SimcBenchmarkDashboardApiTests(TestCase):
                 status=('completed' if index == 0 else ('failed' if index == 1 else ('running' if index == 2 else 'pending'))),
             )
 
+        report_artifact = SimcTaskArtifact.objects.create(
+            task_id=task_ids[1],
+            run=SimulationRun.objects.get(task_id=task_ids[1]),
+            artifact_type='html_report',
+            file_path='simc_reports/benchmark-progress-failed.html',
+        )
+
         response = self.client.get('/api/simc-benchmarks/panels/')
         self.assertEqual(response.status_code, 200)
         progress = response.json()['data'][0]['execution']
@@ -449,7 +456,7 @@ class SimcBenchmarkDashboardApiTests(TestCase):
                 "Player 'MID2_Rogue_Outlaw' attempting to use Action 'dispatch' "
                 "with invalid main-hand weapon type 'Dagger'."
             ),
-            'report_url': f'/api/simc-workbench/tasks/{task_ids[1]}/report-preview/',
+            'report_url': f'/api/simc-workbench/artifacts/{report_artifact.id}/preview/',
             'detail_url': f'/dashboard/simc/benchmarks/executions/{execution.id}/',
         }])
         coverage = response.json()['data'][0]['panel_coverage']
