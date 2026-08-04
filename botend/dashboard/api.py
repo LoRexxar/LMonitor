@@ -64,7 +64,7 @@ from botend.services.simc_attribute_search import (
 from botend.services.task_rerun import create_rerun, TaskRerunError
 from botend.services.battlenet_preflight import fetch_battlenet_character_preflight
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
-from botend.constants.wow import CLASS_SPEC_MAP, CLASS_CN, SPEC_CN, SPEC_ROLE
+from botend.constants.wow import CLASS_SPEC_MAP, CLASS_CN, CLASS_COLOR, SPEC_CN, SPEC_ICON, SPEC_ROLE
 from botend.services.simc_apl.catalog import query_symbol_catalog
 from botend.services.simc_apl.validation import validate_payload
 from botend.services.simc_apl.authoritative_validator import RestrictedSimcValidator
@@ -167,6 +167,32 @@ def _simc_spec_label(spec, class_name=''):
     if len(suffix_labels) == 1:
         return suffix_labels.pop()
     return str(spec or '').strip() or '未标记'
+
+
+def _simc_spec_visual(spec, class_name=''):
+    """Resolve the authoritative specialization icon and Blizzard class color."""
+    normalized = str(spec or '').strip().lower()
+    canonical = _canonical_simc_spec(normalized)
+    raw_class = re.sub(r'(?<!^)(?=[A-Z])', '_', str(class_name or '').strip()).lower()
+    class_key = raw_class.replace('death_knight', 'deathknight').replace('demon_hunter', 'demonhunter')
+    if not canonical and class_key:
+        spec_key = re.sub(r'(?<!^)(?=[A-Z])', '_', str(spec or '').strip()).lower()
+        class_prefix = f'{class_key}_'
+        if spec_key.startswith(class_prefix):
+            spec_key = spec_key[len(class_prefix):]
+        candidate = f'{class_key}_{spec_key}'
+        canonical = candidate if candidate in SIMC_SPEC_DB_IDENTITIES else None
+    identity = SIMC_SPEC_DB_IDENTITIES.get(canonical or '')
+    if identity:
+        db_class_name, db_spec_name = identity
+    else:
+        db_class_name = SIMC_CLASS_DB_NAMES.get(class_key)
+        db_spec_name = None
+    icon_url = SPEC_ICON.get((db_class_name, db_spec_name), '') if db_class_name and db_spec_name else ''
+    return {
+        'spec_icon_url': icon_url,
+        'class_color': CLASS_COLOR.get(db_class_name, '#64748B'),
+    }
 
 
 def _simc_class_for_spec(spec):
@@ -3412,6 +3438,7 @@ class SimcProfileAPIView(View):
                     'name': profile.name,
                     'spec': profile.spec,
                     'spec_label': _simc_spec_label(profile.spec, profile.class_name),
+                    **_simc_spec_visual(profile.spec, profile.class_name),
                     'use_ptr': bool(profile.use_ptr),
                     'player_config_mode': self._profile_mode(profile),
                     'battlenet_region': getattr(profile, 'battlenet_region', '') or '',
@@ -3455,6 +3482,7 @@ class SimcProfileAPIView(View):
                         'name': profile.name,
                         'spec': profile.spec,
                         'spec_label': _simc_spec_label(profile.spec, profile.class_name),
+                        **_simc_spec_visual(profile.spec, profile.class_name),
                         'version': profile.version,
                         'use_ptr': bool(profile.use_ptr),
                         'class_name': getattr(profile, 'class_name', '') or '',

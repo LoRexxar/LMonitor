@@ -120,6 +120,14 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('renderSimcProfileDetailDialog', MAIN)
         self.assertIn('raw_player_equipment', MAIN)
 
+    def test_profile_list_renders_spec_icon_with_authoritative_class_color(self):
+        badge = MAIN[MAIN.index('function renderSpecBadgeHtml'):MAIN.index('function syncSimcTaskInputMode')]
+        loader = MAIN[MAIN.index('function loadSimcWorkbenchProfiles'):MAIN.index('function bindSimcWorkbenchProfilesControls')]
+        self.assertIn('spec_icon_url', loader)
+        self.assertIn('class_color', loader)
+        self.assertIn('<img', badge)
+        self.assertIn('--simc-class-color', badge)
+
     def test_profile_form_normalizes_legacy_spec_and_leaves_optional_attribute_overrides_blank(self):
         """编辑旧 class_spec 记录必须选中实际专精；未填写属性不得伪造覆盖值。"""
         form = MAIN[MAIN.index('function simcWbToggleProfileForm'):MAIN.index('function simcWbCloseProfileForm')]

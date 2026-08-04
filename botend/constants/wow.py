@@ -20,6 +20,23 @@ CLASS_SPEC_MAP = {
     "Evoker":      ["Augmentation", "Devastation", "Preservation"],
 }
 
+# Blizzard 职业颜色；Dashboard 的职业视觉标识统一从这里读取。
+CLASS_COLOR = {
+    "DeathKnight": "#C41F3B",
+    "DemonHunter": "#A330C9",
+    "Druid": "#FF7D0A",
+    "Evoker": "#33937F",
+    "Hunter": "#ABD473",
+    "Mage": "#69CCF0",
+    "Monk": "#00FF96",
+    "Paladin": "#F58CBA",
+    "Priest": "#E5E7EB",
+    "Rogue": "#FFF569",
+    "Shaman": "#0070DE",
+    "Warlock": "#9482C9",
+    "Warrior": "#C79C6E",
+}
+
 # Blizzard specialization ID → (职业, 专精)。天赋导入字符串头部直接存储该 ID。
 SPEC_IDENTITY_MAP = {
     62: ("Mage", "Arcane"),

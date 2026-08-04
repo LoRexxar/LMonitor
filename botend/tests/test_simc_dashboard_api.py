@@ -280,6 +280,23 @@ class SimcProfileResourceListTests(TestCase):
             'ptr': 'ptr-profile-link',
         })
 
+    def test_profile_list_exposes_authoritative_spec_icon_and_class_color(self):
+        profile = SimcProfile.objects.create(
+            user_id=self.user.id,
+            name='冰霜死亡骑士',
+            class_name='deathknight',
+            spec='deathknight_frost',
+            player_config_mode='manual_equipment',
+            player_equipment='deathknight="Frost"\nspec=frost\nhead=,id=1',
+        )
+
+        response = self.client.get('/api/simc-profile/')
+
+        self.assertEqual(response.status_code, 200)
+        row = next(item for item in response.json()['data'] if item['id'] == profile.id)
+        self.assertIn('spell_deathknight_frostpresence.jpg', row['spec_icon_url'])
+        self.assertEqual(row['class_color'], '#C41F3B')
+
     def test_list_exposes_migrated_system_profiles_as_read_only_resources(self):
         own = SimcProfile.objects.create(
             user_id=self.user.id, name='我的狂暴配置', spec='fury',

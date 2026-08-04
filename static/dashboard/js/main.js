@@ -1416,35 +1416,17 @@ async function loadSimulationRegularDefaultsByProfile(profileId) {
     }
 }
 
-function getSpecBadgeClass(specValue) {
-    const spec = String(specValue || '').trim().toLowerCase();
-    if (spec === 'fury') return 'bg-orange-100 text-orange-800 border border-orange-200';
-    if (spec === 'arms') return 'bg-blue-100 text-blue-800 border border-blue-200';
-    if (spec === 'protection') return 'bg-slate-100 text-slate-800 border border-slate-200';
-    if (spec === 'fire') return 'bg-red-100 text-red-800 border border-red-200';
-    if (spec === 'frost') return 'bg-cyan-100 text-cyan-800 border border-cyan-200';
-    if (spec === 'arcane') return 'bg-purple-100 text-purple-800 border border-purple-200';
-    return 'bg-gray-100 text-gray-700 border border-gray-200';
-}
-
-function getSpecDotClass(specValue) {
-    const spec = String(specValue || '').trim().toLowerCase();
-    if (spec === 'fury') return 'bg-orange-500 text-white';
-    if (spec === 'arms') return 'bg-blue-500 text-white';
-    if (spec === 'protection') return 'bg-slate-500 text-white';
-    if (spec === 'fire') return 'bg-red-500 text-white';
-    if (spec === 'frost') return 'bg-cyan-500 text-white';
-    if (spec === 'arcane') return 'bg-purple-500 text-white';
-    return 'bg-gray-500 text-white';
-}
-
-function renderSpecBadgeHtml(specValue, displayValue = '') {
+function renderSpecBadgeHtml(specValue, displayValue = '', visual = {}) {
     const spec = String(specValue || '').trim();
     const text = String(displayValue || spec || '-').trim();
-    const cls = getSpecBadgeClass(spec);
-    const dotCls = getSpecDotClass(spec);
+    const requestedColor = String(visual.class_color || '').trim();
+    const classColor = /^#[0-9a-f]{6}$/i.test(requestedColor) ? requestedColor : '#64748B';
+    const iconUrl = String(visual.spec_icon_url || '').trim();
     const mark = spec ? spec.charAt(0).toUpperCase() : '?';
-    return `<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${cls}"><span class="inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold ${dotCls}">${escapeHtml(mark)}</span><span>${escapeHtml(text)}</span></span>`;
+    const icon = iconUrl
+        ? `<img src="${escapeHtml(iconUrl)}" alt="" class="h-6 w-6 shrink-0 rounded object-cover" style="box-shadow: 0 0 0 1px var(--simc-class-color);">`
+        : `<span class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[10px] font-bold text-white" style="background: var(--simc-class-color);">${escapeHtml(mark)}</span>`;
+    return `<span class="inline-flex items-center gap-1.5 rounded-full border px-1.5 py-1 text-xs font-semibold" style="--simc-class-color: ${classColor}; border-color: var(--simc-class-color); background: color-mix(in srgb, var(--simc-class-color) 10%, white); color: color-mix(in srgb, var(--simc-class-color) 68%, #0f172a);">${icon}<span>${escapeHtml(text)}</span></span>`;
 }
 
 function syncSimcTaskInputMode(prefix) {
@@ -1912,7 +1894,7 @@ function loadSimcWorkbenchProfiles(page) {
             return `<tr class="hover:bg-gray-50 border-b border-gray-100">
                 <td class="px-3 py-3 text-center text-gray-500 text-xs">${offset}</td>
                 <td class="px-3 py-3 text-sm font-medium text-gray-900 max-w-[200px] truncate" title="${name}">${name}</td>
-                <td class="px-3 py-3 text-center">${renderSpecBadgeHtml(spec, specLabel)}</td>
+                <td class="px-3 py-3 text-center">${renderSpecBadgeHtml(spec, specLabel, { spec_icon_url: row.spec_icon_url, class_color: row.class_color })}</td>
                 <td class="px-3 py-3 text-xs text-gray-500 max-w-[220px] truncate" title="${sourceTitle}">${sourceTitle}</td>
                 <td class="px-3 py-3 text-center"><span class="rounded-full px-2 py-1 text-xs ${statusClass}">${statusText}</span></td>
                 <td class="px-3 py-3 text-center">
