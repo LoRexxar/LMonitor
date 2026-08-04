@@ -665,11 +665,12 @@
     const name = String(panel?.name || "模拟结果");
     const description = String(panel?.description || "");
     const title = document.getElementById("simc-benchmarks-title");
-    const copy = document.getElementById("simc-benchmarks-description");
+    const descriptionCard = document.getElementById("simc-benchmarks-description");
+    const copy = descriptionCard?.querySelector(".simc-benchmark-description-content");
     if (title) title.textContent = name;
     if (copy) {
       copy.replaceChildren(renderMarkdownDescription(description));
-      copy.hidden = !description;
+      descriptionCard.hidden = !description;
     }
     document.title = `${name} · WowDaily.cn`;
   }

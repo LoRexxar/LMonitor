@@ -485,7 +485,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             'simc-benchmark-gear-hover-guide', 'simc-benchmark-gear-tooltip',
         ):
             self.assertIn(contract, self.JS + self.CSS)
-        self.assertIn('?v=20260805_markdown', self.RESULTS_TEMPLATE)
+        self.assertIn('?v=20260805_description_card', self.RESULTS_TEMPLATE)
 
     def test_result_renderer_uses_frozen_target_count_and_duration_for_scenarios(self):
         for contract in (
@@ -538,6 +538,19 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIn('applyPanelHeading', self.JS)
         self.assertIn("document.title", self.JS)
         self.assertIn('simc-benchmarks-description', self.RESULTS_TEMPLATE)
+
+    def test_panel_description_is_presented_as_a_prominent_task_brief(self):
+        soup = BeautifulSoup(self.RESULTS_TEMPLATE, 'html.parser')
+        description = soup.select_one('#simc-benchmarks-description')
+        self.assertIsNotNone(description)
+        self.assertEqual(description.name, 'div')
+        self.assertIn('simc-benchmark-description-card', description.get('class', []))
+        for contract in (
+            'simc-benchmark-description-label', '基准任务说明',
+            'linear-gradient(135deg', 'border-left: 4px solid',
+            'box-shadow:',
+        ):
+            self.assertIn(contract, self.RESULTS_TEMPLATE + self.CSS)
 
     def test_panel_description_renders_multiline_markdown_without_raw_html(self):
         for contract in (
