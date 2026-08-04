@@ -149,3 +149,6 @@ media/aggregated/
 
 # 运行时按需下载的 WoW 图标缓存
 /static/wow_icons/
+
+# 大秘境规划器本地/服务器运行时数据（不进入版本库）
+/botend/data/mythic_planner/
