@@ -175,6 +175,22 @@ function renderGearResultChart(rows){
   });
   chart.append(body);return chart;
 }
+function renderExecutionFailures(execution,compact=false){
+  const failures=Array.isArray(execution?.failures)?execution.failures.filter(failure=>failure?.error):[];
+  const host=el('div',{class:`benchmark-failure-summary${compact?' compact':''}`});
+  if(!failures.length)return host;
+  const shown=failures.slice(0,compact?1:3);
+  shown.forEach(failure=>{
+    const labels=failure.labels||{},row=el('div',{class:'benchmark-failure-row'}),actions=el('span',{class:'benchmark-failure-actions'});
+    row.append(el('strong',{},`${labels.spec||'未知专精'} · ${labels.scenario||'未知场景'}`),el('span',{class:'benchmark-failure-message'},failure.error));
+    if(failure.report_url)actions.append(el('a',{href:failure.report_url,target:'_blank',rel:'noopener noreferrer',class:'benchmark-failure-detail'},'查看报告'));
+    if(failure.detail_url)actions.append(el('a',{href:failure.detail_url,target:'_blank',rel:'noopener noreferrer',class:'benchmark-failure-detail'},'错误详情'));
+    if(actions.childNodes.length)row.append(actions);
+    host.append(row);
+  });
+  if(failures.length>shown.length)host.append(el('span',{class:'benchmark-failure-more'},`另有 ${failures.length-shown.length} 条错误`));
+  return host;
+}
 function renderRunProgress(execution,compact=false){
   const host=el('div',{class:`benchmark-run-progress${compact?' compact':''}`});
   if(!execution)return host;
@@ -192,6 +208,7 @@ function renderExecutionProgress(execution,compact=false){
   // Case/Task is an orchestration implementation detail.  The user-facing unit
   // is the frozen candidate Run workload, identical in list and detail views.
   host.append(renderRunProgress(execution,compact));
+  host.append(renderExecutionFailures(execution,compact));
   return host;
 }
 

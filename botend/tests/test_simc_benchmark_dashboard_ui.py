@@ -123,6 +123,19 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn('本次补充候选 Run', run_progress)
         self.assertIn('尚有 ${total-materialized} 个待 Worker 创建', run_progress)
 
+    def test_execution_progress_renders_explicit_safe_failure_summary_outside_task_detail(self):
+        failure_renderer = JS[
+            JS.index('function renderExecutionFailures('):
+            JS.index('function renderRunProgress(')
+        ]
+        self.assertIn('execution.failures', failure_renderer)
+        self.assertIn('failure.error', failure_renderer)
+        self.assertIn('failure.report_url', failure_renderer)
+        self.assertIn('failure.detail_url', failure_renderer)
+        self.assertIn("target:'_blank'", failure_renderer)
+        self.assertIn("rel:'noopener noreferrer'", failure_renderer)
+        self.assertIn('renderExecutionFailures(execution,compact)', JS)
+
     def test_fetch_contract_and_stale_request_protection(self):
         for contract in ("resolved.origin !== window.location.origin",
                          "credentials:'same-origin'", "X-CSRFToken",

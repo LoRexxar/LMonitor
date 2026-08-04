@@ -63,6 +63,10 @@ class SimcHistoryPaginationContractTests(unittest.TestCase):
         self.assertNotIn("来源基线 #", JS)
         self.assertIn("simc-benchmark-task-case__progress", JS)
 
+    def test_benchmark_history_case_renders_explicit_error_outside_task_detail(self):
+        self.assertIn('item.error', JS)
+        self.assertIn('simc-benchmark-task-case__error', JS)
+
     def test_expanded_benchmark_case_omits_low_value_task_id(self):
         """展开项保留坐标、状态和进度，不重复展示内部 Task 编号。"""
         self.assertNotIn('<span class="simc-task-id">Task #${idOf(item.task_id)}</span>${title}', JS)

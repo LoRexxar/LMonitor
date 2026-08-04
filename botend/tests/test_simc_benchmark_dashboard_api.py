@@ -400,6 +400,11 @@ class SimcBenchmarkDashboardApiTests(TestCase):
                 execution=execution,
                 task=task,
                 status=case_status,
+                error_detail=(
+                    "Player 'MID2_Rogue_Outlaw' attempting to use Action 'dispatch' "
+                    "with invalid main-hand weapon type 'Dagger'."
+                    if case_status == 'failed' else ''
+                ),
                 spec_key='warrior_fury',
                 scenario_key=f'scenario-{index}',
                 profile_key=str(index),
@@ -434,6 +439,19 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         })
         self.assertEqual(progress['total_runs'], 9)
         self.assertEqual(progress['materialized_runs'], 4)
+        self.assertEqual(progress['failures'], [{
+            'case_id': execution.cases.get(status='failed').id,
+            'task_id': task_ids[1],
+            'labels': {
+                'spec': 'Fury', 'scenario': 'Scenario 1', 'profile': 'Profile 1',
+            },
+            'error': (
+                "Player 'MID2_Rogue_Outlaw' attempting to use Action 'dispatch' "
+                "with invalid main-hand weapon type 'Dagger'."
+            ),
+            'report_url': f'/api/simc-workbench/tasks/{task_ids[1]}/report-preview/',
+            'detail_url': f'/dashboard/simc/benchmarks/executions/{execution.id}/',
+        }])
         coverage = response.json()['data'][0]['panel_coverage']
         self.assertEqual(coverage, {
             'aggregate_baseline_execution_id': execution.id,
@@ -459,6 +477,7 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         self.assertEqual(history['progress'], 59)
         self.assertEqual(history['counts']['running'], 1)
         self.assertEqual(history['metadata']['task_bindings'], 4)
+        self.assertEqual(history['failures'], progress['failures'])
 
     def test_execution_progress_counts_missing_cases_without_claiming_aggregate_available(self):
         panel = self._create_panel()

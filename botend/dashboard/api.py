@@ -5889,10 +5889,11 @@ class SimcWorkbenchAPIView(View):
             case_rows = list(SimcBenchmarkCase.objects.filter(execution_id=execution.pk).select_related(
                 'task',
             ).only(
-                'id', 'execution_id', 'task_id', 'status',
+                'id', 'execution_id', 'task_id', 'status', 'error_detail',
                 'spec_key', 'scenario_key', 'profile_key',
                 'spec_label', 'scenario_label', 'profile_label',
                 'task__id', 'task__current_status', 'task__ext', 'task__source_task_id',
+                'task__error_detail',
             ).order_by('id'))
 
         task_ids = [case.task_id for case in case_rows if case.task_id]
@@ -5940,6 +5941,9 @@ class SimcWorkbenchAPIView(View):
                 'status_label': status_labels.get(task_status, '未知'),
                 'progress': progress,
                 'case_status': case.status,
+                'error': _benchmark_safe_string(
+                    case.error_detail or (task.error_detail if task is not None else ''),
+                ),
             })
         progress = int(sum(progress_values) / len(progress_values)) if progress_values else None
         snapshot = execution.config_snapshot if isinstance(execution.config_snapshot, dict) else {}
@@ -6126,10 +6130,10 @@ class SimcWorkbenchAPIView(View):
                 )
             }
             history_cases = SimcBenchmarkCase.objects.select_related('task').only(
-                'id', 'execution_id', 'task_id', 'status',
+                'id', 'execution_id', 'task_id', 'status', 'error_detail',
                 'spec_key', 'scenario_key', 'profile_key',
                 'spec_label', 'scenario_label', 'profile_label',
-                'task__id', 'task__current_status', 'task__ext',
+                'task__id', 'task__current_status', 'task__ext', 'task__error_detail',
             ).order_by('id')
             executions = {
                 execution.pk: execution
@@ -8452,9 +8456,45 @@ def _benchmark_progress_case_queryset():
         'id', 'execution_id', 'task_id', 'status', 'error_detail',
         'spec_key', 'scenario_key', 'profile_key',
         'spec_label', 'scenario_label', 'profile_label',
-        'task__id', 'task__current_status', 'task__ext',
+        'task__id', 'task__current_status', 'task__ext', 'task__error_detail',
         'task__simulation_runs__id', 'task__simulation_runs__status',
+        'task__simulation_runs__error_detail',
     ).prefetch_related('task__simulation_runs').order_by('id')
+
+
+def _benchmark_failure_rows(execution, cases):
+    """Project authoritative Case/Task failures for list and history surfaces."""
+    failures = []
+    for case in cases:
+        task = case.task if case.task_id else None
+        run_error = ''
+        if task is not None:
+            failed_run = next((
+                run for run in task.simulation_runs.all()
+                if run.status == 'failed' and run.error_detail
+            ), None)
+            run_error = failed_run.error_detail if failed_run is not None else ''
+        error = _benchmark_safe_string(
+            case.error_detail or (task.error_detail if task is not None else '') or run_error,
+        )
+        if not error:
+            continue
+        failures.append({
+            'case_id': case.pk,
+            'task_id': case.task_id,
+            'labels': {
+                'spec': _benchmark_safe_key(case.spec_label),
+                'scenario': _benchmark_safe_key(case.scenario_label),
+                'profile': _benchmark_safe_key(case.profile_label),
+            },
+            'error': error,
+            'report_url': (
+                f'/api/simc-workbench/tasks/{case.task_id}/report-preview/'
+                if case.task_id else ''
+            ),
+            'detail_url': f'/dashboard/simc/benchmarks/executions/{execution.pk}/',
+        })
+    return failures
 
 
 def _benchmark_execution_progress(execution, cases, *, is_active=False, case_count=None):
@@ -8516,6 +8556,7 @@ def _benchmark_execution_progress(execution, cases, *, is_active=False, case_cou
         'run_counts': run_counts,
         'counts': counts,
         'current_cases': current_cases[:3],
+        'failures': _benchmark_failure_rows(execution, cases),
         'metadata': _benchmark_execution_metadata(execution, cases, total_cases),
         'created_at': _benchmark_iso(execution.created_at),
         'completed_at': _benchmark_iso(execution.completed_at),
