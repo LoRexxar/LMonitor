@@ -15,6 +15,7 @@ import hashlib
 import time
 import json
 import re
+import html
 import platform as py_platform
 from dataclasses import asdict, is_dataclass
 from django.conf import settings
@@ -960,9 +961,19 @@ class SimcMonitor(BaseScan):
         return '\n'.join(lines).strip()
 
     @staticmethod
-    def validate_simulation_semantics(stdout_text):
+    def validate_simulation_semantics(stdout_text, *, report_html=''):
         """Reject reports that technically finish but never execute a real rotation."""
         text = str(stdout_text or '')
+        report_text = html.unescape(re.sub(r'<[^>]+>', ' ', str(report_html or '')))
+        report_errors = list(dict.fromkeys(
+            match.group(0).strip()
+            for match in re.finditer(
+                r"Player\s+'[^']+'\s+attempting to use Action\s+'[^']+'\s+"
+                r"\([0-9]+\)\s+with invalid (?:main|off)-hand weapon type\s+'[^']+'\.?",
+                report_text,
+                flags=re.IGNORECASE,
+            )
+        ))
         dps_match = re.search(r'\bDPS=([0-9]+(?:\.[0-9]+)?)', text)
         dps_error_match = re.search(
             r'\bDPS-Error=([0-9]+(?:\.[0-9]+)?)/([0-9]+(?:\.[0-9]+)?)%',
@@ -1016,11 +1027,17 @@ class SimcMonitor(BaseScan):
         # while its talent-gated alternatives remain undeclared.  Only reject
         # the result when none of the dispatched branches exists in the report.
         missing_talent_dispatch = bool(dispatch_lists and not active_dispatch_lists)
-        valid = bool(dps_match and non_auto_dps > 0 and not missing_talent_dispatch)
+        valid = bool(
+            dps_match and non_auto_dps > 0
+            and not missing_talent_dispatch and not report_errors
+        )
         failure_type = ''
         reason = ''
         if not valid:
-            if missing_talent_dispatch:
+            if report_errors:
+                failure_type = 'invalid_weapon_action'
+                reason = 'SimC报告包含武器类型不兼容的技能错误：' + '；'.join(report_errors)
+            elif missing_talent_dispatch:
                 failure_type = 'talent_apl_dispatch'
                 reason = (
                     'SimC结果语义无效：英雄天赋未进入任何有效 APL 分流；'
@@ -1039,6 +1056,7 @@ class SimcMonitor(BaseScan):
             'action_row_count': len(action_rows),
             'failure_type': failure_type,
             'unresolved_action_lists': unresolved_action_lists,
+            'report_errors': report_errors,
             'reason': reason,
         }
 
@@ -1160,7 +1178,12 @@ class SimcMonitor(BaseScan):
                 if not os.path.isfile(result_file_path):
                     raise RuntimeError(f'SimC未生成预期结果文件: {target_result_file}')
 
-                semantic_validation = self.validate_simulation_semantics(result.stdout)
+                with open(result_file_path, 'r', encoding='utf-8', errors='replace') as report_stream:
+                    report_html = report_stream.read()
+                semantic_validation = self.validate_simulation_semantics(
+                    result.stdout,
+                    report_html=report_html,
+                )
                 if not self._persist_claimed_semantic_validation(simc_task, semantic_validation):
                     return False
                 if not semantic_validation['valid']:

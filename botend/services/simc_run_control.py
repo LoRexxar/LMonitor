@@ -576,10 +576,11 @@ def complete_run(run_id, metadata, authorization):
         raise AgentAPIError('Run is not running', 409)
 
     report = metadata['report']
+    report_html = ''
     if status == 'completed':
         from botend.services.simc_agent_oss import (
-            ReportStorageError, ReportValidationError, object_key_for_run,
-            public_report_url, verify_uploaded_report,
+            ReportStorageError, ReportValidationError, download_report_html,
+            object_key_for_run, public_report_url, verify_uploaded_report,
         )
         expected_key = object_key_for_run(run_for_key)
         if report['object_key'] != expected_key:
@@ -589,6 +590,12 @@ def complete_run(run_id, metadata, authorization):
             verify_uploaded_report(
                 object_key=expected_key, size=report['size'], sha256=report['sha256'],
                 lease_fence=run_for_key.lease_token_hash,
+            )
+            report_html, _report_sha256 = download_report_html(
+                expected_key,
+                expected_size=report['size'],
+                expected_sha256=report['sha256'],
+                expected_lease_fence=run_for_key.lease_token_hash,
             )
         except ReportValidationError as exc:
             raise AgentAPIError(str(exc), 422) from exc
@@ -616,7 +623,10 @@ def complete_run(run_id, metadata, authorization):
 
         if status == 'completed':
             from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
-            summary = SimcMonitor.validate_simulation_semantics(metadata['stdout'])
+            summary = SimcMonitor.validate_simulation_semantics(
+                metadata['stdout'],
+                report_html=report_html,
+            )
             if summary.get('dps') is None or not re.search(r'\bDPS=', metadata['stdout']):
                 raise AgentAPIError('SimC result does not contain DPS')
             SimcTaskArtifact.objects.update_or_create(
@@ -628,7 +638,13 @@ def complete_run(run_id, metadata, authorization):
                 },
             )
             run.result_summary = summary
-            run.error_detail = None
+            if summary.get('valid'):
+                run.error_detail = None
+            else:
+                status = 'failed'
+                run.error_detail = str(
+                    summary.get('reason') or 'SimC结果语义无效'
+                )[:8000]
         else:
             detail = (metadata['stderr'].strip() or metadata['stdout'].strip()
                       or 'Agent execution failed')

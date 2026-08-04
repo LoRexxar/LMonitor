@@ -2011,6 +2011,33 @@ main_hand=,id=222222
         self.assertEqual(validation['failure_type'], 'talent_apl_dispatch')
         self.assertEqual(validation['unresolved_action_lists'], ['hero'])
 
+    def test_semantic_validation_rejects_report_invalid_weapon_actions(self):
+        stdout = '''Player: MID2_Rogue_Outlaw
+DPS=27230.56 DPS-Error=43.77/0.16%
+  auto_attack_mh Count=50 pDPS= 9000
+  sinister_strike Count=40 pDPS= 18000
+'''
+        report_html = '''<html><body>
+<div class="section section-open"><h2>Trivial</h2><ul>
+<li>Player 'MID2_Rogue_Outlaw' attempting to use Action 'dispatch' (2098) with invalid main-hand weapon type 'Dagger'.</li>
+<li>Player 'MID2_Rogue_Outlaw' attempting to use Action 'blade_rush' (271877) with invalid main-hand weapon type 'Dagger'.</li>
+</ul></div></body></html>'''
+        validation = SimcMonitor.validate_simulation_semantics(stdout, report_html=report_html)
+        self.assertFalse(validation['valid'])
+        self.assertEqual(validation['failure_type'], 'invalid_weapon_action')
+        self.assertEqual(len(validation['report_errors']), 2)
+        self.assertIn('dispatch', validation['reason'])
+
+    def test_semantic_validation_keeps_nonfatal_report_warnings_valid(self):
+        stdout = '''Player: Frost
+DPS=208365 DPS-Error=200/0.1%
+  frostbolt Count=42 pDPS= 208365
+'''
+        report_html = "<h2>Trivial</h2><li>The 'icicles' expression is deprecated.</li>"
+        validation = SimcMonitor.validate_simulation_semantics(stdout, report_html=report_html)
+        self.assertTrue(validation['valid'])
+        self.assertEqual(validation['report_errors'], [])
+
     def test_semantic_validation_does_not_misclassify_when_a_talent_dispatch_is_active(self):
         stdout = '''Player: Audit warrior fury 90
   DPS=2499.2 DPS-Error=20/0.82%

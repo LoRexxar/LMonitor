@@ -409,8 +409,30 @@ class SimcAgentJobAPITests(TestCase):
         path = f"/api/simc-agent/v1/jobs/{job['run_id']}/complete/"
         if not verify_report:
             return self.post_json(path, metadata, token)
-        with patch('botend.services.simc_agent_oss.verify_uploaded_report'):
+        downloaded_report = report.decode('utf-8', errors='replace') if report is not None else ''
+        downloaded_sha256 = report_identity['sha256'] if report_identity else ''
+        with patch('botend.services.simc_agent_oss.verify_uploaded_report'), \
+             patch(
+                 'botend.services.simc_agent_oss.download_report_html',
+                 return_value=(downloaded_report, downloaded_sha256),
+             ):
             return self.post_json(path, metadata, token)
+
+    def test_complete_marks_report_invalid_weapon_actions_semantically_invalid(self):
+        job = self.claim_after_task()
+        report = b'''<html><body><div><h2>Trivial</h2><ul>
+<li>Player 'MID2_Rogue_Outlaw' attempting to use Action 'dispatch' (2098) with invalid main-hand weapon type 'Dagger'.</li>
+</ul></div></body></html>'''
+        response = self.complete(job, report=report)
+        self.assertEqual(response.status_code, 200, response.content)
+        run = SimulationRun.objects.get(pk=job['run_id'])
+        self.assertEqual(run.status, 'failed')
+        self.assertFalse(run.result_summary['valid'])
+        self.assertEqual(run.result_summary['failure_type'], 'invalid_weapon_action')
+        self.assertIn('dispatch', run.result_summary['reason'])
+        self.assertIn('dispatch', run.error_detail)
+        run.task.refresh_from_db()
+        self.assertEqual(run.task.current_status, 3)
 
     def test_complete_success_artifact_dps_and_idempotency(self):
         job = self.claim_after_task()
@@ -696,7 +718,10 @@ class SimcAgentJobAPITests(TestCase):
                    side_effect=lambda: clock['now']), patch(
                        'botend.services.simc_run_control.authenticate_bearer',
                        side_effect=authenticate_then_advance,
-                   ), patch('botend.services.simc_agent_oss.verify_uploaded_report'):
+                   ), patch('botend.services.simc_agent_oss.verify_uploaded_report'), patch(
+                       'botend.services.simc_agent_oss.download_report_html',
+                       return_value=('<html></html>', 'a' * 64),
+                   ):
             response = self.complete(job, verify_report=False)
 
         self.assertEqual(response.status_code, 409, response.content)
@@ -834,7 +859,10 @@ class SimcAgentJobAPITests(TestCase):
                 'size': len(report), 'sha256': hashlib.sha256(report).hexdigest(),
             },
         }
-        with patch('botend.services.simc_agent_oss.verify_uploaded_report'):
+        with patch('botend.services.simc_agent_oss.verify_uploaded_report'), patch(
+            'botend.services.simc_agent_oss.download_report_html',
+            return_value=(report.decode(), hashlib.sha256(report).hexdigest()),
+        ):
             response = self.post_json(
                 f"/api/simc-agent/v1/jobs/{job['run_id']}/complete/", metadata,
             )
