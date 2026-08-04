@@ -32,7 +32,7 @@ from django.template.loader import render_to_string
 
 from django.conf import settings
 from utils.log import logger
-from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcApl, SimcAplSymbol, SimcTask, SimulationRun, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, SimcAgent, SimcAgentMaintenanceTask, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState, WowSpellSnapshot, WowTalentNodeMetadata, WowItemSnapshot
+from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcApl, SimcAplSymbol, SimcTask, SimulationRun, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, SimcAgent, SimcAgentMaintenanceTask, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState, WowSpellSnapshot, WowTalentNodeMetadata, WowTalentVersion, WowItemSnapshot
 from botend.alerting import upsert_system_alert
 from django.db import IntegrityError, models, transaction
 from core.glm import GLMClient
@@ -3379,6 +3379,18 @@ class SimcProfileAPIView(View):
             return 'battlenet'
         return 'attribute_only'
 
+    @staticmethod
+    def _talent_simulator_versions():
+        versions = {}
+        rows = WowTalentVersion.objects.filter(is_active=True).order_by(
+            'branch', '-is_default_simulator', '-updated_at', '-id',
+        )
+        for row in rows:
+            branch = str(row.branch or '').strip().lower()
+            if branch in ('retail', 'ptr') and branch not in versions:
+                versions[branch] = row.key
+        return versions
+
     def get(self, request, profile_id=None):
         """获取SimC配置列表或单个配置"""
         try:
@@ -3407,6 +3419,7 @@ class SimcProfileAPIView(View):
                     'battlenet_character': getattr(profile, 'battlenet_character', '') or '',
                     'player_equipment': getattr(profile, 'player_equipment', '') or '',
                     'talent': profile.talent,
+                    'talent_versions': self._talent_simulator_versions(),
                     'gear_strength': profile.gear_strength,
                     'gear_crit': profile.gear_crit,
                     'gear_haste': profile.gear_haste,
@@ -3469,7 +3482,8 @@ class SimcProfileAPIView(View):
                 
                 return JsonResponse({
                     'success': True,
-                    'data': profile_list
+                    'data': profile_list,
+                    'talent_versions': self._talent_simulator_versions(),
                 })
             
         except Exception as e:

@@ -1742,6 +1742,7 @@ let simcWbProfileTotalPages = 1;
 let simcWbProfileListRequestSerial = 0;
 let simcWbProfileListAbortController = null;
 let simcWbProfileSort = { key: '', direction: 'asc' };
+let simcProfileTalentVersions = { retail: '', ptr: '' };
 
 function simcProfileSortValue(row, key) {
     if (key === 'id') return Number(row.id || 0);
@@ -1857,6 +1858,10 @@ function loadSimcWorkbenchProfiles(page) {
             tbody.innerHTML = '<tr><td colspan="6" class="text-center py-6 text-red-500">加载失败</td></tr>';
             return;
         }
+        simcProfileTalentVersions = {
+            retail: String(data.talent_versions?.retail || ''),
+            ptr: String(data.talent_versions?.ptr || ''),
+        };
         let rows = data.data || [];
 
         // Client-side spec filtering. System profiles use class_spec while user
@@ -2357,9 +2362,16 @@ function updateSimcProfileTalentSimulatorLink(formWrap = document.getElementById
     if (!formWrap) return;
     const input = formWrap.querySelector('input[name="talent"]');
     const specSelect = formWrap.querySelector('select[name="spec"]');
+    const ptrInput = formWrap.querySelector('input[name="use_ptr"]');
     const link = formWrap.querySelector('[data-profile-talent-simulator-link]');
-    if (!input || !specSelect || !link) return;
-    const url = simcTalentSimulatorUrl(input.value, simcProfileFormCanonicalSpec(specSelect.value));
+    if (!input || !specSelect || !ptrInput || !link) return;
+    const usePtr = ptrInput.checked;
+    const versionKey = simcProfileTalentVersions[usePtr ? 'ptr' : 'retail'] || '';
+    const url = simcTalentSimulatorUrl(
+        input.value,
+        simcProfileFormCanonicalSpec(specSelect.value),
+        versionKey,
+    );
     if (!url) {
         link.removeAttribute('href');
         link.setAttribute('aria-disabled', 'true');
@@ -2445,8 +2457,10 @@ function simcWbToggleProfileForm(mode, profileData) {
         simcWbSyncProfileFormMode();
         const talentInput = clonedForm.querySelector('input[name="talent"]');
         const specSelect = clonedForm.querySelector('select[name="spec"]');
+        const ptrInput = clonedForm.querySelector('input[name="use_ptr"]');
         talentInput?.addEventListener('input', () => updateSimcProfileTalentSimulatorLink(clonedForm));
         specSelect?.addEventListener('change', () => updateSimcProfileTalentSimulatorLink(clonedForm));
+        ptrInput?.addEventListener('change', () => updateSimcProfileTalentSimulatorLink(clonedForm));
         updateSimcProfileTalentSimulatorLink(clonedForm);
     }
 }
@@ -2559,6 +2573,10 @@ async function simcWbEditProfile(id) {
         });
         const data = await resp.json();
         if (data.success) {
+            simcProfileTalentVersions = {
+                retail: String(data.talent_versions?.retail || simcProfileTalentVersions.retail || ''),
+                ptr: String(data.talent_versions?.ptr || simcProfileTalentVersions.ptr || ''),
+            };
             simcWbToggleProfileForm('edit', data);
         } else {
             showMessage('未找到配置', 'error');
@@ -3362,9 +3380,10 @@ function updateSimcComparisonSimulationCount() {
     count.innerHTML = `预计模拟 <strong class="text-lg text-violet-700">${total}</strong> 次`;
 }
 
-function simcTalentSimulatorUrl(buildCode, requestedCanonicalSpec = '') {
+function simcTalentSimulatorUrl(buildCode, requestedCanonicalSpec = '', requestedVersionKey = '') {
     buildCode = String(buildCode || '').trim();
     const canonicalSpec = String(requestedCanonicalSpec || simcResolvedCanonicalSpec || '').trim().toLowerCase();
+    const versionKey = String(requestedVersionKey || '').trim();
     const separator = canonicalSpec.indexOf('_');
     if (!buildCode || separator <= 0) return '';
     const classToken = canonicalSpec.slice(0, separator);
@@ -3375,6 +3394,7 @@ function simcTalentSimulatorUrl(buildCode, requestedCanonicalSpec = '') {
     params.set('class', classAliases[classToken] || toPascalCase(classToken));
     params.set('spec', toPascalCase(specToken));
     params.set('code', buildCode);
+    if (versionKey) params.set('version', versionKey);
     return `/portal/talents/?${params.toString()}`;
 }
 

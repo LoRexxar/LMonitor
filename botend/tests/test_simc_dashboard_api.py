@@ -15,7 +15,7 @@ from botend.management.commands.update_simc_binary import Command as UpdateSimcB
 from botend.services.simc_player_config import build_player_config_detail, parse_manual_player_config, parse_manual_simc_candidates, parse_simc_player_profile
 from botend.services.simc_composer import SimcComposer
 from botend.services.simc_task_service import append_candidate_runs
-from botend.models import PlayerSpecTopPlayer, SeasonMeta, SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate, SimcProfile, SimcTask, SimulationRun, WowItemSnapshot
+from botend.models import PlayerSpecTopPlayer, SeasonMeta, SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate, SimcProfile, SimcTask, SimulationRun, WowItemSnapshot, WowTalentVersion
 
 
 TEST_SIMC_REVISION = 'a' * 40
@@ -262,6 +262,23 @@ class SimcProfileResourceListTests(TestCase):
         self.other_user = User.objects.create_user(username='profile_resource_other', password='pwd')
         self.client = Client()
         self.client.force_login(self.user)
+
+    def test_profile_api_exposes_active_retail_and_ptr_talent_simulator_versions(self):
+        WowTalentVersion.objects.create(
+            key='retail-profile-link', branch='retail', major_version='12.0.7',
+            label='正式服', is_active=True, is_default_simulator=True,
+            status='active',
+        )
+        WowTalentVersion.objects.create(
+            key='ptr-profile-link', branch='ptr', major_version='12.1.0',
+            label='PTR', is_active=True, status='active',
+        )
+        response = self.client.get('/api/simc-profile/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['talent_versions'], {
+            'retail': 'retail-profile-link',
+            'ptr': 'ptr-profile-link',
+        })
 
     def test_list_exposes_migrated_system_profiles_as_read_only_resources(self):
         own = SimcProfile.objects.create(

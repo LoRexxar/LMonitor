@@ -119,9 +119,13 @@ class SimcSourceResolutionFrontendContractTests(unittest.TestCase):
         updater = MAIN.split('function updateSimcProfileTalentSimulatorLink', 1)[1].split('\n}', 1)[0]
         self.assertIn("input[name=\"talent\"]", updater)
         self.assertIn("select[name=\"spec\"]", updater)
+        self.assertIn("input[name=\"use_ptr\"]", updater)
         self.assertIn('simcProfileFormCanonicalSpec', updater)
+        self.assertIn('simcProfileTalentVersions', updater)
+        self.assertIn("usePtr ? 'ptr' : 'retail'", updater)
         self.assertIn('simcTalentSimulatorUrl', updater)
         self.assertIn("link.removeAttribute('href')", updater)
+        self.assertIn("params.set('version', versionKey)", MAIN)
 
     def test_exactly_three_peer_sources_and_spec_is_scoped_to_specified_panel(self):
         source_panel = WORKFLOW[WORKFLOW.index('id="simc-sim-player-sources"'):WORKFLOW.index('id="simc-sim-apl-list"')]
