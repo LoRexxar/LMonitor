@@ -87,7 +87,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertEqual(title.get_text(strip=True), 'SimC 基准面板')
 
     def test_shared_benchmark_assets_use_current_cache_version(self):
-        expected = '?v=20260804b'
+        expected = '?v=20260804c'
         for page in (INDEX, CONFIG_PAGE, PANEL_EDIT_PAGE, EXECUTION_PAGE):
             for line in page.splitlines():
                 if 'simc-benchmark-dashboard.' in line:
@@ -216,6 +216,21 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         for misleading_label in ('基准任务总计', "metric('候选 Run'", "metric('缺失结果'"):
             self.assertNotIn(misleading_label, aggregate)
         self.assertIn('panel_coverage', JS)
+
+    def test_current_execution_column_stays_compact(self):
+        """当前执行只展示少量 Run 状态，不应占据与聚合覆盖相同的宽度。"""
+        self.assertIn(
+            '.benchmark-current-execution-cell { width: 14rem; min-width: 14rem; max-width: 14rem;',
+            CSS,
+        )
+        self.assertIn(
+            '.benchmark-execution-progress.compact { min-width: 0;',
+            CSS,
+        )
+        self.assertNotIn(
+            '.benchmark-current-execution-cell { min-width: 22rem;',
+            CSS,
+        )
 
     def test_cross_execution_results_are_a_selectable_dimensioned_ranking(self):
         """The aggregate is a result list, not a flattened coordinate preview."""
@@ -377,7 +392,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn('function loadExecutionPage()', JS)
         self.assertIn('function rerunFailedPage(id,button)', JS)
         self.assertIn("dataset:{rerunFailed:data.id}", JS)
-        self.assertIn('?v=20260804b', INDEX)
+        self.assertIn('?v=20260804c', INDEX)
         self.assertIn("if(!configPage){document.body.classList.add", JS)
         self.assertIn("data-benchmark-notification", JS)
         self.assertNotIn('data-create-only', CONFIG_PAGE)
@@ -478,7 +493,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
             '.candidate-config-row',
         ):
             self.assertIn(selector, CSS)
-        self.assertIn('?v=20260804b', CONFIG_PAGE)
+        self.assertIn('?v=20260804c', CONFIG_PAGE)
 
     def test_panel_name_does_not_collide_with_nested_scenario_names(self):
         soup = BeautifulSoup(PARTIAL, "html.parser")
