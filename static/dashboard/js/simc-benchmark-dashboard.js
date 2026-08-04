@@ -241,7 +241,7 @@ function advancedGroup(label,description=''){
   copy.append(el('strong',{},label));if(description)copy.append(el('small',{},description));
   summary.append(copy,el('span',{class:'advanced-chevron','aria-hidden':'true'},'⌄'));details.append(summary,body);return {details,body};
 }
-function resourceMatches(row,specKey,generic=false){ const raw=row.spec_key!==undefined?row.spec_key:row.spec; const key=String(raw||'').toLowerCase(); return key===specKey || (generic && ['','default','generic','all','*'].includes(key)); }
+function resourceMatches(row,specKey,generic=false){ const key=String(row.canonical_spec||'').toLowerCase(); return key===specKey || (generic && key===''); }
 function createDefaultSpec(specKey,displayOrder=0){ const spec=(resources?.specs||[]).find(row=>row.value===specKey),defaults=resources?.create_defaults?.[specKey];if(!spec||!defaults?.available)return null;return {class_name:spec.class_name,spec_key:specKey,label:spec.spec_label||spec.label,apl_id:defaults.apl_id,template_id:defaults.template_id,backend_id:defaults.backend_id,profiles:[{profile_id:defaults.profile_id,label:defaults.profile_label,is_enabled:true,display_order:0}],is_enabled:true,display_order:displayOrder}; }
 function renderCreateSpecPicker(){
   const CREATE_SPEC_ROLE_GROUPS=[{key:'dps',label:'DPS'},{key:'tank',label:'坦克'},{key:'healer',label:'治疗'}];

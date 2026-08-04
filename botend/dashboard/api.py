@@ -43,6 +43,8 @@ from botend.services.simc_player_config import (
     EQUIPMENT_SLOT_ALIASES,
     EQUIPMENT_SLOTS,
     authoritative_player_baseline,
+    canonical_simc_profile_identity,
+    canonical_simc_profile_key,
     canonical_simc_spec_identity,
     normalize_gear_candidate_value,
     parse_manual_player_config,
@@ -150,15 +152,11 @@ def _canonical_simc_spec(value):
 
 def _simc_spec_label(spec, class_name=''):
     """Return a Chinese display label without changing the stable SimC key."""
-    normalized = str(spec or '').strip().lower()
+    normalized = canonical_simc_profile_key(spec, class_name) or str(spec or '').strip().lower()
     if normalized in ('', 'default', 'all', '*'):
         return '通用' if normalized else '未标记'
     if normalized in SIMC_SPEC_LABELS:
         return SIMC_SPEC_LABELS[normalized]
-    normalized_class = str(class_name or '').strip().lower().replace('death_knight', 'deathknight').replace('demon_hunter', 'demonhunter')
-    combined = f'{normalized_class}_{normalized}' if normalized_class else ''
-    if combined in SIMC_SPEC_LABELS:
-        return SIMC_SPEC_LABELS[combined]
     suffix_labels = {
         label
         for key, label in SIMC_SPEC_LABELS.items()
@@ -171,27 +169,16 @@ def _simc_spec_label(spec, class_name=''):
 
 def _simc_spec_visual(spec, class_name=''):
     """Resolve the authoritative specialization icon and Blizzard class color."""
-    normalized = str(spec or '').strip().lower()
-    canonical = _canonical_simc_spec(normalized)
-    raw_class = re.sub(r'(?<!^)(?=[A-Z])', '_', str(class_name or '').strip()).lower()
-    class_key = raw_class.replace('death_knight', 'deathknight').replace('demon_hunter', 'demonhunter')
-    if not canonical and class_key:
-        spec_key = re.sub(r'(?<!^)(?=[A-Z])', '_', str(spec or '').strip()).lower()
-        class_prefix = f'{class_key}_'
-        if spec_key.startswith(class_prefix):
-            spec_key = spec_key[len(class_prefix):]
-        candidate = f'{class_key}_{spec_key}'
-        canonical = candidate if candidate in SIMC_SPEC_DB_IDENTITIES else None
+    canonical = canonical_simc_profile_key(spec, class_name)
     identity = SIMC_SPEC_DB_IDENTITIES.get(canonical or '')
     if identity:
         db_class_name, db_spec_name = identity
     else:
-        db_class_name = SIMC_CLASS_DB_NAMES.get(class_key)
-        db_spec_name = None
+        db_class_name = db_spec_name = None
     icon_url = SPEC_ICON.get((db_class_name, db_spec_name), '') if db_class_name and db_spec_name else ''
     return {
         'spec_icon_url': icon_url,
-        'class_color': CLASS_COLOR.get(db_class_name, '#64748B'),
+        'class_color': CLASS_COLOR.get(db_class_name, '#94A3B8') if db_class_name else '#94A3B8',
     }
 
 
@@ -1531,7 +1518,7 @@ class SimcTaskAPIView(View):
                 ).first()
                 if not profile:
                     return JsonResponse({'success': False, 'error': '玩家配置不存在或无权使用'}, status=400)
-                profile_class, profile_spec = canonical_simc_spec_identity(profile.spec)
+                profile_class, profile_spec = canonical_simc_profile_identity(profile.spec, profile.class_name)
                 if profile_spec != target_spec or (target_class and profile_class and profile_class != target_class):
                     return JsonResponse({'success': False, 'error': '已保存玩家配置专精与目标专精不一致'}, status=400)
             elif source_type == 'default':
@@ -2293,7 +2280,7 @@ class SimcComparisonTaskAPIView(View):
                     )
                 except (TypeError, ValueError, SimcProfile.DoesNotExist):
                     raise ValueError('玩家配置不存在或无权使用')
-                profile_class, profile_spec = canonical_simc_spec_identity(profile.spec)
+                profile_class, profile_spec = canonical_simc_profile_identity(profile.spec, profile.class_name)
                 if target_spec and (profile_spec != target_spec or (target_class and profile_class and profile_class != target_class)):
                     raise ValueError('已保存玩家配置专精与目标专精不一致')
             else:
@@ -2661,6 +2648,7 @@ class SimcPlayerConfigDetailAPIView(View):
             'id': profile.id,
             'name': profile.name,
             'spec': profile.spec,
+            'canonical_spec': canonical_simc_profile_key(profile.spec, profile.class_name),
             'spec_label': _simc_spec_label(profile.spec, profile.class_name),
             'version': profile.version,
             'is_active': profile.is_active,
@@ -3437,6 +3425,7 @@ class SimcProfileAPIView(View):
                     'id': profile.id,
                     'name': profile.name,
                     'spec': profile.spec,
+                    'canonical_spec': canonical_simc_profile_key(profile.spec, profile.class_name),
                     'spec_label': _simc_spec_label(profile.spec, profile.class_name),
                     **_simc_spec_visual(profile.spec, profile.class_name),
                     'use_ptr': bool(profile.use_ptr),
@@ -3481,6 +3470,7 @@ class SimcProfileAPIView(View):
                         'id': profile.id,
                         'name': profile.name,
                         'spec': profile.spec,
+                        'canonical_spec': canonical_simc_profile_key(profile.spec, profile.class_name),
                         'spec_label': _simc_spec_label(profile.spec, profile.class_name),
                         **_simc_spec_visual(profile.spec, profile.class_name),
                         'version': profile.version,
@@ -3537,6 +3527,7 @@ class SimcProfileAPIView(View):
         values = {
             'mode': mode,
             'spec': str(data.get('spec', fallback.get('spec', 'fury')) or 'fury').strip().lower() or 'fury',
+            'class_name': str(data.get('class_name', fallback.get('class_name', '')) or '').strip().lower(),
             'use_ptr': raw_use_ptr,
             'battlenet_region': str(data.get('battlenet_region', fallback.get('battlenet_region', '')) or '').strip().lower(),
             'battlenet_realm': str(data.get('battlenet_realm', fallback.get('battlenet_realm', '')) or '').strip(),
@@ -3544,6 +3535,11 @@ class SimcProfileAPIView(View):
             'player_equipment': str(data.get('player_equipment', fallback.get('player_equipment', '')) or '').strip(),
             'talent': str(data.get('talent', fallback.get('talent', '')) or '').strip(),
         }
+        profile_class, profile_spec = canonical_simc_profile_identity(values['spec'], values['class_name'])
+        canonical_spec = f'{profile_class}_{profile_spec}' if profile_class and profile_spec else ''
+        if canonical_spec not in SIMC_SPEC_VALUES:
+            raise ValueError('必须选择有效且职业唯一的专精')
+        values['class_name'], values['spec'] = profile_class, canonical_spec
         if mode == 'battlenet':
             if values['battlenet_region'] == 'cn':
                 raise ValueError('国服角色无法通过 Battle.net 加载，请改用 SimC Addon 导入')
@@ -3564,6 +3560,13 @@ class SimcProfileAPIView(View):
                 raise ValueError('Battle.net 角色未生成完整玩家快照')
             values.update(frozen)
             values['mode'] = 'battlenet'
+            profile_class, profile_spec = canonical_simc_profile_identity(
+                values.get('spec'), values.get('class_name'),
+            )
+            canonical_spec = f'{profile_class}_{profile_spec}' if profile_class and profile_spec else ''
+            if canonical_spec not in SIMC_SPEC_VALUES:
+                raise ValueError('Battle.net 返回了无效或无法唯一识别的专精')
+            values['class_name'], values['spec'] = profile_class, canonical_spec
         elif mode == 'manual_equipment':
             values['battlenet_region'] = values['battlenet_realm'] = values['battlenet_character'] = ''
             if not values['player_equipment']:
@@ -3718,6 +3721,7 @@ class SimcProfileAPIView(View):
                     profile_fields = {
                         'name': name,
                         'spec': values['spec'],
+                        'class_name': values['class_name'],
                         'use_ptr': values['use_ptr'],
                         'player_config_mode': values['mode'],
                         'battlenet_region': values['battlenet_region'],
@@ -3849,6 +3853,7 @@ class SimcProfileAPIView(View):
                     user_id=request.user.id,
                     name=name,
                     spec=values['spec'],
+                    class_name=values['class_name'],
                     use_ptr=values['use_ptr'],
                     player_config_mode=values['mode'],
                     battlenet_region=values['battlenet_region'],
@@ -4097,6 +4102,7 @@ class SimcProfileAPIView(View):
                 return JsonResponse({'success': False, 'error': str(e)})
             profile.name = name
             profile.spec = values['spec']
+            profile.class_name = values['class_name']
             profile.use_ptr = values['use_ptr']
             profile.player_config_mode = values['mode']
             profile.battlenet_region = values['battlenet_region']
@@ -8835,27 +8841,14 @@ def _benchmark_backend_game_versions(backends):
 
 
 def _benchmark_resource_spec_key(row, *, allow_generic=False):
-    """Return a supported full class/spec key; only templates may be generic."""
+    """Return the same authoritative class/spec tag used by Profile APIs."""
     raw_spec = str(row.spec or '').strip().lower()
     if allow_generic and raw_spec in {'', 'generic', 'default', 'all', '*'}:
         return ''
-    class_name = str(row.class_name or '').strip().lower()
-    class_identity = canonical_simc_spec_identity(class_name)
-    if class_identity in SUPPORTED_SIMC_SPEC_IDENTITIES:
-        class_name = class_identity[0]
-    raw_identity = canonical_simc_spec_identity(raw_spec)
-    if class_name:
-        if raw_identity in SUPPORTED_SIMC_SPEC_IDENTITIES:
-            candidates = [raw_spec] if raw_identity[0] == class_name else []
-        else:
-            candidates = [f'{class_name}_{raw_spec}']
-    else:
-        candidates = [raw_spec]
-    for candidate in candidates:
-        resolved = canonical_simc_spec_identity(candidate)
-        if resolved in SUPPORTED_SIMC_SPEC_IDENTITIES:
-            return f'{resolved[0]}_{resolved[1]}'
-    return ''
+    resolved = canonical_simc_profile_identity(raw_spec, row.class_name)
+    if resolved not in SUPPORTED_SIMC_SPEC_IDENTITIES:
+        return ''
+    return f'{resolved[0]}_{resolved[1]}'
 
 
 def _benchmark_create_defaults(resources, specs):
@@ -8931,12 +8924,14 @@ def _benchmark_options_payload(owner_id, ownership_context):
             'templates': [{
                 'id': row.pk, 'name': row.name, 'spec': row.spec,
                 'spec_key': _benchmark_resource_spec_key(row, allow_generic=True),
+                'canonical_spec': _benchmark_resource_spec_key(row, allow_generic=True),
                 'class_name': row.class_name, 'source': row.source,
                 'is_system': row.owner_user_id is None,
             } for row in resources['templates']],
             'apls': [{
                 'id': row.pk, 'name': row.name, 'spec': row.spec,
                 'spec_key': _benchmark_resource_spec_key(row),
+                'canonical_spec': _benchmark_resource_spec_key(row),
                 'class_name': row.class_name, 'source': row.source,
                 'is_system': bool(row.is_system or row.owner_user_id is None),
                 'validation_status': row.validation_status,
@@ -8944,6 +8939,7 @@ def _benchmark_options_payload(owner_id, ownership_context):
             'profiles': [{
                 'id': row.pk, 'name': row.name, 'spec': row.spec,
                 'spec_key': _benchmark_resource_spec_key(row),
+                'canonical_spec': _benchmark_resource_spec_key(row),
                 'class_name': row.class_name, 'source': row.source,
                 'is_system': row.user_id is None,
                 'is_default': row.user_id is None,

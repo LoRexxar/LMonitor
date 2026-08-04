@@ -26,7 +26,8 @@ from botend.models import (
     SimcContentTemplate, SimcProfile, WowItemSnapshot,
 )
 from botend.services.simc_player_config import (
-    EQUIPMENT_SLOTS, EQUIPMENT_SLOT_ALIASES, canonical_simc_spec_identity,
+    EQUIPMENT_SLOTS, EQUIPMENT_SLOT_ALIASES, canonical_simc_profile_identity,
+    canonical_simc_spec_identity,
     is_supported_simc_spec_identity, normalize_battlenet_class_name,
     normalize_gear_candidate_value,
     SUPPORTED_SIMC_SPEC_IDENTITIES,
@@ -90,7 +91,7 @@ _SAFE_KEY = re.compile(r'^[a-z0-9][a-z0-9_-]{0,99}$')
 
 def _profile_class_name(profile):
     """Accept both canonical class names and legacy ``class_spec`` values."""
-    profile_class, _profile_spec = canonical_simc_spec_identity(profile.class_name)
+    profile_class, _profile_spec = canonical_simc_profile_identity(profile.spec, profile.class_name)
     return profile_class or normalize_battlenet_class_name(profile.class_name)
 
 
@@ -172,7 +173,7 @@ def resolve_default_benchmark_resources(spec_keys, user_id):
         profile_class = _profile_class_name(profile)
         if profile_class and profile_class != expected_class:
             _error(f'{spec_key}: Profile class mismatch', 'resources')
-        if not _same_spec(profile.spec, expected_class, expected_spec):
+        if not _same_profile_spec(profile, expected_class, expected_spec):
             _error(f'{spec_key}: Profile specialization mismatch', 'resources')
         resolved[spec_key] = {
             'apl': apl, 'template': template, 'backend': backend, 'profile': profile,
@@ -260,6 +261,11 @@ def _same_spec(actual, expected_class, expected_spec, *, allow_generic=False):
         actual_spec == expected_spec
         and (not actual_class or not expected_class or actual_class == expected_class)
     )
+
+
+def _same_profile_spec(profile, expected_class, expected_spec):
+    actual_class, actual_spec = canonical_simc_profile_identity(profile.spec, profile.class_name)
+    return actual_spec == expected_spec and actual_class == expected_class
 
 
 def _resource(model, resource_id, kind, user_id):
@@ -555,7 +561,7 @@ def normalize_panel_payload(payload, user_id, panel=None):
             profile_class = _profile_class_name(profile)
             if profile_class and profile_class != expected_class:
                 _error('Profile 职业不一致', 'profiles')
-            if not _same_spec(profile.spec, expected_class, expected_spec): _error('Profile 专精不一致', 'profiles')
+            if not _same_profile_spec(profile, expected_class, expected_spec): _error('Profile 专精不一致', 'profiles')
             normalized_profiles.append({
                 'profile_id': profile.pk,
                 'label': _text(profile_raw.get('label', profile.name), 'profile.label',

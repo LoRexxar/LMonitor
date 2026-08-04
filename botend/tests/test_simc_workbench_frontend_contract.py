@@ -128,6 +128,20 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('<img', badge)
         self.assertIn('--simc-class-color', badge)
 
+    def test_profile_filter_uses_backend_canonical_identity_without_client_aliases(self):
+        matcher = MAIN[
+            MAIN.index('function simcProfileMatchesSpecFilter'):
+            MAIN.index('function loadSimcWorkbenchProfiles')
+        ]
+        options = MAIN[
+            MAIN.index('async function loadSimcProfileSpecFilterOptions'):
+            MAIN.index('function bindSimcWorkbenchProfilesControls')
+        ]
+        self.assertIn('row.canonical_spec', matcher)
+        self.assertIn('option.value = row.value', options)
+        self.assertNotIn('disambiguatedSpecs', matcher)
+        self.assertNotIn('simcProfileSpecFilterValue', MAIN)
+
     def test_profile_form_normalizes_legacy_spec_and_leaves_optional_attribute_overrides_blank(self):
         """编辑旧 class_spec 记录必须选中实际专精；未填写属性不得伪造覆盖值。"""
         form = MAIN[MAIN.index('function simcWbToggleProfileForm'):MAIN.index('function simcWbCloseProfileForm')]
@@ -170,8 +184,9 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
 
     def test_home_creation_flow_uses_backend_defaults_filters_profiles_and_opens_history(self):
         workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
-        self.assertIn('profile.spec', MAIN)
-        self.assertIn('normalizeSimcSpecKey(profile.spec) === normalizedSpec', MAIN)
+        self.assertIn('profile.canonical_spec', MAIN)
+        self.assertIn("String(profile.canonical_spec || '')", MAIN)
+        self.assertNotIn('normalizeSimcSpecKey(profile.spec) === normalizedSpec', MAIN)
         self.assertIn('row.is_default === true', MAIN)
         self.assertNotIn("${index === 0 ? 'checked' : ''}", MAIN)
         self.assertIn('payload.default_template_id', MAIN)

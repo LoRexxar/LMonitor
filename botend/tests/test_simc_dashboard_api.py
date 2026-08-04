@@ -297,6 +297,90 @@ class SimcProfileResourceListTests(TestCase):
         self.assertIn('spell_deathknight_frostpresence.jpg', row['spec_icon_url'])
         self.assertEqual(row['class_color'], '#C41F3B')
 
+    def test_profile_list_exposes_one_canonical_spec_for_all_persisted_identity_shapes(self):
+        profiles = [
+            SimcProfile.objects.create(
+                user_id=self.user.id, name='短键冰法', class_name='mage_frost', spec='frost',
+                player_config_mode='manual_equipment', player_equipment='mage="Frost"\nspec=frost',
+            ),
+            SimcProfile.objects.create(
+                user_id=self.user.id, name='职业加短键冰法', class_name='mage', spec='frost',
+                player_config_mode='manual_equipment', player_equipment='mage="Frost"\nspec=frost',
+            ),
+            SimcProfile.objects.create(
+                user_id=self.user.id, name='完整键冰法', class_name='mage', spec='mage_frost',
+                player_config_mode='manual_equipment', player_equipment='mage="Frost"\nspec=frost',
+            ),
+        ]
+
+        response = self.client.get('/api/simc-profile/')
+
+        self.assertEqual(response.status_code, 200)
+        rows = {row['id']: row for row in response.json()['data']}
+        for profile in profiles:
+            self.assertEqual(rows[profile.id]['canonical_spec'], 'mage_frost')
+            self.assertEqual(rows[profile.id]['spec_label'], '冰霜')
+            self.assertIn('spell_frost_frostbolt02.jpg', rows[profile.id]['spec_icon_url'])
+
+    def test_profile_save_persists_one_canonical_class_spec_identity(self):
+        response = self.client.post(
+            '/api/simc-profile/',
+            data=json.dumps({
+                'name': 'Canonical frost mage',
+                'class_name': 'mage',
+                'spec': 'frost',
+                'player_config_mode': 'manual_equipment',
+                'player_equipment': 'mage="Tester"\\nhead=,id=1',
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        profile = SimcProfile.objects.get(pk=response.json()['data']['id'])
+        self.assertEqual(profile.class_name, 'mage')
+        self.assertEqual(profile.spec, 'mage_frost')
+        row = next(
+            item for item in self.client.get('/api/simc-profile/').json()['data']
+            if item['id'] == profile.id
+        )
+        self.assertEqual(row['canonical_spec'], 'mage_frost')
+
+    def test_profile_list_neutrally_rejects_conflicting_class_and_full_spec(self):
+        profile = SimcProfile.objects.create(
+            user_id=self.user.id, name='冲突标签', class_name='mage', spec='warrior_fury',
+        )
+        row = next(
+            item for item in self.client.get('/api/simc-profile/').json()['data']
+            if item['id'] == profile.id
+        )
+        self.assertEqual(row['canonical_spec'], '')
+        self.assertEqual(row['class_color'], '#94A3B8')
+
+    def test_profile_list_disambiguates_shared_short_specs_from_class_identity(self):
+        identities = [
+            ('deathknight_frost', 'frost', 'deathknight_frost'),
+            ('druid_restoration', 'restoration', 'druid_restoration'),
+            ('shaman_restoration', 'restoration', 'shaman_restoration'),
+            ('paladin_holy', 'holy', 'paladin_holy'),
+            ('priest_holy', 'holy', 'priest_holy'),
+            ('paladin_protection', 'protection', 'paladin_protection'),
+            ('warrior_protection', 'protection', 'warrior_protection'),
+        ]
+        profiles = [
+            (SimcProfile.objects.create(
+                user_id=self.user.id, name=canonical, class_name=class_name, spec=short_spec,
+                player_config_mode='manual_equipment', player_equipment='warrior="Identity"',
+            ), canonical)
+            for class_name, short_spec, canonical in identities
+        ]
+
+        response = self.client.get('/api/simc-profile/')
+
+        rows = {row['id']: row for row in response.json()['data']}
+        self.assertEqual(
+            {rows[profile.id]['canonical_spec'] for profile, _canonical in profiles},
+            {canonical for _profile, canonical in profiles},
+        )
+
     def test_list_exposes_migrated_system_profiles_as_read_only_resources(self):
         own = SimcProfile.objects.create(
             user_id=self.user.id, name='我的狂暴配置', spec='fury',
@@ -829,10 +913,9 @@ class SimcProfileResourceListTests(TestCase):
         self.assertIn('row.sync_version', source)
         self.assertIn('row.equipment_line_count', source)
         self.assertIn('simcProfileMatchesSpecFilter', source)
-        self.assertIn("frost_death_knight: ['deathknight', 'frost']", source)
-        self.assertIn("frost_mage: ['mage', 'frost']", source)
-        self.assertIn("protection_paladin: ['paladin', 'protection']", source)
-        self.assertIn("protection_warrior: ['warrior', 'protection']", source)
+        self.assertIn("String(row.canonical_spec || '')", source)
+        self.assertNotIn("frost_death_knight: ['deathknight', 'frost']", source)
+        self.assertNotIn("frost_mage: ['mage', 'frost']", source)
         self.assertIn('data-profile-equipment-slot', source)
         self.assertIn('item_id', source)
         self.assertIn('item_level', source)

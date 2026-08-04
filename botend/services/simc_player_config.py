@@ -220,6 +220,45 @@ def canonical_simc_spec_identity(spec):
     return '', value
 
 
+def canonical_simc_profile_identity(spec, class_name=''):
+    """Resolve one Profile identity across legacy and current storage shapes.
+
+    ``spec`` may be either a short SimC specialization or the product-wide
+    ``class_spec`` key. Some imported WCL rows historically stored that full key
+    in ``class_name`` while leaving ``spec`` short. The resolver only returns an
+    identity when both persisted fields agree; a supported full ``spec`` key
+    conflicting with ``class_name`` is rejected instead of guessed. Otherwise
+    the class field disambiguates shared short names such as frost, holy,
+    protection, and restoration.
+    """
+    raw_spec = str(spec or '').strip().lower()
+    spec_identity = canonical_simc_spec_identity(raw_spec)
+    raw_class = str(class_name or '').strip().lower()
+    class_identity = canonical_simc_spec_identity(raw_class)
+    class_hint = class_identity[0] if class_identity in SUPPORTED_SIMC_SPEC_IDENTITIES else normalize_battlenet_class_name(raw_class)
+    if '_' in raw_spec and spec_identity in SUPPORTED_SIMC_SPEC_IDENTITIES:
+        if class_hint and class_hint != spec_identity[0]:
+            return '', ''
+        return spec_identity
+
+    short_spec = spec_identity[1] if spec_identity[1] else class_identity[1]
+    hinted_identity = (class_hint, short_spec)
+    if hinted_identity in SUPPORTED_SIMC_SPEC_IDENTITIES:
+        return hinted_identity
+    if spec_identity in SUPPORTED_SIMC_SPEC_IDENTITIES:
+        return spec_identity
+    if class_identity in SUPPORTED_SIMC_SPEC_IDENTITIES:
+        return class_identity
+    return spec_identity
+
+
+def canonical_simc_profile_key(spec, class_name=''):
+    """Return the stable ``class_spec`` key for a persisted Profile identity."""
+    profile_class, profile_spec = canonical_simc_profile_identity(spec, class_name)
+    identity = (profile_class, profile_spec)
+    return f'{profile_class}_{profile_spec}' if identity in SUPPORTED_SIMC_SPEC_IDENTITIES else ''
+
+
 def is_supported_simc_spec_identity(spec):
     """Return whether a key/short spec resolves to a real supported class/spec."""
     return canonical_simc_spec_identity(spec) in SUPPORTED_SIMC_SPEC_IDENTITIES

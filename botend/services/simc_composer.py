@@ -25,7 +25,11 @@ from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
 from django.db import models
 from botend.models import SimcContentTemplate, SimcApl, SimcProfile
-from botend.services.simc_player_config import SPEC_CLASS, canonical_simc_spec_identity
+from botend.services.simc_player_config import (
+    SPEC_CLASS,
+    canonical_simc_profile_identity,
+    canonical_simc_spec_identity,
+)
 
 
 # Server-owned SimulationCraft raid-buff contract. Persisted values are bare
@@ -178,7 +182,7 @@ class SimcComposer:
             '{simulation_options}\n{player_identity}\n{talents}\n{equipment}\n'
             '{stat_overrides}\n{action_list}\n{output_options}'
         )
-        _, validation_spec = canonical_simc_spec_identity(profile.spec)
+        _, validation_spec = canonical_simc_profile_identity(profile.spec, getattr(profile, 'class_name', ''))
         request = {
             'spec': validation_spec or profile.spec,
             'use_ptr': bool(getattr(profile, 'use_ptr', False)),

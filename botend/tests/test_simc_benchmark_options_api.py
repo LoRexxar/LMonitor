@@ -163,6 +163,23 @@ class SimcBenchmarkOptionsApiTests(TestCase):
         projected_full_key = next(row for row in profiles if row['id'] == full_key_wcl.id)
         self.assertEqual(projected_full_key['spec_key'], 'warrior_fury')
 
+    def test_profile_tag_is_identical_across_profile_list_and_benchmark_options(self):
+        rows = []
+        for class_name in ('mage', 'deathknight'):
+            row = SimcProfile.objects.create(
+                user_id=self.owner.id, name=f'Legacy {class_name} frost',
+                class_name=class_name, spec='frost', is_active=True,
+            )
+            rows.append(row)
+        listed = self.client.get('/api/simc-profile/').json()['data']
+        benchmark = self.client.get('/api/simc-benchmarks/options/').json()['data']['resources']['profiles']
+        list_tags = {row['id']: row['canonical_spec'] for row in listed}
+        benchmark_tags = {row['id']: row['canonical_spec'] for row in benchmark}
+        self.assertEqual(list_tags[rows[0].id], 'mage_frost')
+        self.assertEqual(list_tags[rows[1].id], 'deathknight_frost')
+        for row in rows:
+            self.assertEqual(benchmark_tags[row.id], list_tags[row.id])
+
     def test_filters_other_owner_inactive_and_nonselectable_but_keeps_system(self):
         other_template = SimcContentTemplate.objects.create(
             name='Other template', spec='mage_fire', content='x',

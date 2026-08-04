@@ -87,7 +87,7 @@ def validate_apl_for_profile(profile, apl, backend=None):
 @transaction.atomic
 def publish_apl(apl_id, user_id, profile_id):
     """Authoritatively validate and publish an exact persisted Profile/APL pair."""
-    from botend.services.simc_player_config import canonical_simc_spec_identity
+    from botend.services.simc_player_config import canonical_simc_profile_identity, canonical_simc_spec_identity
     from botend.services.simc_task_service import _build_profile_payload
 
     apl = SimcApl.objects.select_for_update().get(pk=apl_id)
@@ -96,7 +96,7 @@ def publish_apl(apl_id, user_id, profile_id):
     )
     if apl.is_system or apl.owner_user_id != user_id:
         raise PermissionError('APL cannot be published by this user')
-    profile_class, profile_spec = canonical_simc_spec_identity(profile.spec)
+    profile_class, profile_spec = canonical_simc_profile_identity(profile.spec, profile.class_name)
     apl_class, apl_spec = canonical_simc_spec_identity(apl.spec)
     if not profile_spec or profile_spec != apl_spec or (
         profile_class and apl_class and profile_class != apl_class

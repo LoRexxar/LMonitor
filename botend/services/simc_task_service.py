@@ -610,8 +610,8 @@ def _resource_token(user_id, backend, profile, apl, template, identity):
 
 
 def _check_resource_specs(profile, apl, template):
-    from botend.services.simc_player_config import canonical_simc_spec_identity
-    profile_class, profile_spec = canonical_simc_spec_identity(profile.spec)
+    from botend.services.simc_player_config import canonical_simc_profile_identity, canonical_simc_spec_identity
+    profile_class, profile_spec = canonical_simc_profile_identity(profile.spec, profile.class_name)
     canonical_spec = f'{profile_class}_{profile_spec}' if profile_class and profile_spec else ''
     template_class, template_spec = canonical_simc_spec_identity(template.spec)
     generic = str(template.spec or '').strip().lower() in ('', 'default', 'all', '*')

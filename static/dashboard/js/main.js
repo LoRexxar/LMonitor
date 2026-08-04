@@ -1780,37 +1780,7 @@ function updateSimcProfileSortHeaders() {
 function simcProfileMatchesSpecFilter(row, requestedFilter) {
     const filter = String(requestedFilter || '').trim().toLowerCase();
     if (!filter) return true;
-
-    const profileSpec = String(row.spec || '').trim().toLowerCase();
-    if (profileSpec === filter) return true;
-
-    const rawClassName = String(row.class_name || '')
-        .trim().toLowerCase().replace(/[\s_-]+/g, '');
-    const canonicalClasses = [
-        'deathknight', 'demonhunter', 'druid', 'evoker', 'hunter', 'mage',
-        'monk', 'paladin', 'priest', 'rogue', 'shaman', 'warlock', 'warrior',
-    ];
-    const specClass = canonicalClasses.find(candidate => profileSpec.startsWith(`${candidate}_`)) || '';
-    const className = canonicalClasses.includes(rawClassName) ? rawClassName : specClass;
-    let specialization = profileSpec;
-    const classPrefix = `${className}_`;
-    if (className && specialization.startsWith(classPrefix)) {
-        specialization = specialization.slice(classPrefix.length);
-    }
-
-    const disambiguatedSpecs = {
-        frost_death_knight: ['deathknight', 'frost'],
-        frost_mage: ['mage', 'frost'],
-        restoration_druid: ['druid', 'restoration'],
-        restoration_shaman: ['shaman', 'restoration'],
-        holy_paladin: ['paladin', 'holy'],
-        protection_paladin: ['paladin', 'protection'],
-        holy_priest: ['priest', 'holy'],
-        protection_warrior: ['warrior', 'protection'],
-    };
-    const target = disambiguatedSpecs[filter];
-    if (target) return className === target[0] && specialization === target[1];
-    return specialization === filter;
+    return String(row.canonical_spec || '').trim().toLowerCase() === filter;
 }
 
 function loadSimcWorkbenchProfiles(page) {
@@ -1968,23 +1938,6 @@ async function simcWbCopyProfile(id) {
     }
 }
 
-function simcProfileSpecFilterValue(canonicalValue) {
-    const value = String(canonicalValue || '').trim().toLowerCase();
-    const aliases = {
-        deathknight_frost: 'frost_death_knight',
-        mage_frost: 'frost_mage',
-        druid_restoration: 'restoration_druid',
-        shaman_restoration: 'restoration_shaman',
-        paladin_holy: 'holy_paladin',
-        priest_holy: 'holy_priest',
-        paladin_protection: 'protection_paladin',
-        warrior_protection: 'protection_warrior',
-    };
-    if (aliases[value]) return aliases[value];
-    const separator = value.indexOf('_');
-    return separator >= 0 ? value.slice(separator + 1) : value;
-}
-
 async function loadSimcProfileSpecFilterOptions(specSel) {
     if (!specSel || specSel.dataset.loaded === '1' || specSel.dataset.loading === '1') return;
     specSel.dataset.loading = '1';
@@ -2002,7 +1955,7 @@ async function loadSimcProfileSpecFilterOptions(specSel) {
         specSel.appendChild(allOption);
         rows.forEach(row => {
             const option = document.createElement('option');
-            option.value = simcProfileSpecFilterValue(row.value);
+            option.value = row.value;
             option.textContent = row.label || row.spec_label || '未知专精';
             specSel.appendChild(option);
         });
@@ -3243,8 +3196,10 @@ async function loadSimcSimProfileSelect(preferredId = 0, control = null) {
     try {
         const profiles = await simcWbFetchProfilesForWorkbench(control?.controller?.signal);
         if (!isCurrentSimcResourceControl(control)) return;
-        const normalizedSpec = normalizeSimcSpecKey(control?.spec || simcResolvedCanonicalSpec);
-        const matchingProfiles = profiles.filter(profile => normalizeSimcSpecKey(profile.spec) === normalizedSpec);
+        const canonicalSpec = String(control?.spec || simcResolvedCanonicalSpec || '').trim().toLowerCase();
+        const matchingProfiles = profiles.filter(profile => (
+            String(profile.canonical_spec || '').trim().toLowerCase() === canonicalSpec
+        ));
         const defaultSystemProfile = matchingProfiles.find(profile => profile.is_system === true) || null;
         const fallbackDefaultOption = defaultSystemProfile ? '' : '<option value="default">系统默认配置</option>';
         select.innerHTML = fallbackDefaultOption + matchingProfiles.map(profile => {

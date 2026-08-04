@@ -131,8 +131,13 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
             self.assertIn(contract, JS)
         self.assertNotIn('.innerHTML', JS)
 
+    def test_benchmark_profile_matching_uses_backend_canonical_tag(self):
+        self.assertIn("row.canonical_spec", JS)
+        self.assertIn("function resourceMatches", JS)
+        self.assertNotIn("row.spec_key!==undefined?row.spec_key:row.spec", JS)
+
     def test_resource_numeric_profile_and_portal_contracts(self):
-        self.assertIn("row.spec_key", JS)
+        self.assertIn("row.canonical_spec", JS)
         self.assertIn("resourceMatches(x,spec,true)", JS)
         self.assertIn("resourceMatches(x,spec)", JS)
         self.assertIn("dataset:{profileIncluded:p.id}", JS)
