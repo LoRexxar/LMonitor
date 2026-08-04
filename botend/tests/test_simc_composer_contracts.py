@@ -275,7 +275,7 @@ class SimcComposerEquipmentSlotResolutionTests(ComposerTestCase):
                 'class_talents=s207104:1\nspec_talents=s194912:1\n'
                 'hero_talents=s444040:1\nhead=,id=271474,ilevel=334'
             ),
-            talent='SHOULD_NOT_OVERRIDE_FROZEN_WCL_TALENTS',
+            talent='CANONICAL_WCL_BUILD_CODE',
             battlenet_region='', battlenet_realm='', battlenet_character='',
             gear_strength=None, gear_crit=None, gear_haste=None,
             gear_mastery=None, gear_versatility=None,
@@ -286,12 +286,38 @@ class SimcComposerEquipmentSlotResolutionTests(ComposerTestCase):
 
         self.assertIn('deathknight=MID2_DeathKnight_Frost', content)
         self.assertIn('spec=frost', content)
+        self.assertIn('talents=CANONICAL_WCL_BUILD_CODE', content)
+        self.assertNotIn('class_talents=', content)
+        self.assertNotIn('spec_talents=', content)
+        self.assertNotIn('hero_talents=', content)
+        self.assertIn('head=,id=271474,ilevel=334', content)
+        self.assertEqual(content.splitlines().count('talents=CANONICAL_WCL_BUILD_CODE'), 1)
+        self.assertEqual(content.splitlines().count('ptr=1'), 1)
+
+    def test_authoritative_validation_keeps_legacy_wcl_node_lists_without_build_code(self):
+        from types import SimpleNamespace
+
+        profile = SimpleNamespace(
+            id=999, user_id=None,
+            spec='deathknight_frost', class_name='deathknight_frost', use_ptr=True,
+            player_config_mode='wcl',
+            player_equipment=(
+                'ptr=1\ndeathknight=Legacy_WCL\nspec=frost\nlevel=90\n'
+                'class_talents=s207104:1\nspec_talents=s194912:1\n'
+                'hero_talents=s444040:1\nhead=,id=271474,ilevel=334'
+            ),
+            talent='', battlenet_region='', battlenet_realm='', battlenet_character='',
+            gear_strength=None, gear_crit=None, gear_haste=None,
+            gear_mastery=None, gear_versatility=None,
+        )
+
+        content = SimcComposer(None).compose_validation_input(
+            profile, 'actions=/auto_attack')
+
         self.assertIn('class_talents=s207104:1', content)
         self.assertIn('spec_talents=s194912:1', content)
         self.assertIn('hero_talents=s444040:1', content)
-        self.assertIn('head=,id=271474,ilevel=334', content)
-        self.assertNotIn('SHOULD_NOT_OVERRIDE_FROZEN_WCL_TALENTS', content)
-        self.assertEqual(content.splitlines().count('ptr=1'), 1)
+        self.assertNotIn('\ntalents=', content)
 
     def test_authoritative_validation_preserves_battlenet_actor_coordinates(self):
         from types import SimpleNamespace

@@ -608,6 +608,19 @@ class SimcComposer:
         """Resolve talents slot."""
         player_import_mode = request_data.get('player_import_mode', '').strip()
 
+        talent = (request_data.get('talent') or '').strip()
+
+        # WCL profiles persist the canonical build code separately.  Prefer it over
+        # exporter-specific node lists so SimC receives one versioned talent input.
+        if player_import_mode == 'wcl' and talent:
+            content = f'talents={talent}'
+            content_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
+            return SlotResolution(
+                slot_name='talents',
+                value=SlotValue(content=content, source='user_input', content_hash=content_hash),
+                status='resolved'
+            )
+
         # Frozen player exports own their talents; the workbench APL remains separate.
         if player_import_mode in ('addon_full_export', 'manual_equipment', 'battlenet', 'wcl'):
             player_equipment = request_data.get('player_equipment', '').strip()
@@ -630,8 +643,6 @@ class SimcComposer:
                         ),
                         status='resolved'
                     )
-
-        talent = (request_data.get('talent') or '').strip()
 
         if talent:
             content_hash = hashlib.sha256(f'talents={talent}'.encode('utf-8')).hexdigest()
@@ -1234,6 +1245,17 @@ class SimcComposer:
                     # dropping valid fields added by a newer SimC/exporter.
                     identity_lines.append(stripped)
 
+        # A canonical build code already contains class, specialization and hero
+        # selections.  Do not submit the exporter's redundant split node lists to
+        # SimC as well: current PTR builds reject duplicate/stale spell entries.
+        # Historical exports without a build code retain their legacy directives.
+        if any(line.split('=', 1)[0].strip() == 'talents' for line in talents_lines):
+            talents_lines = [
+                line for line in talents_lines
+                if line.split('=', 1)[0].strip() not in {
+                    'class_talents', 'spec_talents', 'hero_talents',
+                }
+            ]
 
         return {
             'identity': '\n'.join(identity_lines),
