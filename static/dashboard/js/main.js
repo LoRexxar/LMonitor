@@ -3092,6 +3092,7 @@ function currentSimcScenario() {
         target_count: Math.max(1, Number.parseInt(document.getElementById('simc-sim-target-count')?.value || '1', 10) || 1),
     };
     const control = document.getElementById('simc-sim-raid-buff-control');
+    scenario.use_class_raid_buff = document.getElementById('simc-sim-use-class-raid-buff')?.checked !== false;
     if (control?.dataset.raidBuffExplicit === '1') {
         scenario.raid_buffs = Array.from(document.querySelectorAll('#simc-sim-raid-buffs input[type="checkbox"]:checked'))
             .map(input => input.value);
@@ -3795,11 +3796,10 @@ function simcResolvedClassName() {
 
 function applyImplicitSimcRaidBuffDefaults() {
     const control = document.getElementById('simc-sim-raid-buff-control');
-    if (control?.dataset.raidBuffExplicit === '1') return;
     document.querySelectorAll('#simc-sim-raid-buffs input[type="checkbox"]').forEach(input => {
-        const defaultClasses = JSON.parse(input.dataset.defaultClasses || '[]');
-        input.checked = defaultClasses.includes(simcResolvedClassName());
+        input.checked = false;
     });
+    if (control) control.dataset.raidBuffExplicit = '1';
     syncSimcRaidBuffSummary();
 }
 
@@ -3831,13 +3831,14 @@ function syncSimcRaidBuffSummary() {
         master.checked = boxes.length > 0 && selected === boxes.length;
         master.indeterminate = selected > 0 && selected < boxes.length;
     }
-    if (summary) summary.textContent = control?.dataset.raidBuffExplicit === '1'
-        ? `已选择 ${selected} / ${boxes.length}` : '默认启用职业自身团队增益';
+    if (summary) summary.textContent = selected
+        ? `已选择 ${selected} / ${boxes.length}` : '未选择额外增益';
 }
 
 function bindSimcRaidBuffControls() {
     const control = document.getElementById('simc-sim-raid-buff-control');
     const master = document.getElementById('simc-sim-raid-buff-all');
+    document.getElementById('simc-sim-use-class-raid-buff')?.addEventListener('change', syncSimcRaidBuffSummary);
     master?.addEventListener('change', () => {
         document.querySelectorAll('#simc-sim-raid-buffs input[type="checkbox"]').forEach(box => { box.checked = master.checked; });
         if (control) control.dataset.raidBuffExplicit = '1';
@@ -3849,7 +3850,8 @@ function bindSimcRaidBuffControls() {
         syncSimcRaidBuffSummary();
     });
     document.querySelector('[data-simc-raid-buff-action="default"]')?.addEventListener('click', () => {
-        if (control) control.dataset.raidBuffExplicit = '0';
+        const classToggle = document.getElementById('simc-sim-use-class-raid-buff');
+        if (classToggle) classToggle.checked = true;
         applyImplicitSimcRaidBuffDefaults();
     });
 }

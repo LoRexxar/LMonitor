@@ -85,9 +85,13 @@ class SimcBenchmarkConfigServiceTests(TestCase):
     def test_raid_buffs_are_explicit_ordered_whitelist_and_missing_is_preserved(self):
         missing = normalize_panel_payload(self.payload, self.user_id)
         self.assertNotIn('raid_buffs', missing['scenarios'][0]['simulation_params'])
+        self.assertNotIn('use_class_raid_buff', missing['scenarios'][0]['simulation_params'])
 
         params = dict(self.payload['scenarios'][0]['simulation_params'])
-        params['raid_buffs'] = ['battle_shout', 'arcane_intellect']
+        params.update({
+            'use_class_raid_buff': True,
+            'raid_buffs': ['battle_shout', 'arcane_intellect'],
+        })
         payload = dict(self.payload, scenarios=[dict(
             self.payload['scenarios'][0], simulation_params=params,
         )])
@@ -96,6 +100,19 @@ class SimcBenchmarkConfigServiceTests(TestCase):
             normalized['scenarios'][0]['simulation_params']['raid_buffs'],
             ['arcane_intellect', 'battle_shout'],
         )
+        self.assertIs(
+            normalized['scenarios'][0]['simulation_params']['use_class_raid_buff'],
+            True,
+        )
+
+        for invalid in (None, 'true', 1, [], {}):
+            params = dict(self.payload['scenarios'][0]['simulation_params'])
+            params['use_class_raid_buff'] = invalid
+            payload = dict(self.payload, scenarios=[dict(
+                self.payload['scenarios'][0], simulation_params=params,
+            )])
+            with self.subTest(use_class_raid_buff=invalid), self.assertRaises(ValidationError):
+                normalize_panel_payload(payload, self.user_id)
 
         for invalid in (None, 'battle_shout', ['battle_shout', 'battle_shout'],
                         ['battle_shout', 'override.foo=1\nptr=1']):

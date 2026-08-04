@@ -1131,13 +1131,17 @@
                                             </div>
                                             <details id="simc-sim-combat-advanced" class="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
                                                 <summary class="cursor-pointer text-sm font-semibold text-slate-700">进阶</summary>
-                                                <div id="simc-sim-raid-buff-control" class="mt-3" data-raid-buff-explicit="0">
+                                                <div id="simc-sim-raid-buff-control" class="mt-3" data-raid-buff-explicit="1">
+                                                    <label class="mb-3 flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-950">
+                                                        <input id="simc-sim-use-class-raid-buff" type="checkbox" checked class="mt-0.5 h-4 w-4 rounded border-blue-300">
+                                                        <span><b>自动启用当前职业自身团队增益</b><small class="block text-xs text-blue-700">下方选择仅作为额外团队增益，可与职业自身增益叠加。</small></span>
+                                                    </label>
                                                     <div class="flex flex-wrap items-center justify-between gap-2">
-                                                        <div><b class="text-sm text-slate-800">团队增益</b><span id="simc-sim-raid-buff-summary" class="ml-2 text-xs text-slate-500">使用历史默认</span></div>
+                                                        <div><b class="text-sm text-slate-800">额外团队增益</b><span id="simc-sim-raid-buff-summary" class="ml-2 text-xs text-slate-500">未选择额外增益</span></div>
                                                         <div class="flex gap-2 text-xs">
                                                             <label class="inline-flex items-center gap-1.5 rounded border bg-white px-2.5 py-1"><input id="simc-sim-raid-buff-all" type="checkbox">全选</label>
                                                             <button type="button" data-simc-raid-buff-action="clear" class="rounded border bg-white px-2.5 py-1">清空</button>
-                                                            <button type="button" data-simc-raid-buff-action="default" class="rounded border bg-white px-2.5 py-1">恢复默认</button>
+                                                            <button type="button" data-simc-raid-buff-action="default" class="rounded border bg-white px-2.5 py-1">仅自身增益</button>
                                                         </div>
                                                     </div>
                                                     <div id="simc-sim-raid-buffs" class="simc-raid-buff-grid mt-2 grid gap-2" aria-live="polite">正在加载团队增益…</div>

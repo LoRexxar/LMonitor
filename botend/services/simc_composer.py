@@ -50,7 +50,9 @@ SIMC_RAID_BUFF_VALUES = (
 )
 
 # Implicit defaults are limited to raid effects supplied by the actor's own
-# class. Explicit ``raid_buffs`` remains authoritative, including ``[]``.
+# class. ``use_class_raid_buff`` allows those defaults to be unioned with the
+# explicitly selected extra ``raid_buffs``. Historical requests without the
+# toggle retain the old three-state contract.
 SIMC_CLASS_RAID_BUFFS = {
     'mage': ('arcane_intellect',),
     'warrior': ('battle_shout',),
@@ -111,6 +113,8 @@ def validate_simulation_options(params: Dict[str, Any]) -> str:
         errors.append(bounded_number('time', params['time'], 1, 86400))
     if 'desired_targets' in params and 'target_count' in params:
         errors.append(integer('target_count', params['target_count'], 1, 1000))
+    if 'use_class_raid_buff' in params and not isinstance(params['use_class_raid_buff'], bool):
+        errors.append('use_class_raid_buff 必须是布尔值')
     if 'raid_buffs' in params:
         raid_buffs = params['raid_buffs']
         if not isinstance(raid_buffs, list):
@@ -815,7 +819,17 @@ class SimcComposer:
             f"desired_targets={request_data.get('target_count', 1)}",
             'optimal_raid=0',
         ]
-        if 'raid_buffs' in request_data:
+        if 'use_class_raid_buff' in request_data:
+            selected_raid_buffs = set(request_data.get('raid_buffs') or ())
+            if request_data.get('use_class_raid_buff') is True:
+                selected_raid_buffs = selected_raid_buffs.union(
+                    default_raid_buffs_for_actor(request_data)
+                )
+            options.extend(
+                f'override.{name}={1 if name in selected_raid_buffs else 0}'
+                for name in SIMC_RAID_BUFF_VALUES
+            )
+        elif 'raid_buffs' in request_data:
             selected_raid_buffs = set(request_data['raid_buffs'])
             options.extend(
                 f'override.{name}={1 if name in selected_raid_buffs else 0}'

@@ -153,6 +153,35 @@ class SimcComposerEquipmentSlotResolutionTests(ComposerTestCase):
         self.assertIn('override.arcane_intellect=0', rogue_default)
         self.assertIn('override.battle_shout=0', rogue_default)
 
+    def test_class_raid_buff_can_be_combined_with_explicit_extra_buffs(self):
+        self.base.content = '{player_identity}\n{equipment}\n{simulation_options}\n{output_options}'
+        self.base.save(update_fields=['content'])
+
+        combined, _, error = self.compose(
+            self.base,
+            spec='arcane',
+            _trusted_class_name='mage',
+            player_equipment='mage="Player"\nspec=arcane\nhead=,id=212048',
+            use_class_raid_buff=True,
+            raid_buffs=['bloodlust'],
+        )
+        self.assertIsNone(error)
+        self.assertIn('override.arcane_intellect=1', combined)
+        self.assertIn('override.bloodlust=1', combined)
+        self.assertIn('override.battle_shout=0', combined)
+
+        extras_only, _, error = self.compose(
+            self.base,
+            spec='arcane',
+            _trusted_class_name='mage',
+            player_equipment='mage="Player"\nspec=arcane\nhead=,id=212048',
+            use_class_raid_buff=False,
+            raid_buffs=['bloodlust'],
+        )
+        self.assertIsNone(error)
+        self.assertIn('override.arcane_intellect=0', extras_only)
+        self.assertIn('override.bloodlust=1', extras_only)
+
     def test_manual_equipment_removes_stale_template_stat_overrides(self):
         self.base.content = (
             '{player_identity}\n{equipment}\ngear_strength=93330\n'

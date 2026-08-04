@@ -137,6 +137,8 @@ def build_frozen_run_input(task, run, output_filename=None):
     }
     if 'raid_buffs' in resolved.simulation_params:
         request['raid_buffs'] = list(resolved.simulation_params['raid_buffs'])
+    if 'use_class_raid_buff' in resolved.simulation_params:
+        request['use_class_raid_buff'] = resolved.simulation_params['use_class_raid_buff'] is True
     request = SimcMonitor.apply_candidate_overrides(request, run.candidate_params)
     code, composition_manifest, error = SimcComposer(task.user_id).compose(request)
     if error or code is None:

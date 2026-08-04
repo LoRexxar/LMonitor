@@ -143,6 +143,7 @@ SIMULATION_PARAMS_WHITELIST = {
     'enemy_type',
     'desired_targets',
     'raid_buffs',
+    'use_class_raid_buff',
 }
 
 # Candidate differences for comparison / attribute-sweep tasks.  Values remain

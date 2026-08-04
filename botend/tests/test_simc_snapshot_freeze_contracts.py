@@ -172,8 +172,19 @@ class SimcTaskReferenceContracts(TestCase):
         missing = self.create_task(name='Missing raid buffs')
         self.assertNotIn('raid_buffs', missing.simulation_params or {})
 
+    def test_normal_task_freezes_class_buff_toggle_with_extra_buffs(self):
+        task = self.create_task(
+            use_class_raid_buff=True,
+            raid_buffs=['bloodlust'],
+        )
+        self.assertIs(task.simulation_params['use_class_raid_buff'], True)
+        self.assertEqual(task.simulation_params['raid_buffs'], ['bloodlust'])
+
     def test_local_worker_passes_frozen_raid_buffs_to_composer(self):
-        task = self.create_task(raid_buffs=['arcane_intellect', 'battle_shout'])
+        task = self.create_task(
+            use_class_raid_buff=True,
+            raid_buffs=['arcane_intellect', 'battle_shout'],
+        )
         run = initialize_task_runs(task)[0]
         captured = {}
 
@@ -189,6 +200,7 @@ class SimcTaskReferenceContracts(TestCase):
             captured.get('raid_buffs'),
             ['arcane_intellect', 'battle_shout'],
         )
+        self.assertIs(captured.get('use_class_raid_buff'), True)
 
     def test_normal_task_rejects_raid_buff_option_injection(self):
         response = self.client.post(

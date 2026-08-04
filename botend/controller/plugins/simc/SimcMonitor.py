@@ -575,6 +575,8 @@ class SimcMonitor(BaseScan):
             }
             if 'raid_buffs' in resolved.simulation_params:
                 composer_request['raid_buffs'] = list(resolved.simulation_params['raid_buffs'])
+            if 'use_class_raid_buff' in resolved.simulation_params:
+                composer_request['use_class_raid_buff'] = resolved.simulation_params['use_class_raid_buff'] is True
             composer_request = self.apply_candidate_overrides(
                 composer_request,
                 run.candidate_params,

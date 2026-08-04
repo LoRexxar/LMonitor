@@ -101,6 +101,13 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('indeterminate', SIMC_MAIN)
         self.assertNotIn('const SIMC_RAID_BUFF', SIMC_MAIN)
 
+    def test_combat_raid_buffs_offer_class_buff_toggle_plus_extra_selection(self):
+        workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
+        self.assertIn('id="simc-sim-use-class-raid-buff"', workflow)
+        self.assertIn('自动启用当前职业自身团队增益', workflow)
+        self.assertIn('scenario.use_class_raid_buff', SIMC_MAIN)
+        self.assertIn('额外团队增益', workflow)
+
     def test_system_default_profile_is_selected_as_a_real_profile_and_renders_detail(self):
         loader = MAIN[
             MAIN.index('async function loadSimcSimProfileSelect'):
