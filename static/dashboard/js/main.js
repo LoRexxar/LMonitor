@@ -1905,11 +1905,10 @@ function loadSimcWorkbenchProfiles(page) {
             const statusText = row.is_active ? '生效中' : '未生效';
             const statusClass = row.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500';
             const offset = startIdx + idx + 1;
-            const managementActions = row.can_edit || row.can_delete
-                ? `<button class="text-slate-600 hover:text-slate-900 text-xs" data-profile-row-action="view" data-profile-id="${id}" title="查看详情"><i class="fas fa-eye"></i></button>
-                   ${row.can_edit ? `<button class="text-blue-600 hover:text-blue-800 text-xs" data-profile-row-action="edit" data-profile-id="${id}" title="编辑"><i class="fas fa-edit"></i></button>` : ''}
-                   ${row.can_delete ? `<button class="text-red-600 hover:text-red-800 text-xs" data-profile-row-action="delete" data-profile-id="${id}" title="删除"><i class="fas fa-trash-alt"></i></button>` : ''}`
-                : `<button class="text-slate-600 hover:text-slate-900 text-xs" data-profile-row-action="view" data-profile-id="${id}" title="查看详情"><i class="fas fa-eye"></i></button>`;
+            const managementActions = `<button class="text-slate-600 hover:text-slate-900 text-xs" data-profile-row-action="view" data-profile-id="${id}" title="查看详情"><i class="fas fa-eye"></i></button>
+                <button class="text-emerald-600 hover:text-emerald-800 text-xs" data-profile-row-action="copy" data-profile-id="${id}" title="复制"><i class="fas fa-copy"></i></button>
+                ${row.can_edit ? `<button class="text-blue-600 hover:text-blue-800 text-xs" data-profile-row-action="edit" data-profile-id="${id}" title="编辑"><i class="fas fa-edit"></i></button>` : ''}
+                ${row.can_delete ? `<button class="text-red-600 hover:text-red-800 text-xs" data-profile-row-action="delete" data-profile-id="${id}" title="删除"><i class="fas fa-trash-alt"></i></button>` : ''}`;
             return `<tr class="hover:bg-gray-50 border-b border-gray-100">
                 <td class="px-3 py-3 text-center text-gray-500 text-xs">${offset}</td>
                 <td class="px-3 py-3 text-sm font-medium text-gray-900 max-w-[200px] truncate" title="${name}">${name}</td>
@@ -1969,6 +1968,22 @@ async function simcWbViewProfile(id) {
         if (!response.ok || !payload.success) throw new Error(payload.error || '加载配置详情失败');
         renderSimcProfileDetailDialog(payload.data || {});
     } catch (error) { showMessage(String(error.message || error), 'error'); }
+}
+
+async function simcWbCopyProfile(id) {
+    try {
+        const response = await fetch('/api/simc-profile/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+            body: JSON.stringify({ copy_from_id: Number(id) }),
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.error || '复制配置失败');
+        showMessage(`已复制为“${payload.data?.name || '配置副本'}”`, 'success');
+        await loadSimcWorkbenchProfiles(simcWbProfilePage);
+    } catch (error) {
+        showMessage(String(error.message || error), 'error');
+    }
 }
 
 function simcProfileSpecFilterValue(canonicalValue) {
@@ -2047,6 +2062,7 @@ function bindSimcWorkbenchProfilesControls() {
             const rowAction = rowActionButton.dataset.profileRowAction;
             const profileId = rowActionButton.dataset.profileId;
             if (rowAction === 'view') simcWbViewProfile(profileId);
+            if (rowAction === 'copy') simcWbCopyProfile(profileId);
             if (rowAction === 'edit') simcWbEditProfile(profileId);
             if (rowAction === 'delete') simcWbDeleteProfile(profileId, rowActionButton);
 

@@ -113,8 +113,10 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         loader = MAIN[MAIN.index('function loadSimcWorkbenchProfiles'):MAIN.index('function bindSimcWorkbenchProfilesControls')]
         self.assertIn('data-profile-row-action="view"', loader)
         self.assertIn('data-profile-row-action="edit"', loader)
+        self.assertIn('data-profile-row-action="copy"', loader)
         self.assertIn('equipment_line_count', loader)
         self.assertIn('simcWbViewProfile', MAIN)
+        self.assertIn('simcWbCopyProfile', MAIN)
         self.assertIn('renderSimcProfileDetailDialog', MAIN)
         self.assertIn('raw_player_equipment', MAIN)
 
@@ -653,7 +655,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('.spec', detail_body)
 
     def test_script_is_really_loaded(self):
-        self.assertIn("{% static 'dashboard/js/main.js' %}?v=20260726c", HTML)
+        self.assertIn("{% static 'dashboard/js/main.js' %}?v=20260804c", HTML)
         self.assertIn("{% static 'dashboard/js/simc-workbench.js' %}?v=20260727a", HTML)
         self.assertIn("{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260726c", HTML)
         self.assertNotIn("moveSimcToolIntoWorkbench", MAIN)

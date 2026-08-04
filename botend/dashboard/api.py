@@ -3630,9 +3630,36 @@ class SimcProfileAPIView(View):
                         'error': 'SimC配置不存在'
                     })
             
-            # 原有的创建配置逻辑
-            # 验证必填字段
-            name = data.get('name', '').strip()
+            # 创建配置或复制现有配置。复制请求无需客户端填写名称，后端统一生成副本名。
+            copy_from_id = data.get('copy_from_id')
+            name = str(data.get('name') or '').strip()
+            if copy_from_id and not name:
+                source_profiles = SimcProfile.objects.all()
+                if not _is_simc_admin(request.user):
+                    source_profiles = source_profiles.filter(
+                        models.Q(user_id=request.user.id)
+                        | models.Q(
+                            user_id__isnull=True,
+                            source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+                            is_active=True,
+                        )
+                    )
+                try:
+                    copy_name_source = source_profiles.get(id=copy_from_id)
+                except SimcProfile.DoesNotExist:
+                    return JsonResponse(
+                        {'success': False, 'error': '源配置不存在或无权复制'},
+                        status=404,
+                    )
+                base_name = str(copy_name_source.name or '未命名配置').strip() or '未命名配置'
+                copy_number = 1
+                while True:
+                    suffix = ' 副本' if copy_number == 1 else f' 副本 {copy_number}'
+                    name = f'{base_name[:200 - len(suffix)]}{suffix}'
+                    if not SimcProfile.objects.filter(user_id=request.user.id, name=name).exists():
+                        break
+                    copy_number += 1
+
             if not name:
                 return JsonResponse({
                     'success': False,
@@ -3650,9 +3677,6 @@ class SimcProfileAPIView(View):
                     'error': '配置名称已存在'
                 })
             
-            # 检查是否为复制操作
-            copy_from_id = data.get('copy_from_id')
-
             # 新建 Profile 并立即模拟必须走统一原子服务；资源校验失败时不保留 Profile。
             if simulate_now and not copy_from_id:
                 try:
@@ -3707,22 +3731,32 @@ class SimcProfileAPIView(View):
             
             if copy_from_id:
                 try:
-                    # 获取要复制的配置
-                    source_profile = SimcProfile.objects.get(
-                        id=copy_from_id,
-                        user_id=request.user.id,
-                        is_active=True
-                    )
+                    # 可见的配置均可复制；副本归当前用户且不会继承 system_key。
+                    source_profiles = SimcProfile.objects.all()
+                    if not _is_simc_admin(request.user):
+                        source_profiles = source_profiles.filter(
+                            models.Q(user_id=request.user.id)
+                            | models.Q(
+                                user_id__isnull=True,
+                                source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+                                is_active=True,
+                            )
+                        )
+                    source_profile = source_profiles.get(id=copy_from_id)
                     if self._profile_mode(source_profile) == 'attribute_only':
                         validate_player_baseline(source_profile.player_equipment)
                     
-                    # 复制配置数据（只保留 spec + talent + gear stats）
+                    # 复制完整执行语义；仅数据库身份、所有者、名称和 system_key 不继承。
                     profile = SimcProfile.objects.create(
                         user_id=request.user.id,
                         name=name,
-                        spec=source_profile.spec,
+                        source=source_profile.source,
+                        class_name=source_profile.class_name,
+                        version=source_profile.version,
                         use_ptr=source_profile.use_ptr,
-                        player_config_mode=self._profile_mode(source_profile),
+                        sync_version=source_profile.sync_version,
+                        spec=source_profile.spec,
+                        player_config_mode=source_profile.player_config_mode,
                         battlenet_region=getattr(source_profile, 'battlenet_region', '') or '',
                         battlenet_realm=getattr(source_profile, 'battlenet_realm', '') or '',
                         battlenet_character=getattr(source_profile, 'battlenet_character', '') or '',
@@ -3733,7 +3767,7 @@ class SimcProfileAPIView(View):
                         gear_haste=source_profile.gear_haste if self._profile_mode(source_profile) == 'attribute_only' else None,
                         gear_mastery=source_profile.gear_mastery if self._profile_mode(source_profile) == 'attribute_only' else None,
                         gear_versatility=source_profile.gear_versatility if self._profile_mode(source_profile) == 'attribute_only' else None,
-                        is_active=True
+                        is_active=source_profile.is_active,
                     )
                     
                     response_data = {

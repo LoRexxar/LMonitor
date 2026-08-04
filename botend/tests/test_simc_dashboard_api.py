@@ -527,6 +527,107 @@ class SimcProfileResourceListTests(TestCase):
         self.assertEqual(copied.gear_mastery, 444)
         self.assertEqual(copied.gear_versatility, 555)
 
+    def test_one_click_copy_generates_unique_copy_name_and_preserves_profile_semantics(self):
+        source = SimcProfile.objects.create(
+            user_id=self.user.id,
+            name='PTR 狂暴战',
+            source=SimcProfile.SOURCE_WCL,
+            class_name='warrior',
+            version='12.1',
+            use_ptr=True,
+            sync_version='wcl-revision-7',
+            spec='warrior_fury',
+            player_config_mode='wcl',
+            battlenet_region='eu',
+            battlenet_realm='Tarren Mill',
+            battlenet_character='Tester',
+            player_equipment='warrior="Tester"\nspec=fury\ntalents=BUILD\nhead=,id=1',
+            talent='BUILD',
+            is_active=True,
+        )
+
+        first_response = self.client.post(
+            '/api/simc-profile/',
+            data=json.dumps({'copy_from_id': source.id}),
+            content_type='application/json',
+        )
+        second_response = self.client.post(
+            '/api/simc-profile/',
+            data=json.dumps({'copy_from_id': source.id}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(first_response.status_code, 200, first_response.content)
+        self.assertEqual(second_response.status_code, 200, second_response.content)
+        first = SimcProfile.objects.get(pk=first_response.json()['data']['id'])
+        second = SimcProfile.objects.get(pk=second_response.json()['data']['id'])
+        self.assertEqual(first.name, 'PTR 狂暴战 副本')
+        self.assertEqual(second.name, 'PTR 狂暴战 副本 2')
+        self.assertEqual(first.user_id, self.user.id)
+        self.assertIsNone(first.system_key)
+        for field in (
+            'source', 'class_name', 'version', 'use_ptr', 'sync_version', 'spec',
+            'player_config_mode', 'battlenet_region', 'battlenet_realm',
+            'battlenet_character', 'player_equipment', 'talent', 'is_active',
+        ):
+            self.assertEqual(getattr(first, field), getattr(source, field), field)
+
+    def test_staff_can_one_click_copy_visible_global_profile_into_private_copy(self):
+        admin = User.objects.create_user(
+            username='profile_copy_admin', password='pwd', is_staff=True,
+        )
+        self.client.force_login(admin)
+        source = SimcProfile.objects.create(
+            user_id=None,
+            name='全局 WCL 奥法',
+            source=SimcProfile.SOURCE_WCL,
+            class_name='mage',
+            version='12.1',
+            use_ptr=True,
+            sync_version='wcl-global-1',
+            spec='mage_arcane',
+            player_config_mode='wcl',
+            player_equipment='mage="Tester"\nspec=arcane\ntalents=BUILD',
+            talent='BUILD',
+            is_active=False,
+        )
+
+        response = self.client.post(
+            '/api/simc-profile/',
+            data=json.dumps({'copy_from_id': source.id}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        copied = SimcProfile.objects.get(pk=response.json()['data']['id'])
+        self.assertEqual(copied.user_id, admin.id)
+        self.assertEqual(copied.name, '全局 WCL 奥法 副本')
+        self.assertEqual(copied.source, SimcProfile.SOURCE_WCL)
+        self.assertEqual(copied.player_config_mode, 'wcl')
+        self.assertFalse(copied.is_active)
+
+    def test_regular_user_cannot_copy_another_users_private_profile(self):
+        another_user = User.objects.create_user(username='another-profile-owner', password='testpass')
+        source = SimcProfile.objects.create(
+            user_id=another_user.id,
+            name='Private Profile',
+            spec='mage_fire',
+            player_config_mode='manual_equipment',
+            player_equipment='mage="Private"',
+            talent='private-build',
+            is_active=True,
+        )
+
+        response = self.client.post(
+            '/api/simc-profile/',
+            data=json.dumps({'copy_from_id': source.id}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(response.json()['success'])
+        self.assertFalse(SimcProfile.objects.filter(user_id=self.user.id, name='Private Profile 副本').exists())
+
     @patch('botend.dashboard.api.fetch_battlenet_character_preflight')
     def test_battlenet_snapshot_stats_are_not_saved_as_explicit_overrides(self, preflight):
         preflight.return_value = {
