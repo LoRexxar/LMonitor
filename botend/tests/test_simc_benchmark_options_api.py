@@ -139,6 +139,11 @@ class SimcBenchmarkOptionsApiTests(TestCase):
             class_name='mage', source=SimcProfile.SOURCE_WCL,
             player_config_mode='wcl', version='12.1', use_ptr=True, is_active=True,
         )
+        full_key_wcl = SimcProfile.objects.create(
+            user_id=None, name='12.1 PTR 大秘境天赋 Warrior Fury', spec='warrior_fury',
+            class_name='warrior_fury', source=SimcProfile.SOURCE_WCL,
+            player_config_mode='wcl', version='12.1', use_ptr=True, is_active=True,
+        )
         unowned_user = SimcProfile.objects.create(
             user_id=None, name='Unowned user Profile', spec='mage_arcane',
             class_name='mage', source=SimcProfile.SOURCE_USER, is_active=True,
@@ -150,10 +155,13 @@ class SimcBenchmarkOptionsApiTests(TestCase):
         profile_ids = [row['id'] for row in profiles]
 
         self.assertIn(global_wcl.id, profile_ids)
+        self.assertIn(full_key_wcl.id, profile_ids)
         self.assertNotIn(unowned_user.id, profile_ids)
         projected = next(row for row in profiles if row['id'] == global_wcl.id)
         self.assertEqual(projected['spec_key'], 'mage_arcane')
         self.assertTrue(projected['is_system'])
+        projected_full_key = next(row for row in profiles if row['id'] == full_key_wcl.id)
+        self.assertEqual(projected_full_key['spec_key'], 'warrior_fury')
 
     def test_filters_other_owner_inactive_and_nonselectable_but_keeps_system(self):
         other_template = SimcContentTemplate.objects.create(

@@ -8778,6 +8778,9 @@ def _benchmark_resource_spec_key(row, *, allow_generic=False):
     if allow_generic and raw_spec in {'', 'generic', 'default', 'all', '*'}:
         return ''
     class_name = str(row.class_name or '').strip().lower()
+    class_identity = canonical_simc_spec_identity(class_name)
+    if class_identity in SUPPORTED_SIMC_SPEC_IDENTITIES:
+        class_name = class_identity[0]
     raw_identity = canonical_simc_spec_identity(raw_spec)
     if class_name:
         if raw_identity in SUPPORTED_SIMC_SPEC_IDENTITIES:
