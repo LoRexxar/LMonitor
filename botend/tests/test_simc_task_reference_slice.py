@@ -199,6 +199,40 @@ class SimcTaskServiceTests(TestCase):
             )
         self.assertIn("belongs to user", str(ctx.exception))
 
+    def test_ownerless_profile_is_executable_regardless_of_import_mode(self):
+        """Global profiles are executable even after their import mode is normalized."""
+        from botend.services.simc_task_service import create_task
+
+        global_profile = SimcProfile.objects.create(
+            user_id=None,
+            source=SimcProfile.SOURCE_WCL,
+            player_config_mode='manual_equipment',
+            name='Global WCL profile',
+            spec='warrior_fury',
+            player_equipment='warrior="Global"\nspec=fury',
+            is_active=True,
+        )
+
+        with patch(
+            'botend.services.simc_task_service.validate_apl_for_profile',
+            return_value={
+                'valid': True,
+                'content_hash': hashlib.sha256(self.apl.content.encode()).hexdigest(),
+                'revision': TEST_VALIDATION_IDENTITY[0],
+                'game_build': TEST_VALIDATION_IDENTITY[1],
+            },
+        ):
+            task = create_task(
+                user_id=self.user_id,
+                name='Global profile task',
+                profile_id=global_profile.id,
+                template_id=self.template.id,
+                apl_id=self.apl.id,
+                backend_id=self.backend.id,
+            )
+
+        self.assertEqual(task.profile_id, global_profile.id)
+
     def test_product_admin_can_execute_active_foreign_resources(self):
         from botend.services.simc_task_service import create_task
 

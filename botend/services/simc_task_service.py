@@ -175,26 +175,15 @@ def validate_resource_ownership(
     Validate resource ownership and active/selectable status.
 
     Rules:
-    - Profile: user's own, active upstream system default, or active global WCL import
+    - Profile: user's own or any active ownerless global Profile
     - Template/APL: allow system (owner_user_id=None) or user's own, is_active=True, is_selectable=True
     """
     if resource_type == 'profile':
         if not isinstance(resource, SimcProfile):
             raise TaskCreationError(f"Invalid profile resource")
-        is_system_default = (
-            resource.user_id is None
-            and resource.source == SimcProfile.SOURCE_SIMC_UPSTREAM
-            and bool(resource.system_key)
-        )
-        is_global_wcl = (
-            resource.user_id is None
-            and resource.source == SimcProfile.SOURCE_WCL
-            and resource.player_config_mode == 'wcl'
-        )
         if (
-            resource.user_id != user_id
-            and not is_system_default
-            and not is_global_wcl
+            resource.user_id is not None
+            and resource.user_id != user_id
             and not is_admin
         ):
             raise TaskCreationError(
