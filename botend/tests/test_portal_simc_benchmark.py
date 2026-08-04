@@ -485,7 +485,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             'simc-benchmark-gear-hover-guide', 'simc-benchmark-gear-tooltip',
         ):
             self.assertIn(contract, self.JS + self.CSS)
-        self.assertIn('?v=20260803_list_rows', self.RESULTS_TEMPLATE)
+        self.assertIn('?v=20260805_markdown', self.RESULTS_TEMPLATE)
 
     def test_result_renderer_uses_frozen_target_count_and_duration_for_scenarios(self):
         for contract in (
@@ -538,6 +538,17 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIn('applyPanelHeading', self.JS)
         self.assertIn("document.title", self.JS)
         self.assertIn('simc-benchmarks-description', self.RESULTS_TEMPLATE)
+
+    def test_panel_description_renders_multiline_markdown_without_raw_html(self):
+        for contract in (
+            'renderMarkdownDescription', 'renderInlineMarkdown',
+            'simc-benchmark-markdown', 'white-space: pre-wrap',
+            'safeMarkdownHref',
+        ):
+            self.assertIn(contract, self.JS + self.CSS)
+        self.assertIn('copy.replaceChildren(renderMarkdownDescription(description))', self.JS)
+        self.assertIn('copy.appendChild(renderMarkdownDescription(panel.description', self.JS)
+        self.assertNotIn('innerHTML', self.JS)
 
     def test_result_page_omits_redundant_projection_copy(self):
         for redundant_copy in (

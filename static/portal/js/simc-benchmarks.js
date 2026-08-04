@@ -21,6 +21,77 @@
     return element;
   }
 
+  function safeMarkdownHref(value) {
+    try {
+      const url = new URL(String(value || "").trim(), window.location.origin);
+      return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+    } catch (_) { return ""; }
+  }
+
+  function renderInlineMarkdown(text) {
+    const fragment = document.createDocumentFragment();
+    const source = String(text || "");
+    const tokenPattern = /(`[^`]+`|\[([^\]]+)\]\(([^)]+)\)|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*]+)\*|_([^_]+)_)/g;
+    let cursor = 0;
+    for (const match of source.matchAll(tokenPattern)) {
+      if (match.index > cursor) fragment.append(document.createTextNode(source.slice(cursor, match.index)));
+      const token = match[0];
+      if (token.startsWith("`")) fragment.append(node("code", "", token.slice(1, -1)));
+      else if (match[2] !== undefined) {
+        const href = safeMarkdownHref(match[3]);
+        if (href) {
+          const link = node("a", "", match[2]); link.href = href;
+          if (new URL(href).origin !== window.location.origin) { link.target = "_blank"; link.rel = "noopener noreferrer"; }
+          fragment.append(link);
+        } else fragment.append(document.createTextNode(match[2]));
+      } else if (match[4] !== undefined || match[5] !== undefined) fragment.append(node("strong", "", match[4] ?? match[5]));
+      else fragment.append(node("em", "", match[6] ?? match[7]));
+      cursor = match.index + token.length;
+    }
+    if (cursor < source.length) fragment.append(document.createTextNode(source.slice(cursor)));
+    return fragment;
+  }
+
+  function renderMarkdownDescription(markdown, className = "") {
+    const root = node("div", `simc-benchmark-markdown ${className}`.trim());
+    const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
+    let paragraph = [];
+    let list = null;
+    let codeLines = null;
+    const flushParagraph = () => {
+      if (!paragraph.length) return;
+      const block = node("p");
+      paragraph.forEach((line, index) => { if (index) block.append(node("br")); block.append(renderInlineMarkdown(line)); });
+      root.append(block); paragraph = [];
+    };
+    const flushList = () => { list = null; };
+    lines.forEach((line) => {
+      if (codeLines !== null) {
+        if (/^\s*```/.test(line)) { const pre = node("pre"); pre.append(node("code", "", codeLines.join("\n"))); root.append(pre); codeLines = null; }
+        else codeLines.push(line);
+        return;
+      }
+      if (/^\s*```/.test(line)) { flushParagraph(); flushList(); codeLines = []; return; }
+      const heading = line.match(/^\s*(#{1,4})\s+(.+)$/);
+      const bullet = line.match(/^\s*[-*+]\s+(.+)$/);
+      const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+      const quote = line.match(/^\s*>\s?(.*)$/);
+      if (!line.trim()) { flushParagraph(); flushList(); return; }
+      if (heading) { flushParagraph(); flushList(); const h = node(`h${heading[1].length + 1}`); h.append(renderInlineMarkdown(heading[2])); root.append(h); return; }
+      if (bullet || ordered) {
+        flushParagraph();
+        const tag = bullet ? "ul" : "ol";
+        if (!list || list.tagName.toLowerCase() !== tag) { list = node(tag); root.append(list); }
+        const item = node("li"); item.append(renderInlineMarkdown((bullet || ordered)[1])); list.append(item); return;
+      }
+      if (quote) { flushParagraph(); flushList(); const block = node("blockquote"); block.append(renderInlineMarkdown(quote[1])); root.append(block); return; }
+      flushList(); paragraph.push(line);
+    });
+    if (codeLines !== null) { const pre = node("pre"); pre.append(node("code", "", codeLines.join("\n"))); root.append(pre); }
+    flushParagraph();
+    return root;
+  }
+
   function state(message, kind) {
     const element = node("div", `simc-benchmark-state simc-benchmark-state--${kind || "empty"}`, message);
     element.setAttribute("role", kind === "error" ? "alert" : "status");
@@ -596,7 +667,10 @@
     const title = document.getElementById("simc-benchmarks-title");
     const copy = document.getElementById("simc-benchmarks-description");
     if (title) title.textContent = name;
-    if (copy) { copy.textContent = description; copy.hidden = !description; }
+    if (copy) {
+      copy.replaceChildren(renderMarkdownDescription(description));
+      copy.hidden = !description;
+    }
     document.title = `${name} · WowDaily.cn`;
   }
 
@@ -604,7 +678,7 @@
     const article = node("article", "simc-benchmark-panel"); article.dataset.benchmarkPanelId = String(panel.id || "");
     const header = node("header", "simc-benchmark-panel-header"); const copy = node("div", "simc-benchmark-panel-copy");
     copy.append(node("h3", "simc-benchmark-panel-title", panel.name || panel.slug || "Benchmark Panel"));
-    if (panel.description) copy.appendChild(node("p", "simc-benchmark-panel-description", panel.description));
+    if (panel.description) copy.appendChild(renderMarkdownDescription(panel.description, "simc-benchmark-panel-description"));
     header.appendChild(copy);
     const body = node("div", "simc-benchmark-panel-body"); article.append(header, body); return { article, body };
   }
@@ -652,7 +726,7 @@
         node("h2", "simc-benchmark-list-name", panelName),
       );
       if (panel?.description) {
-        copy.appendChild(node("p", "simc-benchmark-list-description", panel.description));
+        copy.appendChild(renderMarkdownDescription(panel.description, "simc-benchmark-list-description"));
       }
 
       const meta = node("div", "simc-benchmark-list-meta");

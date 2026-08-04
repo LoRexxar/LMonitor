@@ -44,6 +44,8 @@ class SimcBenchmarkConfigPageTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'dashboard/simc_benchmark_panel_edit.html')
         self.assertContains(response, 'data-benchmark-panel-edit-page')
+        self.assertContains(response, '支持 Markdown 和多行文本')
+        self.assertContains(response, 'textarea name="description" rows="10"', html=False)
         self.assertContains(response, '维护面板身份、说明、公开边界和定时策略')
 
     def test_unknown_panel_is_not_disclosed(self):

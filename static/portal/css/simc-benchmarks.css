@@ -44,6 +44,21 @@
 .simc-benchmark-panel-copy { min-width: 0; }
 .simc-benchmark-panel-title { color: #0f172a; font-size: 0.95rem; font-weight: 700; }
 .simc-benchmark-panel-description { color: #64748b; font-size: 0.78rem; margin-top: 0.25rem; }
+.simc-benchmark-markdown { line-height: 1.65; min-width: 0; white-space: pre-wrap; }
+.simc-benchmark-markdown > :first-child { margin-top: 0; }
+.simc-benchmark-markdown > :last-child { margin-bottom: 0; }
+.simc-benchmark-markdown p { margin: 0.35rem 0; }
+.simc-benchmark-markdown h2, .simc-benchmark-markdown h3,
+.simc-benchmark-markdown h4, .simc-benchmark-markdown h5 { color: #334155; font-weight: 750; line-height: 1.35; margin: 0.8rem 0 0.35rem; }
+.simc-benchmark-markdown h2 { font-size: 1rem; }
+.simc-benchmark-markdown h3 { font-size: 0.92rem; }
+.simc-benchmark-markdown h4, .simc-benchmark-markdown h5 { font-size: 0.84rem; }
+.simc-benchmark-markdown ul, .simc-benchmark-markdown ol { margin: 0.35rem 0; padding-left: 1.35rem; }
+.simc-benchmark-markdown blockquote { border-left: 3px solid #cbd5e1; color: #475569; margin: 0.45rem 0; padding-left: 0.7rem; }
+.simc-benchmark-markdown code { background: #e2e8f0; border-radius: 0.25rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; padding: 0.08rem 0.25rem; }
+.simc-benchmark-markdown pre { background: #0f172a; border-radius: 0.45rem; color: #e2e8f0; margin: 0.5rem 0; overflow-x: auto; padding: 0.65rem; white-space: pre; }
+.simc-benchmark-markdown pre code { background: transparent; color: inherit; padding: 0; }
+.simc-benchmark-markdown a { color: #2563eb; overflow-wrap: anywhere; text-decoration: underline; text-underline-offset: 2px; }
 
 .simc-benchmark-status {
     background: #ecfdf5;
