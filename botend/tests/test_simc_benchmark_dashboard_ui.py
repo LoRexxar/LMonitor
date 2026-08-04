@@ -87,7 +87,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertEqual(title.get_text(strip=True), 'SimC 基准面板')
 
     def test_shared_benchmark_assets_use_current_cache_version(self):
-        expected = '?v=20260804c'
+        expected = '?v=20260804d'
         for page in (INDEX, CONFIG_PAGE, PANEL_EDIT_PAGE, EXECUTION_PAGE):
             for line in page.splitlines():
                 if 'simc-benchmark-dashboard.' in line:
@@ -392,7 +392,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn('function loadExecutionPage()', JS)
         self.assertIn('function rerunFailedPage(id,button)', JS)
         self.assertIn("dataset:{rerunFailed:data.id}", JS)
-        self.assertIn('?v=20260804c', INDEX)
+        self.assertIn('?v=20260804d', INDEX)
         self.assertIn("if(!configPage){document.body.classList.add", JS)
         self.assertIn("data-benchmark-notification", JS)
         self.assertNotIn('data-create-only', CONFIG_PAGE)
@@ -434,6 +434,9 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn('(resources?.specs||[]).map(', JS)
         self.assertIn("type:'hidden',name:'spec_key'", segment)
         self.assertIn("checkbox('启用','is_enabled'", segment)
+        self.assertNotIn('specState:', segment)
+        self.assertNotIn('spec-state-cell', segment)
+        self.assertNotIn("active?'已启用':'未启用'", segment)
         self.assertNotIn("selectField('专精 *','spec_key'", segment)
         self.assertNotIn("removeButton('spec')", segment)
         self.assertNotIn("dataset.editorAdd==='spec'", JS)
@@ -493,7 +496,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
             '.candidate-config-row',
         ):
             self.assertIn(selector, CSS)
-        self.assertIn('?v=20260804c', CONFIG_PAGE)
+        self.assertIn('?v=20260804d', CONFIG_PAGE)
 
     def test_panel_name_does_not_collide_with_nested_scenario_names(self):
         soup = BeautifulSoup(PARTIAL, "html.parser")

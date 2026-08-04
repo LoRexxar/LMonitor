@@ -155,9 +155,6 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
 .spec-config-row .config-card-primary > .config-check { min-height:34px; margin:0; align-self:center; padding:.35rem .55rem; }
 .spec-config-row .config-card-primary select { min-height:34px; padding:.35rem .55rem; }
 .spec-config-row .spec-catalog-name { min-width:0; padding:.38rem .7rem; overflow:hidden; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
-.spec-config-row .spec-state-cell { display:flex; align-items:center; gap:.35rem; min-width:0; }
-.spec-config-row .spec-state-cell .config-check { margin:0; }
-.spec-config-row .spec-state-cell .config-status { font-size:.64rem; white-space:nowrap; }
 .spec-config-row .config-card-advanced { grid-column:3; grid-row:1; border:0; background:transparent; }
 .spec-config-row .config-card-advanced > summary { min-height:34px; border:1px solid #e0e6ed; border-radius:.55rem; padding:.35rem .55rem; background:#fafbfc; }
 .spec-config-row .config-card-advanced summary small { display:none; }
