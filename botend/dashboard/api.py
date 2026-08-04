@@ -132,6 +132,7 @@ SIMC_SPEC_OPTIONS = _simc_spec_options()
 SIMC_SPEC_VALUES = frozenset(row['value'] for row in SIMC_SPEC_OPTIONS)
 SIMC_SPEC_LABELS = {row['value']: row['spec_label'] for row in SIMC_SPEC_OPTIONS}
 SIMC_SPEC_CLASS_NAMES = {row['value']: row['class_name'] for row in SIMC_SPEC_OPTIONS}
+SIMC_SPEC_CLASS_LABELS = {row['value']: row['class_label'] for row in SIMC_SPEC_OPTIONS}
 SIMC_CLASS_DB_NAMES = {
     re.sub(r'(?<!^)(?=[A-Z])', '_', class_name).lower()
     .replace('death_knight', 'deathknight')
@@ -165,6 +166,20 @@ def _simc_spec_label(spec, class_name=''):
     if len(suffix_labels) == 1:
         return suffix_labels.pop()
     return str(spec or '').strip() or '未标记'
+
+
+def _simc_class_label(spec, class_name=''):
+    """Return the canonical Chinese class label for a SimC resource identity."""
+    normalized = canonical_simc_profile_key(spec, class_name) or str(spec or '').strip().lower()
+    if normalized in ('', 'default', 'all', '*'):
+        return '通用职业'
+    if normalized in SIMC_SPEC_CLASS_LABELS:
+        return SIMC_SPEC_CLASS_LABELS[normalized]
+    canonical_class = str(class_name or '').strip().lower().replace('_', '')
+    for key, db_name in SIMC_CLASS_DB_NAMES.items():
+        if canonical_class in (key.replace('_', ''), db_name.lower()):
+            return CLASS_CN.get(db_name, db_name)
+    return str(class_name or '').strip() or '通用职业'
 
 
 def _simc_spec_visual(spec, class_name=''):
@@ -6387,6 +6402,7 @@ class SimcWorkbenchAPIView(View):
                 return JsonResponse({'success': True, 'data': {
                     'id': apl.id, 'name': apl.name, 'spec': apl.spec,
                     'spec_label': _simc_spec_label(apl.spec, apl.class_name),
+                    'class_label': _simc_class_label(apl.spec, apl.class_name),
                     'class_name': apl.class_name, 'source': apl.source,
                     'is_system': apl.is_system, 'is_active': apl.is_active,
                     'is_selectable': apl.is_selectable, 'content': apl.content,
@@ -6402,6 +6418,7 @@ class SimcWorkbenchAPIView(View):
             return JsonResponse({'success': True, 'data': [{
                 'id': apl.id, 'name': apl.name, 'spec': apl.spec,
                     'spec_label': _simc_spec_label(apl.spec, apl.class_name),
+                'class_label': _simc_class_label(apl.spec, apl.class_name),
                 'class_name': apl.class_name, 'source': apl.source,
                 'is_system': apl.is_system, 'is_active': apl.is_active,
                 'is_selectable': apl.is_selectable,
@@ -6467,6 +6484,7 @@ class SimcWorkbenchAPIView(View):
                     'title': row.name,
                     'spec': row.spec,
                     'spec_label': _simc_spec_label(row.spec, row.class_name),
+                    'class_label': _simc_class_label(row.spec, row.class_name),
                     'apl_code': row.content,
                     'is_active': row.is_active,
                 }})
@@ -6477,6 +6495,7 @@ class SimcWorkbenchAPIView(View):
                     'title': row.name,
                     'spec': row.spec,
                     'spec_label': _simc_spec_label(row.spec, row.class_name),
+                    'class_label': _simc_class_label(row.spec, row.class_name),
                     'apl_code': row.content,
                     'is_active': row.is_active,
                 })

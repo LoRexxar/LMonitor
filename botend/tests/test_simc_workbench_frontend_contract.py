@@ -555,6 +555,8 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('全部专精', panel)
         self.assertIn('state.aplSpecFilter', render_body)
         self.assertIn('row.spec === state.aplSpecFilter', render_body)
+        self.assertIn('classLabel(row)', render_body)
+        self.assertIn("`${classLabel(row)} · ${specLabel(row)}`", render_body)
         self.assertIn('data-apl-action="copy"', render_body)
         self.assertIn('copyAplToMy', JS)
         self.assertIn('copy_source_id: sourceId', JS)

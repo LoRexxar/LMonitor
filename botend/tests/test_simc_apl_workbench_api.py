@@ -78,6 +78,13 @@ class SimcAplWorkbenchApiTests(TestCase):
         workbench = self.client.get("/api/simc-workbench/apls/")
         row = next(row for row in workbench.json()["data"] if row["id"] == apl_id)
         self.assertFalse(row["is_active"])
+        self.assertEqual(row["class_label"], "战士")
+        self.assertEqual(row["spec_label"], "武器")
+
+        personal = self.client.get("/api/simc-workbench/apl-storage/")
+        personal_row = next(row for row in personal.json()["data"] if row["id"] == apl_id)
+        self.assertEqual(personal_row["class_label"], "战士")
+        self.assertEqual(personal_row["spec_label"], "武器")
 
         restore = self.client.post(
             f"/api/simc-workbench/apls/{apl_id}/",

@@ -413,6 +413,9 @@
     function specLabel(row, fallback = '未标记') {
         return String(row?.spec_label || fallback);
     }
+    function classLabel(row, fallback = '通用职业') {
+        return String(row?.class_label || row?.class_name || fallback);
+    }
     async function loadTemplates() {
         const host = document.getElementById('simc-wb-template-list');
         const request = beginResourceRequest('templates');
@@ -691,7 +694,7 @@
             const searchable = [
                 row.title, row.name,
                 row.kind === 'personal' ? row.apl_code : '',
-                row.class_name, row.spec, row.spec_label
+                row.class_name, row.class_label, row.spec, row.spec_label
             ].map(v => String(v || '').toLowerCase()).join('\n');
             return searchable.includes(query);
         }) : allRows;
@@ -702,7 +705,7 @@
         if (specFilter) {
             const options = Array.from(new Map(allRows
                 .filter(row => row.spec)
-                .map(row => [row.spec, specLabel(row)])).entries())
+                .map(row => [row.spec, `${classLabel(row)} · ${specLabel(row)}`])).entries())
                 .sort((left, right) => left[1].localeCompare(right[1], 'zh-CN'));
             const current = state.aplSpecFilter;
             specFilter.innerHTML = '<option value="">全部专精</option>' + options
@@ -739,7 +742,7 @@
             }
             return `<tr>
                 <td data-label="APL 名称"><div class="simc-apl-name">${esc(name)}</div></td>
-                <td data-label="职业" class="simc-apl-class-col"><span class="simc-apl-scope-value">${esc(row.class_name || '通用职业')}</span></td>
+                <td data-label="职业" class="simc-apl-class-col"><span class="simc-apl-scope-value">${esc(classLabel(row))}</span></td>
                 <td data-label="专精" class="simc-apl-spec-col"><span class="simc-apl-scope-value">${esc(specLabel(row))}</span></td>
                 <td data-label="来源"><span class="simc-template-badge ${sourceClass}">${esc(sourceLabel)}</span></td>
                 <td data-label="状态"><span class="simc-template-badge ${statusClass}">${active ? '启用' : '已停用'}</span></td>
