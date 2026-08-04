@@ -2261,7 +2261,9 @@ class SimcComparisonTaskAPIView(View):
                 profile_id = player_source.get('profile_id') or profile_id
                 try:
                     profile = SimcProfile.objects.get(
-                        id=int(profile_id), user_id=request.user.id, is_active=True,
+                        _accessible_simc_profile_q(request.user),
+                        id=int(profile_id),
+                        is_active=True,
                     )
                 except (TypeError, ValueError, SimcProfile.DoesNotExist):
                     raise ValueError('玩家配置不存在或无权使用')

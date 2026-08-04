@@ -1234,6 +1234,52 @@ main_hand=,id=222222
         self.assertFalse(response.json()['success'])
         self.assertIn('Worker', response.json()['error'])
 
+    @patch('botend.dashboard.api.create_task_from_request')
+    def test_product_admin_can_compare_with_global_ptr_wcl_profile(self, create_task):
+        admin = User.objects.create_user(
+            username='comparison_admin', password='pwd', is_staff=True,
+        )
+        self.client.force_login(admin)
+        profile = SimcProfile.objects.create(
+            user_id=None,
+            source=SimcProfile.SOURCE_WCL,
+            name='12.1 PTR WCL Fury',
+            spec='warrior_fury',
+            class_name='warrior',
+            use_ptr=True,
+            player_config_mode='wcl',
+            player_equipment=(
+                'warrior="PTR"\nlevel=90\nspec=fury\ntalents=PTR_BASE\n'
+                'head=,id=212048\nmain_hand=,id=222222'
+            ),
+            talent='PTR_BASE',
+            is_active=True,
+        )
+        create_task.return_value = SimpleNamespace(id=9981, mode='comparison')
+
+        response = self.client.post('/api/simc-task/comparison/', data=json.dumps({
+            'kind': 'talent_candidates',
+            'name': 'PTR WCL talent comparison',
+            'spec': 'warrior_fury',
+            'simc_profile_id': profile.id,
+            'player_source': {'type': 'saved_profile', 'profile_id': profile.id},
+            'base_template_id': self.base_template.id,
+            'selected_apl_id': self.default_apl.id,
+            'fight_style': 'Patchwerk',
+            'time': 60,
+            'target_count': 1,
+            'candidates': [{
+                'name': 'PTR candidate',
+                'talent': 'PTR_CANDIDATE',
+                'source': 'manual',
+            }],
+        }), content_type='application/json')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['success'], response.json())
+        self.assertEqual(response.json()['data']['task_id'], 9981)
+        create_task.assert_called_once()
+
     def test_auto_attribute_batch_creates_complete_50_rating_pairwise_neighborhood(self):
         base = {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}
         rows = SimcComparisonTaskAPIView._attribute_variants(base, 50)
