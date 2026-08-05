@@ -2314,8 +2314,9 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
         ).read_text(encoding='utf-8')
 
         self.assertNotIn("flags === 8 && parents.length === 0", script)
-        self.assertNotIn("grantedNodeKeys", script)
-        self.assertIn("node.purchased === false", script)
+        self.assertIn("if (node.purchased === undefined) node.purchased = true", script)
+        self.assertIn("is_choice_node: node.is_choice_node === true", script)
+
 
     def test_simulator_merge_applies_imported_choice_option_display(self):
         merged = _merge_nodes_for_simulator(
@@ -2598,6 +2599,41 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
         self.assertEqual(sum(state['points'] for state in merged_states.values()), 10)
         self.assertIn('spec:5008', merged_states)
         self.assertNotIn('spec:9005', merged_states)
+
+    def test_merge_preserves_imported_choice_bit_shape_over_current_db2_shape(self):
+        full_nodes = [
+            {'tree_type': 'spec', 'node_id': 100, 'talent_id': 100, 'points': 0, 'is_choice_node': True},
+            {'tree_type': 'spec', 'node_id': 200, 'talent_id': 200, 'points': 0, 'is_choice_node': False},
+        ]
+        decoded_states = {
+            'spec:100': {
+                'selected': True,
+                'purchased': True,
+                'points': 1,
+                'is_choice_node': False,
+                'choice_selection': 0,
+            },
+            'spec:200': {
+                'selected': True,
+                'purchased': True,
+                'points': 1,
+                'is_choice_node': True,
+                'choice_selection': 1,
+            },
+        }
+
+        merged = TalentBuildCodeService._merge_full_tree_nodes(
+            full_nodes,
+            [],
+            decoded_states=decoded_states,
+            has_build_code=True,
+            decoder_nodes=full_nodes,
+        )
+
+        self.assertIs(merged[0]['is_choice_node'], False)
+        self.assertEqual(merged[0]['choice_selection'], 0)
+        self.assertIs(merged[1]['is_choice_node'], True)
+        self.assertEqual(merged[1]['choice_selection'], 1)
 
     def test_merge_maps_structured_choice_option_state_to_render_choice_node(self):
         full_nodes = [

@@ -599,8 +599,12 @@ class TalentBuildCodeService:
                     payload['points'] = decoded_state.get('points', 0)
                     payload['selected'] = bool(decoded_state.get('selected', False))
                     payload['purchased'] = bool(decoded_state.get('purchased', True))
-                    if decoded_state.get('is_choice_node'):
-                        payload['is_choice_node'] = True
+                    # A valid import string may carry a different choice-bit
+                    # shape than the current exact-build DB2 row. Preserve both
+                    # true and false explicitly so later edits can round-trip
+                    # without shifting every following bit.
+                    payload['is_choice_node'] = bool(decoded_state.get('is_choice_node'))
+                    payload['choice_selection'] = int(decoded_state.get('choice_selection') or 0)
                     if payload.get('choice_options') and decoded_state.get('is_choice_node') and decoded_state.get('choice_selection') is not None:
                         selected_index = int(decoded_state.get('choice_selection') or 0)
                         options = payload.get('choice_options') or []

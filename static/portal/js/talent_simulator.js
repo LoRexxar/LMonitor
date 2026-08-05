@@ -896,9 +896,10 @@
                 spell_id: node.spell_id || null,
                 display_spell_id: node.display_spell_id || null,
                 points: Number(node.points || 0),
+                is_choice_node: node.is_choice_node === true,
             };
             if (node.purchased === false) payload.purchased = false;
-            if (node.is_choice_node) payload.choice_selection = Number(node.choice_selection || 0);
+            if (node.is_choice_node === true) payload.choice_selection = Number(node.choice_selection || 0);
             nodes.push(payload);
         }
         return nodes;
