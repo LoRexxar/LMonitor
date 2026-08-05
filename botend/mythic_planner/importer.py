@@ -19,6 +19,10 @@ from botend.models import (
     MythicDungeonSpawn,
     MythicPlannerConfig,
 )
+from botend.mythic_planner.spell_tooltips import (
+    QUALITY_MANUAL_OVERRIDE,
+    SOURCE_MANUAL,
+)
 
 
 KEY_RE = re.compile(r'^[a-z0-9][a-z0-9_-]*$')
@@ -467,6 +471,19 @@ def import_mythic_dungeon_payload(payload, *, activate=False, replace=False, sou
                 )
                 if not spell_created:
                     spell_updates = {'is_active': True}
+                    spell_metadata = dict(spell_record.metadata or {})
+                    protected_spell_fields = set(
+                        spell_metadata.get('manual_override_fields') or []
+                    )
+                    if (
+                        spell_metadata.get('description_source') == SOURCE_MANUAL
+                        or spell_metadata.get('description_quality')
+                        == QUALITY_MANUAL_OVERRIDE
+                    ):
+                        protected_spell_fields.update({
+                            'description',
+                            'description_zh',
+                        })
                     for field in (
                         'name',
                         'name_zh',
@@ -475,7 +492,7 @@ def import_mythic_dungeon_payload(payload, *, activate=False, replace=False, sou
                         'icon_url',
                     ):
                         incoming = spell_defaults[field]
-                        if incoming:
+                        if incoming and field not in protected_spell_fields:
                             spell_updates[field] = incoming
                     for field, value in spell_updates.items():
                         setattr(spell_record, field, value)
@@ -497,6 +514,39 @@ def import_mythic_dungeon_payload(payload, *, activate=False, replace=False, sou
                     'is_active': _bool(ability_data.get('is_active'), True),
                     'metadata': _dict(ability_data.get('metadata'), f'{spell_id}.metadata'),
                 }
+                existing_ability = MythicDungeonAbility.objects.filter(
+                    enemy=enemy,
+                    spell_id=spell_id,
+                ).first()
+                if existing_ability:
+                    existing_ability_metadata = dict(
+                        existing_ability.metadata or {}
+                    )
+                    manual_override_fields = set(
+                        existing_ability_metadata.get(
+                            'manual_override_fields',
+                        ) or []
+                    )
+                    for field in (
+                        'name',
+                        'name_zh',
+                        'description',
+                        'description_zh',
+                        'icon_url',
+                    ):
+                        if field in manual_override_fields:
+                            ability_defaults[field] = getattr(
+                                existing_ability,
+                                field,
+                            )
+                    if manual_override_fields:
+                        ability_metadata = dict(ability_defaults['metadata'])
+                        ability_metadata.update({
+                            key: value
+                            for key, value in existing_ability_metadata.items()
+                            if key.startswith('manual_')
+                        })
+                        ability_defaults['metadata'] = ability_metadata
                 _, created = MythicDungeonAbility.objects.update_or_create(
                     enemy=enemy,
                     spell_id=spell_id,

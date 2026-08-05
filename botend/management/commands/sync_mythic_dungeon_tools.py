@@ -22,6 +22,71 @@ from botend.mythic_planner.mdt_converter import (
 )
 
 
+def load_payload_seed(path):
+    """从已有数据包继承已解析技能资料和已归档资源地址。"""
+
+    path = Path(path)
+    if not path.is_file():
+        return {}, {}, {}, {}
+    try:
+        payload = json.loads(path.read_text(encoding='utf-8-sig'))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f'无法读取已有 MDT 数据包 {path}：{exc}') from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f'已有 MDT 数据包根节点必须是对象：{path}')
+
+    snapshots = {}
+    floor_background_urls = {}
+    enemy_icon_urls = {}
+    for dungeon in payload.get('dungeons') or []:
+        if not isinstance(dungeon, dict):
+            continue
+        dungeon_key = str(dungeon.get('key') or '')
+        if not dungeon_key:
+            continue
+        for floor in dungeon.get('floors') or []:
+            if not isinstance(floor, dict):
+                continue
+            floor_key = str(floor.get('key') or '')
+            background_url = str(floor.get('background_url') or '')
+            if floor_key and background_url:
+                floor_background_urls[(dungeon_key, floor_key)] = background_url
+        for enemy in dungeon.get('enemies') or []:
+            if not isinstance(enemy, dict):
+                continue
+            enemy_key = str(enemy.get('key') or '')
+            enemy_icon_url = str(enemy.get('icon_url') or '')
+            if enemy_key and enemy_icon_url:
+                enemy_icon_urls[(dungeon_key, enemy_key)] = enemy_icon_url
+            for ability in enemy.get('abilities') or []:
+                if not isinstance(ability, dict):
+                    continue
+                try:
+                    spell_id = int(ability.get('spell_id'))
+                except (TypeError, ValueError):
+                    continue
+                current = dict(snapshots.get(spell_id) or {})
+                for target_field, source_field in (
+                    ('name', 'name'),
+                    ('name_zh', 'name_zh'),
+                    ('description', 'description_zh'),
+                    ('icon_url', 'icon_url'),
+                ):
+                    candidate = str(ability.get(source_field) or '')
+                    if candidate and not current.get(target_field):
+                        current[target_field] = candidate
+                snapshots[spell_id] = current
+
+    version_data = payload.get('data_version')
+    metadata = (
+        dict(version_data.get('metadata') or {})
+        if isinstance(version_data, dict)
+        and isinstance(version_data.get('metadata'), dict)
+        else {}
+    )
+    return snapshots, floor_background_urls, enemy_icon_urls, metadata
+
+
 class Command(BaseCommand):
     help = '将固定版本 MythicDungeonTools Lua 与地图切片转换并同步到路线规划器。'
 
@@ -62,6 +127,14 @@ class Command(BaseCommand):
             help='只生成数据包和地图，不写入数据库。',
         )
         parser.add_argument(
+            '--no-database-metadata',
+            action='store_true',
+            help=(
+                '仅使用已有数据包继承技能和资源资料，不读取数据库；'
+                '适合离线生成发布包，必须与 --no-import 一起使用。'
+            ),
+        )
+        parser.add_argument(
             '--no-compose-maps',
             action='store_true',
             help='不重新合成地图；适合仅更新 Lua 数据。',
@@ -73,6 +146,8 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        if options['no_database_metadata'] and not options['no_import']:
+            raise CommandError('--no-database-metadata 必须与 --no-import 一起使用。')
         base_dir = Path(settings.BASE_DIR).resolve()
         source_dir = self._resolve_path(
             options['source_dir'],
@@ -85,7 +160,11 @@ class Command(BaseCommand):
         )
         output_path = self._resolve_path(
             options['output'],
-            base_dir / 'botend' / 'data' / 'mythic_planner' / 'mdt_6_2_0_alpha3.json',
+            base_dir
+            / 'botend'
+            / 'data'
+            / 'mythic_planner'
+            / f'mdt_{SOURCE_TAG.replace(".", "_").replace("-", "_")}.json',
         )
         static_map_root = self._resolve_path(
             options['static_map_root'],
@@ -100,6 +179,12 @@ class Command(BaseCommand):
         self._validate_source(source_dir)
 
         try:
+            (
+                snapshots,
+                floor_background_urls,
+                enemy_icon_urls,
+                seed_metadata,
+            ) = load_payload_seed(output_path)
             payload = build_payload(
                 source_dir,
                 version_key=str(options['version_key'] or '').strip() or None,
@@ -110,18 +195,18 @@ class Command(BaseCommand):
                 for enemy in dungeon['enemies']
                 for ability in enemy['abilities']
             }
-            existing_version = MythicDungeonDataVersion.objects.filter(
-                key=payload['data_version']['key'],
-            ).first()
+            existing_version = None
+            if not options['no_database_metadata']:
+                existing_version = MythicDungeonDataVersion.objects.filter(
+                    key=payload['data_version']['key'],
+                ).first()
             existing_metadata = (
                 existing_version.metadata
                 if existing_version and isinstance(existing_version.metadata, dict)
                 else {}
             )
-            floor_background_urls = {}
-            enemy_icon_urls = {}
             if existing_version:
-                floor_background_urls = {
+                floor_background_urls.update({
                     (str(row['dungeon__key']), str(row['key'])): str(
                         row['background_url'] or ''
                     )
@@ -133,8 +218,8 @@ class Command(BaseCommand):
                         'key',
                         'background_url',
                     )
-                }
-                enemy_icon_urls = {
+                })
+                enemy_icon_urls.update({
                     (str(row['dungeon__key']), str(row['key'])): str(
                         row['icon_url'] or ''
                     )
@@ -146,10 +231,12 @@ class Command(BaseCommand):
                         'key',
                         'icon_url',
                     )
-                }
+                })
+            metadata_seed = dict(seed_metadata)
+            metadata_seed.update(existing_metadata)
             snapshot_metadata = (
-                existing_metadata.get('spell_snapshot')
-                if isinstance(existing_metadata.get('spell_snapshot'), dict)
+                metadata_seed.get('spell_snapshot')
+                if isinstance(metadata_seed.get('spell_snapshot'), dict)
                 else {}
             )
             supplement_metadata = payload['data_version']['metadata'].get(
@@ -171,24 +258,28 @@ class Command(BaseCommand):
                 or supplement_target.get('game_build')
                 or ''
             ).strip()
-            snapshot_queryset = WowSpellSnapshot.objects.filter(
-                branch=snapshot_branch,
-                locale='zhCN',
-                spell_id__in=spell_ids,
-            )
-            if snapshot_build:
-                snapshot_queryset = snapshot_queryset.filter(
-                    snapshot_build=snapshot_build,
+            if not options['no_database_metadata']:
+                snapshot_queryset = WowSpellSnapshot.objects.filter(
+                    branch=snapshot_branch,
+                    locale='zhCN',
+                    spell_id__in=spell_ids,
                 )
-            snapshots = {
-                int(row['spell_id']): row
+                if snapshot_build:
+                    snapshot_queryset = snapshot_queryset.filter(
+                        snapshot_build=snapshot_build,
+                    )
                 for row in snapshot_queryset.values(
                     'spell_id',
                     'name',
                     'name_zh',
                     'description',
-                )
-            }
+                ):
+                    spell_id = int(row['spell_id'])
+                    current = dict(snapshots.get(spell_id) or {})
+                    for field in ('name', 'name_zh', 'description'):
+                        if row.get(field) and not current.get(field):
+                            current[field] = row[field]
+                    snapshots[spell_id] = current
             version_spell_hits = 0
             if existing_version:
                 for row in MythicDungeonSpell.objects.filter(
@@ -237,7 +328,8 @@ class Command(BaseCommand):
                     floor_background_urls=floor_background_urls,
                     enemy_icon_urls=enemy_icon_urls,
                 )
-            payload_metadata = dict(existing_metadata)
+            payload_metadata = dict(seed_metadata)
+            payload_metadata.update(existing_metadata)
             payload_metadata.update(payload['data_version'].get('metadata') or {})
             payload['data_version']['metadata'] = payload_metadata
             write_payload(payload, output_path)

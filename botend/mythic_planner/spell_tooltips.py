@@ -52,6 +52,8 @@ DESCRIPTION_PROVENANCE_KEYS = {
     "wowhead_difficulty_id",
     "wowhead_version_scope",
     "wowhead_build_exact",
+    "wowhead_requested_branch",
+    "wowhead_requested_build",
 }
 
 _ISOLATED_X_RE = re.compile(r"(?<![A-Za-z])x(?![A-Za-z])", re.IGNORECASE)
@@ -92,6 +94,34 @@ def should_preserve_description(
     incoming_quality: str,
 ) -> bool:
     return description_rank(existing_metadata) > description_rank(incoming_quality)
+
+
+def should_preserve_description_for_snapshot(
+    existing_metadata: dict[str, Any] | None,
+    incoming_quality: str,
+    *,
+    full_build: str,
+    difficulty_id: int,
+) -> bool:
+    """只保护能够证明属于目标 build/难度的高质量客户端说明。"""
+    metadata = existing_metadata if isinstance(existing_metadata, dict) else {}
+    if not should_preserve_description(metadata, incoming_quality):
+        return False
+    quality = description_quality(metadata)
+    if quality != QUALITY_EXACT_RENDERED:
+        return True
+    if str(full_build or '').strip():
+        if metadata_client_full_build(metadata) != str(full_build).strip():
+            return False
+    target_difficulty = int(difficulty_id or 0)
+    if target_difficulty:
+        try:
+            existing_difficulty = int(metadata.get('difficulty_id') or 0)
+        except (TypeError, ValueError):
+            existing_difficulty = 0
+        if existing_difficulty != target_difficulty:
+            return False
+    return True
 
 
 def preserve_description_provenance(

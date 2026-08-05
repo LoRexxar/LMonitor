@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-SOURCE_TAG = '6.2.0-alpha3'
-SOURCE_COMMIT = '7298a367d7a05331fb80c5c12688eb321e3ff799'
+SOURCE_TAG = '6.2.0-alpha5'
+SOURCE_COMMIT = '94473b391b6fb7563f8466c4a596a11ef6218a12'
 SOURCE_URL = f'https://github.com/Nnoggie/MythicDungeonTools/tree/{SOURCE_TAG}'
 MAP_SOURCE_WIDTH = 840
 MAP_SOURCE_HEIGHT = 560
@@ -853,7 +853,7 @@ def build_payload(
             'key': version_key or f'mdt-{SOURCE_TAG.replace(".", "-")}',
             'label': f'MythicDungeonTools {SOURCE_TAG} 午夜版本数据',
             'game_version': 'Midnight',
-            'season': 'MythicDungeonTools 6.2.0-alpha3',
+            'season': f'MythicDungeonTools {SOURCE_TAG}',
             'source_name': 'MythicDungeonTools',
             'source_reference': SOURCE_URL,
             'notes': (

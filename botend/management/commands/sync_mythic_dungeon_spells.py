@@ -5,12 +5,13 @@ from __future__ import annotations
 
 import csv
 import html
+import json
 import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import requests
 from django.conf import settings
@@ -39,9 +40,8 @@ from botend.mythic_planner.spell_tooltips import (
     SOURCE_WOWHEAD_TOOLTIP_REFERENCE,
     build_description_metadata,
     description_quality,
-    metadata_client_full_build,
     preserve_description_provenance,
-    should_preserve_description,
+    should_preserve_description_for_snapshot,
 )
 from botend.services.article_image_service import _get_configured_proxies
 from botend.wow.spell_text import SpellTextResolver
@@ -89,7 +89,17 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('--version-key', default='', help='MDT 数据版本；默认使用当前生效版本')
-        parser.add_argument('--build', required=True, help='明确的 WoW build，例如 12.1.0.68914')
+        parser.add_argument(
+            '--dungeon-key',
+            action='append',
+            default=[],
+            help='只同步指定地下城，可重复传入；默认同步版本内全部地下城',
+        )
+        parser.add_argument(
+            '--build',
+            default='latest',
+            help='WoW build；默认自动解析所选分支的最新已处理版本，也可传入明确版本',
+        )
         parser.add_argument('--branch', default='wowt', help='数据产品/分支，例如 wowt、wow、wowxptr')
         parser.add_argument(
             '--dump-root',
@@ -144,22 +154,38 @@ class Command(BaseCommand):
         parser.add_argument('--dry-run', action='store_true', help='下载并统计，但不写数据库')
 
     def handle(self, *args, **options):
-        build = str(options.get('build') or '').strip()
+        configured_build = str(options.get('build') or '').strip() or 'latest'
         branch = str(options.get('branch') or '').strip()
-        if not build or build.lower() == 'latest':
-            raise CommandError('--build 必须是明确版本，禁止使用 latest')
-        if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+', build):
-            raise CommandError(f'build 格式不正确: {build}')
         if not re.fullmatch(r'[a-z0-9_-]+', branch):
             raise CommandError(f'branch 格式不正确: {branch}')
+        session = requests.Session()
+        session.headers.update({'User-Agent': 'Mozilla/5.0'})
+        build = self._resolve_wago_build(
+            session,
+            branch=branch,
+            configured_build=configured_build,
+        )
+        if configured_build.lower() == 'latest':
+            self.stdout.write(self.style.SUCCESS(
+                f'已解析 Wago 最新版本: branch={branch}, build={build}',
+            ))
 
         version = self._resolve_version(str(options.get('version_key') or '').strip())
-        spell_ids = set(
-            MythicDungeonAbility.objects.filter(
-                enemy__dungeon__data_version=version,
-                is_active=True,
-            ).values_list('spell_id', flat=True)
+        dungeon_keys = self._resolve_dungeon_keys(
+            version,
+            options.get('dungeon_key') or [],
         )
+        ability_queryset = MythicDungeonAbility.objects.filter(
+            enemy__dungeon__data_version=version,
+            enemy__dungeon__is_active=True,
+            enemy__is_active=True,
+            is_active=True,
+        )
+        if dungeon_keys:
+            ability_queryset = ability_queryset.filter(
+                enemy__dungeon__key__in=dungeon_keys,
+            )
+        spell_ids = set(ability_queryset.values_list('spell_id', flat=True))
         if not spell_ids:
             raise CommandError(f'数据版本 {version.key} 没有可补全的怪物技能')
 
@@ -196,9 +222,15 @@ class Command(BaseCommand):
                     else '未显式配置，遵循系统环境或直连'
                 )
             )
+            self.stdout.write(self.style.WARNING(
+                'Wowhead Tooltip 只能锁定环境与难度，不能锁定具体 build；'
+                f'本次响应会记录为 {WOWHEAD_ENVIRONMENT_KEYS[tooltip_data_env]} '
+                f'环境当前值（dd={tooltip_difficulty_id}），不会标记为 {build} 精确数据。'
+            ))
 
         self.stdout.write(
             f'目标版本: {version.key}, branch={branch}, build={build}, '
+            f'dungeons={",".join(dungeon_keys) if dungeon_keys else "全部"}, '
             f'unique_spells={len(spell_ids)}'
         )
         tooltip_cache_path = (
@@ -210,6 +242,12 @@ class Command(BaseCommand):
         )
         tooltip_locale = max(0, int(options.get('wowhead_locale') or 4))
         if options.get('tooltip_only'):
+            self._validate_tooltip_snapshot_context(
+                version,
+                spell_ids,
+                branch=branch,
+                build=build,
+            )
             description_reference_ids = self._collect_record_description_references(
                 version,
                 spell_ids,
@@ -262,8 +300,6 @@ class Command(BaseCommand):
             ))
             return
 
-        session = requests.Session()
-        session.headers.update({'User-Agent': 'Mozilla/5.0'})
         for filename, table, locale in TABLE_DOWNLOADS:
             self._download_csv(
                 session,
@@ -406,6 +442,108 @@ class Command(BaseCommand):
         if not version:
             raise CommandError('找不到目标 MDT 数据版本')
         return version
+
+    def _resolve_wago_build(self, session, *, branch, configured_build):
+        configured_build = str(configured_build or '').strip() or 'latest'
+        if configured_build.lower() != 'latest':
+            if not re.fullmatch(
+                r'[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+',
+                configured_build,
+            ):
+                raise CommandError(f'build 格式不正确: {configured_build}')
+            return configured_build
+
+        url = 'https://wago.tools/builds'
+        for _page in range(12):
+            try:
+                response = session.get(url, timeout=45)
+                response.raise_for_status()
+            except Exception as exc:
+                raise CommandError(f'解析 Wago 最新 {branch} build 失败: {exc}') from exc
+            rows, next_url = self._parse_wago_builds_page(response.text)
+            for row in rows:
+                if str(row.get('product') or '').strip() != branch:
+                    continue
+                if row.get('processed') is False:
+                    continue
+                version = str(row.get('version') or '').strip()
+                if re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+', version):
+                    return version
+            if not next_url:
+                break
+            url = urljoin(url, next_url)
+        raise CommandError(f'Wago builds 目录中找不到最新已处理分支: {branch}')
+
+    @staticmethod
+    def _parse_wago_builds_page(page_html):
+        match = re.search(
+            r'data-page=(?:"([^"]+)"|\'([^\']+)\')',
+            str(page_html or ''),
+        )
+        if not match:
+            raise CommandError('Wago builds 页面缺少 data-page 数据')
+        try:
+            payload = json.loads(html.unescape(match.group(1) or match.group(2) or ''))
+        except (TypeError, ValueError) as exc:
+            raise CommandError(f'Wago builds 页面数据无法解析: {exc}') from exc
+        props = payload.get('props') if isinstance(payload, dict) else {}
+        builds = props.get('builds') if isinstance(props, dict) else {}
+        rows = builds.get('data') if isinstance(builds, dict) else []
+        next_url = builds.get('next_page_url') if isinstance(builds, dict) else ''
+        return (rows if isinstance(rows, list) else []), str(next_url or '').strip()
+
+    @staticmethod
+    def _resolve_dungeon_keys(version, configured_keys):
+        requested = sorted({
+            str(value or '').strip()
+            for value in configured_keys
+            if str(value or '').strip()
+        })
+        if not requested:
+            return []
+        existing = set(version.dungeons.filter(
+            key__in=requested,
+            is_active=True,
+        ).values_list('key', flat=True))
+        missing = sorted(set(requested) - existing)
+        if missing:
+            raise CommandError(
+                f'数据版本 {version.key} 不包含活动地下城: {", ".join(missing)}',
+            )
+        return requested
+
+    @staticmethod
+    def _validate_tooltip_snapshot_context(version, spell_ids, *, branch, build):
+        records = list(MythicDungeonSpell.objects.filter(
+            data_version=version,
+            spell_id__in=spell_ids,
+        ).values('spell_id', 'source_branch', 'snapshot_build'))
+        by_spell_id = {int(row['spell_id']): row for row in records}
+        missing = sorted(set(spell_ids) - set(by_spell_id))
+        mismatched = sorted(
+            spell_id
+            for spell_id, row in by_spell_id.items()
+            if (
+                str(row.get('source_branch') or '').strip() != branch
+                or str(row.get('snapshot_build') or '').strip() != build
+            )
+        )
+        if not missing and not mismatched:
+            return
+        details = []
+        if missing:
+            details.append(
+                f'缺少技能快照 {len(missing)} 条（示例: {missing[:5]}）',
+            )
+        if mismatched:
+            details.append(
+                f'分支/build 不匹配 {len(mismatched)} 条（示例: {mismatched[:5]}）',
+            )
+        raise CommandError(
+            'Tooltip-only 只能补充已经由目标 Wago DB2 快照初始化的技能；'
+            + '；'.join(details)
+            + '。请先去掉 --tooltip-only 执行完整 DB2 同步。'
+        )
 
     @staticmethod
     def _resolve_wowhead_data_env(branch, configured):
@@ -978,9 +1116,11 @@ class Command(BaseCommand):
             description = str(resolved['description'] or '').strip()
             incoming_source = resolved['source']
             incoming_quality = resolved['quality']
-            if should_preserve_description(
+            if should_preserve_description_for_snapshot(
                 metadata,
                 incoming_quality,
+                full_build=build,
+                difficulty_id=difficulty_id,
             ):
                 continue
 
@@ -995,6 +1135,8 @@ class Command(BaseCommand):
                 'wowhead_difficulty_id',
                 'wowhead_version_scope',
                 'wowhead_build_exact',
+                'wowhead_requested_branch',
+                'wowhead_requested_build',
             ):
                 metadata.pop(key, None)
             reference_spell_ids = resolved['reference_spell_ids']
@@ -1033,13 +1175,13 @@ class Command(BaseCommand):
                 metadata['wowhead_difficulty_id'] = difficulty_id
                 metadata['wowhead_version_scope'] = 'environment_current'
                 metadata['wowhead_build_exact'] = False
+                metadata['wowhead_requested_branch'] = branch
+                metadata['wowhead_requested_build'] = build
             metadata.update(build_description_metadata(
                 source=incoming_source,
                 quality=incoming_quality,
             ))
             record.description_zh = description
-            record.source_branch = branch
-            record.snapshot_build = build
             record.metadata = metadata
             record.updated_at = now
             updated.append(record)
@@ -1048,8 +1190,6 @@ class Command(BaseCommand):
                 updated,
                 [
                     'description_zh',
-                    'source_branch',
-                    'snapshot_build',
                     'metadata',
                     'updated_at',
                 ],
@@ -1068,8 +1208,6 @@ class Command(BaseCommand):
         coverage['mechanic_only_zh'] = mechanic_count
         coverage['blank_description_zh'] = blank_count
         spell_snapshot.update({
-            'source_branch': branch,
-            'snapshot_build': build,
             'wowhead_tooltips': True,
             'wowhead_locale': locale,
             'wowhead_data_env': data_env,
@@ -1077,6 +1215,8 @@ class Command(BaseCommand):
             'wowhead_difficulty_id': difficulty_id,
             'wowhead_version_scope': 'environment_current',
             'wowhead_build_exact': False,
+            'wowhead_requested_branch': branch,
+            'wowhead_requested_build': build,
             'coverage': coverage,
             'synced_at': now.isoformat(),
         })
@@ -1303,18 +1443,13 @@ class Command(BaseCommand):
             preserve_description = bool(
                 existing_record
                 and existing_record.description_zh
-                and should_preserve_description(
+                and should_preserve_description_for_snapshot(
                     existing_metadata,
                     incoming_quality,
+                    full_build=build,
+                    difficulty_id=tooltip_difficulty_id,
                 )
             )
-            if (
-                preserve_description
-                and description_quality(existing_metadata) == QUALITY_EXACT_RENDERED
-                and metadata_client_full_build(existing_metadata)
-                and metadata_client_full_build(existing_metadata) != build
-            ):
-                preserve_description = False
             if preserve_description:
                 description_zh = existing_record.description_zh
             metadata = {

@@ -37,7 +37,7 @@
             <section class="mp-admin-help">
                 <strong>数据更新策略</strong>
                 <p>重复导入相同版本会按稳定 key 更新，不产生重复项。替换模式只停用缺失项，不物理删除数据。</p>
-                <code>python manage.py sync_mythic_dungeon_tools --activate --replace</code>
+                <code>python manage.py import_mythic_dungeon_data --upgrade-from-version mdt-6-2-0-alpha3 --activate --replace</code>
             </section>
         </aside>
 

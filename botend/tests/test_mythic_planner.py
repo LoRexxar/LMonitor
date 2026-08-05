@@ -65,15 +65,66 @@ from botend.management.commands.sync_mythic_dungeon_assets import (
     AssetUnavailableError,
     Command as SyncMythicDungeonAssetsCommand,
 )
+from botend.management.commands.sync_mythic_dungeon_tools import (
+    load_payload_seed,
+)
 from botend.wow.spell_text import SpellTextResolver
 
 
 def demo_payload():
-    path = Path(settings.BASE_DIR) / 'botend' / 'data' / 'mythic_planner' / 'demo_v1.json'
+    path = (
+        Path(settings.BASE_DIR)
+        / 'botend'
+        / 'mythic_planner'
+        / 'fixtures'
+        / 'demo_v1.json'
+    )
     return json.loads(path.read_text(encoding='utf-8'))
 
 
 class MythicPlannerImportTests(TestCase):
+    def test_builtin_alpha5_package_imports_complete_dataset(self):
+        call_command(
+            'import_mythic_dungeon_data',
+            activate=True,
+            replace=True,
+            verbosity=0,
+        )
+
+        version = MythicDungeonDataVersion.objects.get(
+            key='mdt-6-2-0-alpha5',
+            is_active=True,
+        )
+        self.assertEqual(version.metadata['source_tag'], '6.2.0-alpha5')
+        self.assertEqual(version.dungeons.filter(is_active=True).count(), 16)
+        self.assertEqual(
+            MythicDungeonEnemy.objects.filter(
+                dungeon__data_version=version,
+                is_active=True,
+            ).count(),
+            467,
+        )
+        self.assertEqual(
+            MythicDungeonSpawn.objects.filter(
+                enemy__dungeon__data_version=version,
+                is_active=True,
+            ).count(),
+            3012,
+        )
+        self.assertEqual(
+            MythicDungeonAbility.objects.filter(
+                enemy__dungeon__data_version=version,
+                is_active=True,
+            ).count(),
+            1648,
+        )
+        self.assertFalse(
+            MythicDungeonAbility.objects.filter(
+                enemy__dungeon__data_version=version,
+                name__regex=r'^Spell #[0-9]+$',
+            ).exists()
+        )
+
     def test_builtin_command_initializes_and_is_idempotent(self):
         call_command('import_mythic_dungeon_data', demo=True, verbosity=0)
         counts = {
@@ -184,6 +235,179 @@ class MythicPlannerImportTests(TestCase):
         self.assertEqual(enemy.enemy_forces, 6)
         self.assertFalse(removed.is_active)
 
+    def test_upgrade_from_version_reuses_relations_and_preserves_manual_edits(self):
+        payload = demo_payload()
+        import_mythic_dungeon_payload(payload, activate=True)
+        version = MythicDungeonDataVersion.objects.get(key='lmonitor-demo-1')
+        source_dungeon = payload['dungeons'][0]
+        source_enemy = source_dungeon['enemies'][0]
+        source_spawn = source_enemy['spawns'][0]
+        dungeon = version.dungeons.get(key=source_dungeon['key'])
+        spawn = MythicDungeonSpawn.objects.select_related('floor').get(
+            enemy__dungeon=dungeon,
+            enemy__key=source_enemy['key'],
+            key=source_spawn['key'],
+        )
+        imported_position = {
+            'floor_key': spawn.floor.key,
+            'x': spawn.x,
+            'y': spawn.y,
+        }
+        imported_group_key = spawn.group_key
+        spawn.x += 1
+        spawn.y += 1
+        spawn.group_key = 'manual-group-1'
+        spawn.metadata = {
+            **(spawn.metadata or {}),
+            'manual_position_override': True,
+            'manual_position_updated_by_user_id': 1,
+            'imported_position': imported_position,
+            'manual_group_override': True,
+            'manual_group_updated_by_user_id': 1,
+            'imported_group_key': imported_group_key,
+        }
+        spawn.save()
+        manual_group = MythicDungeonSelectionGroup.objects.create(
+            data_version=version,
+            key='manual-favorites',
+            name='Manual Favorites',
+            name_zh='人工收藏',
+            order=99,
+            metadata={'source': 'manual'},
+        )
+        route = MythicDungeonRoute.objects.create(
+            dungeon=dungeon,
+            name='升级保留路线',
+            route_data={'version': 1, 'dungeon_key': dungeon.key},
+        )
+        share = MythicDungeonRouteShare.objects.create(
+            dungeon=dungeon,
+            name='升级保留短链',
+            route_data={'version': 1, 'dungeon_key': dungeon.key},
+            content_hash='a' * 64,
+        )
+
+        upgraded = copy.deepcopy(payload)
+        upgraded['data_version']['key'] = 'lmonitor-demo-2'
+        upgraded['data_version']['label'] = 'LMonitor Demo 2'
+        upgraded_spawn = upgraded['dungeons'][0]['enemies'][0]['spawns'][0]
+        upgraded_spawn['x'] += 5
+        upgraded_spawn['y'] += 5
+        upgraded_spawn['group_key'] = 'group-upstream-2'
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            package_path = Path(temporary_directory) / 'upgrade.json'
+            package_path.write_text(
+                json.dumps(upgraded, ensure_ascii=False),
+                encoding='utf-8',
+            )
+            call_command(
+                'import_mythic_dungeon_data',
+                file_path=str(package_path),
+                upgrade_from_version='lmonitor-demo-1',
+                activate=True,
+                replace=True,
+                verbosity=0,
+            )
+            call_command(
+                'import_mythic_dungeon_data',
+                file_path=str(package_path),
+                upgrade_from_version='lmonitor-demo-1',
+                activate=True,
+                replace=True,
+                verbosity=0,
+            )
+
+        version.refresh_from_db()
+        dungeon.refresh_from_db()
+        spawn.refresh_from_db()
+        route.refresh_from_db()
+        share.refresh_from_db()
+        manual_group.refresh_from_db()
+        self.assertEqual(version.key, 'lmonitor-demo-2')
+        self.assertFalse(
+            MythicDungeonDataVersion.objects.filter(
+                key='lmonitor-demo-1',
+            ).exists()
+        )
+        self.assertEqual(dungeon.data_version_id, version.id)
+        self.assertEqual(route.dungeon_id, dungeon.id)
+        self.assertEqual(share.dungeon_id, dungeon.id)
+        self.assertEqual(manual_group.data_version_id, version.id)
+        self.assertEqual(spawn.group_key, 'manual-group-1')
+        self.assertEqual(spawn.x, imported_position['x'] + 1)
+        self.assertEqual(spawn.y, imported_position['y'] + 1)
+        self.assertTrue(spawn.metadata['manual_position_override'])
+        self.assertTrue(spawn.metadata['manual_group_override'])
+        self.assertEqual(
+            spawn.metadata['imported_group_key'],
+            'group-upstream-2',
+        )
+
+    def test_upgrade_from_version_dry_run_rolls_back_version_key(self):
+        payload = demo_payload()
+        import_mythic_dungeon_payload(payload, activate=True)
+        upgraded = copy.deepcopy(payload)
+        upgraded['data_version']['key'] = 'lmonitor-demo-2'
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            package_path = Path(temporary_directory) / 'upgrade.json'
+            package_path.write_text(
+                json.dumps(upgraded),
+                encoding='utf-8',
+            )
+            call_command(
+                'import_mythic_dungeon_data',
+                file_path=str(package_path),
+                upgrade_from_version='lmonitor-demo-1',
+                activate=True,
+                replace=True,
+                dry_run=True,
+                verbosity=0,
+            )
+
+        self.assertTrue(
+            MythicDungeonDataVersion.objects.filter(
+                key='lmonitor-demo-1',
+                is_active=True,
+            ).exists()
+        )
+        self.assertFalse(
+            MythicDungeonDataVersion.objects.filter(
+                key='lmonitor-demo-2',
+            ).exists()
+        )
+
+    def test_reimport_preserves_manual_spell_and_ability_descriptions(self):
+        payload = demo_payload()
+        import_mythic_dungeon_payload(payload, activate=True)
+        ability = MythicDungeonAbility.objects.select_related(
+            'spell_record',
+        ).first()
+        ability.description_zh = '关系级人工说明。'
+        ability.metadata = {
+            **(ability.metadata or {}),
+            'manual_override_fields': ['description_zh'],
+            'manual_updated_by_user_id': 1,
+        }
+        ability.save()
+        spell = ability.spell_record
+        spell.description_zh = '技能库人工说明。'
+        spell.metadata = {
+            **(spell.metadata or {}),
+            'description_source': SOURCE_MANUAL,
+            'description_quality': QUALITY_MANUAL_OVERRIDE,
+        }
+        spell.save()
+
+        updated = copy.deepcopy(payload)
+        updated_ability = updated['dungeons'][0]['enemies'][0]['abilities'][0]
+        updated_ability['description_zh'] = '上游新说明。'
+        import_mythic_dungeon_payload(updated, activate=True, replace=True)
+
+        ability.refresh_from_db()
+        spell.refresh_from_db()
+        self.assertEqual(ability.description_zh, '关系级人工说明。')
+        self.assertEqual(spell.description_zh, '技能库人工说明。')
+
     def test_selection_groups_are_independent_idempotent_resources(self):
         payload = demo_payload()
         payload['selection_groups'] = [{
@@ -281,13 +505,17 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             / 'data'
             / 'mythic_planner'
             / 'vendor'
-            / 'mythic-dungeon-tools-6.2.0-alpha3'
+            / 'mythic-dungeon-tools-6.2.0-alpha5'
         )
 
     def test_fixed_upstream_snapshot_converts_real_dungeons_and_assets(self):
         payload = build_payload(self.source_root())
 
-        self.assertEqual(payload['data_version']['key'], 'mdt-6-2-0-alpha3')
+        self.assertEqual(payload['data_version']['key'], 'mdt-6-2-0-alpha5')
+        self.assertEqual(
+            payload['data_version']['metadata']['source_commit'],
+            '94473b391b6fb7563f8466c4a596a11ef6218a12',
+        )
         self.assertEqual(payload['data_version']['metadata']['license'], 'GPL-2.0-only')
         self.assertEqual(len(payload['dungeons']), 16)
         selection_groups = payload['data_version']['metadata']['dungeon_selection_groups']
@@ -325,7 +553,7 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             'midnight-season-2',
         )
         self.assertIn(
-            '/static/portal/mythic_planner/vendor/mdt-6.2.0-alpha3/maps/',
+            '/static/portal/mythic_planner/vendor/mdt-6.2.0-alpha5/maps/',
             murder_row['floors'][0]['background_url'],
         )
         self.assertTrue(all(
@@ -414,6 +642,55 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             ),
             1648,
         )
+
+    def test_existing_payload_seeds_spell_and_asset_metadata(self):
+        seed_payload = {
+            'data_version': {
+                'metadata': {'spell_snapshot': {'source_branch': 'wowt'}},
+            },
+            'dungeons': [{
+                'key': 'demo-dungeon',
+                'floors': [{
+                    'key': 'floor-1',
+                    'background_url': 'https://oss.example/maps/floor.webp',
+                }],
+                'enemies': [{
+                    'key': 'npc-1',
+                    'icon_url': 'https://oss.example/enemies/1.jpg',
+                    'abilities': [{
+                        'spell_id': 123,
+                        'name': 'Seed Spell',
+                        'name_zh': '种子技能',
+                        'description_zh': '保留已有完整说明。',
+                        'icon_url': 'https://oss.example/spells/123.jpg',
+                    }],
+                }],
+            }],
+        }
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            package_path = Path(temporary_directory) / 'seed.json'
+            package_path.write_text(
+                json.dumps(seed_payload, ensure_ascii=False),
+                encoding='utf-8',
+            )
+            snapshots, floors, enemies, metadata = load_payload_seed(
+                package_path,
+            )
+
+        self.assertEqual(snapshots[123]['name_zh'], '种子技能')
+        self.assertEqual(
+            snapshots[123]['description'],
+            '保留已有完整说明。',
+        )
+        self.assertEqual(
+            floors[('demo-dungeon', 'floor-1')],
+            'https://oss.example/maps/floor.webp',
+        )
+        self.assertEqual(
+            enemies[('demo-dungeon', 'npc-1')],
+            'https://oss.example/enemies/1.jpg',
+        )
+        self.assertEqual(metadata['spell_snapshot']['source_branch'], 'wowt')
 
     def test_lua_parser_does_not_execute_identifiers_or_function_calls(self):
         with self.assertRaises(LuaParseError):
@@ -759,6 +1036,61 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
         with self.assertRaisesMessage(CommandError, '不支持的 Wowhead dataEnv'):
             SyncMythicDungeonSpellsCommand._resolve_wowhead_data_env('wowt', 99)
 
+    def test_spell_sync_resolves_latest_processed_wago_branch_build(self):
+        payload = {
+            'props': {
+                'builds': {
+                    'data': [
+                        {
+                            'product': 'wowt',
+                            'version': '12.1.0.69112',
+                            'processed': False,
+                        },
+                        {
+                            'product': 'wow',
+                            'version': '12.0.7.68974',
+                            'processed': True,
+                        },
+                        {
+                            'product': 'wowt',
+                            'version': '12.1.0.69111',
+                            'processed': True,
+                        },
+                    ],
+                    'next_page_url': None,
+                },
+            },
+        }
+        response = mock.Mock()
+        response.text = f"<main data-page='{json.dumps(payload)}'></main>"
+        session = mock.Mock()
+        session.get.return_value = response
+
+        resolved = SyncMythicDungeonSpellsCommand()._resolve_wago_build(
+            session,
+            branch='wowt',
+            configured_build='latest',
+        )
+
+        self.assertEqual(resolved, '12.1.0.69111')
+        session.get.assert_called_once_with(
+            'https://wago.tools/builds',
+            timeout=45,
+        )
+        response.raise_for_status.assert_called_once_with()
+
+    def test_spell_sync_keeps_explicit_build_without_catalog_request(self):
+        session = mock.Mock()
+
+        resolved = SyncMythicDungeonSpellsCommand()._resolve_wago_build(
+            session,
+            branch='wowt',
+            configured_build='12.1.0.68914',
+        )
+
+        self.assertEqual(resolved, '12.1.0.68914')
+        session.get.assert_not_called()
+
     @override_settings(
         PROXY_CONFIG={
             'http': 'socks5://127.0.0.1:10809',
@@ -913,7 +1245,7 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
 
 
 class MythicPlannerSpellDescriptionSourceTests(TestCase):
-    def _version_and_spell(self, *, client_build='68914'):
+    def _version_and_spell(self, *, client_build='68914', difficulty_id=8):
         version = MythicDungeonDataVersion.objects.create(
             key='tooltip-source-test',
             label='Tooltip 来源测试',
@@ -934,7 +1266,7 @@ class MythicPlannerSpellDescriptionSourceTests(TestCase):
                 'client_version': '12.1.0',
                 'client_build': client_build,
                 'client_locale': 'zhCN',
-                'difficulty_id': 8,
+                'difficulty_id': difficulty_id,
             },
         )
         return version, spell
@@ -1028,6 +1360,97 @@ class MythicPlannerSpellDescriptionSourceTests(TestCase):
         spell.refresh_from_db()
         self.assertEqual(spell.description_zh, '客户端精确说明。')
         self.assertEqual(result['updated'], 0)
+
+    def test_wowhead_tooltip_only_replaces_stale_build_client_tooltip(self):
+        version, spell = self._version_and_spell(client_build='68914')
+
+        result = SyncMythicDungeonSpellsCommand()._write_tooltips_only(
+            version=version,
+            branch='wowt',
+            build='12.1.0.69000',
+            spell_ids={spell.spell_id},
+            wowhead_tooltips={spell.spell_id: '目标 PTR 环境渲染说明。'},
+            locale=4,
+            data_env=2,
+        )
+
+        spell.refresh_from_db()
+        self.assertEqual(spell.description_zh, '目标 PTR 环境渲染说明。')
+        self.assertEqual(result['updated'], 1)
+        self.assertEqual(spell.snapshot_build, '12.1.0.68914')
+        self.assertEqual(
+            spell.metadata['wowhead_requested_build'],
+            '12.1.0.69000',
+        )
+        self.assertFalse(spell.metadata['wowhead_build_exact'])
+
+    def test_wowhead_tooltip_only_replaces_wrong_difficulty_client_tooltip(self):
+        version, spell = self._version_and_spell(difficulty_id=23)
+
+        result = SyncMythicDungeonSpellsCommand()._write_tooltips_only(
+            version=version,
+            branch='wowt',
+            build='12.1.0.68914',
+            spell_ids={spell.spell_id},
+            wowhead_tooltips={spell.spell_id: '钥石难度渲染说明。'},
+            locale=4,
+            data_env=2,
+            difficulty_id=8,
+        )
+
+        spell.refresh_from_db()
+        self.assertEqual(spell.description_zh, '钥石难度渲染说明。')
+        self.assertEqual(result['updated'], 1)
+        self.assertEqual(spell.metadata['wowhead_difficulty_id'], 8)
+
+    def test_tooltip_only_requires_matching_db2_snapshot_context(self):
+        version, spell = self._version_and_spell()
+
+        with self.assertRaisesMessage(
+            CommandError,
+            '请先去掉 --tooltip-only 执行完整 DB2 同步',
+        ):
+            SyncMythicDungeonSpellsCommand._validate_tooltip_snapshot_context(
+                version,
+                {spell.spell_id},
+                branch='wowt',
+                build='12.1.0.69000',
+            )
+
+        SyncMythicDungeonSpellsCommand._validate_tooltip_snapshot_context(
+            version,
+            {spell.spell_id},
+            branch='wowt',
+            build='12.1.0.68914',
+        )
+
+    def test_spell_sync_dungeon_filter_validates_requested_keys(self):
+        version, _spell = self._version_and_spell()
+        MythicDungeon.objects.create(
+            data_version=version,
+            key='ruby-life-pools',
+            name='Ruby Life Pools',
+            name_zh='红玉新生法池',
+        )
+        MythicDungeon.objects.create(
+            data_version=version,
+            key='kings-rest',
+            name="King's Rest",
+            name_zh='诸王之眠',
+        )
+
+        self.assertEqual(
+            SyncMythicDungeonSpellsCommand._resolve_dungeon_keys(
+                version,
+                ['ruby-life-pools', 'kings-rest', 'ruby-life-pools'],
+            ),
+            ['kings-rest', 'ruby-life-pools'],
+        )
+        with self.assertRaisesMessage(CommandError, 'missing-dungeon'):
+            SyncMythicDungeonSpellsCommand._resolve_dungeon_keys(
+                version,
+                ['missing-dungeon'],
+            )
 
     def test_tooltip_only_builds_direct_reference_and_mechanic_descriptions(self):
         version = MythicDungeonDataVersion.objects.create(

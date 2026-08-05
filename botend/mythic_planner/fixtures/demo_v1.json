@@ -1,0 +1,490 @@
+{
+  "schema_version": 1,
+  "data_version": {
+    "key": "lmonitor-demo-1",
+    "label": "LMonitor 大秘境规划演示数据 v1",
+    "game_version": "演示版本",
+    "season": "路线规划器本地测试",
+    "source_name": "LMonitor 内置原创演示数据",
+    "source_reference": "builtin://mythic-planner/demo-v1",
+    "notes": "仅用于验证初始化、更新、路线规划和后台编辑能力，不包含第三方插件代码或素材。",
+    "metadata": {
+      "license": "LMonitor project data",
+      "locale": "zh-CN"
+    }
+  },
+  "dungeons": [
+    {
+      "key": "gloamvault",
+      "name": "Gloamvault",
+      "name_zh": "暮影宝库",
+      "short_name": "暮影",
+      "total_enemy_forces": 100,
+      "order": 1,
+      "metadata": {
+        "subtitle": "穿过失落回廊，封印暗影核心",
+        "recommended_route": "先清理西侧巡逻队，再进入核心层。"
+      },
+      "floors": [
+        {
+          "key": "outer-halls",
+          "floor_index": 1,
+          "name": "Outer Halls",
+          "name_zh": "失落回廊",
+          "background_color": "#6f5a42",
+          "map_width": 1200,
+          "map_height": 780,
+          "order": 1,
+          "metadata": {
+            "map_style": "vault",
+            "grid": true
+          },
+          "pois": [
+            {
+              "key": "entrance",
+              "type": "entrance",
+              "x": 8,
+              "y": 80,
+              "label": "地下城入口"
+            },
+            {
+              "key": "core-elevator",
+              "type": "portal",
+              "x": 91,
+              "y": 20,
+              "label": "前往暗影核心",
+              "target_floor_key": "shadow-core"
+            },
+            {
+              "key": "shrine",
+              "type": "utility",
+              "x": 48,
+              "y": 49,
+              "label": "暮影圣坛"
+            }
+          ]
+        },
+        {
+          "key": "shadow-core",
+          "floor_index": 2,
+          "name": "Shadow Core",
+          "name_zh": "暗影核心",
+          "background_color": "#3d3556",
+          "map_width": 1000,
+          "map_height": 760,
+          "order": 2,
+          "metadata": {
+            "map_style": "core",
+            "grid": true
+          },
+          "pois": [
+            {
+              "key": "return-elevator",
+              "type": "portal",
+              "x": 10,
+              "y": 70,
+              "label": "返回失落回廊",
+              "target_floor_key": "outer-halls"
+            },
+            {
+              "key": "final-boss",
+              "type": "boss",
+              "x": 78,
+              "y": 36,
+              "label": "宝库监守者"
+            }
+          ]
+        }
+      ],
+      "enemies": [
+        {
+          "key": "vault-guardian",
+          "npc_id": 990101,
+          "name": "Vault Guardian",
+          "name_zh": "宝库卫士",
+          "enemy_forces": 5,
+          "base_health": 960000,
+          "level": 82,
+          "creature_type": "人型生物",
+          "marker_color": "#7dd3fc",
+          "traits": {
+            "taunt": true,
+            "stun": true,
+            "interrupt": true,
+            "disorient": true,
+            "root": false,
+            "slow": true
+          },
+          "abilities": [
+            {
+              "spell_id": 9901001,
+              "name": "Shield Breaker",
+              "name_zh": "碎盾猛击",
+              "description_zh": "对当前目标造成高额物理伤害，并使其护甲降低 20%。",
+              "interruptible": false,
+              "danger_level": 2
+            },
+            {
+              "spell_id": 9901002,
+              "name": "Rallying Cry",
+              "name_zh": "集结战吼",
+              "description_zh": "使附近盟友造成的伤害提高，必须及时打断。",
+              "interruptible": true,
+              "danger_level": 3
+            }
+          ],
+          "spawns": [
+            {"key": "guardian-01", "floor_key": "outer-halls", "x": 15, "y": 75, "group_key": "hall-a"},
+            {"key": "guardian-02", "floor_key": "outer-halls", "x": 18, "y": 69, "group_key": "hall-a"},
+            {"key": "guardian-03", "floor_key": "outer-halls", "x": 32, "y": 64, "group_key": "hall-b"},
+            {"key": "guardian-04", "floor_key": "outer-halls", "x": 35, "y": 59, "group_key": "hall-b"},
+            {"key": "guardian-05", "floor_key": "outer-halls", "x": 56, "y": 57, "group_key": "hall-c"},
+            {"key": "guardian-06", "floor_key": "outer-halls", "x": 59, "y": 51, "group_key": "hall-c"},
+            {"key": "guardian-07", "floor_key": "outer-halls", "x": 78, "y": 31, "group_key": "hall-d"},
+            {"key": "guardian-08", "floor_key": "outer-halls", "x": 83, "y": 26, "group_key": "hall-d"}
+          ]
+        },
+        {
+          "key": "gloam-arcanist",
+          "npc_id": 990102,
+          "name": "Gloam Arcanist",
+          "name_zh": "暮影奥术师",
+          "enemy_forces": 8,
+          "base_health": 720000,
+          "level": 82,
+          "creature_type": "人型生物",
+          "marker_color": "#c4b5fd",
+          "traits": {
+            "taunt": true,
+            "stun": true,
+            "interrupt": true,
+            "disorient": true,
+            "root": true,
+            "slow": true
+          },
+          "abilities": [
+            {
+              "spell_id": 9902001,
+              "name": "Gloam Bolt",
+              "name_zh": "暮影箭",
+              "description_zh": "向随机玩家发射暗影箭，可打断。",
+              "interruptible": true,
+              "danger_level": 2
+            },
+            {
+              "spell_id": 9902002,
+              "name": "Fractured Sigil",
+              "name_zh": "破碎符印",
+              "description_zh": "在玩家脚下生成持续伤害区域。",
+              "interruptible": false,
+              "danger_level": 3
+            }
+          ],
+          "spawns": [
+            {"key": "arcanist-01", "floor_key": "outer-halls", "x": 20, "y": 72, "group_key": "hall-a"},
+            {"key": "arcanist-02", "floor_key": "outer-halls", "x": 37, "y": 62, "group_key": "hall-b"},
+            {"key": "arcanist-03", "floor_key": "outer-halls", "x": 61, "y": 54, "group_key": "hall-c"},
+            {"key": "arcanist-04", "floor_key": "outer-halls", "x": 80, "y": 28, "group_key": "hall-d"}
+          ]
+        },
+        {
+          "key": "umbral-hound",
+          "npc_id": 990103,
+          "name": "Umbral Hound",
+          "name_zh": "晦影猎犬",
+          "enemy_forces": 4,
+          "base_health": 510000,
+          "level": 81,
+          "creature_type": "野兽",
+          "marker_color": "#fda4af",
+          "traits": {
+            "taunt": true,
+            "stun": true,
+            "interrupt": false,
+            "disorient": true,
+            "root": true,
+            "slow": true,
+            "soothe": true
+          },
+          "abilities": [
+            {
+              "spell_id": 9903001,
+              "name": "Rending Pounce",
+              "name_zh": "撕裂扑击",
+              "description_zh": "扑向远处玩家并造成流血效果。",
+              "interruptible": false,
+              "danger_level": 2
+            },
+            {
+              "spell_id": 9903002,
+              "name": "Frenzy",
+              "name_zh": "狂乱",
+              "description_zh": "激怒后攻击速度提高，可被安抚。",
+              "interruptible": false,
+              "danger_level": 2
+            }
+          ],
+          "spawns": [
+            {
+              "key": "hound-01",
+              "floor_key": "outer-halls",
+              "x": 46,
+              "y": 38,
+              "group_key": "patrol-west",
+              "patrol": [{"x": 40, "y": 42}, {"x": 52, "y": 35}, {"x": 60, "y": 41}]
+            },
+            {"key": "hound-02", "floor_key": "outer-halls", "x": 49, "y": 41, "group_key": "patrol-west"},
+            {"key": "hound-03", "floor_key": "shadow-core", "x": 31, "y": 66, "group_key": "core-a"}
+          ]
+        },
+        {
+          "key": "vault-mender",
+          "npc_id": 990104,
+          "name": "Vault Mender",
+          "name_zh": "宝库愈合者",
+          "enemy_forces": 7,
+          "base_health": 640000,
+          "level": 82,
+          "creature_type": "人型生物",
+          "marker_color": "#86efac",
+          "traits": {
+            "taunt": true,
+            "stun": true,
+            "interrupt": true,
+            "disorient": true,
+            "root": true,
+            "slow": true
+          },
+          "abilities": [
+            {
+              "spell_id": 9904001,
+              "name": "Restoring Weave",
+              "name_zh": "复原织法",
+              "description_zh": "为生命值最低的盟友恢复大量生命，必须打断。",
+              "interruptible": true,
+              "danger_level": 3
+            },
+            {
+              "spell_id": 9904002,
+              "name": "Purifying Spark",
+              "name_zh": "净化火花",
+              "description_zh": "对玩家施加可驱散的魔法持续伤害。",
+              "interruptible": false,
+              "dispel_type": "magic",
+              "danger_level": 2
+            }
+          ],
+          "spawns": [
+            {"key": "mender-01", "floor_key": "shadow-core", "x": 35, "y": 62, "group_key": "core-a"}
+          ]
+        },
+        {
+          "key": "gloam-warden",
+          "npc_id": 990105,
+          "name": "Gloam Warden",
+          "name_zh": "暮影典狱官",
+          "enemy_forces": 9,
+          "base_health": 1850000,
+          "level": 83,
+          "creature_type": "巨人",
+          "marker_color": "#fbbf24",
+          "traits": {
+            "taunt": true,
+            "stun": false,
+            "interrupt": true,
+            "disorient": false,
+            "root": false,
+            "slow": false
+          },
+          "abilities": [
+            {
+              "spell_id": 9905001,
+              "name": "Core Eruption",
+              "name_zh": "核心喷发",
+              "description_zh": "对全队造成暗影伤害，成功打断可避免伤害。",
+              "interruptible": true,
+              "danger_level": 3
+            },
+            {
+              "spell_id": 9905002,
+              "name": "Crushing Step",
+              "name_zh": "碾压步伐",
+              "description_zh": "重击正面锥形区域，坦克应使其背对队伍。",
+              "interruptible": false,
+              "danger_level": 3
+            }
+          ],
+          "spawns": [
+            {
+              "key": "warden-01",
+              "floor_key": "shadow-core",
+              "x": 58,
+              "y": 50,
+              "group_key": "core-warden",
+              "scale": 1.25,
+              "patrol": [{"x": 50, "y": 56}, {"x": 65, "y": 45}]
+            }
+          ]
+        },
+        {
+          "key": "vault-overseer",
+          "npc_id": 990106,
+          "name": "Vault Overseer",
+          "name_zh": "宝库监守者",
+          "enemy_forces": 0,
+          "base_health": 8750000,
+          "level": 84,
+          "creature_type": "元素生物",
+          "marker_color": "#f87171",
+          "is_boss": true,
+          "traits": {
+            "taunt": true,
+            "stun": false,
+            "interrupt": false,
+            "disorient": false,
+            "root": false,
+            "slow": false
+          },
+          "abilities": [
+            {
+              "spell_id": 9906001,
+              "name": "Vault Collapse",
+              "name_zh": "宝库坍缩",
+              "description_zh": "标记多个安全区域，随后使其余场地崩塌。",
+              "interruptible": false,
+              "danger_level": 3
+            },
+            {
+              "spell_id": 9906002,
+              "name": "Gloaming Chains",
+              "name_zh": "暮色锁链",
+              "description_zh": "连接两名玩家，彼此远离可扯断锁链。",
+              "interruptible": false,
+              "dispel_type": "curse",
+              "danger_level": 2
+            }
+          ],
+          "spawns": [
+            {"key": "overseer-01", "floor_key": "shadow-core", "x": 78, "y": 36, "group_key": "boss", "scale": 1.5}
+          ]
+        }
+      ]
+    },
+    {
+      "key": "emberworks",
+      "name": "Emberworks",
+      "name_zh": "余烬工坊",
+      "short_name": "余烬",
+      "total_enemy_forces": 60,
+      "order": 2,
+      "metadata": {
+        "subtitle": "关闭熔火管线，击败失控构装体"
+      },
+      "floors": [
+        {
+          "key": "foundry",
+          "floor_index": 1,
+          "name": "Foundry",
+          "name_zh": "熔火车间",
+          "background_color": "#70402f",
+          "map_width": 1150,
+          "map_height": 760,
+          "order": 1,
+          "metadata": {
+            "map_style": "foundry",
+            "grid": true
+          },
+          "pois": [
+            {"key": "entrance", "type": "entrance", "x": 9, "y": 45, "label": "工坊入口"},
+            {"key": "valve-a", "type": "utility", "x": 46, "y": 30, "label": "蒸汽阀门"},
+            {"key": "boss", "type": "boss", "x": 87, "y": 50, "label": "余烬核心"}
+          ]
+        }
+      ],
+      "enemies": [
+        {
+          "key": "ember-sentinel",
+          "npc_id": 991101,
+          "name": "Ember Sentinel",
+          "name_zh": "余烬哨兵",
+          "enemy_forces": 5,
+          "base_health": 880000,
+          "level": 82,
+          "creature_type": "机械",
+          "marker_color": "#fb923c",
+          "traits": {"taunt": true, "stun": true, "interrupt": false, "root": false, "slow": true},
+          "abilities": [
+            {"spell_id": 9911001, "name": "Scorching Sweep", "name_zh": "灼热横扫", "description_zh": "横扫正面区域并留下燃烧地面。", "danger_level": 2}
+          ],
+          "spawns": [
+            {"key": "sentinel-01", "floor_key": "foundry", "x": 18, "y": 40, "group_key": "line-a"},
+            {"key": "sentinel-02", "floor_key": "foundry", "x": 21, "y": 49, "group_key": "line-a"},
+            {"key": "sentinel-03", "floor_key": "foundry", "x": 40, "y": 58, "group_key": "line-b"},
+            {"key": "sentinel-04", "floor_key": "foundry", "x": 44, "y": 53, "group_key": "line-b"},
+            {"key": "sentinel-05", "floor_key": "foundry", "x": 65, "y": 35, "group_key": "line-c"},
+            {"key": "sentinel-06", "floor_key": "foundry", "x": 68, "y": 42, "group_key": "line-c"}
+          ]
+        },
+        {
+          "key": "cinder-binder",
+          "npc_id": 991102,
+          "name": "Cinder Binder",
+          "name_zh": "烬火缚能师",
+          "enemy_forces": 8,
+          "base_health": 690000,
+          "level": 82,
+          "creature_type": "人型生物",
+          "marker_color": "#facc15",
+          "traits": {"taunt": true, "stun": true, "interrupt": true, "root": true, "slow": true},
+          "abilities": [
+            {"spell_id": 9912001, "name": "Overheat", "name_zh": "过热", "description_zh": "强化附近机械，必须打断。", "interruptible": true, "danger_level": 3},
+            {"spell_id": 9912002, "name": "Cinder Mark", "name_zh": "烬火印记", "description_zh": "可驱散的魔法效果，移除时在脚下爆炸。", "dispel_type": "magic", "danger_level": 2}
+          ],
+          "spawns": [
+            {"key": "binder-01", "floor_key": "foundry", "x": 23, "y": 45, "group_key": "line-a"},
+            {"key": "binder-02", "floor_key": "foundry", "x": 42, "y": 55, "group_key": "line-b"},
+            {"key": "binder-03", "floor_key": "foundry", "x": 67, "y": 38, "group_key": "line-c"}
+          ]
+        },
+        {
+          "key": "furnace-wisp",
+          "npc_id": 991103,
+          "name": "Furnace Wisp",
+          "name_zh": "熔炉精魂",
+          "enemy_forces": 3,
+          "base_health": 360000,
+          "level": 81,
+          "creature_type": "元素生物",
+          "marker_color": "#fca5a5",
+          "traits": {"taunt": true, "stun": true, "interrupt": true, "root": true, "slow": true},
+          "abilities": [
+            {"spell_id": 9913001, "name": "Flare", "name_zh": "烈焰闪光", "description_zh": "对随机玩家造成火焰伤害，可打断。", "interruptible": true, "danger_level": 2}
+          ],
+          "spawns": [
+            {"key": "wisp-01", "floor_key": "foundry", "x": 53, "y": 24, "group_key": "patrol", "patrol": [{"x": 48, "y": 22}, {"x": 59, "y": 28}]},
+            {"key": "wisp-02", "floor_key": "foundry", "x": 56, "y": 28, "group_key": "patrol"}
+          ]
+        },
+        {
+          "key": "ember-core",
+          "npc_id": 991104,
+          "name": "Ember Core",
+          "name_zh": "余烬核心",
+          "enemy_forces": 0,
+          "base_health": 7900000,
+          "level": 84,
+          "creature_type": "机械",
+          "marker_color": "#ef4444",
+          "is_boss": true,
+          "traits": {"taunt": true, "stun": false, "interrupt": false, "root": false, "slow": false},
+          "abilities": [
+            {"spell_id": 9914001, "name": "Pressure Release", "name_zh": "压力释放", "description_zh": "工坊管线依次喷发，寻找安全通道。", "danger_level": 3}
+          ],
+          "spawns": [
+            {"key": "core-01", "floor_key": "foundry", "x": 87, "y": 50, "group_key": "boss", "scale": 1.5}
+          ]
+        }
+      ]
+    }
+  ]
+}
