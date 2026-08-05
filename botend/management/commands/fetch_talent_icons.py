@@ -11,12 +11,37 @@ import json
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from botend.models import WowTalentNodeMetadata, WowTalentVersion
+
+
+
+def build_node_definition_map(dump_dir):
+    """Return TraitNode.ID -> ordered TraitDefinition IDs via DB2 relations."""
+    entry_def_map = {}
+    with open(os.path.join(dump_dir, 'TraitNodeEntry.csv')) as f:
+        for row in csv.DictReader(f):
+            try:
+                entry_def_map[int(row['ID'])] = int(row['TraitDefinitionID'])
+            except (KeyError, TypeError, ValueError):
+                continue
+    node_to_defs = {}
+    with open(os.path.join(dump_dir, 'TraitNodeXTraitNodeEntry.csv')) as f:
+        for row in csv.DictReader(f):
+            try:
+                node_id = int(row['TraitNodeID'])
+                entry_id = int(row['TraitNodeEntryID'])
+            except (KeyError, TypeError, ValueError):
+                continue
+            definition_id = entry_def_map.get(entry_id)
+            if definition_id:
+                node_to_defs.setdefault(node_id, []).append(definition_id)
+    return node_to_defs
 
 
 class Command(BaseCommand):
@@ -30,7 +55,8 @@ class Command(BaseCommand):
         parser.add_argument('--version-key', default='',
                             help='只处理指定天赋版本，例如 ptr-12.1.0')
         parser.add_argument('--limit', type=int, default=0, help='最多处理多少个节点，0=不限制')
-        parser.add_argument('--delay', type=float, default=0.5, help='每次请求延迟(秒)')
+        parser.add_argument('--delay', type=float, default=0.0, help='每个请求完成后的延迟(秒)')
+        parser.add_argument('--workers', type=int, default=12, help='并发查询 wago.tools 的线程数')
         parser.add_argument('--batch-size', type=int, default=100, help='批量更新大小')
 
     def handle(self, *args, **options):
@@ -38,6 +64,7 @@ class Command(BaseCommand):
         fallback_dump_dir = options.get('fallback_dump_dir') or ''
         limit = options['limit']
         delay = options['delay']
+        workers = max(1, int(options.get('workers') or 1))
         batch_size = options['batch_size']
         version_key = options.get('version_key') or ''
 
@@ -62,6 +89,10 @@ class Command(BaseCommand):
                 entry_def_map[eid] = did
         self.stdout.write(f'  TraitNodeEntry: {len(entry_def_map)}')
 
+        # TraitNode.ID 不是 TraitNodeEntry.ID，必须经过关系表解析 OverrideIcon。
+        node_to_defs = build_node_definition_map(dump_dir)
+        self.stdout.write(f'  TraitNode→TraitDefinition: {len(node_to_defs)}')
+
         # 3. 加载 SpellMisc → SpellIconFileDataID 映射
         self.stdout.write('加载 SpellMisc...')
         spell_icon_map = {}  # spell_id → file_data_id
@@ -70,7 +101,7 @@ class Command(BaseCommand):
             with open(spell_misc_path) as f:
                 for row in csv.DictReader(f):
                     sid = int(row.get('SpellID', 0) or 0)
-                    icon_id = int(row.get('SpellIconFileDataID', 0) or 0)
+                    icon_id = int(row.get('ActiveIconFileDataID', 0) or 0) or int(row.get('SpellIconFileDataID', 0) or 0)
                     if sid > 0 and icon_id > 0:
                         spell_icon_map[sid] = icon_id
         if fallback_dump_dir:
@@ -79,7 +110,7 @@ class Command(BaseCommand):
                 with open(fallback_spell_misc_path) as f:
                     for row in csv.DictReader(f):
                         sid = int(row.get('SpellID', 0) or 0)
-                        icon_id = int(row.get('SpellIconFileDataID', 0) or 0)
+                        icon_id = int(row.get('ActiveIconFileDataID', 0) or 0) or int(row.get('SpellIconFileDataID', 0) or 0)
                         if sid > 0 and icon_id > 0 and sid not in spell_icon_map:
                             spell_icon_map[sid] = icon_id
         self.stdout.write(f'  SpellMisc with icon: {len(spell_icon_map)}')
@@ -104,11 +135,12 @@ class Command(BaseCommand):
         for node in nodes:
             file_data_id = None
 
-            # 方法1: 通过 node_id → TraitNodeEntry → TraitDefinition → OverrideIcon
-            if node.node_id and node.node_id in entry_def_map:
-                def_id = entry_def_map[node.node_id]
+            # 方法1: TraitNode.ID 必须经过 TraitNodeXTraitNodeEntry，不能直接当作
+            # TraitNodeEntry.ID；后者命中少量碰巧相同的 ID 会产生错图标。
+            for def_id in node_to_defs.get(node.talent_id, []):
                 if def_id in def_icon_map:
                     file_data_id = def_icon_map[def_id]
+                    break
 
             # 方法2: 通过 display_spell_id → SpellMisc → SpellIconFileDataID
             if not file_data_id and node.display_spell_id:
@@ -137,25 +169,33 @@ class Command(BaseCommand):
         cached_hits = sum(1 for file_data_id in file_data_ids if icon_cache.get(file_data_id))
         self.stdout.write(f'图标缓存: {len(icon_cache)} 条，命中 {cached_hits}/{len(file_data_ids)}')
         self.stdout.write('开始查询 wago.tools...')
-        total = len(file_data_ids)
         queried = 0
 
-        for file_data_id in sorted(file_data_ids):
-            if icon_cache.get(file_data_id):
-                continue
+        missing_file_data_ids = [
+            file_data_id for file_data_id in sorted(file_data_ids)
+            if not icon_cache.get(file_data_id)
+        ]
 
+        def fetch_icon(file_data_id):
             url = f'https://wago.tools/files?search={file_data_id}'
             try:
                 r = requests.get(url, timeout=20, headers={'User-Agent': 'Mozilla/5.0'})
-                icon_cache[file_data_id] = self._extract_icon_name(r.text, file_data_id)
+                icon_name = self._extract_icon_name(r.text, file_data_id)
             except Exception as e:
                 self.stderr.write(f'查询失败 FileDataID={file_data_id}: {e}')
-                icon_cache[file_data_id] = ''
+                icon_name = ''
+            if delay:
+                time.sleep(delay)
+            return file_data_id, icon_name
 
-            queried += 1
-            if queried % 10 == 0:
-                self.stdout.write(f'  进度: {queried}/{total}')
-            time.sleep(delay)
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(fetch_icon, file_data_id) for file_data_id in missing_file_data_ids]
+            for future in as_completed(futures):
+                file_data_id, icon_name = future.result()
+                icon_cache[file_data_id] = icon_name
+                queried += 1
+                if queried % 25 == 0 or queried == len(missing_file_data_ids):
+                    self.stdout.write(f'  进度: {queried}/{len(missing_file_data_ids)}')
 
         self._write_icon_cache(icon_cache_path, icon_cache)
         self.stdout.write(f'查询完成: {len(icon_cache)} 个图标')

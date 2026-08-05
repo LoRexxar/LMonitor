@@ -2,6 +2,8 @@
 
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
+import tempfile
+from pathlib import Path
 
 from django.template.loader import render_to_string
 from django.test import RequestFactory, SimpleTestCase
@@ -16,6 +18,7 @@ from botend.services.spec_stats_service import (
 from botend.management.commands.backfill_talent_spell_names import Command as BackfillTalentSpellNamesCommand
 from botend.management.commands.init_talent_metadata import Command as InitTalentMetadataCommand
 from botend.management.commands.normalize_talent_metadata import Command as NormalizeTalentMetadataCommand
+from botend.management.commands.fetch_talent_icons import build_node_definition_map
 from botend.wow.talents.adapters import build_tree_set_from_talents
 from botend.wow.talents.layout import build_talent_tree_layout
 from botend.wow.talents.metadata import TalentMetadataProvider
@@ -42,6 +45,19 @@ from botend.portal.talent_simulator import (
 )
 from botend.wow.talents.view_model import build_talent_view_model
 from botend.controller.plugins.portal.SpecDetailPlayerMonitor import SpecDetailPlayerMonitor
+
+
+class TalentIconMappingTests(SimpleTestCase):
+    def test_db2_icon_mapping_requires_node_entry_relation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'TraitNodeEntry.csv').write_text(
+                'ID,TraitDefinitionID\n10,100\n20,200\n', encoding='utf-8'
+            )
+            (root / 'TraitNodeXTraitNodeEntry.csv').write_text(
+                'TraitNodeID,TraitNodeEntryID\n1,20\n', encoding='utf-8'
+            )
+            self.assertEqual(build_node_definition_map(str(root)), {1: [200]})
 
 
 class FakeRankingQuerySet:

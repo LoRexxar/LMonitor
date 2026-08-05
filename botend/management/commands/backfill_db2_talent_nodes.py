@@ -350,7 +350,7 @@ class Command(BaseCommand):
                         [
                             'talent_id', 'name', 'name_zh', 'icon', 'row', 'column',
                             'max_points', 'parents_json', 'source', 'db2_subtree_id',
-                            'db2_tree_id', 'db2_component_id', 'display_spell_id', 'last_updated',
+                            'db2_tree_id', 'db2_component_id', 'display_spell_id', 'flags', 'last_updated',
                         ],
                         batch_size=500,
                     )
