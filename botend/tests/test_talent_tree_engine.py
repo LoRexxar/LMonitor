@@ -19,6 +19,7 @@ from botend.management.commands.backfill_talent_spell_names import Command as Ba
 from botend.management.commands.init_talent_metadata import Command as InitTalentMetadataCommand
 from botend.management.commands.normalize_talent_metadata import Command as NormalizeTalentMetadataCommand
 from botend.management.commands.fetch_talent_icons import build_node_definition_map
+from botend.management.commands.repair_ptr_talent_metadata import Command as RepairPtrTalentMetadataCommand
 from botend.wow.talents.adapters import build_tree_set_from_talents
 from botend.wow.talents.layout import build_talent_tree_layout
 from botend.wow.talents.metadata import TalentMetadataProvider
@@ -58,6 +59,17 @@ class TalentIconMappingTests(SimpleTestCase):
                 'TraitNodeID,TraitNodeEntryID\n1,20\n', encoding='utf-8'
             )
             self.assertEqual(build_node_definition_map(str(root)), {1: [200]})
+
+
+class PtrTalentDescriptionRepairTests(SimpleTestCase):
+    def test_accepts_db2_placeholder_descriptions_for_render_time_resolution(self):
+        command = RepairPtrTalentMetadataCommand()
+
+        self.assertTrue(command._is_usable_db2_description(
+            '自动攻击有一定几率产生${$221322s1/10}点符文能量。'
+        ))
+        self.assertFalse(command._is_usable_db2_description(''))
+        self.assertFalse(command._is_usable_db2_description('<script>bad</script>'))
 
 
 class FakeRankingQuerySet:

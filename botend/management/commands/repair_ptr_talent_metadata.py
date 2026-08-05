@@ -135,11 +135,11 @@ class Command(BaseCommand):
             candidate_desc_en = values.get('description') or ''
             if current_desc_en and not self._has_bad_description_tokens(current_desc_en):
                 values.pop('description', None)
-            elif not candidate_desc_en or self._has_bad_description_tokens(candidate_desc_en):
+            elif not self._is_usable_db2_description(candidate_desc_en):
                 values.pop('description', None)
 
             candidate_desc_zh = values.get('description_zh') or ''
-            if not candidate_desc_zh or self._has_bad_description_tokens(candidate_desc_zh):
+            if not self._is_usable_db2_description(candidate_desc_zh):
                 values.pop('description_zh', None)
 
             changed = []
@@ -435,6 +435,11 @@ class Command(BaseCommand):
 
     def _has_bad_description_tokens(self, value):
         return any(token in (value or '') for token in BAD_DESCRIPTION_TOKENS)
+
+    def _is_usable_db2_description(self, value):
+        """DB2 placeholders are valid source text and are resolved at render time."""
+        value = value or ''
+        return bool(value.strip()) and not any(token in value for token in ('<', '|c', '|C', '|r', '|R'))
 
     def _write_spell_snapshots(self, cache, build, now):
         for spell_id, data in cache.items():
