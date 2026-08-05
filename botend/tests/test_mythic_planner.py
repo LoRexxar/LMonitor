@@ -28,6 +28,7 @@ from botend.models import (
     MythicPlannerConfig,
 )
 from botend.mythic_planner.importer import import_mythic_dungeon_payload
+from botend.mythic_planner.asset_urls import normalize_asset_source_url
 from botend.mythic_planner.icon_assets import (
     build_wowhead_icon_url,
     normalize_wowhead_icon_slug,
@@ -69,6 +70,7 @@ from botend.management.commands.sync_mythic_dungeon_tools import (
     load_payload_seed,
 )
 from botend.wow.spell_text import SpellTextResolver
+from scripts.import_mdt_alpha5 import validate_package as validate_alpha5_package
 
 
 def demo_payload():
@@ -124,6 +126,37 @@ class MythicPlannerImportTests(TestCase):
                 name__regex=r'^Spell #[0-9]+$',
             ).exists()
         )
+
+    def test_builtin_alpha5_assets_resolve_to_current_short_oss_keys(self):
+        call_command(
+            'import_mythic_dungeon_data',
+            activate=True,
+            replace=True,
+            verbosity=0,
+        )
+        version = MythicDungeonDataVersion.objects.get(
+            key='mdt-6-2-0-alpha5',
+        )
+        jobs, stats = SyncMythicDungeonAssetsCommand()._build_jobs(
+            version=version,
+            base_prefix='mythic-planner',
+            version_prefix='mythic-planner/versions/mdt-6-2-0-alpha5',
+            oss_base_url='https://oss.wowdaily.cn/',
+            force=False,
+        )
+
+        object_keys = {job['object_key'] for job in jobs}
+        self.assertEqual(stats['floors'], 16)
+        self.assertIn(
+            (
+                'mythic-planner/images/wow/icons/large/'
+                'spell_shadow_shadowembrace.jpg'
+            ),
+            object_keys,
+        )
+        self.assertFalse(any('oss.shengnong.club' in key for key in object_keys))
+        self.assertFalse(any('/sources/oss.' in key for key in object_keys))
+        self.assertFalse(any('/wowhead/images/' in key for key in object_keys))
 
     def test_builtin_command_initializes_and_is_idempotent(self):
         call_command('import_mythic_dungeon_data', demo=True, verbosity=0)
@@ -518,6 +551,7 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
         )
         self.assertEqual(payload['data_version']['metadata']['license'], 'GPL-2.0-only')
         self.assertEqual(len(payload['dungeons']), 16)
+
         selection_groups = payload['data_version']['metadata']['dungeon_selection_groups']
         self.assertEqual(
             [group['name_zh'] for group in selection_groups],
@@ -643,6 +677,18 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             1648,
         )
 
+    def test_builtin_alpha5_package_passes_release_contract(self):
+        self.assertEqual(
+            validate_alpha5_package(),
+            {
+                'dungeons': 16,
+                'enemies': 467,
+                'spawns': 3012,
+                'abilities': 1648,
+                'spells': 1459,
+            },
+        )
+
     def test_existing_payload_seeds_spell_and_asset_metadata(self):
         seed_payload = {
             'data_version': {
@@ -690,6 +736,60 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             enemies[('demo-dungeon', 'npc-1')],
             'https://oss.example/enemies/1.jpg',
         )
+        self.assertEqual(metadata['spell_snapshot']['source_branch'], 'wowt')
+
+    def test_existing_payload_rejects_legacy_oss_maps_and_unwraps_icons(self):
+        legacy_icon = (
+            'https://oss.wowdaily.cn/mythic-planner/sources/'
+            'oss.shengnong.club/mythic-planner/sources/wow.zamimg.com/'
+            'images/wow/icons/large/spell_shadow_shadowembrace.jpg'
+        )
+        seed_payload = {
+            'data_version': {
+                'metadata': {
+                    'asset_snapshot': {
+                        'base_url': 'http://oss.shengnong.club/',
+                    },
+                    'spell_snapshot': {'source_branch': 'wowt'},
+                },
+            },
+            'dungeons': [{
+                'key': 'demo-dungeon',
+                'floors': [{
+                    'key': 'floor-1',
+                    'background_url': (
+                        'https://oss.shengnong.club/mythic-planner/'
+                        'versions/mdt-6-2-0-alpha3/maps/demo/floor-1.webp'
+                    ),
+                }],
+                'enemies': [{
+                    'key': 'npc-1',
+                    'icon_url': legacy_icon,
+                    'abilities': [{
+                        'spell_id': 123,
+                        'icon_url': legacy_icon,
+                    }],
+                }],
+            }],
+        }
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            package_path = Path(temporary_directory) / 'seed.json'
+            package_path.write_text(
+                json.dumps(seed_payload),
+                encoding='utf-8',
+            )
+            snapshots, floors, enemies, metadata = load_payload_seed(
+                package_path,
+            )
+
+        expected_icon = (
+            'https://wow.zamimg.com/images/wow/icons/large/'
+            'spell_shadow_shadowembrace.jpg'
+        )
+        self.assertEqual(floors, {})
+        self.assertEqual(enemies[('demo-dungeon', 'npc-1')], expected_icon)
+        self.assertEqual(snapshots[123]['icon_url'], expected_icon)
+        self.assertNotIn('asset_snapshot', metadata)
         self.assertEqual(metadata['spell_snapshot']['source_branch'], 'wowt')
 
     def test_lua_parser_does_not_execute_identifiers_or_function_calls(self):
@@ -796,8 +896,34 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
         self.assertEqual(
             object_key,
             (
-                'wowhead/images/wow/icons/large/'
+                'mythic-planner/images/wow/icons/large/'
                 'spell_shadow_shadowbolt.jpg'
+            ),
+        )
+
+    def test_asset_sync_unwraps_nested_oss_path_to_canonical_wowhead_key(self):
+        nested_url = (
+            'https://oss.wowdaily.cn/mythic-planner/sources/'
+            'oss.shengnong.club/mythic-planner/sources/wow.zamimg.com/'
+            'images/wow/icons/large/spell_shadow_shadowembrace.jpg'
+        )
+
+        self.assertEqual(
+            normalize_asset_source_url(nested_url),
+            (
+                'https://wow.zamimg.com/images/wow/icons/large/'
+                'spell_shadow_shadowembrace.jpg'
+            ),
+        )
+        self.assertEqual(
+            SyncMythicDungeonAssetsCommand._remote_object_key(
+                'mythic-planner',
+                nested_url,
+                fallback='spells/fallback.jpg',
+            ),
+            (
+                'mythic-planner/images/wow/icons/large/'
+                'spell_shadow_shadowembrace.jpg'
             ),
         )
 
@@ -842,11 +968,14 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
 
     def test_asset_sync_distinguishes_legacy_and_current_oss_paths(self):
         base_url = 'http://oss.example/'
-        object_key = 'wowhead/images/wow/icons/large/icon.jpg'
+        object_key = 'mythic-planner/images/wow/icons/large/icon.jpg'
 
         self.assertTrue(
             SyncMythicDungeonAssetsCommand._is_oss_object_url(
-                'https://oss.example/wowhead/images/wow/icons/large/icon.jpg',
+                (
+                    'https://oss.example/mythic-planner/images/wow/icons/'
+                    'large/icon.jpg'
+                ),
                 base_url,
                 object_key,
             )
@@ -1954,6 +2083,108 @@ class MythicPlannerClientTooltipCommandTests(TestCase):
 
 
 class MythicPlannerAssetPersistenceTests(TestCase):
+    def test_asset_sync_migrates_nested_icon_to_short_canonical_key(self):
+        version = MythicDungeonDataVersion.objects.create(
+            key='asset-path-test',
+            label='资源路径测试',
+            is_active=True,
+        )
+        dungeon = MythicDungeon.objects.create(
+            data_version=version,
+            key='demo-dungeon',
+            name='Demo Dungeon',
+        )
+        enemy = MythicDungeonEnemy.objects.create(
+            dungeon=dungeon,
+            key='npc-1',
+            name='Demo Enemy',
+        )
+        nested_url = (
+            'https://oss.wowdaily.cn/mythic-planner/sources/'
+            'oss.shengnong.club/mythic-planner/sources/wow.zamimg.com/'
+            'images/wow/icons/large/spell_shadow_shadowembrace.jpg'
+        )
+        MythicDungeonAbility.objects.create(
+            enemy=enemy,
+            spell_id=123,
+            name='Demo Spell',
+            icon_url=nested_url,
+        )
+
+        jobs, stats = SyncMythicDungeonAssetsCommand()._build_jobs(
+            version=version,
+            base_prefix='mythic-planner',
+            version_prefix='mythic-planner/versions/asset-path-test',
+            oss_base_url='https://oss.wowdaily.cn/',
+            force=False,
+        )
+
+        self.assertEqual(stats['abilities'], 1)
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(
+            jobs[0]['source_url'],
+            (
+                'https://wow.zamimg.com/images/wow/icons/large/'
+                'spell_shadow_shadowembrace.jpg'
+            ),
+        )
+        self.assertEqual(
+            jobs[0]['object_key'],
+            (
+                'mythic-planner/images/wow/icons/large/'
+                'spell_shadow_shadowembrace.jpg'
+            ),
+        )
+
+    def test_asset_sync_migrates_legacy_floor_from_current_static_map(self):
+        version = MythicDungeonDataVersion.objects.create(
+            key='mdt-6-2-0-alpha5',
+            label='地图路径测试',
+            is_active=True,
+            metadata={'source_tag': '6.2.0-alpha5'},
+        )
+        dungeon = MythicDungeon.objects.create(
+            data_version=version,
+            key='kings-rest',
+            name="Kings' Rest",
+        )
+        MythicDungeonFloor.objects.create(
+            dungeon=dungeon,
+            key='floor-1',
+            name='Floor 1',
+            background_url=(
+                'https://oss.shengnong.club/mythic-planner/versions/'
+                'mdt-6-2-0-alpha3/maps/kings-rest/floor-1.webp'
+            ),
+        )
+
+        jobs, stats = SyncMythicDungeonAssetsCommand()._build_jobs(
+            version=version,
+            base_prefix='mythic-planner',
+            version_prefix='mythic-planner/versions/mdt-6-2-0-alpha5',
+            oss_base_url='https://oss.wowdaily.cn/',
+            force=False,
+        )
+
+        self.assertEqual(stats['floors'], 1)
+        self.assertEqual(stats['missing_local'], 0)
+        self.assertEqual(len(jobs), 1)
+        self.assertTrue(jobs[0]['local_path'].is_file())
+        self.assertEqual(
+            jobs[0]['source_url'],
+            (
+                '/static/portal/mythic_planner/vendor/'
+                'mdt-6.2.0-alpha5/maps/kings-rest/floor-1.webp'
+            ),
+        )
+        self.assertEqual(
+            jobs[0]['object_key'],
+            (
+                'mythic-planner/versions/mdt-6-2-0-alpha5/'
+                'maps/kings-rest/floor-1.webp'
+            ),
+        )
+
     def test_recovered_icon_uses_normalized_slug_and_clears_failure_marker(self):
         version = MythicDungeonDataVersion.objects.create(
             key='asset-icon-test',

@@ -17,19 +17,17 @@ from botend.models import (
     MythicDungeonFloor,
     MythicDungeonSpell,
 )
+from botend.mythic_planner.asset_urls import (
+    WOWHEAD_ASSET_HOSTS,
+    normalize_asset_source_url,
+    references_legacy_oss,
+)
 from botend.mythic_planner.icon_assets import build_wowhead_icon_url
 from botend.services.article_image_service import _get_configured_proxies
 
 
 IMAGE_EXTENSIONS = {'.gif', '.jpeg', '.jpg', '.png', '.webp'}
 MAX_REMOTE_IMAGE_BYTES = 12 * 1024 * 1024
-WOWHEAD_ASSET_HOSTS = {
-    'wow.zamimg.com',
-    'wowhead.com',
-    'www.wowhead.com',
-}
-
-
 class AssetUnavailableError(RuntimeError):
     pass
 
@@ -219,7 +217,20 @@ class Command(BaseCommand):
         )
         for floor in floors:
             current_url = str(floor.background_url or '').strip()
-            if self._is_oss_url(current_url, oss_base_url) and not force:
+            extension = self._image_extension(current_url, '.webp')
+            object_key = (
+                f'{version_prefix}/maps/'
+                f'{self._safe_segment(floor.dungeon.key)}/'
+                f'{self._safe_segment(floor.key)}{extension}'
+            )
+            if (
+                not force
+                and self._is_oss_object_url(
+                    current_url,
+                    oss_base_url,
+                    object_key,
+                )
+            ):
                 stats['already_oss'] += 1
                 continue
             source_url = current_url
@@ -229,20 +240,26 @@ class Command(BaseCommand):
                 ).strip()
             local_path = self._local_static_path(source_url)
             if not local_path or not local_path.is_file():
+                local_path, source_url = self._version_floor_static_source(
+                    version,
+                    floor,
+                )
+            if not local_path or not local_path.is_file():
                 stats['missing_local'] += 1
                 continue
             extension = self._image_extension(local_path.name, '.webp')
+            object_key = (
+                f'{version_prefix}/maps/'
+                f'{self._safe_segment(floor.dungeon.key)}/'
+                f'{self._safe_segment(floor.key)}{extension}'
+            )
             jobs.append({
                 'kind': 'floor',
                 'instance': floor,
                 'source': str(local_path),
                 'local_path': local_path,
                 'source_url': source_url,
-                'object_key': (
-                    f'{version_prefix}/maps/'
-                    f'{self._safe_segment(floor.dungeon.key)}/'
-                    f'{self._safe_segment(floor.key)}{extension}'
-                ),
+                'object_key': object_key,
             })
             stats['floors'] += 1
 
@@ -258,8 +275,12 @@ class Command(BaseCommand):
             if (spell.metadata or {}).get('asset_unavailable') and not force:
                 stats['empty'] += 1
                 continue
-            source_url = current_url
-            if not source_url or self._is_oss_url(source_url, oss_base_url):
+            source_url = self._resolve_remote_source(
+                current_url,
+                spell.metadata,
+                oss_base_url,
+            )
+            if not source_url:
                 source_url = build_wowhead_icon_url(spell.icon_name)
             if not self._is_remote_url(source_url):
                 stats['empty'] += 1
@@ -301,18 +322,37 @@ class Command(BaseCommand):
             ).select_related('dungeon').order_by('dungeon__key', 'key')
         )
         for enemy in enemies:
-            source_url = str(enemy.icon_url or '').strip()
-            if self._is_oss_url(source_url, oss_base_url) and not force:
-                stats['already_oss'] += 1
-                continue
-            if self._is_oss_url(source_url, oss_base_url):
-                source_url = str(
-                    (enemy.metadata or {}).get('asset_source_url') or ''
-                ).strip()
+            current_url = str(enemy.icon_url or '').strip()
+            source_url = self._resolve_remote_source(
+                current_url,
+                enemy.metadata,
+                oss_base_url,
+            )
             if not self._is_remote_url(source_url):
+                if self._is_oss_url(current_url, oss_base_url):
+                    stats['already_oss'] += 1
+                    continue
                 stats['empty'] += 1
                 continue
             extension = self._image_extension(source_url, '.jpg')
+            object_key = self._remote_object_key(
+                base_prefix,
+                source_url,
+                fallback=(
+                    f'enemies/{self._safe_segment(enemy.dungeon.key)}/'
+                    f'{self._safe_segment(enemy.key)}{extension}'
+                ),
+            )
+            if (
+                not force
+                and self._is_oss_object_url(
+                    current_url,
+                    oss_base_url,
+                    object_key,
+                )
+            ):
+                stats['already_oss'] += 1
+                continue
             jobs.append({
                 'kind': 'enemy',
                 'instance': enemy,
@@ -324,16 +364,7 @@ class Command(BaseCommand):
                     / f'{self._safe_segment(enemy.key)}{extension}'
                 ),
                 'refresh_download': force,
-                'object_key': (
-                    self._remote_object_key(
-                        base_prefix,
-                        source_url,
-                        fallback=(
-                            f'enemies/{self._safe_segment(enemy.dungeon.key)}/'
-                            f'{self._safe_segment(enemy.key)}{extension}'
-                        ),
-                    )
-                ),
+                'object_key': object_key,
             })
             stats['enemies'] += 1
 
@@ -347,15 +378,16 @@ class Command(BaseCommand):
             'enemy__dungeon',
         ).order_by('enemy__dungeon__key', 'enemy__key', 'spell_id')
         for ability in abilities:
-            source_url = str(ability.icon_url or '').strip()
-            if self._is_oss_url(source_url, oss_base_url) and not force:
-                stats['already_oss'] += 1
-                continue
-            if self._is_oss_url(source_url, oss_base_url):
-                source_url = str(
-                    (ability.metadata or {}).get('asset_source_url') or ''
-                ).strip()
+            current_url = str(ability.icon_url or '').strip()
+            source_url = self._resolve_remote_source(
+                current_url,
+                ability.metadata,
+                oss_base_url,
+            )
             if not self._is_remote_url(source_url):
+                if self._is_oss_url(current_url, oss_base_url):
+                    stats['already_oss'] += 1
+                    continue
                 stats['empty'] += 1
                 continue
             extension = self._image_extension(source_url, '.jpg')
@@ -364,6 +396,21 @@ class Command(BaseCommand):
                 f'{self._safe_segment(ability.enemy.key)}-'
                 f'{ability.spell_id}{extension}'
             )
+            object_key = self._remote_object_key(
+                base_prefix,
+                source_url,
+                fallback=f'abilities/{relative_name}',
+            )
+            if (
+                not force
+                and self._is_oss_object_url(
+                    current_url,
+                    oss_base_url,
+                    object_key,
+                )
+            ):
+                stats['already_oss'] += 1
+                continue
             jobs.append({
                 'kind': 'ability',
                 'instance': ability,
@@ -371,11 +418,7 @@ class Command(BaseCommand):
                 'source_url': source_url,
                 'cache_path': Path('abilities') / relative_name,
                 'refresh_download': force,
-                'object_key': self._remote_object_key(
-                    base_prefix,
-                    source_url,
-                    fallback=f'abilities/{relative_name}',
-                ),
+                'object_key': object_key,
             })
             stats['abilities'] += 1
         return self._deduplicate_jobs(jobs), stats
@@ -559,8 +602,8 @@ class Command(BaseCommand):
                 should_inherit = (
                     not current_url
                     or (
-                        '/mythic-planner/sources/wow.zamimg.com/'
-                        in current_url
+                        normalize_asset_source_url(current_url)
+                        != current_url
                     )
                     or inherited_spell_id == int(ability.spell_id)
                 )
@@ -640,7 +683,13 @@ class Command(BaseCommand):
 
     @staticmethod
     def _remote_object_key(base_prefix, source_url, *, fallback):
-        parsed = urlsplit(str(source_url or '').strip())
+        normalized_source = normalize_asset_source_url(source_url)
+        if references_legacy_oss(normalized_source):
+            return '/'.join([
+                base_prefix,
+                str(fallback or '').strip('/'),
+            ])
+        parsed = urlsplit(normalized_source)
         if parsed.scheme in {'http', 'https'} and parsed.netloc:
             path_parts = [
                 Command._safe_segment(unquote(part))
@@ -648,15 +697,37 @@ class Command(BaseCommand):
                 if part
             ]
             if path_parts:
-                if parsed.netloc.lower() in WOWHEAD_ASSET_HOSTS:
-                    return '/'.join(['wowhead', *path_parts])
+                if (parsed.hostname or '').lower() in WOWHEAD_ASSET_HOSTS:
+                    return '/'.join([base_prefix, *path_parts])
                 return '/'.join([
                     base_prefix,
                     'sources',
-                    Command._safe_segment(parsed.netloc.lower()),
+                    Command._safe_segment((parsed.hostname or '').lower()),
                     *path_parts,
                 ])
         return f"{base_prefix}/sources/{str(fallback or '').lstrip('/')}"
+
+    @staticmethod
+    def _resolve_remote_source(current_url, metadata, oss_base_url):
+        raw_metadata_source = str(
+            (metadata or {}).get('asset_source_url') or '',
+        ).strip()
+        metadata_source = normalize_asset_source_url(raw_metadata_source)
+        if (
+            Command._is_remote_url(metadata_source)
+            and not Command._is_oss_url(metadata_source, oss_base_url)
+            and not references_legacy_oss(metadata_source)
+        ):
+            return metadata_source
+
+        normalized_current = normalize_asset_source_url(current_url)
+        if normalized_current != str(current_url or '').strip():
+            return normalized_current
+        if references_legacy_oss(normalized_current):
+            return ''
+        if not Command._is_oss_url(normalized_current, oss_base_url):
+            return normalized_current
+        return ''
 
     @staticmethod
     def _is_remote_url(value):
@@ -701,6 +772,28 @@ class Command(BaseCommand):
         if target != static_root and static_root not in target.parents:
             return None
         return target
+
+    @staticmethod
+    def _version_floor_static_source(version, floor):
+        source_tag = str((version.metadata or {}).get('source_tag') or '').strip()
+        if not source_tag:
+            return None, ''
+        relative_path = Path(
+            'portal',
+            'mythic_planner',
+            'vendor',
+            f'mdt-{source_tag}',
+            'maps',
+            Command._safe_segment(floor.dungeon.key),
+            f'{Command._safe_segment(floor.key)}.webp',
+        )
+        local_path = (Path(settings.BASE_DIR) / 'static' / relative_path).resolve()
+        static_root = (Path(settings.BASE_DIR) / 'static').resolve()
+        if local_path != static_root and static_root not in local_path.parents:
+            return None, ''
+        static_url = str(getattr(settings, 'STATIC_URL', '/static/') or '/static/')
+        source_url = static_url.rstrip('/') + '/' + relative_path.as_posix()
+        return local_path, source_url
 
     @staticmethod
     def _resolve_cache_root(configured):

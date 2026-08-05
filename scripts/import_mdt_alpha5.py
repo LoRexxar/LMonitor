@@ -65,6 +65,16 @@ def validate_package():
     if metadata.get('source_commit') != SOURCE_COMMIT:
         raise RuntimeError('数据包来源提交与固定 alpha5 提交不一致。')
 
+    serialized_payload = json.dumps(payload, ensure_ascii=False)
+    forbidden_asset_paths = {
+        'oss.shengnong.club': '废弃 OSS 域名',
+        'mythic-planner/sources/oss.': '套娃 OSS 来源路径',
+        '/wowhead/images/': '废弃 Wowhead 对象前缀',
+    }
+    for fragment, label in forbidden_asset_paths.items():
+        if fragment in serialized_payload:
+            raise RuntimeError(f'数据包仍包含{label}：{fragment}')
+
     dungeons = payload.get('dungeons') or []
     counts = {
         'dungeons': len(dungeons),

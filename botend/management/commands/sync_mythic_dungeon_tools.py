@@ -12,6 +12,10 @@ from botend.models import (
     MythicDungeonSpell,
     WowSpellSnapshot,
 )
+from botend.mythic_planner.asset_urls import (
+    normalize_asset_source_url,
+    references_legacy_oss,
+)
 from botend.mythic_planner.importer import import_mythic_dungeon_payload
 from botend.mythic_planner.mdt_converter import (
     SOURCE_TAG,
@@ -49,13 +53,17 @@ def load_payload_seed(path):
                 continue
             floor_key = str(floor.get('key') or '')
             background_url = str(floor.get('background_url') or '')
-            if floor_key and background_url:
+            if (
+                floor_key
+                and background_url
+                and not references_legacy_oss(background_url)
+            ):
                 floor_background_urls[(dungeon_key, floor_key)] = background_url
         for enemy in dungeon.get('enemies') or []:
             if not isinstance(enemy, dict):
                 continue
             enemy_key = str(enemy.get('key') or '')
-            enemy_icon_url = str(enemy.get('icon_url') or '')
+            enemy_icon_url = normalize_asset_source_url(enemy.get('icon_url'))
             if enemy_key and enemy_icon_url:
                 enemy_icon_urls[(dungeon_key, enemy_key)] = enemy_icon_url
             for ability in enemy.get('abilities') or []:
@@ -73,6 +81,8 @@ def load_payload_seed(path):
                     ('icon_url', 'icon_url'),
                 ):
                     candidate = str(ability.get(source_field) or '')
+                    if target_field == 'icon_url':
+                        candidate = normalize_asset_source_url(candidate)
                     if candidate and not current.get(target_field):
                         current[target_field] = candidate
                 snapshots[spell_id] = current
@@ -84,7 +94,28 @@ def load_payload_seed(path):
         and isinstance(version_data.get('metadata'), dict)
         else {}
     )
-    return snapshots, floor_background_urls, enemy_icon_urls, metadata
+    return (
+        snapshots,
+        floor_background_urls,
+        enemy_icon_urls,
+        _without_legacy_asset_snapshot(metadata),
+    )
+
+
+def _without_legacy_asset_snapshot(metadata):
+    cleaned = dict(metadata or {})
+    asset_snapshot = cleaned.get('asset_snapshot')
+    if (
+        isinstance(asset_snapshot, dict)
+        and references_legacy_oss(asset_snapshot.get('base_url'))
+    ):
+        cleaned.pop('asset_snapshot', None)
+    return cleaned
+
+
+def _preserved_floor_url(value):
+    value = str(value or '').strip()
+    return value if value and not references_legacy_oss(value) else ''
 
 
 class Command(BaseCommand):
@@ -206,9 +237,9 @@ class Command(BaseCommand):
                 else {}
             )
             if existing_version:
-                floor_background_urls.update({
-                    (str(row['dungeon__key']), str(row['key'])): str(
-                        row['background_url'] or ''
+                database_floor_urls = {
+                    (str(row['dungeon__key']), str(row['key'])): (
+                        _preserved_floor_url(row['background_url'])
                     )
                     for row in MythicDungeonFloor.objects.filter(
                         dungeon__data_version=existing_version,
@@ -218,10 +249,15 @@ class Command(BaseCommand):
                         'key',
                         'background_url',
                     )
+                }
+                floor_background_urls.update({
+                    key: value
+                    for key, value in database_floor_urls.items()
+                    if value
                 })
                 enemy_icon_urls.update({
-                    (str(row['dungeon__key']), str(row['key'])): str(
-                        row['icon_url'] or ''
+                    (str(row['dungeon__key']), str(row['key'])): (
+                        normalize_asset_source_url(row['icon_url'])
                     )
                     for row in MythicDungeonEnemy.objects.filter(
                         dungeon__data_version=existing_version,
@@ -232,8 +268,10 @@ class Command(BaseCommand):
                         'icon_url',
                     )
                 })
-            metadata_seed = dict(seed_metadata)
-            metadata_seed.update(existing_metadata)
+            metadata_seed = _without_legacy_asset_snapshot(seed_metadata)
+            metadata_seed.update(
+                _without_legacy_asset_snapshot(existing_metadata),
+            )
             snapshot_metadata = (
                 metadata_seed.get('spell_snapshot')
                 if isinstance(metadata_seed.get('spell_snapshot'), dict)
@@ -309,7 +347,7 @@ class Command(BaseCommand):
                             or ''
                         ),
                         'icon_url': str(
-                            row.get('icon_url')
+                            normalize_asset_source_url(row.get('icon_url'))
                             or current.get('icon_url')
                             or ''
                         ),
@@ -328,8 +366,10 @@ class Command(BaseCommand):
                     floor_background_urls=floor_background_urls,
                     enemy_icon_urls=enemy_icon_urls,
                 )
-            payload_metadata = dict(seed_metadata)
-            payload_metadata.update(existing_metadata)
+            payload_metadata = _without_legacy_asset_snapshot(seed_metadata)
+            payload_metadata.update(
+                _without_legacy_asset_snapshot(existing_metadata),
+            )
             payload_metadata.update(payload['data_version'].get('metadata') or {})
             payload['data_version']['metadata'] = payload_metadata
             write_payload(payload, output_path)
