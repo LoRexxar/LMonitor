@@ -44,6 +44,7 @@ from botend.wow.talents.build_code import (
     TalentBuildCodeEncoder,
     _ImportBitStream,
     _ImportBitWriter,
+    _resolve_choice_selection,
 )
 from botend.portal.talent_simulator import (
     PortalTalentSimulatorAPIView,
@@ -2255,6 +2256,56 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
             'name': '怒火狂战',
             'db2_subtree_id': 0,
         }))
+
+    def test_decoder_node_list_restores_zero_rank_trait_node_from_exact_dump(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'TraitNode.csv').write_text(
+                'ID,TraitTreeID,PosX,PosY,Type,Flags,TraitSubTreeID\n'
+                '100,872,0,0,0,0,0\n'
+                '150,872,0,0,0,0,0\n'
+                '200,872,0,0,0,0,0\n'
+                '999,999,0,0,0,0,0\n',
+                encoding='utf-8',
+            )
+            nodes = [
+                {'talent_id': 100, 'node_id': 1100, 'db2_tree_id': 872, 'tree_type': 'class'},
+                {'talent_id': 200, 'node_id': 1200, 'db2_tree_id': 872, 'tree_type': 'spec'},
+            ]
+
+            augmented = TalentMetadataProvider._augment_decoder_nodes_from_dump(nodes, str(root))
+
+            self.assertEqual([node['talent_id'] for node in augmented], [100, 150, 200])
+            placeholder = augmented[1]
+            self.assertTrue(placeholder['decoder_placeholder'])
+            self.assertEqual(placeholder['db2_tree_id'], 872)
+            self.assertEqual(placeholder['max_points'], 1)
+
+    def test_choice_encoding_preserves_imported_bit_shape_across_db2_changes(self):
+        old_choice_state = {
+            'is_choice_node': True,
+            'choice_selection': 1,
+        }
+        current_single_entry_node = {
+            'is_choice_node': False,
+            'choice_options': [],
+        }
+        self.assertEqual(
+            _resolve_choice_selection(current_single_entry_node, old_choice_state),
+            1,
+        )
+
+        old_single_entry_state = {
+            'is_choice_node': False,
+            'choice_selection': 0,
+        }
+        current_choice_node = {
+            'is_choice_node': True,
+            'choice_options': [{'spell_id': 1}, {'spell_id': 2}],
+        }
+        self.assertIsNone(
+            _resolve_choice_selection(current_choice_node, old_single_entry_state),
+        )
 
     def test_simulator_merge_applies_imported_choice_option_display(self):
         merged = _merge_nodes_for_simulator(

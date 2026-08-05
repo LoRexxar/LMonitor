@@ -358,16 +358,34 @@ class _ImportBitWriter:
 
 def _resolve_choice_selection(base_node, selected_node):
     # ``choice_options`` may also carry the DB2 entries of a non-choice apex
-    # rank pool. Canonical node semantics, not the mere presence of options,
-    # decide whether choice bits belong in the import string.
-    if base_node.get('is_choice_node') is False or base_node.get('is_apex_talent') or base_node.get('apex_entries'):
+    # rank pool. Apex nodes never write choice bits.
+    if base_node.get('is_apex_talent') or base_node.get('apex_entries'):
+        return None
+
+    # A decoded import state is self-describing: preserve its choice-bit shape
+    # even when the exact-build DB2 metadata has since changed between a single
+    # entry and a choice node. New/editor-created states omit this field and
+    # continue to follow the current DB2 node shape below.
+    explicit_shape = selected_node.get('is_choice_node')
+    if explicit_shape is None:
+        explicit_shape = selected_node.get('isChoiceNode')
+    explicit_selection = selected_node.get('choice_selection')
+    if explicit_selection is None:
+        explicit_selection = selected_node.get('choiceSelection')
+    if explicit_shape is False:
+        return None
+    if explicit_shape is True:
+        try:
+            index = int(explicit_selection or 0)
+        except (TypeError, ValueError):
+            index = 0
+        return max(0, min(3, index))
+
+    if base_node.get('is_choice_node') is False:
         return None
     options = base_node.get('choice_options') or []
     if not options:
         return None
-    explicit_selection = selected_node.get('choice_selection')
-    if explicit_selection is None:
-        explicit_selection = selected_node.get('choiceSelection')
     if explicit_selection is not None:
         try:
             index = int(explicit_selection)

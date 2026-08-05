@@ -11,6 +11,8 @@ WoW 天赋元数据提供层
 
 from __future__ import annotations
 
+import csv
+import os
 from dataclasses import dataclass, field
 import re
 from typing import Any
@@ -320,8 +322,58 @@ class TalentMetadataProvider:
                 node['is_choice_node'] = False
             nodes.append(node)
 
+        nodes = self._augment_decoder_nodes_from_dump(
+            nodes,
+            getattr(version, 'source_dir', '') or '',
+        )
         self._spec_cache[cache_key] = nodes
         return [dict(n) for n in nodes]
+
+    @staticmethod
+    def _augment_decoder_nodes_from_dump(nodes, dump_dir):
+        """Restore exact-build TraitNodes which have no renderable metadata."""
+        result = [dict(node) for node in (nodes or [])]
+        tree_ids = {
+            int(node.get('db2_tree_id'))
+            for node in result
+            if node.get('db2_tree_id') not in (None, '', 0, '0')
+        }
+        trait_node_path = os.path.join(dump_dir or '', 'TraitNode.csv')
+        if not tree_ids or not os.path.isfile(trait_node_path):
+            return sorted(result, key=lambda node: int(node.get('talent_id') or 0))
+
+        existing_ids = {
+            int(node.get('talent_id'))
+            for node in result
+            if node.get('talent_id') not in (None, '', 0, '0')
+        }
+        with open(trait_node_path, encoding='utf-8-sig', newline='') as handle:
+            for row in csv.DictReader(handle):
+                try:
+                    talent_id = int(row.get('ID') or 0)
+                    tree_id = int(row.get('TraitTreeID') or 0)
+                except (TypeError, ValueError):
+                    continue
+                if not talent_id or tree_id not in tree_ids or talent_id in existing_ids:
+                    continue
+                result.append({
+                    'talent_id': talent_id,
+                    'node_id': talent_id,
+                    'spell_id': 0,
+                    'display_spell_id': 0,
+                    'tree_type': 'decoder_placeholder',
+                    'db2_tree_id': tree_id,
+                    'db2_subtree_id': int(row.get('TraitSubTreeID') or 0),
+                    'max_points': 1,
+                    'choice_options': [],
+                    'is_choice_node': False,
+                    'decoder_placeholder': True,
+                    'selected': False,
+                    'points': 0,
+                })
+                existing_ids.add(talent_id)
+
+        return sorted(result, key=lambda node: int(node.get('talent_id') or 0))
 
     @staticmethod
     def _include_in_decoder_node_list(node):

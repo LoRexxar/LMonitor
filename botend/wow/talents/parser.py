@@ -71,7 +71,13 @@ def normalize_talent_payload(talents, class_name='', spec_name=''):
             'column': raw.get('column'),
             'selected': is_granted or bool(raw.get('selected', points > 0)),
             'purchased': False if is_granted else raw.get('purchased'),
-            'is_choice_node': bool(raw.get('is_choice_node') or raw.get('isChoiceNode')),
+            'is_choice_node': (
+                raw.get('is_choice_node')
+                if 'is_choice_node' in raw
+                else raw.get('isChoiceNode')
+                if 'isChoiceNode' in raw
+                else None
+            ),
             'choice_selection': raw.get('choice_selection') if raw.get('choice_selection') is not None else raw.get('choiceSelection'),
             'choice_options': [dict(option) for option in (raw.get('choice_options') or raw.get('choiceOptions') or []) if isinstance(option, dict)],
             'parents': list(parents),
