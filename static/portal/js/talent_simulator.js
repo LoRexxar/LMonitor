@@ -179,7 +179,6 @@
         indexNodes();
         renderHeader();
         renderStage();
-        activateGrantedTalents(); // 自动点亮赠送天赋
         updateInspector();
         updateUrl(false);
         if (!state.buildCode) {
@@ -193,51 +192,18 @@
     function indexNodes() {
         state.nodes.clear();
         state.parentKeysByChild.clear();
-        
-        // 步骤1: 先识别赠送天赋（只在职业树中，flags=8 且 parents=[]）
-        const grantedNodeKeys = new Set();
-        
-        for (const tree of state.payload.render_model?.trees || []) {
-            for (const node of tree.nodes || []) {
-                const treeType = node.tree_type || 'spec';
-                const parents = node.parents || [];
-                const flags = Number(node.flags || 0);
-                
-                // 赠送天赋的特征：职业树 且 flags=8 且无前置
-                if (treeType === 'class' && flags === 8 && parents.length === 0) {
-                    const key = node.node_key || nodeKey(node);
-                    if (key) grantedNodeKeys.add(key);
-                }
-            }
-        }
-        
-        // 步骤2: 索引所有节点，并自动标记赠送天赋
+
+        // The backend resolves granted talents with class/spec context. Flags
+        // alone are insufficient because several root nodes can share flags=8.
         for (const tree of state.payload.render_model?.trees || []) {
             for (const node of tree.nodes || []) {
                 const key = node.node_key || nodeKey(node);
                 if (!key) continue;
                 node.node_key = key;
                 node.points = Number(node.points || 0);
-                
-                // 自动识别赠送天赋
-                if (grantedNodeKeys.has(key)) {
-                    node.purchased = false;
-                    node.selected = true;
-                    // 赠送天赋自动设置为 1 点（如果当前为 0）
-                    if (node.points === 0) {
-                        node.points = 1;
-                    }
-                } else {
-                    // 保留后端传来的 purchased 字段（默认 true 表示普通天赋）
-                    if (node.purchased === undefined) node.purchased = true;
-                    // 赠送天赋（purchased=false）即使 points=0 也要保持 selected=true
-                    if (node.purchased === false) {
-                        node.selected = true;
-                    } else {
-                        node.selected = !!node.selected || node.points > 0;
-                    }
-                }
-                
+                if (node.purchased === undefined) node.purchased = true;
+                node.selected = !!node.selected || node.points > 0;
+
                 if (node.choice_selection == null) node.choice_selection = 0;
                 node.is_apex_talent = !!node.is_apex_talent;
                 node.point_pool = node.point_pool || (node.is_apex_talent ? 'apex' : (node.tree_type || 'spec'));
@@ -247,16 +213,6 @@
                 if (!path.parent_key || !path.child_key) continue;
                 if (!state.parentKeysByChild.has(path.child_key)) state.parentKeysByChild.set(path.child_key, []);
                 state.parentKeysByChild.get(path.child_key).push(path.parent_key);
-            }
-        }
-    }
-
-    function activateGrantedTalents() {
-        // 自动为所有赠送天赋调用 selectNode() 点亮它们
-        for (const [key, node] of state.nodes.entries()) {
-            if (node.purchased === false && node.selected === true && node.points === 0) {
-                // 这是赠送天赋，自动点击它
-                selectNode(node);
             }
         }
     }

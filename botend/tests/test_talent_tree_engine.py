@@ -2307,6 +2307,16 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
             _resolve_choice_selection(current_choice_node, old_single_entry_state),
         )
 
+    def test_frontend_trusts_backend_granted_state_instead_of_guessing_all_root_nodes(self):
+        script = (
+            Path(__file__).resolve().parents[2]
+            / 'static/portal/js/talent_simulator.js'
+        ).read_text(encoding='utf-8')
+
+        self.assertNotIn("flags === 8 && parents.length === 0", script)
+        self.assertNotIn("grantedNodeKeys", script)
+        self.assertIn("node.purchased === false", script)
+
     def test_simulator_merge_applies_imported_choice_option_display(self):
         merged = _merge_nodes_for_simulator(
             self.FULL_NODES,
