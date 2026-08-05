@@ -12,10 +12,12 @@ WoW 天赋元数据提供层
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import Any
 
 from botend.models import WowSpellSnapshot, WowTalentNodeMetadata
-from botend.wow.spell_text import get_spell_text_resolver
+from botend.constants.wow import SPEC_ACTIVE_AURA_IDS, SPEC_CONDITION_INDEX
+from botend.wow.spell_text import SpellTextResolver
 from botend.wow.talents.versioning import TalentVersionResolver
 
 STRUCTURAL_FIELDS = {'tree_type', 'row', 'column', 'max_points', 'parents', 'db2_subtree_id'}
@@ -81,7 +83,8 @@ class TalentMetadataProvider:
     usage: str = TalentVersionResolver.USAGE_SIMULATOR
     _spec_cache: dict = field(default_factory=dict)
     _snapshot_cache: dict = field(default_factory=dict)
-    _spell_text_resolver: Any = None
+    _text_context_cache: dict = field(default_factory=dict)
+    _spell_text_resolvers: dict = field(default_factory=dict)
 
     @property
     def resolved_version(self):
@@ -152,6 +155,14 @@ class TalentMetadataProvider:
             merged['tree_type'] = metadata_tree_type
         for key in ['name', 'icon', 'row', 'column', 'max_points', 'parents', 'description', 'description_zh', 'db2_subtree_id', 'flags']:
             value = metadata.get(key)
+            if (
+                key in {'description', 'description_zh'}
+                and value in (None, '')
+                and is_authoritative_talent_source(metadata)
+                and self._is_external_description_pollution(merged.get(key))
+            ):
+                merged[key] = ''
+                continue
             if value in (None, '', []):
                 continue
             if key in STRUCTURAL_FIELDS or self._should_override(merged, key):
@@ -160,6 +171,14 @@ class TalentMetadataProvider:
             merged['display_spell_id'] = metadata.get('display_spell_id')
             merged['spell_id'] = metadata.get('display_spell_id')
         return merged
+
+    @staticmethod
+    def _is_external_description_pollution(value):
+        return bool(re.search(
+            r'wowhead|searchable and filterable|World of Warcraft.*latest patch',
+            value or '',
+            re.IGNORECASE,
+        ))
 
     def get_full_tree_nodes(self, class_name, spec_name):
         version = self.resolved_version
@@ -347,22 +366,50 @@ class TalentMetadataProvider:
         self._spec_cache[cache_key] = indexes
         return indexes
 
-    def _spell_resolver(self):
-        if self._spell_text_resolver is None:
-            self._spell_text_resolver = get_spell_text_resolver(self.locale)
-        return self._spell_text_resolver
+    def _spell_resolver(self, locale=None):
+        locale = locale or self.locale
+        if locale not in self._spell_text_resolvers:
+            version = self.resolved_version
+            self._spell_text_resolvers[locale] = SpellTextResolver(
+                locale=locale,
+                branch=getattr(version, 'branch', 'wow') or 'wow',
+                snapshot_build=getattr(version, 'current_build', '') or '',
+                dump_dir=getattr(version, 'source_dir', None) or None,
+            )
+        return self._spell_text_resolvers[locale]
 
-    def _resolve_text(self, resolver, text, spell_id):
+    def _text_context(self, row):
+        key = (getattr(row, 'talent_version_id', None), row.class_name, row.spec_name)
+        if key not in self._text_context_cache:
+            ids = set()
+            qs = WowTalentNodeMetadata.objects.filter(
+                talent_version_id=key[0], class_name=key[1], spec_name=key[2],
+            ).values_list('spell_id', 'display_spell_id')
+            for spell_id, display_spell_id in qs.iterator(chunk_size=500):
+                if spell_id:
+                    ids.add(int(spell_id))
+                if display_spell_id:
+                    ids.add(int(display_spell_id))
+            self._text_context_cache[key] = {
+                'spec_index': SPEC_CONDITION_INDEX.get((key[1], key[2])),
+                'known_spell_ids': ids,
+                'active_aura_ids': SPEC_ACTIVE_AURA_IDS.get((key[1], key[2]), set()),
+            }
+        return self._text_context_cache[key]
+
+    def _resolve_text(self, resolver, text, spell_id, context=None):
         text = text or ''
         if '$' not in text and '?' not in text:
             return ' '.join(text.split()).strip()
-        return resolver.resolve(text, spell_id)
+        return resolver.resolve(text, spell_id, **(context or {}))
 
     def _as_dict(self, row):
         spell_id = row.display_spell_id or row.spell_id
         desc = getattr(row, 'description', '') or ''
         desc_zh = getattr(row, 'description_zh', '') or ''
-        resolver = self._spell_resolver()
+        resolver_en = self._spell_resolver('enUS')
+        resolver_zh = self._spell_resolver('zhCN')
+        context = self._text_context(row)
         return {
             'talent_version_id': getattr(row, 'talent_version_id', None),
             'talent_version_key': self.version_cache_key,
@@ -377,8 +424,8 @@ class TalentMetadataProvider:
             'column': row.column,
             'max_points': row.max_points,
             'parents': row.parents_json or [],
-            'description': self._resolve_text(resolver, desc, spell_id),
-            'description_zh': self._resolve_text(resolver, desc_zh, spell_id),
+            'description': self._resolve_text(resolver_en, desc, spell_id, context),
+            'description_zh': self._resolve_text(resolver_zh, desc_zh, spell_id, context),
             'db2_subtree_id': getattr(row, 'db2_subtree_id', 0) or 0,
             'db2_tree_id': getattr(row, 'db2_tree_id', None),
             'db2_component_id': getattr(row, 'db2_component_id', 0) or 0,
@@ -393,7 +440,8 @@ class TalentMetadataProvider:
         option_key = node.get('talent_id') or spell_id
         if not option_key:
             return {}
-        resolver = get_spell_text_resolver(self.locale)
+        resolver_en = self._spell_resolver('enUS')
+        resolver_zh = self._spell_resolver('zhCN')
         return {
             'option_key': option_key,
             'node_id': node.get('node_id'),
@@ -404,8 +452,8 @@ class TalentMetadataProvider:
             'name': node.get('name') or '',
             'name_zh': node.get('name_zh') or '',
             'icon': node.get('icon') or '',
-            'description': resolver.resolve(node.get('description') or '', spell_id),
-            'description_zh': resolver.resolve(node.get('description_zh') or '', spell_id),
+            'description': resolver_en.resolve(node.get('description') or '', spell_id),
+            'description_zh': resolver_zh.resolve(node.get('description_zh') or '', spell_id),
         }
 
     @staticmethod
@@ -441,7 +489,15 @@ class TalentMetadataProvider:
         if spell_id in self._snapshot_cache:
             return self._snapshot_cache[spell_id]
 
-        snapshot = WowSpellSnapshot.objects.filter(spell_id=spell_id).order_by('-updated_at').first()
+        version = self.resolved_version
+        if not version:
+            self._snapshot_cache[spell_id] = {}
+            return {}
+        snapshot = WowSpellSnapshot.objects.filter(
+            spell_id=spell_id,
+            branch=getattr(version, 'branch', '') or '',
+            snapshot_build=getattr(version, 'current_build', '') or '',
+        ).order_by('-updated_at').first()
         if not snapshot:
             self._snapshot_cache[spell_id] = {}
             return {}

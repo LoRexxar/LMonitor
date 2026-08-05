@@ -1,4 +1,8 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 from botend.wow.spell_text import SpellTextResolver
 from botend.wow.talents.metadata import TalentMetadataProvider
@@ -23,6 +27,83 @@ class _FakeSnapshotResolver(_FakeEffectResolver):
 
 
 class SpellTextResolverTests(unittest.TestCase):
+    @patch('botend.models.WowSpellSnapshot')
+    def test_snapshot_reads_ignore_wrong_branch_and_build_including_zh_fallback(self, snapshot_model):
+        exact = SimpleNamespace(
+            name='Exact English', name_zh='精确中文',
+            description='exact description', aura_description='',
+        )
+
+        def filtered_rows(**filters):
+            query = MagicMock()
+            query.order_by.return_value = query
+            # Simulate wrong-branch and wrong-build rows existing in the table:
+            # only the fully constrained fallback query can select the exact row.
+            query.first.return_value = exact if filters == {
+                'branch': 'ptr',
+                'spell_id': 123,
+                'snapshot_build': '12.1.0.68914',
+            } else None
+            return query
+
+        snapshot_model.objects.filter.side_effect = filtered_rows
+        resolver = SpellTextResolver(
+            locale='zhCN', branch='ptr', snapshot_build='12.1.0.68914',
+        )
+
+        self.assertEqual(resolver._spell_snapshot(123)['name_zh'], '精确中文')
+        self.assertEqual(snapshot_model.objects.filter.call_count, 2)
+        for call in snapshot_model.objects.filter.call_args_list:
+            self.assertEqual(call.kwargs['branch'], 'ptr')
+            self.assertEqual(call.kwargs['snapshot_build'], '12.1.0.68914')
+
+    @patch('botend.models.WowSpellEffectSnapshot')
+    def test_effect_snapshot_fallback_ignores_wrong_build(self, effect_model):
+        effect = SimpleNamespace(
+            effect_index=0,
+            base_points='42',
+            coefficient='',
+            pvp_multiplier='',
+        )
+
+        def filtered_rows(**filters):
+            return [effect] if filters == {
+                'branch': 'ptr',
+                'locale': 'zhCN',
+                'spell_id': 123,
+                'snapshot_build': '12.1.0.68914',
+            } else []
+
+        effect_model.objects.filter.side_effect = filtered_rows
+        resolver = SpellTextResolver(
+            locale='zhCN', branch='ptr', snapshot_build='12.1.0.68914',
+        )
+
+        self.assertEqual(resolver._effects(123)[0]['base_points'], '42')
+        effect_model.objects.filter.assert_called_once_with(
+            branch='ptr',
+            locale='zhCN',
+            spell_id=123,
+            snapshot_build='12.1.0.68914',
+        )
+
+    def test_exact_dump_text_precedes_snapshot_text(self):
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / 'SpellName_zhCN.csv').write_text(
+                'ID,Name_lang\n123,精确名称\n', encoding='utf-8'
+            )
+            (root / 'Spell_zhCN.csv').write_text(
+                'ID,Description_lang,AuraDescription_lang\n123,精确描述,\n', encoding='utf-8'
+            )
+            resolver = SpellTextResolver(locale='zhCN', dump_dir=root)
+            with patch.object(
+                resolver,
+                '_spell_snapshot',
+                return_value={'name_zh': '旧快照名称', 'description': '旧快照描述'},
+            ):
+                self.assertEqual(resolver.resolve('$@spellname123：$@spelldesc123'), '精确名称：精确描述')
+
     def test_blizzard_effect_placeholders_are_one_based(self):
         resolver = _FakeEffectResolver({
             391477: {
@@ -118,7 +199,7 @@ class SpellTextResolverTests(unittest.TestCase):
         )
         self.assertEqual(
             resolver.resolve('产生$/100;s2点狂乱值。', 1227280),
-            '产生x点狂乱值。',
+            '产生狂乱值。',
         )
 
     def test_cleanup_b_placeholder_without_leaking_token(self):
@@ -126,7 +207,7 @@ class SpellTextResolverTests(unittest.TestCase):
 
         self.assertEqual(
             resolver.resolve('有$b1%几率获得一个额外的连击点数。', 14161),
-            '有x%几率获得一个额外的连击点数。',
+            '有一定几率获得一个额外的连击点数。',
         )
 
     def test_cleanup_dynamic_tokens_without_raw_dollar_output(self):
@@ -146,7 +227,7 @@ class SpellTextResolverTests(unittest.TestCase):
         )
         self.assertEqual(
             resolver.resolve('投掷$n枚战轮，共造成$x次伤害。$@spelltooltip1269383', 1),
-            '投掷x枚战轮，共造成x次伤害。用英勇打击攻击目标。',
+            '投掷战轮，造成伤害。用英勇打击攻击目标。',
         )
 
     def test_mechanic_description_does_not_expose_untrusted_effect_values(self):

@@ -1,19 +1,26 @@
 # -*- coding: utf-8 -*-
 """Repair PTR talent metadata from local DB2 dumps and Wowhead fallbacks."""
 import csv
+import hashlib
 import html
 import json
 import os
 import re
+import tarfile
+import uuid
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import requests
+from django.core import serializers
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 from django.utils import timezone
 
+from botend.constants.wow import SPEC_ACTIVE_AURA_IDS, SPEC_CONDITION_INDEX
 from botend.models import WowSpellSnapshot, WowTalentNodeMetadata, WowTalentVersion
+from botend.wow.spell_text import SpellTextResolver
 
 
 BAD_DESCRIPTION_TOKENS = ('$', '@spell', '<', '|c', '|C', '|r', '|R')
@@ -42,6 +49,98 @@ GENERIC_ICON_NAMES = {
     'trade_engineering',
     'inv_10_jewelcrafting_gem2standard_uncut_green',
 }
+_REQUIRED_DUMP_FILES = {
+    'SpellAuraOptions.csv',
+    'SpellDuration.csv',
+    'SpellMisc.csv',
+    'SpellName_enUS.csv',
+    'SpellName_zhCN.csv',
+    'Spell_enUS.csv',
+    'Spell_zhCN.csv',
+    'TraitDefinition_enUS.csv',
+    'TraitDefinition_zhCN.csv',
+    'TraitEdge.csv',
+    'TraitNode.csv',
+    'TraitNodeEntry.csv',
+    'TraitNodeXTraitNodeEntry.csv',
+    'file_data_icon_cache.csv',
+    'spell_effect_index.csv',
+}
+
+
+def _tracked_bundle_contracts():
+    """Load manifests from checked-in PTR bundles, which are the trust root."""
+    data_dir = Path(__file__).resolve().parents[2] / 'data'
+    contracts = []
+    for bundle in sorted(data_dir.glob('ptr_talent_db2_*.tar.gz')):
+        try:
+            with tarfile.open(bundle, 'r:gz') as archive:
+                members = [item for item in archive.getmembers() if item.name == 'manifest.json']
+                if len(members) != 1 or not members[0].isreg():
+                    continue
+                stream = archive.extractfile(members[0])
+                if stream is None:
+                    continue
+                manifest = json.loads(stream.read().decode('utf-8'))
+                if isinstance(manifest, dict):
+                    contracts.append(manifest)
+        except (OSError, tarfile.TarError, UnicodeError, json.JSONDecodeError):
+            continue
+    return contracts
+
+
+def _validate_dump_contract(dump_dir, version_key):
+    """Fail closed unless the dump exactly matches a tracked bundle."""
+    manifest_path = dump_dir / 'manifest.json'
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise CommandError(f'invalid or missing dump manifest: {manifest_path}') from exc
+
+    if manifest not in _tracked_bundle_contracts():
+        raise CommandError('dump manifest does not exactly match a tracked PTR bundle contract')
+    if manifest.get('version_key') != version_key:
+        raise CommandError(
+            f"dump manifest version_key {manifest.get('version_key')!r} does not match {version_key!r}"
+        )
+    build = manifest.get('build')
+    files = manifest.get('files')
+    if not isinstance(build, str) or not build.strip():
+        raise CommandError('dump manifest has no build')
+    if not isinstance(files, dict) or set(files) != _REQUIRED_DUMP_FILES:
+        raise CommandError('dump manifest does not contain the exact required PTR file set')
+
+    try:
+        entries = list(dump_dir.iterdir())
+    except OSError as exc:
+        raise CommandError(f'cannot inspect dump directory: {dump_dir}') from exc
+    actual_names = set()
+    for entry in entries:
+        if entry.is_symlink() or not entry.is_file():
+            raise CommandError(f'dump contains a non-regular entry: {entry.name}')
+        actual_names.add(entry.name)
+    if actual_names != _REQUIRED_DUMP_FILES | {'manifest.json'}:
+        raise CommandError('dump directory does not exactly match its manifest')
+
+    for name, expected in files.items():
+        if not isinstance(expected, dict):
+            raise CommandError(f'invalid manifest record for {name}')
+        expected_bytes = expected.get('bytes')
+        expected_sha = expected.get('sha256')
+        if (
+            not isinstance(expected_bytes, int)
+            or expected_bytes < 0
+            or not isinstance(expected_sha, str)
+            or not re.fullmatch(r'[0-9a-f]{64}', expected_sha)
+        ):
+            raise CommandError(f'invalid manifest integrity fields for {name}')
+        try:
+            payload = (dump_dir / name).read_bytes()
+        except OSError as exc:
+            raise CommandError(f'cannot read manifested dump file: {name}') from exc
+        if len(payload) != expected_bytes or hashlib.sha256(payload).hexdigest() != expected_sha:
+            raise CommandError(f'dump file failed integrity validation: {name}')
+    return manifest
 
 
 class Command(BaseCommand):
@@ -51,6 +150,7 @@ class Command(BaseCommand):
         parser.add_argument('--version-key', default='ptr-12.1.0')
         parser.add_argument('--dump-dir', default='')
         parser.add_argument('--cache-dir', default='.cache')
+        parser.add_argument('--backup-dir', default='', help='Write a JSON backup before changing metadata')
         parser.add_argument('--class-name', default='')
         parser.add_argument('--dry-run', action='store_true')
         parser.add_argument('--skip-wowhead', action='store_true')
@@ -68,6 +168,10 @@ class Command(BaseCommand):
         dump_dir = (options.get('dump_dir') or '').strip() or talent_version.source_dir or '.cache/wago_db2_dumps/ptr'
         if not os.path.isdir(dump_dir):
             raise CommandError(f'DB2 dump dir not found: {dump_dir}')
+        dump_path = Path(dump_dir).resolve()
+        manifest = _validate_dump_contract(dump_path, version_key)
+        target_build = manifest['build']
+        dump_dir = str(dump_path)
 
         cache_dir = Path(options.get('cache_dir') or '.cache')
         dry_run = bool(options.get('dry_run'))
@@ -86,10 +190,29 @@ class Command(BaseCommand):
         rows = list(qs)
         self.stdout.write(f'Visible metadata rows: {len(rows)}')
 
-        expected = {row.id: self._expected_for_row(row, db2) for row in rows}
+        known_by_spec = defaultdict(set)
+        for row in rows:
+            key = (row.class_name, row.spec_name)
+            known_by_spec[key].update(filter(None, (row.spell_id, row.display_spell_id)))
+        resolver_zh = SpellTextResolver(
+            locale='zhCN', branch=talent_version.branch,
+            snapshot_build=target_build, dump_dir=dump_dir,
+        )
+        resolver_en = SpellTextResolver(
+            locale='enUS', branch=talent_version.branch,
+            snapshot_build=target_build, dump_dir=dump_dir,
+        )
+        expected = {}
+        for row in rows:
+            key = (row.class_name, row.spec_name)
+            context = {
+                'spec_index': SPEC_CONDITION_INDEX.get(key),
+                'known_spell_ids': known_by_spec[key],
+                'active_aura_ids': SPEC_ACTIVE_AURA_IDS.get(key, set()),
+            }
+            expected[row.id] = self._expected_for_row(row, db2, resolver_zh, resolver_en, context)
         icon_spell_ids = self._collect_icon_spell_ids(rows, expected, refresh_all=bool(options.get('refresh_icons')))
-        icon_cache = self._load_json(cache_dir / f'wowhead_spell_icon_cache_{version_key}.json')
-        desc_cache = self._load_json(cache_dir / f'wowhead_spell_desc_cache_{version_key}.json')
+        icon_cache, desc_cache = self._load_wowhead_caches(cache_dir, version_key, skip_wowhead)
 
         if not skip_wowhead:
             self._fill_icon_cache(icon_spell_ids, icon_cache, cache_dir / f'wowhead_spell_icon_cache_{version_key}.json', workers)
@@ -102,6 +225,8 @@ class Command(BaseCommand):
         now = timezone.now()
         for row in rows:
             values = dict(expected[row.id])
+            force_description = bool(values.pop('_force_description', False))
+            force_description_zh = bool(values.pop('_force_description_zh', False))
             spell_id = self._coerce_int(values.get('display_spell_id') or row.display_spell_id or row.spell_id)
             icon_data = icon_cache.get(str(spell_id)) or {}
             wowhead_icon = (icon_data.get('icon') or '').strip()
@@ -115,7 +240,11 @@ class Command(BaseCommand):
                 if wowhead_icon and row.icon == wowhead_icon and db2_icon:
                     values['icon'] = db2_icon
                 else:
-                    values.pop('icon', None)
+                    normalized_current_icon = self._normalize_icon_name(row.icon)
+                    if normalized_current_icon and normalized_current_icon != row.icon:
+                        values['icon'] = normalized_current_icon
+                    else:
+                        values.pop('icon', None)
             elif db2_icon:
                 values['icon'] = db2_icon
             else:
@@ -125,18 +254,29 @@ class Command(BaseCommand):
             if spell_id in DESCRIPTION_FIXUPS:
                 desc = DESCRIPTION_FIXUPS[spell_id]
             current_desc = row.description_zh or ''
-            if desc and not self._has_bad_description_tokens(desc):
+            if desc and not force_description_zh and not self._has_bad_description_tokens(desc):
                 if not current_desc or self._has_bad_description_tokens(current_desc):
                     values['description_zh'] = desc
-            elif current_desc and not self._has_bad_description_tokens(current_desc):
+            elif current_desc and not force_description_zh and not self._has_bad_description_tokens(current_desc):
                 values.pop('description_zh', None)
 
             current_desc_en = row.description or ''
             candidate_desc_en = values.get('description') or ''
-            if current_desc_en and not self._has_bad_description_tokens(current_desc_en):
+            if (
+                current_desc_en
+                and not force_description
+                and not self._has_bad_description_tokens(current_desc_en)
+                and not self._has_english_locale_pollution(current_desc_en)
+            ):
                 values.pop('description', None)
-            elif not self._is_usable_db2_description(candidate_desc_en):
-                values.pop('description', None)
+            elif (
+                not self._is_usable_db2_description(candidate_desc_en)
+                or self._has_english_locale_pollution(candidate_desc_en)
+            ):
+                if force_description and self._has_english_locale_pollution(current_desc_en):
+                    values['description'] = ''
+                else:
+                    values.pop('description', None)
 
             candidate_desc_zh = values.get('description_zh') or ''
             if not self._is_usable_db2_description(candidate_desc_zh):
@@ -177,10 +317,75 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING('DRY RUN: no rows written'))
             return
 
-        for start in range(0, len(updates), 500):
-            WowTalentNodeMetadata.objects.bulk_update(updates[start:start + 500], DEFAULT_FIELDS, batch_size=500)
-        self._write_spell_snapshots(desc_cache, talent_version.current_build or '', now)
+        snapshot_ids = {
+            int(spell_id)
+            for spell_id, data in desc_cache.items()
+            if (data or {}).get('description_zh')
+            and not self._has_bad_description_tokens((data or {}).get('description_zh'))
+        }
+        version_changed = (
+            talent_version.current_build != target_build
+            or talent_version.source_dir != dump_dir
+        )
+        has_writes = bool(updates or snapshot_ids or version_changed)
+        backup_dir = (options.get('backup_dir') or '').strip()
+        if has_writes and backup_dir:
+            backup_path = self._backup_metadata(
+                talent_version,
+                backup_dir,
+                snapshot_ids=snapshot_ids,
+            )
+            self.stdout.write(f'Backup written: {backup_path}')
+
+        with transaction.atomic():
+            if version_changed:
+                talent_version.current_build = target_build
+                talent_version.source_dir = dump_dir
+                talent_version.save(update_fields=['current_build', 'source_dir', 'updated_at'])
+            for start in range(0, len(updates), 500):
+                WowTalentNodeMetadata.objects.bulk_update(
+                    updates[start:start + 500], DEFAULT_FIELDS, batch_size=500
+                )
+            self._write_spell_snapshots(
+                desc_cache,
+                target_build,
+                now,
+                branch=talent_version.branch,
+            )
         self.stdout.write(self.style.SUCCESS(f'Updated {len(updates)} visible PTR talent metadata rows'))
+
+    def _backup_metadata(self, talent_version, backup_dir, *, snapshot_ids):
+        backup_root = Path(backup_dir)
+        backup_root.mkdir(parents=True, exist_ok=True)
+        stamp = timezone.now().strftime('%Y%m%d-%H%M%S-%f')
+        unique = uuid.uuid4().hex
+        backup_path = backup_root / f'{talent_version.key}-talent-metadata-{stamp}-{unique}.json'
+        metadata = list(
+            WowTalentNodeMetadata.objects.filter(  # type: ignore[attr-defined]
+                talent_version=talent_version
+            ).order_by('pk')
+        )
+        snapshots = list(
+            WowSpellSnapshot.objects.filter(
+                branch=talent_version.branch,
+                locale='zhCN',
+                spell_id__in=snapshot_ids,
+            ).order_by('pk')
+        )
+        payload = {
+            'version': json.loads(serializers.serialize('json', [talent_version])),
+            'metadata': json.loads(serializers.serialize('json', metadata)),
+            'snapshots': json.loads(serializers.serialize('json', snapshots)),
+            # IDs with no existing row are deliberately retained in the scope
+            # so a restore can delete snapshots created by this run.
+            'snapshot_scope': {
+                'branch': talent_version.branch,
+                'locale': 'zhCN',
+                'spell_ids': sorted(snapshot_ids),
+            },
+        }
+        backup_path.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
+        return backup_path
 
     def _load_db2(self, dump_dir):
         data = {
@@ -209,15 +414,37 @@ class Command(BaseCommand):
             right_id = self._coerce_int(row.get('RightTraitNodeID'))
             if left_id and right_id:
                 data['edges'][right_id].append(left_id)
-        for row in self._read_csv(dump_dir, 'spell_icon_map.csv'):
-            spell_id = self._coerce_int(row.get('SpellID'))
-            file_data_id = self._coerce_int(row.get('FileDataID'))
-            icon = data['fdid_to_icon'].get(file_data_id, '')
-            if spell_id and icon:
-                data['spell_to_icon'][spell_id] = icon
+        spell_misc_path = os.path.join(dump_dir, 'SpellMisc.csv')
+        if os.path.exists(spell_misc_path):
+            data['spell_to_icon'] = self._build_spell_icon_map(
+                self._read_csv(dump_dir, 'SpellMisc.csv'),
+                data['fdid_to_icon'],
+            )
+        else:
+            for row in self._read_csv(dump_dir, 'spell_icon_map.csv'):
+                spell_id = self._coerce_int(row.get('SpellID'))
+                file_data_id = self._coerce_int(row.get('FileDataID'))
+                icon = data['fdid_to_icon'].get(file_data_id, '')
+                if spell_id and icon:
+                    data['spell_to_icon'][spell_id] = icon
         return data
 
-    def _expected_for_row(self, row, db2):
+    def _build_spell_icon_map(self, spell_misc_rows, fdid_to_icon):
+        result = {}
+        for row in spell_misc_rows:
+            spell_id = self._coerce_int(row.get('SpellID'))
+            if not spell_id:
+                continue
+            # 与游戏 Spell fallback 保持一致：活动态图标优先，其次普通图标。
+            for field in ('ActiveIconFileDataID', 'SpellIconFileDataID'):
+                file_data_id = self._coerce_int(row.get(field))
+                icon = fdid_to_icon.get(file_data_id, '')
+                if icon:
+                    result[spell_id] = icon
+                    break
+        return result
+
+    def _expected_for_row(self, row, db2, resolver_zh=None, resolver_en=None, context=None):
         entry_id = self._coerce_int(row.node_id)
         trait_node_id = db2['entry_to_node'].get(entry_id) or self._coerce_int(row.talent_id)
         trait_node = db2['trait_nodes'].get(trait_node_id) or {}
@@ -230,8 +457,29 @@ class Command(BaseCommand):
         display_spell_id = spell_ids[0] if spell_ids else 0
         name_zh = self._resolve_name(definition_zh, db2['spell_names_zh'], spell_ids)
         name_en = self._resolve_name(definition_en, db2['spell_names_en'], spell_ids)
-        description_zh = self._resolve_description(definition_zh, db2['spells_zh'], spell_ids)
-        description_en = self._resolve_description(definition_en, db2['spells_en'], spell_ids)
+        description_zh_raw = self._resolve_description(definition_zh, db2['spells_zh'], spell_ids)
+        description_en_raw = self._resolve_description(definition_en, db2['spells_en'], spell_ids)
+        needs_context_zh = '$?' in description_zh_raw or '?(' in description_zh_raw
+        needs_context_en = '$?' in description_en_raw or '?(' in description_en_raw
+        force_description_zh = (
+            needs_context_zh
+            or self._has_misrendered_values(row.description_zh)
+            or ('$' in description_zh_raw and '$' not in (row.description_zh or ''))
+        )
+        force_description_en = (
+            needs_context_en
+            or self._has_misrendered_values(row.description)
+            or self._has_english_locale_pollution(row.description)
+            or ('$' in description_en_raw and '$' not in (row.description or ''))
+        )
+        description_zh = (
+            resolver_zh.resolve(description_zh_raw, display_spell_id, **(context or {}))
+            if resolver_zh and description_zh_raw and needs_context_zh else description_zh_raw
+        )
+        description_en = (
+            resolver_en.resolve(description_en_raw, display_spell_id, **(context or {}))
+            if resolver_en and description_en_raw and needs_context_en else description_en_raw
+        )
         icon = self._resolve_db2_icon(definition_zh, definition_en, spell_ids, db2)
 
         parents = []
@@ -250,8 +498,14 @@ class Command(BaseCommand):
             'column': self._coerce_int(trait_node.get('PosX')) or row.column,
             'max_points': self._coerce_int(entry.get('MaxRanks')) or row.max_points or 1,
             'parents_json': sorted(set(parents)),
-            'description': description_en or row.description or '',
+            'description': (
+                description_en
+                if description_en
+                else ('' if force_description_en else row.description or '')
+            ),
             'description_zh': description_zh or row.description_zh or '',
+            '_force_description': force_description_en,
+            '_force_description_zh': force_description_zh,
             'db2_subtree_id': self._coerce_int(trait_node.get('TraitSubTreeID')),
             'db2_tree_id': self._coerce_int(trait_node.get('TraitTreeID')) or row.db2_tree_id,
             'flags': self._coerce_int(trait_node.get('Flags')),
@@ -424,7 +678,6 @@ class Command(BaseCommand):
         value = re.sub(r'\|C[0-9A-Fa-f]{8}', '', value)
         value = value.replace('|cffffffff', '').replace('|CFFFFFFFF', '')
         value = value.replace('|r', '').replace('|R', '')
-        value = re.sub(r'\$\?[^\s。；，]*', '', value)
         return self._normalize_description(value)
 
     def _normalize_description(self, value):
@@ -434,20 +687,53 @@ class Command(BaseCommand):
         return value
 
     def _has_bad_description_tokens(self, value):
-        return any(token in (value or '') for token in BAD_DESCRIPTION_TOKENS)
+        value = value or ''
+        return any(token in value for token in BAD_DESCRIPTION_TOKENS) or bool(re.search(
+            r'wowhead|Learn how|In the .* category|一\s*法术\s*from|Percent Damage',
+            value,
+            re.IGNORECASE,
+        ))
+
+    @staticmethod
+    def _has_misrendered_values(value):
+        value = value or ''
+        return bool(
+            re.search(r'(?<!\d)0\s*点', value)
+            or re.search(r'(?<![A-Za-z])x(?![A-Za-z])', value, re.IGNORECASE)
+            or re.search(r'(?<!\$)\?(?=[!()asc\d]).*?\[', value, re.IGNORECASE)
+            or '一定)' in value
+            or re.search(r'(?:提高|降低|增加|减少)\s*%', value)
+            or re.search(r'有\s*%\s*(?:的)?几率', value)
+            or re.search(r'(?:持续|接下来的?|在接下来的?)\s*\d+(?:\.\d+)?\s*(?:[。；，,]|内)', value)
+            or re.search(r'\d+(?:\.\d+){2,}(?=秒|%)', value)
+            or re.search(r'(?:需要|产生|获得|消耗|恢复)\s*点(?=[\u4e00-\u9fff])', value)
+            or re.search(r'造成\s*最多\s*点(?=[\u4e00-\u9fff])', value)
+            or re.search(r'达到\s*点(?=时)', value)
+            or re.search(r'在\s*\d+(?:\.\d+)?\s*后', value)
+            or re.search(r'\d+[^；。\n]{0,16}:[^；。\n]{0,16};', value)
+            or '$L' in value
+            or '$l' in value
+            or '[' in value
+            or ']' in value
+        )
+
+    @staticmethod
+    def _has_english_locale_pollution(value):
+        """English DB2 output must never contain Chinese fallback fragments."""
+        return bool(re.search(r'[\u3400-\u4dbf\u4e00-\u9fff]', value or ''))
 
     def _is_usable_db2_description(self, value):
         """DB2 placeholders are valid source text and are resolved at render time."""
         value = value or ''
         return bool(value.strip()) and not any(token in value for token in ('<', '|c', '|C', '|r', '|R'))
 
-    def _write_spell_snapshots(self, cache, build, now):
+    def _write_spell_snapshots(self, cache, build, now, *, branch):
         for spell_id, data in cache.items():
             description = (data or {}).get('description_zh') or ''
             if not description or self._has_bad_description_tokens(description):
                 continue
             WowSpellSnapshot.objects.update_or_create(
-                branch='wow',
+                branch=branch,
                 locale='zhCN',
                 spell_id=int(spell_id),
                 defaults={
@@ -472,10 +758,18 @@ class Command(BaseCommand):
         icons = {}
         for row in self._read_csv(dump_dir, 'file_data_icon_cache.csv'):
             file_data_id = self._coerce_int(row.get('FileDataID'))
-            icon = (row.get('IconName') or '').strip()
+            # WoW ListFile occasionally contains spaces inside legacy icon
+            # filenames, while game/CDN icon keys are the same basename with
+            # whitespace removed (for example ``spell_frostfireorb``).
+            icon = self._normalize_icon_name(row.get('IconName'))
             if file_data_id and icon:
                 icons[file_data_id] = icon
         return icons
+
+    @staticmethod
+    def _normalize_icon_name(value):
+        """Return the canonical CDN key for a ListFile icon basename."""
+        return re.sub(r'\s+', '', str(value or '').strip()).lower()
 
     def _load_json(self, path):
         if not path.exists():
@@ -484,6 +778,15 @@ class Command(BaseCommand):
             return json.loads(path.read_text())
         except (OSError, json.JSONDecodeError):
             return {}
+
+    def _load_wowhead_caches(self, cache_dir, version_key, skip_wowhead=False):
+        if skip_wowhead:
+            return {}, {}
+        cache_dir = Path(cache_dir)
+        return (
+            self._load_json(cache_dir / f'wowhead_spell_icon_cache_{version_key}.json'),
+            self._load_json(cache_dir / f'wowhead_spell_desc_cache_{version_key}.json'),
+        )
 
     def _write_json(self, path, data):
         path.parent.mkdir(parents=True, exist_ok=True)

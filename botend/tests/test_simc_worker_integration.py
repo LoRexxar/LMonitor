@@ -36,5 +36,5 @@ class SimcWorkerIntegrationTests(SimpleTestCase):
         self.assertIn("flock -n 9", script)
         self.assertGreater(
             script.index("screen -S lmsimc -X quit"),
-            script.index("=== 8. 重启 lmsimc ==="),
+            script.index("=== 9. 重启 lmsimc ==="),
         )

@@ -81,6 +81,43 @@ SPEC_IDENTITY_MAP = {
     1480: ("DemonHunter", "Devourer"),
 }
 
+# Blizzard 描述条件 ``$?cN`` 使用职业内专精序号，而不是 specialization ID。
+# 该顺序与部分 UI 排序不同（例如武僧、唤魔师），因此必须显式维护。
+SPEC_CONDITION_INDEX = {
+    ('DeathKnight', 'Blood'): 1, ('DeathKnight', 'Frost'): 2, ('DeathKnight', 'Unholy'): 3,
+    ('DemonHunter', 'Havoc'): 1, ('DemonHunter', 'Vengeance'): 2, ('DemonHunter', 'Devourer'): 3,
+    ('Druid', 'Balance'): 1, ('Druid', 'Feral'): 2, ('Druid', 'Guardian'): 3, ('Druid', 'Restoration'): 4,
+    ('Hunter', 'BeastMastery'): 1, ('Hunter', 'Marksmanship'): 2, ('Hunter', 'Survival'): 3,
+    ('Mage', 'Arcane'): 1, ('Mage', 'Fire'): 2, ('Mage', 'Frost'): 3,
+    ('Monk', 'Brewmaster'): 1, ('Monk', 'Mistweaver'): 2, ('Monk', 'Windwalker'): 3,
+    ('Paladin', 'Holy'): 1, ('Paladin', 'Protection'): 2, ('Paladin', 'Retribution'): 3,
+    ('Priest', 'Discipline'): 1, ('Priest', 'Holy'): 2, ('Priest', 'Shadow'): 3,
+    ('Rogue', 'Assassination'): 1, ('Rogue', 'Outlaw'): 2, ('Rogue', 'Subtlety'): 3,
+    ('Shaman', 'Elemental'): 1, ('Shaman', 'Enhancement'): 2, ('Shaman', 'Restoration'): 3,
+    ('Warrior', 'Arms'): 1, ('Warrior', 'Fury'): 2, ('Warrior', 'Protection'): 3,
+    ('Warlock', 'Affliction'): 1, ('Warlock', 'Demonology'): 2, ('Warlock', 'Destruction'): 3,
+    ('Evoker', 'Devastation'): 1, ('Evoker', 'Preservation'): 2, ('Evoker', 'Augmentation'): 3,
+}
+
+# 专精角色始终激活的客户端 Aura。DB2 描述中的 ``$?aID``/``?(aID)``
+# 是 Aura 条件，不等同于“天赋树中是否存在该 SpellID”。这些 ID 来自同一
+# build 的 SpellName 专精被动项，用于在服务端静态渲染专精分支。
+SPEC_ACTIVE_AURA_IDS = {
+    ('DeathKnight', 'Blood'): {137008}, ('DeathKnight', 'Frost'): {137006}, ('DeathKnight', 'Unholy'): {137007},
+    ('DemonHunter', 'Havoc'): {212612}, ('DemonHunter', 'Vengeance'): {212613}, ('DemonHunter', 'Devourer'): {1213636, 1217607, 1256964},
+    ('Druid', 'Balance'): {137013}, ('Druid', 'Feral'): {137011}, ('Druid', 'Guardian'): {137010}, ('Druid', 'Restoration'): {137012},
+    ('Hunter', 'BeastMastery'): {137015}, ('Hunter', 'Marksmanship'): {137016}, ('Hunter', 'Survival'): {137017},
+    ('Mage', 'Arcane'): {137021}, ('Mage', 'Fire'): {137019}, ('Mage', 'Frost'): {137020},
+    ('Monk', 'Brewmaster'): {137023}, ('Monk', 'Mistweaver'): {137024}, ('Monk', 'Windwalker'): {137025},
+    ('Paladin', 'Holy'): {137029}, ('Paladin', 'Protection'): {137028}, ('Paladin', 'Retribution'): {137027},
+    ('Priest', 'Discipline'): {137032}, ('Priest', 'Holy'): {137031}, ('Priest', 'Shadow'): {137033},
+    ('Rogue', 'Assassination'): {137037}, ('Rogue', 'Outlaw'): {137036}, ('Rogue', 'Subtlety'): {137035},
+    ('Shaman', 'Elemental'): {137040}, ('Shaman', 'Enhancement'): {137041}, ('Shaman', 'Restoration'): {137039},
+    ('Warrior', 'Arms'): {137049}, ('Warrior', 'Fury'): {137050}, ('Warrior', 'Protection'): {137048},
+    ('Warlock', 'Affliction'): {137043}, ('Warlock', 'Demonology'): {137044}, ('Warlock', 'Destruction'): {137046},
+    ('Evoker', 'Devastation'): {356809}, ('Evoker', 'Preservation'): {356810}, ('Evoker', 'Augmentation'): {396186},
+}
+
 # 英文职业名 → 中文
 CLASS_CN = {
     "DeathKnight": "死亡骑士",

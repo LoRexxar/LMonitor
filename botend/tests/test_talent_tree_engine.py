@@ -2,6 +2,9 @@
 
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
+import hashlib
+import json
+import tarfile
 import tempfile
 from pathlib import Path
 
@@ -18,8 +21,12 @@ from botend.services.spec_stats_service import (
 from botend.management.commands.backfill_talent_spell_names import Command as BackfillTalentSpellNamesCommand
 from botend.management.commands.init_talent_metadata import Command as InitTalentMetadataCommand
 from botend.management.commands.normalize_talent_metadata import Command as NormalizeTalentMetadataCommand
-from botend.management.commands.fetch_talent_icons import build_node_definition_map
+from botend.management.commands.fetch_talent_icons import (
+    Command as FetchTalentIconsCommand,
+    build_node_definition_map,
+)
 from botend.management.commands.repair_ptr_talent_metadata import Command as RepairPtrTalentMetadataCommand
+from botend.wow.spell_text import SpellTextResolver
 from botend.wow.talents.adapters import build_tree_set_from_talents
 from botend.wow.talents.layout import build_talent_tree_layout
 from botend.wow.talents.metadata import TalentMetadataProvider
@@ -62,6 +69,111 @@ class TalentIconMappingTests(SimpleTestCase):
 
 
 class PtrTalentDescriptionRepairTests(SimpleTestCase):
+    def test_skip_wowhead_does_not_consume_existing_description_cache(self):
+        command = RepairPtrTalentMetadataCommand()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'wowhead_spell_icon_cache_ptr-12.1.0.json').write_text(
+                '{"1": {"icon": "cached_icon"}}', encoding='utf-8'
+            )
+            (root / 'wowhead_spell_desc_cache_ptr-12.1.0.json').write_text(
+                '{"1": {"description_zh": "cached pollution"}}', encoding='utf-8'
+            )
+
+            icon_cache, desc_cache = command._load_wowhead_caches(
+                root, 'ptr-12.1.0', skip_wowhead=True
+            )
+
+        self.assertEqual(icon_cache, {})
+        self.assertEqual(desc_cache, {})
+
+    @patch('botend.management.commands.repair_ptr_talent_metadata.WowSpellSnapshot')
+    def test_ptr_spell_snapshot_write_uses_ptr_branch_and_rejects_pollution(self, snapshot_model):
+        command = RepairPtrTalentMetadataCommand()
+        command._write_spell_snapshots(
+            {
+                '102401': {'name_zh': '野性冲锋', 'description_zh': '[一 法术 from World of Warcraft.]'},
+                '444773': {'name_zh': '凶悍追击', 'description_zh': '使下一次攻击的伤害提高20%。'},
+            },
+            '12.1.0.68914',
+            None,
+            branch='ptr',
+        )
+
+        snapshot_model.objects.update_or_create.assert_called_once()
+        self.assertEqual(
+            snapshot_model.objects.update_or_create.call_args.kwargs['branch'],
+            'ptr',
+        )
+
+    def test_linked_spell_text_uses_exact_dump_instead_of_latest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'SpellName_zhCN.csv').write_text(
+                'ID,Name_lang\n123,精确版本名称\n', encoding='utf-8'
+            )
+            (root / 'Spell_zhCN.csv').write_text(
+                'ID,Description_lang,AuraDescription_lang\n123,精确版本描述,\n', encoding='utf-8'
+            )
+            resolver = SpellTextResolver(locale='zhCN', branch='ptr', dump_dir=root)
+
+            self.assertEqual(resolver.resolve('$@spellname123：$@spelldesc123', 1), '精确版本名称：精确版本描述')
+
+    def test_enus_linked_spell_name_does_not_prefer_chinese_snapshot_name(self):
+        resolver = SpellTextResolver(locale='enUS')
+        with patch.object(
+            resolver,
+            '_spell_snapshot',
+            return_value={'name': 'Mortal Strike', 'name_zh': '致死打击'},
+        ):
+            self.assertEqual(resolver.resolve('$@spellname123', 1), 'Mortal Strike')
+
+    def test_enus_unresolved_fallbacks_do_not_emit_chinese(self):
+        resolver = SpellTextResolver(locale='enUS')
+
+        result = resolver.resolve(
+            'Call down energy within $A1 yards for $d and gain $i stacks.',
+            999999,
+        )
+
+        self.assertNotRegex(result, r'[\u4e00-\u9fff]')
+
+    def test_exact_dump_indexes_are_shared_by_path_and_isolated_by_locale(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'SpellMisc.csv').write_text(
+                'SpellID,DurationIndex,RangeIndex\n1,2,3\n', encoding='utf-8'
+            )
+            (root / 'Spell_enUS.csv').write_text(
+                'ID,Description_lang,AuraDescription_lang\n1,English,\n', encoding='utf-8'
+            )
+            (root / 'Spell_zhCN.csv').write_text(
+                'ID,Description_lang,AuraDescription_lang\n1,中文,\n', encoding='utf-8'
+            )
+            (root / 'spell_effect_index.csv').write_text(
+                'SpellID,EffectIndex,EffectBasePointsF\n1,0,5\n', encoding='utf-8'
+            )
+            en_first = SpellTextResolver(locale='enUS', dump_dir=root)
+            en_second = SpellTextResolver(locale='enUS', dump_dir=root)
+            zh = SpellTextResolver(locale='zhCN', dump_dir=root)
+
+            self.assertIs(en_first._load_misc_index(), en_second._load_misc_index())
+            self.assertIs(en_first._load_misc_index(), zh._load_misc_index())
+            self.assertIs(en_first._load_dump_effect_index(), en_second._load_dump_effect_index())
+            self.assertIs(en_first._load_dump_effect_index(), zh._load_dump_effect_index())
+            self.assertIs(en_first._load_dump_spell_text('description'), en_second._load_dump_spell_text('description'))
+            self.assertIsNot(en_first._load_dump_spell_text('description'), zh._load_dump_spell_text('description'))
+            self.assertEqual(en_first._load_dump_spell_text('description')[1], 'English')
+            self.assertEqual(zh._load_dump_spell_text('description')[1], '中文')
+
+    def test_plain_text_cleanup_removes_controls_and_repairs_empty_percent(self):
+        resolver = SpellTextResolver(locale='zhCN')
+
+        self.assertEqual(
+            resolver.resolve('|CFFffffff伤害提高%，并有%的几率触发。|R', 1),
+            '伤害会有所提高，并有一定几率触发。',
+        )
+
     def test_accepts_db2_placeholder_descriptions_for_render_time_resolution(self):
         command = RepairPtrTalentMetadataCommand()
 
@@ -70,6 +182,540 @@ class PtrTalentDescriptionRepairTests(SimpleTestCase):
         ))
         self.assertFalse(command._is_usable_db2_description(''))
         self.assertFalse(command._is_usable_db2_description('<script>bad</script>'))
+
+    def test_preserves_contextual_db2_condition_structure_before_resolution(self):
+        command = RepairPtrTalentMetadataCommand()
+        raw = '$?c1[致死打击][嗜血]的爆击使你的下一个$?c1[致死打击][嗜血]的伤害提高。'
+
+        self.assertEqual(command._clean_db2_description(raw), raw)
+
+    def test_marks_existing_english_cjk_pollution_for_exact_dump_refresh(self):
+        command = RepairPtrTalentMetadataCommand()
+        row = SimpleNamespace(
+            node_id=100,
+            talent_id=200,
+            display_spell_id=300,
+            spell_id=300,
+            name='Talent',
+            name_zh='天赋',
+            icon='icon',
+            row=1,
+            column=1,
+            max_points=1,
+            description='Deals damage and grants 一段时间.',
+            description_zh='造成伤害。',
+            db2_tree_id=1,
+        )
+        db2 = {
+            'entry_to_node': {100: 200},
+            'trait_nodes': {200: {}},
+            'entries': {100: {'TraitDefinitionID': '400'}},
+            'defs_zh': {400: {'OverrideDescription_lang': '造成伤害。'}},
+            'defs_en': {400: {'OverrideDescription_lang': 'Deals damage.'}},
+            'spell_names_zh': {},
+            'spell_names_en': {},
+            'spells_zh': {},
+            'spells_en': {},
+            'fdid_to_icon': {},
+            'spell_to_icon': {},
+            'edges': {},
+            'node_entries': {},
+        }
+
+        result = command._expected_for_row(row, db2)
+
+        self.assertTrue(result['_force_description'])
+        self.assertEqual(result['description'], 'Deals damage.')
+
+    def test_replaces_stale_rendered_description_with_authoritative_runtime_source(self):
+        command = RepairPtrTalentMetadataCommand()
+        row = SimpleNamespace(
+            node_id=100, talent_id=200, display_spell_id=300, spell_id=300,
+            name='Talent', name_zh='天赋', icon='icon', row=1, column=1,
+            max_points=1, description='Leap forward.', description_zh='向前跳跃。',
+            db2_tree_id=1,
+        )
+        db2 = {
+            'entry_to_node': {100: 200}, 'trait_nodes': {200: {}},
+            'entries': {100: {'TraitDefinitionID': '400'}},
+            'defs_zh': {400: {'OverrideDescription_lang': '向前跳跃$102417s2码。'}},
+            'defs_en': {400: {'OverrideDescription_lang': 'Leap forward $102417s2 yds.'}},
+            'spell_names_zh': {}, 'spell_names_en': {}, 'spells_zh': {},
+            'spells_en': {}, 'fdid_to_icon': {}, 'spell_to_icon': {},
+            'edges': {}, 'node_entries': {},
+        }
+
+        result = command._expected_for_row(row, db2)
+
+        self.assertTrue(result['_force_description'])
+        self.assertTrue(result['_force_description_zh'])
+        self.assertEqual(result['description'], 'Leap forward $102417s2 yds.')
+        self.assertEqual(result['description_zh'], '向前跳跃$102417s2码。')
+
+    def test_clears_existing_english_cjk_pollution_when_exact_dump_has_no_description(self):
+        command = RepairPtrTalentMetadataCommand()
+        row = SimpleNamespace(
+            node_id=100,
+            talent_id=200,
+            display_spell_id=300,
+            spell_id=300,
+            name='Talent',
+            name_zh='天赋',
+            icon='icon',
+            row=1,
+            column=1,
+            max_points=1,
+            description='[A list of all 技能 in World of Warcraft.]',
+            description_zh='',
+            db2_tree_id=1,
+        )
+        db2 = {
+            'entry_to_node': {100: 200},
+            'trait_nodes': {200: {}},
+            'entries': {100: {'TraitDefinitionID': '400'}},
+            'defs_zh': {400: {}},
+            'defs_en': {400: {}},
+            'spell_names_zh': {},
+            'spell_names_en': {},
+            'spells_zh': {},
+            'spells_en': {},
+            'fdid_to_icon': {},
+            'spell_to_icon': {},
+            'edges': {},
+            'node_entries': {},
+        }
+
+        result = command._expected_for_row(row, db2)
+
+        self.assertTrue(result['_force_description'])
+        self.assertEqual(result['description'], '')
+
+    def test_bundled_ptr_db2_asset_manifest_and_deploy_contract(self):
+        asset = Path('botend/data/ptr_talent_db2_12.1.0.68914.tar.gz')
+        self.assertTrue(asset.is_file())
+        with tarfile.open(asset, 'r:gz') as archive:
+            manifest_member = archive.extractfile('manifest.json')
+            self.assertIsNotNone(manifest_member)
+            assert manifest_member is not None
+            manifest = json.loads(manifest_member.read().decode('utf-8'))
+            self.assertEqual(manifest['build'], '12.1.0.68914')
+            self.assertIn('spell_effect_index.csv', manifest['files'])
+            for relative_path, expected in manifest['files'].items():
+                member = archive.extractfile(relative_path)
+                self.assertIsNotNone(member)
+                assert member is not None
+                payload = member.read()
+                self.assertEqual(len(payload), expected['bytes'], relative_path)
+                self.assertEqual(
+                    hashlib.sha256(payload).hexdigest(),
+                    expected['sha256'],
+                    relative_path,
+                )
+
+        deploy_script = Path('deploy.sh').read_text(encoding='utf-8')
+        self.assertIn('PTR_DB2_BUILD="12.1.0.68914"', deploy_script)
+        self.assertIn('repair_ptr_talent_metadata \\\n', deploy_script)
+        self.assertIn('--backup-dir .cache/backups', deploy_script)
+        self.assertIn('--skip-wowhead', deploy_script)
+        self.assertIn('libc.renameat2(', deploy_script)
+        self.assertIn('ctypes.c_uint(2),  # RENAME_EXCHANGE', deploy_script)
+        self.assertIn('os.replace(sys.argv[1], sys.argv[2])', deploy_script)
+        self.assertIn('trap ptr_db2_exit_handler EXIT', deploy_script)
+        self.assertIn("trap 'exit 130' INT", deploy_script)
+        self.assertIn("trap 'exit 143' TERM", deploy_script)
+        self.assertLess(
+            deploy_script.index('PTR_DB2_REPAIR_SUCCEEDED=1'),
+            deploy_script.index('rm -rf "$PTR_DB2_PREVIOUS"'),
+        )
+
+    def test_normalizes_listfile_whitespace_in_icon_keys(self):
+        command = RepairPtrTalentMetadataCommand()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            Path(tmp_dir, 'file_data_icon_cache.csv').write_text(
+                'FileDataID,IconName\n'
+                '413583,achievement_guildperk_havegroup willtravel\n'
+                '7636527,inv12_apextalent_demonhunter _untetheredrage\n',
+                encoding='utf-8',
+            )
+            icons = command._load_icon_cache(Path(tmp_dir))
+        self.assertEqual(
+            icons,
+            {
+                413583: 'achievement_guildperk_havegroupwilltravel',
+                7636527: 'inv12_apextalent_demonhunter_untetheredrage',
+            },
+        )
+
+    def test_normalizes_existing_and_remotely_resolved_icon_keys(self):
+        repair_command = RepairPtrTalentMetadataCommand()
+        fetch_command = FetchTalentIconsCommand()
+
+        self.assertEqual(
+            repair_command._normalize_icon_name(' Spell_Frost_Ring Of Frost '),
+            'spell_frost_ringoffrost',
+        )
+        self.assertEqual(
+            fetch_command._icon_name_from_path(
+                'Interface/Icons/Spell_Frost_Ring Of Frost.blp'
+            ),
+            'spell_frost_ringoffrost',
+        )
+
+    def test_builds_spell_icon_map_from_exact_spell_misc_rows(self):
+        command = RepairPtrTalentMetadataCommand()
+        rows = [
+            {
+                'SpellID': '1267028',
+                'SpellIconFileDataID': '538561',
+                'ActiveIconFileDataID': '7514181',
+            },
+            {
+                'SpellID': '1271925',
+                'SpellIconFileDataID': '132344',
+                'ActiveIconFileDataID': '0',
+            },
+        ]
+
+        result = command._build_spell_icon_map(
+            rows,
+            {538561: 'passive_icon', 7514181: 'active_icon', 132344: 'new_ptr_icon'},
+        )
+
+        self.assertEqual(result[1267028], 'active_icon')
+        self.assertEqual(result[1271925], 'new_ptr_icon')
+
+    def test_resolves_duration_from_exact_spell_misc_csv(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'SpellMisc.csv').write_text(
+                'SpellID,DurationIndex,RangeIndex\n441172,29,6\n',
+                encoding='utf-8',
+            )
+            (root / 'SpellDuration.csv').write_text(
+                'ID,Duration,MaxDuration,DurationPerResource\n29,12000,12000,0\n',
+                encoding='utf-8',
+            )
+            resolver = SpellTextResolver(dump_dir=root)
+
+            self.assertEqual(resolver.resolve('持续$441172d。', 433871), '持续12秒。')
+
+    def test_resolves_max_stacks_from_exact_spell_aura_options_csv(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'SpellAuraOptions.csv').write_text(
+                'SpellID,CumulativeAura\n456120,2\n',
+                encoding='utf-8',
+            )
+            resolver = SpellTextResolver(dump_dir=root)
+
+            self.assertEqual(resolver.resolve('最多叠加$456120u层。', 444774), '最多叠加2层。')
+
+    def test_keeps_unresolved_periodic_damage_grammar_readable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            resolver = SpellTextResolver(locale='zhCN', dump_dir=tmp)
+            self.assertEqual(
+                resolver.resolve('在$441172d内造成$441172o1点熔火伤害。', 433871),
+                '在一段时间内造成熔火伤害。',
+            )
+        self.assertEqual(resolver._cleanup_unresolved('在12内造成点熔火伤害。'), '在12秒内造成熔火伤害。')
+
+    def test_resolves_spec_condition_for_shared_slayer_spells(self):
+        resolver = SpellTextResolver(locale='zhCN')
+        raw = '$?c1[致死打击][嗜血]的爆击使你的下一个$?c1[致死打击][嗜血]的伤害提高。'
+
+        self.assertEqual(
+            resolver.resolve(raw, 444773, spec_index=1),
+            '致死打击的爆击使你的下一个致死打击的伤害提高。',
+        )
+        self.assertEqual(
+            resolver.resolve(raw, 444773, spec_index=2),
+            '嗜血的爆击使你的下一个嗜血的伤害提高。',
+        )
+
+    def test_resolves_known_spell_condition_for_scalecommander(self):
+        resolver = SpellTextResolver(locale='zhCN')
+        raw = '$?s403631[亘古吐息][深呼吸]现在可以控制方向。'
+
+        self.assertEqual(
+            resolver.resolve(raw, 433871, known_spell_ids={403631}),
+            '亘古吐息现在可以控制方向。',
+        )
+        self.assertEqual(
+            resolver.resolve(raw, 433871, known_spell_ids=set()),
+            '深呼吸现在可以控制方向。',
+        )
+
+    def test_resolves_parenthesized_aura_condition_without_leaking_tokens(self):
+        resolver = SpellTextResolver(locale='zhCN')
+        raw = (
+            '第二把镰刀造成$441426s1点暗影冰霜伤害'
+            '$?(a441894&a137008)[并施加血之疫病]'
+            '?(a441894&$a137006)[并施加冰霜疫病][]。'
+        )
+
+        blood = resolver.resolve(
+            raw,
+            441378,
+            known_spell_ids={441894},
+            active_aura_ids={441894, 137008},
+        )
+        frost = resolver.resolve(
+            raw,
+            441378,
+            known_spell_ids={441894},
+            active_aura_ids={441894, 137006},
+        )
+
+        self.assertEqual(blood, '第二把镰刀造成暗影冰霜伤害并施加血之疫病。')
+        self.assertEqual(frost, '第二把镰刀造成暗影冰霜伤害并施加冰霜疫病。')
+        for rendered in (blood, frost):
+            self.assertNotIn('?(', rendered)
+            self.assertNotIn('一定)', rendered)
+            self.assertNotIn('0点', rendered)
+
+    def test_aura_condition_does_not_use_known_spell_universe(self):
+        resolver = SpellTextResolver(locale='zhCN')
+
+        self.assertEqual(
+            resolver.resolve(
+                '$?a123[光环激活][光环未激活]',
+                known_spell_ids={123},
+                active_aura_ids=set(),
+            ),
+            '光环未激活',
+        )
+        # $?sSpellID deliberately retains the specialization's known-spell
+        # universe for shared-ID descriptions.
+        self.assertEqual(
+            resolver.resolve(
+                '$?s123[法术已知][法术未知]',
+                known_spell_ids={123},
+                active_aura_ids=set(),
+            ),
+            '法术已知',
+        )
+
+    def test_unresolved_expression_is_omitted_instead_of_fabricating_zero_or_x(self):
+        resolver = SpellTextResolver()
+
+        rendered = resolver.resolve('造成${$999999s1/10}点伤害。', spell_id=1)
+
+        self.assertEqual(rendered, '造成伤害。')
+        self.assertNotIn('0点', rendered)
+        self.assertNotIn('x', rendered.lower())
+
+    def test_expression_decimal_format_suffix_does_not_leak_into_text(self):
+        resolver = SpellTextResolver()
+        resolver._effect_cache[123] = {0: {'base_points': '5', 'coefficient': '0', 'pvp_multiplier': '1'}}
+
+        self.assertEqual(resolver.resolve('${$s1/10}.1秒', 123), '0.5秒')
+        self.assertEqual(resolver.resolve('${$s1/10}.2秒', 123), '0.5秒')
+
+    def test_expression_uses_signed_db2_value_before_arithmetic(self):
+        resolver = SpellTextResolver()
+        resolver._effect_cache[1247534] = {
+            0: {'base_points': '-15', 'coefficient': '0'},
+            1: {'base_points': '-25', 'coefficient': '0'},
+        }
+        resolver._effect_cache[424742] = {
+            1: {'base_points': '-15000', 'coefficient': '0'},
+        }
+
+        self.assertEqual(
+            resolver.resolve('流失速度加快${-$s2}%。', 1247534),
+            '流失速度加快25%。',
+        )
+        self.assertEqual(
+            resolver.resolve('冷却时间减少${$s2/-1000}秒。', 424742),
+            '冷却时间减少15秒。',
+        )
+        # A standalone scalar remains a positive display magnitude.
+        self.assertEqual(resolver.resolve('减少$s1个。', 1247534), '减少15个。')
+
+    def test_devourer_active_aura_selects_runtime_void_ray_branch(self):
+        from botend.constants.wow import SPEC_ACTIVE_AURA_IDS
+
+        raw = '$?a1217607[][需要$c点恶魔之怒]\n释放虚空射线。$?a1217607[引导时降低消耗。][效果结束。]'
+        self.assertIn(1217607, SPEC_ACTIVE_AURA_IDS[('DemonHunter', 'Devourer')])
+        self.assertEqual(
+            SpellTextResolver().resolve(
+                raw,
+                473728,
+                active_aura_ids=SPEC_ACTIVE_AURA_IDS[('DemonHunter', 'Devourer')],
+            ),
+            '释放虚空射线。引导时降低消耗。',
+        )
+
+    def test_cleanup_naturally_drops_missing_distance_and_percent_units(self):
+        en = SpellTextResolver(locale='enUS')
+        zh = SpellTextResolver(locale='zhCN')
+
+        self.assertEqual(
+            en._cleanup_unresolved('Travel Form Leap forward yds. Another leap travels 20 yds. Aquatic Form Increases swim speed by an additional % for 5.'),
+            'Travel Form Leap forward. Another leap travels 20 yds. Aquatic Form Increases swim speed further for 5 sec.',
+        )
+        self.assertEqual(
+            zh._cleanup_unresolved('旅行形态 向前跳跃码。水栖形态 游泳速度提高额外的%，持续5。使目标眩晕3。'),
+            '旅行形态 向前跳跃。水栖形态 游泳速度进一步提高，持续5秒。使目标眩晕3秒。',
+        )
+
+    def test_nested_spell_heading_and_requirement_keep_readable_boundaries(self):
+        resolver = SpellTextResolver(locale='enUS')
+        with patch.object(resolver, '_spell_name', return_value='Void Metamorphosis'), patch.object(
+            resolver,
+            '_spell_desc',
+            return_value='|CFFffffffRequires 50 Soul Fragments|R\n\nYou ascend to a higher state.',
+        ):
+            rendered = resolver.resolve(
+                'Collecting fragments grants access.\n\n$@spellname1217605 $@spelldesc1217605',
+                471306,
+            )
+
+        self.assertEqual(
+            rendered,
+            'Collecting fragments grants access. Void Metamorphosis: You ascend to a higher state.',
+        )
+
+    def test_adjacent_embedded_spell_heading_gets_sentence_boundary(self):
+        resolver = SpellTextResolver(locale='enUS')
+        with patch.object(resolver, '_spell_name', return_value='Berserker Shout'):
+            rendered = resolver.resolve(
+                'Piercing Howl: Radius increased by 100% $@spellicon384100 $@spellname384100: Radius increased by 100%.',
+                424742,
+            )
+        self.assertEqual(
+            rendered,
+            'Piercing Howl: Radius increased by 100%. Berserker Shout: Radius increased by 100%.',
+        )
+
+    def test_points_per_resource_placeholder_uses_exact_spell_effect_field(self):
+        resolver = SpellTextResolver()
+        resolver._effect_cache[14161] = {
+            0: {
+                'base_points': '0',
+                'coefficient': '0',
+                'pvp_multiplier': '1',
+                'points_per_resource': '20',
+            },
+        }
+
+        self.assertEqual(
+            resolver.resolve('每消耗一个连击点数，便有$b1%几率触发。', 14161),
+            '每消耗一个连击点数，便有20%几率触发。',
+        )
+
+    def test_localization_plural_switch_is_not_parsed_as_effect_variable(self):
+        resolver = SpellTextResolver()
+        resolver._effect_cache[470945] = {
+            0: {'base_points': '35', 'coefficient': '0', 'pvp_multiplier': '1'},
+            1: {'base_points': '1', 'coefficient': '0', 'pvp_multiplier': '1'},
+        }
+
+        self.assertEqual(
+            resolver.resolve('额外命中$s2个$L目标:目标;，造成$s1%的伤害。', 470945),
+            '额外命中1个目标，造成35%的伤害。',
+        )
+        self.assertEqual(
+            resolver.resolve('额外命中2个$ltarget;targets。', 470945),
+            '额外命中2个targets。',
+        )
+        self.assertEqual(
+            resolver.resolve('产生1层精华$L迸发。', 470945),
+            '产生1层精华迸发。',
+        )
+
+    def test_chained_condition_selects_only_the_first_matching_branch(self):
+        resolver = SpellTextResolver()
+        raw = '$?s204019[祝福之锤]?s53595[正义之锤][十字军打击]造成伤害。'
+
+        self.assertEqual(
+            resolver.resolve(raw, known_spell_ids={204019}),
+            '祝福之锤造成伤害。',
+        )
+        self.assertEqual(
+            resolver.resolve(raw, known_spell_ids={53595}),
+            '正义之锤造成伤害。',
+        )
+        self.assertEqual(
+            resolver.resolve(raw, known_spell_ids=set()),
+            '十字军打击造成伤害。',
+        )
+
+    def test_unclosed_false_branch_is_not_appended_to_selected_true_branch(self):
+        resolver = SpellTextResolver()
+        raw = '$?c3[10%。][$999s1%，持续$999d。$?c1[额外文本][]'
+
+        self.assertEqual(
+            resolver.resolve(raw, spec_index=3),
+            '10%。',
+        )
+
+    def test_missing_scalar_uses_readable_mechanic_instead_of_empty_percent(self):
+        resolver = SpellTextResolver()
+
+        rendered = resolver.resolve('伤害提高$999999s1%，并有$999999s2%的几率触发。', spell_id=1)
+
+        self.assertEqual(rendered, '伤害会有所提高，并有一定几率触发。')
+        self.assertEqual(
+            resolver._cleanup_unresolved('每秒恢复个连击点数。1点：0.5秒内点伤害。'),
+            '每秒恢复连击点数。1点：0.5秒内造成伤害。',
+        )
+        self.assertEqual(
+            resolver._cleanup_unresolved('打击一定码内的随机敌人。'),
+            '打击一定范围内的随机敌人。',
+        )
+        self.assertEqual(
+            resolver._cleanup_unresolved('需要点恶魔之怒，产生点恶魔之怒，在3后结束，恶魔之怒达到点时停止。'),
+            '需要恶魔之怒，产生恶魔之怒，在3秒后结束，恶魔之怒达到上限时停止。',
+        )
+
+        self.assertEqual(
+            resolver._cleanup_unresolved('在8秒内造成最多点星界伤害。'),
+            '在8秒内造成星界伤害。',
+        )
+
+    def test_condition_false_branch_can_follow_whitespace(self):
+        resolver = SpellTextResolver()
+        raw = '$?a137010[平衡分支]\n\n[其他专精分支]'
+
+        self.assertEqual(
+            resolver.resolve(raw, active_aura_ids={137010}),
+            '平衡分支',
+        )
+        self.assertEqual(
+            resolver.resolve(raw, active_aura_ids=set()),
+            '其他专精分支',
+        )
+
+    def test_condition_parser_supports_grouped_or_and_negation(self):
+        resolver = SpellTextResolver()
+        raw = '$?s193531|((s394320|s394321)&!s999999)[额外一行][]'
+
+        self.assertEqual(
+            resolver.resolve(raw, known_spell_ids={394321}),
+            '额外一行',
+        )
+        self.assertEqual(
+            resolver.resolve(raw, known_spell_ids={999999}),
+            '',
+        )
+
+    def test_repair_detects_existing_readability_failures_for_forced_refresh(self):
+        command = RepairPtrTalentMetadataCommand()
+
+        for value in (
+            '持续15。',
+            '在接下来的8内造成伤害。',
+            '伤害提高%。',
+            '有%的几率触发。',
+            '需要点恶魔之怒，并恢复点生命值。',
+            '在3后结束。',
+            '额外获得1充能:充能;。',
+            '剩余?449382[错误分支][]。',
+            '残留[错误分支]。',
+        ):
+            with self.subTest(value=value):
+                self.assertTrue(command._has_misrendered_values(value))
 
 
 class FakeRankingQuerySet:
@@ -407,8 +1053,116 @@ class TalentTreeAdapterTests(SimpleTestCase):
                 self.assertEqual(node.description, 'original desc')
                 self.assertEqual(node.description_zh, '原始描述')
 
+    def test_adapter_keeps_authoritative_empty_fields_without_cross_version_enrichment(self):
+        class Provider:
+            def merge_into_node(self, node, class_name='', spec_name=''):
+                raise AssertionError('empty exact-build fields must not be filled from another version')
+
+        tree_set, _ = build_tree_set_from_talents(
+            [
+                {
+                    'node_id': 124883,
+                    'spell_id': 124883,
+                    'talent_id': 101103,
+                    'name': '',
+                    'tree_type': 'spec',
+                    'row': 5700,
+                    'column': 10800,
+                    'parents': [124877, 124880],
+                    'description': '',
+                    'description_zh': '',
+                    'source': 'db2_backfill',
+                },
+            ],
+            class_name='Monk',
+            spec_name='Mistweaver',
+            metadata_provider=Provider(),
+        )
+
+        node = tree_set.trees[0].nodes[0]
+        self.assertEqual(node.name, '技能ID 124883')
+        self.assertEqual(node.description, '')
+        self.assertEqual(node.description_zh, '')
+
 
 class TalentMetadataProviderTests(SimpleTestCase):
+    def test_spell_resolvers_keep_english_and_chinese_dump_locales_separate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, 'SpellName_enUS.csv').write_text('ID,Name_lang\n6673,Battle Shout\n')
+            Path(tmp, 'SpellName_zhCN.csv').write_text('ID,Name_lang\n6673,战斗怒吼\n')
+            provider = TalentMetadataProvider(talent_version=SimpleNamespace(
+                id=9,
+                key='ptr-12.1.0',
+                branch='ptr',
+                current_build='12.1.0.68914',
+                source_dir=tmp,
+            ))
+
+            self.assertEqual(
+                provider._spell_resolver('enUS').resolve('$@spellname6673'),
+                'Battle Shout',
+            )
+            self.assertEqual(
+                provider._spell_resolver('zhCN').resolve('$@spellname6673'),
+                '战斗怒吼',
+            )
+            self.assertEqual(
+                provider._spell_resolver('zhCN').snapshot_build,
+                '12.1.0.68914',
+            )
+
+    @patch('botend.wow.talents.metadata.WowSpellSnapshot')
+    def test_snapshot_fallback_uses_resolved_version_branch_and_exact_build(self, snapshot_model):
+        exact = SimpleNamespace(name='Exact', name_zh='精确版本')
+
+        def filtered_rows(**filters):
+            query = MagicMock()
+            query.order_by.return_value = query
+            # Wrong branch/build snapshots are deliberately unavailable once
+            # the provider supplies all three exact identity dimensions.
+            query.first.return_value = exact if filters == {
+                'spell_id': 6673,
+                'branch': 'ptr',
+                'snapshot_build': '12.1.0.68914',
+            } else None
+            return query
+
+        snapshot_model.objects.filter.side_effect = filtered_rows
+        provider = TalentMetadataProvider(talent_version=SimpleNamespace(
+            id=9,
+            key='ptr-12.1.0',
+            branch='ptr',
+            current_build='12.1.0.68914',
+            source_dir='',
+        ))
+
+        self.assertEqual(provider._lookup_spell_snapshot(6673)['name'], '精确版本')
+        snapshot_model.objects.filter.assert_called_once_with(
+            spell_id=6673,
+            branch='ptr',
+            snapshot_build='12.1.0.68914',
+        )
+
+    def test_authoritative_empty_description_clears_external_scrape_pollution(self):
+        provider = TalentMetadataProvider()
+        provider.get_node_metadata = lambda **kwargs: {
+            'source': 'db2_backfill',
+            'description': '',
+            'description_zh': '',
+        }
+
+        merged = provider.merge_into_node(
+            {
+                'tree_type': 'spec',
+                'description': '[A complete searchable and filterable list of all spells in World of Warcraft.]',
+                'description_zh': '',
+            },
+            class_name='Monk',
+            spec_name='Mistweaver',
+        )
+
+        self.assertEqual(merged['description'], '')
+
     def test_merge_into_node_uses_metadata_as_authoritative_for_structural_fields(self):
         provider = TalentMetadataProvider()
         provider.get_node_metadata = lambda **kwargs: {

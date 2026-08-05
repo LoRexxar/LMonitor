@@ -20,6 +20,10 @@ from django.utils import timezone
 from botend.models import WowTalentNodeMetadata, WowTalentVersion
 
 
+def normalize_icon_name(value):
+    """Return the canonical CDN key for a ListFile icon basename."""
+    return re.sub(r'\s+', '', str(value or '').strip()).lower()
+
 
 def build_node_definition_map(dump_dir):
     """Return TraitNode.ID -> ordered TraitDefinition IDs via DB2 relations."""
@@ -268,7 +272,9 @@ class Command(BaseCommand):
                     file_data_id = int(row.get('FileDataID') or row.get('file_data_id') or 0)
                 except Exception:
                     continue
-                icon_name = (row.get('IconName') or row.get('icon_name') or '').strip()
+                icon_name = normalize_icon_name(
+                    row.get('IconName') or row.get('icon_name') or ''
+                )
                 if file_data_id:
                     cache[file_data_id] = icon_name
         return cache
@@ -288,4 +294,4 @@ class Command(BaseCommand):
         base = os.path.basename(path)
         if not base.endswith('.blp'):
             return ''
-        return base[:-4]
+        return normalize_icon_name(base[:-4])

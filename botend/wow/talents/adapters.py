@@ -185,9 +185,10 @@ def _should_merge_metadata(node, class_name='', spec_name=''):
     if not isinstance(node, dict):
         return False
     # TalentMetadataProvider 返回的 DB2 结构行（包括经 Wowhead 补充展示字段的行）
-    # 已经完整可信；再次逐节点合并会把一次页面加载放大为数百次冗余查询。
+    # 已经是对应版本的权威结果。空名称/描述也可能是精确 build 的真实状态，
+    # 不能再次用默认版本 provider 补齐，否则会把其他版本的快照污染带入 API。
     if is_authoritative_talent_source(node):
-        return _needs_metadata_enrichment(node)
+        return False
     if not class_name or not spec_name:
         return _needs_metadata_enrichment(node)
     if node.get('node_id') or node.get('nodeID') or node.get('talent_id') or node.get('talentID') or node.get('spell_id') or node.get('spellID'):
