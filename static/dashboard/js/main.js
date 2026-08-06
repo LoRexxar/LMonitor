@@ -1,9 +1,28 @@
+function applyDashboardPagePermissions() {
+    const permissionCodes = new Set(JSON.parse(document.getElementById('dashboard-permissions-data')?.textContent || '[]'));
+    const catalog = JSON.parse(document.getElementById('dashboard-permission-catalog-data')?.textContent || '[]');
+    const bySection = new Map(catalog.map(item => [item.section, item.code]));
+    document.querySelectorAll('[data-section], [data-dashboard-section]').forEach(item => {
+        const section = item.getAttribute('data-section') || item.getAttribute('data-dashboard-section');
+        const code = bySection.get(section);
+        if (code && !permissionCodes.has(code)) item.remove();
+    });
+    document.querySelectorAll('.nav-item.has-submenu').forEach(item => {
+        if (!item.querySelector('.submenu-item')) item.remove();
+    });
+    document.querySelectorAll('.content-section').forEach(section => {
+        const code = bySection.get(section.id);
+        if (code && !permissionCodes.has(code)) section.remove();
+    });
+}
+
 /**
  * Dashboard页面的JavaScript功能
  * version: 20260715h
  */
 
 document.addEventListener('DOMContentLoaded', function() {
+    applyDashboardPagePermissions();
     // 初始化页面数据
     initDashboard();
 
@@ -51,23 +70,24 @@ document.addEventListener('DOMContentLoaded', function() {
     initSimcBackendUploadTool();
     initSimcWorkbench();
 
-    // 默认显示首页内容
-    const homeMenuItem = document.querySelector('.nav-item[data-section="dashboard-home"]');
-    const homeSection = document.getElementById('dashboard-home');
-    const databaseSection = document.getElementById('database-tables');
+    // 显示服务端选择的第一个可访问页面
+    const defaultSectionId = window.DASHBOARD_DEFAULT_SECTION || '';
+    const defaultMenuItem = document.querySelector(`.nav-item[data-section="${defaultSectionId}"]`)
+        || document.querySelector(`[data-dashboard-section="${defaultSectionId}"]`);
+    const defaultSection = document.getElementById(defaultSectionId);
 
-    if (homeMenuItem && homeSection) {
-        // 设置首页菜单为活动状态
+    if (defaultMenuItem && defaultSection) {
         const navItems = document.querySelectorAll('.nav-item');
         navItems.forEach(item => item.classList.remove('active'));
-        homeMenuItem.classList.add('active');
-
-        // 显示首页内容，隐藏其他内容
-        homeSection.style.display = 'block';
-        homeSection.classList.add('active');
-        if (databaseSection) {
-            databaseSection.style.display = 'none';
-            databaseSection.classList.remove('active');
+        defaultMenuItem.classList.add('active');
+        document.querySelectorAll('.content-section').forEach(section => {
+            section.style.display = 'none';
+            section.classList.remove('active');
+        });
+        defaultSection.style.display = 'block';
+        defaultSection.classList.add('active');
+        if (defaultSectionId === 'user-groups' && window.loadDashboardUserGroups) {
+            window.loadDashboardUserGroups();
         }
     }
 
@@ -357,7 +377,13 @@ function activateDashboardLocation() {
         }
     }
     if (!target) {
-        target = document.querySelector('.nav-item[data-section="dashboard-home"]');
+        const defaultSection = window.DASHBOARD_DEFAULT_SECTION || '';
+        target = Array.from(document.querySelectorAll('[data-dashboard-section]'))
+            .find(item => item.dataset.dashboardSection === defaultSection);
+        if (!target) {
+            target = Array.from(document.querySelectorAll('.nav-item[data-section]'))
+                .find(item => item.dataset.section === defaultSection);
+        }
     }
     if (!target) return;
 
@@ -475,6 +501,9 @@ function initNavigation() {
                 }
                 if (sectionId === 'user-management' && window.loadDashboardUsers) {
                     window.loadDashboardUsers();
+                }
+                if (sectionId === 'user-groups' && window.loadDashboardUserGroups) {
+                    window.loadDashboardUserGroups();
                 }
                 if (isSimcDashboardSection(sectionId)) {
                     const simcPage = Object.keys(SIMC_DASHBOARD_SECTIONS)

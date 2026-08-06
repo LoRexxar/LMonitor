@@ -14,6 +14,7 @@
         resettingPassword: false,
         resetUser: null,
         groups: [],
+        permissionCatalog: [],
         editingGroupId: null,
         groupsLoaded: false,
         editingUserGroupIds: [],
@@ -194,11 +195,51 @@
         if (!state.groups.length) list.textContent = '尚未创建用户组';
     }
 
+    function renderGroupPermissions(selectedCodes = []) {
+        const container = byId('user-management-group-permissions');
+        if (!container) return;
+        const selected = new Set(selectedCodes);
+        container.replaceChildren();
+        state.permissionCatalog.forEach(permission => {
+            const label = document.createElement('label');
+            label.className = 'flex items-start gap-2 rounded border px-3 py-2 text-sm';
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.value = permission.code;
+            checkbox.checked = selected.has(permission.code);
+            checkbox.className = 'mt-0.5';
+            const text = document.createElement('span');
+            text.textContent = `${permission.parent} / ${permission.label}`;
+            label.append(checkbox, text);
+            container.appendChild(label);
+        });
+    }
+
+    function renderGroupMembers(selectedUsers = []) {
+        const container = byId('user-management-group-members');
+        if (!container) return;
+        const selected = new Set(selectedUsers.map(user => String(user.id)));
+        container.replaceChildren();
+        state.userCatalog.forEach(user => {
+            const label = document.createElement('label');
+            label.className = 'flex items-center gap-2 rounded border px-3 py-2 text-sm';
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.value = user.id;
+            checkbox.checked = selected.has(String(user.id));
+            checkbox.className = 'user-management-group-member';
+            label.append(checkbox, document.createTextNode(user.username));
+            container.appendChild(label);
+        });
+    }
+
     async function loadUserGroups() {
         const response = await fetch('/api/dashboard/user-groups/', { headers: { 'Accept': 'application/json' } });
         const payload = await response.json();
         if (!response.ok) throw new Error(formatError(payload));
         state.groups = payload.data;
+        state.permissionCatalog = payload.permission_catalog || [];
+        state.userCatalog = payload.user_catalog || [];
         state.groupsLoaded = true;
         renderGroupOptions(state.editingUserGroupIds);
         renderGroupList();
@@ -210,24 +251,8 @@
         byId('user-management-group-description').value = group?.description || '';
         byId('user-management-group-active').checked = group ? group.is_active : true;
         byId('user-management-group-form-title').textContent = group ? '编辑用户组' : '新建用户组';
-    }
-
-    async function openGroupModal() {
-        try {
-            await loadUserGroups();
-            editGroup();
-            const modal = byId('user-management-group-modal');
-            modal.classList.remove('hidden');
-            modal.classList.add('flex');
-        } catch (error) {
-            setMessage(error.message || '加载用户组失败', true);
-        }
-    }
-
-    function closeGroupModal() {
-        const modal = byId('user-management-group-modal');
-        modal.classList.add('hidden');
-        modal.classList.remove('flex');
+        renderGroupPermissions(group?.permission_codes || []);
+        renderGroupMembers(group?.users || []);
     }
 
     async function submitGroup(event) {
@@ -236,7 +261,13 @@
         const response = await fetch(id ? `/api/dashboard/user-groups/${id}/` : '/api/dashboard/user-groups/', {
             method: id ? 'PATCH' : 'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken() },
-            body: JSON.stringify({ name: byId('user-management-group-name').value, description: byId('user-management-group-description').value, is_active: byId('user-management-group-active').checked }),
+            body: JSON.stringify({
+                name: byId('user-management-group-name').value,
+                description: byId('user-management-group-description').value,
+                is_active: byId('user-management-group-active').checked,
+                permission_codes: [...byId('user-management-group-permissions').querySelectorAll('input:checked')].map(input => input.value),
+                user_ids: [...byId('user-management-group-members').querySelectorAll('input.user-management-group-member:checked')].map(input => Number(input.value)),
+            }),
         });
         const payload = await response.json();
         if (!response.ok) {
@@ -264,8 +295,8 @@
         const role = user?.is_superuser ? 'superuser' : (user?.is_staff ? 'staff' : 'member');
         byId('user-management-is-active').checked = editing ? user.is_active : true;
         byId('user-management-role').value = editing ? role : 'member';
-        const group = user?.user_groups?.[0];
-        state.editingUserGroupIds = group ? [group.id] : [];
+        const groupIds = (user?.user_groups || []).map(group => group.id);
+        state.editingUserGroupIds = groupIds;
         renderGroupOptions(state.editingUserGroupIds);
         setFormError('');
         const modal = byId('user-management-modal');
@@ -532,8 +563,6 @@
     document.addEventListener('DOMContentLoaded', () => {
         if (!byId('user-management')) return;
         byId('user-management-add').addEventListener('click', () => openModal());
-        byId('user-management-groups-button').addEventListener('click', openGroupModal);
-        byId('user-management-group-close').addEventListener('click', closeGroupModal);
         byId('user-management-group-new').addEventListener('click', () => editGroup());
         byId('user-management-group-form').addEventListener('submit', submitGroup);
         byId('user-management-quick-add').addEventListener('click', openQuickCreate);
@@ -571,4 +600,5 @@
     });
 
     window.loadDashboardUsers = loadDashboardUsers;
+    window.loadDashboardUserGroups = loadUserGroups;
 })();

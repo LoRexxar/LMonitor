@@ -8,6 +8,8 @@ from django.test import Client, TestCase
 from django.utils import timezone
 
 from botend.models import (
+    DashboardUserGroup,
+    DashboardUserGroupMembership,
     SimcApl, SimcBackendBinary, SimcBenchmarkCase, SimcBenchmarkExecution,
     SimcBenchmarkPanel, SimcBenchmarkResult, SimcContentTemplate, SimcProfile, SimcTask,
     SimcTaskArtifact, SimulationRun,
@@ -26,6 +28,15 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         self.regular = User.objects.create_user(
             username='benchmark-regular', password='password',
         )
+        self.authorized = User.objects.create_user(
+            username='benchmark-authorized', password='password',
+        )
+        group = DashboardUserGroup.objects.create(
+            name='SimC benchmark API group', permission_codes=['simc.benchmarks'],
+        )
+        DashboardUserGroupMembership.objects.create(user=self.staff, group=group)
+        DashboardUserGroupMembership.objects.create(user=self.other_staff, group=group)
+        DashboardUserGroupMembership.objects.create(user=self.authorized, group=group)
         self.backend = SimcBackendBinary.objects.create(
             identifier='dashboard-api', name='Dashboard API', is_active=True,
         )

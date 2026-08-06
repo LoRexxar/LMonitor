@@ -14,6 +14,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils.decorators import method_decorator
 from django.views import View
+from botend.dashboard.permissions import permission_catalog, validate_permission_codes
 
 
 User = get_user_model()
@@ -25,7 +26,7 @@ CREATE_FIELDS = USER_FIELDS | {'quick_create'}
 DETAIL_FIELDS = USER_FIELDS | {'reset_password'}
 BOOLEAN_FIELDS = {'is_active', 'is_staff', 'is_superuser'}
 QUICK_CREATE_FIELDS = {'username', 'quick_create'}
-GROUP_FIELDS = {'name', 'description', 'is_active'}
+GROUP_FIELDS = {'name', 'description', 'is_active', 'permission_codes', 'user_ids'}
 QUICK_PASSWORD_ALPHABET = string.ascii_letters + string.digits
 
 
@@ -99,9 +100,7 @@ def _user_groups_from_payload(payload):
         _parse_id_list(payload, field),
         field,
     )
-    if len(groups) > 1:
-        raise ValidationError({field: ['每个用户只能属于一个业务用户组']})
-    if groups and not groups[0].is_active:
+    if any(not group.is_active for group in groups):
         raise ValidationError({field: ['不能分配到已停用的用户组']})
     return groups
 
@@ -125,13 +124,28 @@ def _serialize_user(user):
     }
 
 
+def _user_ids_from_payload(payload, group):
+    field = 'user_ids'
+    users = _objects_for_ids(User, _parse_id_list(payload, field), field)
+    current_ids = set(group.users.values_list('pk', flat=True))
+    requested_ids = {user.pk for user in users}
+    if not group.is_active and not requested_ids.issubset(current_ids):
+        raise ValidationError({field: ['已停用的用户组不能新增成员']})
+    return users
+
+
 def _serialize_group(group):
     return {
         'id': group.pk,
         'name': group.name,
         'description': group.description,
         'is_active': group.is_active,
+        'permission_codes': list(group.permission_codes or []),
         'user_count': group.users.count(),
+        'users': [
+            {'id': user.pk, 'username': user.username}
+            for user in group.users.order_by('username', 'pk')
+        ],
     }
 
 
@@ -211,8 +225,9 @@ class DashboardUserListAPIView(View):
                 user.set_password(password)
                 user.full_clean()
                 user.save()
-                if groups:
-                    DashboardUserGroupMembership.objects.create(user=user, group=groups[0])
+                DashboardUserGroupMembership.objects.bulk_create(
+                    [DashboardUserGroupMembership(user=user, group=group) for group in groups]
+                )
             data = _serialize_user(user)
             if quick_create:
                 data['generated_password'] = password
@@ -270,13 +285,13 @@ class DashboardUserDetailAPIView(View):
                 user.full_clean()
                 user.save()
                 if groups is not None:
-                    if groups:
-                        DashboardUserGroupMembership.objects.update_or_create(
-                            user=user,
-                            defaults={'group': groups[0]},
-                        )
-                    else:
-                        DashboardUserGroupMembership.objects.filter(user=user).delete()
+                    DashboardUserGroupMembership.objects.filter(user=user).exclude(
+                        group__in=groups
+                    ).delete()
+                    DashboardUserGroupMembership.objects.bulk_create(
+                        [DashboardUserGroupMembership(user=user, group=group) for group in groups],
+                        ignore_conflicts=True,
+                    )
             if user.pk == request.user.pk and password is not None:
                 update_session_auth_hash(request, user)
             data = _serialize_user(user)
@@ -303,6 +318,11 @@ class DashboardUserGroupListAPIView(View):
         return JsonResponse({
             'status': 'success',
             'data': [_serialize_group(group) for group in groups],
+            'permission_catalog': permission_catalog(),
+            'user_catalog': [
+                {'id': user.pk, 'username': user.username}
+                for user in User.objects.filter(is_active=True).order_by('username', 'pk')
+            ],
         })
 
     def post(self, request):
@@ -319,9 +339,16 @@ class DashboardUserGroupListAPIView(View):
                     name=name,
                     description=str(payload.get('description', '')).strip(),
                     is_active=payload.get('is_active', True),
+                    permission_codes=validate_permission_codes(payload.get('permission_codes', [])),
                 )
                 group.full_clean()
                 group.save()
+                users = _objects_for_ids(User, _parse_id_list(payload, 'user_ids'), 'user_ids') if 'user_ids' in payload else []
+                if not group.is_active and users:
+                    raise ValidationError({'user_ids': ['已停用的用户组不能新增成员']})
+                DashboardUserGroupMembership.objects.bulk_create([
+                    DashboardUserGroupMembership(user=user, group=group) for user in users
+                ])
             return JsonResponse({'status': 'success', 'data': _serialize_group(group)}, status=201)
         except ValidationError as exc:
             return _validation_error_response(exc)
@@ -348,8 +375,20 @@ class DashboardUserGroupDetailAPIView(View):
                     group.description = str(payload['description']).strip()
                 if 'is_active' in payload:
                     group.is_active = payload['is_active']
+                if 'permission_codes' in payload:
+                    group.permission_codes = validate_permission_codes(payload['permission_codes'])
+                users = None
+                if 'user_ids' in payload:
+                    users = _user_ids_from_payload(payload, group)
                 group.full_clean()
                 group.save()
+                if users is not None:
+                    DashboardUserGroupMembership.objects.filter(group=group).exclude(
+                        user__in=users
+                    ).delete()
+                    DashboardUserGroupMembership.objects.bulk_create([
+                        DashboardUserGroupMembership(user=user, group=group) for user in users
+                    ], ignore_conflicts=True)
 
             return JsonResponse({'status': 'success', 'data': _serialize_group(group)})
         except ValidationError as exc:

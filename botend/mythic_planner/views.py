@@ -4,6 +4,8 @@ from django.shortcuts import redirect, render
 from django.utils.decorators import method_decorator
 from django.views import View
 
+from botend.dashboard.permissions import SECTION_PERMISSION_CODES, has_dashboard_permission
+
 
 class PortalMythicPlannerView(View):
     """未挂入 Portal 导航的路线规划器直达测试页。"""
@@ -25,8 +27,8 @@ class DashboardMythicPlannerView(View):
     dashboard_section = 'mythic-planner-config'
 
     def dispatch(self, request, *args, **kwargs):
-        if request.user.is_authenticated and not (request.user.is_staff or request.user.is_superuser):
-            return HttpResponseForbidden('仅管理员可以维护大秘境规划器数据。')
+        if not has_dashboard_permission(request.user, SECTION_PERMISSION_CODES[self.dashboard_section]):
+            return HttpResponseForbidden('无权访问该 Dashboard 页面。')
         return super().dispatch(request, *args, **kwargs)
 
     def get(self, request):

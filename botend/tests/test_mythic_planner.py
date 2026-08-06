@@ -13,6 +13,8 @@ from django.core.management import call_command, CommandError
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from botend.models import (
+    DashboardUserGroup,
+    DashboardUserGroupMembership,
     MythicDungeon,
     MythicDungeonAbility,
     MythicDungeonDataVersion,
@@ -2437,6 +2439,14 @@ class MythicPlannerDashboardTests(TestCase):
         import_mythic_dungeon_payload(demo_payload(), activate=True)
         cls.user = User.objects.create_user(username='normal-user', password='pwd')
         cls.staff = User.objects.create_user(username='staff-user', password='pwd', is_staff=True)
+        cls.management_group = DashboardUserGroup.objects.create(
+            name='大秘境维护组',
+            permission_codes=['mythic.config', 'mythic.positions', 'mythic.routes'],
+        )
+        DashboardUserGroupMembership.objects.create(
+            user=cls.staff,
+            group=cls.management_group,
+        )
 
     def test_management_sections_use_dashboard_single_page_navigation(self):
         self.client.force_login(self.staff)
@@ -2467,7 +2477,7 @@ class MythicPlannerDashboardTests(TestCase):
         self.assertContains(page, 'dashboard/js/mythic_planner_routes.js')
         self.assertNotContains(page, 'dashboard/js/dashboard_shell.js')
 
-    def test_management_page_and_api_require_staff(self):
+    def test_management_page_and_api_require_dashboard_permission(self):
         self.client.force_login(self.user)
         self.assertEqual(self.client.get('/dashboard/mythic-planner/').status_code, 403)
         self.assertEqual(
@@ -2483,6 +2493,13 @@ class MythicPlannerDashboardTests(TestCase):
             self.client.get('/api/mythic-planner/manage/1/?resource=routes').status_code,
             403,
         )
+
+        unprivileged_staff = User.objects.create_user(
+            username='unprivileged-staff', password='pwd', is_staff=True,
+        )
+        self.client.force_login(unprivileged_staff)
+        self.assertEqual(self.client.get('/dashboard/mythic-planner/').status_code, 403)
+        self.assertEqual(self.client.get('/api/mythic-planner/manage/').status_code, 403)
 
         self.client.force_login(self.staff)
         page = self.client.get('/dashboard/')

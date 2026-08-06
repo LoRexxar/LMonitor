@@ -12,6 +12,132 @@ User = get_user_model()
 ROOT = Path(__file__).resolve().parents[2]
 
 
+class DashboardPageAccessTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='page-user', password='PageUser-pass-123!')
+        self.staff = User.objects.create_user(
+            username='page-staff', password='PageStaff-pass-123!', is_staff=True
+        )
+        self.admin = User.objects.create_superuser(
+            username='page-admin', password='PageAdmin-pass-123!', email='page-admin@example.com'
+        )
+
+    def test_user_without_group_does_not_default_to_database_section(self):
+        self.client.force_login(self.user)
+        response = self.client.get('/dashboard/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'window.DASHBOARD_DEFAULT_SECTION = "";')
+        self.assertContains(response, 'dashboard-permissions-data')
+
+    def test_staff_without_group_has_no_implicit_dashboard_page_access(self):
+        self.client.force_login(self.staff)
+        self.assertEqual(self.client.get('/dashboard/?section=database-tables').status_code, 403)
+        self.assertEqual(self.client.get('/dashboard/?section=news').status_code, 403)
+
+    def test_enabled_group_permission_controls_default_section_and_union(self):
+        group = DashboardUserGroup.objects.create(
+            name='页面组', permission_codes=['news.index'], is_active=True
+        )
+        DashboardUserGroupMembership.objects.create(user=self.user, group=group)
+        self.client.force_login(self.user)
+        response = self.client.get('/dashboard/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'window.DASHBOARD_DEFAULT_SECTION = "news";')
+        self.assertEqual(self.client.get('/dashboard/?section=news').status_code, 200)
+        self.assertEqual(self.client.get('/dashboard/?section=database-tables').status_code, 403)
+
+    def test_superuser_can_access_database_section_without_business_group(self):
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.get('/dashboard/?section=database-tables').status_code, 200)
+
+    def test_wcl_page_and_api_require_wcl_dashboard_permission(self):
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get('/wcl-analysis/').status_code, 403)
+        self.assertEqual(self.client.get('/api/wcl-analysis-task/').status_code, 403)
+
+        group = DashboardUserGroup.objects.create(
+            name='WCL 组', permission_codes=['tools.wcl-analysis'], is_active=True,
+        )
+        DashboardUserGroupMembership.objects.create(user=self.user, group=group)
+        self.assertEqual(self.client.get('/wcl-analysis/').status_code, 200)
+        self.assertEqual(self.client.get('/api/wcl-analysis-task/').status_code, 200)
+
+    def test_dashboard_post_actions_require_their_page_permissions(self):
+        self.client.force_login(self.staff)
+        for action in ('list_log_files', 'read_log_file', 'force_run_task'):
+            with self.subTest(action=action):
+                response = self.client.post(
+                    '/dashboard/',
+                    data=json.dumps({'action': action}),
+                    content_type='application/json',
+                )
+                self.assertEqual(response.status_code, 403)
+
+        group = DashboardUserGroup.objects.create(
+            name='日志和首页组', permission_codes=['system.logs', 'dashboard.home']
+        )
+        DashboardUserGroupMembership.objects.create(user=self.staff, group=group)
+        self.assertEqual(
+            self.client.post(
+                '/dashboard/', data=json.dumps({'action': 'list_log_files'}),
+                content_type='application/json',
+            ).status_code,
+            200,
+        )
+
+    def test_system_alert_api_requires_system_alert_permission(self):
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get('/api/system-alert/').status_code, 403)
+
+        group = DashboardUserGroup.objects.create(
+            name='系统报警组', permission_codes=['system.alerts'], is_active=True,
+        )
+        DashboardUserGroupMembership.objects.create(user=self.user, group=group)
+        self.assertEqual(self.client.get('/api/system-alert/').status_code, 200)
+
+    def test_wago_apis_require_their_dashboard_permissions(self):
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get('/api/wago-hotfix-reports/').status_code, 403)
+        response = self.client.post(
+            '/api/wago-skill-diff/rerun/',
+            data=json.dumps({'event_id': 1}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 403)
+
+        group = DashboardUserGroup.objects.create(
+            name='Hotfix 组', permission_codes=['reports.hotfix'], is_active=True,
+        )
+        DashboardUserGroupMembership.objects.create(user=self.user, group=group)
+        self.assertEqual(self.client.get('/api/wago-hotfix-reports/').status_code, 200)
+
+    def test_legacy_simc_pages_require_simc_history_permission(self):
+        self.client.force_login(self.user)
+        for url in (
+            '/simc-result/',
+            '/simc-attribute-analysis/',
+            '/simc-attribute-analysis-ssr/',
+            '/simc-compare/',
+        ):
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 403)
+
+        group = DashboardUserGroup.objects.create(
+            name='SimC 历史组', permission_codes=['simc.history'], is_active=True,
+        )
+        DashboardUserGroupMembership.objects.create(user=self.user, group=group)
+        self.assertEqual(self.client.get('/simc-result/').status_code, 200)
+        self.assertEqual(self.client.get('/simc-attribute-analysis/').status_code, 200)
+        self.assertEqual(self.client.get('/simc-compare/').status_code, 200)
+
+    def test_user_management_script_is_available_for_business_group_users(self):
+        template = (ROOT / 'templates/dashboard/index.html').read_text(encoding='utf-8')
+        script = "{% static 'dashboard/js/user_management.js' %}"
+        self.assertIn(script, template)
+        script_start = template.index(script)
+        self.assertNotIn('{% if user.is_superuser %}', template[script_start - 80:script_start])
+
+
 class DashboardUserManagementApiTests(TestCase):
     def setUp(self):
         self.admin = User.objects.create_superuser(
@@ -101,14 +227,13 @@ class DashboardUserManagementApiTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertFalse(User.objects.filter(username='invalid-group-member').exists())
 
-    def test_user_cannot_belong_to_multiple_business_groups(self):
+    def test_user_can_belong_to_multiple_business_groups(self):
         first = DashboardUserGroup.objects.create(name='一组')
         second = DashboardUserGroup.objects.create(name='二组')
-        member = User.objects.create_user(username='single-group-user', password='SingleGroup-pass-123!')
+        member = User.objects.create_user(username='multi-group-user', password='MultiGroup-pass-123!')
         DashboardUserGroupMembership.objects.create(user=member, group=first)
-
-        with self.assertRaises(IntegrityError):
-            DashboardUserGroupMembership.objects.create(user=member, group=second)
+        DashboardUserGroupMembership.objects.create(user=member, group=second)
+        self.assertEqual(member.dashboard_user_groups.count(), 2)
 
     def test_inactive_group_keeps_existing_members_but_rejects_new_assignment(self):
         group = DashboardUserGroup.objects.create(name='停用组', is_active=False)
@@ -129,6 +254,43 @@ class DashboardUserManagementApiTests(TestCase):
         self.assertFalse(User.objects.filter(username='blocked-inactive-group-user').exists())
         self.assertTrue(group.users.filter(pk=existing.pk).exists())
 
+    def test_group_permissions_are_union_and_inactive_groups_are_ignored(self):
+        from botend.dashboard.permissions import effective_dashboard_permissions
+        first = DashboardUserGroup.objects.create(name='权限一组', permission_codes=['news.index'])
+        second = DashboardUserGroup.objects.create(name='权限二组', permission_codes=['reports.hotfix'])
+        member = User.objects.create_user(username='permission-union-user', password='PermissionUnion-pass-123!')
+        DashboardUserGroupMembership.objects.create(user=member, group=first)
+        DashboardUserGroupMembership.objects.create(user=member, group=second)
+        self.assertEqual(effective_dashboard_permissions(member), {'news.index', 'reports.hotfix'})
+        second.is_active = False
+        second.save(update_fields=['is_active'])
+        self.assertEqual(effective_dashboard_permissions(member), {'news.index'})
+
+    def test_group_api_updates_permissions_and_members_atomically(self):
+        self.login()
+        first = User.objects.create_user(username='group-api-first', password='GroupApiFirst-pass-123!')
+        second = User.objects.create_user(username='group-api-second', password='GroupApiSecond-pass-123!')
+        response = self.client.post('/api/dashboard/user-groups/', data=json.dumps({
+            'name': 'API 组', 'permission_codes': ['news.index'], 'user_ids': [first.pk],
+        }), content_type='application/json')
+        self.assertEqual(response.status_code, 201, response.content)
+        group = DashboardUserGroup.objects.get(name='API 组')
+        self.assertEqual(response.json()['data']['users'], [{'id': first.pk, 'username': first.username}])
+        response = self.client.patch(f'/api/dashboard/user-groups/{group.pk}/', data=json.dumps({
+            'permission_codes': ['reports.hotfix'], 'user_ids': [second.pk],
+        }), content_type='application/json')
+        self.assertEqual(response.status_code, 200, response.content)
+        group.refresh_from_db()
+        self.assertEqual(group.permission_codes, ['reports.hotfix'])
+        self.assertEqual(list(group.users.values_list('pk', flat=True)), [second.pk])
+
+    def test_unknown_page_permission_code_is_rejected(self):
+        self.login()
+        response = self.client.post('/api/dashboard/user-groups/', data=json.dumps({
+            'name': '未知权限组', 'permission_codes': ['not.registered'],
+        }), content_type='application/json')
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertFalse(DashboardUserGroup.objects.filter(name='未知权限组').exists())
     def test_group_user_cannot_create_or_modify_groups(self):
         group = DashboardUserGroup.objects.create(name='普通组')
         member = User.objects.create_user(username='group-only', password='GroupOnly-pass-123!')
@@ -405,7 +567,11 @@ class DashboardUserManagementFrontendContractTests(TestCase):
         self.admin = User.objects.create_superuser(username='frontend-admin', password='Admin-pass-123!')
         self.staff = User.objects.create_user(username='frontend-staff', password='Staff-pass-123!', is_staff=True)
 
-    def test_user_management_navigation_and_panel_are_superuser_only(self):
+    def test_user_management_page_container_is_permission_filtered_but_api_remains_superuser_only(self):
+        group = DashboardUserGroup.objects.create(
+            name='用户管理页面组', permission_codes=['dashboard.user-management']
+        )
+        DashboardUserGroupMembership.objects.create(user=self.staff, group=group)
         self.client.force_login(self.admin)
         response = self.client.get('/dashboard/')
         self.assertContains(response, 'data-section="user-management"')
@@ -414,8 +580,9 @@ class DashboardUserManagementFrontendContractTests(TestCase):
 
         self.client.force_login(self.staff)
         response = self.client.get('/dashboard/')
-        self.assertNotContains(response, 'data-section="user-management"')
-        self.assertNotContains(response, 'id="user-management"')
+        self.assertContains(response, 'data-section="user-management"')
+        self.assertContains(response, 'id="user-management"')
+        self.assertEqual(self.client.get('/api/dashboard/users/').status_code, 403)
 
     def test_frontend_uses_dedicated_api_and_never_reads_or_prefills_password_hashes(self):
         javascript = (ROOT / 'static/dashboard/js/user_management.js').read_text(encoding='utf-8')
@@ -433,8 +600,10 @@ class DashboardUserManagementFrontendContractTests(TestCase):
         self.assertIn("user_group_ids:", javascript)
         self.assertIn('user-management-group-description', template)
         self.assertIn('user-management-group-active', template)
-        self.assertNotIn('user-management-group-permission-search', javascript)
-        self.assertNotIn('user-management-group-permissions', template)
+        self.assertIn('user-management-group-permissions', template)
+        self.assertIn('user-management-group-members', template)
+        self.assertIn('user_ids:', javascript)
+        self.assertIn('permission_codes:', javascript)
 
     def test_frontend_exposes_quick_regular_member_creation_and_copy_result(self):
         self.client.force_login(self.admin)

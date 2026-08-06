@@ -15,7 +15,7 @@ from botend.management.commands.update_simc_binary import Command as UpdateSimcB
 from botend.services.simc_player_config import build_player_config_detail, parse_manual_player_config, parse_manual_simc_candidates, parse_simc_player_profile
 from botend.services.simc_composer import SimcComposer
 from botend.services.simc_task_service import append_candidate_runs
-from botend.models import PlayerSpecTopPlayer, SeasonMeta, SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate, SimcProfile, SimcTask, SimulationRun, WowItemSnapshot, WowTalentVersion
+from botend.models import DashboardUserGroup, DashboardUserGroupMembership, PlayerSpecTopPlayer, SeasonMeta, SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate, SimcProfile, SimcTask, SimulationRun, WowItemSnapshot, WowTalentVersion
 
 
 TEST_SIMC_REVISION = 'a' * 40
@@ -2297,6 +2297,10 @@ class SimcNewConfigModeTests(TestCase):
 
     def setUp(self):
         self.user = User.objects.create_user(username='newmode_user', password='pwd')
+        group = DashboardUserGroup.objects.create(
+            name='SimC history test group', permission_codes=['simc.history'], is_active=True,
+        )
+        DashboardUserGroupMembership.objects.create(user=self.user, group=group)
         self.client = Client()
         self.client.force_login(self.user)
         self.base_template = SimcContentTemplate.objects.create(

@@ -34,6 +34,12 @@ from botend.models import (MonitorTask, TargetAuth, MonitorWebhook, WechatAccoun
                           SimcBenchmarkPanel, SimcBenchmarkExecution)
 
 from botend.services.simc_attribute_results import parse_attribute_result_filename
+from botend.dashboard.permissions import (
+    DashboardPermissionRequiredMixin,
+    SECTION_PERMISSION_CODES,
+    effective_dashboard_permissions,
+    permission_catalog,
+)
 
 
 def _fmt_dt(dt):
@@ -345,7 +351,21 @@ class DashboardView(View):
         处理GET请求，渲染仪表盘页面
         """
         try:
+            permissions = effective_dashboard_permissions(request.user)
+            section = request.GET.get('section', '').strip()
+            permission_code = SECTION_PERMISSION_CODES.get(section)
+            if section and not permission_code:
+                return JsonResponse({'status': 'error', 'message': '未知 Dashboard 页面'}, status=404)
+            if permission_code and permission_code not in permissions:
+                return JsonResponse({'status': 'error', 'message': '无权访问该 Dashboard 页面'}, status=403)
+            catalog = permission_catalog()
             context = self.get_context_data()
+            context['dashboard_permissions'] = sorted(permissions)
+            context['dashboard_permission_catalog'] = catalog
+            context['dashboard_default_section'] = section or next(
+                (item['section'] for item in catalog if item['code'] in permissions),
+                '',
+            )
             return render(request, 'dashboard/index.html', context)
         except Exception as e:
             logger.error(f"Dashboard view error: {str(e)}\n{traceback.format_exc()}")
@@ -381,7 +401,18 @@ class DashboardView(View):
                     {"status": "error", "message": "数据库管理仅限工作人员"},
                     status=403,
                 )
-            
+
+            required_permission = {
+                'list_log_files': 'system.logs',
+                'read_log_file': 'system.logs',
+                'force_run_task': 'dashboard.home',
+            }.get(action)
+            if required_permission and required_permission not in effective_dashboard_permissions(request.user):
+                return JsonResponse(
+                    {"status": "error", "message": "无权访问该 Dashboard 页面"},
+                    status=403,
+                )
+
             # 根据操作类型处理请求
             if action == 'get_table_data':
                 return self.get_table_data(data)
@@ -1071,10 +1102,11 @@ class DashboardView(View):
 
 
 @method_decorator(login_required, name='dispatch')
-class SimcWorkbenchDetailPageView(View):
+class SimcWorkbenchDetailPageView(DashboardPermissionRequiredMixin, View):
     """Owner-scoped HTML shell; safe details are loaded through the existing API."""
 
     model_by_kind = {'tasks': SimcTask}
+    dashboard_permission = 'simc.history'
 
     def get(self, request, kind, object_id):
         model = self.model_by_kind.get(kind)
@@ -1089,8 +1121,8 @@ class SimcWorkbenchDetailPageView(View):
 
 
 @method_decorator(login_required, name='dispatch')
-class SimcBenchmarkPanelEditPageView(View):
-    """Panel-level editor; task matrix remains on its own configuration page."""
+class SimcBenchmarkPanelEditPageView(DashboardPermissionRequiredMixin, View):
+    dashboard_permission = 'simc.benchmarks'
 
     def get(self, request, panel_id):
         panel = get_object_or_404(SimcBenchmarkPanel, pk=panel_id)
@@ -1101,8 +1133,8 @@ class SimcBenchmarkPanelEditPageView(View):
 
 
 @method_decorator(login_required, name='dispatch')
-class SimcBenchmarkConfigPageView(View):
-    """Full-page editor shell; publication controls Portal discovery only."""
+class SimcBenchmarkConfigPageView(DashboardPermissionRequiredMixin, View):
+    dashboard_permission = 'simc.benchmarks'
 
     def get(self, request, panel_id):
         panel = get_object_or_404(SimcBenchmarkPanel, pk=panel_id)
@@ -1113,8 +1145,10 @@ class SimcBenchmarkConfigPageView(View):
 
 
 @method_decorator(login_required, name='dispatch')
-class SimcBenchmarkExecutionPageView(View):
+class SimcBenchmarkExecutionPageView(DashboardPermissionRequiredMixin, View):
     """Execution result shell; private means unlisted in Portal, not restricted here."""
+
+    dashboard_permission = 'simc.benchmarks'
 
     def get(self, request, execution_id):
         execution = get_object_or_404(SimcBenchmarkExecution, pk=execution_id)
@@ -1125,7 +1159,8 @@ class SimcBenchmarkExecutionPageView(View):
 
 
 @method_decorator(login_required, name='dispatch')
-class SimcResultView(View):
+class SimcResultView(DashboardPermissionRequiredMixin, View):
+    dashboard_permission = 'simc.history'
     """
     处理SimC自定义结果查看页面请求
     """
@@ -1143,7 +1178,8 @@ class SimcResultView(View):
 
 
 @method_decorator(login_required, name='dispatch')
-class SimcAttributeAnalysisView(View):
+class SimcAttributeAnalysisView(DashboardPermissionRequiredMixin, View):
+    dashboard_permission = 'simc.history'
     """
     处理SimC属性模拟分析页面请求
     """
@@ -1161,7 +1197,8 @@ class SimcAttributeAnalysisView(View):
 
 
 @method_decorator(login_required, name='dispatch')
-class SimcRegularCompareView(View):
+class SimcRegularCompareView(DashboardPermissionRequiredMixin, View):
+    dashboard_permission = 'simc.history'
     """
     处理SimC常规模拟对比页面请求
     """
@@ -1176,7 +1213,8 @@ class SimcRegularCompareView(View):
 
 
 @method_decorator(login_required, name='dispatch')
-class SimcAttributeAnalysisSSRView(View):
+class SimcAttributeAnalysisSSRView(DashboardPermissionRequiredMixin, View):
+    dashboard_permission = 'simc.history'
     """
     属性模拟分析SSR页面：后端渲染对比结果，无需前端JS计算
     """
@@ -1356,7 +1394,9 @@ class SimcAttributeAnalysisSSRView(View):
 
 
 @method_decorator(login_required, name='dispatch')
-class WclAnalysisPageView(View):
+class WclAnalysisPageView(DashboardPermissionRequiredMixin, View):
+    dashboard_permission = 'tools.wcl-analysis'
+
     def get(self, request):
         try:
             tasks = WclAnalysisTask.objects.filter(is_active=True).order_by('-created_at')[:30]

@@ -13,6 +13,7 @@ from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
+from botend.dashboard.permissions import has_dashboard_permission
 from botend.models import (
     MythicDungeon,
     MythicDungeonAbility,
@@ -995,8 +996,8 @@ class DashboardMythicPlannerAPIView(View):
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_authenticated:
             return error('请先登录。', status=401)
-        if not (request.user.is_staff or request.user.is_superuser):
-            return error('仅管理员可以维护大秘境规划器数据。', status=403)
+        if not has_dashboard_permission(request.user, 'mythic.config'):
+            return error('无权访问该 Dashboard 页面。', status=403)
         return super().dispatch(request, *args, **kwargs)
 
     def get(self, request, object_id=None):

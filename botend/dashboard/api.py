@@ -34,6 +34,7 @@ from django.conf import settings
 from utils.log import logger
 from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcApl, SimcAplSymbol, SimcTask, SimulationRun, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, SimcAgent, SimcAgentMaintenanceTask, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState, WowSpellSnapshot, WowTalentNodeMetadata, WowTalentVersion, WowItemSnapshot
 from botend.alerting import upsert_system_alert
+from botend.dashboard.permissions import DashboardPermissionRequiredMixin, has_dashboard_permission
 from django.db import IntegrityError, models, transaction
 from core.glm import GLMClient
 from botend.monitor_env import is_task_runnable, env_limit_hint
@@ -250,7 +251,9 @@ def _portal_report_url_from_path(content_html_path, fallback_url=''):
 
 
 @method_decorator([csrf_exempt, login_required], name='dispatch')
-class SystemAlertAPIView(View):
+class SystemAlertAPIView(DashboardPermissionRequiredMixin, View):
+    dashboard_permission = 'system.alerts'
+
     def get(self, request):
         try:
             limit = request.GET.get('limit', '20')
@@ -390,6 +393,8 @@ class WagoHotfixReportListAPIView(View):
         try:
             if not getattr(request, 'user', None) or not request.user.is_authenticated:
                 return JsonResponse({'success': False, 'error': '请先登录 Dashboard 后查看 Hotfix 报告'}, status=401)
+            if not has_dashboard_permission(request.user, 'reports.hotfix'):
+                return JsonResponse({'status': 'error', 'message': '无权访问该 Dashboard 页面'}, status=403)
 
             limit_raw = request.GET.get('limit', '20')
             try:
@@ -479,6 +484,8 @@ class WagoSkillDiffRerunAPIView(View):
         try:
             if not getattr(request, 'user', None) or not request.user.is_authenticated:
                 return JsonResponse({'success': False, 'error': '请先登录 Dashboard 后再执行 Wago 指定版本重跑'}, status=401)
+            if not has_dashboard_permission(request.user, 'tools.wago-rerun'):
+                return JsonResponse({'status': 'error', 'message': '无权访问该 Dashboard 页面'}, status=403)
 
             payload = json.loads(request.body or '{}')
             event_id = payload.get('event_id')
@@ -7236,6 +7243,11 @@ class SimcBackendBinaryAPIView(View):
 
 @method_decorator([csrf_exempt, login_required], name='dispatch')
 class WclAnalysisTaskAPIView(View):
+    def dispatch(self, request, *args, **kwargs):
+        if not has_dashboard_permission(request.user, 'tools.wcl-analysis'):
+            return JsonResponse({'success': False, 'error': '无权访问该 Dashboard 页面。'}, status=403)
+        return super().dispatch(request, *args, **kwargs)
+
     def get(self, request, task_id=None):
         try:
             if task_id:
@@ -8400,19 +8412,21 @@ def _benchmark_json_object(request, *, empty=False, allowed_fields=None):
 
 
 class _BenchmarkReadAPIView(View):
-    """Authenticated read-only Benchmark result access, independent of Portal listing."""
+    """Authenticated Benchmark result access for users granted the page capability."""
 
     @method_decorator(login_required)
     def dispatch(self, request, *args, **kwargs):
+        if not has_dashboard_permission(request.user, 'simc.benchmarks'):
+            return _benchmark_error('forbidden', 403)
         return super().dispatch(request, *args, **kwargs)
 
 
 class _BenchmarkAdminAPIView(View):
-    """Anonymous users follow login redirect; authenticated non-admins get JSON 403."""
+    """Benchmark Dashboard API access controlled by the page capability."""
 
     @method_decorator(login_required)
     def dispatch(self, request, *args, **kwargs):
-        if not _is_simc_admin(request.user):
+        if not has_dashboard_permission(request.user, 'simc.benchmarks'):
             return _benchmark_error('forbidden', 403)
         try:
             return super().dispatch(request, *args, **kwargs)

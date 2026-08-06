@@ -16,6 +16,7 @@ class DashboardUserGroup(models.Model):
     name = models.CharField(max_length=150, unique=True)
     description = models.CharField(max_length=500, blank=True, default='')
     is_active = models.BooleanField(default=True)
+    permission_codes = models.JSONField(default=list, blank=True)
     users = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
         through='DashboardUserGroupMembership',
@@ -30,10 +31,10 @@ class DashboardUserGroup(models.Model):
 
 
 class DashboardUserGroupMembership(models.Model):
-    user = models.OneToOneField(
+    user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name='dashboard_user_group_membership',
+        related_name='dashboard_user_group_memberships',
     )
     group = models.ForeignKey(
         DashboardUserGroup,
@@ -43,6 +44,12 @@ class DashboardUserGroupMembership(models.Model):
 
     class Meta:
         ordering = ('user_id',)
+        constraints = [
+            models.UniqueConstraint(
+                fields=('user', 'group'),
+                name='unique_dashboard_user_group_membership',
+            ),
+        ]
 
 
 class MonitorTask(models.Model):

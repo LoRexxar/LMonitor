@@ -341,10 +341,11 @@
     {% if page_name == 'dashboard' %}
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>window.SIMC_APL_EDITOR_MODULE_URL = "{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260727b";</script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260806d"></script>
-    {% if user.is_superuser %}
+    {{ dashboard_permissions|json_script:"dashboard-permissions-data" }}
+    {{ dashboard_permission_catalog|json_script:"dashboard-permission-catalog-data" }}
+    <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260806e"></script>
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806c" defer></script>
-    {% endif %}
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260805_apl_cn_labels"></script>
     <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260804e"></script>
     {% if user.is_staff or user.is_superuser %}
@@ -452,14 +453,18 @@
                             首页
                         </a>
                     </li>
-                    {% if user.is_superuser %}
                     <li class="nav-item" data-section="user-management">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-users-cog mr-3"></i>
                             用户管理
                         </a>
                     </li>
-                    {% endif %}
+                    <li class="nav-item" data-section="user-groups">
+                        <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                            <i class="fas fa-user-group mr-3"></i>
+                            用户组管理
+                        </a>
+                    </li>
                     <!-- 新增 News 顶级栏目 -->
                     <li class="nav-item" data-section="news">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
@@ -1797,7 +1802,6 @@
 
             </div>
             
-            {% if user.is_superuser %}
             <!-- 独立用户管理，不接入通用数据库 CRUD -->
             <div class="content-section" id="user-management" style="display: none;">
                 <div class="mb-6">
@@ -1813,7 +1817,6 @@
                             </select>
                         </div>
                         <div class="flex flex-wrap items-center gap-2">
-                            <button id="user-management-groups-button" type="button" class="px-4 py-2 border border-emerald-300 text-emerald-700 rounded-lg hover:bg-emerald-50"><i class="fas fa-users-cog mr-2"></i>用户组</button>
                             <button id="user-management-quick-add" type="button" class="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"><i class="fas fa-key mr-2"></i>快速创建普通会员</button>
                             <button id="user-management-add" type="button" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"><i class="fas fa-user-plus mr-2"></i>新增用户</button>
                         </div>
@@ -1833,28 +1836,6 @@
                         </table>
                     </div>
                     <div class="px-6 py-4 bg-gray-50 border-t flex items-center justify-between gap-4"><div id="user-management-page-info" class="text-sm text-gray-700"></div><div id="user-management-pagination" class="flex gap-2"></div></div>
-                </div>
-                <div id="user-management-group-modal" class="fixed inset-0 bg-black bg-opacity-70 hidden z-[1000] items-start justify-center overflow-y-auto p-3">
-                    <div class="relative w-full max-w-4xl my-6 bg-white rounded-lg shadow-2xl overflow-hidden">
-                        <div class="bg-emerald-700 px-5 py-4 flex items-center justify-between">
-                            <h3 class="text-lg font-bold text-white">用户组管理</h3>
-                            <button id="user-management-group-close" type="button" class="text-white text-2xl leading-none" aria-label="关闭">&times;</button>
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-[18rem_1fr] min-h-[32rem]">
-                            <div class="border-r bg-gray-50">
-                                <button id="user-management-group-new" type="button" class="m-3 w-[calc(100%-1.5rem)] px-4 py-2 bg-emerald-600 text-white rounded-lg">新建用户组</button>
-                                <div id="user-management-group-list" class="text-sm text-gray-600"></div>
-                            </div>
-                            <form id="user-management-group-form" class="p-5 space-y-4">
-                                <h4 id="user-management-group-form-title" class="text-lg font-semibold">新建用户组</h4>
-                                <label class="block text-sm font-medium">组名称<input id="user-management-group-name" required maxlength="150" class="mt-1 w-full px-3 py-2 border rounded-lg"></label>
-                                <label class="block text-sm font-medium">组说明<textarea id="user-management-group-description" maxlength="500" rows="4" class="mt-1 w-full px-3 py-2 border rounded-lg"></textarea></label>
-                                <label class="flex items-center gap-2 text-sm"><input id="user-management-group-active" type="checkbox" checked>启用用户组</label>
-                                <div id="user-management-group-error" class="text-sm text-red-700"></div>
-                                <div class="flex justify-end"><button type="submit" class="px-5 py-2 bg-emerald-700 text-white rounded-lg">保存用户组</button></div>
-                            </form>
-                        </div>
-                    </div>
                 </div>
                 <div id="user-management-quick-modal" class="fixed inset-0 bg-black bg-opacity-70 hidden z-[1000] items-start justify-center overflow-y-auto p-3">
                     <div class="relative w-full max-w-md my-6 bg-white rounded-lg shadow-2xl overflow-hidden">
@@ -1910,14 +1891,33 @@
                                 <label class="flex items-center gap-2 text-sm"><input id="user-management-is-active" type="checkbox" checked>启用账号</label>
                                 <label class="text-sm font-medium">权限<select id="user-management-role" class="mt-1 w-full px-3 py-2 border rounded-lg"><option value="member" selected>普通会员</option><option value="staff">Staff</option><option value="superuser">超级管理员</option></select></label>
                             </div>
-                            <label class="block text-sm font-medium">所属用户组<select id="user-management-groups" class="mt-1 w-full px-3 py-2 border rounded-lg"><option value="">未分组</option></select><span class="block mt-1 text-xs text-gray-500">业务用户组只用于分类和归属，不授予 Django 权限。</span></label>
+                            <label class="block text-sm font-medium">所属用户组<select id="user-management-groups" multiple size="5" class="mt-1 w-full px-3 py-2 border rounded-lg"><option value="">未分组</option></select><span class="block mt-1 text-xs text-gray-500">可同时选择多个业务用户组；页面权限取所有启用组的并集。</span></label>
                             <div id="user-management-form-error" class="hidden rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"></div>
                             <div class="flex justify-end gap-3"><button id="user-management-cancel" type="button" class="px-5 py-2 border rounded-lg">取消</button><button id="user-management-submit" type="submit" class="px-5 py-2 bg-blue-600 text-white rounded-lg">保存</button></div>
                         </form>
                     </div>
                 </div>
             </div>
-            {% endif %}
+
+            <div class="content-section" id="user-groups" style="display: none;">
+                <div class="mb-6 flex items-center justify-between gap-4">
+                    <div><h2 class="text-3xl font-bold text-gray-800 mb-2">用户组管理</h2><p class="text-gray-600">配置业务用户组及可访问的 Dashboard 页面。</p></div>
+                    <button id="user-management-group-new" type="button" class="px-4 py-2 bg-emerald-700 text-white rounded-lg"><i class="fas fa-plus mr-2"></i>新建用户组</button>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-[20rem_minmax(0,1fr)] gap-6 min-h-[36rem]">
+                    <div class="bg-white border rounded-lg overflow-hidden"><div id="user-management-group-list" class="text-sm text-gray-600"></div></div>
+                    <form id="user-management-group-form" class="bg-white border rounded-lg p-5 space-y-5">
+                        <h3 id="user-management-group-form-title" class="text-lg font-semibold">新建用户组</h3>
+                        <label class="block text-sm font-medium">组名称<input id="user-management-group-name" required maxlength="150" class="mt-1 w-full px-3 py-2 border rounded-lg"></label>
+                        <label class="block text-sm font-medium">组说明<textarea id="user-management-group-description" maxlength="500" rows="3" class="mt-1 w-full px-3 py-2 border rounded-lg"></textarea></label>
+                        <label class="flex items-center gap-2 text-sm"><input id="user-management-group-active" type="checkbox" checked>启用用户组</label>
+                        <fieldset><legend class="text-sm font-semibold mb-3">页面访问权限</legend><div id="user-management-group-permissions" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3"></div></fieldset>
+                        <fieldset><legend class="text-sm font-semibold mb-3">组成员</legend><div id="user-management-group-members" class="max-h-64 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2"></div></fieldset>
+                        <div id="user-management-group-error" class="text-sm text-red-700"></div>
+                        <div class="flex justify-end"><button type="submit" class="px-5 py-2 bg-emerald-700 text-white rounded-lg"><i class="fas fa-save mr-2"></i>保存用户组</button></div>
+                    </form>
+                </div>
+            </div>
 
             <!-- 数据库表内容区域 -->
             <div class="content-section active" id="database-tables" style="display: block;">

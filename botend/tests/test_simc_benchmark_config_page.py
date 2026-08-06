@@ -4,13 +4,24 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
 
-from botend.models import SimcBenchmarkExecution, SimcBenchmarkPanel
+from botend.models import (
+    DashboardUserGroup,
+    DashboardUserGroupMembership,
+    SimcBenchmarkExecution,
+    SimcBenchmarkPanel,
+)
 
 
 class SimcBenchmarkConfigPageTests(TestCase):
     def setUp(self):
         self.staff = User.objects.create_user('benchmark-config-staff', is_staff=True)
         self.regular = User.objects.create_user('benchmark-config-regular')
+        self.authorized = User.objects.create_user('benchmark-config-authorized')
+        group = DashboardUserGroup.objects.create(
+            name='SimC 基准组', permission_codes=['simc.benchmarks'],
+        )
+        DashboardUserGroupMembership.objects.create(user=self.staff, group=group)
+        DashboardUserGroupMembership.objects.create(user=self.authorized, group=group)
         self.panel = SimcBenchmarkPanel.objects.create(
             name='Detailed benchmark', slug='detailed-benchmark',
             created_by_id=self.staff.id,
@@ -22,10 +33,12 @@ class SimcBenchmarkConfigPageTests(TestCase):
     def panel_edit_url(self, panel_id=None):
         return reverse('simc_benchmark_panel_edit_page', args=[panel_id or self.panel.id])
 
-    def test_page_requires_login_but_logged_in_users_can_open_configuration(self):
+    def test_page_requires_login_and_benchmark_permission(self):
         response = self.client.get(self.url())
         self.assertEqual(response.status_code, 302)
         self.client.force_login(self.regular)
+        self.assertEqual(self.client.get(self.url()).status_code, 403)
+        self.client.force_login(self.authorized)
         self.assertEqual(self.client.get(self.url()).status_code, 200)
 
     def test_staff_can_open_dedicated_full_configuration_page(self):
@@ -52,7 +65,7 @@ class SimcBenchmarkConfigPageTests(TestCase):
         self.client.force_login(self.staff)
         self.assertEqual(self.client.get(self.url(999999)).status_code, 404)
 
-    def test_logged_in_user_can_open_private_execution_result_page_without_portal_publication(self):
+    def test_benchmark_permission_controls_private_execution_result_page(self):
         execution = SimcBenchmarkExecution.objects.create(
             panel=self.panel, config_snapshot={}, config_hash='a' * 64,
         )
@@ -65,6 +78,9 @@ class SimcBenchmarkConfigPageTests(TestCase):
         self.assertContains(response, '私有执行结果')
 
         self.client.force_login(self.regular)
+        self.assertEqual(self.client.get(url).status_code, 403)
+
+        self.client.force_login(self.authorized)
         self.assertEqual(self.client.get(url).status_code, 200)
         self.assertEqual(self.client.get(f'/api/simc-benchmarks/executions/{execution.id}/').status_code, 200)
 
