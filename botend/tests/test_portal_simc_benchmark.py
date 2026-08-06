@@ -331,9 +331,21 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
                 ('天赋模拟器', '/portal/talents/', None),
                 ('MDT', '/portal/mythic-planner/', None),
                 ('simc模拟数据', '/portal/simc-benchmarks/', None),
-                ('', '/dashboard/', '后台'),
             ],
         )
+
+    def test_portal_header_uses_username_or_login_dropdown(self):
+        shared_header = (self.ROOT / 'templates/portal/_header.html').read_text(encoding='utf-8')
+        soup = BeautifulSoup(shared_header, 'html.parser')
+        menu = soup.select_one('details.portal-user-menu')
+        self.assertIsNotNone(menu)
+        self.assertIsNotNone(menu.select_one('summary'))
+        self.assertIn('{{ request.user.username }}', shared_header)
+        self.assertIn('{% if request.user.is_authenticated %}', shared_header)
+        self.assertIn('{% else %}', shared_header)
+        self.assertIn('href="/dashboard/"', shared_header)
+        self.assertIn('href="/auth/login/?next=/dashboard/"', shared_header)
+        self.assertNotIn('portal-action-btn--icon', shared_header)
         for template_name in (
             'index.html',
             'news.html',

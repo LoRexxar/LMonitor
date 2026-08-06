@@ -31,9 +31,34 @@
                 <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-refresh"></use></svg>
                 <span>simc模拟数据</span>
             </a>
-            <a href="/dashboard/" class="portal-pill portal-action-btn portal-action-btn--icon inline-flex items-center justify-center text-slate-700 hover:text-slate-900" aria-label="后台" title="后台">
-                <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-tools"></use></svg>
-            </a>
+            <details class="portal-user-menu">
+                <summary class="portal-pill portal-action-btn portal-user-menu-trigger" aria-label="账户菜单">
+                    <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-user"></use></svg>
+                    {% if request.user.is_authenticated %}
+                        <span class="portal-user-name">{{ request.user.username }}</span>
+                    {% else %}
+                        <span>登录</span>
+                    {% endif %}
+                    <svg class="portal-user-menu-chevron w-3.5 h-3.5" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chevron-down"></use></svg>
+                </summary>
+                <div class="portal-user-menu-panel">
+                    {% if request.user.is_authenticated %}
+                        <a href="/dashboard/" class="portal-user-menu-item">
+                            <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-tools"></use></svg>
+                            <span>进入后台</span>
+                        </a>
+                        <a href="/auth/logout/" class="portal-user-menu-item">
+                            <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-logout"></use></svg>
+                            <span>退出登录</span>
+                        </a>
+                    {% else %}
+                        <a href="/auth/login/?next=/dashboard/" class="portal-user-menu-item">
+                            <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-login"></use></svg>
+                            <span>登录后台</span>
+                        </a>
+                    {% endif %}
+                </div>
+            </details>
         </div>
     </div>
 </header>
