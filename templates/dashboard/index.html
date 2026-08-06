@@ -341,7 +341,10 @@
     {% if page_name == 'dashboard' %}
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>window.SIMC_APL_EDITOR_MODULE_URL = "{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260727b";</script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260806c"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260806d"></script>
+    {% if user.is_superuser %}
+    <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806a" defer></script>
+    {% endif %}
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260805_apl_cn_labels"></script>
     <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260804e"></script>
     {% if user.is_staff or user.is_superuser %}
@@ -449,6 +452,14 @@
                             首页
                         </a>
                     </li>
+                    {% if user.is_superuser %}
+                    <li class="nav-item" data-section="user-management">
+                        <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                            <i class="fas fa-users-cog mr-3"></i>
+                            用户管理
+                        </a>
+                    </li>
+                    {% endif %}
                     <!-- 新增 News 顶级栏目 -->
                     <li class="nav-item" data-section="news">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
@@ -1786,6 +1797,64 @@
 
             </div>
             
+            {% if user.is_superuser %}
+            <!-- 独立用户管理，不接入通用数据库 CRUD -->
+            <div class="content-section" id="user-management" style="display: none;">
+                <div class="mb-6">
+                    <h2 class="text-3xl font-bold text-gray-800 mb-2">用户管理</h2>
+                    <p class="text-gray-600">查看、创建和编辑登录用户。密码仅在新增或重置时提交。</p>
+                </div>
+                <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                        <div class="flex flex-col sm:flex-row gap-3">
+                            <input id="user-management-search" type="search" autocomplete="off" placeholder="搜索用户名、邮箱或姓名" class="w-full sm:w-80 px-4 py-2 border border-gray-300 rounded-lg">
+                            <select id="user-management-page-size" class="px-4 py-2 border border-gray-300 rounded-lg">
+                                <option value="10">10 条</option><option value="25" selected>25 条</option><option value="50">50 条</option><option value="100">100 条</option>
+                            </select>
+                        </div>
+                        <button id="user-management-add" type="button" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"><i class="fas fa-user-plus mr-2"></i>新增用户</button>
+                    </div>
+                    <div id="user-management-message" class="hidden mt-4 rounded-lg px-4 py-3 text-sm"></div>
+                </div>
+                <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full">
+                            <thead class="bg-gray-50"><tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">ID</th><th class="px-4 py-3 text-left text-xs font-medium text-gray-500">用户</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">姓名</th><th class="px-4 py-3 text-left text-xs font-medium text-gray-500">权限</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">状态</th><th class="px-4 py-3 text-left text-xs font-medium text-gray-500">最近登录</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500">操作</th>
+                            </tr></thead>
+                            <tbody id="user-management-table-body" class="divide-y divide-gray-200"></tbody>
+                        </table>
+                    </div>
+                    <div class="px-6 py-4 bg-gray-50 border-t flex items-center justify-between gap-4"><div id="user-management-page-info" class="text-sm text-gray-700"></div><div id="user-management-pagination" class="flex gap-2"></div></div>
+                </div>
+                <div id="user-management-modal" class="fixed inset-0 bg-black bg-opacity-70 hidden z-[1000] items-start justify-center overflow-y-auto p-3">
+                    <div class="relative w-full max-w-2xl my-6 bg-white rounded-2xl shadow-2xl overflow-hidden">
+                        <div class="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 flex items-center justify-between"><h3 id="user-management-modal-title" class="text-xl font-bold text-white">新增用户</h3><button id="user-management-modal-close" type="button" class="text-white text-2xl" aria-label="关闭">&times;</button></div>
+                        <form id="user-management-form" class="p-6 space-y-4">
+                            <input id="user-management-user-id" type="hidden">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <label class="text-sm font-medium">用户名<input id="user-management-username" required maxlength="150" autocomplete="off" class="mt-1 w-full px-3 py-2 border rounded-lg"></label>
+                                <label class="text-sm font-medium">邮箱<input id="user-management-email" type="email" maxlength="254" autocomplete="off" class="mt-1 w-full px-3 py-2 border rounded-lg"></label>
+                                <label class="text-sm font-medium">姓<input id="user-management-last-name" maxlength="150" class="mt-1 w-full px-3 py-2 border rounded-lg"></label>
+                                <label class="text-sm font-medium">名<input id="user-management-first-name" maxlength="150" class="mt-1 w-full px-3 py-2 border rounded-lg"></label>
+                            </div>
+                            <label class="block text-sm font-medium"><span id="user-management-password-label">密码</span><input id="user-management-password" type="password" autocomplete="new-password" class="mt-1 w-full px-3 py-2 border rounded-lg"><span id="user-management-password-help" class="block mt-1 text-xs text-gray-500">新增用户必须设置密码。</span></label>
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-lg bg-gray-50 p-4">
+                                <label class="flex items-center gap-2 text-sm"><input id="user-management-is-active" type="checkbox" checked>启用账号</label>
+                                <label class="flex items-center gap-2 text-sm"><input id="user-management-is-staff" type="checkbox">Staff</label>
+                                <label class="flex items-center gap-2 text-sm"><input id="user-management-is-superuser" type="checkbox">超级管理员</label>
+                            </div>
+                            <div id="user-management-form-error" class="hidden rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"></div>
+                            <div class="flex justify-end gap-3"><button id="user-management-cancel" type="button" class="px-5 py-2 border rounded-lg">取消</button><button id="user-management-submit" type="submit" class="px-5 py-2 bg-blue-600 text-white rounded-lg">保存</button></div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
             <!-- 数据库表内容区域 -->
             <div class="content-section active" id="database-tables" style="display: block;">
                 <div class="mb-6">

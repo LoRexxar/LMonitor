@@ -473,6 +473,9 @@ function initNavigation() {
                 if (sectionId === 'log-files' && window.loadLogFilesGlobal) {
                     window.loadLogFilesGlobal();
                 }
+                if (sectionId === 'user-management' && window.loadDashboardUsers) {
+                    window.loadDashboardUsers();
+                }
                 if (isSimcDashboardSection(sectionId)) {
                     const simcPage = Object.keys(SIMC_DASHBOARD_SECTIONS)
                         .find(page => SIMC_DASHBOARD_SECTIONS[page] === sectionId);
