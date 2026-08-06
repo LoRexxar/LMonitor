@@ -2,8 +2,10 @@ import json
 from pathlib import Path
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group, Permission
+from django.db import IntegrityError
 from django.test import TestCase
+
+from botend.models import DashboardUserGroup, DashboardUserGroupMembership
 
 
 User = get_user_model()
@@ -39,25 +41,23 @@ class DashboardUserManagementApiTests(TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertFalse(User.objects.filter(username='blocked-user').exists())
 
-    def test_superuser_can_create_group_and_assign_group_membership_without_staff_access(self):
+    def test_superuser_can_create_edit_and_assign_independent_user_group(self):
         self.login()
-        permission = Permission.objects.filter(content_type__app_label='botend').first()
-        self.assertIsNotNone(permission)
         response = self.client.post(
             '/api/dashboard/user-groups/',
-            data=json.dumps({'name': '内容审核组', 'permission_ids': [permission.pk]}),
+            data=json.dumps({'name': '内容审核组', 'description': '负责内容审核', 'is_active': True}),
             content_type='application/json',
         )
         self.assertEqual(response.status_code, 201, response.content)
-        group = Group.objects.get(name='内容审核组')
-        self.assertEqual(list(group.permissions.values_list('pk', flat=True)), [permission.pk])
+        group = DashboardUserGroup.objects.get(name='内容审核组')
+        self.assertEqual(group.description, '负责内容审核')
 
         response = self.client.post(
             '/api/dashboard/users/',
             data=json.dumps({
                 'username': 'group-member',
                 'password': 'GroupMember-pass-123!',
-                'group_ids': [group.pk],
+                'user_group_ids': [group.pk],
             }),
             content_type='application/json',
         )
@@ -65,48 +65,74 @@ class DashboardUserManagementApiTests(TestCase):
         member = User.objects.get(username='group-member')
         self.assertFalse(member.is_staff)
         self.assertFalse(member.is_superuser)
-        self.assertTrue(member.has_perm(
-            f'{permission.content_type.app_label}.{permission.codename}'
-        ))
-        self.assertEqual(response.json()['data']['groups'], [{'id': group.pk, 'name': group.name}])
+        self.assertFalse(member.has_perm('botend.change_monitortask'))
+        self.assertEqual(response.json()['data']['user_groups'], [{'id': group.pk, 'name': group.name}])
 
         response = self.client.patch(
             f'/api/dashboard/user-groups/{group.pk}/',
-            data=json.dumps({'name': '内容审核二组', 'permission_ids': []}),
+            data=json.dumps({'name': '内容审核二组', 'description': '已调整', 'is_active': False}),
             content_type='application/json',
         )
         self.assertEqual(response.status_code, 200, response.content)
         group.refresh_from_db()
         self.assertEqual(group.name, '内容审核二组')
-        self.assertFalse(group.permissions.exists())
+        self.assertEqual(group.description, '已调整')
+        self.assertFalse(group.is_active)
 
-    def test_group_rejects_system_permissions_and_unknown_membership_ids(self):
+    def test_group_rejects_permission_fields_and_unknown_membership_ids(self):
         self.login()
-        system_permission = Permission.objects.get(codename='change_user')
         response = self.client.post(
             '/api/dashboard/user-groups/',
-            data=json.dumps({'name': '越权组', 'permission_ids': [system_permission.pk]}),
+            data=json.dumps({'name': '越权组', 'permission_ids': [1]}),
             content_type='application/json',
         )
         self.assertEqual(response.status_code, 400)
-        self.assertFalse(Group.objects.filter(name='越权组').exists())
+        self.assertFalse(DashboardUserGroup.objects.filter(name='越权组').exists())
 
         response = self.client.post(
             '/api/dashboard/users/',
             data=json.dumps({
                 'username': 'invalid-group-member',
                 'password': 'InvalidGroup-pass-123!',
-                'group_ids': [999999],
+                'user_group_ids': [999999],
             }),
             content_type='application/json',
         )
         self.assertEqual(response.status_code, 400)
         self.assertFalse(User.objects.filter(username='invalid-group-member').exists())
 
+    def test_user_cannot_belong_to_multiple_business_groups(self):
+        first = DashboardUserGroup.objects.create(name='一组')
+        second = DashboardUserGroup.objects.create(name='二组')
+        member = User.objects.create_user(username='single-group-user', password='SingleGroup-pass-123!')
+        DashboardUserGroupMembership.objects.create(user=member, group=first)
+
+        with self.assertRaises(IntegrityError):
+            DashboardUserGroupMembership.objects.create(user=member, group=second)
+
+    def test_inactive_group_keeps_existing_members_but_rejects_new_assignment(self):
+        group = DashboardUserGroup.objects.create(name='停用组', is_active=False)
+        existing = User.objects.create_user(username='existing-group-user', password='Existing-pass-123!')
+        DashboardUserGroupMembership.objects.create(user=existing, group=group)
+        self.login()
+
+        response = self.client.post(
+            '/api/dashboard/users/',
+            data=json.dumps({
+                'username': 'blocked-inactive-group-user',
+                'password': 'BlockedInactive-pass-123!',
+                'user_group_ids': [group.pk],
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertFalse(User.objects.filter(username='blocked-inactive-group-user').exists())
+        self.assertTrue(group.users.filter(pk=existing.pk).exists())
+
     def test_group_user_cannot_create_or_modify_groups(self):
-        group = Group.objects.create(name='普通组')
+        group = DashboardUserGroup.objects.create(name='普通组')
         member = User.objects.create_user(username='group-only', password='GroupOnly-pass-123!')
-        member.groups.add(group)
+        group.users.add(member)
         self.login(member)
         response = self.client.get('/api/dashboard/user-groups/')
         self.assertEqual(response.status_code, 403)
@@ -399,6 +425,16 @@ class DashboardUserManagementFrontendContractTests(TestCase):
         self.assertNotIn('password_hash', javascript)
         self.assertNotIn("user.password", javascript)
         self.assertIn("if (!id || password) payload.password = password", javascript)
+
+    def test_frontend_uses_independent_editable_user_groups(self):
+        javascript = (ROOT / 'static/dashboard/js/user_management.js').read_text(encoding='utf-8')
+        template = (ROOT / 'templates/dashboard/index.html').read_text(encoding='utf-8')
+        self.assertIn("method: id ? 'PATCH' : 'POST'", javascript)
+        self.assertIn("user_group_ids:", javascript)
+        self.assertIn('user-management-group-description', template)
+        self.assertIn('user-management-group-active', template)
+        self.assertNotIn('user-management-group-permission-search', javascript)
+        self.assertNotIn('user-management-group-permissions', template)
 
     def test_frontend_exposes_quick_regular_member_creation_and_copy_result(self):
         self.client.force_login(self.admin)

@@ -10,6 +10,41 @@ from django.db import connection, models, transaction
 from django.utils import timezone
 
 
+class DashboardUserGroup(models.Model):
+    """独立于 Django auth 权限体系的 Dashboard 业务用户组。"""
+
+    name = models.CharField(max_length=150, unique=True)
+    description = models.CharField(max_length=500, blank=True, default='')
+    is_active = models.BooleanField(default=True)
+    users = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        through='DashboardUserGroupMembership',
+        related_name='dashboard_user_groups',
+    )
+
+    class Meta:
+        ordering = ('name', 'pk')
+
+    def __str__(self):
+        return str(self.name)
+
+
+class DashboardUserGroupMembership(models.Model):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='dashboard_user_group_membership',
+    )
+    group = models.ForeignKey(
+        DashboardUserGroup,
+        on_delete=models.CASCADE,
+        related_name='memberships',
+    )
+
+    class Meta:
+        ordering = ('user_id',)
+
+
 class MonitorTask(models.Model):
     name = models.CharField(max_length=100)
     target = models.CharField(max_length=2000)

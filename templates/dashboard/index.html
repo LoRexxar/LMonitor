@@ -1848,11 +1848,8 @@
                             <form id="user-management-group-form" class="p-5 space-y-4">
                                 <h4 id="user-management-group-form-title" class="text-lg font-semibold">新建用户组</h4>
                                 <label class="block text-sm font-medium">组名称<input id="user-management-group-name" required maxlength="150" class="mt-1 w-full px-3 py-2 border rounded-lg"></label>
-                                <div>
-                                    <label class="block text-sm font-medium">额外权限</label>
-                                    <input id="user-management-group-permission-search" type="search" placeholder="搜索权限名称或 codename" class="mt-1 w-full px-3 py-2 border rounded-lg">
-                                    <div id="user-management-group-permissions" class="mt-2 h-80 overflow-y-auto border rounded-lg"></div>
-                                </div>
+                                <label class="block text-sm font-medium">组说明<textarea id="user-management-group-description" maxlength="500" rows="4" class="mt-1 w-full px-3 py-2 border rounded-lg"></textarea></label>
+                                <label class="flex items-center gap-2 text-sm"><input id="user-management-group-active" type="checkbox" checked>启用用户组</label>
                                 <div id="user-management-group-error" class="text-sm text-red-700"></div>
                                 <div class="flex justify-end"><button type="submit" class="px-5 py-2 bg-emerald-700 text-white rounded-lg">保存用户组</button></div>
                             </form>
@@ -1913,7 +1910,7 @@
                                 <label class="flex items-center gap-2 text-sm"><input id="user-management-is-active" type="checkbox" checked>启用账号</label>
                                 <label class="text-sm font-medium">权限<select id="user-management-role" class="mt-1 w-full px-3 py-2 border rounded-lg"><option value="member" selected>普通会员</option><option value="staff">Staff</option><option value="superuser">超级管理员</option></select></label>
                             </div>
-                            <label class="block text-sm font-medium">所属用户组<select id="user-management-groups" multiple class="mt-1 w-full min-h-24 px-3 py-2 border rounded-lg"></select><span class="block mt-1 text-xs text-gray-500">用户组仅增加额外权限，不授予 Staff 或超级管理员身份。</span></label>
+                            <label class="block text-sm font-medium">所属用户组<select id="user-management-groups" class="mt-1 w-full px-3 py-2 border rounded-lg"><option value="">未分组</option></select><span class="block mt-1 text-xs text-gray-500">业务用户组只用于分类和归属，不授予 Django 权限。</span></label>
                             <div id="user-management-form-error" class="hidden rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"></div>
                             <div class="flex justify-end gap-3"><button id="user-management-cancel" type="button" class="px-5 py-2 border rounded-lg">取消</button><button id="user-management-submit" type="submit" class="px-5 py-2 bg-blue-600 text-white rounded-lg">保存</button></div>
                         </form>
