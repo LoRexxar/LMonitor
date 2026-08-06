@@ -365,7 +365,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             self.fail('anonymous login icon link is missing')
         self.assertEqual(login_link.get('href'), '/auth/login/?next=/dashboard/')
         self.assertEqual(login_link.get_text(' ', strip=True), '')
-        self.assertIsNotNone(login_link.select_one('use[href$="#icon-login"]'))
+        self.assertIsNotNone(login_link.select_one('use[href$="#icon-user"]'))
         self.assertNotIn('<span>登录后台</span>', shared_header)
         self.assertIn('<form method="post" action="/auth/logout/"', shared_header)
         self.assertIn('{% csrf_token %}', shared_header)
