@@ -252,6 +252,10 @@ def _merge_nodes_for_simulator(full_nodes, decoded_states=None, active_hero_subt
             payload['points'] = points
             payload['selected'] = bool(state.get('selected') or points > 0)
             payload['purchased'] = state.get('purchased', True)
+            if 'is_choice_node' in state:
+                payload['is_choice_node'] = bool(state.get('is_choice_node'))
+            if state.get('choice_selection') is not None:
+                payload['choice_selection'] = _to_int(state.get('choice_selection'), 0)
         if key == hero_root_key:
             payload['points'] = 1
             payload['selected'] = True
