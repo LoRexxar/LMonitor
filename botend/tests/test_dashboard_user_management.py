@@ -82,6 +82,58 @@ class DashboardUserManagementApiTests(TestCase):
         self.assertFalse(created.is_superuser)
         self.assertNotIn('password', response.json()['data'])
 
+    def test_create_defaults_to_regular_member_when_role_is_omitted(self):
+        self.login()
+        response = self.client.post(
+            '/api/dashboard/users/',
+            data=json.dumps({'username': 'default-member', 'password': 'ValidDefault123!'}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        created = User.objects.get(username='default-member')
+        self.assertTrue(created.is_active)
+        self.assertFalse(created.is_staff)
+        self.assertFalse(created.is_superuser)
+
+    def test_quick_create_generates_one_time_password_for_regular_member(self):
+        self.login()
+        response = self.client.post(
+            '/api/dashboard/users/',
+            data=json.dumps({'username': 'quick-member', 'quick_create': True}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        payload = response.json()['data']
+        password = payload['generated_password']
+        self.assertEqual(len(password), 16)
+        self.assertTrue(password.isalnum())
+        created = User.objects.get(username='quick-member')
+        self.assertTrue(created.check_password(password))
+        self.assertTrue(created.is_active)
+        self.assertFalse(created.is_staff)
+        self.assertFalse(created.is_superuser)
+
+        list_payload = self.client.get('/api/dashboard/users/?search=quick-member').json()['data'][0]
+        self.assertNotIn('generated_password', list_payload)
+        self.assertNotIn('password', list_payload)
+
+    def test_quick_create_accepts_only_username_and_mode(self):
+        self.login()
+        response = self.client.post(
+            '/api/dashboard/users/',
+            data=json.dumps({
+                'username': 'unsafe-quick-member',
+                'quick_create': True,
+                'is_staff': True,
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(User.objects.filter(username='unsafe-quick-member').exists())
+
     def test_superuser_can_edit_profile_flags_and_optionally_reset_password(self):
         target = User.objects.create_user(
             username='editable-user',
@@ -201,3 +253,15 @@ class DashboardUserManagementFrontendContractTests(TestCase):
         self.assertNotIn('password_hash', javascript)
         self.assertNotIn("user.password", javascript)
         self.assertIn("if (!id || password) payload.password = password", javascript)
+
+    def test_frontend_exposes_quick_regular_member_creation_and_copy_result(self):
+        self.client.force_login(self.admin)
+        response = self.client.get('/dashboard/')
+        self.assertContains(response, 'id="user-management-quick-add"')
+        self.assertContains(response, '快速创建普通会员')
+
+        javascript = (ROOT / 'static/dashboard/js/user_management.js').read_text(encoding='utf-8')
+        self.assertIn('quick_create: true', javascript)
+        self.assertIn('generated_password', javascript)
+        self.assertIn('navigator.clipboard', javascript)
+        self.assertIn('权限：普通会员', javascript)

@@ -1,7 +1,16 @@
 (() => {
     'use strict';
 
-    const state = { page: 1, pageSize: 25, search: '', users: new Map(), loaded: false, requestId: 0 };
+    const state = {
+        page: 1,
+        pageSize: 25,
+        search: '',
+        users: new Map(),
+        loaded: false,
+        requestId: 0,
+        quickRequestId: 0,
+        quickCreating: false,
+    };
     const byId = id => document.getElementById(id);
 
     function csrfToken() {
@@ -75,7 +84,7 @@
             permissions.className = 'px-4 py-3 text-sm';
             if (user.is_superuser) permissions.appendChild(badge('超级管理员', 'bg-purple-100 text-purple-700'));
             if (user.is_staff) permissions.appendChild(badge('Staff', 'bg-blue-100 text-blue-700'));
-            if (!user.is_staff && !user.is_superuser) permissions.appendChild(badge('普通用户', 'bg-gray-100 text-gray-600'));
+            if (!user.is_staff && !user.is_superuser) permissions.appendChild(badge('普通会员', 'bg-gray-100 text-gray-600'));
             row.appendChild(permissions);
 
             const status = document.createElement('td');
@@ -156,9 +165,9 @@
         byId('user-management-password').required = !editing;
         byId('user-management-password-label').textContent = editing ? '重置密码（可选）' : '密码';
         byId('user-management-password-help').textContent = editing ? '留空表示保持原密码不变。' : '新增用户必须设置密码。';
+        const role = user?.is_superuser ? 'superuser' : (user?.is_staff ? 'staff' : 'member');
         byId('user-management-is-active').checked = editing ? user.is_active : true;
-        byId('user-management-is-staff').checked = editing ? user.is_staff : false;
-        byId('user-management-is-superuser').checked = editing ? user.is_superuser : false;
+        byId('user-management-role').value = editing ? role : 'member';
         setFormError('');
         const modal = byId('user-management-modal');
         modal.classList.remove('hidden');
@@ -173,18 +182,124 @@
         setFormError('');
     }
 
+    async function quickCreateUser() {
+        const username = byId('user-management-quick-username').value.trim();
+        if (!username) {
+            byId('user-management-quick-error').textContent = '请输入用户名';
+            byId('user-management-quick-error').classList.remove('hidden');
+            return;
+        }
+        const button = byId('user-management-quick-submit');
+        const requestId = ++state.quickRequestId;
+        state.quickCreating = true;
+        button.disabled = true;
+        byId('user-management-quick-close').disabled = true;
+        byId('user-management-quick-cancel').disabled = true;
+        try {
+            const response = await fetch('/api/dashboard/users/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken() },
+                body: JSON.stringify({ username, quick_create: true }),
+            });
+            const result = await response.json();
+            if (requestId !== state.quickRequestId) return;
+            if (!response.ok) throw new Error(formatError(result));
+            const data = result.data;
+            const explanation = `账号：${data.username}\n密码：${data.generated_password}\n权限：普通会员`;
+            byId('user-management-quick-result').textContent = explanation;
+            byId('user-management-quick-result').classList.remove('hidden');
+            try {
+                await copyText(explanation);
+                if (requestId !== state.quickRequestId) return;
+                byId('user-management-quick-copy-status').textContent = '已自动复制到剪贴板';
+            } catch (copyError) {
+                if (requestId !== state.quickRequestId) return;
+                byId('user-management-quick-copy-status').textContent = '自动复制失败，请点击“复制说明”';
+            }
+            byId('user-management-quick-copy').disabled = false;
+            byId('user-management-quick-copy').onclick = () => copyText(explanation).then(
+                () => { byId('user-management-quick-copy-status').textContent = '已复制到剪贴板'; },
+                () => { byId('user-management-quick-copy-status').textContent = '复制失败，请手动复制'; },
+            );
+            setMessage('账号已创建');
+            state.page = 1;
+            await loadDashboardUsers();
+        } catch (error) {
+            if (requestId !== state.quickRequestId) return;
+            byId('user-management-quick-error').textContent = error.message || '快捷创建失败';
+            byId('user-management-quick-error').classList.remove('hidden');
+        } finally {
+            if (requestId === state.quickRequestId) {
+                state.quickCreating = false;
+                button.disabled = false;
+                byId('user-management-quick-close').disabled = false;
+                byId('user-management-quick-cancel').disabled = false;
+            }
+        }
+    }
+
+    function copyText(text) {
+        if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+        const input = document.createElement('textarea');
+        input.value = text;
+        input.style.position = 'fixed';
+        input.style.opacity = '0';
+        document.body.appendChild(input);
+        try {
+            input.select();
+            if (!document.execCommand('copy')) throw new Error('浏览器拒绝复制');
+            return Promise.resolve();
+        } catch (error) {
+            return Promise.reject(error);
+        } finally {
+            input.remove();
+        }
+    }
+
+    function clearQuickCreateResult() {
+        const result = byId('user-management-quick-result');
+        result.textContent = '';
+        result.classList.add('hidden');
+        const copy = byId('user-management-quick-copy');
+        copy.disabled = true;
+        copy.onclick = null;
+        byId('user-management-quick-copy-status').textContent = '';
+    }
+
+    function openQuickCreate() {
+        if (state.quickCreating) return;
+        state.quickRequestId += 1;
+        byId('user-management-quick-username').value = '';
+        byId('user-management-quick-error').classList.add('hidden');
+        clearQuickCreateResult();
+        const modal = byId('user-management-quick-modal');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        byId('user-management-quick-username').focus();
+    }
+
+    function closeQuickCreate() {
+        if (state.quickCreating) return;
+        state.quickRequestId += 1;
+        clearQuickCreateResult();
+        byId('user-management-quick-username').value = '';
+        const modal = byId('user-management-quick-modal');
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
     async function submitUser(event) {
         event.preventDefault();
         const id = byId('user-management-user-id').value;
         const password = byId('user-management-password').value;
+        const role = byId('user-management-role').value;
         const payload = {
             username: byId('user-management-username').value,
             email: byId('user-management-email').value,
             first_name: byId('user-management-first-name').value,
             last_name: byId('user-management-last-name').value,
             is_active: byId('user-management-is-active').checked,
-            is_staff: byId('user-management-is-staff').checked,
-            is_superuser: byId('user-management-is-superuser').checked,
+            is_staff: role === 'staff' || role === 'superuser',
+            is_superuser: role === 'superuser',
         };
         if (!id || password) payload.password = password;
 
@@ -212,6 +327,13 @@
     document.addEventListener('DOMContentLoaded', () => {
         if (!byId('user-management')) return;
         byId('user-management-add').addEventListener('click', () => openModal());
+        byId('user-management-quick-add').addEventListener('click', openQuickCreate);
+        byId('user-management-quick-close').addEventListener('click', closeQuickCreate);
+        byId('user-management-quick-cancel').addEventListener('click', closeQuickCreate);
+        byId('user-management-quick-form').addEventListener('submit', event => {
+            event.preventDefault();
+            quickCreateUser();
+        });
         byId('user-management-modal-close').addEventListener('click', closeModal);
         byId('user-management-cancel').addEventListener('click', closeModal);
         byId('user-management-form').addEventListener('submit', submitUser);

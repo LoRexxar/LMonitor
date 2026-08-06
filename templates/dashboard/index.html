@@ -1812,7 +1812,10 @@
                                 <option value="10">10 条</option><option value="25" selected>25 条</option><option value="50">50 条</option><option value="100">100 条</option>
                             </select>
                         </div>
-                        <button id="user-management-add" type="button" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"><i class="fas fa-user-plus mr-2"></i>新增用户</button>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <button id="user-management-quick-add" type="button" class="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"><i class="fas fa-key mr-2"></i>快速创建普通会员</button>
+                            <button id="user-management-add" type="button" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"><i class="fas fa-user-plus mr-2"></i>新增用户</button>
+                        </div>
                     </div>
                     <div id="user-management-message" class="hidden mt-4 rounded-lg px-4 py-3 text-sm"></div>
                 </div>
@@ -1830,6 +1833,25 @@
                     </div>
                     <div class="px-6 py-4 bg-gray-50 border-t flex items-center justify-between gap-4"><div id="user-management-page-info" class="text-sm text-gray-700"></div><div id="user-management-pagination" class="flex gap-2"></div></div>
                 </div>
+                <div id="user-management-quick-modal" class="fixed inset-0 bg-black bg-opacity-70 hidden z-[1000] items-start justify-center overflow-y-auto p-3">
+                    <div class="relative w-full max-w-md my-6 bg-white rounded-lg shadow-2xl overflow-hidden">
+                        <div class="bg-emerald-600 px-5 py-4 flex items-center justify-between">
+                            <h3 class="text-lg font-bold text-white">快速创建普通会员</h3>
+                            <button id="user-management-quick-close" type="button" class="text-white text-2xl leading-none" aria-label="关闭">&times;</button>
+                        </div>
+                        <form id="user-management-quick-form" class="p-5 space-y-4">
+                            <label class="block text-sm font-medium">用户名<input id="user-management-quick-username" required maxlength="150" autocomplete="off" class="mt-1 w-full px-3 py-2 border rounded-lg"></label>
+                            <div id="user-management-quick-error" class="hidden rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"></div>
+                            <pre id="user-management-quick-result" class="hidden whitespace-pre-wrap rounded-lg border bg-gray-50 p-4 text-sm text-gray-900"></pre>
+                            <div id="user-management-quick-copy-status" class="text-xs text-gray-500"></div>
+                            <div class="flex flex-wrap justify-end gap-2">
+                                <button id="user-management-quick-cancel" type="button" class="px-4 py-2 border rounded-lg">关闭</button>
+                                <button id="user-management-quick-copy" type="button" disabled class="px-4 py-2 border border-emerald-300 text-emerald-700 rounded-lg disabled:cursor-not-allowed disabled:opacity-40">复制说明</button>
+                                <button id="user-management-quick-submit" type="submit" class="px-4 py-2 bg-emerald-600 text-white rounded-lg">创建并复制</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
                 <div id="user-management-modal" class="fixed inset-0 bg-black bg-opacity-70 hidden z-[1000] items-start justify-center overflow-y-auto p-3">
                     <div class="relative w-full max-w-2xl my-6 bg-white rounded-2xl shadow-2xl overflow-hidden">
                         <div class="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 flex items-center justify-between"><h3 id="user-management-modal-title" class="text-xl font-bold text-white">新增用户</h3><button id="user-management-modal-close" type="button" class="text-white text-2xl" aria-label="关闭">&times;</button></div>
@@ -1842,10 +1864,9 @@
                                 <label class="text-sm font-medium">名<input id="user-management-first-name" maxlength="150" class="mt-1 w-full px-3 py-2 border rounded-lg"></label>
                             </div>
                             <label class="block text-sm font-medium"><span id="user-management-password-label">密码</span><input id="user-management-password" type="password" autocomplete="new-password" class="mt-1 w-full px-3 py-2 border rounded-lg"><span id="user-management-password-help" class="block mt-1 text-xs text-gray-500">新增用户必须设置密码。</span></label>
-                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-lg bg-gray-50 p-4">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-lg bg-gray-50 p-4">
                                 <label class="flex items-center gap-2 text-sm"><input id="user-management-is-active" type="checkbox" checked>启用账号</label>
-                                <label class="flex items-center gap-2 text-sm"><input id="user-management-is-staff" type="checkbox">Staff</label>
-                                <label class="flex items-center gap-2 text-sm"><input id="user-management-is-superuser" type="checkbox">超级管理员</label>
+                                <label class="text-sm font-medium">权限<select id="user-management-role" class="mt-1 w-full px-3 py-2 border rounded-lg"><option value="member" selected>普通会员</option><option value="staff">Staff</option><option value="superuser">超级管理员</option></select></label>
                             </div>
                             <div id="user-management-form-error" class="hidden rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"></div>
                             <div class="flex justify-end gap-3"><button id="user-management-cancel" type="button" class="px-5 py-2 border rounded-lg">取消</button><button id="user-management-submit" type="submit" class="px-5 py-2 bg-blue-600 text-white rounded-lg">保存</button></div>

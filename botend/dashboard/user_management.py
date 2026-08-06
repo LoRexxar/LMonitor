@@ -1,5 +1,7 @@
 import json
 import math
+import secrets
+import string
 
 from django.contrib.auth import get_user_model, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
@@ -18,7 +20,24 @@ USER_FIELDS = {
     'username', 'email', 'first_name', 'last_name',
     'is_active', 'is_staff', 'is_superuser', 'password',
 }
+CREATE_FIELDS = USER_FIELDS | {'quick_create'}
 BOOLEAN_FIELDS = {'is_active', 'is_staff', 'is_superuser'}
+QUICK_CREATE_FIELDS = {'username', 'quick_create'}
+QUICK_PASSWORD_ALPHABET = string.ascii_letters + string.digits
+
+
+def _generate_password(length=16):
+    required = [
+        secrets.choice(string.ascii_lowercase),
+        secrets.choice(string.ascii_uppercase),
+        secrets.choice(string.digits),
+    ]
+    password = required + [
+        secrets.choice(QUICK_PASSWORD_ALPHABET)
+        for _ in range(length - len(required))
+    ]
+    secrets.SystemRandom().shuffle(password)
+    return ''.join(password)
 
 
 def _error(message, *, status=400, errors=None):
@@ -34,14 +53,14 @@ def _require_superuser(request):
     return None
 
 
-def _parse_payload(request):
+def _parse_payload(request, *, allowed_fields=USER_FIELDS):
     try:
         payload = json.loads(request.body or b'{}')
     except (TypeError, ValueError, json.JSONDecodeError):
         raise ValidationError('请求 JSON 格式无效')
     if not isinstance(payload, dict):
         raise ValidationError('请求数据必须是对象')
-    unknown = sorted(set(payload) - USER_FIELDS)
+    unknown = sorted(set(payload) - allowed_fields)
     if unknown:
         raise ValidationError(f'不允许的字段：{", ".join(unknown)}')
     for field in BOOLEAN_FIELDS & payload.keys():
@@ -112,9 +131,15 @@ class DashboardUserListAPIView(View):
         if denied:
             return denied
         try:
-            payload = _parse_payload(request)
+            payload = _parse_payload(request, allowed_fields=CREATE_FIELDS)
+            quick_create = payload.get('quick_create', False)
+            if not isinstance(quick_create, bool):
+                raise ValidationError({'quick_create': ['必须是布尔值']})
+            if quick_create and set(payload) != QUICK_CREATE_FIELDS:
+                raise ValidationError('快捷创建只允许提交用户名')
+
             username = str(payload.get('username', '')).strip()
-            password = payload.get('password')
+            password = _generate_password() if quick_create else payload.get('password')
             if not username:
                 raise ValidationError({'username': ['用户名不能为空']})
             if not isinstance(password, str) or not password:
@@ -123,18 +148,21 @@ class DashboardUserListAPIView(View):
             with transaction.atomic():
                 user = User(
                     username=username,
-                    email=str(payload.get('email', '')).strip(),
-                    first_name=str(payload.get('first_name', '')).strip(),
-                    last_name=str(payload.get('last_name', '')).strip(),
-                    is_active=payload.get('is_active', True),
-                    is_staff=payload.get('is_staff', False),
-                    is_superuser=payload.get('is_superuser', False),
+                    email='' if quick_create else str(payload.get('email', '')).strip(),
+                    first_name='' if quick_create else str(payload.get('first_name', '')).strip(),
+                    last_name='' if quick_create else str(payload.get('last_name', '')).strip(),
+                    is_active=True if quick_create else payload.get('is_active', True),
+                    is_staff=False if quick_create else payload.get('is_staff', False),
+                    is_superuser=False if quick_create else payload.get('is_superuser', False),
                 )
                 validate_password(password, user=user)
                 user.set_password(password)
                 user.full_clean()
                 user.save()
-            return JsonResponse({'status': 'success', 'data': _serialize_user(user)}, status=201)
+            data = _serialize_user(user)
+            if quick_create:
+                data['generated_password'] = password
+            return JsonResponse({'status': 'success', 'data': data}, status=201)
         except ValidationError as exc:
             return _validation_error_response(exc)
         except IntegrityError:
