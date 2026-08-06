@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group, Permission
 from django.test import TestCase
 
 
@@ -37,6 +38,78 @@ class DashboardUserManagementApiTests(TestCase):
         )
         self.assertEqual(response.status_code, 403)
         self.assertFalse(User.objects.filter(username='blocked-user').exists())
+
+    def test_superuser_can_create_group_and_assign_group_membership_without_staff_access(self):
+        self.login()
+        permission = Permission.objects.filter(content_type__app_label='botend').first()
+        self.assertIsNotNone(permission)
+        response = self.client.post(
+            '/api/dashboard/user-groups/',
+            data=json.dumps({'name': '内容审核组', 'permission_ids': [permission.pk]}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        group = Group.objects.get(name='内容审核组')
+        self.assertEqual(list(group.permissions.values_list('pk', flat=True)), [permission.pk])
+
+        response = self.client.post(
+            '/api/dashboard/users/',
+            data=json.dumps({
+                'username': 'group-member',
+                'password': 'GroupMember-pass-123!',
+                'group_ids': [group.pk],
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        member = User.objects.get(username='group-member')
+        self.assertFalse(member.is_staff)
+        self.assertFalse(member.is_superuser)
+        self.assertTrue(member.has_perm(
+            f'{permission.content_type.app_label}.{permission.codename}'
+        ))
+        self.assertEqual(response.json()['data']['groups'], [{'id': group.pk, 'name': group.name}])
+
+        response = self.client.patch(
+            f'/api/dashboard/user-groups/{group.pk}/',
+            data=json.dumps({'name': '内容审核二组', 'permission_ids': []}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        group.refresh_from_db()
+        self.assertEqual(group.name, '内容审核二组')
+        self.assertFalse(group.permissions.exists())
+
+    def test_group_rejects_system_permissions_and_unknown_membership_ids(self):
+        self.login()
+        system_permission = Permission.objects.get(codename='change_user')
+        response = self.client.post(
+            '/api/dashboard/user-groups/',
+            data=json.dumps({'name': '越权组', 'permission_ids': [system_permission.pk]}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Group.objects.filter(name='越权组').exists())
+
+        response = self.client.post(
+            '/api/dashboard/users/',
+            data=json.dumps({
+                'username': 'invalid-group-member',
+                'password': 'InvalidGroup-pass-123!',
+                'group_ids': [999999],
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(User.objects.filter(username='invalid-group-member').exists())
+
+    def test_group_user_cannot_create_or_modify_groups(self):
+        group = Group.objects.create(name='普通组')
+        member = User.objects.create_user(username='group-only', password='GroupOnly-pass-123!')
+        member.groups.add(group)
+        self.login(member)
+        response = self.client.get('/api/dashboard/user-groups/')
+        self.assertEqual(response.status_code, 403)
 
     def test_superuser_can_list_search_and_page_users_without_password_data(self):
         User.objects.create_user(username='alpha-user', email='alpha@example.com', password='Alpha-pass-123!')

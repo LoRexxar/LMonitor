@@ -13,6 +13,11 @@
         resetRequestId: 0,
         resettingPassword: false,
         resetUser: null,
+        groups: [],
+        permissions: [],
+        editingGroupId: null,
+        groupsLoaded: false,
+        editingUserGroupIds: [],
     };
     const byId = id => document.getElementById(id);
 
@@ -88,6 +93,7 @@
             if (user.is_superuser) permissions.appendChild(badge('超级管理员', 'bg-purple-100 text-purple-700'));
             if (user.is_staff) permissions.appendChild(badge('Staff', 'bg-blue-100 text-blue-700'));
             if (!user.is_staff && !user.is_superuser) permissions.appendChild(badge('普通会员', 'bg-gray-100 text-gray-600'));
+            (user.groups || []).forEach(group => permissions.appendChild(badge(group.name, 'bg-emerald-100 text-emerald-700')));
             row.appendChild(permissions);
 
             const status = document.createElement('td');
@@ -161,6 +167,112 @@
         }
     }
 
+    function renderGroupOptions(selectedIds = []) {
+        const select = byId('user-management-groups');
+        const selected = new Set(selectedIds.map(String));
+        select.replaceChildren();
+        state.groups.forEach(group => {
+            const option = document.createElement('option');
+            option.value = group.id;
+            option.textContent = group.name;
+            option.selected = selected.has(String(group.id));
+            select.appendChild(option);
+        });
+    }
+
+    function renderGroupList() {
+        const list = byId('user-management-group-list');
+        list.replaceChildren();
+        state.groups.forEach(group => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'w-full border-b px-4 py-3 text-left hover:bg-gray-50';
+            button.textContent = `${group.name} · ${group.user_count} 人 · ${group.permissions.length} 项权限`;
+            button.addEventListener('click', () => editGroup(group));
+            list.appendChild(button);
+        });
+        if (!state.groups.length) list.textContent = '尚未创建用户组';
+    }
+
+    async function loadUserGroups() {
+        const response = await fetch('/api/dashboard/user-groups/', { headers: { 'Accept': 'application/json' } });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(formatError(payload));
+        state.groups = payload.data;
+        state.permissions = payload.permissions;
+        state.groupsLoaded = true;
+        renderGroupOptions(state.editingUserGroupIds);
+        renderGroupList();
+    }
+
+    function renderPermissionOptions(selectedIds = []) {
+        const selected = new Set(selectedIds.map(String));
+        const query = byId('user-management-group-permission-search').value.trim().toLowerCase();
+        const list = byId('user-management-group-permissions');
+        list.replaceChildren();
+        state.permissions.forEach(permission => {
+            const permissionText = `${permission.name} ${permission.app_label}.${permission.codename}`.toLowerCase();
+            const label = document.createElement('label');
+            label.className = 'flex items-start gap-2 px-3 py-2 text-sm hover:bg-gray-50';
+            label.hidden = Boolean(query) && !permissionText.includes(query);
+            const input = document.createElement('input');
+            input.type = 'checkbox';
+            input.value = permission.id;
+            input.checked = selected.has(String(permission.id));
+            const text = document.createElement('span');
+            text.textContent = `${permission.name} (${permission.app_label}.${permission.codename})`;
+            label.append(input, text);
+            list.appendChild(label);
+        });
+    }
+
+    function editGroup(group = null) {
+        state.editingGroupId = group?.id || null;
+        byId('user-management-group-name').value = group?.name || '';
+        byId('user-management-group-form-title').textContent = group ? '编辑用户组' : '新建用户组';
+        byId('user-management-group-permission-search').value = '';
+        renderPermissionOptions((group?.permissions || []).map(permission => permission.id));
+    }
+
+    async function openGroupModal() {
+        try {
+            await loadUserGroups();
+            editGroup();
+            const modal = byId('user-management-group-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        } catch (error) {
+            setMessage(error.message || '加载用户组失败', true);
+        }
+    }
+
+    function closeGroupModal() {
+        const modal = byId('user-management-group-modal');
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+
+    async function submitGroup(event) {
+        event.preventDefault();
+        const permissionIds = [...byId('user-management-group-permissions').querySelectorAll('input:checked')]
+            .map(input => Number(input.value));
+        const id = state.editingGroupId;
+        const response = await fetch(id ? `/api/dashboard/user-groups/${id}/` : '/api/dashboard/user-groups/', {
+            method: id ? 'PATCH' : 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken() },
+            body: JSON.stringify({ name: byId('user-management-group-name').value, permission_ids: permissionIds }),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+            byId('user-management-group-error').textContent = formatError(payload);
+            return;
+        }
+        byId('user-management-group-error').textContent = '';
+        await loadUserGroups();
+        editGroup(payload.data);
+        await loadDashboardUsers();
+    }
+
     function openModal(user = null) {
         const editing = Boolean(user);
         byId('user-management-modal-title').textContent = editing ? '编辑用户' : '新增用户';
@@ -176,6 +288,8 @@
         const role = user?.is_superuser ? 'superuser' : (user?.is_staff ? 'staff' : 'member');
         byId('user-management-is-active').checked = editing ? user.is_active : true;
         byId('user-management-role').value = editing ? role : 'member';
+        state.editingUserGroupIds = (user?.groups || []).map(group => group.id);
+        renderGroupOptions(state.editingUserGroupIds);
         setFormError('');
         const modal = byId('user-management-modal');
         modal.classList.remove('hidden');
@@ -187,6 +301,7 @@
         modal.classList.add('hidden');
         modal.classList.remove('flex');
         byId('user-management-form').reset();
+        state.editingUserGroupIds = [];
         setFormError('');
     }
 
@@ -397,6 +512,10 @@
 
     async function submitUser(event) {
         event.preventDefault();
+        if (!state.groupsLoaded) {
+            setFormError('用户组数据尚未加载，暂不能保存用户');
+            return;
+        }
         const id = byId('user-management-user-id').value;
         const password = byId('user-management-password').value;
         const role = byId('user-management-role').value;
@@ -408,6 +527,7 @@
             is_active: byId('user-management-is-active').checked,
             is_staff: role === 'staff' || role === 'superuser',
             is_superuser: role === 'superuser',
+            group_ids: [...byId('user-management-groups').selectedOptions].map(option => Number(option.value)),
         };
         if (!id || password) payload.password = password;
 
@@ -435,6 +555,16 @@
     document.addEventListener('DOMContentLoaded', () => {
         if (!byId('user-management')) return;
         byId('user-management-add').addEventListener('click', () => openModal());
+        byId('user-management-groups-button').addEventListener('click', openGroupModal);
+        byId('user-management-group-close').addEventListener('click', closeGroupModal);
+        byId('user-management-group-new').addEventListener('click', () => editGroup());
+        byId('user-management-group-form').addEventListener('submit', submitGroup);
+        byId('user-management-group-permission-search').addEventListener('input', event => {
+            const query = event.target.value.trim().toLowerCase();
+            byId('user-management-group-permissions').querySelectorAll('label').forEach(label => {
+                label.hidden = Boolean(query) && !label.textContent.toLowerCase().includes(query);
+            });
+        });
         byId('user-management-quick-add').addEventListener('click', openQuickCreate);
         byId('user-management-quick-close').addEventListener('click', closeQuickCreate);
         byId('user-management-quick-cancel').addEventListener('click', closeQuickCreate);
@@ -448,6 +578,10 @@
         byId('user-management-modal-close').addEventListener('click', closeModal);
         byId('user-management-cancel').addEventListener('click', closeModal);
         byId('user-management-form').addEventListener('submit', submitUser);
+        byId('user-management-groups').addEventListener('change', event => {
+            state.editingUserGroupIds = [...event.target.selectedOptions]
+                .map(option => Number(option.value));
+        });
         byId('user-management-page-size').addEventListener('change', event => {
             state.pageSize = Number(event.target.value) || 25;
             state.page = 1;
@@ -462,6 +596,7 @@
                 loadDashboardUsers();
             }, 250);
         });
+        loadUserGroups().catch(error => setMessage(error.message || '加载用户组失败', true));
     });
 
     window.loadDashboardUsers = loadDashboardUsers;

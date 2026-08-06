@@ -40,7 +40,12 @@ from botend.dashboard.api import (
     SimcRaidBuffOptionsAPIView,
 )
 from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, ChangePasswordView
-from botend.dashboard.user_management import DashboardUserListAPIView, DashboardUserDetailAPIView
+from botend.dashboard.user_management import (
+    DashboardUserDetailAPIView,
+    DashboardUserGroupDetailAPIView,
+    DashboardUserGroupListAPIView,
+    DashboardUserListAPIView,
+)
 from botend.portal.views import PortalHomeView, PortalSimcBenchmarkResultsView
 from botend.portal.views import PortalArticleView, PortalNewsView, PortalSpecsView
 from botend.portal.views import PortalReportFileView, PortalWowHotfixReportView, PortalWowSkillDiffReportView
@@ -123,6 +128,8 @@ urlpatterns = [
     path('dashboard/', DashboardView.as_view(), name="dashboard"),
     path('api/dashboard/users/', DashboardUserListAPIView.as_view(), name='dashboard_user_list'),
     path('api/dashboard/users/<int:user_id>/', DashboardUserDetailAPIView.as_view(), name='dashboard_user_detail'),
+    path('api/dashboard/user-groups/', DashboardUserGroupListAPIView.as_view(), name='dashboard_user_group_list'),
+    path('api/dashboard/user-groups/<int:group_id>/', DashboardUserGroupDetailAPIView.as_view(), name='dashboard_user_group_detail'),
     path('dashboard/mythic-planner/', DashboardMythicPlannerView.as_view(), name='dashboard_mythic_planner'),
     path('dashboard/mythic-planner/positions/', DashboardMythicPlannerPositionsView.as_view(), name='dashboard_mythic_planner_positions'),
     path('dashboard/mythic-planner/routes/', DashboardMythicPlannerRoutesView.as_view(), name='dashboard_mythic_planner_routes'),
