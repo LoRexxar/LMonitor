@@ -1,10 +1,8 @@
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponseForbidden
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.utils.decorators import method_decorator
 from django.views import View
-
-from botend.dashboard.dashboard import DashboardView
 
 
 class PortalMythicPlannerView(View):
@@ -22,7 +20,9 @@ class PortalMythicPlannerView(View):
 
 @method_decorator(login_required, name='dispatch')
 class DashboardMythicPlannerView(View):
-    """仅管理员可访问的大秘境数据维护页。"""
+    """兼容旧管理页 URL，并转入 Dashboard 单页内容区。"""
+
+    dashboard_section = 'mythic-planner-config'
 
     def dispatch(self, request, *args, **kwargs):
         if request.user.is_authenticated and not (request.user.is_staff or request.user.is_superuser):
@@ -30,36 +30,16 @@ class DashboardMythicPlannerView(View):
         return super().dispatch(request, *args, **kwargs)
 
     def get(self, request):
-        context = DashboardView().get_context_data(
-            title='MDT 数据与配置',
-            page_name='mythic-planner',
-            include_stats=False,
-            include_table_counts=False,
-        )
-        return render(request, 'dashboard/mythic_planner.html', context)
+        return redirect(f'/dashboard/?section={self.dashboard_section}')
 
 
 class DashboardMythicPlannerRoutesView(DashboardMythicPlannerView):
-    """账号保存路线与 MDT 分享字符串的独立管理页。"""
+    """兼容账号路线管理页旧 URL。"""
 
-    def get(self, request):
-        context = DashboardView().get_context_data(
-            title='账号路线 / MDT 字符串',
-            page_name='mythic-planner-routes',
-            include_stats=False,
-            include_table_counts=False,
-        )
-        return render(request, 'dashboard/mythic_planner_routes.html', context)
+    dashboard_section = 'mythic-planner-routes'
 
 
 class DashboardMythicPlannerPositionsView(DashboardMythicPlannerView):
-    """怪物刷新点的独立可视化维护页。"""
+    """兼容地图点位管理页旧 URL。"""
 
-    def get(self, request):
-        context = DashboardView().get_context_data(
-            title='地图点位编辑',
-            page_name='mythic-planner-positions',
-            include_stats=False,
-            include_table_counts=False,
-        )
-        return render(request, 'dashboard/mythic_planner_positions.html', context)
+    dashboard_section = 'mythic-planner-positions'

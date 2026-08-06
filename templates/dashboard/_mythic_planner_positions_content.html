@@ -6,8 +6,8 @@
             <p>在原 MDT 地图上拖动怪物刷新点；人工保存的坐标会在后续导入时保留。</p>
         </div>
         <div class="mp-admin-actions">
-            <a href="/dashboard/mythic-planner/">数据与配置</a>
-            <a href="/dashboard/mythic-planner/routes/">账号路线 / MDT 字符串</a>
+            <a href="/dashboard/?section=mythic-planner-config" data-dashboard-target="mythic-planner-config">数据与配置</a>
+            <a href="/dashboard/?section=mythic-planner-routes" data-dashboard-target="mythic-planner-routes">账号路线 / MDT 字符串</a>
             <button id="refresh-positions" type="button">刷新点位</button>
             <a href="/portal/mythic-planner/" target="_blank" rel="noopener">打开规划器预览 ↗</a>
         </div>
@@ -164,4 +164,4 @@
     </main>
 </section>
 
-<div id="admin-toast" class="mp-admin-toast" role="status" hidden></div>
+<div id="mythic-planner-positions-toast" class="mp-admin-toast" role="status" hidden></div>

@@ -349,7 +349,7 @@
             detailSubtitle: $('#route-detail-subtitle'),
             detailBody: $('#route-detail-body'),
             detailActions: $('#route-detail-actions'),
-            toast: $('#admin-toast'),
+            toast: $('#mythic-planner-routes-toast'),
         });
     }
 

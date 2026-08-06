@@ -341,9 +341,15 @@
     {% if page_name == 'dashboard' %}
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>window.SIMC_APL_EDITOR_MODULE_URL = "{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260727b";</script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260805a"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260806a"></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260805_apl_cn_labels"></script>
     <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260804e"></script>
+    {% if user.is_staff or user.is_superuser %}
+    <link rel="stylesheet" href="{% static 'dashboard/css/mythic_planner.css' %}?v=20260806a">
+    <script src="{% static 'dashboard/js/mythic_planner.js' %}?v=20260806a" defer></script>
+    <script src="{% static 'dashboard/js/mythic_planner_positions.js' %}?v=20260806a" defer></script>
+    <script src="{% static 'dashboard/js/mythic_planner_routes.js' %}?v=20260806a" defer></script>
+    {% endif %}
     {% else %}
     <script src="{% static 'dashboard/js/dashboard_shell.js' %}?v=20260728b" defer></script>
     {% endif %}
@@ -474,32 +480,35 @@
                             日志文件
                         </a>
                     </li>
-                    <li>
-                        <a href="/dashboard/mythic-planner/" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                    {% if user.is_staff or user.is_superuser %}
+                    <li class="nav-item has-submenu" data-section="mythic-planner">
+                        <a href="#" aria-expanded="false" aria-controls="mythic-planner-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-route mr-3"></i>
                             大秘境规划器
+                            <i class="fas fa-chevron-down ml-auto text-xs"></i>
                         </a>
-                        <ul class="sidebar-submenu mt-1 ml-6 space-y-1 border-l border-gray-200 pl-3">
-                            <li>
-                                <a href="/dashboard/mythic-planner/" class="block px-3 py-2 text-sm rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200 {% if page_name == 'mythic-planner' %}bg-blue-50 text-blue-700 font-semibold{% else %}text-gray-600{% endif %}">
+                        <ul id="mythic-planner-sidebar-submenu" class="sidebar-submenu submenu mt-2 ml-6 space-y-1 overflow-hidden transition-all duration-300">
+                            <li class="submenu-item" data-dashboard-section="mythic-planner-config">
+                                <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-database mr-2 text-xs"></i>
                                     数据与配置
                                 </a>
                             </li>
-                            <li>
-                                <a href="/dashboard/mythic-planner/positions/" class="block px-3 py-2 text-sm rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200 {% if page_name == 'mythic-planner-positions' %}bg-blue-50 text-blue-700 font-semibold{% else %}text-gray-600{% endif %}">
+                            <li class="submenu-item" data-dashboard-section="mythic-planner-positions">
+                                <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-map-location-dot mr-2 text-xs"></i>
                                     地图点位编辑
                                 </a>
                             </li>
-                            <li>
-                                <a href="/dashboard/mythic-planner/routes/" class="block px-3 py-2 text-sm rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200 {% if page_name == 'mythic-planner-routes' %}bg-blue-50 text-blue-700 font-semibold{% else %}text-gray-600{% endif %}">
+                            <li class="submenu-item" data-dashboard-section="mythic-planner-routes">
+                                <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-share-nodes mr-2 text-xs"></i>
                                     账号路线 / MDT 字符串
                                 </a>
                             </li>
                         </ul>
                     </li>
+                    {% endif %}
                     <li class="nav-item has-submenu open" data-section="simc">
                         <a href="#" aria-expanded="true" aria-controls="simc-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-microchip mr-3"></i>
@@ -580,6 +589,17 @@
         <!-- 右侧内容区域 -->
         <div class="main-content p-8 bg-gray-50">
             {% block dashboard_content %}
+            {% if user.is_staff or user.is_superuser %}
+            <div id="mythic-planner-config" class="content-section" style="display: none;">
+                {% include 'dashboard/_mythic_planner_config_content.html' %}
+            </div>
+            <div id="mythic-planner-positions" class="content-section" style="display: none;">
+                {% include 'dashboard/_mythic_planner_positions_content.html' %}
+            </div>
+            <div id="mythic-planner-routes" class="content-section" style="display: none;">
+                {% include 'dashboard/_mythic_planner_routes_content.html' %}
+            </div>
+            {% endif %}
             <!-- 首页内容区域 -->
             <div class="content-section" id="dashboard-home" style="display: none;">
                 <div class="mb-8">

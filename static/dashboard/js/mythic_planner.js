@@ -1064,7 +1064,7 @@
             importJson: $('#import-json'),
             importActivate: $('#import-activate'),
             importReplace: $('#import-replace'),
-            toast: $('#admin-toast'),
+            toast: $('#mythic-planner-config-toast'),
         });
     }
 

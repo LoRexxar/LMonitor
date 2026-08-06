@@ -2438,6 +2438,35 @@ class MythicPlannerDashboardTests(TestCase):
         cls.user = User.objects.create_user(username='normal-user', password='pwd')
         cls.staff = User.objects.create_user(username='staff-user', password='pwd', is_staff=True)
 
+    def test_management_sections_use_dashboard_single_page_navigation(self):
+        self.client.force_login(self.staff)
+        page = self.client.get('/dashboard/')
+
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(
+            page,
+            'class="nav-item has-submenu" data-section="mythic-planner"',
+        )
+        self.assertContains(
+            page,
+            'class="submenu-item" data-dashboard-section="mythic-planner-config"',
+        )
+        self.assertContains(
+            page,
+            'class="submenu-item" data-dashboard-section="mythic-planner-positions"',
+        )
+        self.assertContains(
+            page,
+            'class="submenu-item" data-dashboard-section="mythic-planner-routes"',
+        )
+        self.assertContains(page, 'id="mythic-planner-config" class="content-section')
+        self.assertContains(page, 'id="mythic-planner-positions" class="content-section')
+        self.assertContains(page, 'id="mythic-planner-routes" class="content-section')
+        self.assertContains(page, 'dashboard/js/mythic_planner.js')
+        self.assertContains(page, 'dashboard/js/mythic_planner_positions.js')
+        self.assertContains(page, 'dashboard/js/mythic_planner_routes.js')
+        self.assertNotContains(page, 'dashboard/js/dashboard_shell.js')
+
     def test_management_page_and_api_require_staff(self):
         self.client.force_login(self.user)
         self.assertEqual(self.client.get('/dashboard/mythic-planner/').status_code, 403)
@@ -2456,7 +2485,7 @@ class MythicPlannerDashboardTests(TestCase):
         )
 
         self.client.force_login(self.staff)
-        page = self.client.get('/dashboard/mythic-planner/')
+        page = self.client.get('/dashboard/')
         self.assertEqual(page.status_code, 200)
         self.assertContains(page, 'MDT 数据与配置')
         self.assertContains(page, 'id="sidebar"')
@@ -2466,66 +2495,46 @@ class MythicPlannerDashboardTests(TestCase):
         self.assertNotContains(page, 'class="mp-admin-header"')
         self.assertNotContains(page, 'data-resource="routes"')
         self.assertNotContains(page, 'id="import-builtin-mdt"')
-        self.assertNotContains(page, 'id="spawn-map-editor"')
-        self.assertContains(page, 'dashboard/js/dashboard_shell.js')
-        self.assertNotContains(page, 'dashboard/js/main.js')
-        self.assertNotContains(page, 'dashboard/js/simc-workbench.js')
-        config_html = page.content.decode('utf-8')
-        config_link = re.search(
-            r'href="/dashboard/mythic-planner/" class="(?P<classes>[^"]+)"',
-            config_html,
-        )
-        self.assertIsNotNone(config_link)
-        self.assertIn('bg-blue-50', config_link.group('classes'))
-        position_page = self.client.get('/dashboard/mythic-planner/positions/')
-        self.assertEqual(position_page.status_code, 200)
-        self.assertContains(position_page, '地图点位编辑')
-        self.assertContains(position_page, 'id="spawn-map-editor"')
-        self.assertContains(position_page, 'id="spawn-map-canvas"')
-        self.assertContains(position_page, 'id="spawn-map-create"')
-        self.assertContains(position_page, 'id="spawn-map-enemy"')
-        self.assertNotContains(position_page, 'id="spawn-map-group-key"')
-        self.assertContains(position_page, 'id="spawn-map-group-manage"')
-        self.assertContains(position_page, 'id="spawn-map-group-inspector"')
-        self.assertContains(position_page, 'id="spawn-group-list"')
-        self.assertContains(position_page, 'id="spawn-group-create"')
-        self.assertContains(position_page, 'id="spawn-group-assign"')
-        self.assertContains(position_page, 'id="spawn-group-remove"')
-        self.assertContains(position_page, 'id="spawn-group-restore"')
-        self.assertContains(position_page, 'id="spawn-map-coordinates"')
-        self.assertContains(position_page, 'id="spawn-map-save"')
-        self.assertContains(position_page, '＋ 开始添加怪物')
-        self.assertContains(position_page, '精确坐标（高级微调）')
-        self.assertContains(position_page, 'id="sidebar"')
-        self.assertContains(position_page, 'class="dashboard-shell')
-        self.assertEqual(position_page.content.count(b'<!DOCTYPE html>'), 1)
-        self.assertNotContains(position_page, 'class="mp-admin-header"')
-        position_html = position_page.content.decode('utf-8')
-        position_link = re.search(
-            r'href="/dashboard/mythic-planner/positions/" class="(?P<classes>[^"]+)"',
-            position_html,
-        )
-        self.assertIsNotNone(position_link)
-        self.assertIn('bg-blue-50', position_link.group('classes'))
-        route_page = self.client.get('/dashboard/mythic-planner/routes/')
-        self.assertEqual(route_page.status_code, 200)
-        self.assertContains(route_page, '账号路线 / MDT 字符串')
-        self.assertContains(route_page, 'id="route-table-body"')
-        self.assertContains(route_page, 'id="sidebar"')
-        self.assertContains(route_page, 'id="user-menu-button"')
-        self.assertContains(route_page, 'class="dashboard-shell')
-        self.assertEqual(route_page.content.count(b'<!DOCTYPE html>'), 1)
-        self.assertNotContains(route_page, 'class="mp-admin-header"')
-        route_html = route_page.content.decode('utf-8')
-        route_link = re.search(
-            r'href="/dashboard/mythic-planner/routes/" class="(?P<classes>[^"]+)"',
-            route_html,
-        )
-        self.assertIsNotNone(route_link)
-        self.assertIn('bg-blue-50', route_link.group('classes'))
+        self.assertContains(page, 'id="spawn-map-editor"')
+        self.assertContains(page, 'id="spawn-map-canvas"')
+        self.assertContains(page, 'id="spawn-map-create"')
+        self.assertContains(page, 'id="spawn-map-enemy"')
+        self.assertNotContains(page, 'id="spawn-map-group-key"')
+        self.assertContains(page, 'id="spawn-map-group-manage"')
+        self.assertContains(page, 'id="spawn-map-group-inspector"')
+        self.assertContains(page, 'id="spawn-group-list"')
+        self.assertContains(page, 'id="spawn-group-create"')
+        self.assertContains(page, 'id="spawn-group-assign"')
+        self.assertContains(page, 'id="spawn-group-remove"')
+        self.assertContains(page, 'id="spawn-group-restore"')
+        self.assertContains(page, 'id="spawn-map-coordinates"')
+        self.assertContains(page, 'id="spawn-map-save"')
+        self.assertContains(page, '＋ 开始添加怪物')
+        self.assertContains(page, '精确坐标（高级微调）')
+        self.assertContains(page, 'id="route-table-body"')
+        self.assertContains(page, 'dashboard/js/main.js')
+        self.assertNotContains(page, 'dashboard/js/dashboard_shell.js')
+
+        legacy_sections = {
+            '/dashboard/mythic-planner/': 'mythic-planner-config',
+            '/dashboard/mythic-planner/positions/': 'mythic-planner-positions',
+            '/dashboard/mythic-planner/routes/': 'mythic-planner-routes',
+        }
+        for legacy_url, section in legacy_sections.items():
+            with self.subTest(legacy_url=legacy_url):
+                response = self.client.get(legacy_url)
+                self.assertRedirects(
+                    response,
+                    f'/dashboard/?section={section}',
+                    fetch_redirect_response=False,
+                )
+
         legacy_route_page = self.client.get('/dashboard/mythic-planner/?resource=routes')
-        self.assertEqual(legacy_route_page.status_code, 200)
-        self.assertNotContains(legacy_route_page, 'id="route-table-body"')
+        self.assertRedirects(
+            legacy_route_page,
+            '/dashboard/?section=mythic-planner-config',
+            fetch_redirect_response=False,
+        )
         source_spell = MythicDungeonSpell.objects.first()
         source_spell.metadata = {
             **(source_spell.metadata or {}),
@@ -3208,11 +3217,15 @@ class MythicPlannerPageContractTests(SimpleTestCase):
             / 'index.html'
         ).read_text(encoding='utf-8')
         self.assertIn(
-            'href="/dashboard/mythic-planner/routes/"',
+            'data-dashboard-section="mythic-planner-routes"',
             dashboard_template,
         )
         self.assertIn(
-            'href="/dashboard/mythic-planner/positions/"',
+            'data-dashboard-section="mythic-planner-positions"',
+            dashboard_template,
+        )
+        self.assertIn(
+            'data-dashboard-section="mythic-planner-config"',
             dashboard_template,
         )
         self.assertIn('地图点位编辑', dashboard_template)

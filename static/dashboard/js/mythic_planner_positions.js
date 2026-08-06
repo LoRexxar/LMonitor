@@ -1029,7 +1029,7 @@
             groupRemove: $('#spawn-group-remove'),
             groupRestore: $('#spawn-group-restore'),
             tableBody: $('#position-table-body'),
-            toast: $('#admin-toast'),
+            toast: $('#mythic-planner-positions-toast'),
         });
     }
 

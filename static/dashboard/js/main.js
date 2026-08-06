@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // 初始化导航菜单点击事件
     initNavigation();
     initDashboardQuickEntries();
+    initDashboardSectionLinks();
 
     // 初始化子菜单切换
     initSubmenuToggle();
@@ -288,7 +289,9 @@ function refreshData() {
  * 显示指定 Dashboard 内容区
  */
 function showDashboardSection(sectionId) {
-    const navItem = document.querySelector(`.nav-item[data-section="${sectionId}"]`);
+    const navItem = document.querySelector(
+        `.submenu-item[data-dashboard-section="${sectionId}"], .nav-item[data-section="${sectionId}"]`,
+    );
     if (navItem) {
         const link = navItem.querySelector('a');
         if (link) {
@@ -297,6 +300,15 @@ function showDashboardSection(sectionId) {
             navItem.click();
         }
     }
+}
+
+function initDashboardSectionLinks() {
+    document.querySelectorAll('[data-dashboard-target]').forEach(link => {
+        link.addEventListener('click', event => {
+            event.preventDefault();
+            showDashboardSection(link.dataset.dashboardTarget);
+        });
+    });
 }
 
 /**
@@ -466,7 +478,13 @@ function initNavigation() {
             // 确保父级菜单项也是active
             const parentNavItem = this.closest('.nav-item');
             navItems.forEach(i => i.classList.remove('active'));
-            parentNavItem.classList.add('active');
+            parentNavItem.classList.add('active', 'open');
+            const parentLink = parentNavItem.querySelector(':scope > a');
+            const parentSubmenu = parentNavItem.querySelector(':scope > .submenu');
+            const parentChevron = parentLink?.querySelector('.fa-chevron-down');
+            if (parentLink) parentLink.setAttribute('aria-expanded', 'true');
+            if (parentSubmenu) parentSubmenu.style.maxHeight = `${parentSubmenu.scrollHeight}px`;
+            if (parentChevron) parentChevron.classList.add('rotate-180');
 
             // 检查是否是工具菜单项
             const toolName = this.getAttribute('data-tool');
