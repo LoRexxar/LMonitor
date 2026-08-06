@@ -341,7 +341,7 @@
     {% if page_name == 'dashboard' %}
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>window.SIMC_APL_EDITOR_MODULE_URL = "{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260727b";</script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260806b"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260806c"></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260805_apl_cn_labels"></script>
     <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260804e"></script>
     {% if user.is_staff or user.is_superuser %}
@@ -572,11 +572,18 @@
                             <i class="fas fa-chevron-down ml-auto text-xs"></i>
                         </a>
                         <ul class="sidebar-submenu submenu mt-2 ml-6 space-y-1 max-h-0 overflow-hidden transition-all duration-300">
+                            <li class="px-1 pb-2">
+                                <div class="relative">
+                                    <i class="fas fa-search absolute left-3 top-2.5 text-xs text-gray-400"></i>
+                                    <input id="database-table-filter" type="search" autocomplete="off" placeholder="搜索数据表"
+                                           class="w-full rounded-md border border-gray-200 bg-white py-2 pl-8 pr-3 text-xs text-gray-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                                </div>
+                            </li>
                             {% for table in tables_info %}
-                            <li class="submenu-item" data-table="{{ table.name }}">
-                                <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
+                            <li class="submenu-item database-table-item" data-table="{{ table.name }}" data-table-search="{{ table.display_name|lower }} {{ table.name|lower }}">
+                                <a href="#" title="{{ table.display_name }}" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-table mr-2 text-xs"></i>
-                                    {{ table.description }}
+                                    <span class="block truncate">{{ table.display_name }}</span>
                                 </a>
                             </li>
                             {% endfor %}

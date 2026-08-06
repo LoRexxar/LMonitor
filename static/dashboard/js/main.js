@@ -33,6 +33,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 初始化搜索功能
     initSearch();
+    initDatabaseTableFilter();
     initSimcProfileFilters();
     initWowArticleFilters();
     initWowDailyReportPage();
@@ -4011,6 +4012,12 @@ let currentTableColumns = [];
 let currentFieldTypes = {};
 let currentFieldLabels = {};
 let currentTableDisplayName = '';
+let currentTableCapabilities = {
+    can_create: false,
+    can_update: false,
+    can_delete: false,
+    read_only_reason: ''
+};
 let currentTableRowMap = new Map();
 let currentEditRowId = null;
 let simcProfileSpecFilter = '';
@@ -4021,7 +4028,6 @@ let secondaryStatRuleMap = null;
 let secondaryStatRulePromise = null;
 let tableFetchRequestSeq = 0;
 
-const MANAGED_DATA_ADD_DISABLED_MESSAGE = '该表数据来自采集/聚合任务，不支持手工新增';
 const COMMON_ADD_FORM_HIDDEN_FIELDS = new Set([
     'id',
     'created_at',
@@ -4090,16 +4096,16 @@ const TABLE_FORM_CONFIGS = {
         hiddenEditFields: ['mplus_encounters', 'raid_encounters', 'raid_zones'],
         hiddenAddFields: ['mplus_encounters', 'raid_encounters', 'raid_zones'],
     },
-    PlayerSpecTopPlayer: { disableAdd: true, disableAddMessage: MANAGED_DATA_ADD_DISABLED_MESSAGE },
-    SpecDungeonRanking: { disableAdd: true, disableAddMessage: MANAGED_DATA_ADD_DISABLED_MESSAGE },
-    SpecRaidRanking: { disableAdd: true, disableAddMessage: MANAGED_DATA_ADD_DISABLED_MESSAGE },
-    PortalMythicstatsDpsRow: { disableAdd: true, disableAddMessage: MANAGED_DATA_ADD_DISABLED_MESSAGE },
-    WowSpellSnapshot: { disableAdd: true, disableAddMessage: MANAGED_DATA_ADD_DISABLED_MESSAGE },
-    WowSpellEffectSnapshot: { disableAdd: true, disableAddMessage: MANAGED_DATA_ADD_DISABLED_MESSAGE },
-    WowSpecSpellMapSnapshot: { disableAdd: true, disableAddMessage: MANAGED_DATA_ADD_DISABLED_MESSAGE },
-    WowSkillDiffReport: { disableAdd: true, disableAddMessage: MANAGED_DATA_ADD_DISABLED_MESSAGE },
-    WowHotfixReport: { disableAdd: true, disableAddMessage: MANAGED_DATA_ADD_DISABLED_MESSAGE },
-    WowDailyReport: { disableAdd: true, disableAddMessage: MANAGED_DATA_ADD_DISABLED_MESSAGE },
+    PlayerSpecTopPlayer: {},
+    SpecDungeonRanking: {},
+    SpecRaidRanking: {},
+    PortalMythicstatsDpsRow: {},
+    WowSpellSnapshot: {},
+    WowSpellEffectSnapshot: {},
+    WowSpecSpellMapSnapshot: {},
+    WowSkillDiffReport: {},
+    WowHotfixReport: {},
+    WowDailyReport: {},
 };
 
 function getCurrentFormConfig() {
@@ -4340,8 +4346,20 @@ function fetchTableData(tableName, page = 1) {
                 // 保存字段类型信息
                 currentFieldTypes = data.field_types || {};
                 currentFieldLabels = data.field_labels || {};
-                if (data.table_description) {
-                    currentTableDisplayName = data.table_description;
+                currentTableCapabilities = Object.assign({
+                    can_create: false,
+                    can_update: false,
+                    can_delete: false,
+                    read_only_reason: ''
+                }, data.capabilities || {});
+                const addRecordBtn = document.getElementById('add-record-btn');
+                if (addRecordBtn) {
+                    addRecordBtn.classList.toggle('hidden', !currentTableCapabilities.can_create);
+                    addRecordBtn.disabled = !currentTableCapabilities.can_create;
+                    addRecordBtn.title = currentTableCapabilities.can_create ? '' : (currentTableCapabilities.read_only_reason || '该表不支持通用新增');
+                }
+                if (data.table_display_name || data.table_description) {
+                    currentTableDisplayName = data.table_display_name || data.table_description;
                     const selectedTableName = document.getElementById('selected-table-name');
                     if (selectedTableName) {
                         selectedTableName.textContent = currentTableDisplayName;
@@ -4420,12 +4438,6 @@ function displayTableData(data, fields, tableName = currentTableName) {
     // 清空表格
     tableHeader.innerHTML = '';
     tableBody.innerHTML = '';
-
-    // 如果没有数据
-    if (!data || data.length === 0) {
-        tableBody.innerHTML = '<tr><td colspan="100%" class="text-center py-8 text-gray-500">暂无数据</td></tr>';
-        return;
-    }
 
     // 所有表格都显示序号，不显示数据库ID
     let displayFields = allFields;
@@ -4543,8 +4555,9 @@ function displayTableData(data, fields, tableName = currentTableName) {
         th.textContent = getFieldDisplayName(field);
         headerRow.appendChild(th);
     });
-    // 添加操作列（WechatArticle和RssArticle表不显示操作列）
-    if (renderTableName !== 'WechatArticle' && renderTableName !== 'RssArticle') {
+    const showActionColumn = currentTableCapabilities.can_update
+        || currentTableCapabilities.can_delete;
+    if (showActionColumn) {
         const actionTh = document.createElement('th');
         actionTh.className = 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32 action-col-header';
         actionTh.id = 'action-col-header';
@@ -4552,6 +4565,12 @@ function displayTableData(data, fields, tableName = currentTableName) {
         headerRow.appendChild(actionTh);
     }
     tableHeader.appendChild(headerRow);
+
+    if (!data || data.length === 0) {
+        const columnCount = displayFields.length + 1 + (showActionColumn ? 1 : 0);
+        tableBody.innerHTML = `<tr><td colspan="${columnCount}" class="text-center py-8 text-gray-500">暂无数据</td></tr>`;
+        return;
+    }
 
     // 创建表格内容
     data.forEach((row, index) => {
@@ -4607,14 +4626,20 @@ function displayTableData(data, fields, tableName = currentTableName) {
                 td.appendChild(badge);
             }
             else if (isUrlField(field) && cellText) {
-                // URL字段显示为链接
-                const link = document.createElement('a');
-                link.href = cellText;
-                link.target = '_blank';
-                link.textContent = truncateText(cellText, 30);
-                link.className = 'text-blue-600 hover:text-blue-800 hover:underline cursor-pointer';
-                link.title = cellText;
-                td.appendChild(link);
+                const safeUrl = getSafeHttpUrl(cellText);
+                if (safeUrl) {
+                    const link = document.createElement('a');
+                    link.href = safeUrl;
+                    link.target = '_blank';
+                    link.rel = 'noopener noreferrer';
+                    link.textContent = truncateText(cellText, 30);
+                    link.className = 'text-blue-600 hover:text-blue-800 hover:underline cursor-pointer';
+                    link.title = cellText;
+                    td.appendChild(link);
+                } else {
+                    td.textContent = cellText;
+                    td.title = cellText;
+                }
             }
             else if (isBooleanField(field, cellValue)) {
                 // 布尔字段显示为状态标签
@@ -4668,11 +4693,12 @@ function displayTableData(data, fields, tableName = currentTableName) {
             }
             else if ((renderTableName === 'WechatArticle' || renderTableName === 'WowArticle' || renderTableName === 'RssArticle') && field === 'title') {
                 // WechatArticle、WowArticle和RssArticle表的title字段特殊处理
-                const url = row['url'] || '';
-                if (url) {
+                const safeUrl = getSafeHttpUrl(row['url'] || '');
+                if (safeUrl) {
                     const link = document.createElement('a');
-                    link.href = url;
+                    link.href = safeUrl;
                     link.target = '_blank';
+                    link.rel = 'noopener noreferrer';
                     link.textContent = truncateText(cellText, 40);
                     link.className = 'text-blue-600 hover:text-blue-800 hover:underline cursor-pointer';
                     link.title = cellText;
@@ -4741,66 +4767,34 @@ function displayTableData(data, fields, tableName = currentTableName) {
             tr.appendChild(td);
         });
 
-        // 添加操作列（WechatArticle和RssArticle表不显示操作列）
-        if (renderTableName !== 'WechatArticle' && renderTableName !== 'RssArticle') {
+        if (showActionColumn) {
             const actionTd = document.createElement('td');
             actionTd.className = 'px-4 py-4 whitespace-nowrap text-sm font-medium w-32 action-col';
+            const actions = document.createElement('div');
+            actions.className = 'flex space-x-2';
 
-            // SimcProfile表使用特殊的操作按钮
-            if (renderTableName === 'SimcProfile') {
-                actionTd.innerHTML = `
-                    <div class="flex space-x-1">
-                        <button class="simc-profile-edit-btn text-blue-600 hover:text-blue-900 transition-colors duration-200" data-profile-id="${rowId}">
-                            <i class="fas fa-edit mr-1"></i>编辑
-                        </button>
-                        <button class="simc-profile-copy-btn text-green-600 hover:text-green-900 transition-colors duration-200" data-profile-id="${rowId}">
-                            <i class="fas fa-copy mr-1"></i>复制
-                        </button>
-                        <button class="simc-profile-apl-btn text-orange-600 hover:text-orange-900 transition-colors duration-200" data-profile-id="${rowId}">
-                            <i class="fas fa-list mr-1"></i>APL
-                        </button>
-                        <button class="simc-profile-simulate-btn text-purple-600 hover:text-purple-900 transition-colors duration-200" data-profile-id="${rowId}">
-                            <i class="fas fa-play mr-1"></i>模拟
-                        </button>
-                        <button class="simc-profile-delete-btn text-red-600 hover:text-red-900 transition-colors duration-200" data-profile-id="${rowId}">
-                            <i class="fas fa-trash mr-1"></i>删除
-                        </button>
-                    </div>
-                `;
-            } else if (renderTableName === 'WowArticle') {
-                actionTd.innerHTML = `
-                    <div class="flex space-x-2">
-                        <button class="delete-btn text-red-600 hover:text-red-900 transition-colors duration-200" data-row-id="${rowId}">
-                            <i class="fas fa-trash mr-1"></i>删除
-                        </button>
-                    </div>
-                `;
-            } else if (renderTableName === 'MonitorTask') {
-                actionTd.innerHTML = `
-                    <div class="flex space-x-2">
-                        <button class="edit-btn text-blue-600 hover:text-blue-900 transition-colors duration-200" data-row-id="${rowId}">
-                            <i class="fas fa-edit mr-1"></i>编辑
-                        </button>
-                        <button class="rerun-btn text-orange-600 hover:text-orange-900 transition-colors duration-200" data-row-id="${rowId}">
-                            <i class="fas fa-play mr-1"></i>重跑
-                        </button>
-                        <button class="delete-btn text-red-600 hover:text-red-900 transition-colors duration-200" data-row-id="${rowId}">
-                            <i class="fas fa-trash mr-1"></i>删除
-                        </button>
-                    </div>
-                `;
-            } else {
-                actionTd.innerHTML = `
-                    <div class="flex space-x-2">
-                        <button class="edit-btn text-blue-600 hover:text-blue-900 transition-colors duration-200" data-row-id="${rowId}">
-                            <i class="fas fa-edit mr-1"></i>编辑
-                        </button>
-                        <button class="delete-btn text-red-600 hover:text-red-900 transition-colors duration-200" data-row-id="${rowId}">
-                            <i class="fas fa-trash mr-1"></i>删除
-                        </button>
-                    </div>
-                `;
+            const addActionButton = (className, colorClass, iconClass, text) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = `${className} ${colorClass} transition-colors duration-200`;
+                button.dataset.rowId = String(rowId);
+                const icon = document.createElement('i');
+                icon.className = `${iconClass} mr-1`;
+                button.appendChild(icon);
+                button.appendChild(document.createTextNode(text));
+                actions.appendChild(button);
+            };
+
+            if (currentTableCapabilities.can_update) {
+                addActionButton('edit-btn', 'text-blue-600 hover:text-blue-900', 'fas fa-edit', '编辑');
+                if (renderTableName === 'MonitorTask') {
+                    addActionButton('rerun-btn', 'text-orange-600 hover:text-orange-900', 'fas fa-play', '重跑');
+                }
             }
+            if (currentTableCapabilities.can_delete) {
+                addActionButton('delete-btn', 'text-red-600 hover:text-red-900', 'fas fa-trash', '删除');
+            }
+            actionTd.appendChild(actions);
             tr.appendChild(actionTd);
         }
 
@@ -5740,6 +5734,15 @@ function isUrlField(field) {
     return urlFields.includes(field.toLowerCase());
 }
 
+function getSafeHttpUrl(value) {
+    try {
+        const parsed = new URL(String(value || '').trim(), window.location.origin);
+        return ['http:', 'https:'].includes(parsed.protocol) ? parsed.href : null;
+    } catch (error) {
+        return null;
+    }
+}
+
 /**
  * 判断是否为布尔字段
  */
@@ -6257,15 +6260,8 @@ function initAddRecord() {
  * 打开新增记录弹窗
  */
 function openAddRecordModal() {
-    const config = getCurrentFormConfig();
-    if (config.disableAdd) {
-        showMessage(config.disableAddMessage || '该表不支持手工新增', 'warning');
-        return;
-    }
-
-    // SimcProfile表使用专门的模态框
-    if (currentTableName === 'SimcProfile') {
-        openAddSimcProfileModal();
+    if (!currentTableCapabilities.can_create) {
+        showMessage(currentTableCapabilities.read_only_reason || '该表不支持手工新增', 'warning');
         return;
     }
 
@@ -6371,7 +6367,13 @@ function generateEditFormFields(container, rowData) {
     }
 
     currentTableColumns.forEach(column => {
-        if (column.toLowerCase() === 'id' || isEditFormHiddenField(column)) {
+        const fieldMeta = (currentFieldTypes && currentFieldTypes[column]) || {};
+        if (
+            column.toLowerCase() === 'id'
+            || isEditFormHiddenField(column)
+            || fieldMeta.sensitive
+            || fieldMeta.editable === false
+        ) {
             return;
         }
         if (column.toLowerCase().endsWith('_hash')) {
@@ -6512,7 +6514,13 @@ function submitEditRecord() {
     const updateData = {};
     let invalidJsonField = null;
     currentTableColumns.forEach(column => {
-        if (column === 'id' || isEditFormHiddenField(column)) {
+        const fieldMeta = (currentFieldTypes && currentFieldTypes[column]) || {};
+        if (
+            column === 'id'
+            || isEditFormHiddenField(column)
+            || fieldMeta.sensitive
+            || fieldMeta.editable === false
+        ) {
             return;
         }
         if (column.toLowerCase().endsWith('_hash')) {
@@ -6583,8 +6591,14 @@ function generateFormFields(container) {
     }
 
     currentTableColumns.forEach(column => {
-        // 跳过ID字段和当前模型新增窗口隐藏字段
-        if (column.toLowerCase() === 'id' || isAddFormHiddenField(column)) {
+        const fieldMeta = (currentFieldTypes && currentFieldTypes[column]) || {};
+        // 新增窗口只暴露后端 schema 明确允许写入的字段。
+        if (
+            column.toLowerCase() === 'id'
+            || isAddFormHiddenField(column)
+            || fieldMeta.sensitive
+            || fieldMeta.editable === false
+        ) {
             return;
         }
 
@@ -7101,6 +7115,23 @@ function closeSidebar() {
 // 搜索相关变量
 let searchQuery = '';
 let searchTimeout = null;
+
+/**
+ * 过滤数据库侧栏中的长表清单；同时匹配中文名、物理表名和模型名。
+ */
+function initDatabaseTableFilter() {
+    const input = document.getElementById('database-table-filter');
+    if (!input || input.dataset.bound === '1') return;
+    input.dataset.bound = '1';
+    input.addEventListener('click', event => event.stopPropagation());
+    input.addEventListener('input', function() {
+        const query = this.value.trim().toLocaleLowerCase();
+        document.querySelectorAll('.database-table-item').forEach(item => {
+            const haystack = (item.dataset.tableSearch || '').toLocaleLowerCase();
+            item.classList.toggle('hidden', Boolean(query) && !haystack.includes(query));
+        });
+    });
+}
 
 /**
  * 初始化搜索功能

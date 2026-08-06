@@ -12,7 +12,9 @@ from django.views import View
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.db.models import Count, Q
+from django.db import transaction
 from django.db.utils import OperationalError, ProgrammingError
+from django.core.exceptions import ValidationError, FieldDoesNotExist
 from django.apps import apps
 from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
@@ -87,6 +89,39 @@ MODEL_DESCRIPTIONS = {
     'PlayerSpecTopPlayer': '专精人物榜',
     'SpecDungeonRanking': 'M+副本排名数据',
     'SpecRaidRanking': '团本排名数据',
+    'WowWagoBuildEvent': 'Wago版本事件',
+    'WowWagoHotfixEvent': 'Wago热修事件',
+    'SimcResourceVersion': 'SimC资源版本',
+    'SimcAplSymbol': 'SimC APL符号',
+    'SimcTaskArtifact': 'SimC任务产物',
+    'SimulationRun': 'SimC执行记录',
+    'SimcAgent': 'SimC执行代理',
+    'SimcAgentMaintenanceTask': 'SimC代理维护任务',
+    'SimcAgentEnrollmentCode': 'SimC代理注册码',
+    'SimcBenchmarkPanel': 'SimC基准面板',
+    'SimcBenchmarkSpec': 'SimC基准专精',
+    'SimcBenchmarkProfile': 'SimC基准玩家配置',
+    'SimcBenchmarkScenario': 'SimC基准场景',
+    'SimcBenchmarkCandidate': 'SimC基准候选项',
+    'SimcBenchmarkExecution': 'SimC基准执行',
+    'SimcBenchmarkCase': 'SimC基准用例',
+    'SimcBenchmarkResult': 'SimC基准结果',
+    'WowTalentVersion': '魔兽天赋版本',
+    'WowTalentNodeMetadata': '魔兽天赋节点元数据',
+    'WowItemSnapshot': '魔兽物品元数据快照',
+    'MythicDungeonDataVersion': '大秘境数据版本',
+    'MythicDungeonSelectionGroup': '大秘境选择分组',
+    'MythicDungeonSpell': '大秘境法术',
+    'MythicDungeon': '大秘境副本',
+    'MythicDungeonSelectionMembership': '大秘境选择成员关系',
+    'MythicDungeonFloor': '大秘境楼层',
+    'MythicDungeonEnemy': '大秘境敌人',
+    'MythicDungeonAbility': '大秘境技能',
+    'MythicDungeonSpawn': '大秘境刷新点',
+    'MythicDungeonPoi': '大秘境兴趣点',
+    'MythicDungeonRoute': '大秘境路线',
+    'MythicDungeonRouteShare': '大秘境路线分享',
+    'MythicPlannerConfig': '大秘境规划器配置',
 
 }
 
@@ -165,7 +200,39 @@ class DashboardView(View):
         super().__init__(**kwargs)
 
     def _get_model_map(self):
-        return {model.__name__: model for model in apps.get_app_config('botend').get_models()}
+        return {
+            name: entry['model']
+            for name, entry in self._get_model_registry().items()
+        }
+
+    def _is_database_admin(self):
+        user = getattr(self, 'request', None) and self.request.user
+        return bool(user and user.is_authenticated and user.is_superuser)
+
+    MODEL_SENSITIVE_FIELDS = {
+        'GeWechatAuth': {'uuid', 'qrImgBase64'},
+    }
+
+    @classmethod
+    def _is_sensitive_field(cls, field, model_name=None):
+        name = field.name.lower()
+        return (
+            field.name in cls.MODEL_SENSITIVE_FIELDS.get(model_name, set())
+            or name == 'cookie'
+            or 'qrimgbase64' in name
+            or bool(re.search(
+                r'(^|_)(password|passwd|secret|token|credential|api_key|access_key|private_key|authorization)(_|$)',
+                name,
+            ))
+        )
+
+    @staticmethod
+    def _model_description(model):
+        return (
+            MODEL_DESCRIPTIONS.get(model.__name__)
+            or str(getattr(model._meta, 'verbose_name', '') or '').strip()
+            or model.__name__
+        )
 
     SIMC_DEDICATED_API_MODELS = {
         'SimcTask', 'SimcTaskArtifact', 'SimcProfile',
@@ -180,7 +247,52 @@ class DashboardView(View):
         'SimcBenchmarkPanel', 'SimcBenchmarkSpec', 'SimcBenchmarkProfile',
         'SimcBenchmarkScenario', 'SimcBenchmarkCandidate',
         'SimcBenchmarkExecution', 'SimcBenchmarkCase', 'SimcBenchmarkResult',
+        'SimcResourceVersion', 'SimcAplSymbol', 'SimulationRun',
+        'SimcAgent', 'SimcAgentMaintenanceTask', 'SimcAgentEnrollmentCode',
+        'WclAnalysisTask',
+        'WowWagoMonitorState', 'WowWagoBuildEvent', 'WowWagoHotfixEvent',
+        'WowSpellSnapshot', 'WowSpellEffectSnapshot', 'WowSpellSnapshotState',
+        'WowSpecSpellMapSnapshot', 'WowSkillDiffReport', 'WowHotfixReport',
+        'WowDailyReport', 'WowTalentVersion', 'WowTalentNodeMetadata',
+        'WowItemSnapshot', 'PortalMplusSeasonCutoff', 'PortalMythicstatsDpsRow',
+        'PlayerSpecTopPlayer', 'SpecDungeonRanking', 'SpecRaidRanking',
+        'GeWechatAuth',
     }
+
+    def _get_model_registry(self):
+        """返回 Dashboard 数据库功能的唯一模型注册表及读写能力。"""
+        registry = {}
+        for model in apps.get_app_config('botend').get_models():
+            model_name = model.__name__
+            # MODEL_DESCRIPTIONS 同时是显式 allowlist；未来模型默认不暴露。
+            if (
+                not model._meta.managed
+                or model._meta.proxy
+                or model_name not in MODEL_DESCRIPTIONS
+            ):
+                continue
+            read_only = model_name in self.SIMC_DEDICATED_API_MODELS
+            has_required_sensitive_field = any(
+                self._is_sensitive_field(field, model_name)
+                and not field.null and not field.blank and not field.has_default()
+                for field in model._meta.fields
+            )
+            description = self._model_description(model)
+            registry[model_name] = {
+                'model': model,
+                'description': description,
+                'original_name': model._meta.db_table,
+                'display_name': f'{description} - {model._meta.db_table}',
+                'can_read': True,
+                'can_create': not read_only and not has_required_sensitive_field,
+                'can_update': not read_only,
+                'can_delete': not read_only,
+                'read_only_reason': '该模型由专用业务接口维护' if read_only else '',
+            }
+        return registry
+
+    def _database_model_entry(self, table_name):
+        return self._get_model_registry().get(table_name)
 
     def get_context_data(
         self,
@@ -188,17 +300,18 @@ class DashboardView(View):
         title='后台',
         page_name='dashboard',
         include_stats=True,
-        include_table_counts=True,
+        include_table_counts=False,
     ):
         """构建可供 Dashboard 主页面和站内子页面复用的统一外壳上下文。"""
         tables_info = []
-        models = list(self._get_model_map().values())
+        registry = self._get_model_registry() if self._is_database_admin() else {}
         total_records = 0
-        visible_models = [
-            model for model in models
-            if model.__name__ not in self.SIMC_DEDICATED_API_MODELS
-        ]
-        for model in visible_models:
+        visible_entries = sorted(
+            registry.values(),
+            key=lambda entry: (entry['description'], entry['original_name']),
+        )
+        for entry in visible_entries:
+            model = entry['model']
             model_name = model.__name__
             record_count = 0
             if include_table_counts:
@@ -209,14 +322,20 @@ class DashboardView(View):
             total_records += record_count
             tables_info.append({
                 'name': model_name,
-                'description': MODEL_DESCRIPTIONS.get(model_name) or str(getattr(model._meta, 'verbose_name', '')) or model_name,
+                'description': entry['description'],
+                'original_name': entry['original_name'],
+                'display_name': entry['display_name'],
+                'can_create': entry['can_create'],
+                'can_update': entry['can_update'],
+                'can_delete': entry['can_delete'],
+                'read_only_reason': entry['read_only_reason'],
                 'count': record_count,
             })
         return {
             'title': title,
             'page_name': page_name,
             'tables_info': tables_info,
-            'total_tables': len(visible_models),
+            'total_tables': len(visible_entries),
             'total_records': total_records,
             'stats': self.calculate_dashboard_stats() if include_stats else {},
         }
@@ -239,8 +358,8 @@ class DashboardView(View):
         try:
             # 存储 request 以便子方法访问
             self.request = request
-            # 记录请求信息，便于调试
-            logger.info(f"Dashboard POST请求: {request.body.decode('utf-8')[:200]}")
+            # 请求体可能包含 Cookie、Token 等敏感字段，不记录原始 JSON。
+            logger.info("Dashboard POST请求: bytes=%s", len(request.body))
             
             # 解析JSON数据
             try:
@@ -255,11 +374,11 @@ class DashboardView(View):
                 return JsonResponse({"status": "error", "message": "缺少action参数"})
 
             if (
-                action in {'create_table_row', 'update_table_row', 'delete_table_row'}
-                and data.get('table_name') in self.SIMC_DEDICATED_API_MODELS
+                action in {'get_table_data', 'create_table_row', 'update_table_row', 'delete_table_row'}
+                and not self._is_database_admin()
             ):
                 return JsonResponse(
-                    {"status": "error", "message": "SimC 数据必须通过专用接口维护"},
+                    {"status": "error", "message": "数据库管理仅限工作人员"},
                     status=403,
                 )
             
@@ -305,15 +424,13 @@ class DashboardView(View):
             table_name = data.get('table_name')
             if not table_name:
                 return JsonResponse({"status": "error", "message": "缺少table_name参数"})
-            if table_name in self.SIMC_DEDICATED_API_MODELS:
-                return JsonResponse(
-                    {"status": "error", "message": "SimC 数据必须通过专用接口访问"},
-                    status=403,
-                )
 
             # 获取分页参数
-            page = int(data.get('page', 1))
-            page_size = int(data.get('page_size', 50))
+            try:
+                page = max(1, int(data.get('page', 1)))
+                page_size = min(200, max(10, int(data.get('page_size', 50))))
+            except (TypeError, ValueError):
+                return JsonResponse({"status": "error", "message": "分页参数无效"}, status=400)
             
             # 获取搜索参数
             search_query = data.get('search', '').strip()
@@ -324,15 +441,11 @@ class DashboardView(View):
             
             logger.info(f"获取表数据: {table_name}, page: {page}, page_size: {page_size}, search: {search_query}")
             
-            # 模型映射
-            model_map = self._get_model_map()
-            
-            # 检查表名是否有效
-            if table_name not in model_map:
-                return JsonResponse({"status": "error", "message": f"未知表名: {table_name}"})
-            
-            # 获取模型类
-            model = model_map[table_name]
+            # 从统一注册表取得模型与能力。
+            registry_entry = self._database_model_entry(table_name)
+            if not registry_entry or not registry_entry['can_read']:
+                return JsonResponse({"status": "error", "message": f"未知表名: {table_name}"}, status=404)
+            model = registry_entry['model']
             
             # 获取字段名和字段类型信息
             fields = [field.name for field in model._meta.fields]
@@ -340,7 +453,16 @@ class DashboardView(View):
             field_labels = {}
             for field in model._meta.fields:
                 field_type = field.__class__.__name__
-                
+                sensitive = self._is_sensitive_field(field, table_name)
+                field_editable = bool(
+                    getattr(field, 'editable', True)
+                    and not getattr(field, 'primary_key', False)
+                    and not getattr(field, 'auto_now', False)
+                    and not getattr(field, 'auto_now_add', False)
+                    and not sensitive
+                    and registry_entry['can_update']
+                )
+
                 # 处理默认值，确保可以JSON序列化
                 default_value = getattr(field, 'default', None)
                 if default_value is not None:
@@ -371,7 +493,9 @@ class DashboardView(View):
                     'help_text': str(getattr(field, 'help_text', '') or ''),
                     'choices': choices,
                     'primary_key': getattr(field, 'primary_key', False),
-                    'editable': getattr(field, 'editable', True),
+                    'editable': field_editable,
+                    'read_only': not field_editable,
+                    'sensitive': sensitive,
                     'auto_now': getattr(field, 'auto_now', False),
                     'auto_now_add': getattr(field, 'auto_now_add', False),
                 }
@@ -397,79 +521,41 @@ class DashboardView(View):
                     return queryset.filter(search_conditions)
                 return queryset
             
-            # 根据表名获取对应的数据
+            # 统一模型查询：所有注册模型使用相同的分页、搜索和字段契约。
             try:
-                if table_name == 'WechatArticle':
-                    queryset = model.objects.values('id', 'title', 'url', 'author', 'publish_time', 'biz').order_by('-id')
-                    queryset = apply_search_filter(queryset, ['title', 'author', 'url'])
-                    total_count = queryset.count()
-                    items = list(queryset[offset:offset + page_size])
-                elif table_name == 'VulnData':
-                    queryset = model.objects.values('id', 'cveid', 'title', 'score', 'publish_time', 'link').order_by('-id')
-                    queryset = apply_search_filter(queryset, ['cveid', 'title', 'link'])
-                    total_count = queryset.count()
-                    items = list(queryset[offset:offset + page_size])
-                elif table_name == 'RssArticle':
-                    queryset = model.objects.values('id', 'title', 'url', 'author', 'publish_time').order_by('-id')
-                    queryset = apply_search_filter(queryset, ['title', 'author', 'url'])
-                    total_count = queryset.count()
-                    items = list(queryset[offset:offset + page_size])
-                elif table_name == 'WowArticle':
-                    base_queryset = model.objects.values(
-                        'id', 'title', 'title_cn', 'url', 'author', 'publish_time', 'description',
-                        'source', 'category', 'reply_count'
-                    ).order_by('-publish_time', '-id')
+                pk_name = model._meta.pk.name
+                queryset = model.objects.all().order_by(f'-{pk_name}')
+                if table_name == 'WowArticle':
                     if wow_source_filter:
-                        base_queryset = base_queryset.filter(source=wow_source_filter)
+                        queryset = queryset.filter(source=wow_source_filter)
                     if wow_category_filter:
-                        base_queryset = base_queryset.filter(category=wow_category_filter)
-                    base_queryset = apply_search_filter(base_queryset, ['title', 'title_cn', 'description', 'author', 'url'])
-                    total_count = base_queryset.count()
-                    items = list(base_queryset[offset:offset + page_size])
-                elif table_name == 'GeWechatAuth':
-                    queryset = model.objects.values('id', 'appId', 'uuid', 'create_time', 'login_status').order_by('create_time')
-                    queryset = apply_search_filter(queryset, ['appId', 'uuid'])
-                    total_count = queryset.count()
-                    items = list(queryset[offset:offset + page_size])
-
+                        queryset = queryset.filter(category=wow_category_filter)
                 elif table_name == 'SimcProfile':
-                    queryset = model.objects.values(
-                        'id', 'name', 'spec',
-                        'player_config_mode', 'battlenet_region', 'battlenet_realm',
-                        'battlenet_character', 'player_equipment',
-                        'talent', 'gear_strength', 'gear_crit',
-                        'gear_haste', 'gear_mastery', 'gear_versatility', 'is_active'
-                    ).filter(user_id=self.request.user.id, is_active=True).order_by('-id')
-                    queryset = apply_search_filter(queryset, ['name', 'spec', 'talent', 'battlenet_realm', 'battlenet_character', 'player_equipment'])
                     if simc_spec_filter:
                         queryset = queryset.filter(spec__icontains=simc_spec_filter)
-                    total_count = queryset.count()
-                    items = list(queryset[offset:offset + page_size])
-                elif table_name == 'SimcSecondaryStatRule':
-                    from botend.models import SimcSecondaryStatRule as RuleModel
-                    queryset = RuleModel.objects.values(
-                        'id', 'class_name', 'crit_per_percent', 'haste_per_percent',
-                        'mastery_per_percent', 'versatility_per_percent'
-                    ).order_by('class_name')
-                    queryset = apply_search_filter(queryset, ['class_name'])
-                    total_count = queryset.count()
-                    items = list(queryset[offset:offset + page_size])
-                elif table_name == 'SimcMasteryCoefficient':
-                    from botend.models import SimcMasteryCoefficient as McModel
-                    queryset = McModel.objects.values(
-                        'id', 'spec', 'mastery_coefficient'
-                    ).order_by('spec')
-                    queryset = apply_search_filter(queryset, ['spec'])
-                    total_count = queryset.count()
-                    items = list(queryset[offset:offset + page_size])
-                else:
-                    pk_name = model._meta.pk.name
-                    queryset = model.objects.values().order_by(f'-{pk_name}')
-                    # 对于通用表，尝试搜索所有文本字段
-                    text_fields = [field.name for field in model._meta.fields if field.__class__.__name__ in ['CharField', 'TextField']]
-                    queryset = apply_search_filter(queryset, text_fields)
-                    total_count = queryset.count()
-                    items = list(queryset[offset:offset + page_size])
+
+                search_fields = [
+                    field.name for field in model._meta.fields
+                    if not self._is_sensitive_field(field, table_name)
+                    and field.__class__.__name__ in {'CharField', 'TextField', 'EmailField', 'SlugField'}
+                ]
+                if search_query:
+                    search_conditions = Q()
+                    for field_name in search_fields:
+                        search_conditions |= Q(**{f'{field_name}__icontains': search_query})
+                    try:
+                        pk_value = model._meta.pk.to_python(search_query)
+                    except (TypeError, ValueError, ValidationError):
+                        pk_value = None
+                    if pk_value is not None:
+                        search_conditions |= Q(**{pk_name: pk_value})
+                    queryset = queryset.filter(search_conditions)
+
+                total_count = queryset.count()
+                total_pages = max(1, (total_count + page_size - 1) // page_size)
+                page = min(page, total_pages)
+                offset = (page - 1) * page_size
+                items = list(queryset.values(*fields)[offset:offset + page_size])
             except Exception as e:
                 logger.error(f"获取表数据错误: {str(e)}\n{traceback.format_exc()}")
                 return JsonResponse({"status": "error", "message": f"获取表数据错误: {str(e)}"})
@@ -488,19 +574,32 @@ class DashboardView(View):
                         item[key] = value.strftime('%Y-%m-%d %H:%M:%S')
                 if item.get('author') == 'LMonitor':
                     item['author'] = ''
-            
+                for field in model._meta.fields:
+                    if self._is_sensitive_field(field, table_name) and field.name in item:
+                        item[field.name] = '••••••' if item[field.name] not in (None, '') else ''
+
             # 计算分页信息
-            total_pages = (total_count + page_size - 1) // page_size
+            total_pages = max(1, (total_count + page_size - 1) // page_size)
             
             # 返回数据
-            table_description = MODEL_DESCRIPTIONS.get(table_name) or str(getattr(model._meta, 'verbose_name', '') or '').strip() or table_name
+            table_description = self._model_description(model)
+            original_name = model._meta.db_table
             resp = {
-                "status": "success", 
+                "status": "success",
                 "data": items,
                 "fields": fields,
                 "field_types": field_types,
                 "field_labels": field_labels,
+                "search_fields": search_fields,
                 "table_description": table_description,
+                "table_original_name": original_name,
+                "table_display_name": registry_entry['display_name'],
+                "capabilities": {
+                    "can_create": registry_entry['can_create'],
+                    "can_update": registry_entry['can_update'],
+                    "can_delete": registry_entry['can_delete'],
+                    "read_only_reason": registry_entry['read_only_reason'],
+                },
                 "total_count": total_count,
                 "page": page,
                 "page_size": page_size,
@@ -552,85 +651,76 @@ class DashboardView(View):
             logger.error(f"获取魔兽文章详情异常: {str(e)}\n{traceback.format_exc()}")
             return JsonResponse({"status": "error", "message": f"获取文章详情异常: {str(e)}"})
 
+    @transaction.atomic
     def update_table_row(self, data):
-        """
-        更新表格行数据
-        """
-        try:
-            # 获取参数
-            table_name = data.get('table_name')
-            row_id = data.get('row_id')
-            update_data = data.get('update_data')
-            
-            if not table_name or not row_id or not update_data:
-                return JsonResponse({"status": "error", "message": "缺少必要参数"})
-            
-            logger.info(f"更新表数据: {table_name}, row_id: {row_id}, data: {update_data}")
-            
-            # 模型映射
-            model_map = self._get_model_map()
-            
-            # 获取模型
-            model = model_map.get(table_name)
-            if not model:
-                return JsonResponse({"status": "error", "message": f"未找到表: {table_name}"})
-            
-            # 查找要更新的记录
-            try:
-                pk_name = model._meta.pk.name
-                instance = model.objects.get(**{pk_name: row_id})
-            except model.DoesNotExist:
-                return JsonResponse({"status": "error", "message": f"未找到ID为{row_id}的记录"})
-            
-            # 更新字段
-            for field_name, field_value in update_data.items():
-                if hasattr(instance, field_name):
-                    # 获取字段类型
-                    field = instance._meta.get_field(field_name)
-                    field_type = field.__class__.__name__
+        """使用模型字段白名单更新单行；只读、未知或敏感字段整次拒绝。"""
+        table_name = data.get('table_name')
+        row_id = data.get('row_id')
+        update_data = data.get('update_data')
+        if not table_name or row_id in (None, '') or not isinstance(update_data, dict) or not update_data:
+            return JsonResponse({"status": "error", "message": "缺少必要参数"}, status=400)
 
-                    if getattr(field, 'primary_key', False) or not getattr(field, 'editable', True) or getattr(field, 'auto_now', False) or getattr(field, 'auto_now_add', False):
-                        continue
-                    
-                    # 根据字段类型转换值
-                    if field_type == 'BooleanField':
-                        if isinstance(field_value, str):
-                            field_value = field_value.lower() in ('true', '1', 'yes', 'on')
-                        elif isinstance(field_value, bool):
-                            pass  # 已经是布尔值
-                        else:
-                            field_value = bool(field_value)
-                    elif field_type in ['IntegerField', 'BigIntegerField', 'SmallIntegerField', 'PositiveIntegerField', 'PositiveSmallIntegerField', 'AutoField', 'BigAutoField']:
-                        if field_value != '' and field_value is not None:
-                            field_value = int(field_value)
-                    elif field_type in ['FloatField', 'DecimalField']:
-                        if field_value != '' and field_value is not None:
-                            field_value = float(field_value)
-                    elif field_type == 'JSONField':
-                        if isinstance(field_value, str):
-                            raw_value = field_value.strip()
-                            if raw_value == '':
-                                field_value = None if field.null else field.get_default()
-                            else:
-                                try:
-                                    field_value = json.loads(raw_value)
-                                except json.JSONDecodeError:
-                                    return JsonResponse({
-                                        "status": "error",
-                                        "message": f"字段 {field_name} 不是合法 JSON，已取消更新"
-                                    })
-                    
-                    setattr(instance, field_name, field_value)
-            
-            # 保存更改
-            instance.save()
-            
-            return JsonResponse({"status": "success", "message": "更新成功"})
-            
-        except Exception as e:
-            logger.error(f"更新表数据异常: {str(e)}\n{traceback.format_exc()}")
-            return JsonResponse({"status": "error", "message": f"更新失败: {str(e)}"})
+        registry_entry = self._database_model_entry(table_name)
+        if not registry_entry:
+            return JsonResponse({"status": "error", "message": f"未找到表: {table_name}"}, status=404)
+        if not registry_entry['can_update']:
+            return JsonResponse({"status": "error", "message": registry_entry['read_only_reason'] or "该表不允许编辑"}, status=403)
+        model = registry_entry['model']
+
+        fields_to_update = []
+        converted_values = {}
+        for field_name, raw_value in update_data.items():
+            try:
+                field = model._meta.get_field(field_name)
+            except FieldDoesNotExist:
+                return JsonResponse({"status": "error", "message": f"未知字段: {field_name}"}, status=400)
+            if (
+                field.primary_key or not field.editable
+                or getattr(field, 'auto_now', False) or getattr(field, 'auto_now_add', False)
+                or self._is_sensitive_field(field, table_name)
+            ):
+                return JsonResponse({"status": "error", "message": f"字段 {field_name} 不允许编辑"}, status=400)
+            try:
+                value = raw_value
+                if value == '' and field.null:
+                    value = None
+                elif field.__class__.__name__ == 'JSONField' and isinstance(value, str):
+                    value = json.loads(value) if value.strip() else (None if field.null else field.get_default())
+                elif field.__class__.__name__ == 'BooleanField' and isinstance(value, str):
+                    normalized = value.strip().lower()
+                    if normalized not in {'true', 'false', '1', '0', 'yes', 'no', 'on', 'off'}:
+                        raise ValidationError('必须是布尔值')
+                    value = normalized in {'true', '1', 'yes', 'on'}
+                else:
+                    value = field.to_python(value)
+                field.validate(value, None)
+                field.run_validators(value)
+            except (TypeError, ValueError, ValidationError, json.JSONDecodeError) as exc:
+                return JsonResponse({"status": "error", "message": f"字段 {field_name} 的值无效: {exc}"}, status=400)
+            converted_values[field.attname if field.is_relation else field.name] = value
+            fields_to_update.append(field.name)
+
+        try:
+            instance = model.objects.select_for_update().get(pk=row_id)
+        except model.DoesNotExist:
+            return JsonResponse({"status": "error", "message": f"未找到ID为{row_id}的记录"}, status=404)
+
+        for attribute, value in converted_values.items():
+            setattr(instance, attribute, value)
+        try:
+            instance.validate_unique()
+            instance.validate_constraints()
+            instance.save(update_fields=fields_to_update)
+        except ValidationError as exc:
+            return JsonResponse({"status": "error", "message": f"数据校验失败: {exc}"}, status=400)
+        except Exception as exc:
+            logger.error(f"更新表数据异常: {str(exc)}\n{traceback.format_exc()}")
+            return JsonResponse({"status": "error", "message": f"更新失败: {str(exc)}"}, status=400)
+
+        logger.info("更新表数据成功: %s, row_id=%s, fields=%s", table_name, row_id, fields_to_update)
+        return JsonResponse({"status": "success", "message": "更新成功"})
     
+    @transaction.atomic
     def delete_table_row(self, data):
         """
         删除表格行数据
@@ -644,14 +734,13 @@ class DashboardView(View):
                 return JsonResponse({"status": "error", "message": "缺少必要参数"})
             
             logger.info(f"删除表数据: {table_name}, row_id: {row_id}")
-            
-            # 模型映射
-            model_map = self._get_model_map()
-            
-            # 获取模型
-            model = model_map.get(table_name)
-            if not model:
-                return JsonResponse({"status": "error", "message": f"未找到表: {table_name}"})
+
+            registry_entry = self._database_model_entry(table_name)
+            if not registry_entry:
+                return JsonResponse({"status": "error", "message": f"未找到表: {table_name}"}, status=404)
+            if not registry_entry['can_delete']:
+                return JsonResponse({"status": "error", "message": registry_entry['read_only_reason'] or "该表不允许删除"}, status=403)
+            model = registry_entry['model']
             
             # 查找要删除的记录
             try:
@@ -742,84 +831,70 @@ class DashboardView(View):
             logger.error(f"计算统计数据失败: {str(e)}")
             return {}
     
+    @transaction.atomic
     def create_table_row(self, data):
-        """
-        创建新的表格行数据
-        """
-        try:
-            # 获取参数
-            table_name = data.get('table_name')
-            create_data = data.get('create_data')
-            
-            if not table_name or not create_data:
-                return JsonResponse({"status": "error", "message": "缺少必要参数"})
-            
-            logger.info(f"创建表数据: {table_name}, data: {create_data}")
-            
-            # 模型映射
-            model_map = self._get_model_map()
-            
-            # 获取模型
-            model = model_map.get(table_name)
-            if not model:
-                return JsonResponse({"status": "error", "message": f"未找到表: {table_name}"})
-            
-            # 创建新记录
+        """按照统一注册表和字段白名单创建记录。"""
+        table_name = data.get('table_name')
+        create_data = data.get('create_data')
+        if not table_name or not isinstance(create_data, dict) or not create_data:
+            return JsonResponse({"status": "error", "message": "缺少必要参数"}, status=400)
+
+        registry_entry = self._database_model_entry(table_name)
+        if not registry_entry:
+            return JsonResponse({"status": "error", "message": f"未找到表: {table_name}"}, status=404)
+        if not registry_entry['can_create']:
+            return JsonResponse({"status": "error", "message": registry_entry['read_only_reason'] or "该表不允许通用新增"}, status=403)
+        model = registry_entry['model']
+        converted_data = {}
+        for field_name, raw_value in create_data.items():
             try:
-                # 过滤掉空值和无效字段
-                filtered_data = {}
-                for key, value in create_data.items():
-                    if value is not None and value != '':
-                        # 检查字段是否存在于模型中
-                        try:
-                            field = model._meta.get_field(key)
-                        except Exception:
-                            continue
-                        if getattr(field, 'primary_key', False) or not getattr(field, 'editable', True) or getattr(field, 'auto_now', False) or getattr(field, 'auto_now_add', False):
-                            continue
-                        field_type = field.__class__.__name__
-                        if field_type == 'JSONField' and isinstance(value, str):
-                            try:
-                                value = json.loads(value)
-                            except json.JSONDecodeError:
-                                return JsonResponse({
-                                    "status": "error",
-                                    "message": f"字段 {key} 不是合法 JSON，已取消创建"
-                                })
-                        elif field_type == 'BooleanField':
-                            if isinstance(value, str):
-                                value = value.lower() in ('true', '1', 'yes', 'on')
-                            else:
-                                value = bool(value)
-                        elif field_type in ['IntegerField', 'BigIntegerField', 'SmallIntegerField', 'PositiveIntegerField', 'PositiveSmallIntegerField']:
-                            value = int(value)
-                        elif field_type in ['FloatField', 'DecimalField']:
-                            value = float(value)
-                        filtered_data[key] = value
-                
-                # 自动填充 user_id（如果模型有该字段且请求已登录）
-                if 'user_id' not in filtered_data and hasattr(model, 'user_id') and hasattr(self.request, 'user') and self.request.user.is_authenticated:
-                    filtered_data['user_id'] = self.request.user.id
-                
-                # 创建记录
-                instance = model.objects.create(**filtered_data)
-                
-                instance_id = getattr(instance, 'id', instance.pk)
-                logger.info(f"成功创建记录: {table_name}, id: {instance_id}")
-                
-                return JsonResponse({
-                    "status": "success", 
-                    "message": "记录创建成功",
-                    "data": {"id": instance_id}
-                })
-                
-            except Exception as e:
-                logger.error(f"创建记录失败: {str(e)}\n{traceback.format_exc()}")
-                return JsonResponse({"status": "error", "message": f"创建记录失败: {str(e)}"})
-                
-        except Exception as e:
-            logger.error(f"创建表数据错误: {str(e)}\n{traceback.format_exc()}")
-            return JsonResponse({"status": "error", "message": f"创建数据错误: {str(e)}"})
+                field = model._meta.get_field(field_name)
+            except FieldDoesNotExist:
+                return JsonResponse({"status": "error", "message": f"未知字段: {field_name}"}, status=400)
+            if (
+                field.primary_key or not field.editable
+                or getattr(field, 'auto_now', False) or getattr(field, 'auto_now_add', False)
+                or self._is_sensitive_field(field, table_name)
+            ):
+                return JsonResponse({"status": "error", "message": f"字段 {field_name} 不允许新增"}, status=400)
+            try:
+                value = raw_value
+                if value == '' and field.null:
+                    value = None
+                elif field.__class__.__name__ == 'JSONField' and isinstance(value, str):
+                    value = json.loads(value) if value.strip() else (None if field.null else field.get_default())
+                elif field.__class__.__name__ == 'BooleanField' and isinstance(value, str):
+                    normalized = value.strip().lower()
+                    if normalized not in {'true', 'false', '1', '0', 'yes', 'no', 'on', 'off'}:
+                        raise ValidationError('必须是布尔值')
+                    value = normalized in {'true', '1', 'yes', 'on'}
+                else:
+                    value = field.to_python(value)
+                field.validate(value, None)
+                field.run_validators(value)
+            except (TypeError, ValueError, ValidationError, json.JSONDecodeError) as exc:
+                return JsonResponse({"status": "error", "message": f"字段 {field_name} 的值无效: {exc}"}, status=400)
+            converted_data[field.attname if field.is_relation else field.name] = value
+
+        if 'user_id' not in converted_data and any(field.attname == 'user_id' for field in model._meta.fields):
+            converted_data['user_id'] = self.request.user.id
+
+        try:
+            instance = model(**converted_data)
+            instance.full_clean()
+            instance.save()
+        except ValidationError as exc:
+            return JsonResponse({"status": "error", "message": f"数据校验失败: {exc}"}, status=400)
+        except Exception as exc:
+            logger.error("创建记录失败: %s\n%s", exc, traceback.format_exc())
+            return JsonResponse({"status": "error", "message": f"创建记录失败: {exc}"}, status=400)
+
+        logger.info("成功创建记录: %s, id=%s", table_name, instance.pk)
+        return JsonResponse({
+            "status": "success",
+            "message": "记录创建成功",
+            "data": {"id": instance.pk},
+        })
 
     def _get_logs_dir(self):
         return os.path.realpath(os.path.join(settings.BASE_DIR, 'logs'))
