@@ -10,6 +10,9 @@
         requestId: 0,
         quickRequestId: 0,
         quickCreating: false,
+        resetRequestId: 0,
+        resettingPassword: false,
+        resetUser: null,
     };
     const byId = id => document.getElementById(id);
 
@@ -102,7 +105,12 @@
             edit.className = 'px-3 py-1.5 text-sm text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50';
             edit.textContent = '编辑';
             edit.addEventListener('click', () => openModal(user));
-            actions.appendChild(edit);
+            const resetPasswordButton = document.createElement('button');
+            resetPasswordButton.type = 'button';
+            resetPasswordButton.className = 'ml-2 px-3 py-1.5 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50';
+            resetPasswordButton.textContent = '重置密码';
+            resetPasswordButton.addEventListener('click', () => openPasswordReset(user));
+            actions.append(edit, resetPasswordButton);
             row.appendChild(actions);
             body.appendChild(row);
         });
@@ -287,6 +295,106 @@
         modal.classList.add('hidden');
         modal.classList.remove('flex');
     }
+
+    function clearPasswordResetResult() {
+        const result = byId('user-management-reset-result');
+        result.textContent = '';
+        result.classList.add('hidden');
+        const copy = byId('user-management-reset-copy');
+        copy.disabled = true;
+        copy.onclick = null;
+        byId('user-management-reset-copy-status').textContent = '';
+    }
+
+    function openPasswordReset(user) {
+        if (state.resettingPassword) return;
+        state.resetRequestId += 1;
+        state.resetUser = { id: user.id, username: user.username };
+        clearPasswordResetResult();
+        const error = byId('user-management-reset-error');
+        error.textContent = '';
+        error.classList.add('hidden');
+        byId('user-management-reset-confirmation').textContent = `确定重置账号“${user.username}”的密码吗？原密码将立即失效。`;
+        byId('user-management-reset-submit').classList.remove('hidden');
+        byId('user-management-reset-cancel').textContent = '取消';
+        const modal = byId('user-management-reset-modal');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+
+    function closePasswordReset() {
+        if (state.resettingPassword) return;
+        state.resetRequestId += 1;
+        state.resetUser = null;
+        clearPasswordResetResult();
+        byId('user-management-reset-error').textContent = '';
+        const modal = byId('user-management-reset-modal');
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+
+    async function resetUserPassword() {
+        const user = state.resetUser;
+        if (!user || state.resettingPassword) return;
+        const requestId = ++state.resetRequestId;
+        const submit = byId('user-management-reset-submit');
+        state.resettingPassword = true;
+        submit.disabled = true;
+        byId('user-management-reset-close').disabled = true;
+        byId('user-management-reset-cancel').disabled = true;
+        try {
+            const response = await fetch(`/api/dashboard/users/${user.id}/`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken() },
+                body: JSON.stringify({ reset_password: true }),
+            });
+            const result = await response.json();
+            if (requestId !== state.resetRequestId) return;
+            if (!response.ok) throw new Error(formatError(result));
+            const data = result.data;
+            const explanation = `账号：${data.username}\n密码：${data.generated_password}`;
+            const resultBox = byId('user-management-reset-result');
+            resultBox.textContent = explanation;
+            resultBox.classList.remove('hidden');
+            byId('user-management-reset-confirmation').textContent = '密码已重置。该密码仅显示一次，请立即交付给用户。';
+            submit.classList.add('hidden');
+            byId('user-management-reset-cancel').textContent = '关闭';
+            try {
+                await copyText(explanation);
+                if (requestId !== state.resetRequestId) return;
+                byId('user-management-reset-copy-status').textContent = '已自动复制到剪贴板';
+            } catch (copyError) {
+                if (requestId !== state.resetRequestId) return;
+                byId('user-management-reset-copy-status').textContent = '自动复制失败，请点击“复制账号密码”';
+            }
+            const copy = byId('user-management-reset-copy');
+            copy.disabled = false;
+            copy.onclick = () => {
+                if (requestId !== state.resetRequestId) return;
+                copyText(explanation).then(
+                    () => { if (requestId === state.resetRequestId) byId('user-management-reset-copy-status').textContent = '已复制到剪贴板'; },
+                    () => { if (requestId === state.resetRequestId) byId('user-management-reset-copy-status').textContent = '复制失败，请手动复制'; },
+                );
+            };
+            setMessage(`账号“${data.username}”的密码已重置`);
+        } catch (error) {
+            if (requestId !== state.resetRequestId) return;
+            const errorBox = byId('user-management-reset-error');
+            const unknown = error instanceof TypeError || error.name === 'AbortError';
+            errorBox.textContent = unknown
+                ? '请求结果未知：密码可能已经重置，请再次点击“重置密码”以获取确定的新密码。'
+                : (error.message || '重置密码失败');
+            errorBox.classList.remove('hidden');
+        } finally {
+            if (requestId === state.resetRequestId) {
+                state.resettingPassword = false;
+                submit.disabled = false;
+                byId('user-management-reset-close').disabled = false;
+                byId('user-management-reset-cancel').disabled = false;
+            }
+        }
+    }
+
     async function submitUser(event) {
         event.preventDefault();
         const id = byId('user-management-user-id').value;
@@ -334,6 +442,9 @@
             event.preventDefault();
             quickCreateUser();
         });
+        byId('user-management-reset-close').addEventListener('click', closePasswordReset);
+        byId('user-management-reset-cancel').addEventListener('click', closePasswordReset);
+        byId('user-management-reset-submit').addEventListener('click', resetUserPassword);
         byId('user-management-modal-close').addEventListener('click', closeModal);
         byId('user-management-cancel').addEventListener('click', closeModal);
         byId('user-management-form').addEventListener('submit', submitUser);

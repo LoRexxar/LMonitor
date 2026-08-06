@@ -21,6 +21,7 @@ USER_FIELDS = {
     'is_active', 'is_staff', 'is_superuser', 'password',
 }
 CREATE_FIELDS = USER_FIELDS | {'quick_create'}
+DETAIL_FIELDS = USER_FIELDS | {'reset_password'}
 BOOLEAN_FIELDS = {'is_active', 'is_staff', 'is_superuser'}
 QUICK_CREATE_FIELDS = {'username', 'quick_create'}
 QUICK_PASSWORD_ALPHABET = string.ascii_letters + string.digits
@@ -176,7 +177,13 @@ class DashboardUserDetailAPIView(View):
         if denied:
             return denied
         try:
-            payload = _parse_payload(request)
+            payload = _parse_payload(request, allowed_fields=DETAIL_FIELDS)
+            reset_password = payload.get('reset_password')
+            if 'reset_password' in payload:
+                if reset_password is not True:
+                    raise ValidationError({'reset_password': ['必须为 true']})
+                if set(payload) != {'reset_password'}:
+                    raise ValidationError('生成密码重置不能同时修改其他字段')
             with transaction.atomic():
                 user = get_object_or_404(User.objects.select_for_update(), pk=user_id)
                 if user.pk == request.user.pk:
@@ -197,7 +204,7 @@ class DashboardUserDetailAPIView(View):
                         raise ValidationError({'username': ['用户名不能为空']})
                     setattr(user, field, value)
 
-                password = payload.get('password')
+                password = _generate_password() if reset_password else payload.get('password')
                 if password is not None:
                     if not isinstance(password, str) or not password:
                         raise ValidationError({'password': ['新密码不能为空']})
@@ -208,7 +215,14 @@ class DashboardUserDetailAPIView(View):
                 user.save()
             if user.pk == request.user.pk and password is not None:
                 update_session_auth_hash(request, user)
-            return JsonResponse({'status': 'success', 'data': _serialize_user(user)})
+            data = _serialize_user(user)
+            if reset_password:
+                data['generated_password'] = password
+            response = JsonResponse({'status': 'success', 'data': data})
+            if reset_password:
+                response['Cache-Control'] = 'no-store'
+                response['Pragma'] = 'no-cache'
+            return response
         except ValidationError as exc:
             return _validation_error_response(exc)
         except IntegrityError:

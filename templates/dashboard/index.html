@@ -343,7 +343,7 @@
     <script>window.SIMC_APL_EDITOR_MODULE_URL = "{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260727b";</script>
     <script src="{% static 'dashboard/js/main.js' %}?v=20260806d"></script>
     {% if user.is_superuser %}
-    <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806a" defer></script>
+    <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806b" defer></script>
     {% endif %}
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260805_apl_cn_labels"></script>
     <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260804e"></script>
@@ -1850,6 +1850,25 @@
                                 <button id="user-management-quick-submit" type="submit" class="px-4 py-2 bg-emerald-600 text-white rounded-lg">创建并复制</button>
                             </div>
                         </form>
+                    </div>
+                </div>
+                <div id="user-management-reset-modal" class="fixed inset-0 bg-black bg-opacity-70 hidden z-[1000] items-start justify-center overflow-y-auto p-3">
+                    <div class="relative w-full max-w-md my-6 bg-white rounded-lg shadow-2xl overflow-hidden">
+                        <div class="bg-red-600 px-5 py-4 flex items-center justify-between">
+                            <h3 class="text-lg font-bold text-white">重置用户密码</h3>
+                            <button id="user-management-reset-close" type="button" class="text-white text-2xl leading-none" aria-label="关闭">&times;</button>
+                        </div>
+                        <div class="p-5 space-y-4">
+                            <p id="user-management-reset-confirmation" class="text-sm text-gray-700"></p>
+                            <div id="user-management-reset-error" class="hidden rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"></div>
+                            <pre id="user-management-reset-result" class="hidden whitespace-pre-wrap rounded-lg border bg-gray-50 p-4 text-sm text-gray-900"></pre>
+                            <div id="user-management-reset-copy-status" class="text-xs text-gray-500"></div>
+                            <div class="flex flex-wrap justify-end gap-2">
+                                <button id="user-management-reset-cancel" type="button" class="px-4 py-2 border rounded-lg">取消</button>
+                                <button id="user-management-reset-copy" type="button" disabled class="px-4 py-2 border border-blue-300 text-blue-700 rounded-lg disabled:cursor-not-allowed disabled:opacity-40">复制账号密码</button>
+                                <button id="user-management-reset-submit" type="button" class="px-4 py-2 bg-red-600 text-white rounded-lg disabled:cursor-not-allowed disabled:opacity-40">重置并复制</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div id="user-management-modal" class="fixed inset-0 bg-black bg-opacity-70 hidden z-[1000] items-start justify-center overflow-y-auto p-3">

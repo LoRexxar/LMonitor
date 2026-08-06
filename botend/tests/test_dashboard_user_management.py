@@ -185,6 +185,79 @@ class DashboardUserManagementApiTests(TestCase):
         follow_up = self.client.get('/api/dashboard/users/')
         self.assertEqual(follow_up.status_code, 200, follow_up.content)
 
+    def test_superuser_can_generate_one_time_password_for_existing_user(self):
+        target = User.objects.create_user(
+            username='reset-target',
+            password='Old-pass-123!',
+        )
+        old_hash = target.password
+        self.login()
+
+        response = self.client.patch(
+            f'/api/dashboard/users/{target.pk}/',
+            data=json.dumps({'reset_password': True}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response['Cache-Control'], 'no-store')
+        self.assertEqual(response['Pragma'], 'no-cache')
+        payload = response.json()['data']
+        password = payload['generated_password']
+        self.assertEqual(len(password), 16)
+        self.assertTrue(password.isalnum())
+        target.refresh_from_db()
+        self.assertNotEqual(target.password, old_hash)
+        self.assertTrue(target.check_password(password))
+
+        list_payload = self.client.get('/api/dashboard/users/?search=reset-target').json()['data'][0]
+        self.assertNotIn('generated_password', list_payload)
+        self.assertNotIn('password', list_payload)
+
+    def test_non_superusers_cannot_reset_password(self):
+        target = User.objects.create_user(username='protected-reset-target', password='Old-pass-123!')
+        old_hash = target.password
+        for caller in (self.staff, User.objects.create_user(username='regular-reset-caller', password='Regular-pass-123!')):
+            with self.subTest(caller=caller.username):
+                self.login(caller)
+                response = self.client.patch(
+                    f'/api/dashboard/users/{target.pk}/',
+                    data=json.dumps({'reset_password': True}),
+                    content_type='application/json',
+                )
+                self.assertEqual(response.status_code, 403)
+                target.refresh_from_db()
+                self.assertEqual(target.password, old_hash)
+        self.client.logout()
+        response = self.client.patch(
+            f'/api/dashboard/users/{target.pk}/',
+            data=json.dumps({'reset_password': True}),
+            content_type='application/json',
+        )
+        self.assertIn(response.status_code, (302, 403))
+        target.refresh_from_db()
+        self.assertEqual(target.password, old_hash)
+
+    def test_generated_password_reset_rejects_extra_fields_and_false_mode(self):
+        target = User.objects.create_user(username='safe-reset-target', password='Old-pass-123!')
+        old_hash = target.password
+        self.login()
+
+        for payload in (
+            {'reset_password': False},
+            {'reset_password': True, 'is_staff': True},
+            {'reset_password': True, 'password': 'Injected-pass-123!'},
+        ):
+            with self.subTest(payload=payload):
+                response = self.client.patch(
+                    f'/api/dashboard/users/{target.pk}/',
+                    data=json.dumps(payload),
+                    content_type='application/json',
+                )
+                self.assertEqual(response.status_code, 400)
+                target.refresh_from_db()
+                self.assertEqual(target.password, old_hash)
+
     def test_admin_cannot_deactivate_or_remove_own_superuser_access(self):
         self.login()
         for payload in (
@@ -265,3 +338,15 @@ class DashboardUserManagementFrontendContractTests(TestCase):
         self.assertIn('generated_password', javascript)
         self.assertIn('navigator.clipboard', javascript)
         self.assertIn('权限：普通会员', javascript)
+
+    def test_frontend_exposes_one_time_password_reset_and_copy_flow(self):
+        self.client.force_login(self.admin)
+        response = self.client.get('/dashboard/')
+        self.assertContains(response, 'id="user-management-reset-modal"')
+        self.assertContains(response, '重置并复制')
+
+        javascript = (ROOT / 'static/dashboard/js/user_management.js').read_text(encoding='utf-8')
+        self.assertIn("resetPasswordButton.textContent = '重置密码'", javascript)
+        self.assertIn('reset_password: true', javascript)
+        self.assertIn('data.generated_password', javascript)
+        self.assertIn('clearPasswordResetResult()', javascript)
