@@ -336,7 +336,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         header_soup = BeautifulSoup(shared_header, 'html.parser')
         navigation = [
             (link.get_text(' ', strip=True), link.get('href'), link.get('aria-label'))
-            for link in header_soup.select('.portal-header-actions > a')
+            for link in header_soup.select('.portal-header-actions > a:not(.portal-login-icon)')
         ]
         self.assertEqual(
             navigation,
@@ -360,6 +360,13 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIn('{% else %}', shared_header)
         self.assertIn('href="/dashboard/"', shared_header)
         self.assertIn('href="/auth/login/?next=/dashboard/"', shared_header)
+        login_link = soup.select_one('a.portal-login-icon')
+        if login_link is None:
+            self.fail('anonymous login icon link is missing')
+        self.assertEqual(login_link.get('href'), '/auth/login/?next=/dashboard/')
+        self.assertEqual(login_link.get_text(' ', strip=True), '')
+        self.assertIsNotNone(login_link.select_one('use[href$="#icon-login"]'))
+        self.assertNotIn('<span>登录后台</span>', shared_header)
         self.assertIn('<form method="post" action="/auth/logout/"', shared_header)
         self.assertIn('{% csrf_token %}', shared_header)
         self.assertNotIn('href="/auth/logout/"', shared_header)
@@ -376,6 +383,11 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             template = (self.ROOT / 'templates/portal' / template_name).read_text(encoding='utf-8')
             self.assertIn("{% include 'portal/_header.html' %}", template, template_name)
             self.assertEqual(template.count('portal-header-actions'), 0, template_name)
+
+    def test_dashboard_login_title_does_not_call_it_backend(self):
+        login_template = (self.ROOT / 'templates/dashboard/login.html').read_text(encoding='utf-8')
+        soup = BeautifulSoup(login_template, 'html.parser')
+        self.assertIsNone(soup.select_one('h1'))
 
     def test_benchmark_collection_page_renders_panel_list_instead_of_all_results(self):
         shared_header = (self.ROOT / 'templates/portal/_header.html').read_text(encoding='utf-8')
