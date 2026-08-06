@@ -159,6 +159,40 @@ class DashboardDatabaseTableContractTests(TestCase):
         self.assertEqual(payload["total_pages"], 2)
         self.assertEqual(len(payload["data"]), 2)
 
+    def test_create_update_and_delete_support_nullable_omitted_fields(self):
+        response = self.post_action({
+            'action': 'create_table_row',
+            'table_name': 'MonitorTask',
+            'create_data': {
+                'name': '通用 CRUD 验收任务',
+                'target': 'https://example.invalid/dashboard-crud',
+                'is_active': False,
+            },
+        })
+        self.assertEqual(response.status_code, 200, response.content)
+        row_id = response.json()['data']['id']
+        task = MonitorTask.objects.get(pk=row_id)
+        self.assertIsNone(task.flag)
+        self.assertFalse(task.is_active)
+
+        response = self.post_action({
+            'action': 'update_table_row',
+            'table_name': 'MonitorTask',
+            'row_id': row_id,
+            'update_data': {'name': '通用 CRUD 验收任务（已更新）'},
+        })
+        self.assertEqual(response.status_code, 200, response.content)
+        task.refresh_from_db()
+        self.assertEqual(task.name, '通用 CRUD 验收任务（已更新）')
+
+        response = self.post_action({
+            'action': 'delete_table_row',
+            'table_name': 'MonitorTask',
+            'row_id': row_id,
+        })
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertFalse(MonitorTask.objects.filter(pk=row_id).exists())
+
     def test_create_rejects_unknown_or_sensitive_fields_without_partial_write(self):
         before = MonitorTask.objects.count()
         response = self.post_action({

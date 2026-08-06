@@ -881,7 +881,19 @@ class DashboardView(View):
 
         try:
             instance = model(**converted_data)
-            instance.full_clean()
+            # 旧模型中存在 null=True 但 blank=False 的字段；未提交时数据库允许 NULL，
+            # 不应让表单语义的 blank 校验阻断通用新增。显式提交的值仍完整校验。
+            omitted_nullable_fields = [
+                field.name
+                for field in model._meta.fields
+                if (
+                    field.null
+                    and field.name not in create_data
+                    and field.attname not in converted_data
+                    and getattr(instance, field.attname) is None
+                )
+            ]
+            instance.full_clean(exclude=omitted_nullable_fields)
             instance.save()
         except ValidationError as exc:
             return JsonResponse({"status": "error", "message": f"数据校验失败: {exc}"}, status=400)
