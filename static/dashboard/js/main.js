@@ -103,6 +103,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     activateDashboardLocation();
+    window.addEventListener('popstate', activateDashboardLocation);
 });
 
 /**
@@ -311,6 +312,25 @@ function initDashboardSectionLinks() {
     });
 }
 
+function syncDashboardLocation({ section = '', tool = '', table = '' } = {}) {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('section');
+    url.searchParams.delete('tool');
+    url.searchParams.delete('table');
+
+    if (section && section !== 'dashboard-home') {
+        url.searchParams.set('section', section);
+    } else if (tool) {
+        url.searchParams.set('tool', tool);
+    } else if (table) {
+        url.searchParams.set('table', table);
+    }
+
+    if (url.href !== window.location.href) {
+        window.history.pushState({ dashboardLocation: { section, tool, table } }, '', url);
+    }
+}
+
 /**
  * 从站内独立子页面返回 Dashboard 时，恢复用户点击的原侧栏目标。
  */
@@ -334,6 +354,9 @@ function activateDashboardLocation() {
             target = Array.from(document.querySelectorAll('.nav-item[data-section]'))
                 .find(item => item.dataset.section === section);
         }
+    }
+    if (!target) {
+        target = document.querySelector('.nav-item[data-section="dashboard-home"]');
     }
     if (!target) return;
 
@@ -457,6 +480,7 @@ function initNavigation() {
                 if (sectionId === SIMC_DASHBOARD_SECTIONS.workflow) {
                     switchSimcPlayerImportMode();
                 }
+                syncDashboardLocation({ section: sectionId });
             }
         });
     });
@@ -510,6 +534,7 @@ function initNavigation() {
                     document.dispatchEvent(new CustomEvent('dashboard-section-changed', {
                         detail: { section: dashboardSection },
                     }));
+                    syncDashboardLocation({ section: dashboardSection });
                 }
             } else if (toolName) {
                 // 处理工具菜单项
@@ -549,6 +574,7 @@ function initNavigation() {
                             initWagoSkillDiffRerunTool();
                         }
                     }
+                    syncDashboardLocation({ tool: toolName });
                 }
             } else if (tableName) {
                 // 处理数据库表菜单项
@@ -573,6 +599,7 @@ function initNavigation() {
 
                         // 获取表数据
                         fetchTableData(tableName);
+                        syncDashboardLocation({ table: tableName });
                     }
             }
         });
