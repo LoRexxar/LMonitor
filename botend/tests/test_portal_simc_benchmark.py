@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import call, patch
 
 from bs4 import BeautifulSoup
+from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 
 from botend.models import (
@@ -258,6 +259,20 @@ class PortalSimcBenchmarkAPITests(TestCase):
 
 
 @override_settings(ALLOWED_HOSTS=['testserver'])
+class PortalLogoutTests(TestCase):
+    def test_logout_requires_post_and_clears_authenticated_session(self):
+        user = User.objects.create_user(username='portal_logout_qa', password='test-password-for-run')
+        self.assertTrue(self.client.login(username=user.username, password='test-password-for-run'))
+
+        self.assertEqual(self.client.get('/auth/logout/').status_code, 405)
+
+        response = self.client.post('/auth/logout/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['status'], 'success')
+        self.assertNotIn('_auth_user_id', self.client.session)
+
+
+@override_settings(ALLOWED_HOSTS=['testserver'])
 class PortalSimcBenchmarkPageTests(TestCase):
     def test_numeric_panel_route_renders_panel_identity_for_javascript(self):
         response = self.client.get(
@@ -345,6 +360,9 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIn('{% else %}', shared_header)
         self.assertIn('href="/dashboard/"', shared_header)
         self.assertIn('href="/auth/login/?next=/dashboard/"', shared_header)
+        self.assertIn('<form method="post" action="/auth/logout/"', shared_header)
+        self.assertIn('{% csrf_token %}', shared_header)
+        self.assertNotIn('href="/auth/logout/"', shared_header)
         self.assertNotIn('portal-action-btn--icon', shared_header)
         for template_name in (
             'index.html',

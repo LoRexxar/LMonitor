@@ -47,10 +47,13 @@
                             <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-tools"></use></svg>
                             <span>进入后台</span>
                         </a>
-                        <a href="/auth/logout/" class="portal-user-menu-item">
-                            <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-logout"></use></svg>
-                            <span>退出登录</span>
-                        </a>
+                        <form method="post" action="/auth/logout/" class="portal-user-menu-form">
+                            {% csrf_token %}
+                            <button type="submit" class="portal-user-menu-item portal-user-menu-submit">
+                                <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-logout"></use></svg>
+                                <span>退出登录</span>
+                            </button>
+                        </form>
                     {% else %}
                         <a href="/auth/login/?next=/dashboard/" class="portal-user-menu-item">
                             <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-login"></use></svg>

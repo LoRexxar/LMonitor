@@ -121,6 +121,19 @@ body {
     white-space: nowrap;
 }
 
+.portal-user-menu-form {
+    margin: 0;
+}
+
+.portal-user-menu-submit {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
 .portal-user-menu-item:hover,
 .portal-user-menu-item:focus-visible {
     background: rgb(241, 245, 249);
