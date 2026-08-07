@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup, Tag
 
 ROOT = Path(__file__).resolve().parents[2]
 INDEX = (ROOT / "templates/dashboard/index.html").read_text(encoding="utf-8")
+MAIN_JS = (ROOT / "static/dashboard/js/main.js").read_text(encoding="utf-8")
 
 
 class DashboardSidebarAlignmentContractTests(unittest.TestCase):
@@ -70,6 +71,18 @@ class DashboardSidebarAlignmentContractTests(unittest.TestCase):
         self.assertRegex(link_rule.group("body"), r"padding-left:\s*0\.75rem")
         self.assertRegex(link_rule.group("body"), r"display:\s*flex")
         self.assertRegex(link_rule.group("body"), r"align-items:\s*center")
+    def test_dashboard_theme_toggle_restores_a_persisted_accessible_mode(self):
+        soup = BeautifulSoup(INDEX, "html.parser")
+        toggle = soup.select_one("#dashboard-theme-toggle")
+        self.assertIsNotNone(toggle)
+        assert isinstance(toggle, Tag)
+        self.assertEqual(toggle.get("type"), "button")
+        self.assertEqual(toggle.get("aria-pressed"), "false")
+        self.assertIn("lmonitor-dashboard-theme", INDEX)
+        self.assertIn('data-dashboard-theme="dark"', INDEX)
+        self.assertIn("function initDashboardTheme()", MAIN_JS)
+        self.assertIn("localStorage.setItem(storageKey", MAIN_JS)
+        self.assertIn("initDashboardTheme();", MAIN_JS)
 
 
 if __name__ == "__main__":

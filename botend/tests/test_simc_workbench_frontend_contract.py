@@ -702,9 +702,9 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('.spec', detail_body)
 
     def test_script_is_really_loaded(self):
-        self.assertIn("{% static 'dashboard/js/main.js' %}?v=20260807_resource_simulation", HTML)
+        self.assertIn("{% static 'dashboard/js/main.js' %}?v=20260807_dashboard_theme", HTML)
         self.assertIn("{% static 'dashboard/js/simc-workbench.js' %}?v=20260807_resource_simulation", HTML)
-        self.assertIn("{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260726c", HTML)
+        self.assertIn("{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260727b", HTML)
         self.assertNotIn("moveSimcToolIntoWorkbench", MAIN)
 
     def test_resource_list_simulate_actions_preselect_the_existing_workflow(self):

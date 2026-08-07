@@ -1,3 +1,27 @@
+function initDashboardTheme() {
+    const storageKey = 'lmonitor-dashboard-theme';
+    const root = document.documentElement;
+    const toggle = document.getElementById('dashboard-theme-toggle');
+    const icon = document.getElementById('dashboard-theme-icon');
+    if (!toggle || !icon) return;
+
+    const render = () => {
+        const isDark = root.dataset.dashboardTheme === 'dark';
+        toggle.setAttribute('aria-pressed', String(isDark));
+        toggle.setAttribute('aria-label', isDark ? '切换浅色模式' : '切换深色模式');
+        toggle.title = isDark ? '切换浅色模式' : '切换深色模式';
+        icon.className = `fas ${isDark ? 'fa-sun' : 'fa-moon'} text-sm`;
+    };
+    render();
+    toggle.addEventListener('click', () => {
+        const isDark = root.dataset.dashboardTheme === 'dark';
+        if (isDark) delete root.dataset.dashboardTheme;
+        else root.dataset.dashboardTheme = 'dark';
+        try { localStorage.setItem(storageKey, isDark ? 'light' : 'dark'); } catch (_) {}
+        render();
+    });
+}
+
 function applyDashboardPagePermissions() {
     const permissionCodes = new Set(JSON.parse(document.getElementById('dashboard-permissions-data')?.textContent || '[]'));
     const catalog = JSON.parse(document.getElementById('dashboard-permission-catalog-data')?.textContent || '[]');
@@ -22,6 +46,7 @@ function applyDashboardPagePermissions() {
  */
 
 document.addEventListener('DOMContentLoaded', function() {
+    initDashboardTheme();
     applyDashboardPagePermissions();
     // 初始化页面数据
     initDashboard();

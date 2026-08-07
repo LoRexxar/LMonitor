@@ -7,6 +7,14 @@
     <title>{{ title }}</title>
     {% load static %}
     <meta name="csrf-token" content="{{ csrf_token }}">
+    <script>
+        // Restore before first paint so returning dark-mode users do not see a white flash.
+        try {
+            if (localStorage.getItem('lmonitor-dashboard-theme') === 'dark') {
+                document.documentElement.dataset.dashboardTheme = 'dark';
+            }
+        } catch (_) {}
+    </script>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Font Awesome for icons -->
@@ -336,6 +344,61 @@
 
             #simc-workbench .simc-pagination { justify-content: space-between; gap: .5rem; }
         }
+        /* Dashboard theme: a low-luminance warm/green canvas keeps existing blue, purple and semantic accents intact. */
+        :root {
+            --dashboard-canvas: #edf2e9;
+            --dashboard-surface: #fffdf4;
+            --dashboard-surface-muted: #f7f5e9;
+            --dashboard-border: #dce5d8;
+            --dashboard-text: #26342d;
+            --dashboard-muted: #617069;
+        }
+        body.dashboard-page { background-color: var(--dashboard-canvas); color: var(--dashboard-text); }
+        .main-content { background-color: var(--dashboard-canvas) !important; }
+        #sidebar, #user-menu, #news-wow-detail-modal > div, #system-alert-modal > div > div { background-color: var(--dashboard-surface); }
+        #sidebar .sidebar-submenu { border-color: var(--dashboard-border); }
+        .main-content [class~="bg-white"], .main-content [class~="bg-gray-50"],
+        #sidebar [class~="bg-white"], #user-menu [class~="bg-white"] { background-color: var(--dashboard-surface) !important; }
+        .main-content [class~="bg-gray-100"], .main-content [class~="bg-slate-50"],
+        #sidebar [class~="bg-gray-50"], #user-menu [class~="bg-gray-50"] { background-color: var(--dashboard-surface-muted) !important; }
+        .main-content input, .main-content select, .main-content textarea, #sidebar input {
+            background-color: var(--dashboard-surface) !important;
+            border-color: var(--dashboard-border) !important;
+            color: var(--dashboard-text);
+        }
+        .main-content [class*="border-gray-"], .main-content [class*="border-slate-"],
+        #sidebar [class*="border-gray-"], #user-menu [class*="border-gray-"] { border-color: var(--dashboard-border) !important; }
+        .main-content [class~="text-gray-900"], .main-content [class~="text-gray-800"], .main-content [class~="text-slate-900"] { color: var(--dashboard-text) !important; }
+        .main-content [class~="text-gray-700"], .main-content [class~="text-gray-600"], .main-content [class~="text-gray-500"],
+        #sidebar [class~="text-gray-700"], #sidebar [class~="text-gray-600"], #user-menu [class~="text-gray-700"] { color: var(--dashboard-muted) !important; }
+        .dashboard-theme-toggle { min-width: 2.5rem; min-height: 2.5rem; }
+
+        html[data-dashboard-theme="dark"] {
+            --dashboard-canvas: #16221d;
+            --dashboard-surface: #202d27;
+            --dashboard-surface-muted: #293831;
+            --dashboard-border: #405249;
+            --dashboard-text: #e0e9df;
+            --dashboard-muted: #b5c5ba;
+            color-scheme: dark;
+        }
+        html[data-dashboard-theme="dark"] .main-content [class~="shadow-lg"],
+        html[data-dashboard-theme="dark"] .main-content [class~="shadow-xl"],
+        html[data-dashboard-theme="dark"] .main-content [class~="shadow-2xl"] {
+            box-shadow: 0 14px 30px rgba(0, 0, 0, .2);
+            outline: 1px solid rgba(148, 163, 184, .18);
+        }
+        html[data-dashboard-theme="dark"] #sidebar,
+        html[data-dashboard-theme="dark"] #user-menu,
+        html[data-dashboard-theme="dark"] #news-wow-detail-modal > div,
+        html[data-dashboard-theme="dark"] #system-alert-modal > div > div { box-shadow: 0 18px 40px rgba(0, 0, 0, .34); }
+        html[data-dashboard-theme="dark"] .main-content [class~="text-gray-400"],
+        html[data-dashboard-theme="dark"] .main-content [class~="text-slate-400"],
+        html[data-dashboard-theme="dark"] #sidebar [class~="text-gray-400"],
+        html[data-dashboard-theme="dark"] #user-menu [class~="text-gray-500"] { color: #93a99a !important; }
+        html[data-dashboard-theme="dark"] .main-content [class*="hover:bg-gray-"],
+        html[data-dashboard-theme="dark"] #sidebar [class*="hover:bg-gray-"] { --tw-bg-opacity: 1; }
+
     </style>
     {% block dashboard_extra_head %}{% endblock %}
     {% if page_name == 'dashboard' %}
@@ -344,7 +407,7 @@
     {{ dashboard_permissions|json_script:"dashboard-permissions-data" }}
     {{ dashboard_permission_catalog|json_script:"dashboard-permission-catalog-data" }}
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260807_resource_simulation"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260807_dashboard_theme"></script>
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806c" defer></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260807_resource_simulation"></script>
     <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260807_execution_stop"></script>
@@ -407,6 +470,9 @@
                         <i class="fas fa-house text-sm"></i>
                         <span class="hidden sm:inline text-sm">回到首页</span>
                     </a>
+                    <button id="dashboard-theme-toggle" type="button" class="dashboard-theme-toggle inline-flex items-center justify-center rounded-lg bg-white bg-opacity-15 text-white hover:bg-opacity-25 focus:outline-none focus:ring-2 focus:ring-white/70 transition-colors duration-200" aria-label="切换深色模式" aria-pressed="false" title="切换深色模式">
+                        <i id="dashboard-theme-icon" class="fas fa-moon text-sm" aria-hidden="true"></i>
+                    </button>
                     <!-- 用户信息下拉菜单 -->
                     <div class="relative">
                         <button id="user-menu-button" class="flex items-center space-x-2 text-white hover:text-gray-200 focus:outline-none focus:text-gray-200 transition-colors duration-200">
