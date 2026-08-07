@@ -92,6 +92,11 @@ class ArticleTranslationServiceTests(SimpleTestCase):
             ],
         )
 
+    def test_content_prompt_requires_translating_non_placeholder_english(self):
+        svc = ArticleTranslationService(engine=FakeEngine(), sleep_func=lambda _: None)
+
+        self.assertIn("不得保留英文", svc._translation_prompt(["Developers’ notes"]))
+
     def test_glossary_protects_unique_multiword_terms_and_restores_official_chinese(self):
         glossary = WowNewsGlossary.from_pairs([
             ("Arcane Surge", "奥术涌动"),

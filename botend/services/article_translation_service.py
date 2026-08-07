@@ -138,7 +138,9 @@ class ArticleTranslationService:
 
     def _translation_prompt(self, batch: List[str]) -> str:
         return (
-            "请把下面 JSON 数组中的每个英文字符串翻译成中文，保持数组长度与顺序一致。"
+            "请把下面 JSON 数组中的每个英文字符串翻译成自然、完整的中文，保持数组长度与顺序一致。"
+            "除形如 ⟦WOWTERM_001⟧ 的术语占位符外，不得保留英文普通词、英文说明词或英文技能名；"
+            "术语没有本地中文映射时，也应译成中文而不是保留英文。"
             "数组中形如 ⟦WOWTERM_001⟧ 的术语占位符必须原样保留，不得翻译、改写、拆分或删除。"
             "仅输出 JSON 数组（不要输出其它文字/解释/Markdown）。\n\n"
             f"输入JSON：\n{json.dumps(batch, ensure_ascii=False)}"
@@ -161,7 +163,9 @@ class ArticleTranslationService:
             return ""
         protected = glossary.protect(title)
         prompt = (
-            "请将以下英文标题翻译成中文，只返回翻译结果，不要添加任何解释。"
+            "请将以下英文标题翻译成自然、完整的中文，只返回翻译结果，不要添加任何解释。"
+            "除形如 ⟦WOWTERM_001⟧ 的术语占位符外，不得保留英文普通词或英文说明词；"
+            "术语没有本地中文映射时，也应译成中文而不是保留英文。"
             "其中形如 ⟦WOWTERM_001⟧ 的术语占位符必须原样保留。\n\n"
             f"{protected.text}"
         )
