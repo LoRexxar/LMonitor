@@ -2307,6 +2307,20 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
             _resolve_choice_selection(current_choice_node, old_single_entry_state),
         )
 
+    def test_talent_build_code_output_has_stable_dimensions_while_reencoding(self):
+        stylesheet = (
+            Path(__file__).resolve().parents[2]
+            / 'static/portal/css/talent_simulator.css'
+        ).read_text(encoding='utf-8')
+        start = stylesheet.index('.talent-code-output code {')
+        end = stylesheet.index('}', start)
+        code_output_rule = stylesheet[start:end]
+
+        self.assertIn('inline-size: 100%;', code_output_rule)
+        self.assertIn('height: 72px;', code_output_rule)
+        self.assertNotIn('min-height:', code_output_rule)
+        self.assertIn('overflow: auto;', code_output_rule)
+
     def test_frontend_trusts_backend_granted_state_instead_of_guessing_all_root_nodes(self):
         script = (
             Path(__file__).resolve().parents[2]
