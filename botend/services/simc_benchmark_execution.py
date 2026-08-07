@@ -358,8 +358,6 @@ def _latest_source_tasks_by_coordinate(panel, coordinate_filter=None):
             if value:
                 case_filters[key] = str(value)
     cases = SimcBenchmarkCase.objects.filter(**case_filters)
-    if panel.aggregate_baseline_execution_id:
-        cases = cases.filter(execution_id__gte=panel.aggregate_baseline_execution_id)
     cases = cases.select_related('task', 'task__profile_version').order_by(
         '-execution_id', '-id',
     )
@@ -377,11 +375,13 @@ def _latest_source_tasks_by_coordinate(panel, coordinate_filter=None):
 
 
 def _reusable_candidate_tasks_by_coordinate(panel, coordinate_filter=None):
-    """Load reusable candidate provenance from the current full-rerun baseline onward.
+    """Load the newest successful provenance for each coordinate/candidate identity.
 
-    A full rerun changes the Panel's aggregate baseline. Older Result rows remain
-    immutable audit history but must not leak into the new result surface. Public
-    selected-coordinate reads pass stable keys so unrelated Result/Task rows are not loaded.
+    A full rerun is an asynchronous replacement. Its successful candidates must
+    supersede older rows individually, while candidates that are still pending or
+    failed continue to fall back to the last successful immutable Result. Ordering
+    newest-first and deduplicating by executable identity provides that atomic
+    per-candidate replacement without deleting historical rows.
     """
     coordinates = {}
     case_filters = {
@@ -394,8 +394,6 @@ def _reusable_candidate_tasks_by_coordinate(panel, coordinate_filter=None):
             if value:
                 case_filters[key] = str(value)
     cases = SimcBenchmarkCase.objects.filter(**case_filters)
-    if panel.aggregate_baseline_execution_id:
-        cases = cases.filter(execution_id__gte=panel.aggregate_baseline_execution_id)
     cases = cases.select_related(
         'task', 'task__profile_version', 'execution',
     ).prefetch_related('results').order_by(
@@ -578,9 +576,8 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
                 'Panel configuration changed during execution preflight'
             )
         incremental_coordinates = _incremental_coordinates(locked_panel, locked_plan)
-        # Full rerun schedules the entire frozen surface and immediately establishes
-        # a new aggregate boundary. Supplement mode only creates missing candidate
-        # inputs, preserving completed provenance at/after that boundary.
+        # Full rerun schedules the entire frozen surface. Results remain readable
+        # from the previous execution until each replacement candidate succeeds.
         execution_coordinates = (locked_plan['cases'] if execution_mode == 'full'
                                  else incremental_coordinates)
         # Execution freezes only work it owns.  The Panel configuration remains
@@ -600,15 +597,7 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
                     config_snapshot=snapshot, config_hash=config_hash,
                 )
                 locked_panel.active_execution = execution
-                if execution_mode == 'full':
-                    # The new full Execution atomically establishes the Result
-                    # aggregate boundary; old Result history stays auditable only.
-                    locked_panel.aggregate_baseline_execution = execution
-                    locked_panel.save(update_fields=[
-                        'active_execution', 'aggregate_baseline_execution',
-                    ])
-                else:
-                    locked_panel.save(update_fields=['active_execution'])
+                locked_panel.save(update_fields=['active_execution'])
         except IntegrityError:
             if slot is not None:
                 winner = SimcBenchmarkExecution.objects.filter(
@@ -1143,18 +1132,16 @@ def summarize_panel_coverage_counts(panels):
         item['missing_results'] = item['candidate_runs']
         boundaries[panel.pk] = selected['id']
 
-    # Result rows use the stable display key, whereas reuse identity includes the
-    # executable parameters.  A full baseline freezes those parameters, so this
-    # grouped SQL projection is exact for its frozen surface and avoids loading
-    # every Result into Python.  Count all Panels in one query; the CASE predicate
-    # applies each Panel's independently selected baseline boundary.
+    # Count the latest available logical result surface across all immutable
+    # executions. A replacement Execution is asynchronous, so its missing or
+    # failed candidates must not hide an older successful row.
     identity_expression = Concat(
         'case__coordinate_hash', Value(':'), 'candidate_key',
         output_field=CharField(),
     )
     boundary_filter = Q()
-    for panel_id, boundary_id in boundaries.items():
-        boundary_filter |= Q(case__execution__panel_id=panel_id, case__execution_id__gte=boundary_id)
+    for panel_id in boundaries:
+        boundary_filter |= Q(case__execution__panel_id=panel_id)
     grouped_results = SimcBenchmarkResult.objects.filter(boundary_filter).values(
         'case__execution__panel_id',
     ).annotate(available=Count(identity_expression, distinct=True))

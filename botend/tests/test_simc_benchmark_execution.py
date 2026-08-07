@@ -786,7 +786,7 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertIsNone(self.panel.active_execution_id)
         self.assertEqual(self.panel.published_execution_id, original.id)
 
-    def test_full_rerun_creates_all_runs_and_replaces_current_aggregate_baseline(self):
+    def test_full_rerun_keeps_previous_results_until_each_replacement_succeeds(self):
         original = self._published_success()
         original_task_count = SimcTask.objects.count()
 
@@ -800,9 +800,25 @@ class SimcBenchmarkExecutionTests(TestCase):
         )
         self.assertEqual(SimcTask.objects.count(), original_task_count + 1)
         self.panel.refresh_from_db()
-        self.assertEqual(self.panel.aggregate_baseline_execution_id, rerun.id)
+        self.assertNotEqual(self.panel.aggregate_baseline_execution_id, rerun.id)
+        candidates = serialize_incremental_panel_results(self.panel)['coordinates'][0]['candidates']
         self.assertEqual(
-            serialize_incremental_panel_results(self.panel)['coordinates'][0]['candidates'], [],
+            [(row['key'], row['dps']) for row in candidates],
+            [('baseline', 1234.0), ('trinket', 1300.0)],
+        )
+
+        rerun_case = rerun.cases.get()
+        rerun_task = rerun_case.task
+        rerun_task.current_status = 2
+        rerun_task.save(update_fields=['current_status'])
+        self._run(rerun_task, 1, 'completed', 'baseline', dps=1200)
+        self._run(rerun_task, 2, 'completed', 'trinket', dps=1300)
+        reconcile_execution(rerun)
+
+        candidates = serialize_incremental_panel_results(self.panel)['coordinates'][0]['candidates']
+        self.assertEqual(
+            [(row['key'], row['dps']) for row in candidates],
+            [('baseline', 1200.0), ('trinket', 1300.0)],
         )
 
     def test_supplement_rerun_only_schedules_missing_candidates_from_current_baseline(self):
