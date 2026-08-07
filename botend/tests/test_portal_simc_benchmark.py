@@ -349,6 +349,27 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             ],
         )
 
+    def test_portal_header_has_persistent_accessible_theme_toggle(self):
+        shared_header = (self.ROOT / 'templates/portal/_header.html').read_text(encoding='utf-8')
+        header_soup = BeautifulSoup(shared_header, 'html.parser')
+        toggle = header_soup.select_one('#portal-theme-toggle')
+        self.assertIsNotNone(toggle)
+        self.assertEqual(toggle.get('type'), 'button')
+        self.assertEqual(toggle.get('aria-pressed'), 'false')
+
+        theme_script = (self.ROOT / 'static/portal/js/portal-theme.js').read_text(encoding='utf-8')
+        self.assertIn("lmonitor-portal-theme", theme_script)
+        self.assertIn("portal-theme-dark", theme_script)
+        self.assertIn("DOMContentLoaded", theme_script)
+
+        for template_name in (
+            'index.html', 'news.html', 'specs.html', 'talent_simulator.html',
+            'simc_benchmark_results.html', 'article.html', 'wow_skill_diff_report.html',
+        ):
+            template = (self.ROOT / 'templates/portal' / template_name).read_text(encoding='utf-8')
+            self.assertIn("portal/js/portal-theme.js", template, template_name)
+            self.assertIn("portal/css/portal.css' %}?v=20260808_portal_theme_v2", template, template_name)
+
     def test_portal_header_uses_username_or_login_dropdown(self):
         shared_header = (self.ROOT / 'templates/portal/_header.html').read_text(encoding='utf-8')
         soup = BeautifulSoup(shared_header, 'html.parser')

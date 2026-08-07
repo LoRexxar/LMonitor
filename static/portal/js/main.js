@@ -952,8 +952,8 @@ function renderPeakSpecGrid(containerId, payload) {
       </div>`;
     });
 
-    const cardHtml = `<div class="relative overflow-hidden rounded-xl border border-slate-200 bg-white/70 px-3 py-2">
-      <div class="absolute inset-0 pointer-events-none" style="background:linear-gradient(90deg, ${softBg} 0%, rgba(255,255,255,0) 62%);"></div>
+    const cardHtml = `<div class="portal-peak-card relative overflow-hidden rounded-xl border border-slate-200 bg-white/70 px-3 py-2">
+      <div class="absolute inset-0 pointer-events-none" style="background:linear-gradient(90deg, ${softBg} 0%, transparent 62%);"></div>
       <div class="absolute left-0 top-0 bottom-0 w-1" style="background:${titleColor}"></div>
       <div class="relative">
         <div class="flex items-center gap-2 pb-2 border-b border-slate-100">
@@ -1772,7 +1772,7 @@ function renderEvents(items) {
     <span class="inline-flex items-center gap-1"><span class="h-2.5 w-2.5 rounded-full bg-amber-500"></span>当前日</span>
   </div>`;
 
-  const calendarHtml = `<div class="min-w-[640px] overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-sm">
+  const calendarHtml = `<div class="portal-activity-calendar min-w-[640px] overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-sm">
     <div class="flex items-center justify-between gap-3 border-b border-emerald-100 bg-emerald-50/80 px-3 py-2.5">
       <div>
         <div class="text-sm font-extrabold text-slate-950">${formatMonthTitle(monthStart)}</div>
