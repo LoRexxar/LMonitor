@@ -87,17 +87,22 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertEqual(title.get_text(strip=True), 'SimC 基准面板')
 
     def test_shared_benchmark_assets_use_current_cache_version(self):
-        expected = '?v=20260804e'
+        expected = '?v=20260807_execution_stop'
         for page in (INDEX, CONFIG_PAGE, PANEL_EDIT_PAGE, EXECUTION_PAGE):
             for line in page.splitlines():
                 if 'simc-benchmark-dashboard.' in line:
                     self.assertIn(expected, line)
 
-    def test_active_execution_has_owner_cancel_action(self):
+    def test_active_execution_has_stop_action_in_panel_and_execution_detail(self):
         self.assertIn("['pending','running'].includes(execution.status)", JS)
-        self.assertIn("actionButton('cancel-execution','取消当前执行'", JS)
+        self.assertIn("actionButton('cancel-execution','停止执行'", JS)
+        execution_render = JS[JS.index('function renderExecution('):JS.index('async function loadExecutionPage(')]
+        self.assertIn("dataset:{cancelExecution:data.id}", execution_render)
+        self.assertIn("'停止执行'", execution_render)
         self.assertIn("executions/${execution.id}/cancel/", JS)
+        self.assertIn("executions/${id}/cancel/", JS)
         self.assertIn("if(action.dataset.action==='cancel-execution')", JS)
+        self.assertIn("cancel.dataset.cancelExecution", JS)
 
     def test_editor_and_history_are_independent_accessible_dialogs(self):
         soup = BeautifulSoup(PARTIAL, "html.parser")
@@ -398,7 +403,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn('function loadExecutionPage()', JS)
         self.assertIn('function rerunFailedPage(id,button)', JS)
         self.assertIn("dataset:{rerunFailed:data.id}", JS)
-        self.assertIn('?v=20260804e', INDEX)
+        self.assertIn('?v=20260807_execution_stop', INDEX)
         self.assertIn("if(!configPage){document.body.classList.add", JS)
         self.assertIn("data-benchmark-notification", JS)
         self.assertNotIn('data-create-only', CONFIG_PAGE)
@@ -520,7 +525,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
             '.candidate-config-row',
         ):
             self.assertIn(selector, CSS)
-        self.assertIn('?v=20260804e', CONFIG_PAGE)
+        self.assertIn('?v=20260807_execution_stop', CONFIG_PAGE)
 
     def test_panel_name_does_not_collide_with_nested_scenario_names(self):
         soup = BeautifulSoup(PARTIAL, "html.parser")
