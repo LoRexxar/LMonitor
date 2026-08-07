@@ -145,6 +145,13 @@ class ArticleTranslationServiceTests(SimpleTestCase):
         self.assertEqual(svc.translate_title("Arcane Surge update"), "奥术涌动更新")
         self.assertEqual(len(engine.prompts), 2)
 
+    def test_title_retries_when_engine_invents_a_glossary_token(self):
+        engine = FakeEngine(["午夜：⟦WOWTERM_001⟧ 开发说明", "午夜开发说明"])
+        svc = ArticleTranslationService(engine=engine, sleep_func=lambda _: None)
+
+        self.assertEqual(svc.translate_title("Midnight PTR Development Notes"), "午夜开发说明")
+        self.assertEqual(len(engine.prompts), 2)
+
     def test_translate_content_blocks_uses_unique_indexes_for_html_and_text(self):
         glossary = WowNewsGlossary.from_pairs([
             ("Arcane Surge", "奥术涌动"),

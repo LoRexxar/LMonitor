@@ -7,6 +7,7 @@ rewriting links, HTML attributes, or the rest of an article's prose.
 """
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 import re
 from typing import Dict, Iterable, Sequence, Tuple
@@ -15,6 +16,7 @@ from utils.log import logger
 
 
 _TOKEN_TEMPLATE = "⟦WOWTERM_{:03d}⟧"
+_TOKEN_PATTERN = re.compile(r"⟦WOWTERM_\d{3}⟧")
 _WORD_BOUNDARY = r"(?<![A-Za-z0-9]){}(?![A-Za-z0-9])"
 
 
@@ -25,13 +27,8 @@ class ProtectedText:
 
 
     def is_intact(self, translated: str) -> bool:
-        """Return whether all protected terms survived model output unchanged."""
-        if not self.replacements:
-            return True
-        return all(
-            (translated or "").count(token) == self.text.count(token)
-            for token in self.replacements
-        )
+        """Return whether the model preserved exactly the issued placeholders."""
+        return Counter(_TOKEN_PATTERN.findall(translated or "")) == Counter(_TOKEN_PATTERN.findall(self.text))
 
 
 class WowNewsGlossary:
