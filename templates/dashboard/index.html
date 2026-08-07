@@ -344,58 +344,59 @@
 
             #simc-workbench .simc-pagination { justify-content: space-between; gap: .5rem; }
         }
-        /* Dashboard theme: a low-luminance warm/green canvas keeps existing blue, purple and semantic accents intact. */
+        /* Dashboard theme: restrained warm stone neutrals, with blue-purple retained only as the product accent. */
         :root {
-            --dashboard-canvas: #edf2e9;
-            --dashboard-surface: #fffdf4;
-            --dashboard-surface-muted: #f7f5e9;
-            --dashboard-border: #dce5d8;
-            --dashboard-text: #26342d;
-            --dashboard-muted: #617069;
+            --dashboard-canvas: #f3f1ed;
+            --dashboard-surface: #fcfbf8;
+            --dashboard-surface-muted: #eeece7;
+            --dashboard-border: #dedad2;
+            --dashboard-text: #292b2f;
+            --dashboard-muted: #686b71;
+            --dashboard-shadow: 0 10px 28px rgba(41, 43, 47, .06);
         }
-        body.dashboard-page { background-color: var(--dashboard-canvas); color: var(--dashboard-text); }
+        body.dashboard-page, footer { background-color: var(--dashboard-canvas); color: var(--dashboard-text); }
         .main-content { background-color: var(--dashboard-canvas) !important; }
         #sidebar, #user-menu, #news-wow-detail-modal > div, #system-alert-modal > div > div { background-color: var(--dashboard-surface); }
         #sidebar .sidebar-submenu { border-color: var(--dashboard-border); }
         .main-content [class~="bg-white"], .main-content [class~="bg-gray-50"],
-        #sidebar [class~="bg-white"], #user-menu [class~="bg-white"] { background-color: var(--dashboard-surface) !important; }
+        #sidebar [class~="bg-white"], #user-menu [class~="bg-white"], footer[class~="bg-white"] { background-color: var(--dashboard-surface) !important; }
         .main-content [class~="bg-gray-100"], .main-content [class~="bg-slate-50"],
-        #sidebar [class~="bg-gray-50"], #user-menu [class~="bg-gray-50"] { background-color: var(--dashboard-surface-muted) !important; }
+        #sidebar [class~="bg-gray-50"], #user-menu [class~="bg-gray-50"], footer [class~="bg-gray-50"] { background-color: var(--dashboard-surface-muted) !important; }
+        .main-content [class~="shadow-lg"], .main-content [class~="shadow-xl"], .main-content [class~="shadow-2xl"] { box-shadow: var(--dashboard-shadow); }
         .main-content input, .main-content select, .main-content textarea, #sidebar input {
             background-color: var(--dashboard-surface) !important;
             border-color: var(--dashboard-border) !important;
             color: var(--dashboard-text);
         }
         .main-content [class*="border-gray-"], .main-content [class*="border-slate-"],
-        #sidebar [class*="border-gray-"], #user-menu [class*="border-gray-"] { border-color: var(--dashboard-border) !important; }
-        .main-content [class~="text-gray-900"], .main-content [class~="text-gray-800"], .main-content [class~="text-slate-900"] { color: var(--dashboard-text) !important; }
+        #sidebar [class*="border-gray-"], #user-menu [class*="border-gray-"], footer[class*="border-gray-"] { border-color: var(--dashboard-border) !important; }
+        .main-content [class~="text-gray-900"], .main-content [class~="text-gray-800"], .main-content [class~="text-slate-900"],
+        #sidebar [class~="text-gray-900"], #sidebar [class~="text-gray-800"], footer [class~="text-gray-900"] { color: var(--dashboard-text) !important; }
         .main-content [class~="text-gray-700"], .main-content [class~="text-gray-600"], .main-content [class~="text-gray-500"],
-        #sidebar [class~="text-gray-700"], #sidebar [class~="text-gray-600"], #user-menu [class~="text-gray-700"] { color: var(--dashboard-muted) !important; }
+        #sidebar [class~="text-gray-700"], #sidebar [class~="text-gray-600"], #user-menu [class~="text-gray-700"], footer [class~="text-gray-600"] { color: var(--dashboard-muted) !important; }
         .dashboard-theme-toggle { min-width: 2.5rem; min-height: 2.5rem; }
 
         html[data-dashboard-theme="dark"] {
-            --dashboard-canvas: #16221d;
-            --dashboard-surface: #202d27;
-            --dashboard-surface-muted: #293831;
-            --dashboard-border: #405249;
-            --dashboard-text: #e0e9df;
-            --dashboard-muted: #b5c5ba;
+            --dashboard-canvas: #181a1f;
+            --dashboard-surface: #23262d;
+            --dashboard-surface-muted: #2c3038;
+            --dashboard-border: #3b404a;
+            --dashboard-text: #edece8;
+            --dashboard-muted: #b7bac1;
+            --dashboard-shadow: 0 16px 34px rgba(0, 0, 0, .28);
             color-scheme: dark;
         }
-        html[data-dashboard-theme="dark"] .main-content [class~="shadow-lg"],
-        html[data-dashboard-theme="dark"] .main-content [class~="shadow-xl"],
-        html[data-dashboard-theme="dark"] .main-content [class~="shadow-2xl"] {
-            box-shadow: 0 14px 30px rgba(0, 0, 0, .2);
-            outline: 1px solid rgba(148, 163, 184, .18);
-        }
+        html[data-dashboard-theme="dark"] .gradient-bg { background: linear-gradient(135deg, #242936 0%, #302b3b 100%); }
+        html[data-dashboard-theme="dark"] #sidebar [class~="bg-blue-50"] { background-color: #2b3443 !important; }
+        html[data-dashboard-theme="dark"] #sidebar [class~="hover:bg-blue-50"]:hover { background-color: #354156 !important; }
         html[data-dashboard-theme="dark"] #sidebar,
         html[data-dashboard-theme="dark"] #user-menu,
         html[data-dashboard-theme="dark"] #news-wow-detail-modal > div,
-        html[data-dashboard-theme="dark"] #system-alert-modal > div > div { box-shadow: 0 18px 40px rgba(0, 0, 0, .34); }
+        html[data-dashboard-theme="dark"] #system-alert-modal > div > div { box-shadow: 0 18px 40px rgba(0, 0, 0, .38); }
         html[data-dashboard-theme="dark"] .main-content [class~="text-gray-400"],
         html[data-dashboard-theme="dark"] .main-content [class~="text-slate-400"],
         html[data-dashboard-theme="dark"] #sidebar [class~="text-gray-400"],
-        html[data-dashboard-theme="dark"] #user-menu [class~="text-gray-500"] { color: #93a99a !important; }
+        html[data-dashboard-theme="dark"] #user-menu [class~="text-gray-500"], footer [class~="text-gray-500"] { color: #a8adb6 !important; }
         html[data-dashboard-theme="dark"] .main-content [class*="hover:bg-gray-"],
         html[data-dashboard-theme="dark"] #sidebar [class*="hover:bg-gray-"] { --tw-bg-opacity: 1; }
 
