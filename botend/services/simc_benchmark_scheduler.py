@@ -92,16 +92,9 @@ def schedule_due_panels(now=None, batch_size=20):
         except _PERMANENT_ERRORS as exc:
             result['failed'] += 1
             result['errors'].append({'panel_id': panel_id, 'error': _safe_error(exc)})
-            # A permanently invalid definition must not hot-loop.  Advancement is
-            # still CAS-protected and may itself surface a database/system failure.
-            try:
-                if _advance_panel(panel_id, slot, now):
-                    result['advanced'] += 1
-            except Exception as advance_exc:
-                result['errors'].append({
-                    'panel_id': panel_id, 'error': _safe_error(advance_exc),
-                    'stage': 'advance',
-                })
+            # A scheduled slot is not consumed until it has a durable Execution.
+            # Skipping invalid definitions made next_run_at look healthy while the
+            # promised full Execution was never created or observable.
             continue
         except (BenchmarkExecutionConflict, DatabaseError) as exc:
             result['failed'] += 1

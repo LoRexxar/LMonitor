@@ -82,7 +82,7 @@ class SimcBenchmarkSchedulerTests(TestCase):
         self.assertEqual(changed.next_run_at, now + timedelta(hours=1))
         self.assertEqual(latest.next_run_at, now + timedelta(seconds=17))
 
-    def test_validation_advances_but_system_failure_does_not_and_next_panel_continues(self):
+    def test_validation_and_system_failure_do_not_consume_slots_and_next_panel_continues(self):
         now = timezone.now().replace(microsecond=0)
         invalid = self.panel('invalid', now)
         broken = self.panel('broken', now + timedelta(seconds=1))
@@ -101,10 +101,11 @@ class SimcBenchmarkSchedulerTests(TestCase):
         invalid.refresh_from_db()
         broken.refresh_from_db()
         later.refresh_from_db()
-        self.assertGreater(invalid.next_run_at, run_at)
+        self.assertEqual(invalid.next_run_at, now)
         self.assertEqual(broken.next_run_at, now + timedelta(seconds=1))
         self.assertGreater(later.next_run_at, run_at)
         self.assertEqual(result['failed'], 2)
+        self.assertEqual(result['advanced'], 1)
         self.assertNotIn('/private', repr(result))
         self.assertNotIn('actions=', repr(result))
 
