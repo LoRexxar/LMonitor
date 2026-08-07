@@ -29,7 +29,7 @@ from botend.management.commands.repair_ptr_talent_metadata import Command as Rep
 from botend.wow.spell_text import SpellTextResolver
 from botend.wow.talents.adapters import build_tree_set_from_talents
 from botend.wow.talents.layout import build_talent_tree_layout
-from botend.wow.talents.metadata import TalentMetadataProvider
+from botend.wow.talents.metadata import TalentMetadataProvider, order_talent_choice_nodes
 from botend.wow.talents.versioning import TalentVersionResolver
 from botend.wow.talents.models import (
     TalentBuildStateModel,
@@ -1575,6 +1575,38 @@ class TalentTreeRenderTests(SimpleTestCase):
 class TalentSimulatorBuildCodeTests(SimpleTestCase):
     ARMS_REFERENCE_CODE = 'CcEAjLzRlq54bI5v+r8Sr9Xw4jZmZmFzYmZGAAAghphZGmZzMzMzYmxMDAAAAgxyMDsFGLLDsAGwMMBmBbgZGGGMbzsNAzMAYM8AA'
     DEATH_KNIGHT_REFERENCE_CODE = 'CoPAAAAAAAAAAAAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAA'
+
+    def test_ptr_tactical_edge_choice_uses_db2_entry_index_not_entry_id(self):
+        # PTR 12.1 Warrior/Arms TraitNode 109683. The numeric entry IDs are
+        # reverse of Blizzard's TraitNodeXTraitNodeEntry._Index ordering.
+        options = [
+            {'node_id': 135938, 'spell_id': 1261056, 'name': 'Crushing Combo'},
+            {'node_id': 135939, 'spell_id': 1261051, 'name': 'Tactical Edge'},
+        ]
+        ordered = order_talent_choice_nodes(options, {135939: 100, 135938: 200})
+        decoded = _merge_nodes_for_simulator(
+            [{
+                'tree_type': 'spec',
+                'node_id': 135938,
+                'talent_id': 109683,
+                'spell_id': 1261056,
+                'max_points': 1,
+                'choice_options': ordered,
+                'is_choice_node': True,
+            }],
+            decoded_states={'spec:135938': {
+                'selected': True,
+                'purchased': True,
+                'points': 1,
+                'is_choice_node': True,
+                'choice_selection': 0,
+            }},
+        )
+
+        self.assertEqual([option['name'] for option in ordered], ['Tactical Edge', 'Crushing Combo'])
+        self.assertEqual(decoded[0]['choice_selection'], 0)
+        self.assertEqual(decoded[0]['choice_options'][decoded[0]['choice_selection']]['name'], 'Tactical Edge')
+
     FULL_NODES = [
         {'tree_type': 'class', 'node_id': 96200, 'talent_id': 96200, 'spell_id': 100200, 'max_points': 1},
         {'tree_type': 'class', 'node_id': 96196, 'talent_id': 96196, 'spell_id': 100196, 'max_points': 1},

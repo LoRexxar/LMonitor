@@ -77,6 +77,27 @@ def _talent_source_priority(node):
     return score
 
 
+def order_talent_choice_nodes(nodes, entry_order=None):
+    """Order TraitNodeEntry alternatives by Blizzard's exact-build `_Index`.
+
+    `node_id` on the metadata row is the TraitNodeEntry ID for a choice option.
+    Query order (and especially the numeric entry ID) is not the choice bit order
+    written in an import string.  Keep original order if a dump does not expose
+    an entry index so older/imported metadata remains usable.
+    """
+    entry_order = entry_order or {}
+
+    def sort_key(indexed_node):
+        original_index, node = indexed_node
+        try:
+            node_id = int((node or {}).get('node_id') or 0)
+        except (TypeError, ValueError):
+            node_id = 0
+        return (entry_order.get(node_id, float('inf')), original_index)
+
+    return [node for _, node in sorted(enumerate(nodes or []), key=sort_key)]
+
+
 @dataclass
 class TalentMetadataProvider:
     locale: str = 'zhCN'
@@ -87,6 +108,7 @@ class TalentMetadataProvider:
     _snapshot_cache: dict = field(default_factory=dict)
     _text_context_cache: dict = field(default_factory=dict)
     _spell_text_resolvers: dict = field(default_factory=dict)
+    _choice_entry_order_cache: dict = field(default_factory=dict)
 
     @property
     def resolved_version(self):
@@ -104,6 +126,36 @@ class TalentMetadataProvider:
         if not version:
             return 'missing'
         return getattr(version, 'key', None) or getattr(version, 'id', None) or 'missing'
+
+    def _choice_entry_order(self):
+        """Return `{TraitNodeEntryID: _Index}` from the selected DB2 snapshot."""
+        version = self.resolved_version
+        source_dir = getattr(version, 'source_dir', '') or ''
+        cache_key = (self.version_cache_key, source_dir)
+        if cache_key in self._choice_entry_order_cache:
+            return self._choice_entry_order_cache[cache_key]
+
+        result = {}
+        path = os.path.join(source_dir, 'TraitNodeXTraitNodeEntry.csv')
+        try:
+            with open(path, encoding='utf-8-sig', newline='') as handle:
+                for row in csv.DictReader(handle):
+                    try:
+                        entry_id = int(row.get('TraitNodeEntryID') or 0)
+                        entry_index = int(row.get('_Index') or 0)
+                    except (TypeError, ValueError):
+                        continue
+                    if entry_id and entry_index:
+                        result[entry_id] = entry_index
+        except OSError:
+            # Backfilled historical versions can legitimately lack a local dump.
+            # In that case `order_talent_choice_nodes` preserves the DB order.
+            result = {}
+        self._choice_entry_order_cache[cache_key] = result
+        return result
+
+    def _order_choice_nodes(self, nodes):
+        return order_talent_choice_nodes(nodes, self._choice_entry_order())
 
     def get_node_metadata(self, class_name, spec_name, tree_type, spell_id=None, talent_id=None, node_id=None):
         """读取单个天赋节点元数据。"""
@@ -227,9 +279,9 @@ class TalentMetadataProvider:
 
         nodes = []
         for node in grouped_by_node.values():
-            choice_nodes = dedupe_talent_option_nodes([node] + [
+            choice_nodes = self._order_choice_nodes(dedupe_talent_option_nodes([node] + [
                 option for option in node.get('choice_options', []) if option
-            ])
+            ]))
             node = dict(choice_nodes[0]) if choice_nodes else node
             if len(choice_nodes) > 1:
                 options = [
@@ -299,7 +351,7 @@ class TalentMetadataProvider:
             node = grouped[tid]
             opts = node.get('choice_options', [])
             if opts:
-                deduped = dedupe_talent_option_nodes([node] + opts)
+                deduped = self._order_choice_nodes(dedupe_talent_option_nodes([node] + opts))
                 node = dict(deduped[0])
                 if len(deduped) > 1:
                     options = [
