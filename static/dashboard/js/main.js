@@ -1935,7 +1935,8 @@ function loadSimcWorkbenchProfiles(page) {
             const statusText = row.is_active ? '生效中' : '未生效';
             const statusClass = row.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500';
             const offset = startIdx + idx + 1;
-            const managementActions = `<button class="text-slate-600 hover:text-slate-900 text-xs" data-profile-row-action="view" data-profile-id="${id}" title="查看详情"><i class="fas fa-eye"></i></button>
+            const managementActions = `<button class="text-violet-600 hover:text-violet-800 text-xs" data-profile-row-action="simulate" data-profile-id="${id}" data-profile-spec="${escapeHtml(row.canonical_spec || '')}" title="立即模拟"><i class="fas fa-play"></i></button>
+                <button class="text-slate-600 hover:text-slate-900 text-xs" data-profile-row-action="view" data-profile-id="${id}" title="查看详情"><i class="fas fa-eye"></i></button>
                 <button class="text-emerald-600 hover:text-emerald-800 text-xs" data-profile-row-action="copy" data-profile-id="${id}" title="复制"><i class="fas fa-copy"></i></button>
                 ${row.can_edit ? `<button class="text-blue-600 hover:text-blue-800 text-xs" data-profile-row-action="edit" data-profile-id="${id}" title="编辑"><i class="fas fa-edit"></i></button>` : ''}
                 ${row.can_delete ? `<button class="text-red-600 hover:text-red-800 text-xs" data-profile-row-action="delete" data-profile-id="${id}" title="删除"><i class="fas fa-trash-alt"></i></button>` : ''}`;
@@ -2079,6 +2080,9 @@ function bindSimcWorkbenchProfilesControls() {
             if (!rowActionButton) return;
             const rowAction = rowActionButton.dataset.profileRowAction;
             const profileId = rowActionButton.dataset.profileId;
+            if (rowAction === 'simulate') {
+                window.startSimcSimulationFromResource({ profileId, spec: rowActionButton.dataset.profileSpec }).catch(error => showMessage(String(error.message || error), 'error'));
+            }
             if (rowAction === 'view') simcWbViewProfile(profileId);
             if (rowAction === 'copy') simcWbCopyProfile(profileId);
             if (rowAction === 'edit') simcWbEditProfile(profileId);
@@ -3079,6 +3083,46 @@ function selectedSimcReferenceValue(selector) {
     const value = Number.parseInt(String(element?.value || ''), 10);
     return Number.isSafeInteger(value) && value > 0 ? value : 0;
 }
+
+async function startSimcSimulationFromResource({ profileId = 0, aplId = 0, spec = '' } = {}) {
+    profileId = Number.parseInt(String(profileId), 10) || 0;
+    aplId = Number.parseInt(String(aplId), 10) || 0;
+    const canonicalSpec = normalizeSimcSpecKey(spec);
+    if (!canonicalSpec || (!profileId && !aplId)) {
+        throw new Error('缺少可用于模拟的资源或专精');
+    }
+
+    // This only preselects the existing simulation form. The task submission still
+    // sends IDs to the server, where resource ownership and spec compatibility are
+    // enforced again.
+    switchSimcWorkbenchL1Tab('workflow', 'import');
+    const source = document.querySelector('input[name="simc-sim-player-source"][value="specified_spec"]');
+    const specSelect = document.getElementById('simc-sim-spec');
+    if (!source || !specSelect) throw new Error('模拟工作流尚未就绪');
+    source.checked = true;
+    specSelect.value = canonicalSpec;
+    if (specSelect.value !== canonicalSpec) throw new Error('该资源的专精不受当前模拟工作流支持');
+    switchSimcPlayerImportMode({ resolve: false });
+    await resolveSimcPlayerSource();
+
+    if (profileId) {
+        const profileSelect = document.getElementById('simc-sim-profile-select');
+        if (!profileSelect || !Array.from(profileSelect.options).some(option => option.value === String(profileId))) {
+            throw new Error('该玩家配置不可用于当前专精的模拟');
+        }
+        profileSelect.value = String(profileId);
+        await onSimcProfileSelect();
+    }
+    if (aplId) {
+        const aplInput = Array.from(document.querySelectorAll('input[name="simc-sim-apl"]'))
+            .find(input => input.value === String(aplId));
+        if (!aplInput) throw new Error('该 APL 不可用于当前专精的模拟');
+        aplInput.checked = true;
+    }
+    document.getElementById('simc-workbench-import-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    showMessage(profileId ? '已预选玩家配置，可继续设置并发起模拟' : '已预选 APL，可继续设置并发起模拟', 'success');
+}
+window.startSimcSimulationFromResource = startSimcSimulationFromResource;
 
 let simcResolvedBaseTemplateId = 0;
 let simcResolvedCanonicalSpec = '';

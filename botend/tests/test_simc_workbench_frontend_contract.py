@@ -702,10 +702,32 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('.spec', detail_body)
 
     def test_script_is_really_loaded(self):
-        self.assertIn("{% static 'dashboard/js/main.js' %}?v=20260804c", HTML)
-        self.assertIn("{% static 'dashboard/js/simc-workbench.js' %}?v=20260727a", HTML)
+        self.assertIn("{% static 'dashboard/js/main.js' %}?v=20260807_resource_simulation", HTML)
+        self.assertIn("{% static 'dashboard/js/simc-workbench.js' %}?v=20260807_resource_simulation", HTML)
         self.assertIn("{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260726c", HTML)
         self.assertNotIn("moveSimcToolIntoWorkbench", MAIN)
+
+    def test_resource_list_simulate_actions_preselect_the_existing_workflow(self):
+        """List shortcuts may only prefill the canonical form; task authorization stays server-side."""
+        self.assertIn('data-profile-row-action="simulate"', MAIN)
+        self.assertIn('data-profile-id="${id}"', MAIN)
+        self.assertIn('data-profile-spec="${escapeHtml(row.canonical_spec || \'\')}"', MAIN)
+        self.assertIn("window.startSimcSimulationFromResource({ profileId, spec: rowActionButton.dataset.profileSpec })", MAIN)
+        self.assertIn("async function startSimcSimulationFromResource({ profileId = 0, aplId = 0, spec = '' } = {})", MAIN)
+        shortcut_start = MAIN.index('async function startSimcSimulationFromResource(')
+        shortcut_end = MAIN.index('\nlet simcResolvedBaseTemplateId', shortcut_start)
+        shortcut = MAIN[shortcut_start:shortcut_end]
+        self.assertIn("switchSimcWorkbenchL1Tab('workflow', 'import')", shortcut)
+        self.assertIn('value="specified_spec"', shortcut)
+        self.assertIn('await resolveSimcPlayerSource()', shortcut)
+        self.assertIn('await onSimcProfileSelect()', shortcut)
+        self.assertIn('input[name="simc-sim-apl"]', shortcut)
+        self.assertIn('input.value === String(aplId)', shortcut)
+        self.assertNotIn("fetch('/api/simc-task/", shortcut)
+        self.assertIn('data-apl-action="simulate"', JS)
+        self.assertIn('data-spec="${esc(row.spec || \'\')}"', JS)
+        self.assertIn("window.startSimcSimulationFromResource({ aplId: id, spec: aplAction.dataset.spec })", JS)
+        self.assertIn("active && (isPersonal || row.is_selectable === true)", JS)
 
     def test_profile_inline_form_uses_delegated_actions_not_inline_handlers(self):
         start = HTML.index('id="simc-workbench-profiles-panel"')

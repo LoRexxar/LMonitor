@@ -732,13 +732,16 @@
             const sourceLabel = isPersonal ? '个人' : (row.source === 'simc_upstream' ? 'SimC 上游' : '系统默认');
             const sourceClass = isPersonal ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600';
             const statusClass = active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500';
+            const simulateAction = active && (isPersonal || row.is_selectable === true)
+                ? `<button data-apl-action="simulate" data-id="${idOf(row.id)}" data-spec="${esc(row.spec || '')}" class="simc-touch-action text-violet-700 hover:bg-violet-50">立即模拟</button>`
+                : '';
             let actions;
             if (isPersonal) {
-                actions = `<button data-apl-action="detail" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700 hover:bg-slate-100">查看</button><button data-apl-action="copy" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50">复制</button>${row.read_only ? '<span class="px-2 text-xs text-slate-400">只读</span>' : `<button data-apl-action="edit" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50">编辑</button><button data-apl-action="delete" data-id="${idOf(row.id)}" class="simc-touch-action text-red-700 hover:bg-red-50">删除</button>`}`;
+                actions = `${simulateAction}<button data-apl-action="detail" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700 hover:bg-slate-100">查看</button><button data-apl-action="copy" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50">复制</button>${row.read_only ? '<span class="px-2 text-xs text-slate-400">只读</span>' : `<button data-apl-action="edit" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50">编辑</button><button data-apl-action="delete" data-id="${idOf(row.id)}" class="simc-touch-action text-red-700 hover:bg-red-50">删除</button>`}`;
             } else {
                 const writableActions = `<button data-apl-action="edit" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50">编辑</button><button data-apl-action="delete" data-id="${idOf(row.id)}" class="simc-touch-action text-red-700 hover:bg-red-50">删除</button>`;
                 const copyAction = row.can_copy === true ? `<button data-default-apl-action="copy" data-id="${idOf(row.id)}" class="simc-touch-action text-blue-700 hover:bg-blue-50">复制</button>` : '';
-                actions = `<button data-default-apl-action="view" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700 hover:bg-slate-100">查看</button>${copyAction}${row.read_only ? '' : writableActions}`;
+                actions = `${simulateAction}<button data-default-apl-action="view" data-id="${idOf(row.id)}" class="simc-touch-action text-slate-700 hover:bg-slate-100">查看</button>${copyAction}${row.read_only ? '' : writableActions}`;
             }
             return `<tr>
                 <td data-label="APL 名称"><div class="simc-apl-name">${esc(name)}</div></td>
@@ -1314,6 +1317,7 @@
                 else if (actionName === 'edit' && id) editManagedApl(id).catch(notify);
                 else if (actionName === 'delete' && id) confirmDeleteApl(id);
                 else if (actionName === 'confirm-delete' && id) deleteApl(id).then(closeDialog).catch(notify);
+                else if (actionName === 'simulate' && id) window.startSimcSimulationFromResource({ aplId: id, spec: aplAction.dataset.spec }).catch(notify);
                 else if (actionName === 'use' && id) useAplForSimulation(id).catch(notify);
                 else if (actionName === 'edit' && id) fetchAplStorageDetail(id).then(renderAplStorageForm).catch(notify);
                 else if ((actionName === 'archive' || actionName === 'restore') && id) lifecycle('apl-storage', id, actionName).catch(notify);
