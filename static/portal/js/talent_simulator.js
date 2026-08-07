@@ -868,12 +868,11 @@
         node.icon_url = option.icon_url || node.icon_url;
         node.display_name = option.display_name || node.display_name;
         node.display_desc = option.display_desc || node.display_desc;
-        if (wasSelected) {
-            node.selected = true;
-        } else {
-            node.selected = false;
-            toast('已切换二选一选项；左键点亮后才计入 build');
+        if (!wasSelected) {
+            selectNode(node, 1);
+            return;
         }
+        node.selected = true;
         updateInspector();
         renderStage();
         updateCounters();

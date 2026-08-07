@@ -2307,6 +2307,21 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
             _resolve_choice_selection(current_choice_node, old_single_entry_state),
         )
 
+    def test_unselected_choice_option_click_selects_the_option_immediately(self):
+        script = (
+            Path(__file__).resolve().parents[2]
+            / 'static/portal/js/talent_simulator.js'
+        ).read_text(encoding='utf-8')
+        start = script.index('    function chooseOption(node, index) {')
+        end = script.index('\n    function treeLabel(', start)
+        choose_option = script[start:end]
+
+        self.assertIn(
+            "if (!wasSelected) {\n            selectNode(node, 1);\n            return;\n        }",
+            choose_option,
+        )
+        self.assertNotIn('左键点亮后才计入 build', choose_option)
+
     def test_talent_build_code_output_has_stable_dimensions_while_reencoding(self):
         stylesheet = (
             Path(__file__).resolve().parents[2]
