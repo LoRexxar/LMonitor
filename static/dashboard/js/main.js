@@ -1021,12 +1021,6 @@ function displayNewsWowPagination(currentPage, totalPages, totalCount) {
     });
 }
 
-let wowDailyReportState = {
-    selectedDate: '',
-    selectedId: null,
-    rawMd: '',
-};
-
 function initWowDailyReportPage() {
     const refreshBtn = document.getElementById('wow-daily-report-refresh');
     if (refreshBtn) {
@@ -1035,14 +1029,6 @@ function initWowDailyReportPage() {
     const genBtn = document.getElementById('wow-daily-report-generate');
     if (genBtn) {
         genBtn.onclick = () => generateWowDailyReport();
-    }
-    const copyBtn = document.getElementById('wow-daily-report-copy');
-    if (copyBtn) {
-        copyBtn.onclick = () => copyWowDailyReport();
-    }
-    const downloadBtn = document.getElementById('wow-daily-report-download');
-    if (downloadBtn) {
-        downloadBtn.onclick = () => downloadWowDailyReport();
     }
 }
 
@@ -1084,135 +1070,46 @@ async function loadWowDailyReports() {
         if (countEl) countEl.textContent = `共 ${items.length} 条`;
         if (!items.length) {
             listEl.innerHTML = '<div class="p-4 text-sm text-gray-500">暂无日报记录</div>';
-            renderWowDailyReportPreview('', '');
-            setWowDailyReportActions(false);
             return;
         }
 
         listEl.innerHTML = '';
-        items.forEach((it, idx) => {
+        items.forEach((it) => {
             const date = it.report_date || '';
             const updated = it.updated_at || '';
-            const id = it.id;
-            const btn = document.createElement('button');
-            const active = (wowDailyReportState.selectedDate && wowDailyReportState.selectedDate === date) || (!wowDailyReportState.selectedDate && idx === 0);
-            btn.className = `w-full text-left px-3 py-2.5 border-b border-gray-100 hover:bg-blue-50 transition-colors duration-200 ${active ? 'bg-blue-50' : ''}`;
-            btn.innerHTML = `
-                <div class="font-semibold text-gray-900 leading-5">${date || '-'}</div>
-                <div class="text-xs text-gray-500 mt-1 leading-4">${updated || ''}</div>
-                <div class="text-xs text-gray-400 mt-1">点击预览</div>
-            `;
-            btn.onclick = () => previewWowDailyReport({ id, date });
-            listEl.appendChild(btn);
-        });
+            const portalUrl = it.portal_url || '';
+            const row = document.createElement('div');
+            row.className = 'flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between hover:bg-slate-50 transition-colors duration-200';
 
-        if (!wowDailyReportState.selectedDate) {
-            const first = items[0];
-            await previewWowDailyReport({ id: first.id, date: first.report_date });
-        } else {
-            const found = items.find(it => it.report_date === wowDailyReportState.selectedDate);
-            if (found) {
-                await previewWowDailyReport({ id: found.id, date: found.report_date });
+            const meta = document.createElement('div');
+            meta.className = 'min-w-0';
+            const title = document.createElement('div');
+            title.className = 'font-semibold text-gray-900';
+            title.textContent = date ? `${date} 魔兽世界日报` : '魔兽世界日报';
+            const timestamp = document.createElement('div');
+            timestamp.className = 'mt-1 text-xs text-gray-500';
+            timestamp.textContent = updated ? `更新时间：${updated}` : '暂无更新时间';
+            meta.append(title, timestamp);
+
+            const action = document.createElement('a');
+            action.className = 'inline-flex shrink-0 items-center justify-center rounded-lg bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 transition-colors duration-200';
+            action.textContent = '打开日报';
+            if (portalUrl) {
+                action.href = portalUrl;
+                action.target = '_blank';
+                action.rel = 'noopener noreferrer';
             } else {
-                const first = items[0];
-                await previewWowDailyReport({ id: first.id, date: first.report_date });
+                action.classList.add('pointer-events-none', 'opacity-50');
+                action.setAttribute('aria-disabled', 'true');
+                action.title = '日报页面尚不可用';
             }
-        }
-        if (hintEl) hintEl.textContent = '同一天重复生成会更新同一份文件内容';
+            row.append(meta, action);
+            listEl.appendChild(row);
+        });
+        if (hintEl) hintEl.textContent = '每条日报会在新标签页打开 Portal 使用的同一份页面。';
     } catch (e) {
         listEl.innerHTML = `<div class="p-4 text-sm text-red-600">加载失败：${String(e.message || e)}</div>`;
-        setWowDailyReportActions(false);
     }
-}
-
-async function previewWowDailyReport({ id, date }) {
-    const hintEl = document.getElementById('wow-daily-report-hint');
-    if (hintEl) hintEl.textContent = '加载内容中...';
-    try {
-        const url = id ? `/api/wow-daily-report/content/?id=${encodeURIComponent(id)}` : `/api/wow-daily-report/content/?date=${encodeURIComponent(date || '')}`;
-        const resp = await fetch(url, { method: 'GET' });
-        const data = await resp.json();
-        if (!data || !data.success) {
-            throw new Error((data && data.error) || '加载失败');
-        }
-        const payload = data.data || {};
-        wowDailyReportState.selectedDate = payload.report_date || (date || '');
-        wowDailyReportState.selectedId = payload.id || id || null;
-        wowDailyReportState.rawMd = payload.content || '';
-        wowDailyReportState.format = payload.format || (String(payload.md_path || '').toLowerCase().endsWith('.html') ? 'html' : 'markdown');
-        renderWowDailyReportPreview(wowDailyReportState.selectedDate, wowDailyReportState.rawMd, wowDailyReportState.format);
-        setWowDailyReportActions(true);
-        if (hintEl) hintEl.textContent = payload.updated_at ? `更新时间：${payload.updated_at}` : '';
-    } catch (e) {
-        renderWowDailyReportPreview('', '');
-        setWowDailyReportActions(false);
-        if (hintEl) hintEl.textContent = `加载失败：${String(e.message || e)}`;
-    }
-}
-
-function renderWowDailyReportPreview(date, content, format) {
-    const previewEl = document.getElementById('wow-daily-report-preview');
-    const rawEl = document.getElementById('wow-daily-report-raw');
-    if (rawEl) rawEl.value = content || '';
-    if (!previewEl) return;
-    if (!content) {
-        previewEl.innerHTML = '<div class="text-sm text-gray-500">请选择一条日报进行预览</div>';
-        return;
-    }
-    if (format === 'html') {
-        previewEl.innerHTML = '';
-        const iframe = document.createElement('iframe');
-
-        iframe.setAttribute('title', `WoW 日报预览 ${date || ''}`);
-        iframe.setAttribute('sandbox', 'allow-popups allow-popups-to-escape-sandbox');
-        iframe.srcdoc = content;
-        previewEl.appendChild(iframe);
-        return;
-    }
-    try {
-        if (window.marked && typeof window.marked.parse === 'function') {
-            previewEl.innerHTML = window.marked.parse(content);
-            return;
-        }
-    } catch (e) {}
-    previewEl.innerHTML = renderSimpleMarkdown(content);
-}
-
-function setWowDailyReportActions(enabled) {
-    const copyBtn = document.getElementById('wow-daily-report-copy');
-    const downloadBtn = document.getElementById('wow-daily-report-download');
-    if (copyBtn) copyBtn.disabled = !enabled;
-    if (downloadBtn) downloadBtn.disabled = !enabled;
-}
-
-async function copyWowDailyReport() {
-    const md = wowDailyReportState.rawMd || '';
-    if (!md) return;
-    try {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            await navigator.clipboard.writeText(md);
-            showMessage('已复制到剪贴板', 'success');
-            return;
-        }
-    } catch (e) {}
-    try {
-        const rawEl = document.getElementById('wow-daily-report-raw');
-        if (!rawEl) throw new Error('复制失败');
-        rawEl.classList.remove('hidden');
-        rawEl.select();
-        document.execCommand('copy');
-        rawEl.classList.add('hidden');
-        showMessage('已复制到剪贴板', 'success');
-    } catch (e) {
-        showMessage('复制失败', 'warning');
-    }
-}
-
-function downloadWowDailyReport() {
-    const date = wowDailyReportState.selectedDate || '';
-    const id = wowDailyReportState.selectedId;
-    const url = id ? `/api/wow-daily-report/download/?id=${encodeURIComponent(id)}` : `/api/wow-daily-report/download/?date=${encodeURIComponent(date)}`;
-    downloadFileByFetch(url, date);
 }
 
 

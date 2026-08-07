@@ -4,6 +4,7 @@ import tempfile
 from datetime import date, datetime, time, timedelta
 from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -15,6 +16,25 @@ from botend.models import (
     WowDailyReport,
 )
 from botend.wow_daily_report.generator import generate_wow_daily_report
+
+
+class WowDailyReportDashboardListTest(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username='daily-report-dashboard', password='test-password')
+        self.client.force_login(self.user)
+
+    def test_list_exposes_the_same_portal_report_url(self):
+        WowDailyReport.objects.create(
+            report_date=date(2026, 7, 1),
+            md_path='portal/reports/wow_daily_report_2026-07-01.html',
+        )
+
+        response = self.client.get('/api/wow-daily-report/list/')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'])
+        self.assertEqual(payload['data'][0]['portal_url'], '/portal/reports/wow_daily_report_2026-07-01.html')
 
 
 class WowDailyReportHtmlGeneratorTest(TestCase):

@@ -1213,6 +1213,7 @@ class WowDailyReportListAPIView(View):
                         "id": r.id,
                         "report_date": getattr(r, "report_date", None).isoformat() if getattr(r, "report_date", None) else "",
                         "md_path": getattr(r, "md_path", "") or "",
+                        "portal_url": _portal_report_url_from_path(getattr(r, "md_path", "") or ""),
                         "updated_at": _fmt_dt(getattr(r, "updated_at", None)),
                     }
                 )

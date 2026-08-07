@@ -408,7 +408,7 @@
     {{ dashboard_permissions|json_script:"dashboard-permissions-data" }}
     {{ dashboard_permission_catalog|json_script:"dashboard-permission-catalog-data" }}
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260807_dashboard_theme"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260808_wow_daily_list"></script>
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806c" defer></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260807_resource_simulation"></script>
     <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260807_execution_stop"></script>
@@ -897,7 +897,7 @@
             <div class="content-section" id="wow-daily-reports" style="display: none;">
                 <div class="mb-6">
                     <h2 class="text-3xl font-bold text-gray-800 mb-2">WoW 日报</h2>
-                    <p class="text-gray-600">按日期查看系统生成的魔兽世界日报</p>
+                    <p class="text-gray-600">按日期管理系统生成的魔兽世界日报；打开后与 Portal 显示同一份页面。</p>
                 </div>
 
                 <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
@@ -910,35 +910,17 @@
                             <button id="wow-daily-report-refresh" class="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors duration-200 text-sm">
                                 <i class="fas fa-rotate-right mr-1"></i>刷新列表
                             </button>
-                            <button id="wow-daily-report-copy" class="px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors duration-200 text-sm" disabled>
-                                <i class="fas fa-copy mr-1"></i>复制Markdown
-                            </button>
-                            <button id="wow-daily-report-download" class="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 text-sm" disabled>
-                                <i class="fas fa-download mr-1"></i>下载
-                            </button>
+
                         </div>
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                    <div class="lg:col-span-3">
-                        <div class="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-100">
-                            <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-                                <h3 class="text-lg font-semibold text-gray-800">日报列表</h3>
-                                <span class="text-xs text-gray-500" id="wow-daily-report-count"></span>
-                            </div>
-                            <div class="max-h-[70vh] overflow-y-auto" id="wow-daily-report-list"></div>
-                        </div>
+                <div class="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-100">
+                    <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                        <h3 class="text-lg font-semibold text-gray-800">日报列表</h3>
+                        <span class="text-xs text-gray-500" id="wow-daily-report-count"></span>
                     </div>
-                    <div class="lg:col-span-9">
-                        <div class="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-100">
-                            <div class="px-5 py-4 border-b border-gray-100">
-                                <h3 class="text-lg font-semibold text-gray-800">预览</h3>
-                            </div>
-                            <div class="p-5 wow-md-content" id="wow-daily-report-preview"></div>
-                            <textarea id="wow-daily-report-raw" class="hidden"></textarea>
-                        </div>
-                    </div>
+                    <div class="divide-y divide-gray-100" id="wow-daily-report-list"></div>
                 </div>
             </div>
 
