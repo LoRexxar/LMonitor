@@ -3,102 +3,76 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import patch
 
-from botend.services.midnight_trinket_catalog import build_mid1_panel_payload, parse_mid1_catalog
+from botend.services.midnight_trinket_catalog import (
+    build_ptr_12_1_panel_payload,
+    parse_ptr_12_1_catalog,
+)
 from botend.services.simc_benchmark_config import (
-    _AGILITY_TRINKET_SPECS, _INTELLECT_TRINKET_SPECS, _STRENGTH_TRINKET_SPECS,
+    _AGILITY_TRINKET_SPECS,
+    _INTELLECT_TRINKET_SPECS,
+    _STRENGTH_TRINKET_SPECS,
 )
 
 
-FIXTURE = Path(__file__).parent / 'fixtures' / 'mid1_trinkets.json'
+FIXTURE = Path(__file__).parent / 'fixtures' / 'ptr_12_1_trinkets.json'
+EXPECTED_UNRESOLVED_IDS = {267631, 270172, 274370, 274371, 277735, 279190}
 
 
 class MidnightTrinketCatalogTests(TestCase):
-    def test_fixture_is_audited_mid1_and_covers_all_specs_and_items(self):
-        catalog = parse_mid1_catalog(json.loads(FIXTURE.read_text()))
-        self.assertEqual(catalog.tier, 'MID1')
-        self.assertEqual(len(catalog.spec_keys), 32)
-        self.assertNotIn('evoker_augmentation', catalog.spec_keys)
-        self.assertEqual(len({item.item_id for item in catalog.items}), 57)
-        self.assertEqual(len(catalog.items), 66)
-        self.assertGreater(len(catalog.variants), 57)
+    def load_catalog(self):
+        return parse_ptr_12_1_catalog(json.loads(FIXTURE.read_text()))
 
-    def test_special_variants_are_controlled_and_deterministic(self):
-        raw = json.loads(FIXTURE.read_text())
-        catalog = parse_mid1_catalog(raw)
-        crucible = [v for v in catalog.variants if v.item_id == 264507]
-        self.assertEqual({v.option_key for v in crucible}, {
-            'predation', 'sustenance', 'violence', 'predation+sustenance+violence+'
-        })
-        self.assertTrue(all(v.simc_options for v in crucible))
+    def test_fixture_freezes_exact_wowt_build_diff_and_all_new_trinket_ids(self):
+        catalog = self.load_catalog()
+        self.assertEqual(catalog.product, 'wowt')
+        self.assertEqual(catalog.baseline_build, '12.0.5.67602')
+        self.assertEqual(catalog.target_build, '12.1.0.69111')
+        self.assertEqual(len(catalog.items), 49)
+        self.assertEqual(len(catalog.unresolved_item_ids), 6)
+        self.assertEqual(set(catalog.unresolved_item_ids), EXPECTED_UNRESOLVED_IDS)
         self.assertEqual(
-            [v.candidate_key for v in catalog.variants],
-            [v.candidate_key for v in parse_mid1_catalog(raw).variants],
+            len({item.item_id for item in catalog.items} | set(catalog.unresolved_item_ids)),
+            55,
         )
+        self.assertTrue(all(item.inventory_type == 12 for item in catalog.items))
 
-    def test_variants_use_source_levels_not_bloodmallet_test_levels(self):
-        catalog = parse_mid1_catalog(json.loads(FIXTURE.read_text()))
-        expected_levels = {
-            'Delve': {308, 321},
-            'World Quest': {308, 321},
-            'World Boss': {308, 321},
-            'Profession': {308, 321},
-            'Reputation': {308, 321},
-            'High PvP': {308, 321},
-            'Dungeon': {321, 334},
-            'Raid': {321, 334},
-        }
-
-        for source, levels in expected_levels.items():
-            self.assertEqual(
-                {
-                    variant.item_level
-                    for variant in catalog.variants
-                    if variant.source_label == source
-                },
-                levels,
-            )
-        self.assertFalse(
-            {variant.item_level for variant in catalog.variants}
-            & {
-                240, 243, 246, 250, 253, 256, 259, 263, 266, 269,
-                272, 276, 279, 285, 295, 298, 344,
-            },
+    def test_each_complete_itemsparse_row_produces_one_original_level_candidate(self):
+        catalog = self.load_catalog()
+        self.assertEqual(len(catalog.variants), 49)
+        self.assertEqual(
+            {(variant.item_id, variant.item_level) for variant in catalog.variants},
+            {(item.item_id, item.item_level) for item in catalog.items},
         )
-
-    def test_payload_keeps_distinct_labels_for_stat_bonus_variants(self):
-        catalog = parse_mid1_catalog(json.loads(FIXTURE.read_text()))
-        with patch(
-            'botend.services.simc_benchmark_config.resolve_default_benchmark_resources',
-            return_value={spec_key: {'apl': type('R', (), {'pk': 1})(),
-                                    'template': type('R', (), {'pk': 2})(),
-                                    'backend': type('R', (), {'pk': 3})(),
-                                    'profile': type('R', (), {'pk': 4, 'name': 'Profile'})()}
-                          for spec_key in catalog.spec_keys},
-        ):
-            payload = build_mid1_panel_payload(catalog, user_id=1)
-
-        drum_labels = {
-            candidate['label'] for candidate in payload['candidates']
-            if candidate['params']['raw_value'].startswith('id=248583,')
-        }
-        self.assertEqual(len(drum_labels), 4)
-        self.assertEqual({label.rpartition(' · ')[2] for label in drum_labels}, {
-            '暴击', '急速', '精通', '全能',
+        self.assertEqual(
+            {variant.item_level for variant in catalog.variants},
+            {59, 100, 197, 219, 250, 259, 298},
+        )
+        self.assertFalse(set(catalog.unresolved_item_ids) & {
+            variant.item_id for variant in catalog.variants
         })
 
-    def test_payload_freezes_standard_trinket_reference_strategy(self):
-        catalog = parse_mid1_catalog(json.loads(FIXTURE.read_text()))
+    def test_payload_applies_every_candidate_to_all_enabled_damage_and_tank_specs(self):
+        catalog = self.load_catalog()
+        resources = {
+            spec_key: {
+                'apl': type('R', (), {'pk': 1})(),
+                'template': type('R', (), {'pk': 2})(),
+                'backend': type('R', (), {'pk': 3})(),
+                'profile': type('R', (), {'pk': 4, 'name': 'Profile'})(),
+            }
+            for spec_key in catalog.spec_keys
+        }
         with patch(
             'botend.services.simc_benchmark_config.resolve_default_benchmark_resources',
-            return_value={spec_key: {'apl': type('R', (), {'pk': 1})(),
-                                    'template': type('R', (), {'pk': 2})(),
-                                    'backend': type('R', (), {'pk': 3})(),
-                                    'profile': type('R', (), {'pk': 4, 'name': 'Profile'})()}
-                          for spec_key in catalog.spec_keys},
+            return_value=resources,
         ):
-            payload = build_mid1_panel_payload(catalog, user_id=1)
+            payload = build_ptr_12_1_panel_payload(catalog, user_id=1)
 
-        self.assertTrue(payload['candidates'])
+        self.assertEqual(len(payload['candidates']), 49)
+        self.assertTrue(all(
+            candidate['spec_keys'] == list(catalog.spec_keys)
+            for candidate in payload['candidates']
+        ))
         self.assertTrue(all(candidate['params']['benchmark_profile'] == {
             'kind': 'trinket_standard_reference',
             'item_level': 240,
@@ -109,27 +83,24 @@ class MidnightTrinketCatalogTests(TestCase):
             | _STRENGTH_TRINKET_SPECS
         )
         self.assertEqual(mapped_specs, set(catalog.spec_keys))
-        self.assertEqual(
-            sum(map(len, (
-                _AGILITY_TRINKET_SPECS,
-                _INTELLECT_TRINKET_SPECS,
-                _STRENGTH_TRINKET_SPECS,
-            ))),
-            len(mapped_specs),
-        )
 
-    def test_rejects_wrong_tier_missing_spec_or_untrusted_directive(self):
+    def test_rejects_wrong_build_inventory_type_duplicate_or_unresolved_overlap(self):
         raw = json.loads(FIXTURE.read_text())
-        raw['documents']['mage_fire']['simc_settings']['tier'] = 'S3'
+        raw['source']['product'] = 'wow'
         with self.assertRaises(ValueError):
-            parse_mid1_catalog(raw)
+            parse_ptr_12_1_catalog(raw)
+
         raw = json.loads(FIXTURE.read_text())
-        del raw['documents']['mage_fire']
+        raw['items'][0]['inventory_type'] = 11
         with self.assertRaises(ValueError):
-            parse_mid1_catalog(raw)
+            parse_ptr_12_1_catalog(raw)
+
         raw = json.loads(FIXTURE.read_text())
-        raw['documents']['mage_fire']['data']['Evil'] = {'298': 1}
-        raw['documents']['mage_fire']['item_ids']['Evil'] = 250144
-        raw['documents']['mage_fire']['data_sources']['Evil'] = 'x'
+        raw['items'].append(dict(raw['items'][0]))
         with self.assertRaises(ValueError):
-            parse_mid1_catalog(raw)
+            parse_ptr_12_1_catalog(raw)
+
+        raw = json.loads(FIXTURE.read_text())
+        raw['unresolved'][0]['item_id'] = raw['items'][0]['item_id']
+        with self.assertRaises(ValueError):
+            parse_ptr_12_1_catalog(raw)

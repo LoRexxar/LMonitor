@@ -1,96 +1,300 @@
-"""Pure, auditable parser for Bloodmallet MID1 trinket documents."""
+"""Auditable 12.1 PTR trinket catalog derived from exact Wago DB2 builds."""
 from __future__ import annotations
-import hashlib, re
+
+import hashlib
 from dataclasses import dataclass
 from typing import Any
+
 from botend.services.simc_player_config import SUPPORTED_SIMC_SPEC_IDENTITIES
-MID1='MID1'
-MID1_EXCLUDED_SPEC_KEYS = frozenset({
- 'druid_restoration', 'evoker_augmentation', 'evoker_preservation',
- 'monk_mistweaver', 'paladin_holy', 'priest_discipline', 'priest_holy',
- 'shaman_restoration',
-})
-MID1_DEFAULT_SCENARIOS = (
- {'key':'castingpatchwerk','name':'Casting Patchwerk (1 Target / 300s)','simulation_params':{'iterations':10000,'fight_style':'CastingPatchwerk','desired_targets':1,'max_time':300}},
- {'key':'castingpatchwerk5','name':'Casting Patchwerk (5 Targets / 40s)','simulation_params':{'iterations':10000,'fight_style':'CastingPatchwerk','desired_targets':5,'max_time':40}},
- {'key':'castingpatchwerk20','name':'Casting Patchwerk (20 Targets / 40s)','simulation_params':{'iterations':10000,'fight_style':'CastingPatchwerk','desired_targets':20,'max_time':40}},
-)
-_SCALAR=re.compile(r'^[a-z][a-z0-9_.-]{0,79}=[a-zA-Z0-9_./+:-]{0,120}$')
-SPECIAL_BONUS_IDS={250462:{'crit':606,'haste':604,'mastery':605,'versatility':607},248583:{'crit':13183,'haste':13184,'mastery':13185,'versatility':13186}}
-SPECIAL_OPTION_LABELS={'crit':'暴击','haste':'急速','mastery':'精通','versatility':'全能'}
-SPECIAL_BONUS_LABELS={item_id:{bonus_id:SPECIAL_OPTION_LABELS[option] for option,bonus_id in options.items()} for item_id,options in SPECIAL_BONUS_IDS.items()}
-SPECIAL_OPTIONS={264507:{'violence':('midnight.crucible_of_erratic_energies_violence=1',),'sustenance':('midnight.crucible_of_erratic_energies_sustenance=1',),'predation':('midnight.crucible_of_erratic_energies_predation=1',),'predation+sustenance+violence+':('midnight.crucible_of_erratic_energies_predation=1','midnight.crucible_of_erratic_energies_sustenance=1','midnight.crucible_of_erratic_energies_violence=1')}}
-MID1_SOURCE_LEVELS={
- 'Delve': (308,321), 'World Quest': (308,321), 'World Boss': (308,321),
- 'Dungeon': (321,334), 'Raid': (321,334), 'Profession': (308,321),
- 'Reputation': (308,321), 'High PvP': (308,321),
+
+
+PTR_PRODUCT = 'wowt'
+PTR_BASELINE_BUILD = '12.0.5.67602'
+PTR_TARGET_BUILD = '12.1.0.69111'
+PTR_EXPECTED_ITEM_LEVELS = {
+    268292: 219,
+    270160: 219, 270161: 219, 270162: 219, 270163: 219,
+    270164: 219, 270165: 219, 270166: 219, 270167: 219,
+    270168: 219, 270169: 219, 270170: 219, 270171: 219,
+    270173: 219, 270174: 219, 270175: 219,
+    270555: 259, 270556: 259, 270557: 259, 270558: 259, 270559: 259,
+    270602: 298, 270603: 298, 270604: 298, 270605: 298, 270606: 298,
+    273649: 59,
+    273794: 219, 273795: 219, 273796: 219, 273797: 219,
+    274493: 197, 274494: 197, 274495: 197, 274496: 197,
+    274497: 197, 274498: 197, 274499: 197,
+    274890: 100, 274891: 100, 274892: 100, 274893: 100,
+    280047: 197, 280091: 197, 280097: 259, 280118: 259,
+    280123: 197, 280376: 250, 280377: 250,
 }
+PTR_EXPECTED_UNRESOLVED_IDS = frozenset({
+    267631, 270172, 274370, 274371, 277735, 279190,
+})
+PTR_DIFF_FILTER = (
+    'target Item.InventoryType == 12 and ID absent from baseline trinket IDs'
+)
+PTR_EXCLUDED_SPEC_KEYS = frozenset({
+    'druid_restoration', 'evoker_augmentation', 'evoker_preservation',
+    'monk_mistweaver', 'paladin_holy', 'priest_discipline', 'priest_holy',
+    'shaman_restoration',
+})
+PTR_DEFAULT_SCENARIOS = (
+    {
+        'key': 'castingpatchwerk',
+        'name': 'Casting Patchwerk (1 Target / 300s)',
+        'simulation_params': {
+            'iterations': 10000, 'fight_style': 'CastingPatchwerk',
+            'desired_targets': 1, 'max_time': 300,
+        },
+    },
+    {
+        'key': 'castingpatchwerk5',
+        'name': 'Casting Patchwerk (5 Targets / 40s)',
+        'simulation_params': {
+            'iterations': 10000, 'fight_style': 'CastingPatchwerk',
+            'desired_targets': 5, 'max_time': 40,
+        },
+    },
+    {
+        'key': 'castingpatchwerk20',
+        'name': 'Casting Patchwerk (20 Targets / 40s)',
+        'simulation_params': {
+            'iterations': 10000, 'fight_style': 'CastingPatchwerk',
+            'desired_targets': 20, 'max_time': 40,
+        },
+    },
+)
+
+
+@dataclass(frozen=True)
+class TrinketItem:
+    item_id: int
+    name: str
+    name_enus: str
+    item_level: int
+    inventory_type: int
+
+
 @dataclass(frozen=True)
 class TrinketVariant:
- candidate_key:str; item_id:int; name:str; option_key:str; item_level:int; spec_keys:tuple[str,...]; source_label:str; bonus_id:int|None=None; simc_options:tuple[str,...]=()
-@dataclass(frozen=True)
-class TrinketItem: item_id:int; name:str; source_label:str
-@dataclass(frozen=True)
-class MidnightTrinketCatalog: tier:str; spec_keys:tuple[str,...]; items:tuple[TrinketItem,...]; variants:tuple[TrinketVariant,...]
-def _key(item_id,option,ilevel): return 'trinket-'+hashlib.sha256(f'mid1:{item_id}:{option}:{ilevel}'.encode()).hexdigest()[:24]
-def parse_mid1_catalog(payload:dict[str,Any])->MidnightTrinketCatalog:
- docs=payload.get('documents') if isinstance(payload,dict) else None; expected=tuple(sorted(f'{c}_{s}' for c,s in SUPPORTED_SIMC_SPEC_IDENTITIES if f'{c}_{s}' not in MID1_EXCLUDED_SPEC_KEYS))
- if not isinstance(docs,dict) or not set(expected).issubset(docs): raise ValueError('MID1 catalog must contain all enabled specialization documents')
- rows=[]; identities={}; item_records={}
- for spec in expected:
-  doc=docs[spec]
-  if not isinstance(doc,dict) or doc.get('simc_settings',{}).get('tier')!=MID1: raise ValueError(f'{spec}: missing MID1 metadata')
-  data,ids,sources=doc.get('data'),doc.get('item_ids'),doc.get('data_sources')
-  if not isinstance(data,dict) or not isinstance(ids,dict) or not isinstance(sources,dict): raise ValueError(f'{spec}: malformed trinket metadata')
-  for name,levels in data.items():
-   if name=='baseline': continue
-   if not isinstance(levels,dict) or name not in ids or name not in sources: raise ValueError(f'{spec}: untrusted or incomplete item identity')
-   item_id,source=ids[name],sources[name]
-   if type(item_id)is not int or item_id<=0 or not isinstance(source,str) or source.strip() not in {'Dungeon','Delve','Raid','Profession','Reputation','World Boss','High PvP','World Quest'} or not levels or any(not str(x).isdigit() or type(v) not in(int,float) for x,v in levels.items()): raise ValueError(f'{spec}: invalid item identity')
-   identity=(item_id, name, source.strip()); previous=item_records.get((item_id, name))
-   if previous is not None and previous != identity: raise ValueError(f'{spec}: inconsistent cross-specialization item metadata')
-   item_records[(item_id, name)] = identity
-   option=name.rsplit(' [',1)[1][:-1].lower() if ' [' in name and name.endswith(']') else ''
-   if option and item_id not in SPECIAL_BONUS_IDS and item_id not in SPECIAL_OPTIONS: raise ValueError(f'{spec}: unsupported special variant {name}')
-   identities.setdefault((item_id,name),source.strip()); rows.append((spec,item_id,name,option,source.strip()))
- items=tuple(TrinketItem(i,n,s) for (i,n),s in sorted(identities.items())); variants={}
- for spec,item_id,name,option,source in rows:
-  levels=MID1_SOURCE_LEVELS.get(source)
-  if levels is None: raise ValueError(f'{spec}: unsupported MID1 source')
-  for level in levels:
-   key=(item_id,option or 'default',level)
-   bonus=SPECIAL_BONUS_IDS.get(item_id,{}).get(option); options=SPECIAL_OPTIONS.get(item_id,{}).get(option,())
-   if any(not _SCALAR.fullmatch(x) for x in options): raise ValueError('special option is not a controlled scalar assignment')
-   variants.setdefault(key,TrinketVariant(_key(*key),item_id,name,option or 'default',level,tuple(sorted({r[0] for r in rows if r[1]==item_id and r[3]==option})),source,bonus,tuple(options)))
- return MidnightTrinketCatalog(MID1,expected,items,tuple(sorted(variants.values(),key=lambda x:x.candidate_key)))
+    candidate_key: str
+    item_id: int
+    name: str
+    item_level: int
+    spec_keys: tuple[str, ...]
 
-def build_mid1_panel_payload(catalog,user_id,slug='midnight-s1-trinkets'):
- from botend.services.simc_benchmark_config import resolve_default_benchmark_resources
- resources=resolve_default_benchmark_resources(catalog.spec_keys,user_id); specs=[]
- for order,spec_key in enumerate(catalog.spec_keys):
-  selected=resources[spec_key]
-  specs.append({'class_name':spec_key.split('_',1)[0],'spec_key':spec_key,'label':spec_key.replace('_',' ').title(),'apl_id':selected['apl'].pk,'template_id':selected['template'].pk,'backend_id':selected['backend'].pk,'profiles':[{'profile_id':selected['profile'].pk,'label':selected['profile'].name}],'display_order':order})
- candidates=[]
- for order,variant in enumerate(catalog.variants):
-  raw=f'id={variant.item_id},ilevel={variant.item_level}'
-  if variant.bonus_id is not None: raw+=f',bonus_id={variant.bonus_id}'
-  params={
-   'slot':'trinket1','raw_value':raw,
-   'benchmark_profile': {
-    'kind': 'trinket_standard_reference', 'item_level': 240,
-   },
-  }
-  if variant.simc_options: params['simc_options']=list(variant.simc_options)
-  label=variant.name
-  if variant.option_key != 'default':
-   label=f'{label} · {SPECIAL_OPTION_LABELS.get(variant.option_key,variant.option_key)}'
-  candidates.append({'key':variant.candidate_key,'label':label,'candidate_type':'gear_swap','params':params,'spec_keys':list(variant.spec_keys),'source_label':variant.source_label,'display_order':order})
- return {'name':'Midnight Season 1 Trinkets','slug':slug,'description':'Audited MID1 trinket matrix','is_active':True,'is_public':True,'schedule_enabled':False,'interval_seconds':86400,'specs':specs,'scenarios':[dict(scenario, simulation_params=dict(scenario['simulation_params'])) for scenario in MID1_DEFAULT_SCENARIOS],'candidates':candidates}
 
-def mid1_matrix_plan(payload):
- specs=[]; total_cases=total_runs=0
- for spec in payload['specs']:
-  applicable=[c['key'] for c in payload['candidates'] if not c['spec_keys'] or spec['spec_key'] in c['spec_keys']]
-  cases=len(spec['profiles'])*len(payload['scenarios']); runs=cases*(1+len(applicable)); total_cases+=cases; total_runs+=runs
-  specs.append({'spec_key':spec['spec_key'],'apl_id':spec['apl_id'],'template_id':spec['template_id'],'backend_id':spec['backend_id'],'profile_id':spec['profiles'][0]['profile_id'],'candidate_keys':applicable,'case_count':cases,'run_count':runs})
- return {'slug':payload['slug'],'spec_count':len(specs),'scenario_count':len(payload['scenarios']),'candidate_count':len(payload['candidates']),'case_count':total_cases,'run_count':total_runs,'specs':specs}
+@dataclass(frozen=True)
+class PtrTrinketCatalog:
+    product: str
+    baseline_build: str
+    target_build: str
+    spec_keys: tuple[str, ...]
+    items: tuple[TrinketItem, ...]
+    unresolved_item_ids: tuple[int, ...]
+    variants: tuple[TrinketVariant, ...]
+
+
+def _candidate_key(item_id: int, item_level: int) -> str:
+    digest = hashlib.sha256(
+        f'ptr-12.1:{PTR_TARGET_BUILD}:{item_id}:{item_level}'.encode()
+    ).hexdigest()[:24]
+    return f'trinket-{digest}'
+
+
+def _positive_int(value, field):
+    if type(value) is not int or value <= 0:
+        raise ValueError(f'{field} must be a positive integer')
+    return value
+
+
+def parse_ptr_12_1_catalog(payload: dict[str, Any]) -> PtrTrinketCatalog:
+    if not isinstance(payload, dict) or payload.get('schema_version') != 1:
+        raise ValueError('unsupported PTR trinket catalog schema')
+    source = payload.get('source')
+    if not isinstance(source, dict):
+        raise ValueError('missing Wago DB2 provenance')
+    if (
+        source.get('provider') != 'wago_db2'
+        or source.get('product') != PTR_PRODUCT
+        or source.get('baseline_build') != PTR_BASELINE_BUILD
+        or source.get('target_build') != PTR_TARGET_BUILD
+        or source.get('tables') != ['Item', 'ItemSparse']
+        or source.get('join') != 'Item.ID = ItemSparse.ID'
+        or source.get('filter') != PTR_DIFF_FILTER
+    ):
+        raise ValueError('unexpected Wago DB2 build or table contract')
+
+    raw_items = payload.get('items')
+    raw_unresolved = payload.get('unresolved')
+    if not isinstance(raw_items, list) or not isinstance(raw_unresolved, list):
+        raise ValueError('items and unresolved must be lists')
+
+    items = []
+    seen_ids = set()
+    for raw in raw_items:
+        if not isinstance(raw, dict) or set(raw) != {
+            'item_id', 'name_zhcn', 'name_enus', 'item_level', 'inventory_type',
+        }:
+            raise ValueError('invalid complete Item/ItemSparse record')
+        item_id = _positive_int(raw['item_id'], 'item_id')
+        item_level = _positive_int(raw['item_level'], 'item_level')
+        if item_id in seen_ids or raw['inventory_type'] != 12:
+            raise ValueError('duplicate ID or non-trinket InventoryType')
+        if not isinstance(raw['name_zhcn'], str) or not raw['name_zhcn'].strip():
+            raise ValueError('complete ItemSparse record requires a zhCN name')
+        if not isinstance(raw['name_enus'], str) or not raw['name_enus'].strip():
+            raise ValueError('complete ItemSparse record requires an enUS name')
+        seen_ids.add(item_id)
+        items.append(TrinketItem(
+            item_id=item_id,
+            name=raw['name_zhcn'].strip(),
+            name_enus=raw['name_enus'].strip(),
+            item_level=item_level,
+            inventory_type=12,
+        ))
+
+    unresolved_ids = []
+    for raw in raw_unresolved:
+        if (
+            not isinstance(raw, dict)
+            or set(raw) != {'item_id', 'inventory_type', 'reason'}
+            or raw.get('inventory_type') != 12
+            or raw.get('reason') != 'missing_target_itemsparse'
+        ):
+            raise ValueError('invalid unresolved Item record')
+        item_id = _positive_int(raw['item_id'], 'unresolved.item_id')
+        if item_id in seen_ids:
+            raise ValueError('complete and unresolved Item IDs overlap')
+        seen_ids.add(item_id)
+        unresolved_ids.append(item_id)
+
+    actual_item_levels = {item.item_id: item.item_level for item in items}
+    if (
+        actual_item_levels != PTR_EXPECTED_ITEM_LEVELS
+        or set(unresolved_ids) != PTR_EXPECTED_UNRESOLVED_IDS
+    ):
+        raise ValueError('PTR exact-build trinket IDs or ItemSparse.ItemLevel changed')
+
+    spec_keys = tuple(sorted(
+        f'{class_name}_{spec}'
+        for class_name, spec in SUPPORTED_SIMC_SPEC_IDENTITIES
+        if f'{class_name}_{spec}' not in PTR_EXCLUDED_SPEC_KEYS
+    ))
+    items = tuple(sorted(items, key=lambda item: item.item_id))
+    variants = tuple(
+        TrinketVariant(
+            candidate_key=_candidate_key(item.item_id, item.item_level),
+            item_id=item.item_id,
+            name=item.name,
+            item_level=item.item_level,
+            spec_keys=spec_keys,
+        )
+        for item in items
+    )
+    return PtrTrinketCatalog(
+        product=PTR_PRODUCT,
+        baseline_build=PTR_BASELINE_BUILD,
+        target_build=PTR_TARGET_BUILD,
+        spec_keys=spec_keys,
+        items=items,
+        unresolved_item_ids=tuple(sorted(unresolved_ids)),
+        variants=variants,
+    )
+
+
+def build_ptr_12_1_panel_payload(
+    catalog: PtrTrinketCatalog,
+    user_id: int,
+    slug: str = 'ptr-12-1-mythic-trinkets',
+):
+    from botend.services.simc_benchmark_config import resolve_default_benchmark_resources
+
+    resources = resolve_default_benchmark_resources(catalog.spec_keys, user_id)
+    specs = []
+    for order, spec_key in enumerate(catalog.spec_keys):
+        selected = resources[spec_key]
+        specs.append({
+            'class_name': spec_key.split('_', 1)[0],
+            'spec_key': spec_key,
+            'label': spec_key.replace('_', ' ').title(),
+            'apl_id': selected['apl'].pk,
+            'template_id': selected['template'].pk,
+            'backend_id': selected['backend'].pk,
+            'profiles': [{
+                'profile_id': selected['profile'].pk,
+                'label': selected['profile'].name,
+            }],
+            'display_order': order,
+        })
+
+    candidates = []
+    for order, variant in enumerate(catalog.variants):
+        candidates.append({
+            'key': variant.candidate_key,
+            'label': variant.name,
+            'candidate_type': 'gear_swap',
+            'params': {
+                'slot': 'trinket1',
+                'raw_value': f'id={variant.item_id},ilevel={variant.item_level}',
+                'benchmark_profile': {
+                    'kind': 'trinket_standard_reference',
+                    'item_level': 240,
+                },
+            },
+            'spec_keys': list(variant.spec_keys),
+            'source_label': f'Wago DB2 {catalog.target_build}',
+            'display_order': order,
+        })
+    return {
+        'name': '12.1 PTR New Trinkets',
+        'slug': slug,
+        'description': (
+            f'All new trinket IDs in wowt {catalog.target_build} versus '
+            f'{catalog.baseline_build}; candidate ilevel is ItemSparse.ItemLevel.'
+        ),
+        'is_active': True,
+        'is_public': True,
+        'schedule_enabled': False,
+        'interval_seconds': 86400,
+        'specs': specs,
+        'scenarios': [
+            dict(scenario, simulation_params=dict(scenario['simulation_params']))
+            for scenario in PTR_DEFAULT_SCENARIOS
+        ],
+        'candidates': candidates,
+    }
+
+
+def ptr_12_1_matrix_plan(payload, unresolved_item_ids=()):
+    specs = []
+    total_cases = total_runs = 0
+    for spec in payload['specs']:
+        applicable = [
+            candidate['key'] for candidate in payload['candidates']
+            if not candidate['spec_keys'] or spec['spec_key'] in candidate['spec_keys']
+        ]
+        cases = len(spec['profiles']) * len(payload['scenarios'])
+        runs = cases * (1 + len(applicable))
+        total_cases += cases
+        total_runs += runs
+        specs.append({
+            'spec_key': spec['spec_key'],
+            'apl_id': spec['apl_id'],
+            'template_id': spec['template_id'],
+            'backend_id': spec['backend_id'],
+            'profile_id': spec['profiles'][0]['profile_id'],
+            'candidate_keys': applicable,
+            'case_count': cases,
+            'run_count': runs,
+        })
+    return {
+        'slug': payload['slug'],
+        'spec_count': len(specs),
+        'scenario_count': len(payload['scenarios']),
+        'candidate_count': len(payload['candidates']),
+        'case_count': total_cases,
+        'run_count': total_runs,
+        'unresolved_item_ids': list(unresolved_item_ids),
+        'specs': specs,
+    }

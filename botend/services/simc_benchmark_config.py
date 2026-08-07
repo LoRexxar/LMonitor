@@ -647,12 +647,21 @@ def normalize_panel_payload(payload, user_id, panel=None):
                 URLValidator()(icon_url)
             except ValidationError:
                 _error('icon_url 必须是有效 URL', 'icon_url')
-        variant_suffix = requested_label.rpartition(' · ')[2] if ' · ' in requested_label else ''
-        candidate_label = (
-            f'{metadata_label} · {variant_suffix}'
-            if metadata_label and variant_suffix
-            else (metadata_label or f'物品 {item_id}')
-        )
+        label_without_level = requested_label
+        level_suffix = f' · {item_level}' if item_level else ''
+        if level_suffix and label_without_level.endswith(level_suffix):
+            label_without_level = label_without_level[:-len(level_suffix)]
+        if metadata_label:
+            variant_suffix = ''
+            if label_without_level.startswith(f'{metadata_label} · '):
+                variant_suffix = label_without_level[len(metadata_label) + 3:]
+            elif ' · ' in label_without_level:
+                variant_suffix = label_without_level.rpartition(' · ')[2]
+            candidate_label = (
+                f'{metadata_label} · {variant_suffix}' if variant_suffix else metadata_label
+            )
+        else:
+            candidate_label = label_without_level or f'物品 {item_id}'
         if item_level:
             candidate_label = f'{candidate_label} · {item_level}'
         normalized['candidates'].append({

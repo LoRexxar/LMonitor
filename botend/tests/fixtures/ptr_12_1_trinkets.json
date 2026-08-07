@@ -1,0 +1,393 @@
+{
+  "schema_version": 1,
+  "source": {
+    "provider": "wago_db2",
+    "product": "wowt",
+    "baseline_build": "12.0.5.67602",
+    "target_build": "12.1.0.69111",
+    "tables": [
+      "Item",
+      "ItemSparse"
+    ],
+    "join": "Item.ID = ItemSparse.ID",
+    "filter": "target Item.InventoryType == 12 and ID absent from baseline trinket IDs",
+    "wowhead_ptr_tooltip": "https://nether.wowhead.com/ptr/tooltip/item/{item_id}?dataEnv=1&locale=0"
+  },
+  "items": [
+    {
+      "item_id": 268292,
+      "name_zhcn": "孢子大王的菌丝徽记",
+      "name_enus": "Sporelord's Mycelial Insignia",
+      "item_level": 219,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 270160,
+      "name_zhcn": "大副的甲壳结界",
+      "name_enus": "First Mate's Shellward",
+      "item_level": 219,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 270161,
+      "name_zhcn": "幽影恶念之牙",
+      "name_enus": "Fang of Umbral Malignance",
+      "item_level": 219,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 270162,
+      "name_zhcn": "盘魂者仪式容器",
+      "name_enus": "Soulcoiler Ritual Vessel",
+      "item_level": 219,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 270163,
+      "name_zhcn": "斯索拉克的凶猛",
+      "name_enus": "Sszorak's Ferocity",
+      "item_level": 219,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 270164,
+      "name_zhcn": "盖博的无底袋",
+      "name_enus": "Gebbo's Bottomless Bag",
+      "item_level": 219,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 270165,
+      "name_zhcn": "守护者的躁动核心",
+      "name_enus": "Keeper's Seething Core",
+      "item_level": 219,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 270166,
+      "name_zhcn": "瓦什尼克的血色深仇",
+      "name_enus": "Vashnik's Sanguine Rancor",
+      "item_level": 219,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 270167,
+      "name_zhcn": "唤波者的海石",
+      "name_enus": "Wavecaller's Seastone",
+      "item_level": 219,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 270168,
+      "name_zhcn": "剧毒狂怒之泉",
+      "name_enus": "Font of Venomous Rage",
+      "item_level": 219,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 270169,
+      "name_zhcn": "妖术领主的厄运神像",
+      "name_enus": "Hex Lord's Dooming Idol",
+      "item_level": 219,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 270170,
+      "name_zhcn": "维克斯胡尔的涌流腺体",
+      "name_enus": "Vexhul's Everflowing Gland",
+      "item_level": 219,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 270171,
+      "name_zhcn": "超自然抗毒剂",
+      "name_enus": "Preternatural Antivenom",
+      "item_level": 219,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 270173,
+      "name_zhcn": "祖尔金的处斩技法",
+      "name_enus": "Zul'jin's Guillotine Technique",
+      "item_level": 219,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 270174,
+      "name_zhcn": "呼啸枢纽神像",
+      "name_enus": "Idol of the Howling Nexus",
+      "item_level": 219,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 270175,
+      "name_zhcn": "乌拉特克贪婪之心",
+      "name_enus": "Voracious Heart of Ula'tek",
+      "item_level": 219,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 270555,
+      "name_zhcn": "烈毒候选者的纹章",
+      "name_enus": "Venomous Aspirant's Emblem",
+      "item_level": 259,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 270556,
+      "name_zhcn": "烈毒候选者的勋章",
+      "name_enus": "Venomous Aspirant's Medallion",
+      "item_level": 259,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 270557,
+      "name_zhcn": "烈毒候选者的适应魔印",
+      "name_enus": "Venomous Aspirant's Sigil of Adaptation",
+      "item_level": 259,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 270558,
+      "name_zhcn": "烈毒候选者的活跃徽记",
+      "name_enus": "Venomous Aspirant's Insignia of Alacrity",
+      "item_level": 259,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 270559,
+      "name_zhcn": "烈毒候选者的凶猛徽章",
+      "name_enus": "Venomous Aspirant's Badge of Ferocity",
+      "item_level": 259,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 270602,
+      "name_zhcn": "烈毒角斗士的凶猛徽章",
+      "name_enus": "Venomous Gladiator's Badge of Ferocity",
+      "item_level": 298,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 270603,
+      "name_zhcn": "烈毒角斗士的活跃徽记",
+      "name_enus": "Venomous Gladiator's Insignia of Alacrity",
+      "item_level": 298,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 270604,
+      "name_zhcn": "烈毒角斗士的适应魔印",
+      "name_enus": "Venomous Gladiator's Sigil of Adaptation",
+      "item_level": 298,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 270605,
+      "name_zhcn": "烈毒角斗士的勋章",
+      "name_enus": "Venomous Gladiator's Medallion",
+      "item_level": 298,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 270606,
+      "name_zhcn": "烈毒角斗士的纹章",
+      "name_enus": "Venomous Gladiator's Emblem",
+      "item_level": 298,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 273649,
+      "name_zhcn": "达萨的束风纹章",
+      "name_enus": "Stormbound Emblem of Dazar",
+      "item_level": 59,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 273794,
+      "name_zhcn": "蠕动毒蛇之结",
+      "name_enus": "Knot of Writhing Serpents",
+      "item_level": 219,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 273795,
+      "name_zhcn": "盘卷牙石",
+      "name_enus": "Coiled Fangstone",
+      "item_level": 219,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 273796,
+      "name_zhcn": "一瓶肮脏的烈性毒液",
+      "name_enus": "Vile Vial of Volatile Venom",
+      "item_level": 219,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 273797,
+      "name_zhcn": "破损的阿曼尼战旗",
+      "name_enus": "Tattered Amani War Banner",
+      "item_level": 219,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 274493,
+      "name_zhcn": "乌拉特克信徒塑像",
+      "name_enus": "Effigy of Ula'tek's Faithful",
+      "item_level": 197,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 274494,
+      "name_zhcn": "手性骨髓移植器",
+      "name_enus": "Chiral Marrowgrafter",
+      "item_level": 197,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 274495,
+      "name_zhcn": "脉动搜寻者之眼",
+      "name_enus": "Pulse Seeker's Oculus",
+      "item_level": 197,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 274496,
+      "name_zhcn": "蛇裔骨哨",
+      "name_enus": "Ophidian Bone Whistle",
+      "item_level": 197,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 274497,
+      "name_zhcn": "撕魂毒液",
+      "name_enus": "Spirit-Rending Poison",
+      "item_level": 197,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 274498,
+      "name_zhcn": "精魂结界",
+      "name_enus": "Spirit Ward",
+      "item_level": 197,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 274499,
+      "name_zhcn": "剧毒灌输",
+      "name_enus": "Toxiferous Transfusion",
+      "item_level": 197,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 274890,
+      "name_zhcn": "附魔孢子",
+      "name_enus": "Enchanted Spore",
+      "item_level": 100,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 274891,
+      "name_zhcn": "12型齿轮传动装置",
+      "name_enus": "Mk XII Gear Drive",
+      "item_level": 100,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 274892,
+      "name_zhcn": "坚韧魔血药瓶",
+      "name_enus": "Resilient Felblood Vial",
+      "item_level": 100,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 274893,
+      "name_zhcn": "冰霜晶棱蝎钉刺",
+      "name_enus": "Frosty Klaxid Stinger",
+      "item_level": 100,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 280047,
+      "name_zhcn": "羽饰之铃",
+      "name_enus": "Feathered Bell",
+      "item_level": 197,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 280091,
+      "name_zhcn": "潜伏净化者",
+      "name_enus": "Latent Purifier",
+      "item_level": 197,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 280097,
+      "name_zhcn": "烈毒候选者的活跃徽记",
+      "name_enus": "Venomous Aspirant's Insignia of Alacrity",
+      "item_level": 259,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 280118,
+      "name_zhcn": "烈毒候选者的勋章",
+      "name_enus": "Venomous Aspirant's Medallion",
+      "item_level": 259,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 280123,
+      "name_zhcn": "锋利斧套",
+      "name_enus": "Sharp Axe Holster",
+      "item_level": 197,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 280376,
+      "name_zhcn": "暗影碎片裂片",
+      "name_enus": "Shadow Shard Sliver",
+      "item_level": 250,
+      "inventory_type": 12
+    },
+    {
+      "item_id": 280377,
+      "name_zhcn": "加亚莱的呼吸",
+      "name_enus": "Breath of Jan'alai",
+      "item_level": 250,
+      "inventory_type": 12
+    }
+  ],
+  "unresolved": [
+    {
+      "item_id": 267631,
+      "inventory_type": 12,
+      "reason": "missing_target_itemsparse"
+    },
+    {
+      "item_id": 270172,
+      "inventory_type": 12,
+      "reason": "missing_target_itemsparse"
+    },
+    {
+      "item_id": 274370,
+      "inventory_type": 12,
+      "reason": "missing_target_itemsparse"
+    },
+    {
+      "item_id": 274371,
+      "inventory_type": 12,
+      "reason": "missing_target_itemsparse"
+    },
+    {
+      "item_id": 277735,
+      "inventory_type": 12,
+      "reason": "missing_target_itemsparse"
+    },
+    {
+      "item_id": 279190,
+      "inventory_type": 12,
+      "reason": "missing_target_itemsparse"
+    }
+  ]
+}
