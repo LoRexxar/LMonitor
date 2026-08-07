@@ -8,6 +8,7 @@ from django.conf import settings
 
 from core.glm import GLMClient
 from botend.services.article_content_service import TEXT_BLOCK_TYPES, article_blocks_match_reference, blocks_to_plain_text, dumps_blocks, html_block_text_nodes, html_block_translate_texts, loads_blocks, translate_blocks
+from botend.services.wow_news_glossary_service import WowNewsGlossary
 from utils.log import logger
 
 
@@ -130,9 +131,18 @@ class ArticleTranslationService:
     implementing the same engine interface and registering it in TRANSLATION_ENGINES.
     """
 
-    def __init__(self, engine: Any = None, engine_name: str = "fallback", sleep_func: Callable[[float], None] = time.sleep):
+    def __init__(self, engine: Any = None, engine_name: str = "fallback", sleep_func: Callable[[float], None] = time.sleep, glossary: Optional[WowNewsGlossary] = None):
         self.engine = engine if engine is not None else build_translation_engine(engine_name)
         self.sleep_func = sleep_func
+        self.glossary = glossary if glossary is not None else WowNewsGlossary.from_active_talent_metadata()
+
+    def _translation_prompt(self, batch: List[str]) -> str:
+        return (
+            "请把下面 JSON 数组中的每个英文字符串翻译成中文，保持数组长度与顺序一致。"
+            "数组中形如 ⟦WOWTERM_001⟧ 的术语占位符必须原样保留，不得翻译、改写、拆分或删除。"
+            "仅输出 JSON 数组（不要输出其它文字/解释/Markdown）。\n\n"
+            f"输入JSON：\n{json.dumps(batch, ensure_ascii=False)}"
+        )
 
     def available(self) -> bool:
         return bool(self.engine and getattr(self.engine, "available", lambda: False)())
@@ -148,9 +158,20 @@ class ArticleTranslationService:
         title = (title or "").strip()
         if not title or not self.available():
             return ""
-        prompt = f"请将以下英文标题翻译成中文，只返回翻译结果，不要添加任何解释：\n\n{title}"
-        result = self.engine.send_message(prompt, max_tokens=200)
-        return (result or "").strip().strip('"').strip("'")
+        protected = self.glossary.protect(title)
+        prompt = (
+            "请将以下英文标题翻译成中文，只返回翻译结果，不要添加任何解释。"
+            "其中形如 ⟦WOWTERM_001⟧ 的术语占位符必须原样保留。\n\n"
+            f"{protected.text}"
+        )
+        result = ""
+        for _attempt in range(3):
+            candidate = (self.engine.send_message(prompt, max_tokens=200) or "").strip().strip('"').strip("'")
+            if protected.is_intact(candidate):
+                result = candidate
+                break
+            logger.warning("[ArticleTranslationService] title translation changed protected WoW terminology; retrying")
+        return self.glossary.restore(result, protected.replacements) if result else ""
 
     def translate_content(self, content: str) -> str:
         content = (content or "").strip()
@@ -173,11 +194,8 @@ class ArticleTranslationService:
                 total += len(p)
                 i += 1
 
-            prompt = (
-                "请把下面 JSON 数组中的每个英文字符串翻译成中文，保持数组长度与顺序一致。"
-                "仅输出 JSON 数组（不要输出其它文字/解释/Markdown）。\n\n"
-                f"输入JSON：\n{json.dumps(batch, ensure_ascii=False)}"
-            )
+            protected_batch = [self.glossary.protect(text) for text in batch]
+            prompt = self._translation_prompt([protected.text for protected in protected_batch])
             result = self.engine.send_message(prompt, max_tokens=2400)
             translated_list = None
             if result:
@@ -190,8 +208,12 @@ class ArticleTranslationService:
 
             for j, orig in enumerate(batch):
                 trans = ""
-                if j < len(translated_list) and isinstance(translated_list[j], str):
-                    trans = translated_list[j].strip()
+                if (
+                    j < len(translated_list)
+                    and isinstance(translated_list[j], str)
+                    and protected_batch[j].is_intact(translated_list[j])
+                ):
+                    trans = self.glossary.restore(translated_list[j].strip(), protected_batch[j].replacements)
                 translated_pairs.append({"original": orig, "translated": trans})
 
             self.sleep_func(0.6)
@@ -223,15 +245,12 @@ class ArticleTranslationService:
                 total += len(text)
                 i += 1
 
+            protected_batch = [self.glossary.protect(text) for text in batch]
             # 重试逻辑：最多 3 次
             translated_list = None
             result = None
             for attempt in range(3):
-                prompt = (
-                    "请把下面 JSON 数组中的每个英文字符串翻译成中文，保持数组长度与顺序一致。"
-                    "仅输出 JSON 数组（不要输出其它文字/解释/Markdown）。\n\n"
-                    f"输入JSON：\n{json.dumps(batch, ensure_ascii=False)}"
-                )
+                prompt = self._translation_prompt([protected.text for protected in protected_batch])
                 result = self.engine.send_message(prompt, max_tokens=5000)
                 if not result:
                     if attempt < 2:
@@ -241,7 +260,15 @@ class ArticleTranslationService:
 
                 try:
                     translated_list = json.loads(result)
-                    if isinstance(translated_list, list) and len(translated_list) >= len(batch):
+                    if (
+                        isinstance(translated_list, list)
+                        and len(translated_list) >= len(batch)
+                        and all(
+                            isinstance(translated_list[index], str)
+                            and protected_batch[index].is_intact(translated_list[index])
+                            for index in range(len(batch))
+                        )
+                    ):
                         break  # 成功
                     translated_list = None  # 长度不匹配，重试
                 except Exception:
@@ -254,6 +281,7 @@ class ArticleTranslationService:
                         i = batch_start + len(batch) // 2
                         batch = batch[:len(batch) // 2]
                         batch_indexes = batch_indexes[:len(batch)]
+                        protected_batch = protected_batch[:len(batch)]
                         total = sum(len(t) for t in batch)
                     self.sleep_func(1)
 
@@ -262,8 +290,12 @@ class ArticleTranslationService:
                 translated_list = [t.strip() for t in (result or "").splitlines() if t.strip()]
 
             for j, block_index in enumerate(batch_indexes):
-                if j < len(translated_list) and isinstance(translated_list[j], str):
-                    translated = translated_list[j].strip()
+                if (
+                    j < len(translated_list)
+                    and isinstance(translated_list[j], str)
+                    and protected_batch[j].is_intact(translated_list[j])
+                ):
+                    translated = self.glossary.restore(translated_list[j].strip(), protected_batch[j].replacements)
                     if translated:
                         translated_by_index[block_index] = translated
 
@@ -275,9 +307,18 @@ class ArticleTranslationService:
             if block.get("type") == "html":
                 translations = [translated_by_index[item_index] for item_index, _block_index, _text in text_items if _block_index == index and item_index in translated_by_index]
                 new_block = html_block_translate_texts(block, {}, translations)
-            elif index in translated_by_index:
-                new_block["original"] = (block.get("text") or "").strip()
-                new_block["text"] = translated_by_index[index]
+            else:
+                translated = next(
+                    (
+                        translated_by_index[item_index]
+                        for item_index, block_index, _text in text_items
+                        if block_index == index and item_index in translated_by_index
+                    ),
+                    None,
+                )
+                if translated:
+                    new_block["original"] = (block.get("text") or "").strip()
+                    new_block["text"] = translated
             result_blocks.append(new_block)
         return result_blocks
 
@@ -287,7 +328,7 @@ class ArticleTranslationService:
             if block.get("type") in TEXT_BLOCK_TYPES:
                 text = (block.get("text") or "").strip()
                 if text:
-                    text_items.append((block_index, block_index, text))
+                    text_items.append((len(text_items), block_index, text))
             elif block.get("type") == "html":
                 for text in html_block_text_nodes(block.get("html") or ""):
                     text_items.append((len(text_items), block_index, text))

@@ -19,6 +19,7 @@ from botend.services.article_translation_service import (
     GLMTranslationEngine,
     build_translation_service,
 )
+from botend.services.wow_news_glossary_service import WowNewsGlossary
 
 
 class FakeEngine:
@@ -61,6 +62,15 @@ class FakeArticle:
 
 
 class ArticleTranslationServiceTests(SimpleTestCase):
+    def setUp(self):
+        self.glossary_loader = patch.object(
+            WowNewsGlossary,
+            "from_active_talent_metadata",
+            return_value=WowNewsGlossary.empty(),
+        )
+        self.glossary_loader.start()
+        self.addCleanup(self.glossary_loader.stop)
+
     def test_translate_title_strips_quotes(self):
         svc = ArticleTranslationService(engine=FakeEngine(['"中文标题"']), sleep_func=lambda _: None)
 
@@ -81,6 +91,85 @@ class ArticleTranslationServiceTests(SimpleTestCase):
                 {"original": "Paragraph two.", "translated": "第二段"},
             ],
         )
+
+    def test_glossary_protects_unique_multiword_terms_and_restores_official_chinese(self):
+        glossary = WowNewsGlossary.from_pairs([
+            ("Arcane Surge", "奥术涌动"),
+            ("Touch of the Magi", "织法者之触"),
+            ("Sentinel", "哨兵"),
+            ("Flurry", "冰风暴"),
+            ("Flurry", "乱舞"),
+        ])
+
+        protected = glossary.protect("Arcane Surge buffs Touch of the Magi. Sentinel uses Flurry.")
+
+        self.assertEqual(
+            protected.text,
+            "⟦WOWTERM_001⟧ buffs ⟦WOWTERM_002⟧. Sentinel uses Flurry.",
+        )
+        self.assertEqual(
+            glossary.restore("⟦WOWTERM_001⟧强化了⟦WOWTERM_002⟧。", protected.replacements),
+            "奥术涌动强化了织法者之触。",
+        )
+
+    def test_translate_title_and_html_blocks_restore_glossary_terms(self):
+        glossary = WowNewsGlossary.from_pairs([
+            ("Arcane Surge", "奥术涌动"),
+            ("Touch of the Magi", "织法者之触"),
+        ])
+        svc = ArticleTranslationService(
+            engine=FakeEngine([
+                "⟦WOWTERM_001⟧更新",
+                json.dumps(["⟦WOWTERM_001⟧", "强化⟦WOWTERM_001⟧。"], ensure_ascii=False),
+            ]),
+            glossary=glossary,
+            sleep_func=lambda _: None,
+        )
+
+        title = svc.translate_title("Arcane Surge update")
+        translated = svc.translate_content_blocks([
+            {"type": "html", "html": '<p><a href="/spell=321">Arcane Surge</a> buffs Touch of the Magi.</p>'},
+        ])
+
+        self.assertEqual(title, "奥术涌动更新")
+        self.assertIn('href="/spell=321"', translated[0]["html"])
+        self.assertIn("奥术涌动", translated[0]["html"])
+        self.assertIn("织法者之触", translated[0]["html"])
+        self.assertNotIn("WOWTERM", translated[0]["html"])
+
+    def test_title_retries_when_engine_damages_a_protected_term(self):
+        glossary = WowNewsGlossary.from_pairs([("Arcane Surge", "奥术涌动")])
+        engine = FakeEngine(["奥术涌动更新", "⟦WOWTERM_001⟧更新"])
+        svc = ArticleTranslationService(engine=engine, glossary=glossary, sleep_func=lambda _: None)
+
+        self.assertEqual(svc.translate_title("Arcane Surge update"), "奥术涌动更新")
+        self.assertEqual(len(engine.prompts), 2)
+
+    def test_translate_content_blocks_uses_unique_indexes_for_html_and_text(self):
+        glossary = WowNewsGlossary.from_pairs([
+            ("Arcane Surge", "奥术涌动"),
+            ("Touch of the Magi", "织法者之触"),
+            ("Aimed Shot", "瞄准射击"),
+        ])
+        svc = ArticleTranslationService(
+            engine=FakeEngine([
+                json.dumps([
+                    "⟦WOWTERM_001⟧", "⟦WOWTERM_001⟧", "⟦WOWTERM_001⟧",
+                ], ensure_ascii=False),
+            ]),
+            glossary=glossary,
+            sleep_func=lambda _: None,
+        )
+        blocks = [
+            {"type": "html", "html": "<p>Arcane Surge</p><p>Touch of the Magi</p>"},
+            {"type": "paragraph", "text": "Aimed Shot"},
+        ]
+
+        translated = svc.translate_content_blocks(blocks)
+
+        self.assertIn("奥术涌动", translated[0]["html"])
+        self.assertIn("织法者之触", translated[0]["html"])
+        self.assertEqual(translated[1]["text"], "瞄准射击")
 
     def test_translate_content_blocks_preserves_structure(self):
         blocks = [
@@ -205,6 +294,15 @@ class ArticleTranslationServiceTests(SimpleTestCase):
 
 
 class ArticleContentServiceTests(SimpleTestCase):
+    def setUp(self):
+        self.glossary_loader = patch.object(
+            WowNewsGlossary,
+            "from_active_talent_metadata",
+            return_value=WowNewsGlossary.empty(),
+        )
+        self.glossary_loader.start()
+        self.addCleanup(self.glossary_loader.stop)
+
     def test_extract_structured_article_keeps_source_html(self):
         html = """
         <article>
