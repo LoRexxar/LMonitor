@@ -38,6 +38,12 @@ PTR_EXCLUDED_SPEC_KEYS = frozenset({
     'monk_mistweaver', 'paladin_holy', 'priest_discipline', 'priest_holy',
     'shaman_restoration',
 })
+PTR_TARGET_ITEM_LEVELS_BY_SOURCE = {
+    'delve_or_open_world': (308, 321),
+    'mythic_dungeon': (321, 334),
+    'raid': (321, 334),
+    'pvp': (321,),
+}
 PTR_DEFAULT_SCENARIOS = (
     {
         'key': 'castingpatchwerk',
@@ -73,6 +79,9 @@ class TrinketItem:
     name_enus: str
     item_level: int
     inventory_type: int
+    source_category: str
+    is_special_raid_item: bool
+    source_evidence: str
 
 
 @dataclass(frozen=True)
@@ -135,6 +144,7 @@ def parse_ptr_12_1_catalog(payload: dict[str, Any]) -> PtrTrinketCatalog:
     for raw in raw_items:
         if not isinstance(raw, dict) or set(raw) != {
             'item_id', 'name_zhcn', 'name_enus', 'item_level', 'inventory_type',
+            'source_category', 'is_special_raid_item', 'source_evidence',
         }:
             raise ValueError('invalid complete Item/ItemSparse record')
         item_id = _positive_int(raw['item_id'], 'item_id')
@@ -145,6 +155,15 @@ def parse_ptr_12_1_catalog(payload: dict[str, Any]) -> PtrTrinketCatalog:
             raise ValueError('complete ItemSparse record requires a zhCN name')
         if not isinstance(raw['name_enus'], str) or not raw['name_enus'].strip():
             raise ValueError('complete ItemSparse record requires an enUS name')
+        source_category = raw['source_category']
+        if source_category not in PTR_TARGET_ITEM_LEVELS_BY_SOURCE:
+            raise ValueError('unsupported trinket source category')
+        if type(raw['is_special_raid_item']) is not bool:
+            raise ValueError('is_special_raid_item must be a boolean')
+        if raw['is_special_raid_item'] and source_category != 'raid':
+            raise ValueError('only raid trinkets can be marked special')
+        if not isinstance(raw['source_evidence'], str) or not raw['source_evidence'].strip():
+            raise ValueError('trinket source evidence is required')
         seen_ids.add(item_id)
         items.append(TrinketItem(
             item_id=item_id,
@@ -152,6 +171,9 @@ def parse_ptr_12_1_catalog(payload: dict[str, Any]) -> PtrTrinketCatalog:
             name_enus=raw['name_enus'].strip(),
             item_level=item_level,
             inventory_type=12,
+            source_category=source_category,
+            is_special_raid_item=raw['is_special_raid_item'],
+            source_evidence=raw['source_evidence'].strip(),
         ))
 
     unresolved_ids = []
@@ -184,13 +206,17 @@ def parse_ptr_12_1_catalog(payload: dict[str, Any]) -> PtrTrinketCatalog:
     items = tuple(sorted(items, key=lambda item: item.item_id))
     variants = tuple(
         TrinketVariant(
-            candidate_key=_candidate_key(item.item_id, item.item_level),
+            candidate_key=_candidate_key(item.item_id, target_item_level),
             item_id=item.item_id,
             name=item.name,
-            item_level=item.item_level,
+            item_level=target_item_level,
             spec_keys=spec_keys,
         )
         for item in items
+        for target_item_level in (
+            PTR_TARGET_ITEM_LEVELS_BY_SOURCE[item.source_category]
+            + ((344,) if item.is_special_raid_item else ())
+        )
     )
     return PtrTrinketCatalog(
         product=PTR_PRODUCT,
@@ -232,7 +258,7 @@ def build_ptr_12_1_panel_payload(
     for order, variant in enumerate(catalog.variants):
         candidates.append({
             'key': variant.candidate_key,
-            'label': variant.name,
+            'label': f'{variant.name} ({variant.item_level})',
             'candidate_type': 'gear_swap',
             'params': {
                 'slot': 'trinket1',
@@ -243,7 +269,7 @@ def build_ptr_12_1_panel_payload(
                 },
             },
             'spec_keys': list(variant.spec_keys),
-            'source_label': f'Wago DB2 {catalog.target_build}',
+            'source_label': f'Wago DB2 {catalog.target_build}; source-specific target ilevels',
             'display_order': order,
         })
     return {
@@ -251,7 +277,9 @@ def build_ptr_12_1_panel_payload(
         'slug': slug,
         'description': (
             f'All new trinket IDs in wowt {catalog.target_build} versus '
-            f'{catalog.baseline_build}; candidate ilevel is ItemSparse.ItemLevel.'
+            f'{catalog.baseline_build}; source-specific target ilevels are used '
+            '(delve/open world 308/321, Mythic+ 321/334, raid 321/334, PvP 321; '
+            'explicit special raid items additionally 344).'
         ),
         'is_active': True,
         'is_public': True,
