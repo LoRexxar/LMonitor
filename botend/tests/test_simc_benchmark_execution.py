@@ -20,9 +20,10 @@ from botend.models import (
     SimcTask, SimcTaskArtifact, SimulationRun, WowItemSnapshot,
 )
 from botend.services.simc_benchmark_execution import (
-    BenchmarkExecutionConflict, backfill_completed_case_results, create_execution, reconcile_execution,
-    rerun_failed_cases, serialize_incremental_panel_results,
-    serialize_public_execution, summarize_execution, _spec_icon_url,
+    BenchmarkExecutionConflict, backfill_completed_case_results, cancel_execution,
+    create_execution, reconcile_execution, rerun_failed_cases,
+    serialize_incremental_panel_results, serialize_public_execution,
+    summarize_execution, _spec_icon_url,
 )
 
 
@@ -90,6 +91,64 @@ class SimcBenchmarkExecutionTests(TestCase):
             return create_execution(
                 self.panel, requested_by=self.user_id, **kwargs,
             )
+
+    def test_cancel_execution_fences_tasks_runs_and_releases_active_slot(self):
+        execution = self._create()
+        case = execution.cases.select_related('task').get()
+        task = case.task
+        task.current_status = 1
+        task.execution_owner = SimcTask.EXECUTION_OWNER_AGENT
+        task.save(update_fields=['current_status', 'execution_owner'])
+        run = SimulationRun.objects.create(
+            task=task, sequence=1, status='running', candidate_key='trinket',
+            candidate_label='Trinket', lease_token_hash='sha256$old-fence',
+            lease_expires_at=timezone.now() + timedelta(minutes=5),
+            lease_heartbeat_at=timezone.now(), lease_instance_id='agent-instance',
+        )
+
+        cancelled = cancel_execution(execution, requested_by=self.user_id)
+
+        execution.refresh_from_db()
+        case.refresh_from_db()
+        task.refresh_from_db()
+        run.refresh_from_db()
+        self.panel.refresh_from_db()
+        self.assertEqual(cancelled.pk, execution.pk)
+        self.assertEqual(execution.status, SimcBenchmarkExecution.STATUS_CANCELLED)
+        self.assertIsNotNone(execution.completed_at)
+        self.assertEqual(case.status, SimcBenchmarkExecution.STATUS_CANCELLED)
+        self.assertEqual(task.current_status, 5)
+        self.assertFalse(task.is_active)
+        self.assertEqual(run.status, 'cancelled')
+        self.assertEqual(run.lease_token_hash, '')
+        self.assertIsNone(run.lease_expires_at)
+        self.assertEqual(run.lease_instance_id, '')
+        self.assertIsNone(self.panel.active_execution_id)
+
+    def test_cancel_execution_is_idempotent_and_preserves_successful_cases(self):
+        execution = self._create()
+        case = execution.cases.select_related('task').get()
+        task = case.task
+        task.current_status = 2
+        task.completed_at = timezone.now()
+        task.save(update_fields=['current_status', 'completed_at'])
+        SimulationRun.objects.create(
+            task=task, sequence=1, status='completed', candidate_key='trinket',
+            candidate_label='Trinket', result_summary={'dps': 1234.0},
+            completed_at=timezone.now(),
+        )
+
+        first = cancel_execution(execution, requested_by=self.user_id)
+        completed_at = first.completed_at
+        second = cancel_execution(execution, requested_by=self.user_id)
+
+        case.refresh_from_db()
+        task.refresh_from_db()
+        self.assertEqual(second.status, SimcBenchmarkExecution.STATUS_CANCELLED)
+        self.assertEqual(second.completed_at, completed_at)
+        self.assertEqual(case.status, SimcBenchmarkExecution.STATUS_SUCCESS)
+        self.assertEqual(task.current_status, 2)
+        self.assertEqual(task.simulation_runs.get().status, 'completed')
 
     def test_scenario_core_parameters_are_frozen_into_execution_and_task(self):
         scenario = self.panel.scenarios.get(key='patchwerk')

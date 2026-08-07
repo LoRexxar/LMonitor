@@ -90,7 +90,7 @@ from botend.services.simc_benchmark_config import (
     replace_panel_config, serialize_panel_config,
 )
 from botend.services.simc_benchmark_execution import (
-    BenchmarkExecutionConflict, create_execution, reconcile_execution,
+    BenchmarkExecutionConflict, cancel_execution, create_execution, reconcile_execution,
     rerun_failed_cases, serialize_incremental_panel_results,
     summarize_execution, summarize_incremental_panel_coverage,
     summarize_panel_coverage_counts, task_progress, _canonical_hash,
@@ -9284,6 +9284,21 @@ class SimcBenchmarkExecutionRerunFailedAPIView(_BenchmarkAdminAPIView):
                 case_count=rerun.cases.count(), cases=cases,
             ),
         }, status=202)
+
+
+class SimcBenchmarkExecutionCancelAPIView(_BenchmarkAdminAPIView):
+    def post(self, request, execution_id):
+        _benchmark_json_object(request, empty=True)
+        execution = SimcBenchmarkExecution.objects.select_related('panel').filter(
+            pk=execution_id,
+        ).first()
+        if execution is None:
+            return _benchmark_error('not_found', 404)
+        cancelled = cancel_execution(execution, requested_by=request.user)
+        cancelled = SimcBenchmarkExecution.objects.select_related('panel').get(pk=cancelled.pk)
+        return JsonResponse({'success': True,
+                             'data': _benchmark_safe_detail(
+                                 summarize_execution(cancelled), cancelled)})
 
 
 class SimcBenchmarkExecutionReconcileAPIView(_BenchmarkAdminAPIView):

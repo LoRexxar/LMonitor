@@ -35,7 +35,7 @@ from botend.dashboard.api import (
     SimcBenchmarkPanelListAPIView, SimcBenchmarkPanelDetailAPIView,
     SimcBenchmarkPanelRunAPIView, SimcBenchmarkPanelExecutionListAPIView,
     SimcBenchmarkExecutionDetailAPIView, SimcBenchmarkExecutionRerunFailedAPIView,
-    SimcBenchmarkExecutionReconcileAPIView,
+    SimcBenchmarkExecutionCancelAPIView, SimcBenchmarkExecutionReconcileAPIView,
     SimcBenchmarkOptionsAPIView, SimcBenchmarkPanelOptionsAPIView, SimcBenchmarkItemLookupAPIView,
     SimcRaidBuffOptionsAPIView,
 )
@@ -223,6 +223,7 @@ urlpatterns = [
     path('api/simc-benchmarks/panels/<int:panel_id>/executions/', SimcBenchmarkPanelExecutionListAPIView.as_view(), name='simc_benchmark_panel_executions'),
     path('api/simc-benchmarks/executions/<int:execution_id>/', SimcBenchmarkExecutionDetailAPIView.as_view(), name='simc_benchmark_execution_detail'),
     path('api/simc-benchmarks/executions/<int:execution_id>/rerun-failed/', SimcBenchmarkExecutionRerunFailedAPIView.as_view(), name='simc_benchmark_execution_rerun_failed'),
+    path('api/simc-benchmarks/executions/<int:execution_id>/cancel/', SimcBenchmarkExecutionCancelAPIView.as_view(), name='simc_benchmark_execution_cancel'),
     path('api/simc-benchmarks/executions/<int:execution_id>/reconcile/', SimcBenchmarkExecutionReconcileAPIView.as_view(), name='simc_benchmark_execution_reconcile'),
     path('api/system-alert/', csrf_exempt(SystemAlertAPIView.as_view()), name="system_alert"),
     path('api/portal/peak/refresh/', csrf_exempt(PortalPeakSpecRankRefreshAPIView.as_view()), name="portal_peak_refresh"),

@@ -35,6 +35,36 @@ class MidnightTrinketCatalogTests(TestCase):
             [v.candidate_key for v in parse_mid1_catalog(raw).variants],
         )
 
+    def test_variants_use_source_levels_not_bloodmallet_test_levels(self):
+        catalog = parse_mid1_catalog(json.loads(FIXTURE.read_text()))
+        expected_levels = {
+            'Delve': {308, 321},
+            'World Quest': {308, 321},
+            'World Boss': {308, 321},
+            'Profession': {308, 321},
+            'Reputation': {308, 321},
+            'High PvP': {308, 321},
+            'Dungeon': {321, 334},
+            'Raid': {321, 334},
+        }
+
+        for source, levels in expected_levels.items():
+            self.assertEqual(
+                {
+                    variant.item_level
+                    for variant in catalog.variants
+                    if variant.source_label == source
+                },
+                levels,
+            )
+        self.assertFalse(
+            {variant.item_level for variant in catalog.variants}
+            & {
+                240, 243, 246, 250, 253, 256, 259, 263, 266, 269,
+                272, 276, 279, 285, 295, 298, 344,
+            },
+        )
+
     def test_payload_keeps_distinct_labels_for_stat_bonus_variants(self):
         catalog = parse_mid1_catalog(json.loads(FIXTURE.read_text()))
         with patch(

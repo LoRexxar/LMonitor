@@ -559,6 +559,8 @@ def complete_run(run_id, metadata, authorization):
     # completion is only a duplicate acknowledgement so an Agent can discard a
     # locally durable outbox entry; it must not re-validate its old lease or
     # overwrite the authoritative result.
+    if run_for_key.status in ('cancelled', 'canceled'):
+        raise AgentAPIError('Run was cancelled', 409)
     if run_for_key.status in TERMINAL:
         return {'run_id': run_for_key.pk, 'status': run_for_key.status, 'idempotent': True}
     try:
@@ -615,6 +617,8 @@ def complete_run(run_id, metadata, authorization):
             raise AgentAPIError('Agent identity changed during completion', 409)
         if task.execution_owner != SimcTask.EXECUTION_OWNER_AGENT:
             raise AgentAPIError('Task is not agent-owned', 409)
+        if run.status in ('cancelled', 'canceled'):
+            raise AgentAPIError('Run was cancelled', 409)
         if run.status in TERMINAL:
             return {'run_id': run.pk, 'status': run.status, 'idempotent': True}
         now = timezone.now()

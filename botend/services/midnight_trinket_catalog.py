@@ -20,6 +20,11 @@ SPECIAL_BONUS_IDS={250462:{'crit':606,'haste':604,'mastery':605,'versatility':60
 SPECIAL_OPTION_LABELS={'crit':'暴击','haste':'急速','mastery':'精通','versatility':'全能'}
 SPECIAL_BONUS_LABELS={item_id:{bonus_id:SPECIAL_OPTION_LABELS[option] for option,bonus_id in options.items()} for item_id,options in SPECIAL_BONUS_IDS.items()}
 SPECIAL_OPTIONS={264507:{'violence':('midnight.crucible_of_erratic_energies_violence=1',),'sustenance':('midnight.crucible_of_erratic_energies_sustenance=1',),'predation':('midnight.crucible_of_erratic_energies_predation=1',),'predation+sustenance+violence+':('midnight.crucible_of_erratic_energies_predation=1','midnight.crucible_of_erratic_energies_sustenance=1','midnight.crucible_of_erratic_energies_violence=1')}}
+MID1_SOURCE_LEVELS={
+ 'Delve': (308,321), 'World Quest': (308,321), 'World Boss': (308,321),
+ 'Dungeon': (321,334), 'Raid': (321,334), 'Profession': (308,321),
+ 'Reputation': (308,321), 'High PvP': (308,321),
+}
 @dataclass(frozen=True)
 class TrinketVariant:
  candidate_key:str; item_id:int; name:str; option_key:str; item_level:int; spec_keys:tuple[str,...]; source_label:str; bonus_id:int|None=None; simc_options:tuple[str,...]=()
@@ -47,12 +52,16 @@ def parse_mid1_catalog(payload:dict[str,Any])->MidnightTrinketCatalog:
    item_records[(item_id, name)] = identity
    option=name.rsplit(' [',1)[1][:-1].lower() if ' [' in name and name.endswith(']') else ''
    if option and item_id not in SPECIAL_BONUS_IDS and item_id not in SPECIAL_OPTIONS: raise ValueError(f'{spec}: unsupported special variant {name}')
-   highest=max(map(int,levels)); identities.setdefault((item_id,name),source.strip()); rows.append((spec,item_id,name,option,highest,source.strip()))
+   identities.setdefault((item_id,name),source.strip()); rows.append((spec,item_id,name,option,source.strip()))
  items=tuple(TrinketItem(i,n,s) for (i,n),s in sorted(identities.items())); variants={}
- for spec,item_id,name,option,level,source in rows:
-  bonus=SPECIAL_BONUS_IDS.get(item_id,{}).get(option); options=SPECIAL_OPTIONS.get(item_id,{}).get(option,())
-  if any(not _SCALAR.fullmatch(x) for x in options): raise ValueError('special option is not a controlled scalar assignment')
-  key=(item_id,option or 'default',level); variants.setdefault(key,TrinketVariant(_key(*key),item_id,name,option or 'default',level,tuple(sorted({r[0] for r in rows if r[1]==item_id and r[3]==option})),source,bonus,tuple(options)))
+ for spec,item_id,name,option,source in rows:
+  levels=MID1_SOURCE_LEVELS.get(source)
+  if levels is None: raise ValueError(f'{spec}: unsupported MID1 source')
+  for level in levels:
+   key=(item_id,option or 'default',level)
+   bonus=SPECIAL_BONUS_IDS.get(item_id,{}).get(option); options=SPECIAL_OPTIONS.get(item_id,{}).get(option,())
+   if any(not _SCALAR.fullmatch(x) for x in options): raise ValueError('special option is not a controlled scalar assignment')
+   variants.setdefault(key,TrinketVariant(_key(*key),item_id,name,option or 'default',level,tuple(sorted({r[0] for r in rows if r[1]==item_id and r[3]==option})),source,bonus,tuple(options)))
  return MidnightTrinketCatalog(MID1,expected,items,tuple(sorted(variants.values(),key=lambda x:x.candidate_key)))
 
 def build_mid1_panel_payload(catalog,user_id,slug='midnight-s1-trinkets'):

@@ -57,7 +57,7 @@ class MidnightTrinketSyncTests(TestCase):
         plan = json.loads(first_line)
         self.assertEqual((plan['spec_count'], plan['scenario_count'],
                           plan['candidate_count'], plan['case_count']),
-                         (32, 3, 66, 96))
+                         (32, 3, 132, 96))
         self.assertEqual(plan['run_count'], sum(row['run_count'] for row in plan['specs']))
         self.assertEqual(len(plan['specs']), 32)
         self.assertNotIn('evoker_augmentation', {row['spec_key'] for row in plan['specs']})
@@ -72,7 +72,7 @@ class MidnightTrinketSyncTests(TestCase):
                          owner_id=self.owner_id, stdout=StringIO())
         panel = SimcBenchmarkPanel.objects.get(slug='midnight-s1-trinkets')
         self.assertEqual((panel.specs.count(), panel.scenarios.count(), panel.candidates.count()),
-                         (32, 3, 66))
+                         (32, 3, 132))
         self.assertEqual(list(panel.scenarios.order_by('display_order', 'id').values_list(
             'key', 'simulation_params__fight_style',
             'simulation_params__desired_targets', 'simulation_params__max_time',

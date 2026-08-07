@@ -93,6 +93,12 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
                 if 'simc-benchmark-dashboard.' in line:
                     self.assertIn(expected, line)
 
+    def test_active_execution_has_owner_cancel_action(self):
+        self.assertIn("['pending','running'].includes(execution.status)", JS)
+        self.assertIn("actionButton('cancel-execution','取消当前执行'", JS)
+        self.assertIn("executions/${execution.id}/cancel/", JS)
+        self.assertIn("if(action.dataset.action==='cancel-execution')", JS)
+
     def test_editor_and_history_are_independent_accessible_dialogs(self):
         soup = BeautifulSoup(PARTIAL, "html.parser")
         editor = soup.select_one('[data-benchmark-editor][role="dialog"][aria-modal="true"]')

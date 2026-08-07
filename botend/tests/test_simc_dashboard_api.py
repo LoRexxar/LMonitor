@@ -104,6 +104,44 @@ class SimcWorkerTaskRunLifecycleTests(TestCase):
             result_summary=None if dps is None else {'dps': dps},
         )
 
+    def test_cancelled_task_fences_stale_local_run_writes(self):
+        run = self._run(1, status='running')
+        claimed_at = timezone.now()
+        SimcTask.objects.filter(pk=self.task.pk).update(
+            current_status=1,
+            execution_owner=SimcTask.EXECUTION_OWNER_LOCAL,
+            started_at=claimed_at,
+        )
+        self.monitor._active_claim_task_id = self.task.pk
+        self.monitor._active_claim_started_at = claimed_at
+
+        SimcTask.objects.filter(pk=self.task.pk).update(
+            current_status=3,
+            execution_owner=SimcTask.EXECUTION_OWNER_UNASSIGNED,
+        )
+        SimulationRun.objects.filter(pk=run.pk).update(status='cancelled')
+
+        self.assertFalse(self.monitor._save_run_for_active_claim(
+            self.task,
+            run,
+            ('running',),
+            status='failed',
+            error_detail='late local failure',
+            completed_at=timezone.now(),
+        ))
+        self.assertFalse(self.monitor._save_run_for_active_claim(
+            self.task,
+            run,
+            ('running',),
+            status='completed',
+            result_summary={'dps': 999999},
+            completed_at=timezone.now(),
+        ))
+        run.refresh_from_db()
+        self.assertEqual(run.status, 'cancelled')
+        self.assertIsNone(run.result_summary)
+        self.assertNotEqual(run.error_detail, 'late local failure')
+
     def test_pending_run_keeps_task_nonterminal(self):
         self._run(1, 'completed', 100)
         self._run(2, 'running')
@@ -1864,24 +1902,84 @@ main_hand=,id=222222
                     side_effect=lambda path: path == self.backend.simc_path or Path(path).is_file()), \
                  patch('botend.controller.plugins.simc.SimcMonitor.os.access', return_value=True), \
                  patch('botend.controller.plugins.simc.SimcMonitor.os.sched_getaffinity', return_value={0, 1}), \
-                 patch('botend.controller.plugins.simc.SimcMonitor.subprocess.run') as run:
-                def execute_and_write_report(*args, **kwargs):
-                    with open(expected, 'w', encoding='utf-8') as report:
-                        report.write('<html></html>')
-                    return SimpleNamespace(
-                    returncode=0,
-                    stdout='Player: Audit warrior fury 90\n  DPS=60000.0\n    bloodthirst Count=40 pDPS=5000\n',
-                    stderr='',
-                )
-                run.side_effect = execute_and_write_report
+                 patch('botend.controller.plugins.simc.SimcMonitor.subprocess.Popen') as popen:
+                process = popen.return_value
+                def communicate(**kwargs):
+                    Path(expected).write_text('<html></html>', encoding='utf-8')
+                    return (
+                        'Player: Audit warrior fury 90\n  DPS=60000.0\n    bloodthirst Count=40 pDPS=5000\n',
+                        '',
+                    )
+                process.communicate.side_effect = communicate
+                process.returncode = 0
                 with patch('botend.interface.ossupload.ossUpload', return_value=True):
                     self.assertTrue(monitor.execute_simc_command('/tmp/input.simc', task, task.result_file))
             self.assertEqual(
-                run.call_args.args[0],
+                popen.call_args.args[0],
                 ['/opt/simc', '/tmp/input.simc', f'html={expected}', 'threads=1'],
             )
-            self.assertEqual(run.call_args.kwargs['env']['LANG'], 'C')
-            self.assertEqual(run.call_args.kwargs['env']['LC_ALL'], 'C')
+            self.assertEqual(popen.call_args.kwargs['env']['LANG'], 'C')
+            self.assertEqual(popen.call_args.kwargs['env']['LC_ALL'], 'C')
+
+    def test_execute_simc_command_terminates_process_when_claim_is_cancelled(self):
+        from unittest.mock import patch
+        import subprocess
+        import tempfile
+
+        monitor = object.__new__(SimcMonitor)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            monitor.result_path = tmpdir
+            task = SimpleNamespace(
+                id=288, pk=288, result_file='simc_task_288.html', ext='{}',
+                result_summary='', error_detail='', save=lambda **kwargs: None,
+                backend=self.backend, backend_id=self.backend.id,
+            )
+            with patch('botend.controller.plugins.simc.SimcMonitor.os.path.isfile',
+                       side_effect=lambda path: path == self.backend.simc_path), \
+                 patch('botend.controller.plugins.simc.SimcMonitor.os.access', return_value=True), \
+                 patch('botend.controller.plugins.simc.SimcMonitor.os.sched_getaffinity', return_value={0, 1}), \
+                 patch('botend.controller.plugins.simc.SimcMonitor.subprocess.Popen') as popen, \
+                 patch.object(monitor, '_active_task_claim_is_current', return_value=False):
+                process = popen.return_value
+                process.communicate.side_effect = [
+                    subprocess.TimeoutExpired('/opt/simc', 1), ('', ''),
+                ]
+                process.poll.return_value = None
+                self.assertFalse(monitor.execute_simc_command('/tmp/input.simc', task, task.result_file))
+            process.terminate.assert_called_once_with()
+            process.kill.assert_not_called()
+            self.assertEqual(process.communicate.call_count, 2)
+
+    def test_execute_simc_command_kills_process_that_ignores_terminate(self):
+        from unittest.mock import patch
+        import subprocess
+        import tempfile
+
+        monitor = object.__new__(SimcMonitor)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            monitor.result_path = tmpdir
+            task = SimpleNamespace(
+                id=289, pk=289, result_file='simc_task_289.html', ext='{}',
+                result_summary='', error_detail='', save=lambda **kwargs: None,
+                backend=self.backend, backend_id=self.backend.id,
+            )
+            with patch('botend.controller.plugins.simc.SimcMonitor.os.path.isfile',
+                       side_effect=lambda path: path == self.backend.simc_path), \
+                 patch('botend.controller.plugins.simc.SimcMonitor.os.access', return_value=True), \
+                 patch('botend.controller.plugins.simc.SimcMonitor.os.sched_getaffinity', return_value={0, 1}), \
+                 patch('botend.controller.plugins.simc.SimcMonitor.subprocess.Popen') as popen, \
+                 patch.object(monitor, '_active_task_claim_is_current', return_value=False):
+                process = popen.return_value
+                process.communicate.side_effect = [
+                    subprocess.TimeoutExpired('/opt/simc', 1),
+                    subprocess.TimeoutExpired('/opt/simc', 5),
+                    ('', ''),
+                ]
+                process.poll.return_value = None
+                self.assertFalse(monitor.execute_simc_command('/tmp/input.simc', task, task.result_file))
+            process.terminate.assert_called_once_with()
+            process.kill.assert_called_once_with()
+            self.assertEqual(process.communicate.call_count, 3)
 
     def test_execute_simc_command_rejects_ptr_binary_live_fallback_warning(self):
         from unittest.mock import patch
@@ -1901,15 +1999,16 @@ main_hand=,id=222222
                     side_effect=lambda path: path == self.backend.simc_path or Path(path).is_file()), \
                  patch('botend.controller.plugins.simc.SimcMonitor.os.access', return_value=True), \
                  patch('botend.controller.plugins.simc.SimcMonitor.os.sched_getaffinity', return_value={0, 1}), \
-                 patch('botend.controller.plugins.simc.SimcMonitor.subprocess.run') as run:
-                def execute_and_warn(*args, **kwargs):
+                 patch('botend.controller.plugins.simc.SimcMonitor.subprocess.Popen') as popen:
+                process = popen.return_value
+                def communicate(**kwargs):
                     Path(expected).write_text('<html></html>', encoding='utf-8')
-                    return SimpleNamespace(
-                        returncode=0,
-                        stdout='SimulationCraft 1200-01',
-                        stderr="SimulationCraft has not been built with PTR data. The 'ptr=' option is ignored.",
+                    return (
+                        'SimulationCraft 1200-01',
+                        "SimulationCraft has not been built with PTR data. The 'ptr=' option is ignored.",
                     )
-                run.side_effect = execute_and_warn
+                process.communicate.side_effect = communicate
+                process.returncode = 0
                 self.assertFalse(monitor.execute_simc_command('/tmp/ptr.simc', task, task.result_file))
             self.assertIn('不支持 PTR 数据', task.error_detail)
 
@@ -1950,12 +2049,14 @@ main_hand=,id=222222
                     side_effect=lambda path: path == self.backend.simc_path or Path(path).is_file()), \
                  patch('botend.controller.plugins.simc.SimcMonitor.os.access', return_value=True), \
                  patch('botend.controller.plugins.simc.SimcMonitor.os.sched_getaffinity', return_value={0, 1}), \
-                 patch('botend.controller.plugins.simc.SimcMonitor.subprocess.run') as run:
-                def execute_and_write_report(*args, **kwargs):
+                 patch('botend.controller.plugins.simc.SimcMonitor.subprocess.Popen') as popen:
+                process = popen.return_value
+                def communicate(**kwargs):
                     with open(expected, 'w', encoding='utf-8') as report:
                         report.write('<html></html>')
-                    return SimpleNamespace(returncode=0, stdout=stdout, stderr='')
-                run.side_effect = execute_and_write_report
+                    return stdout, ''
+                process.communicate.side_effect = communicate
+                process.returncode = 0
                 self.assertFalse(monitor.execute_simc_command('/tmp/input.simc', task, task.result_file))
         stored = json.loads(task.ext)
         self.assertIn('只有自动攻击', stored['simc_error_summary'])

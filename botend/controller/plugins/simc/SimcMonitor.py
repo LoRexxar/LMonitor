@@ -225,6 +225,24 @@ class SimcMonitor(BaseScan):
             return True
         return self._task_claim_is_current(simc_task, claimed_at)
 
+    def _save_run_for_active_claim(self, simc_task, run, expected_statuses, **values):
+        """Persist a Run transition only while its local Task claim remains current."""
+        queryset = SimulationRun.objects.filter(pk=run.pk, status__in=expected_statuses)
+        claimed_at = getattr(self, '_active_claim_started_at', None)
+        claimed_task_id = getattr(self, '_active_claim_task_id', None)
+        if claimed_at is not None and claimed_task_id == getattr(simc_task, 'pk', None):
+            queryset = queryset.filter(
+                task_id=simc_task.pk,
+                task__current_status=1,
+                task__started_at=claimed_at,
+                task__execution_owner=SimcTask.EXECUTION_OWNER_LOCAL,
+            )
+        updated = queryset.update(**values)
+        if updated == 1:
+            for field, value in values.items():
+                setattr(run, field, value)
+        return updated == 1
+
     def _persist_reference_progress(self, simc_task):
         """Persist trusted Run completion progress while the Task lease is current."""
         statuses = list(SimulationRun.objects.filter(
@@ -522,20 +540,31 @@ class SimcMonitor(BaseScan):
                 )
                 return False
 
-            run.status = 'running'
-            run.started_at = timezone.now()
-            run.completed_at = None
-            run.error_detail = None
-            run.save(update_fields=['status', 'started_at', 'completed_at', 'error_detail'])
+            started_at = timezone.now()
+            if not self._save_run_for_active_claim(
+                simc_task,
+                run,
+                ('pending',),
+                status='running',
+                started_at=started_at,
+                completed_at=None,
+                error_detail=None,
+            ):
+                return False
 
             # Resolve task to version payloads
             try:
                 resolved = resolve_task(simc_task)
             except TaskResolutionError as e:
-                run.status = 'failed'
-                run.error_detail = str(e)
-                run.completed_at = timezone.now()
-                run.save(update_fields=['status', 'error_detail', 'completed_at'])
+                completed_at = timezone.now()
+                self._save_run_for_active_claim(
+                    simc_task,
+                    run,
+                    ('running',),
+                    status='failed',
+                    error_detail=str(e),
+                    completed_at=completed_at,
+                )
                 self.mark_task_failed(simc_task, "任务引用解析失败", e)
                 return False
 
@@ -596,27 +625,44 @@ class SimcMonitor(BaseScan):
                     talent_candidate = {
                         key: raw_candidate.get(key) for key in ('name', 'talent', 'source')
                     }
-            run.resource_manifest = {
+            resource_manifest = {
                 **(resolved.resource_metadata or {}),
                 'composition_manifest': serializable_manifest,
                 'talent_candidate': talent_candidate,
             }
-            run.save(update_fields=['resource_manifest'])
+            if not self._save_run_for_active_claim(
+                simc_task,
+                run,
+                ('running',),
+                resource_manifest=resource_manifest,
+            ):
+                return False
 
             if compose_error or simc_code is None:
                 # Compose failed - mark run as failed
-                run.status = 'failed'
-                run.error_detail = compose_error or 'SimC composition failed'
-                run.completed_at = timezone.now()
-                run.save(update_fields=['status', 'error_detail', 'completed_at'])
+                detail = compose_error or 'SimC composition failed'
+                completed_at = timezone.now()
+                self._save_run_for_active_claim(
+                    simc_task,
+                    run,
+                    ('running',),
+                    status='failed',
+                    error_detail=detail,
+                    completed_at=completed_at,
+                )
 
-                self.mark_task_failed(simc_task, "SimC 组合失败", Exception(compose_error or 'Composition returned None'))
+                self.mark_task_failed(simc_task, "SimC 组合失败", Exception(detail))
                 return False
 
             # Compute input hash
             input_hash = hashlib.sha256(simc_code.encode('utf-8')).hexdigest()
-            run.input_hash = input_hash
-            run.save(update_fields=['input_hash'])
+            if not self._save_run_for_active_claim(
+                simc_task,
+                run,
+                ('running',),
+                input_hash=input_hash,
+            ):
+                return False
 
             # Write temporary SimC file
             result_file = simc_task.result_file or f'{simc_task.id}.html'
@@ -637,10 +683,16 @@ class SimcMonitor(BaseScan):
                         return False
                     ext_payload = self.parse_task_ext(simc_task.ext)
                     result_summary = ext_payload.get('semantic_validation') or {}
-                    run.status = 'completed'
-                    run.result_summary = result_summary
-                    run.completed_at = timezone.now()
-                    run.save(update_fields=['status', 'result_summary', 'completed_at'])
+                    completed_at = timezone.now()
+                    if not self._save_run_for_active_claim(
+                        simc_task,
+                        run,
+                        ('running',),
+                        status='completed',
+                        result_summary=result_summary,
+                        completed_at=completed_at,
+                    ):
+                        return False
                     # The request-level Task remains running until every Run and,
                     # for attribute search, every server-generated round is terminal.
                     simc_task.current_status = 1
@@ -659,10 +711,16 @@ class SimcMonitor(BaseScan):
                         detail = str(ext_payload.get('simc_error_summary') or 'SimC execution failed')
                         simc_task.error_detail = detail
                         self._save_task_fields(simc_task, ['error_detail'])
-                    run.status = 'failed'
-                    run.error_detail = detail
-                    run.completed_at = timezone.now()
-                    run.save(update_fields=['status', 'error_detail', 'completed_at'])
+                    completed_at = timezone.now()
+                    if not self._save_run_for_active_claim(
+                        simc_task,
+                        run,
+                        ('running',),
+                        status='failed',
+                        error_detail=detail,
+                        completed_at=completed_at,
+                    ):
+                        return False
 
                     # Ensure task is marked as failed
                     simc_task.refresh_from_db()
@@ -680,15 +738,17 @@ class SimcMonitor(BaseScan):
         except Exception as e:
             logger.error(f"[SimC Monitor] Error processing reference task {simc_task.id}: {str(e)}")
 
-            # Only update THIS run if it was created in this execution
+            # Only update THIS run while it is still owned by this Task claim.
             if run is not None:
                 try:
-                    run.refresh_from_db()
-                    if run.status != 'completed':
-                        run.status = 'failed'
-                        run.error_detail = str(e)
-                        run.completed_at = timezone.now()
-                        run.save(update_fields=['status', 'error_detail', 'completed_at'])
+                    self._save_run_for_active_claim(
+                        simc_task,
+                        run,
+                        ('running',),
+                        status='failed',
+                        error_detail=str(e),
+                        completed_at=timezone.now(),
+                    )
                 except Exception:
                     pass
 
@@ -750,8 +810,13 @@ class SimcMonitor(BaseScan):
                     self.process_reference_run(simc_task, run)
                 except Exception as exc:
                     logger.exception('[SimC Monitor] run %s failed unexpectedly', run.id)
-                    SimulationRun.objects.filter(pk=run.pk).update(
-                        status='failed', error_detail=str(exc), completed_at=timezone.now(),
+                    self._save_run_for_active_claim(
+                        simc_task,
+                        run,
+                        ('pending', 'running'),
+                        status='failed',
+                        error_detail=str(exc),
+                        completed_at=timezone.now(),
                     )
                 if not self._persist_reference_progress(simc_task):
                     return False
@@ -1156,14 +1221,43 @@ class SimcMonitor(BaseScan):
             
             logger.info(f"[SimC Monitor] Executing command: {' '.join(cmd)}")
             
-            # 执行命令
-            result = subprocess.run(
+            process = subprocess.Popen(
                 cmd,
                 cwd=self.result_path,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
                 env=simc_process_env(),
-                timeout=300  # 5分钟超时
+            )
+
+            def stop_process():
+                if process.poll() is None:
+                    process.terminate()
+                try:
+                    return process.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    return process.communicate()
+
+            deadline = time.monotonic() + 300
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    stop_process()
+                    raise subprocess.TimeoutExpired(cmd, 300)
+                try:
+                    stdout, stderr = process.communicate(timeout=min(1, remaining))
+                    break
+                except subprocess.TimeoutExpired:
+                    if not self._active_task_claim_is_current(simc_task):
+                        stop_process()
+                        logger.info(
+                            '[SimC Monitor] Stopped cancelled SimC process for task %s',
+                            simc_task.id,
+                        )
+                        return False
+            result = subprocess.CompletedProcess(
+                cmd, process.returncode, stdout=stdout, stderr=stderr,
             )
             
             combined_output = f'{result.stdout or ""}\n{result.stderr or ""}'

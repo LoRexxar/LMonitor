@@ -173,6 +173,7 @@ class SimcBenchmarkDashboardApiTests(TestCase):
             ('post', '/api/simc-benchmarks/panels/1/run/', {}),
             ('get', '/api/simc-benchmarks/panels/1/executions/', None),
             ('post', '/api/simc-benchmarks/executions/1/reconcile/', {}),
+            ('post', '/api/simc-benchmarks/executions/1/cancel/', {}),
         ):
             with self.subTest(method=method, path=path):
                 kwargs = {}
@@ -227,6 +228,37 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         self.assertTrue(response.json()['success'])
         self.assertEqual(response.json()['data']['id'], execution.id)
         rerun.assert_called_once_with(execution, requested_by=self.staff)
+
+    def test_active_execution_cancel_endpoint_delegates_to_benchmark_service(self):
+        panel = self._create_panel()
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, config_snapshot={'version': 2, 'case_count': 0, 'run_count': 0},
+            config_hash='c' * 64, status='running',
+        )
+        def persist_cancel(target, requested_by):
+            target.status = SimcBenchmarkExecution.STATUS_CANCELLED
+            target.completed_at = timezone.now()
+            target.save(update_fields=['status', 'completed_at'])
+            return target
+
+        cancelled_summary = {
+            'id': execution.id, 'status': 'cancelled', 'cases': [],
+            'total_cases': 0, 'total_runs': 0, 'run_counts': {},
+            'created_at': execution.created_at, 'completed_at': timezone.now(),
+        }
+        with patch('botend.dashboard.api.cancel_execution', side_effect=persist_cancel) as cancel, \
+                patch('botend.dashboard.api.summarize_execution',
+                      return_value=cancelled_summary):
+            response = self.client.post(
+                f'/api/simc-benchmarks/executions/{execution.id}/cancel/',
+                data='{}', content_type='application/json',
+            )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(response.json()['success'])
+        self.assertEqual(response.json()['data']['status'], 'cancelled')
+        called_execution = cancel.call_args.args[0]
+        self.assertEqual(called_execution.pk, execution.pk)
+        self.assertEqual(cancel.call_args.kwargs, {'requested_by': self.staff})
 
     def test_execution_detail_exposes_full_panel_result_coverage_separately_from_execution_scale(self):
         """Execution #6/#7 的局部快照不能遮蔽 Panel 的完整 96×5031 聚合面。"""

@@ -15,6 +15,7 @@ from botend.models import (
     SimcResourceVersion, SimcTask, SimcTaskArtifact, SimulationRun,
 )
 from botend.services.simc_agent_control import _issue_token
+from botend.services.simc_benchmark_execution import cancel_execution
 
 
 CLAIM = '/api/simc-agent/v1/jobs/claim/'
@@ -383,6 +384,39 @@ class SimcAgentJobAPITests(TestCase):
         self.assertEqual(self.post_json(path, {'lease_token': 'x' * 43, 'instance_id': 'instance-a'}).status_code, 409)
         self.assertEqual(self.post_json(path, {'lease_token': job['lease_token'], 'instance_id': 'instance-a'},
                                         self.other_token).status_code, 403)
+
+    def test_cancelled_execution_rejects_late_heartbeat_and_completion(self):
+        owner = get_user_model().objects.create_user(username='benchmark-owner')
+        panel = SimcBenchmarkPanel.objects.create(
+            name='Agent cancellation', slug='agent-cancellation', created_by_id=owner.id,
+        )
+        task = self.task()
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, status='running', config_snapshot={}, config_hash='a' * 64,
+        )
+        SimcBenchmarkCase.objects.create(
+            execution=execution, task=task, status='running',
+            spec_key='warrior_fury', scenario_key='single', profile_key='profile',
+            spec_label='Fury', scenario_label='Single', profile_label='Profile',
+            coordinate_hash='b' * 64,
+        )
+        panel.active_execution = execution
+        panel.save(update_fields=['active_execution'])
+        job = self.claim().json()
+
+        cancel_execution(execution, requested_by=owner)
+
+        heartbeat = self.post_json(
+            f"/api/simc-agent/v1/jobs/{job['run_id']}/heartbeat/",
+            {'lease_token': job['lease_token'], 'instance_id': 'instance-a'},
+        )
+        completion = self.complete(job, verify_report=False)
+        self.assertEqual(heartbeat.status_code, 409, heartbeat.content)
+        self.assertEqual(completion.status_code, 409, completion.content)
+        run = SimulationRun.objects.get(pk=job['run_id'])
+        self.assertEqual(run.status, 'cancelled')
+        self.assertIsNone(run.result_summary)
+        self.assertFalse(SimcTaskArtifact.objects.filter(run=run).exists())
 
     def claim_after_task(self):
         self.task()

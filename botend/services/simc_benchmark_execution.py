@@ -731,6 +731,92 @@ def _copy_failed_runs_for_retry(source_task, rerun_task):
     SimulationRun.objects.bulk_create(retry_runs)
 
 
+def cancel_execution(execution, requested_by=None):
+    """Cancel one Execution without stopping the shared worker.
+
+    The transaction is the fencing boundary: Tasks become unclaimable and active
+    Run leases are invalidated before the Execution is made terminal. Agent/local
+    workers must treat the resulting Task/Run state as cancellation and discard
+    any late completion.
+    """
+    requester_id = getattr(requested_by, 'id', requested_by)
+    with transaction.atomic():
+        locked = SimcBenchmarkExecution.objects.select_for_update().select_related(
+            'panel',
+        ).get(pk=execution.pk)
+        panel = SimcBenchmarkPanel.objects.select_for_update().get(pk=locked.panel_id)
+        if requester_id != panel.created_by_id:
+            raise PermissionDenied('Only the Panel owner may cancel this Execution')
+        if locked.completed_at is not None:
+            return locked
+
+        now = timezone.now()
+        cases = list(SimcBenchmarkCase.objects.select_for_update().filter(
+            execution_id=locked.pk,
+        ).select_related('task'))
+        task_ids = [case.task_id for case in cases if case.task_id is not None]
+        tasks = SimcTask.objects.select_for_update().filter(pk__in=task_ids).in_bulk()
+        runs = list(SimulationRun.objects.select_for_update().filter(
+            task_id__in=task_ids,
+        ))
+
+        changed_runs = []
+        for run in runs:
+            if run.status not in ('completed', 'failed', 'cancelled', 'canceled'):
+                run.status = 'cancelled'
+                run.error_detail = run.error_detail or 'Execution cancelled by owner'
+                run.completed_at = now
+                run.lease_token_hash = ''
+                run.lease_expires_at = None
+                run.lease_heartbeat_at = None
+                run.lease_instance_id = ''
+                run.lease_agent = None
+                changed_runs.append(run)
+        if changed_runs:
+            SimulationRun.objects.bulk_update(changed_runs, [
+                'status', 'error_detail', 'completed_at', 'lease_token_hash',
+                'lease_expires_at', 'lease_heartbeat_at', 'lease_instance_id',
+                'lease_agent',
+            ])
+
+        changed_tasks = []
+        changed_cases = []
+        for case in cases:
+            task = tasks.get(case.task_id)
+            if task is not None and task.current_status not in TASK_TERMINAL:
+                task.current_status = TASK_CANCELLED
+                task.is_active = False
+                task.error_detail = task.error_detail or 'Execution cancelled by owner'
+                task.completed_at = now
+                changed_tasks.append(task)
+            if task is None or task.current_status != TASK_SUCCESS:
+                case.status = SimcBenchmarkExecution.STATUS_CANCELLED
+                case.error_detail = case.error_detail or 'Execution cancelled by owner'
+                changed_cases.append(case)
+            elif case.status != SimcBenchmarkExecution.STATUS_SUCCESS:
+                case.status = SimcBenchmarkExecution.STATUS_SUCCESS
+                case.error_detail = ''
+                changed_cases.append(case)
+        if changed_tasks:
+            SimcTask.objects.bulk_update(changed_tasks, [
+                'current_status', 'is_active', 'error_detail', 'completed_at',
+            ])
+        if changed_cases:
+            SimcBenchmarkCase.objects.bulk_update(changed_cases, ['status', 'error_detail'])
+
+        locked.status = SimcBenchmarkExecution.STATUS_CANCELLED
+        locked.completed_at = now
+        locked.result_hash = ''
+        locked.results_finalized_at = None
+        locked.save(update_fields=[
+            'status', 'completed_at', 'result_hash', 'results_finalized_at',
+        ])
+        if panel.active_execution_id == locked.pk:
+            panel.active_execution = None
+            panel.save(update_fields=['active_execution'])
+        return locked
+
+
 def rerun_failed_cases(execution, requested_by=None):
     """Create a retry Execution and materialize validation failures per Case.
 
