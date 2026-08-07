@@ -14,6 +14,8 @@
         copyUrlBtn: document.getElementById('talent-copy-url-btn'),
         copyCodeBtn: document.getElementById('talent-copy-code-btn'),
         stageContainer: document.getElementById('talent-stage-container'),
+        simulatorTitle: document.getElementById('talent-simulator-title'),
+        pageTitle: document.getElementById('talent-page-title'),
         specIcon: document.getElementById('talent-spec-icon'),
         specTitle: document.getElementById('talent-spec-title'),
         parseStatus: document.getElementById('talent-parse-status'),
@@ -217,8 +219,18 @@
         }
     }
 
+    function renderSimulatorTitle() {
+        const className = String(state.payload?.class_cn || '').trim();
+        const specName = String(state.payload?.spec_cn || '').trim();
+        const simulatorTitle = [className, specName].filter(Boolean).join(' · ');
+        const heading = simulatorTitle ? `${simulatorTitle}天赋模拟器` : '天赋模拟器';
+        if (els.simulatorTitle) els.simulatorTitle.textContent = heading;
+        if (els.pageTitle) els.pageTitle.textContent = `${heading} - WowDaily.cn`;
+    }
+
     function renderHeader() {
         const spec = currentSpecPayload();
+        renderSimulatorTitle();
         els.specIcon.src = spec?.icon || '';
         const versionLabel = state.payload.talent_version?.label || state.versionKey || '';
         els.specTitle.textContent = `${state.payload.class_cn} · ${state.payload.spec_cn}${versionLabel ? ' · ' + versionLabel : ''}`;

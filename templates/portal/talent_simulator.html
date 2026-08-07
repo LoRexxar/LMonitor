@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="/favicon.ico">
-    <title>天赋模拟器 - WowDaily.cn</title>
+    <title id="talent-page-title">天赋模拟器 - WowDaily.cn</title>
     {% load static %}
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260806_account_menu">
@@ -19,7 +19,7 @@
         <section class="talent-sim-hero portal-card portal-card-accent portal-accent-indigo">
             <div class="talent-sim-title-block">
                 <div class="talent-sim-kicker">LMonitor Tools</div>
-                <h1>天赋模拟器</h1>
+                <h1 id="talent-simulator-title">天赋模拟器</h1>
                 <p>基于站内已有 DB2 天赋树、中文描述和 Blizzard 导入字符串编码逻辑。职业树独立使用34点；专精普通天赋与顶峰天赋共享34点预算，专精树前7层投入20点、满足最后3层条件后即可点顶峰天赋。</p>
             </div>
             <div class="talent-sim-actions">
@@ -82,6 +82,6 @@
 
     <div id="talent-tooltip-root" class="talent-floating-tooltip" hidden></div>
     <div id="talent-toast-root" class="talent-toast-root"></div>
-    <script src="{% static 'portal/js/talent_simulator.js' %}?v=36"></script>
+    <script src="{% static 'portal/js/talent_simulator.js' %}?v=37"></script>
 </body>
 </html>
