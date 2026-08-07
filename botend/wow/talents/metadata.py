@@ -140,12 +140,15 @@ class TalentMetadataProvider:
         try:
             with open(path, encoding='utf-8-sig', newline='') as handle:
                 for row in csv.DictReader(handle):
+                    raw_index = row.get('_Index')
                     try:
                         entry_id = int(row.get('TraitNodeEntryID') or 0)
-                        entry_index = int(row.get('_Index') or 0)
+                        entry_index = int(raw_index)
                     except (TypeError, ValueError):
                         continue
-                    if entry_id and entry_index:
+                    # `_Index` is zero-based.  In particular, a valid first
+                    # choice entry is commonly recorded as 0 rather than 100.
+                    if entry_id and raw_index not in (None, ''):
                         result[entry_id] = entry_index
         except OSError:
             # Backfilled historical versions can legitimately lack a local dump.

@@ -1576,6 +1576,25 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
     ARMS_REFERENCE_CODE = 'CcEAjLzRlq54bI5v+r8Sr9Xw4jZmZmFzYmZGAAAghphZGmZzMzMzYmxMDAAAAgxyMDsFGLLDsAGwMMBmBbgZGGGMbzsNAzMAYM8AA'
     DEATH_KNIGHT_REFERENCE_CODE = 'CoPAAAAAAAAAAAAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAA'
 
+    def test_choice_entry_order_accepts_zero_based_db2_index(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'TraitNodeXTraitNodeEntry.csv').write_text(
+                'TraitNodeID,TraitNodeEntryID,_Index\n90351,112215,0\n90351,112214,100\n',
+                encoding='utf-8',
+            )
+            provider = TalentMetadataProvider(
+                talent_version=SimpleNamespace(key='test-choice-index', source_dir=str(root)),
+            )
+
+            self.assertEqual(provider._choice_entry_order(), {112215: 0, 112214: 100})
+            self.assertEqual(
+                [option['node_id'] for option in provider._order_choice_nodes([
+                    {'node_id': 112214}, {'node_id': 112215},
+                ])],
+                [112215, 112214],
+            )
+
     def test_ptr_tactical_edge_choice_uses_db2_entry_index_not_entry_id(self):
         # PTR 12.1 Warrior/Arms TraitNode 109683. The numeric entry IDs are
         # reverse of Blizzard's TraitNodeXTraitNodeEntry._Index ordering.
