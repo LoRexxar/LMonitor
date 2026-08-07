@@ -102,6 +102,49 @@ class WowNewsGlossary:
             logger.warning("[WowNewsGlossary] cannot load active talent metadata: %s", str(exc)[:300])
             return cls.empty()
 
+    @classmethod
+    def from_active_mythic_dungeon_metadata(cls) -> "WowNewsGlossary":
+        """Load the active MDT version's dungeon, enemy, and ability names.
+
+        This vocabulary stays separate from Retail talent terms because an active
+        MDT version may describe another game version.  Callers must opt in only
+        after establishing that the article is about that version's dungeon content.
+        """
+        try:
+            from botend.models import MythicDungeon, MythicDungeonAbility, MythicDungeonDataVersion, MythicDungeonEnemy
+
+            version = MythicDungeonDataVersion.objects.filter(is_active=True).order_by("-imported_at", "-id").first()
+            if not version:
+                return cls.empty()
+            pairs = list(
+                MythicDungeon.objects.filter(data_version=version, is_active=True)
+                .exclude(name="").exclude(name_zh="")
+                .values_list("name", "name_zh")
+            )
+            pairs.extend(
+                MythicDungeonEnemy.objects.filter(dungeon__data_version=version, is_active=True)
+                .exclude(name="").exclude(name_zh="")
+                .values_list("name", "name_zh")
+            )
+            pairs.extend(
+                MythicDungeonAbility.objects.filter(enemy__dungeon__data_version=version, is_active=True)
+                .exclude(name="").exclude(name_zh="")
+                .values_list("name", "name_zh")
+            )
+            return cls.from_pairs(pairs)
+        except Exception as exc:  # Translation must remain available without MDT data.
+            logger.warning("[WowNewsGlossary] cannot load active MDT metadata: %s", str(exc)[:300])
+            return cls.empty()
+
+    @classmethod
+    def merged(cls, *glossaries: "WowNewsGlossary") -> "WowNewsGlossary":
+        """Merge independently version-scoped glossaries, retaining only unambiguous names."""
+        return cls.from_pairs(
+            (english, chinese)
+            for glossary in glossaries
+            for english, chinese in glossary._terms.items()
+        )
+
     @staticmethod
     def _is_candidate(english: str, chinese: str) -> bool:
         if not english or not chinese or english == chinese:

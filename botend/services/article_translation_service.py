@@ -154,11 +154,12 @@ class ArticleTranslationService:
     def last_error(self) -> str:
         return getattr(self.engine, "last_error", "") or ""
 
-    def translate_title(self, title: str) -> str:
+    def translate_title(self, title: str, *, glossary: Optional[WowNewsGlossary] = None) -> str:
+        glossary = glossary or self.glossary
         title = (title or "").strip()
         if not title or not self.available():
             return ""
-        protected = self.glossary.protect(title)
+        protected = glossary.protect(title)
         prompt = (
             "请将以下英文标题翻译成中文，只返回翻译结果，不要添加任何解释。"
             "其中形如 ⟦WOWTERM_001⟧ 的术语占位符必须原样保留。\n\n"
@@ -171,9 +172,10 @@ class ArticleTranslationService:
                 result = candidate
                 break
             logger.warning("[ArticleTranslationService] title translation changed protected WoW terminology; retrying")
-        return self.glossary.restore(result, protected.replacements) if result else ""
+        return glossary.restore(result, protected.replacements) if result else ""
 
-    def translate_content(self, content: str) -> str:
+    def translate_content(self, content: str, *, glossary: Optional[WowNewsGlossary] = None) -> str:
+        glossary = glossary or self.glossary
         content = (content or "").strip()
         if not content or not self.available():
             return ""
@@ -194,7 +196,7 @@ class ArticleTranslationService:
                 total += len(p)
                 i += 1
 
-            protected_batch = [self.glossary.protect(text) for text in batch]
+            protected_batch = [glossary.protect(text) for text in batch]
             prompt = self._translation_prompt([protected.text for protected in protected_batch])
             result = self.engine.send_message(prompt, max_tokens=2400)
             translated_list = None
@@ -213,14 +215,15 @@ class ArticleTranslationService:
                     and isinstance(translated_list[j], str)
                     and protected_batch[j].is_intact(translated_list[j])
                 ):
-                    trans = self.glossary.restore(translated_list[j].strip(), protected_batch[j].replacements)
+                    trans = glossary.restore(translated_list[j].strip(), protected_batch[j].replacements)
                 translated_pairs.append({"original": orig, "translated": trans})
 
             self.sleep_func(0.6)
 
         return json.dumps(translated_pairs, ensure_ascii=False)
 
-    def translate_content_blocks(self, blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def translate_content_blocks(self, blocks: List[Dict[str, Any]], *, glossary: Optional[WowNewsGlossary] = None) -> List[Dict[str, Any]]:
+        glossary = glossary or self.glossary
         source_blocks = [dict(b) for b in (blocks or []) if isinstance(b, dict)]
         if not source_blocks or not self.available():
             return []
@@ -245,7 +248,7 @@ class ArticleTranslationService:
                 total += len(text)
                 i += 1
 
-            protected_batch = [self.glossary.protect(text) for text in batch]
+            protected_batch = [glossary.protect(text) for text in batch]
             # 重试逻辑：最多 3 次
             translated_list = None
             result = None
@@ -295,7 +298,7 @@ class ArticleTranslationService:
                     and isinstance(translated_list[j], str)
                     and protected_batch[j].is_intact(translated_list[j])
                 ):
-                    translated = self.glossary.restore(translated_list[j].strip(), protected_batch[j].replacements)
+                    translated = glossary.restore(translated_list[j].strip(), protected_batch[j].replacements)
                     if translated:
                         translated_by_index[block_index] = translated
 
@@ -374,10 +377,11 @@ class ArticleTranslationService:
         any_translated = False
         article_id = getattr(article, "id", None)
         url = getattr(article, "url", "")
+        glossary = self._glossary_for_article(article)
 
         if (getattr(article, "title", "") or "").strip() and not (getattr(article, "title_cn", "") or "").strip():
             try:
-                title_cn = self.translate_title(article.title)
+                title_cn = self.translate_title(article.title, glossary=glossary)
                 if title_cn:
                     article.title_cn = title_cn
                     article.save(update_fields=["title_cn"])
@@ -411,7 +415,7 @@ class ArticleTranslationService:
                 update_fields = []
                 content_cn = getattr(article, "content_cn", "") or ""
                 if needs_content_cn:
-                    content_cn = self.translate_content(article.content)
+                    content_cn = self.translate_content(article.content, glossary=glossary)
                     if content_cn:
                         article.content_cn = content_cn
                         update_fields.append("content_cn")
@@ -421,7 +425,7 @@ class ArticleTranslationService:
                         )
 
                 if needs_blocks_cn:
-                    new_blocks = self.translate_content_blocks(blocks)
+                    new_blocks = self.translate_content_blocks(blocks, glossary=glossary)
                     if not new_blocks and content_cn:
                         new_blocks = translate_blocks(blocks, content_cn)
                     if new_blocks and self._blocks_look_polluted(blocks, new_blocks):
@@ -446,6 +450,21 @@ class ArticleTranslationService:
                 )
 
         return any_translated
+
+    def _glossary_for_article(self, article) -> WowNewsGlossary:
+        """Choose only glossary datasets whose game-version context is explicit."""
+        source_text = " ".join([
+            getattr(article, "title", "") or "",
+            getattr(article, "content", "") or "",
+        ])
+        # The active MDT dataset is currently a Midnight dataset. Do not apply it
+        # to unrelated Retail/PTR/Beta news merely because a name happens to match.
+        if "Midnight" not in source_text:
+            return self.glossary
+        return WowNewsGlossary.merged(
+            self.glossary,
+            WowNewsGlossary.from_active_mythic_dungeon_metadata(),
+        )
 
 
 def build_translation_engine(engine_name: str = "fallback"):

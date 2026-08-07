@@ -221,6 +221,34 @@ class ArticleTranslationServiceTests(SimpleTestCase):
         self.assertEqual(translated_blocks[3]["text"], "战士改动。")
         self.assertEqual(article.saved_fields, [["content_cn", "content_blocks_cn"]])
 
+    def test_midnight_dungeon_article_restores_active_mdt_names(self):
+        article = FakeArticle()
+        article.title = "Midnight Season 2 Dungeon Test"
+        article.title_cn = "已有标题"
+        article.content = "Ruby Life Pools: Melidrussa Chillworn and Kokia Blazehoof."
+        article.content_blocks = dumps_blocks([
+            {"type": "paragraph", "text": "Ruby Life Pools: Melidrussa Chillworn and Kokia Blazehoof."},
+        ])
+        mdt_glossary = WowNewsGlossary.from_pairs([
+            ("Ruby Life Pools", "红玉新生法池"),
+            ("Melidrussa Chillworn", "梅莉杜莎·寒妆"),
+            ("Kokia Blazehoof", "柯姬雅·焰蹄"),
+        ])
+        svc = ArticleTranslationService(
+            engine=FakeEngine([
+                json.dumps(["⟦WOWTERM_001⟧：⟦WOWTERM_002⟧与⟦WOWTERM_003⟧。"], ensure_ascii=False),
+                json.dumps(["⟦WOWTERM_001⟧：⟦WOWTERM_002⟧与⟦WOWTERM_003⟧。"], ensure_ascii=False),
+            ]),
+            glossary=WowNewsGlossary.empty(),
+            sleep_func=lambda _: None,
+        )
+
+        with patch.object(WowNewsGlossary, "from_active_mythic_dungeon_metadata", return_value=mdt_glossary):
+            self.assertTrue(svc.translate_article_fields(article, logger_prefix="test"))
+
+        self.assertIn("红玉新生法池：梅莉杜莎·寒妆与柯姬雅·焰蹄。", article.content_cn)
+        self.assertEqual(loads_blocks(article.content_blocks_cn)[0]["text"], "红玉新生法池：梅莉杜莎·寒妆与柯姬雅·焰蹄。")
+
     def test_translate_article_fields_saves_title_when_content_translation_fails(self):
         article = FakeArticle()
         svc = ArticleTranslationService(
