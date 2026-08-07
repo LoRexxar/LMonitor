@@ -43,6 +43,7 @@ class SimcBenchmarkSchedulerTests(TestCase):
         self.assertEqual(result['scheduled'], 1)
         create.assert_called_once()
         self.assertEqual(create.call_args.kwargs['scheduled_slot'], now - timedelta(seconds=190))
+        self.assertEqual(create.call_args.kwargs['execution_mode'], 'full')
         first.refresh_from_db()
         self.assertEqual(first.last_scheduled_at, now - timedelta(seconds=190))
         self.assertEqual(first.next_run_at, now + timedelta(seconds=50))

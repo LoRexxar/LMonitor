@@ -84,6 +84,10 @@ def schedule_due_panels(now=None, batch_size=20):
                 panel,
                 trigger=SimcBenchmarkExecution.TRIGGER_SCHEDULE,
                 scheduled_slot=slot,
+                # A panel schedule promises a fresh aggregate at every slot.
+                # Supplement mode is deliberately reserved for an explicit
+                # operator request to fill missing candidate results.
+                execution_mode='full',
             )
         except _PERMANENT_ERRORS as exc:
             result['failed'] += 1
