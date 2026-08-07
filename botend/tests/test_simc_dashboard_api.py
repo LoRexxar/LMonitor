@@ -4369,3 +4369,116 @@ class SimcComparisonTaskAPIViewGetTests(TestCase):
         self.assertIn('setTimeout(', task_js)
         self.assertIn('scheduleTaskRefresh(hasActive)', task_js)
         self.assertIn('暂无记录', task_js)
+
+
+class SimcResourceOwnershipBoundaryTests(TestCase):
+    """Legacy and workbench endpoints must share the server-side ownership policy."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='simc-boundary-user', password='pwd')
+        self.other = User.objects.create_user(username='simc-boundary-other', password='pwd')
+        self.admin = User.objects.create_superuser(username='simc-boundary-admin', password='pwd', email='admin@example.com')
+        self.client = Client()
+        self.own_profile = SimcProfile.objects.create(user_id=self.user.id, name='Own profile', spec='warrior_fury')
+        self.other_profile = SimcProfile.objects.create(user_id=self.other.id, name='Other profile', spec='warrior_fury')
+        self.system_profile = SimcProfile.objects.create(
+            user_id=None, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:boundary', name='System profile', spec='warrior_fury',
+        )
+        self.global_nondefault_profile = SimcProfile.objects.create(
+            user_id=None, source=SimcProfile.SOURCE_USER, name='Global non-default', spec='warrior_fury',
+        )
+        self.own_apl = SimcApl.objects.create(
+            owner_user_id=self.user.id, name='Own APL', spec='warrior_fury', content='actions=/auto_attack',
+        )
+        self.other_apl = SimcApl.objects.create(
+            owner_user_id=self.other.id, name='Other APL', spec='warrior_fury', content='actions=/auto_attack',
+            is_selectable=True,
+        )
+
+    def test_regular_user_cannot_list_read_edit_or_delete_other_resources(self):
+        self.client.force_login(self.user)
+        apls = self.client.get('/api/apl-storage/').json()['data']
+        self.assertEqual({row['id'] for row in apls}, {self.own_apl.id})
+        self.assertFalse(self.client.get(f'/api/apl-storage/{self.other_apl.id}/').json()['success'])
+        self.assertFalse(self.client.put('/api/apl-storage/', data=json.dumps({
+            'id': self.other_apl.id, 'title': 'forged', 'spec': 'warrior_fury', 'apl_code': 'actions=/auto_attack',
+        }), content_type='application/json').json()['success'])
+        self.assertFalse(self.client.delete('/api/apl-storage/', data=json.dumps({'id': self.other_apl.id}), content_type='application/json').json()['success'])
+        self.assertFalse(self.client.get(f'/api/simc-profile/{self.other_profile.id}/').json()['success'])
+        self.assertFalse(self.client.delete('/api/simc-profile/', data=json.dumps({'id': self.other_profile.id}), content_type='application/json').json()['success'])
+        self.assertTrue(SimcApl.objects.filter(id=self.other_apl.id, is_active=True).exists())
+        self.assertTrue(SimcProfile.objects.filter(id=self.other_profile.id).exists())
+
+    def test_superuser_can_list_read_edit_and_delete_other_resources(self):
+        self.client.force_login(self.admin)
+        apls = self.client.get('/api/apl-storage/').json()['data']
+        self.assertEqual({row['id'] for row in apls}, {self.own_apl.id, self.other_apl.id})
+        self.assertTrue(self.client.get(f'/api/apl-storage/{self.other_apl.id}/').json()['success'])
+        self.assertTrue(self.client.put('/api/apl-storage/', data=json.dumps({
+            'id': self.other_apl.id, 'title': 'Edited by admin', 'spec': 'warrior_fury', 'apl_code': 'actions=/bloodthirst',
+        }), content_type='application/json').json()['success'])
+        self.assertTrue(self.client.delete('/api/apl-storage/', data=json.dumps({'id': self.other_apl.id}), content_type='application/json').json()['success'])
+        self.assertTrue(self.client.get(f'/api/simc-profile/{self.other_profile.id}/').json()['success'])
+        self.assertTrue(self.client.delete('/api/simc-profile/', data=json.dumps({'id': self.other_profile.id}), content_type='application/json').json()['success'])
+
+    def test_superuser_copy_then_simulate_preserves_admin_resource_scope(self):
+        self.other_profile.player_config_mode = 'manual_equipment'
+        self.other_profile.player_equipment = 'warrior="Other"\nspec=fury\nhead=,id=1'
+        self.other_profile.save(update_fields=['player_config_mode', 'player_equipment'])
+        self.client.force_login(self.admin)
+        with patch.object(SimcProfileAPIView, '_create_simulation_task', return_value={
+            'success': True, 'data': {'id': 1, 'name': 'admin copy task', 'current_status': 0, 'mode': 'normal'},
+        }) as create_task:
+            response = self.client.post('/api/simc-profile/', data=json.dumps({
+                'copy_from_id': self.other_profile.id, 'simulate_now': True,
+            }), content_type='application/json')
+        self.assertTrue(response.json()['success'], response.content)
+        self.assertTrue(create_task.call_args.kwargs['is_admin'])
+
+    def test_simulation_selection_only_allows_own_or_explicit_system_defaults(self):
+        from botend.services.simc_task_service import TaskCreationError, validate_resource_ownership
+
+        validate_resource_ownership(self.own_profile, 'profile', self.user.id)
+        validate_resource_ownership(self.system_profile, 'profile', self.user.id)
+        with self.assertRaises(TaskCreationError):
+            validate_resource_ownership(self.other_profile, 'profile', self.user.id)
+        with self.assertRaises(TaskCreationError):
+            validate_resource_ownership(self.global_nondefault_profile, 'profile', self.user.id)
+        self.own_apl.is_system = True
+        self.own_apl.save(update_fields=['is_system'])
+        with self.assertRaises(TaskCreationError):
+            validate_resource_ownership(self.own_apl, 'apl', self.other.id)
+        validate_resource_ownership(self.other_apl, 'apl', self.admin.id, is_admin=True)
+
+    def test_system_default_profile_is_loaded_without_mutation_for_task_creation(self):
+        from botend.services.simc_task_service import create_task_from_request
+
+        original_name = self.system_profile.name
+        with patch('botend.services.simc_task_service.create_task', return_value=object()) as create_task, \
+             patch.object(SimcProfile, 'save') as save_profile:
+            result = create_task_from_request(
+                user_id=self.user.id,
+                profile_fields={'simc_profile_id': self.system_profile.id, 'name': 'must not overwrite'},
+                base_template_id=999, selected_apl_id=998,
+            )
+        self.assertIs(result, create_task.return_value)
+        save_profile.assert_not_called()
+        self.system_profile.refresh_from_db()
+        self.assertEqual(self.system_profile.name, original_name)
+        self.assertEqual(create_task.call_args.kwargs['profile_id'], self.system_profile.id)
+
+    def test_legacy_simulate_endpoint_accepts_system_default_but_not_arbitrary_global_profile(self):
+        self.client.force_login(self.user)
+        with patch.object(SimcProfileAPIView, '_create_simulation_task', return_value={
+            'success': True, 'data': {'id': 1, 'name': 'system task', 'current_status': 0, 'mode': 'normal'},
+        }) as create_task:
+            response = self.client.post('/api/simc-profile/', data=json.dumps({
+                'simulate_now': True, 'profile_id': self.system_profile.id,
+            }), content_type='application/json')
+        self.assertTrue(response.json()['success'], response.content)
+        self.assertEqual(create_task.call_args.args[1].id, self.system_profile.id)
+        forbidden = self.client.post('/api/simc-profile/', data=json.dumps({
+            'simulate_now': True, 'profile_id': self.global_nondefault_profile.id,
+        }), content_type='application/json')
+        self.assertFalse(forbidden.json()['success'])

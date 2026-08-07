@@ -14,6 +14,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
 from django.db import transaction
+from django.db.models import Q
 from botend.models import (
     SimcTask,
     SimulationRun,
@@ -176,17 +177,17 @@ def validate_resource_ownership(
     Validate resource ownership and active/selectable status.
 
     Rules:
-    - Profile: user's own or any active ownerless global Profile
+    - Profile: user's own or an active upstream system default Profile
     - Template/APL: allow system (owner_user_id=None) or user's own, is_active=True, is_selectable=True
     """
     if resource_type == 'profile':
         if not isinstance(resource, SimcProfile):
             raise TaskCreationError(f"Invalid profile resource")
-        if (
-            resource.user_id is not None
-            and resource.user_id != user_id
-            and not is_admin
-        ):
+        is_system_default = (
+            resource.user_id is None
+            and resource.source == SimcProfile.SOURCE_SIMC_UPSTREAM
+        )
+        if not is_system_default and resource.user_id != user_id and not is_admin:
             raise TaskCreationError(
                 f"Profile {resource.id} belongs to user {resource.user_id}, not {user_id}"
             )
@@ -209,9 +210,10 @@ def validate_resource_ownership(
     elif resource_type == 'apl':
         if not isinstance(resource, SimcApl):
             raise TaskCreationError(f"Invalid APL resource")
-        # Allow system APLs (is_system=True or owner_user_id=None) or user's own
-        if (not resource.is_system and resource.owner_user_id is not None
-                and resource.owner_user_id != user_id and not is_admin):
+        # An ownerless system APL is globally selectable. A user-owned row must
+        # never become globally selectable merely by carrying is_system=True.
+        is_system_default = resource.is_system and resource.owner_user_id is None
+        if not is_system_default and resource.owner_user_id != user_id and not is_admin:
             raise TaskCreationError(
                 f"APL {resource.id} belongs to user {resource.owner_user_id}, not {user_id}"
             )
@@ -442,7 +444,8 @@ def create_task_from_request(
     Unified entry for homepage "auto-save/update player config and create Task" atomic operation.
 
     Given user_id and validated profile fields from API, this function:
-    1. If simc_profile_id is provided: only update the current user's active Profile
+    1. If simc_profile_id is provided: use the current user's active Profile or
+       freeze an active upstream system default without mutating it
     2. If simc_profile_id is not provided: create a new SimcProfile
     3. Validate base_template_id and selected_apl_id resource ownership
     4. Create reference normal task with complete resource FKs
@@ -485,40 +488,52 @@ def create_task_from_request(
                     id=simc_profile_id, is_active=True,
                 )
                 if not is_admin:
-                    profile_query = profile_query.filter(user_id=user_id)
+                    profile_query = profile_query.filter(
+                        Q(user_id=user_id)
+                        | Q(
+                            user_id__isnull=True,
+                            source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+                        )
+                    )
                 profile = profile_query.get()
             except SimcProfile.DoesNotExist:
                 raise TaskCreationError(
                     f"Profile {simc_profile_id} does not exist or does not belong to user {user_id}"
                 )
 
-            # Update profile fields
-            # Only update name if explicitly provided in profile_fields
-            if 'name' in profile_fields:
-                profile.name = profile_fields['name']
-            profile.spec = profile_fields.get('spec', profile.spec)
-            profile.player_config_mode = profile_fields.get('player_config_mode', profile.player_config_mode)
-            if 'use_ptr' in profile_fields:
-                if type(profile_fields['use_ptr']) is not bool:
-                    raise TaskCreationError('use_ptr must be a boolean')
-                profile.use_ptr = profile_fields['use_ptr']
-            profile.battlenet_region = profile_fields.get('battlenet_region', profile.battlenet_region or '')
-            profile.battlenet_realm = profile_fields.get('battlenet_realm', profile.battlenet_realm or '')
-            profile.battlenet_character = profile_fields.get('battlenet_character', profile.battlenet_character or '')
-            profile.player_equipment = profile_fields.get('player_equipment', profile.player_equipment or '')
-            profile.talent = profile_fields.get('talent', profile.talent or '')
-            attribute_fields = (
-                'gear_strength', 'gear_crit', 'gear_haste',
-                'gear_mastery', 'gear_versatility',
+            # Upstream defaults are shared immutable snapshots. They may be used
+            # as a task input, but never rewritten by the requesting user.
+            is_system_default = (
+                profile.user_id is None
+                and profile.source == SimcProfile.SOURCE_SIMC_UPSTREAM
             )
-            if profile.player_config_mode == 'attribute_only':
-                for field in attribute_fields:
-                    if field in profile_fields:
-                        setattr(profile, field, profile_fields[field])
-            else:
-                for field in attribute_fields:
-                    setattr(profile, field, None)
-            profile.save()
+            if not is_system_default:
+                # Only update name if explicitly provided in profile_fields
+                if 'name' in profile_fields:
+                    profile.name = profile_fields['name']
+                profile.spec = profile_fields.get('spec', profile.spec)
+                profile.player_config_mode = profile_fields.get('player_config_mode', profile.player_config_mode)
+                if 'use_ptr' in profile_fields:
+                    if type(profile_fields['use_ptr']) is not bool:
+                        raise TaskCreationError('use_ptr must be a boolean')
+                    profile.use_ptr = profile_fields['use_ptr']
+                profile.battlenet_region = profile_fields.get('battlenet_region', profile.battlenet_region or '')
+                profile.battlenet_realm = profile_fields.get('battlenet_realm', profile.battlenet_realm or '')
+                profile.battlenet_character = profile_fields.get('battlenet_character', profile.battlenet_character or '')
+                profile.player_equipment = profile_fields.get('player_equipment', profile.player_equipment or '')
+                profile.talent = profile_fields.get('talent', profile.talent or '')
+                attribute_fields = (
+                    'gear_strength', 'gear_crit', 'gear_haste',
+                    'gear_mastery', 'gear_versatility',
+                )
+                if profile.player_config_mode == 'attribute_only':
+                    for field in attribute_fields:
+                        if field in profile_fields:
+                            setattr(profile, field, profile_fields[field])
+                else:
+                    for field in attribute_fields:
+                        setattr(profile, field, None)
+                profile.save()
         else:
             # Create new profile
             profile_name = profile_fields.get('name', '').strip()

@@ -3011,10 +3011,10 @@ class AplStorageAPIView(View):
         """获取用户的APL列表"""
         try:
             user = request.user
-            apl_list = SimcApl.objects.filter(
-                owner_user_id=user.id,
-                is_active=True
-            ).order_by('-id')
+            apl_list = SimcApl.objects.filter(is_active=True)
+            if not _is_simc_admin(user):
+                apl_list = apl_list.filter(owner_user_id=user.id)
+            apl_list = apl_list.order_by('-id')
 
             result = []
             for apl in apl_list:
@@ -3044,7 +3044,8 @@ class AplStorageAPIView(View):
 
             if copy_template_id:
                 template = SimcApl.objects.filter(
-                    models.Q(owner_user_id=request.user.id) | models.Q(owner_user_id__isnull=True),
+                    models.Q(owner_user_id=request.user.id)
+                    | models.Q(is_system=True, owner_user_id__isnull=True),
                     id=copy_template_id,
                     is_system=True,
                     is_active=True,
@@ -3173,15 +3174,14 @@ class AplStorageAPIView(View):
                 })
 
             try:
-                apl_storage = SimcApl.objects.get(
-                    id=apl_id,
-                    owner_user_id=request.user.id,
-                    is_active=True
-                )
+                apl_storage = SimcApl.objects.filter(id=apl_id, is_active=True)
+                if not _is_simc_admin(request.user):
+                    apl_storage = apl_storage.filter(owner_user_id=request.user.id)
+                apl_storage = apl_storage.get()
 
                 # 检查标题是否与其他记录重复
                 if SimcApl.objects.filter(
-                    owner_user_id=request.user.id,
+                    owner_user_id=apl_storage.owner_user_id,
                     name=title,
                     is_active=True
                 ).exclude(id=apl_id).exists():
@@ -3227,11 +3227,10 @@ class AplStorageAPIView(View):
                 })
 
             try:
-                apl_storage = SimcApl.objects.get(
-                    id=apl_id,
-                    owner_user_id=request.user.id,
-                    is_active=True
-                )
+                apl_storage = SimcApl.objects.filter(id=apl_id, is_active=True)
+                if not _is_simc_admin(request.user):
+                    apl_storage = apl_storage.filter(owner_user_id=request.user.id)
+                apl_storage = apl_storage.get()
 
                 # 软删除
                 apl_storage.is_active = False
@@ -3265,11 +3264,10 @@ class AplDetailAPIView(View):
     def get(self, request, apl_id):
         """获取APL详情"""
         try:
-            apl_storage = SimcApl.objects.get(
-                id=apl_id,
-                owner_user_id=request.user.id,
-                is_active=True
-            )
+            apl_storage = SimcApl.objects.filter(id=apl_id, is_active=True)
+            if not _is_simc_admin(request.user):
+                apl_storage = apl_storage.filter(owner_user_id=request.user.id)
+            apl_storage = apl_storage.get()
 
             return JsonResponse({
                 'success': True,
@@ -3653,10 +3651,10 @@ class SimcProfileAPIView(View):
             # 如果是一键模拟操作且提供了profile_id，直接创建任务
             if simulate_now and profile_id:
                 try:
-                    profile = SimcProfile.objects.get(
-                        id=profile_id,
-                        user_id=request.user.id,
-                    )
+                    profile_qs = SimcProfile.objects.filter(id=profile_id)
+                    if not _is_simc_admin(request.user):
+                        profile_qs = profile_qs.filter(_accessible_simc_profile_q(request.user))
+                    profile = profile_qs.get()
 
                     regular_time = data.get('regular_time')
                     regular_target_count = data.get('regular_target_count')
@@ -3669,7 +3667,8 @@ class SimcProfileAPIView(View):
                         regular_time=regular_time,
                         regular_target_count=regular_target_count,
                         base_template_id=base_template_id,
-                        selected_apl_id=selected_apl_id
+                        selected_apl_id=selected_apl_id,
+                        is_admin=_is_simc_admin(request.user),
                     )
 
                     if task_result['success']:
@@ -3853,6 +3852,7 @@ class SimcProfileAPIView(View):
                             regular_target_count=regular_target_count,
                             base_template_id=base_template_id,
                             selected_apl_id=selected_apl_id,
+                            is_admin=_is_simc_admin(request.user),
                         )
                         if task_result['success']:
                             response_data['message'] += '，模拟任务已创建'
@@ -3919,7 +3919,8 @@ class SimcProfileAPIView(View):
                         regular_time=regular_time,
                         regular_target_count=regular_target_count,
                         base_template_id=base_template_id,
-                        selected_apl_id=selected_apl_id
+                        selected_apl_id=selected_apl_id,
+                        is_admin=_is_simc_admin(request.user),
                     )
                     if task_result['success']:
                         response_data['message'] += '，模拟任务已创建'
@@ -3946,7 +3947,8 @@ class SimcProfileAPIView(View):
                 'error': f'创建SimC配置失败: {str(e)}'
             })
     
-    def _create_simulation_task(self, user_id, profile, regular_time=None, regular_target_count=None, base_template_id=None, selected_apl_id=None):
+    def _create_simulation_task(self, user_id, profile, regular_time=None, regular_target_count=None,
+                                base_template_id=None, selected_apl_id=None, is_admin=False):
         """创建模拟任务的辅助方法"""
         from botend.services.simc_task_service import create_task_from_request, TaskCreationError
 
@@ -3995,6 +3997,7 @@ class SimcProfileAPIView(View):
                 selected_apl_id=selected_apl_id,
                 simulation_params=simulation_params if simulation_params else None,
                 name=task_name,
+                is_admin=is_admin,
             )
 
             return {
@@ -4101,7 +4104,7 @@ class SimcProfileAPIView(View):
             
             # 检查名称是否重复（排除当前记录）
             if SimcProfile.objects.filter(
-                user_id=request.user.id,
+                user_id=profile.user_id,
                 name=name,
                 is_active=True
             ).exclude(id=profile_id).exists():
@@ -4182,10 +4185,10 @@ class SimcProfileAPIView(View):
                 })
             
             # 真实删除配置；历史任务使用冻结版本，不依赖此配置记录。
-            profile = SimcProfile.objects.get(
-                id=profile_id,
-                user_id=request.user.id,
-            )
+            profile = SimcProfile.objects.filter(id=profile_id)
+            if not _is_simc_admin(request.user):
+                profile = profile.filter(user_id=request.user.id)
+            profile = profile.get()
             profile.delete()
             
             return JsonResponse({
@@ -4225,11 +4228,10 @@ class SimcProfileAPIView(View):
             
             # 获取配置并检查权限
             try:
-                profile = SimcProfile.objects.get(
-                    id=profile_id,
-                    user_id=request.user.id,
-                    is_active=True
-                )
+                profile = SimcProfile.objects.filter(id=profile_id, is_active=True)
+                if not _is_simc_admin(request.user):
+                    profile = profile.filter(_accessible_simc_profile_q(request.user))
+                profile = profile.get()
             except SimcProfile.DoesNotExist:
                 return JsonResponse({
                     'success': False,
@@ -4237,7 +4239,9 @@ class SimcProfileAPIView(View):
                 })
             
             # 创建模拟任务
-            task_result = self._create_simulation_task(request.user.id, profile)
+            task_result = self._create_simulation_task(
+                request.user.id, profile, is_admin=_is_simc_admin(request.user),
+            )
             
             if task_result['success']:
                 return JsonResponse({
