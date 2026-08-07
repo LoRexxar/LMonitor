@@ -356,6 +356,8 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIsNotNone(toggle)
         self.assertEqual(toggle.get('type'), 'button')
         self.assertEqual(toggle.get('aria-pressed'), 'false')
+        self.assertEqual(toggle.get_text(' ', strip=True), '')
+        self.assertIsNotNone(toggle.select_one('use[href$="#icon-moon"]'))
 
         theme_script = (self.ROOT / 'static/portal/js/portal-theme.js').read_text(encoding='utf-8')
         self.assertIn("lmonitor-portal-theme", theme_script)
@@ -368,7 +370,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         ):
             template = (self.ROOT / 'templates/portal' / template_name).read_text(encoding='utf-8')
             self.assertIn("portal/js/portal-theme.js", template, template_name)
-            self.assertIn("portal/css/portal.css' %}?v=20260808_portal_theme_v2", template, template_name)
+            self.assertIn("portal/css/portal.css' %}?v=20260808_portal_theme_v3", template, template_name)
 
     def test_portal_header_uses_username_or_login_dropdown(self):
         shared_header = (self.ROOT / 'templates/portal/_header.html').read_text(encoding='utf-8')

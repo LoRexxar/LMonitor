@@ -12,8 +12,6 @@
         toggle.setAttribute('aria-pressed', String(isDark));
         toggle.setAttribute('aria-label', isDark ? '切换为浅色模式' : '切换为深色模式');
         toggle.title = isDark ? '切换为浅色模式' : '切换为深色模式';
-        const label = toggle.querySelector('[data-portal-theme-label]');
-        if (label) label.textContent = isDark ? '浅色' : '深色';
     };
 
     const savedTheme = window.localStorage.getItem(storageKey);

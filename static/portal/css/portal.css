@@ -1777,7 +1777,13 @@ body.portal-bg {
 }
 .portal-action-btn,
 .portal-theme-toggle { color: var(--portal-text-secondary); }
-.portal-theme-toggle { cursor: pointer; }
+.portal-theme-toggle {
+    width: 2.5rem;
+    min-width: 2.5rem;
+    height: 2.5rem;
+    padding: 0;
+    cursor: pointer;
+}
 .portal-hero-input { color: var(--portal-text); }
 .portal-hero-input::placeholder { color: var(--portal-text-muted); }
 .portal-hero-input:focus,
@@ -1831,18 +1837,36 @@ html.portal-theme-dark .portal-daily-report-card {
 html.portal-theme-dark .portal-today-strip-label { color: #c9c0ff; }
 html.portal-theme-dark .md-content a,
 html.portal-theme-dark .portal-today-chip-label { color: #b8aeff; }
+/* Tailwind utility classes occur throughout Portal templates and API-rendered
+ * fragments. Map their neutral palette to Portal tokens so dark mode never
+ * leaves black or dark-slate text on charcoal surfaces. */
+html.portal-theme-dark .text-slate-950,
 html.portal-theme-dark .text-slate-900,
 html.portal-theme-dark .text-slate-800,
 html.portal-theme-dark .text-slate-700,
+html.portal-theme-dark .text-gray-950,
+html.portal-theme-dark .text-gray-900,
+html.portal-theme-dark .text-gray-800,
+html.portal-theme-dark .text-gray-700,
+html.portal-theme-dark .text-black { color: var(--portal-text) !important; }
 html.portal-theme-dark .text-slate-600,
-html.portal-theme-dark .text-slate-500 { color: var(--portal-text-secondary) !important; }
+html.portal-theme-dark .text-slate-500,
+html.portal-theme-dark .text-gray-600,
+html.portal-theme-dark .text-gray-500 { color: var(--portal-text-secondary) !important; }
+html.portal-theme-dark .text-slate-400,
+html.portal-theme-dark .text-gray-400 { color: var(--portal-text-muted) !important; }
 html.portal-theme-dark .bg-white,
 html.portal-theme-dark .bg-white\/80,
 html.portal-theme-dark .bg-slate-50,
-html.portal-theme-dark .bg-slate-100 { background-color: var(--portal-surface-raised) !important; }
+html.portal-theme-dark .bg-slate-100,
+html.portal-theme-dark .bg-gray-50,
+html.portal-theme-dark .bg-gray-100 { background-color: var(--portal-surface-raised) !important; }
+html.portal-theme-dark .border-slate-50,
+html.portal-theme-dark .border-slate-100,
 html.portal-theme-dark .border-slate-200,
 html.portal-theme-dark .border-slate-200\/70,
-html.portal-theme-dark .border-slate-100 { border-color: var(--portal-border) !important; }
+html.portal-theme-dark .border-gray-100,
+html.portal-theme-dark .border-gray-200 { border-color: var(--portal-border) !important; }
 
 html.portal-theme-dark .portal-news-search-input,
 html.portal-theme-dark .portal-news-tab:not(.is-active),
@@ -1854,6 +1878,9 @@ html.portal-theme-dark .portal-news-row {
 }
 
 html.portal-theme-dark .portal-news-search-input::placeholder { color: var(--portal-text-muted); }
+html.portal-theme-dark .portal-news-title { color: var(--portal-text); }
+html.portal-theme-dark .portal-news-side-title,
+html.portal-theme-dark .portal-news-source-btn { color: var(--portal-text-secondary); }
 html.portal-theme-dark .portal-news-tab:not(.is-active):hover,
 html.portal-theme-dark .portal-news-clear-btn:hover,
 html.portal-theme-dark .portal-news-row:hover {
@@ -1863,6 +1890,19 @@ html.portal-theme-dark .portal-news-row-title { color: var(--portal-text); }
 html.portal-theme-dark .portal-news-row-subtitle,
 html.portal-theme-dark .portal-news-row-meta,
 html.portal-theme-dark .portal-news-page-info { color: var(--portal-text-muted); }
+
+/* Article content declares several local light-theme colors in its template. */
+html.portal-theme-dark .article-content h2,
+html.portal-theme-dark .article-content th,
+html.portal-theme-dark .translated-text { color: var(--portal-text); }
+html.portal-theme-dark .article-content blockquote,
+html.portal-theme-dark .article-content td,
+html.portal-theme-dark .original-text { color: var(--portal-text-secondary); }
+html.portal-theme-dark .article-content blockquote,
+html.portal-theme-dark .article-content code,
+html.portal-theme-dark .article-content thead { background: var(--portal-surface-muted); }
+html.portal-theme-dark .article-content th,
+html.portal-theme-dark .article-content td { border-color: var(--portal-border); }
 
 .portal-news-page-info {
     font-size: 0.78rem;

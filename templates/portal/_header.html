@@ -31,9 +31,8 @@
                 <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-refresh"></use></svg>
                 <span>simc模拟数据</span>
             </a>
-            <button id="portal-theme-toggle" type="button" class="portal-pill portal-action-btn portal-theme-toggle inline-flex items-center gap-2" aria-label="切换深色模式" aria-pressed="false" title="切换深色模式">
+            <button id="portal-theme-toggle" type="button" class="portal-pill portal-action-btn portal-theme-toggle inline-flex items-center justify-center" aria-label="切换深色模式" aria-pressed="false" title="切换深色模式">
                 <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-moon"></use></svg>
-                <span data-portal-theme-label>深色</span>
             </button>
             {% if request.user.is_authenticated %}
             <details class="portal-user-menu">
