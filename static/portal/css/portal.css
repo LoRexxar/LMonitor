@@ -69,8 +69,112 @@ body {
 .portal-header-actions {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.7rem;
     flex-shrink: 0;
+}
+
+/* Primary Portal destinations are one compact navigation control, rather than
+ * a visually competing collection of standalone pills. */
+.portal-quick-nav {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    padding: 0.22rem;
+    border: 1px solid var(--portal-border-subtle, rgba(148, 163, 184, 0.28));
+    border-radius: 0.9rem;
+    background: var(--portal-surface-muted, rgba(241, 245, 249, 0.72));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.48);
+}
+
+.portal-quick-nav-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.42rem;
+    min-height: 2.1rem;
+    padding: 0.42rem 0.62rem;
+    border: 1px solid transparent;
+    border-radius: 0.65rem;
+    color: var(--portal-text-secondary, rgb(51, 65, 85));
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1;
+    white-space: nowrap;
+    transition: color 150ms ease, background 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.portal-quick-nav-link svg {
+    width: 0.9rem;
+    height: 0.9rem;
+    flex: 0 0 auto;
+    opacity: 0.74;
+}
+
+.portal-quick-nav-link + .portal-quick-nav-link {
+    position: relative;
+}
+
+.portal-quick-nav-link + .portal-quick-nav-link::before {
+    content: "";
+    position: absolute;
+    left: -1px;
+    top: 0.62rem;
+    bottom: 0.62rem;
+    width: 1px;
+    background: var(--portal-border-subtle, rgba(148, 163, 184, 0.28));
+}
+
+.portal-quick-nav-link:hover::before,
+.portal-quick-nav-link.is-active::before,
+.portal-quick-nav-link:has(+ .portal-quick-nav-link.is-active)::before {
+    opacity: 0;
+}
+
+.portal-quick-nav-link:hover,
+.portal-quick-nav-link:focus-visible {
+    color: var(--portal-text, rgb(15, 23, 42));
+    background: var(--portal-surface-raised, rgba(255, 255, 255, 0.92));
+    border-color: var(--portal-border-subtle, rgba(148, 163, 184, 0.28));
+    outline: none;
+}
+
+.portal-quick-nav-link:focus-visible {
+    box-shadow: 0 0 0 2px var(--portal-accent-primary-soft, rgba(102, 87, 200, 0.2));
+}
+
+.portal-quick-nav-link.is-active {
+    color: var(--portal-accent-primary, #6657c8);
+    background: var(--portal-surface-raised, rgba(255, 255, 255, 0.96));
+    border-color: rgba(102, 87, 200, 0.24);
+    box-shadow: 0 1px 3px var(--portal-shadow, rgba(64, 54, 46, 0.10));
+}
+
+.portal-quick-nav-link.is-active svg { opacity: 1; }
+
+.portal-header-utilities {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding-left: 0.65rem;
+    border-left: 1px solid var(--portal-border-subtle, rgba(148, 163, 184, 0.28));
+}
+
+@media (max-width: 1080px) {
+    .portal-header-title { display: none; }
+    .portal-quick-nav-link { padding-inline: 0.52rem; }
+}
+
+@media (max-width: 760px) {
+    .portal-header-inner { flex-wrap: wrap; }
+    .portal-header-actions { width: 100%; flex-wrap: wrap; }
+    .portal-header-utilities { order: 1; margin-left: auto; }
+    .portal-quick-nav {
+        order: 2;
+        width: 100%;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+    .portal-quick-nav::-webkit-scrollbar { display: none; }
 }
 
 .portal-user-menu {

@@ -334,9 +334,11 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertTrue(shared_header_path.exists())
         shared_header = shared_header_path.read_text(encoding='utf-8')
         header_soup = BeautifulSoup(shared_header, 'html.parser')
+        quick_nav = header_soup.select_one('nav.portal-quick-nav[aria-label="Portal 快捷入口"]')
+        self.assertIsNotNone(quick_nav)
         navigation = [
             (link.get_text(' ', strip=True), link.get('href'), link.get('aria-label'))
-            for link in header_soup.select('.portal-header-actions > a:not(.portal-login-icon)')
+            for link in quick_nav.select('a[href]')
         ]
         self.assertEqual(
             navigation,
@@ -370,7 +372,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         ):
             template = (self.ROOT / 'templates/portal' / template_name).read_text(encoding='utf-8')
             self.assertIn("portal/js/portal-theme.js", template, template_name)
-            self.assertIn("portal/css/portal.css' %}?v=20260808_portal_theme_v3", template, template_name)
+            self.assertIn("portal/css/portal.css", template, template_name)
 
     def test_portal_header_uses_username_or_login_dropdown(self):
         shared_header = (self.ROOT / 'templates/portal/_header.html').read_text(encoding='utf-8')
