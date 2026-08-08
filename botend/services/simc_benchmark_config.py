@@ -33,7 +33,7 @@ from botend.services.simc_player_config import (
     SUPPORTED_SIMC_SPEC_IDENTITIES,
 )
 from botend.services.simc_task_service import (
-    SIMULATION_PARAMS_WHITELIST, TaskCreationError, validate_resource_ownership,
+    SIMULATION_PARAMS_WHITELIST, TaskCreationError,
 )
 from botend.services.simc_composer import SIMC_RAID_BUFF_VALUES, validate_simulation_options
 from botend.services.simc_candidate_options import normalize_controlled_simc_options
@@ -282,16 +282,19 @@ def _same_profile_spec(profile, expected_class, expected_spec):
 
 def _resource(model, resource_id, kind, user_id):
     try:
+        # Benchmark configuration is executed in the panel's elevated
+        # resource context. Visibility is still limited by the options/list
+        # APIs, but an explicit saved ID must not be rejected because the
+        # resource belongs to a different user.
         resource = model.objects.get(
-            benchmark_resource_access_q(kind, user_id),
             pk=_id(resource_id, f'{kind}_id'),
+            is_active=True,
+            **({'is_selectable': True} if kind in {'apl', 'template'} else {}),
         )
     except model.DoesNotExist:
         _error(f'{kind} 资源不存在', f'{kind}_id')
-    try:
-        validate_resource_ownership(resource, kind, user_id)
-    except TaskCreationError as exc:
-        _error(str(exc), f'{kind}_id')
+    # Ownership is a visibility concern for option lists, not Benchmark
+    # configuration validation; explicit IDs are validated for state/spec below.
     return resource
 
 

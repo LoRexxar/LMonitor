@@ -542,6 +542,7 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
                 current_panel.created_by_id, coordinate['profile_id'],
                 coordinate['template_id'], coordinate['apl_id'],
                 backend_id=coordinate['backend_id'],
+                is_admin=True,
             )
         except TaskPreparedResourceChanged as exc:
             raise BenchmarkExecutionConflict(
@@ -656,6 +657,7 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
                     }},
                     candidates=deepcopy(coordinate['candidates']),
                     prepared=prepared_by_resources[key],
+                    is_admin=True,
                 )
                 source_task = coordinate.get('_source_task')
                 if source_task is not None:
@@ -879,6 +881,7 @@ def rerun_failed_cases(execution, requested_by=None):
                     preliminary_panel.created_by_id, coordinate['profile_id'],
                     coordinate['template_id'], coordinate['apl_id'],
                     backend_id=coordinate['backend_id'],
+                    is_admin=True,
                 )
             except (TaskPreparedResourceChanged, TaskValidationUnavailable,
                     TaskCreationError) as exc:
@@ -998,6 +1001,7 @@ def rerun_failed_cases(execution, requested_by=None):
                         }},
                         candidates=deepcopy(current_coordinate['candidates']),
                         prepared=prepared_by_resources[resource_key],
+                        is_admin=True,
                     )
                 except (TaskPreparedResourceChanged, TaskValidationUnavailable,
                         TaskCreationError) as exc:

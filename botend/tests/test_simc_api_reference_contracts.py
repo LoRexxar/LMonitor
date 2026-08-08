@@ -12,7 +12,7 @@ import json
 from unittest.mock import Mock, patch
 from django.test import TestCase, RequestFactory
 from django.contrib.auth.models import User
-from botend.models import SimcTask, SimcProfile, SimcApl, SimcContentTemplate, SimcResourceVersion
+from botend.models import SimcTask, SimcProfile, SimcApl, SimcContentTemplate, SimcResourceVersion, SimcBackendBinary
 from botend.dashboard.api import (
     SimcAplCandidatesAPIView,
     SimcAttributeAnalysisAPIView,
@@ -42,7 +42,7 @@ def mark_apl_current(test_case, apl):
     )
     validation_patcher = patch(
         'botend.services.simc_task_service.validate_apl_for_profile',
-        side_effect=lambda profile, selected_apl: {
+        side_effect=lambda profile, selected_apl, **kwargs: {
             'valid': True,
             'content_hash': hashlib.sha256(selected_apl.content.encode('utf-8')).hexdigest(),
             'revision': identity[0],
@@ -82,6 +82,9 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
         self.factory = RequestFactory()
         self.user = User.objects.create_user(username='testuser', password='testpass')
         self.other_user = User.objects.create_user(username='otheruser', password='otherpass')
+        self.backend = SimcBackendBinary.objects.create(
+            identifier='test-backend', name='Test backend', is_active=True,
+        )
 
         # Create resources
         self.profile = SimcProfile.objects.create(
@@ -132,7 +135,8 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
 
     def test_put_rejects_legacy_task_instead_of_rebuilding_old_ext(self):
         task = SimcTask.objects.create(user_id=self.user.id, name='legacy', simc_profile_id=self.profile.id,
-                                       task_type=1, ext=json.dumps({'raw_simc_code': 'warrior="old"'}))
+                                       backend=self.backend, task_type=1,
+                                       ext=json.dumps({'raw_simc_code': 'warrior="old"'}))
         request = self.factory.put('/api/simc-task/', data=json.dumps({
             'id': task.id, 'name': 'should-not-update', 'simc_profile_id': self.profile.id,
             'task_type': 1, 'ext': task.ext,
@@ -147,7 +151,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
     def test_put_rejects_legacy_attribute_task_without_reading_request_task_type(self):
         task = SimcTask.objects.create(
             user_id=self.user.id, name='legacy-attr', simc_profile_id=self.profile.id,
-            task_type=2, ext='crit_haste',
+            backend=self.backend, task_type=2, ext='crit_haste',
         )
         request = self.factory.put('/api/simc-task/', data=json.dumps({
             'id': task.id, 'name': 'should-not-update', 'task_type': 2,
@@ -332,7 +336,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
     def test_task_list_and_preview_responses_do_not_publish_task_type(self):
         task = SimcTask.objects.create(
             user_id=self.user.id, name='Visible task', simc_profile_id=self.profile.id,
-            mode='normal', task_type=1,
+            backend=self.backend, mode='normal', task_type=1,
         )
         list_request = self.factory.get('/api/simc-task/')
         list_request.user = self.user
@@ -348,7 +352,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
     def test_workbench_task_row_publishes_mode_without_task_type(self):
         task = SimcTask.objects.create(
             user_id=self.user.id, name='Workbench task', simc_profile_id=self.profile.id,
-            mode='comparison', task_type=1,
+            backend=self.backend, mode='comparison', task_type=1,
         )
         row = SimcWorkbenchAPIView._task_row(task)
         self.assertEqual(row['mode'], 'comparison')
@@ -500,8 +504,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
         self.assertFalse(hasattr(task, 'input_hash'))
         self.assertFalse(hasattr(task, 'fragment_manifest'))
 
-    def test_api_rejects_cross_user_template(self):
-        """RED: API should reject template owned by other user."""
+    def test_api_allows_cross_user_template_for_explicit_simulation(self):
         other_template = SimcContentTemplate.objects.create(
             name="Other Template",
             spec="warrior_fury",
@@ -526,8 +529,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
         response = SimcTaskAPIView().post(request)
         data = json.loads(response.content)
 
-        self.assertFalse(data['success'])
-        self.assertIn('belongs to user', data['error'].lower())
+        self.assertTrue(data['success'], data)
 
     def test_api_rejects_inactive_template(self):
         """RED: API should reject is_active=False template."""
@@ -756,6 +758,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
             'profile': self.profile,
             'template': self.template,
             'apl': self.apl,
+            'backend': self.backend,
             'current_status': 0,
             **versions,
         }

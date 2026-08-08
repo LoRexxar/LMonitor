@@ -324,11 +324,18 @@ class SimcBenchmarkConfigServiceTests(TestCase):
             with self.subTest(overrides=overrides), self.assertRaises(ValidationError):
                 normalize_panel_payload(payload, self.user_id)
 
-    def test_resource_permissions_activity_and_spec_consistency(self):
-        other_profile = SimcProfile.objects.create(user_id=999, name='Other', spec='warrior_fury')
+    def test_benchmark_explicit_resources_ignore_ownership_but_validate_state_and_spec(self):
+        other_profile = SimcProfile.objects.create(
+            user_id=999, name='Other', spec='warrior_fury', is_active=True,
+        )
         payload = dict(self.payload)
-        payload['specs'] = [dict(self.payload['specs'][0], profiles=[{'profile_id': other_profile.pk}])]
-        with self.assertRaises(ValidationError): normalize_panel_payload(payload, self.user_id)
+        payload['specs'] = [dict(
+            self.payload['specs'][0], profiles=[{'profile_id': other_profile.pk}],
+        )]
+        normalized = normalize_panel_payload(payload, self.user_id)
+        self.assertEqual(
+            normalized['specs'][0]['profiles'][0]['profile_id'], other_profile.pk,
+        )
 
         global_wcl = SimcProfile.objects.create(
             user_id=None, source=SimcProfile.SOURCE_WCL, name='Global WCL Fury',

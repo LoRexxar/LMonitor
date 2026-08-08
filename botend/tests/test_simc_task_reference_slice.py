@@ -178,8 +178,7 @@ class SimcTaskServiceTests(TestCase):
         )
         mark_apl_valid(self.apl)
 
-    def test_task_service_validates_ownership(self):
-        """RED: create_task should validate owner/system permissions."""
+    def test_task_service_allows_explicit_cross_owner_simulation(self):
         from botend.services.simc_task_service import create_task, TaskCreationError
 
         other_profile = SimcProfile.objects.create(
@@ -189,15 +188,23 @@ class SimcTaskServiceTests(TestCase):
             is_active=True,
         )
 
-        with self.assertRaises(TaskCreationError) as ctx:
-            create_task(
+        with patch(
+            'botend.services.simc_task_service.validate_apl_for_profile',
+            return_value={
+                'valid': True,
+                'content_hash': hashlib.sha256(self.apl.content.encode()).hexdigest(),
+                'revision': TEST_VALIDATION_IDENTITY[0],
+                'game_build': TEST_VALIDATION_IDENTITY[1],
+            },
+        ):
+            task = create_task(
                 user_id=self.user_id,
                 name="Task",
                 profile_id=other_profile.id,
                 template_id=self.template.id,
                 apl_id=self.apl.id,
             )
-        self.assertIn("belongs to user", str(ctx.exception))
+        self.assertEqual(task.profile_id, other_profile.id)
 
     def test_ownerless_profile_is_executable_regardless_of_import_mode(self):
         """Global profiles are executable even after their import mode is normalized."""

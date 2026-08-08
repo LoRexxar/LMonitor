@@ -2,11 +2,10 @@
 SimC Task Service - Create reference-based tasks with immutable version snapshots.
 
 Responsibilities:
-1. Validate ownership (user_id match or system resources)
-2. Validate active & selectable status at creation time
-3. Generate or reuse SimcResourceVersion for each resource
-4. Normalize simulation_params & mode_params with whitelist
-5. Create Task with live FK + version FK, no frozen content
+1. Validate executable resource state and specialization compatibility
+2. Generate or reuse SimcResourceVersion for each resource
+3. Normalize simulation_params & mode_params with whitelist
+4. Create Task with live FK + version FK, no frozen content
 """
 import hashlib
 import json
@@ -487,14 +486,6 @@ def create_task_from_request(
                 profile_query = SimcProfile.objects.select_for_update().filter(
                     id=simc_profile_id, is_active=True,
                 )
-                if not is_admin:
-                    profile_query = profile_query.filter(
-                        Q(user_id=user_id)
-                        | Q(
-                            user_id__isnull=True,
-                            source=SimcProfile.SOURCE_SIMC_UPSTREAM,
-                        )
-                    )
                 profile = profile_query.get()
             except SimcProfile.DoesNotExist:
                 raise TaskCreationError(
@@ -507,7 +498,8 @@ def create_task_from_request(
                 profile.user_id is None
                 and profile.source == SimcProfile.SOURCE_SIMC_UPSTREAM
             )
-            if not is_system_default:
+            can_update_profile = is_admin or profile.user_id in (None, user_id)
+            if not is_system_default and can_update_profile:
                 # Only update name if explicitly provided in profile_fields
                 if 'name' in profile_fields:
                     profile.name = profile_fields['name']
@@ -679,11 +671,39 @@ def _load_resources(user_id, profile_id, template_id, apl_id, backend_id, *,
         template = template_qs.get(pk=template_id)
     except SimcContentTemplate.DoesNotExist:
         raise TaskCreationError(f'Template {template_id} does not exist')
-    validate_resource_ownership(profile, 'profile', user_id, is_admin=is_admin)
-    validate_resource_ownership(apl, 'apl', user_id, is_admin=is_admin)
-    validate_resource_ownership(template, 'template', user_id, is_admin=is_admin)
+    # Resource ownership controls which resources appear in configuration
+    # lists. Executing a simulation is intentionally not an authorization
+    # boundary; callers already provide explicit resource IDs and we only
+    # enforce executable state and specialization compatibility here.
+    _validate_executable_resource_state(profile, 'profile')
+    _validate_executable_resource_state(apl, 'apl')
+    _validate_executable_resource_state(template, 'template')
     _check_resource_specs(profile, apl, template)
     return backend, profile, apl, template
+
+
+def _validate_executable_resource_state(resource, resource_type: str) -> None:
+    """Validate state required to execute a selected resource.
+
+    Ownership is deliberately excluded. Visibility/selection policy belongs
+    to the resource-list APIs; task creation must also support administrators
+    and explicit cross-owner simulation requests.
+    """
+    if resource_type == 'profile':
+        if not resource.is_active:
+            raise TaskCreationError(f"Profile {resource.id} is not active")
+    elif resource_type == 'apl':
+        if not resource.is_active:
+            raise TaskCreationError(f"APL {resource.id} is not active")
+        if not resource.is_selectable:
+            raise TaskCreationError(f"APL {resource.id} is not selectable")
+    elif resource_type == 'template':
+        if not resource.is_active:
+            raise TaskCreationError(f"Template {resource.id} is not active")
+        if not resource.is_selectable:
+            raise TaskCreationError(f"Template {resource.id} is not selectable")
+    else:
+        raise TaskCreationError(f"Invalid resource type: {resource_type}")
 
 
 def prepare_task_creation(user_id: int, profile_id: int, template_id: int,

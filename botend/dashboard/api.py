@@ -1521,9 +1521,7 @@ class SimcTaskAPIView(View):
             target_class, target_spec = canonical_simc_spec_identity(spec)
             if source_type == 'saved_profile' and simc_profile_id and not target_class:
                 existing_profile = SimcProfile.objects.filter(
-                    _accessible_simc_profile_q(request.user),
-                    id=simc_profile_id,
-                    is_active=True,
+                    id=simc_profile_id, is_active=True,
                 ).first()
                 if existing_profile:
                     target_class, target_spec = canonical_simc_spec_identity(existing_profile.spec)
@@ -1535,12 +1533,10 @@ class SimcTaskAPIView(View):
             if source_type == 'saved_profile':
                 profile_id = player_source.get('profile_id') or simc_profile_id
                 profile = SimcProfile.objects.filter(
-                    _accessible_simc_profile_q(request.user),
-                    id=profile_id,
-                    is_active=True,
+                    id=profile_id, is_active=True,
                 ).first()
                 if not profile:
-                    return JsonResponse({'success': False, 'error': '玩家配置不存在或无权使用'}, status=400)
+                    return JsonResponse({'success': False, 'error': '玩家配置不存在'}, status=400)
                 profile_class, profile_spec = canonical_simc_profile_identity(profile.spec, profile.class_name)
                 if profile_spec != target_spec or (target_class and profile_class and profile_class != target_class):
                     return JsonResponse({'success': False, 'error': '已保存玩家配置专精与目标专精不一致'}, status=400)
@@ -3652,9 +3648,10 @@ class SimcProfileAPIView(View):
             # 如果是一键模拟操作且提供了profile_id，直接创建任务
             if simulate_now and profile_id:
                 try:
+                    # Simulation is not an ownership boundary. Resource
+                    # selectors remain filtered, but an explicit Profile ID
+                    # may be simulated; task service validates executable state.
                     profile_qs = SimcProfile.objects.filter(id=profile_id)
-                    if not _is_simc_admin(request.user):
-                        profile_qs = profile_qs.filter(_accessible_simc_profile_q(request.user))
                     profile = profile_qs.get()
 
                     regular_time = data.get('regular_time')
@@ -4229,10 +4226,7 @@ class SimcProfileAPIView(View):
             
             # 获取配置并检查权限
             try:
-                profile = SimcProfile.objects.filter(id=profile_id, is_active=True)
-                if not _is_simc_admin(request.user):
-                    profile = profile.filter(_accessible_simc_profile_q(request.user))
-                profile = profile.get()
+                profile = SimcProfile.objects.get(id=profile_id, is_active=True)
             except SimcProfile.DoesNotExist:
                 return JsonResponse({
                     'success': False,
@@ -8469,6 +8463,29 @@ class _BenchmarkAdminAPIView(View):
         return panel, None
 
 
+class _SimcOptionsAPIView(View):
+    """Resource catalogs use the SimC product-admin identity, not page grants."""
+
+    @method_decorator(login_required)
+    def dispatch(self, request, *args, **kwargs):
+        if not _is_simc_admin(request.user):
+            return _benchmark_error('forbidden', 403)
+        return super().dispatch(request, *args, **kwargs)
+
+    @staticmethod
+    def panel_or_404(panel_id):
+        panel = SimcBenchmarkPanel.objects.filter(pk=panel_id).first()
+        if panel is None:
+            return None, _benchmark_error('not_found', 404)
+        return panel, None
+
+    def http_method_not_allowed(self, request, *args, **kwargs):
+        methods = self._allowed_methods()
+        response = _benchmark_error('method_not_allowed', 405)
+        response['Allow'] = ', '.join(methods)
+        return response
+
+
 def _benchmark_panel_summary(panel, execution=None, panel_coverage=None):
     data = {
         'id': panel.pk, 'slug': panel.slug, 'name': panel.name,
@@ -9085,7 +9102,7 @@ def _benchmark_options_payload(owner_id, ownership_context):
     }
 
 
-class SimcBenchmarkOptionsAPIView(_BenchmarkAdminAPIView):
+class SimcBenchmarkOptionsAPIView(_SimcOptionsAPIView):
     def get(self, request):
         return JsonResponse({
             'success': True,
@@ -9113,7 +9130,7 @@ class SimcRaidBuffOptionsAPIView(View):
         ]})
 
 
-class SimcBenchmarkPanelOptionsAPIView(_BenchmarkAdminAPIView):
+class SimcBenchmarkPanelOptionsAPIView(_SimcOptionsAPIView):
     def get(self, request, panel_id):
         panel, error = self.panel_or_404(panel_id)
         if error:
