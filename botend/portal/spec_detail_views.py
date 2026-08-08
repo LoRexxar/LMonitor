@@ -13,9 +13,10 @@ from datetime import datetime
 
 from django.views import View
 from django.shortcuts import render
-from django.http import Http404
+from django.http import Http404, JsonResponse
 
 from botend.services.spec_stats_service import SpecStatsService
+from botend.services.spec_overview_service import SpecOverviewService
 from botend.constants.wow import CLASS_SPEC_MAP, CLASS_CN, SPEC_CN, SPEC_ICON, SPEC_ROLE
 
 
@@ -131,16 +132,32 @@ class SpecDetailPlayerView(View):
     def get(self, request, class_name, spec_name):
         _validate_spec(class_name, spec_name)
         ctx = _base_context(class_name, spec_name)
-        season_id = ctx['season'].id if ctx['season'] else None
-
-        if season_id:
-            data = SpecStatsService.get_player_list(class_name, spec_name, season_id=season_id)
-            ctx.update(data)
-            return render(request, 'portal/spec_detail/player_list.html', ctx)
-
+        ctx['simc_dimensions'] = SpecOverviewService.discover_simc_dimensions(
+            class_name, spec_name,
+        )
+        # The shell never performs request-time aggregation. Each module loads its
+        # own cached aggregate-file projection through the JSON endpoints below.
         ctx['players'] = []
         ctx['total'] = 0
         return render(request, 'portal/spec_detail/player_list.html', ctx)
+
+
+class SpecOverviewAPIView(View):
+    """Thin read-only transport for one independently loadable stats module."""
+
+    http_method_names = ['get', 'head', 'options']
+
+    def get(self, request, class_name, spec_name, module):
+        _validate_spec(class_name, spec_name)
+        handlers = {
+            'players': SpecOverviewService.players,
+            'mythic-plus': SpecOverviewService.mythic_plus,
+            'raid': SpecOverviewService.raid,
+        }
+        handler = handlers.get(module)
+        if handler is None:
+            raise Http404
+        return JsonResponse(handler(class_name, spec_name))
 
 
 class SpecDetailPlayerDetailView(View):

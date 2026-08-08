@@ -1,15 +1,178 @@
 """Public, read-only SimC benchmark endpoints for the Portal."""
+import json
+
 from django.db.models import Count, Exists, Max, OuterRef
 from django.http import JsonResponse
 from django.views import View
 
 from botend.models import (
     SimcBenchmarkPanel, SimcBenchmarkProfile, SimcBenchmarkScenario,
+    SimcBenchmarkSpec,
 )
-from botend.services.simc_benchmark_execution import serialize_incremental_panel_results
+from botend.services.simc_benchmark_execution import (
+    serialize_incremental_panel_results, serialize_panel_apl_ranking_results,
+)
 
 
 _NOT_READY = {'status': 'not_ready', 'results': {'coordinates': []}}
+
+
+def _ranking_not_ready(reason):
+    return {'status': 'not_ready', 'reason': reason, 'rankings': []}
+
+
+def _canonical(value):
+    return json.dumps(value or {}, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+
+
+def _baseline_projection(panel, scenario_key):
+    projection = serialize_incremental_panel_results(panel, scenario_filter=scenario_key)
+    return [row for row in projection.get('coordinates', [])
+            if row.get('scenario_key') == scenario_key]
+
+
+def _projected_ranking_row(coordinate):
+    baseline = next((row for row in coordinate.get('candidates', [])
+                     if row.get('key') == 'baseline'), None)
+    audit = coordinate.get('audit') if isinstance(coordinate.get('audit'), dict) else {}
+    required = ('profile_identity', 'apl_identity', 'template_identity', 'backend_version')
+    if baseline is None or not all(audit.get(key) for key in required):
+        return None
+    if not isinstance(audit.get('simulation_params'), dict):
+        return None
+    labels = coordinate.get('labels') or {}
+    return {
+        'spec_key': coordinate.get('spec_key'),
+        'spec_label': labels.get('spec'),
+        'profile_key': coordinate.get('profile_key'),
+        'profile_label': labels.get('profile'),
+        'scenario_label': labels.get('scenario'),
+        'apl_key': audit['apl_identity'],
+        'apl_label': audit.get('apl_label') or audit['apl_identity'],
+        'dps': float(baseline['dps']),
+        'source_result_id': baseline.get('source_result_id'),
+        'resource_versions': {
+            'profile': audit['profile_identity'], 'template': audit['template_identity'],
+            'apl': audit['apl_identity'], 'backend': audit['backend_version'],
+        },
+        'simulation_params': audit['simulation_params'],
+    }
+
+
+def get_portal_apl_ranking(panel, spec_key, scenario_key):
+    """Rank only baseline rows selected by the authoritative incremental projection."""
+    if not panel.is_active or not panel.is_public:
+        return _ranking_not_ready('panel_not_public')
+    configured = SimcBenchmarkSpec.objects.filter(
+        panel=panel, spec_key=spec_key, is_enabled=True,
+    ).exists()
+    scenario = SimcBenchmarkScenario.objects.filter(
+        panel=panel, key=scenario_key, is_enabled=True,
+    ).first()
+    if not configured or scenario is None:
+        return _ranking_not_ready('dimension_not_configured')
+    rankings = serialize_panel_apl_ranking_results(
+        panel, spec_key=spec_key, scenario_key=scenario_key,
+    )
+    if rankings is None:
+        return _ranking_not_ready('incomplete_frozen_identity')
+    if not rankings:
+        return _ranking_not_ready('no_comparable_baseline_results')
+    identities = {(row['resource_versions']['profile'],
+                   row['resource_versions']['template'],
+                   row['resource_versions']['backend'],
+                   _canonical(row['simulation_params'])) for row in rankings}
+    if len(identities) != 1:
+        return _ranking_not_ready('no_comparable_baseline_results')
+    rankings.sort(key=lambda row: (-row['dps'], row['apl_key']))
+    return {'status': 'ready', 'panel_id': panel.id, 'scenario_key': scenario_key,
+            'spec_key': spec_key, 'rankings': rankings}
+
+
+def get_portal_spec_ranking(panel, scenario_key):
+    """Rank enabled standard coordinates already selected by the projection."""
+    if not panel.is_active or not panel.is_public:
+        return _ranking_not_ready('panel_not_public')
+    scenario = SimcBenchmarkScenario.objects.filter(
+        panel=panel, key=scenario_key, is_enabled=True,
+    ).first()
+    if scenario is None:
+        return _ranking_not_ready('dimension_not_configured')
+    enabled_keys = set(SimcBenchmarkSpec.objects.filter(
+        panel=panel, is_enabled=True,
+    ).values_list('spec_key', flat=True))
+    coordinates = [
+        row for row in _baseline_projection(panel, scenario_key)
+        if row.get('spec_key') in enabled_keys
+        and any(candidate.get('key') == 'baseline'
+                for candidate in row.get('candidates', []))
+    ]
+    # A panel may keep several profiles for one spec. The cross-spec view
+    # ranks one stable standard coordinate per spec: the first enabled profile
+    # in the panel's configured display order.
+    preferred_profiles = {}
+    for profile in SimcBenchmarkProfile.objects.filter(
+        panel_spec__panel=panel, panel_spec__is_enabled=True, is_enabled=True,
+    ).select_related('panel_spec').order_by(
+        'panel_spec__display_order', 'panel_spec_id', 'display_order', 'id',
+    ):
+        preferred_profiles.setdefault(profile.panel_spec.spec_key, str(profile.profile_id))
+    coordinates = [
+        row for row in coordinates
+        if preferred_profiles.get(row.get('spec_key')) == row.get('profile_key')
+    ]
+    projected = [_projected_ranking_row(row) for row in coordinates]
+    if coordinates and any(row is None for row in projected):
+        return _ranking_not_ready('incomplete_frozen_identity')
+    rankings = [row for row in projected if row is not None]
+    if not rankings:
+        return _ranking_not_ready('no_comparable_baseline_results')
+    shared = {(row['resource_versions']['template'], row['resource_versions']['backend'],
+               _canonical(row['simulation_params'])) for row in rankings}
+    if len(shared) != 1:
+        return _ranking_not_ready('no_comparable_baseline_results')
+    rankings.sort(key=lambda row: (-row['dps'], row['spec_key']))
+    return {'status': 'ready', 'panel_id': panel.id, 'scenario_key': scenario_key,
+            'rankings': rankings}
+
+
+def _find_public_panel(request):
+    panel_id = request.GET.get('panel_id')
+    slug = request.GET.get('panel')
+    if not panel_id and not slug:
+        return None
+    lookup = {'id': panel_id} if panel_id else {'slug': slug}
+    return SimcBenchmarkPanel.objects.filter(is_active=True, is_public=True, **lookup).first()
+
+
+class _PortalRankingAPIView(View):
+    http_method_names = ['get', 'head', 'options']
+
+    def panel(self, request):
+        panel = _find_public_panel(request)
+        if panel is None:
+            return None, JsonResponse(_ranking_not_ready('panel_not_public'))
+        return panel, None
+
+
+class PortalSimcAplRankingAPIView(_PortalRankingAPIView):
+    def get(self, request):
+        panel, error = self.panel(request)
+        if error:
+            return error
+        return JsonResponse(get_portal_apl_ranking(
+            panel, request.GET.get('spec', ''), request.GET.get('scenario', ''),
+        ))
+
+
+class PortalSimcSpecRankingAPIView(_PortalRankingAPIView):
+    def get(self, request):
+        panel, error = self.panel(request)
+        if error:
+            return error
+        return JsonResponse(get_portal_spec_ranking(
+            panel, request.GET.get('scenario', ''),
+        ))
 
 
 def _public_result_payload(panel, *, coordinate_filter=None, scenario_filter=None):
@@ -96,6 +259,8 @@ class PortalSimcBenchmarkPanelDetailAPIView(View):
 
     def get(self, request, panel_id=None, slug=None):
         lookup = {'id': panel_id} if panel_id is not None else {'slug': slug}
+        # is_public controls Portal discovery only. Existing direct-link reads
+        # remain available for active panels by product contract.
         panel = SimcBenchmarkPanel.objects.filter(is_active=True, **lookup).first()
         if panel is None:
             return JsonResponse(_NOT_READY)

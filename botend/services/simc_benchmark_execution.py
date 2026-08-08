@@ -447,6 +447,21 @@ def _candidate_raw_report_urls(reusable_by_coordinate):
     return urls
 
 
+def _candidate_source_run(task, candidate_key):
+    """Resolve the actual immutable Run through the retry provenance chain."""
+    current = task
+    seen = set()
+    while current is not None and current.pk not in seen:
+        seen.add(current.pk)
+        run = SimulationRun.objects.filter(
+            task_id=current.pk, candidate_key=candidate_key, status='completed',
+        ).order_by('-sequence', '-id').first()
+        if run is not None:
+            return run
+        current = current.source_task
+    return None
+
+
 def _reusable_candidate_tasks(panel, coordinate, reusable_by_coordinate=None):
     """Return finalized Task provenance by full frozen coordinate/candidate input identity."""
     if reusable_by_coordinate is None:
@@ -1335,16 +1350,20 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
             coordinate['simulation_params'],
         )
         rows = []
+        coordinate_audit = None
         for candidate in coordinate['candidates']:
             match = reusable.get(_candidate_input_identity(candidate))
             if match:
+                result_task = match['task']
+                source_run = _candidate_source_run(result_task, candidate['candidate_key'])
                 row = {
                     'key': candidate['candidate_key'],
                     'label': candidate['candidate_label'],
                     'type': candidate['candidate_type'],
                     'icon_url': candidate['icon_url'],
                     'source_label': candidate['source_label'],
-                    'dps': float(match['result'].dps), 'task_id': match['task'].pk,
+                    'dps': float(match['result'].dps), 'task_id': result_task.pk,
+                    'source_result_id': match['result'].pk,
                 }
                 report_url = report_urls.get((match['task'].pk, candidate['candidate_key']))
                 if report_url:
@@ -1357,7 +1376,30 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                 if item_level is not None:
                     row['item_level'] = item_level
                 rows.append(row)
-        coordinates.append({
+                if candidate['candidate_key'] == 'baseline':
+                    manifest = source_run.resource_manifest if source_run is not None else {}
+                    manifest = manifest if isinstance(manifest, dict) else {}
+                    coordinate_audit = {
+                        'profile_identity': (
+                            result_task.profile_version.content_hash
+                            if result_task.profile_version_id else None
+                        ),
+                        'apl_identity': (
+                            result_task.apl_version.content_hash
+                            if result_task.apl_version_id else None
+                        ),
+                        'apl_label': (
+                            (result_task.apl_version.payload or {}).get('name')
+                            if result_task.apl_version_id else None
+                        ),
+                        'template_identity': (
+                            result_task.template_version.content_hash
+                            if result_task.template_version_id else None
+                        ),
+                        'backend_version': manifest.get('backend_version'),
+                        'simulation_params': result_task.simulation_params or {},
+                    }
+        coordinate_payload = {
             'spec_key': coordinate['spec_key'], 'scenario_key': coordinate['scenario_key'],
             'profile_key': coordinate['profile_key'],
             'spec_icon_url': _spec_icon_url(coordinate['spec_key']),
@@ -1372,11 +1414,98 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                 'max_time': scenario_params.get('max_time', 300),
             },
             'candidates': rows,
-        })
+        }
+        if coordinate_audit is not None:
+            coordinate_payload['audit'] = coordinate_audit
+        coordinates.append(coordinate_payload)
     payload = {'panel_id': panel.pk, 'coordinates': coordinates}
     if include_coordinate_options:
         payload['coordinate_options'] = [_coordinate_option(row) for row in plan_cases]
     return payload
+
+
+def serialize_panel_apl_ranking_results(panel, *, spec_key, scenario_key):
+    """Project auditable historical baseline APL results for one bounded coordinate."""
+    panel_spec = panel.specs.filter(spec_key=spec_key, is_enabled=True).first()
+    if panel_spec is None:
+        return []
+    results = SimcBenchmarkResult.objects.filter(
+        case__execution__panel_id=panel.pk,
+        case__spec_key=spec_key,
+        case__scenario_key=scenario_key,
+        case__task__isnull=False,
+        candidate_key='baseline',
+    ).select_related(
+        'case', 'case__task', 'case__task__profile_version',
+        'case__task__apl_version', 'case__task__template_version', 'case__task__apl',
+    ).order_by('-case__execution_id', '-case_id', '-id')
+
+    def project(result):
+        task = result.case.task
+        source_run = _candidate_source_run(task, 'baseline')
+        manifest = source_run.resource_manifest if source_run is not None else {}
+        manifest = manifest if isinstance(manifest, dict) else {}
+        if not (task.profile_version_id and task.apl_version_id and task.template_version_id):
+            return None
+        backend_version = manifest.get('backend_version')
+        if not backend_version:
+            return None
+        apl_payload = task.apl_version.payload or {}
+        return {
+            'spec_key': result.case.spec_key,
+            'spec_label': result.case.spec_label,
+            'profile_key': result.case.profile_key,
+            'profile_label': result.case.profile_label,
+            'scenario_label': result.case.scenario_label,
+            'apl_key': task.apl_version.content_hash,
+            'apl_label': apl_payload.get('name') or task.apl.name,
+            '_apl_id': task.apl_id,
+            'dps': float(result.dps),
+            'source_result_id': result.pk,
+            'resource_versions': {
+                'profile': task.profile_version.content_hash,
+                'template': task.template_version.content_hash,
+                'apl': task.apl_version.content_hash,
+                'backend': backend_version,
+            },
+            'simulation_params': task.simulation_params or {},
+        }
+
+    raw_results = list(results)
+    # Pick the newest result for each mutable APL before auditing it. An invalid
+    # newest result must not silently fall back to an older APL version.
+    latest_by_apl = {}
+    for result in raw_results:
+        apl_id = result.case.task.apl_id
+        latest_by_apl.setdefault(apl_id, result)
+    projected = [project(result) for result in latest_by_apl.values()]
+    projected = [row for row in projected if row is not None]
+    if raw_results and not projected:
+        return None
+    anchor = next((row for row in projected if row['_apl_id'] == panel_spec.apl_id), None)
+    if anchor is None:
+        return []
+    anchor_identity = (
+        anchor['resource_versions']['profile'], anchor['resource_versions']['template'],
+        anchor['resource_versions']['backend'],
+        json.dumps(anchor['simulation_params'], sort_keys=True, separators=(',', ':'), ensure_ascii=False),
+    )
+    rankings = []
+    seen_apls = set()
+    for row in projected:
+        identity = (
+            row['resource_versions']['profile'], row['resource_versions']['template'],
+            row['resource_versions']['backend'],
+            json.dumps(row['simulation_params'], sort_keys=True, separators=(',', ':'), ensure_ascii=False),
+        )
+        # APL identity is the mutable SimcApl row, not one immutable version.
+        # The queryset is newest-first, so the first comparable row wins.
+        if identity != anchor_identity or row['_apl_id'] in seen_apls:
+            continue
+        seen_apls.add(row['_apl_id'])
+        row.pop('_apl_id', None)
+        rankings.append(row)
+    return rankings
 
 
 def _safe_error(value):

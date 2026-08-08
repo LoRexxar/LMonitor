@@ -281,13 +281,13 @@ class SimcBenchmarkExecutionTests(TestCase):
             result_summary={'dps': dps} if dps is not None else None,
         )
 
-    def _aggregate_candidate(self, key, dps, task_id, *, label=None, candidate_type=None,
-                             icon_url='', source_label=''):
+    def _aggregate_candidate(self, key, dps, task_id, source_result_id, *, label=None,
+                             candidate_type=None, icon_url='', source_label=''):
         return {
             'key': key, 'label': label or key.title(),
             'type': candidate_type or ('base' if key == 'baseline' else 'gear_swap'),
             'icon_url': icon_url, 'source_label': source_label,
-            'dps': dps, 'task_id': task_id,
+            'dps': dps, 'task_id': task_id, 'source_result_id': source_result_id,
         }
 
     def _published_success(self):
@@ -432,8 +432,14 @@ class SimcBenchmarkExecutionTests(TestCase):
             'desired_targets': 1, 'max_time': 300,
         })
         self.assertEqual(coordinates['patchwerk']['candidates'], [
-            self._aggregate_candidate('baseline', 1234.0, successful_task.id, label='Baseline'),
-            self._aggregate_candidate('trinket', 1300.0, successful_task.id, label='Trinket'),
+            self._aggregate_candidate(
+                'baseline', 1234.0, successful_task.id,
+                successful_case.results.get(candidate_key='baseline').id, label='Baseline',
+            ),
+            self._aggregate_candidate(
+                'trinket', 1300.0, successful_task.id,
+                successful_case.results.get(candidate_key='trinket').id, label='Trinket',
+            ),
         ])
         self.assertEqual(coordinates['failed-coordinate']['candidates'], [])
 
@@ -485,8 +491,14 @@ class SimcBenchmarkExecutionTests(TestCase):
 
         self.assertEqual(len(aggregate['coordinates']), 1)
         self.assertEqual(aggregate['coordinates'][0]['candidates'], [
-            self._aggregate_candidate('baseline', 1234.0, original_case.task_id, label='Baseline'),
-            self._aggregate_candidate('trinket', 1300.0, original_case.task_id, label='Trinket'),
+            self._aggregate_candidate(
+                'baseline', 1234.0, original_case.task_id,
+                original_case.results.get(candidate_key='baseline').id, label='Baseline',
+            ),
+            self._aggregate_candidate(
+                'trinket', 1300.0, original_case.task_id,
+                original_case.results.get(candidate_key='trinket').id, label='Trinket',
+            ),
         ])
 
     @override_settings(
@@ -741,9 +753,19 @@ class SimcBenchmarkExecutionTests(TestCase):
         aggregate = serialize_incremental_panel_results(self.panel)
         row = aggregate['coordinates'][0]
         self.assertEqual(row['candidates'], [
-            self._aggregate_candidate('baseline', 1234.0, original_task.id, label='Baseline'),
-            self._aggregate_candidate('trinket', 1300.0, original_task.id, label='Trinket'),
-            self._aggregate_candidate('new-trinket', 1400.0, incremental_task.id, label='New Trinket'),
+            self._aggregate_candidate(
+                'baseline', 1234.0, original_task.id,
+                original_case.results.get(candidate_key='baseline').id, label='Baseline',
+            ),
+            self._aggregate_candidate(
+                'trinket', 1300.0, original_task.id,
+                original_case.results.get(candidate_key='trinket').id, label='Trinket',
+            ),
+            self._aggregate_candidate(
+                'new-trinket', 1400.0, incremental_task.id,
+                incremental_case.results.get(candidate_key='new-trinket').id,
+                label='New Trinket',
+            ),
         ])
 
     def test_incremental_execution_reuses_complete_coordinate_without_copying_task(self):
@@ -902,8 +924,14 @@ class SimcBenchmarkExecutionTests(TestCase):
         aggregate = serialize_incremental_panel_results(self.panel)
         by_scenario = {row['scenario_key']: row['candidates'] for row in aggregate['coordinates']}
         self.assertEqual(by_scenario['patchwerk'], [
-            self._aggregate_candidate('baseline', 1234.0, successful_task.id, label='Baseline'),
-            self._aggregate_candidate('trinket', 1300.0, successful_task.id, label='Trinket'),
+            self._aggregate_candidate(
+                'baseline', 1234.0, successful_task.id,
+                successful_case.results.get(candidate_key='baseline').id, label='Baseline',
+            ),
+            self._aggregate_candidate(
+                'trinket', 1300.0, successful_task.id,
+                successful_case.results.get(candidate_key='trinket').id, label='Trinket',
+            ),
         ])
         self.assertEqual(by_scenario['pending-coordinate'], [])
 
@@ -935,8 +963,14 @@ class SimcBenchmarkExecutionTests(TestCase):
         aggregate = serialize_incremental_panel_results(self.panel)
         by_scenario = {row['scenario_key']: row['candidates'] for row in aggregate['coordinates']}
         self.assertEqual(by_scenario['patchwerk'], [
-            self._aggregate_candidate('baseline', 1234.0, successful_task.id, label='Baseline'),
-            self._aggregate_candidate('trinket', 1300.0, successful_task.id, label='Trinket'),
+            self._aggregate_candidate(
+                'baseline', 1234.0, successful_task.id,
+                successful_case.results.get(candidate_key='baseline').id, label='Baseline',
+            ),
+            self._aggregate_candidate(
+                'trinket', 1300.0, successful_task.id,
+                successful_case.results.get(candidate_key='trinket').id, label='Trinket',
+            ),
         ])
         self.assertEqual(by_scenario['failed-coordinate'], [])
 
@@ -1576,7 +1610,10 @@ class SimcBenchmarkExecutionTests(TestCase):
 
         aggregate = serialize_incremental_panel_results(self.panel)
         self.assertEqual(aggregate['coordinates'][0]['candidates'], [
-            self._aggregate_candidate('baseline', 1234.0, retry_task.id, label='Baseline'),
+            self._aggregate_candidate(
+                'baseline', 1234.0, retry_task.id,
+                retry_case.results.get(candidate_key='baseline').id, label='Baseline',
+            ),
         ])
 
     def test_success_task_with_mixed_terminal_runs_is_partial_and_not_published(self):

@@ -2,140 +2,112 @@
 {% load static %}
 {% load wow_tags %}
 
-{% block title %}{{ nav.class_cn }} {{ nav.spec_cn }} - 人物榜{% endblock %}
+{% block title %}{{ nav.class_cn }} {{ nav.spec_cn }} - 专精总览{% endblock %}
+
+{% block extra_style %}{{ block.super }}
+@import url("{% static 'portal/css/spec-overview.css?v=20260808' %}");
+{% endblock %}
 
 {% block content %}
-<div class="spec-detail-page spec-detail-page--rankings">
-    <section class="spec-hero-card">
-        <div class="spec-hero-main">
-            <img src="{% wow_icon nav.spec_icon "small" %}" alt="{{ nav.spec_name }}" class="spec-icon" width="56" height="56">
+<main id="spec-overview" class="spec-overview" data-class-name="{{ class_name }}" data-spec-name="{{ spec_name }}">
+    <header class="spec-overview-hero">
+        <div class="spec-overview-identity">
+            <img src="{% wow_icon nav.spec_icon "small" %}" alt="" class="spec-overview-icon" width="56" height="56">
             <div>
-                <div class="spec-eyebrow">WoW 专精详情</div>
+                <p class="spec-overview-eyebrow">WoW 专精总览</p>
                 <h1>{{ nav.class_cn }} {{ nav.spec_cn }}</h1>
-                <p>真实世界榜 Top 20，数据直接来自 Raider.IO 世界榜。</p>
+                <p>人物、实战与模拟结果按各自数据口径展示；各模块口径独立，不计算综合分。</p>
             </div>
         </div>
-        <div class="spec-hero-stats">
-            <div class="hero-stat">
-                <span class="hero-stat-label">赛季</span>
-                <span class="hero-stat-value">{{ season.season_name|default:season.season_key }}</span>
-            </div>
-            <div class="hero-stat">
-                <span class="hero-stat-label">样本</span>
-                <span class="hero-stat-value">{{ total }}</span>
-            </div>
-            <div class="hero-stat">
-                <span class="hero-stat-label">更新时间</span>
-                <span class="hero-stat-value">{% if updated_at %}{{ updated_at|date:"Y-m-d H:i" }}{% else %}-{% endif %}</span>
-            </div>
-        </div>
-    </section>
+        <dl class="spec-overview-season">
+            <dt>当前赛季</dt>
+            <dd>{% if season %}{% firstof season.season_name season.season_key "未配置" %}{% else %}未配置{% endif %}</dd>
+        </dl>
+    </header>
 
-    <nav class="spec-nav spec-nav--dark">
-        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/" class="active">人物榜</a>
-        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/dungeons/">大秘境</a>
-        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/raid/">团本统计</a>
+    <nav class="spec-overview-links" aria-label="专精详情入口">
+        <a href="#module-players" aria-current="page">人物榜</a>
+        <a href="#module-mythic-plus">大秘境</a>
+        <a href="#module-raid">团本</a>
+        <a href="#module-simc-apl">SimC APL</a>
+        <a href="#module-simc-cross-spec">SimC 跨专精</a>
+        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/dungeons/">M+ 详细统计</a>
+        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/raid/">团本详细统计</a>
     </nav>
 
-    <section class="ranking-board">
-        <div class="ranking-board-head">
-            <div>
-                <h2>全球 Top 20</h2>
-            </div>
-            <div class="ranking-board-note">{{ nav.role|upper }}</div>
-        </div>
+    <p class="spec-overview-methodology">
+        真实角色与 M+ 来源为 Raider.IO；团本来源为 Warcraft Logs 聚合；模拟排名来源为 SimulationCraft 发布结果。
+        数值仅在模块自身场景、样本及更新时间范围内比较。
+    </p>
 
-        <div class="ranking-list">
-            {% for p in players %}
-            <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/player/{{ p.id }}/" class="ranking-row">
-                <span class="ranking-cell ranking-cell--rank {% if p.rank <= 3 %}is-top{% endif %}">#{{ p.rank }}</span>
-                <span class="ranking-cell ranking-cell--player">
-                    <span class="player-primary">
-                        <span class="player-name">{{ p.character_name }}</span>
-                        {% if p.guild_name %}<span class="player-guild">&lt;{{ p.guild_name }}&gt;</span>{% endif %}
-                    </span>
-                    <span class="player-secondary">
-                        {{ p.realm }} · {{ p.region|upper }}
-                        {% if p.race %}<span class="dot"></span>{{ p.race }}{% endif %}
-                        {% if p.item_level %}<span class="dot"></span>装等 {{ p.item_level|floatformat:1 }}{% endif %}
-                    </span>
-                </span>
-                <span class="ranking-cell ranking-cell--score">{{ p.score|floatformat:2 }}</span>
-                <span class="ranking-cell ranking-cell--action">查看详情</span>
-            </a>
-            {% empty %}
-            <div class="empty-state">暂时没有内容，聚合任务尚未完成</div>
-            {% endfor %}
-        </div>
-    </section>
-</div>
+    <div class="spec-overview-grid">
+        <section id="module-players" class="spec-module-card spec-module-card--wide" data-spec-module="players"
+                 data-endpoint="/portal/api/spec/{{ class_name }}/{{ spec_name }}/players/" data-state="loading" aria-busy="true">
+            <header class="spec-module-header">
+                <div><p class="spec-module-kicker">人物榜</p><h2>全球 Top 20</h2></div>
+                <span class="spec-module-source" data-module-source>来源：Raider.IO 世界榜</span>
+            </header>
+            <div class="spec-module-state" data-module-state role="status">加载中…</div>
+            <div class="spec-module-content" data-module-content hidden></div>
+            <footer>更新时间：<time data-module-updated-at>等待数据</time></footer>
+            <noscript>
+                <div class="spec-fallback-list">
+                    {% for p in players %}<a href="/portal/spec/{{ class_name }}/{{ spec_name }}/player/{{ p.id }}/">#{{ p.rank }} {{ p.character_name }} · {{ p.score|floatformat:2 }}</a>
+                    {% empty %}<span>暂无数据</span>{% endfor %}
+                </div>
+            </noscript>
+        </section>
 
-<style>
-.spec-detail-page--rankings { max-width: 1200px; margin: 0 auto; padding: 24px; color: #1e293b; }
-.spec-hero-card {
-    display: flex;
-    justify-content: space-between;
-    gap: 20px;
-    padding: 24px 28px;
-    border-radius: 22px;
-    background: linear-gradient(135deg, rgba(255,255,255,.96), rgba(248,250,252,.92));
-    border: 1px solid rgba(148,163,184,.28);
-    box-shadow: 0 18px 40px rgba(15,23,42,.08);
-    margin-bottom: 18px;
-}
-.spec-hero-main { display: flex; align-items: center; gap: 16px; }
-.spec-icon { border-radius: 14px; box-shadow: 0 8px 20px rgba(15,23,42,.12); }
-.spec-eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: #2563eb; margin-bottom: 6px; }
-.spec-hero-main h1 { margin: 0 0 6px; font-size: 32px; line-height: 1.1; color: #0f172a; }
-.spec-hero-main p { margin: 0; color: #64748b; max-width: 560px; }
-.spec-hero-stats { display: grid; grid-template-columns: repeat(3, minmax(120px, 1fr)); gap: 12px; min-width: 360px; }
-.hero-stat { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 16px; padding: 14px 16px; }
-.hero-stat-label { display: block; font-size: 12px; color: #64748b; margin-bottom: 8px; }
-.hero-stat-value { display: block; font-size: 18px; font-weight: 700; color: #0f172a; }
-.spec-nav { display: flex; gap: 14px; margin-bottom: 18px; }
-.spec-nav a { text-decoration: none; padding: 10px 16px; border-radius: 999px; font-weight: 600; }
-.spec-nav--dark a { color: #475569; background: rgba(255,255,255,.86); border: 1px solid rgba(148,163,184,.35); }
-.spec-nav--dark a.active { color: #f8fafc; background: linear-gradient(135deg, #2563eb, #1d4ed8); border-color: transparent; }
-.ranking-board { background: rgba(255,255,255,.94); border: 1px solid rgba(148,163,184,.28); border-radius: 22px; padding: 22px; box-shadow: 0 14px 34px rgba(15,23,42,.08); }
-.ranking-board-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 14px; }
-.ranking-board-head h2 { margin: 0 0 6px; color: #0f172a; }
-.ranking-board-head p { margin: 0; color: #64748b; }
-.ranking-board-note { padding: 8px 12px; border-radius: 999px; background: #eff6ff; color: #1d4ed8; font-size: 12px; font-weight: 700; letter-spacing: .08em; }
-.ranking-list { display: flex; flex-direction: column; gap: 10px; }
-.ranking-row {
-    display: grid;
-    grid-template-columns: 80px minmax(0, 1fr) 140px 112px;
-    align-items: center;
-    gap: 14px;
-    padding: 16px 18px;
-    text-decoration: none;
-    color: inherit;
-    border-radius: 18px;
-    background: #ffffff;
-    border: 1px solid #e5e7eb;
-    transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
-}
-.ranking-row:hover { transform: translateY(-2px); border-color: rgba(37,99,235,.35); box-shadow: 0 12px 28px rgba(15,23,42,.1); }
-.ranking-cell--rank { font-size: 24px; font-weight: 800; color: #64748b; }
-.ranking-cell--rank.is-top { color: #fbbf24; }
-.player-primary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
-.player-name { font-size: 18px; font-weight: 700; color: #0f172a; }
-.player-guild { color: #059669; font-size: 13px; }
-.player-secondary { color: #64748b; font-size: 13px; display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.dot { width: 4px; height: 4px; border-radius: 50%; background: #475569; display: inline-block; }
-.ranking-cell--score { font-size: 20px; font-weight: 800; color: #0f172a; text-align: right; }
-.ranking-cell--action { justify-self: end; color: #2563eb; font-weight: 700; }
-.empty-state { text-align: center; color: #64748b; padding: 42px; }
-@media (max-width: 900px) {
-    .spec-hero-card { flex-direction: column; }
-    .spec-hero-stats { min-width: 0; grid-template-columns: repeat(3, 1fr); }
-    .ranking-row { grid-template-columns: 60px minmax(0, 1fr); }
-    .ranking-cell--score, .ranking-cell--action { justify-self: start; text-align: left; }
-}
-@media (max-width: 640px) {
-    .spec-detail-page--rankings { padding: 16px; }
-    .spec-hero-stats { grid-template-columns: 1fr; }
-    .ranking-row { grid-template-columns: 1fr; }
-}
-</style>
+        <section id="module-mythic-plus" class="spec-module-card" data-spec-module="mythic-plus"
+                 data-endpoint="/portal/api/spec/{{ class_name }}/{{ spec_name }}/mythic-plus/" data-state="loading" aria-busy="true">
+            <header class="spec-module-header">
+                <div><p class="spec-module-kicker">M+</p><h2>大秘境表现</h2></div>
+                <span class="spec-module-source" data-module-source>来源：Raider.IO 聚合</span>
+            </header>
+            <div class="spec-module-state" data-module-state role="status">加载中…</div>
+            <div class="spec-module-content" data-module-content hidden></div>
+            <footer>更新时间：<time data-module-updated-at>等待数据</time></footer>
+        </section>
+
+        <section id="module-raid" class="spec-module-card" data-spec-module="raid"
+                 data-endpoint="/portal/api/spec/{{ class_name }}/{{ spec_name }}/raid/" data-state="loading" aria-busy="true">
+            <header class="spec-module-header">
+                <div><p class="spec-module-kicker">团本</p><h2>史诗团本表现</h2></div>
+                <span class="spec-module-source" data-module-source>来源：Warcraft Logs 聚合</span>
+            </header>
+            <div class="spec-module-state" data-module-state role="status">加载中…</div>
+            <div class="spec-module-content" data-module-content hidden></div>
+            <footer>更新时间：<time data-module-updated-at>等待数据</time></footer>
+        </section>
+
+        <section id="module-simc-apl" class="spec-module-card" data-spec-module="simc-apl"
+                 data-endpoint="{% if simc_dimensions %}/portal/api/simc-benchmarks/apl-rankings/?panel={{ simc_dimensions.panel|urlencode }}&amp;spec={{ simc_dimensions.spec|urlencode }}&amp;scenario={{ simc_dimensions.scenario|urlencode }}{% else %}/portal/api/simc-benchmarks/apl-rankings/?panel=&amp;spec={{ class_name|lower }}_{{ spec_name|lower }}&amp;scenario={% endif %}" data-state="loading" aria-busy="true">
+            <header class="spec-module-header">
+                <div><p class="spec-module-kicker">SimC APL</p><h2>APL 场景排名</h2></div>
+                <span class="spec-module-source" data-module-source>来源：SimulationCraft 冻结配置</span>
+            </header>
+            <div class="spec-module-state" data-module-state role="status">加载中…</div>
+            <div class="spec-module-content" data-module-content hidden></div>
+            <footer>更新时间：<time data-module-updated-at>等待数据</time></footer>
+        </section>
+
+        <section id="module-simc-cross-spec" class="spec-module-card" data-spec-module="simc-cross-spec"
+                 data-endpoint="{% if simc_dimensions %}/portal/api/simc-benchmarks/spec-rankings/?panel={{ simc_dimensions.panel|urlencode }}&amp;spec={{ simc_dimensions.spec|urlencode }}&amp;scenario={{ simc_dimensions.scenario|urlencode }}{% else %}/portal/api/simc-benchmarks/spec-rankings/?panel=&amp;spec={{ class_name|lower }}_{{ spec_name|lower }}&amp;scenario={% endif %}" data-state="loading" aria-busy="true">
+            <header class="spec-module-header">
+                <div><p class="spec-module-kicker">SimC 基准</p><h2>跨专精排名</h2></div>
+                <span class="spec-module-source" data-module-source>来源：SimulationCraft 同场景基准</span>
+            </header>
+            <div class="spec-module-state" data-module-state role="status">加载中…</div>
+            <div class="spec-module-content" data-module-content hidden></div>
+            <footer>更新时间：<time data-module-updated-at>等待数据</time></footer>
+        </section>
+    </div>
+
+    <template id="spec-overview-error-copy">加载失败，请稍后重试；其他模块不受影响。</template>
+    <template id="spec-overview-empty-copy">暂无数据</template>
+</main>
+{% endblock %}
+
+{% block extra_script %}{{ block.super }}
+<script src="{% static 'portal/js/spec-overview.js?v=20260808' %}" defer></script>
 {% endblock %}

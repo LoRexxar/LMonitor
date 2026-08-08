@@ -12,7 +12,11 @@ from botend.models import (
     SimcApl, SimcBackendBinary, SimcBenchmarkCandidate, SimcBenchmarkPanel,
     SimcBenchmarkCase, SimcBenchmarkExecution, SimcBenchmarkProfile,
     SimcBenchmarkResult, SimcBenchmarkScenario, SimcBenchmarkSpec,
-    SimcContentTemplate, SimcProfile,
+    SimcContentTemplate, SimcProfile, SimcResourceVersion, SimcTask,
+    SimulationRun,
+)
+from botend.portal.simc_benchmark_api import (
+    get_portal_apl_ranking, get_portal_spec_ranking,
 )
 
 
@@ -256,6 +260,129 @@ class PortalSimcBenchmarkAPITests(TestCase):
     def test_public_endpoints_are_read_only(self):
         self.assertEqual(self.client.post('/portal/api/simc-benchmarks/panels/').status_code, 405)
         self.assertEqual(self.client.post('/portal/api/simc-benchmarks/panels/public-panel/').status_code, 405)
+
+
+@override_settings(ALLOWED_HOSTS=['testserver'])
+class PortalSimcRankingTests(TestCase):
+    """公开排名只能比较同一冻结口径下已落库的 baseline Result。"""
+
+    def setUp(self):
+        self.backend = SimcBackendBinary.objects.create(identifier='ranking', name='Ranking', current_version='simc-v1')
+        self.template = SimcContentTemplate.objects.create(name='Ranking template', spec='default', content='iterations=1000', owner_user_id=1)
+        self.panel = SimcBenchmarkPanel.objects.create(name='Ranking panel', slug='ranking-panel', created_by_id=1, is_active=True, is_public=True)
+        self.private_panel = SimcBenchmarkPanel.objects.create(name='Private ranking', slug='private-ranking', created_by_id=1, is_active=True, is_public=False)
+        self.scenario = SimcBenchmarkScenario.objects.create(panel=self.panel, key='single', name='Single', simulation_params={'iterations': 1000, 'desired_targets': 1})
+        self.specs = {}
+        for order, (spec_key, label) in enumerate((('warrior_fury', 'Fury'), ('mage_fire', 'Fire'))):
+            apl = SimcApl.objects.create(name=f'{label} standard', spec=spec_key, content=f'actions=/{spec_key}', owner_user_id=1)
+            profile = SimcProfile.objects.create(user_id=1, name=f'{label} profile', class_name=spec_key.split('_')[0], spec=spec_key)
+            panel_spec = SimcBenchmarkSpec.objects.create(panel=self.panel, class_name=spec_key.split('_')[0], spec_key=spec_key, label=label, apl=apl, template=self.template, backend=self.backend, display_order=order)
+            panel_profile = SimcBenchmarkProfile.objects.create(panel_spec=panel_spec, profile=profile, label=f'{label} standard')
+            self.specs[spec_key] = (panel_spec, panel_profile)
+
+    def _version(self, kind, resource_id, key):
+        return SimcResourceVersion.objects.get_or_create(
+            resource_type=kind, resource_id=resource_id, content_hash=key,
+            defaults={'payload': {'name': key, 'content': key}},
+        )[0]
+
+    def _baseline(self, spec_key, dps, *, apl_version_key='apl-v1', params=None, candidate_key='baseline', profile_version=None, template_version=None, apl_id=None):
+        panel_spec, panel_profile = self.specs[spec_key]
+        profile = panel_profile.profile
+        apl = panel_spec.apl if apl_id is None else SimcApl.objects.get(pk=apl_id)
+        profile_version = profile_version or self._version('profile', profile.id, f'profile-{spec_key}')
+        template_version = template_version or self._version('template', self.template.id, 'template-v1')
+        apl_version = self._version('apl', apl.id, apl_version_key)
+        candidate = {
+            'candidate_key': candidate_key, 'candidate_label': candidate_key,
+            'candidate_type': 'base' if candidate_key == 'baseline' else 'gear_swap',
+            'candidate_params': ({'candidate_type': 'base', 'is_base': True}
+                                 if candidate_key == 'baseline' else {'gear_swap': {}}),
+            'icon_url': '', 'source_label': '',
+        }
+        task = SimcTask.objects.create(user_id=1, name=f'{spec_key}-{dps}', simc_profile_id=profile.id, profile=profile, template=self.template, apl=apl, profile_version=profile_version, template_version=template_version, apl_version=apl_version, backend=self.backend, mode='comparison', mode_params={'request_manifest': {'candidates': [candidate]}}, simulation_params=params or self.scenario.simulation_params, current_status=2)
+        execution = SimcBenchmarkExecution.objects.create(panel=self.panel, config_hash=f'{task.id:064d}', status='success')
+        case = SimcBenchmarkCase.objects.create(execution=execution, task=task, spec_key=spec_key, scenario_key=self.scenario.key, profile_key=str(profile.id), spec_label=panel_spec.label, scenario_label=self.scenario.name, profile_label=panel_profile.label, coordinate_hash=f'{task.id:064d}', status='success')
+        run = SimulationRun.objects.create(task=task, sequence=1, candidate_key=candidate_key, candidate_label=candidate_key, status='completed', result_summary={'dps': dps}, resource_manifest={'backend_version': 'simc-v1'})
+        result = SimcBenchmarkResult.objects.create(case=case, candidate_key=candidate_key, dps=dps)
+        return result, task, run
+
+    def test_apl_ranking_uses_latest_per_apl_entity_and_strict_comparison_dimensions(self):
+        _, fury_profile = self.specs['warrior_fury']
+        frozen_profile = self._version('profile', fury_profile.profile_id, 'same-profile')
+        frozen_template = self._version('template', self.template.id, 'same-template')
+        old, _, _ = self._baseline('warrior_fury', 100, apl_version_key='apl-a', profile_version=frozen_profile, template_version=frozen_template)
+        _, task_a, _ = self._baseline('warrior_fury', 120, apl_version_key='apl-a', profile_version=frozen_profile, template_version=frozen_template)
+        other_apl = SimcApl.objects.create(name='Alternative', spec='warrior_fury', content='actions=/execute', owner_user_id=1)
+        _, task_b, _ = self._baseline('warrior_fury', 130, apl_version_key='apl-b', profile_version=frozen_profile, template_version=frozen_template, apl_id=other_apl.id)
+        self._baseline('warrior_fury', 999, apl_version_key='apl-c', profile_version=frozen_profile, template_version=frozen_template, apl_id=other_apl.id, params={'iterations': 9999})
+        self._baseline('warrior_fury', 888, apl_version_key='candidate', profile_version=frozen_profile, template_version=frozen_template, candidate_key='gear-swap')
+
+        payload = get_portal_apl_ranking(self.panel, 'warrior_fury', 'single')
+
+        self.assertEqual(payload['status'], 'ready')
+        self.assertEqual([row['dps'] for row in payload['rankings']], [120.0])
+        self.assertNotIn(old.id, [row['source_result_id'] for row in payload['rankings']])
+        self.assertNotIn(task_b.id, [row['source_result_id'] for row in payload['rankings']])
+        self.assertEqual(payload['rankings'][0]['resource_versions']['profile'], frozen_profile.content_hash)
+        self.assertEqual(payload['rankings'][0]['simulation_params'], self.scenario.simulation_params)
+
+    def test_spec_ranking_uses_each_enabled_specs_standard_profile_and_apl_only(self):
+        _, fury_task, _ = self._baseline('warrior_fury', 200)
+        _, fire_task, _ = self._baseline('mage_fire', 200)
+        alternate = SimcApl.objects.create(name='Not panel standard', spec='mage_fire', content='actions=/wrong', owner_user_id=1)
+        self._baseline('mage_fire', 999, apl_version_key='wrong', apl_id=alternate.id)
+
+        payload = get_portal_spec_ranking(self.panel, 'single')
+
+        self.assertEqual(payload['status'], 'ready')
+        self.assertEqual([row['spec_key'] for row in payload['rankings']], ['mage_fire', 'warrior_fury'])
+        audit = payload['rankings'][0]
+        for key in ('source_result_id', 'resource_versions', 'simulation_params'):
+            self.assertIn(key, audit)
+
+    def test_rankings_hide_non_public_panel_and_explain_not_ready(self):
+        self.assertEqual(get_portal_spec_ranking(self.panel, 'single'), {'status': 'not_ready', 'reason': 'no_comparable_baseline_results', 'rankings': []})
+        response = self.client.get('/portal/api/simc-benchmarks/spec-rankings/', {'panel': self.private_panel.slug, 'scenario': 'single'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['reason'], 'panel_not_public')
+
+    def test_ranking_apis_are_public_read_only(self):
+        self._baseline('warrior_fury', 321)
+        apl = self.client.get('/portal/api/simc-benchmarks/apl-rankings/', {'panel': self.panel.slug, 'spec': 'warrior_fury', 'scenario': 'single'})
+        specs = self.client.get('/portal/api/simc-benchmarks/spec-rankings/', {'panel_id': self.panel.id, 'scenario': 'single'})
+        self.assertEqual(apl.json()['status'], 'ready')
+        self.assertEqual(specs.json()['rankings'][0]['spec_key'], 'warrior_fury')
+        self.assertEqual(self.client.post('/portal/api/simc-benchmarks/apl-rankings/').status_code, 405)
+
+    @patch('botend.portal.simc_benchmark_api.serialize_panel_apl_ranking_results')
+    def test_rankings_are_pure_read_models_of_authoritative_projection(self, serializer):
+        serializer.return_value = [{
+            'spec_key': 'warrior_fury', 'profile_key': 'standard',
+            'spec_label': 'Fury', 'scenario_label': 'Single', 'profile_label': 'Standard',
+            'apl_key': 'apl-v1', 'apl_label': 'Frozen APL',
+            'dps': 456.0, 'source_result_id': 91,
+            'resource_versions': {
+                'profile': 'profile-v1', 'apl': 'apl-v1',
+                'template': 'template-v1', 'backend': 'simc-v1',
+            },
+            'simulation_params': {'iterations': 1000},
+        }]
+        payload = get_portal_apl_ranking(self.panel, 'warrior_fury', 'single')
+        serializer.assert_called_once_with(
+            self.panel, spec_key='warrior_fury', scenario_key='single',
+        )
+        self.assertEqual(payload['rankings'][0]['source_result_id'], 91)
+        self.assertNotIn('task_id', payload['rankings'][0])
+
+    @patch('botend.portal.simc_benchmark_api.serialize_panel_apl_ranking_results')
+    def test_incomplete_frozen_identity_is_not_ready_without_live_backend_fallback(self, serializer):
+        serializer.return_value = None
+        self.backend.current_version = 'mutated-live-version'
+        self.backend.save(update_fields=['current_version'])
+        payload = get_portal_apl_ranking(self.panel, 'warrior_fury', 'single')
+        self.assertEqual(payload['status'], 'not_ready')
+        self.assertEqual(payload['reason'], 'incomplete_frozen_identity')
 
 
 @override_settings(ALLOWED_HOSTS=['testserver'])
