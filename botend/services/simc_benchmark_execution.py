@@ -172,6 +172,12 @@ def _safe_snapshot(panel, plan, *, execution_mode='supplement'):
         'profiles': list(profiles.values()),
         'candidates': candidate_definitions, 'resources': resources,
         'execution_mode': execution_mode,
+        # A full rerun is an atomic replacement from the panel's perspective:
+        # its output is eligible for the aggregate only after every frozen input
+        # has succeeded and the Execution has received its publication seal.
+        # The explicit marker keeps pre-policy historical executions readable
+        # without retroactively changing their established projection.
+        'result_publication': 'atomic_full' if execution_mode == 'full' else 'incremental',
         'cases': cases, 'case_count': plan['case_count'], 'run_count': plan['run_count'],
     }
     size = len(json.dumps(snapshot, sort_keys=True, separators=(',', ':'),
@@ -349,6 +355,22 @@ def _coordinate_input_identity(coordinate):
     })
 
 
+def _execution_contributes_to_projection(execution):
+    """Whether an Execution may replace any row on the live aggregate surface.
+
+    New full reruns are atomic: a failed, partial, cancelled, or still-running
+    full Execution is diagnostic history only.  Its rows remain immutable for
+    retry/audit, but cannot alter the previous visible projection.  Older
+    snapshots lack this explicit policy marker and retain their historical
+    behavior for a non-destructive rollout.
+    """
+    snapshot = execution.config_snapshot if isinstance(execution.config_snapshot, dict) else {}
+    return not (
+        snapshot.get('result_publication') == 'atomic_full'
+        and execution.status != SimcBenchmarkExecution.STATUS_SUCCESS
+    )
+
+
 def _latest_source_tasks_by_coordinate(panel, coordinate_filter=None):
     """Load the latest frozen Task for each coordinate, including failed Cases."""
     case_filters = {'execution__panel_id': panel.pk, 'task__isnull': False}
@@ -358,11 +380,15 @@ def _latest_source_tasks_by_coordinate(panel, coordinate_filter=None):
             if value:
                 case_filters[key] = str(value)
     cases = SimcBenchmarkCase.objects.filter(**case_filters)
-    cases = cases.select_related('task', 'task__profile_version').order_by(
+    cases = cases.select_related(
+        'task', 'task__profile_version', 'execution',
+    ).order_by(
         '-execution_id', '-id',
     )
     source_tasks = {}
     for case in cases:
+        if not _execution_contributes_to_projection(case.execution):
+            continue
         task = case.task
         coordinate = _coordinate_input_identity({
             'spec_key': case.spec_key, 'scenario_key': case.scenario_key,
@@ -400,6 +426,8 @@ def _reusable_candidate_tasks_by_coordinate(panel, coordinate_filter=None):
         '-execution_id', '-id',
     ).distinct()
     for case in cases:
+        if not _execution_contributes_to_projection(case.execution):
+            continue
         task = case.task
         if task is None:
             continue

@@ -872,7 +872,7 @@ class SimcBenchmarkExecutionTests(TestCase):
             [('baseline', 1234.0), ('trinket', 1300.0)],
         )
 
-    def test_partial_full_rerun_updates_successful_case_and_preserves_failed_case(self):
+    def test_partial_full_rerun_preserves_previous_projection_until_fully_sealed(self):
         SimcBenchmarkScenario.objects.create(
             panel=self.panel, key='second-scenario', name='Second scenario',
             simulation_params={'iterations': 2000},
@@ -916,7 +916,7 @@ class SimcBenchmarkExecutionTests(TestCase):
             for row in serialize_incremental_panel_results(self.panel)['coordinates']
         }
         self.assertEqual(by_scenario['patchwerk'], [
-            ('baseline', 1200.0), ('trinket', 1250.0),
+            ('baseline', 1234.0), ('trinket', 1300.0),
         ])
         self.assertEqual(by_scenario['second-scenario'], [
             ('baseline', 1234.0), ('trinket', 1300.0),
