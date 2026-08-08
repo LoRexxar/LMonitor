@@ -38,6 +38,23 @@
     return Number.isFinite(numeric) ? `${numberFormat.format(numeric)}${suffix}` : String(raw ?? "—");
   }
 
+  const simcReasons = {
+    panel_not_public: "基准面板未公开",
+    dimension_not_configured: "该专精或场景尚未配置",
+    no_comparable_baseline_results: "暂无满足同一冻结条件的基准结果",
+    incomplete_frozen_identity: "结果缺少完整冻结身份，暂不参与排名",
+  };
+
+  function simcAudit(entry) {
+    const versions = entry?.resource_versions || {};
+    const identity = [
+      ["Profile", versions.profile], ["Template", versions.template],
+      ["Backend", versions.backend], ["APL", versions.apl],
+    ].filter((item) => item[1]).map((item) => `${item[0]} ${String(item[1]).slice(0, 12)}`);
+    const source = entry?.source_result_id ? `结果 #${entry.source_result_id}` : "来源结果未提供";
+    return [source, ...identity].join(" · ");
+  }
+
   function rankingList(rows, describe) {
     const list = node("ol", "spec-module-list");
     rows.slice(0, 20).forEach((row, index) => {
@@ -92,7 +109,7 @@
     if (!apl_rankings.length) return null;
     return rankingList(apl_rankings, (entry) => ({
       title: value(entry, ["apl_label", "label", "name"]),
-      detail: value(entry, ["scenario_label", "scenario", "profile_label"]),
+      detail: `${value(entry, ["scenario_label", "scenario", "profile_label"])} · ${simcAudit(entry)}`,
       metric: metric(value(entry, ["dps", "value"]), " DPS"),
     }));
   }
@@ -102,7 +119,7 @@
     if (!spec_rankings.length) return null;
     return rankingList(spec_rankings, (entry) => ({
       title: value(entry, ["spec_label", "label", "spec_name", "spec_key"]),
-      detail: value(entry, ["scenario_label", "scenario", "profile_label"]),
+      detail: `${value(entry, ["scenario_label", "scenario", "profile_label"])} · ${simcAudit(entry)}`,
       metric: metric(value(entry, ["dps", "value"]), " DPS"),
     }));
   }
@@ -138,7 +155,7 @@
       if (payload?.status === "not_ready") {
         card.setAttribute("data-state", "empty");
         state.hidden = false;
-        state.textContent = "暂无数据";
+        state.textContent = simcReasons[payload.reason] || "暂无数据";
         content.replaceChildren();
         content.hidden = true;
         updated.textContent = updatedAt(payload);

@@ -195,3 +195,11 @@ class SpecOverviewDOMContractTests(TestCase):
         self.assertIn('"apl_label"', js)
         self.assertIn('payload?.status === "not_ready"', js)
         self.assertIn('description.detail_url', js)
+
+    def test_simc_loader_explains_not_ready_reason_and_renders_frozen_identity(self):
+        js = (Path(__file__).resolve().parents[2] / 'static/portal/js/spec-overview.js').read_text()
+        self.assertIn('incomplete_frozen_identity', js)
+        self.assertIn('no_comparable_baseline_results', js)
+        self.assertIn('dimension_not_configured', js)
+        self.assertIn('resource_versions', js)
+        self.assertIn('source_result_id', js)
