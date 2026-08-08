@@ -145,6 +145,50 @@ class SimcBenchmarkConfigServiceTests(TestCase):
             'item_id': 456, 'source': 'manual',
         })
 
+    def test_backend_inherits_unique_candidate_benchmark_profile_before_save(self):
+        profile = {'kind': 'trinket_standard_reference', 'item_level': 240}
+        marked = dict(self.payload['candidates'][0])
+        marked['params'] = {
+            'slot': 'trinket1', 'raw_value': 'id=123,ilevel=700',
+            'benchmark_profile': profile,
+        }
+        unmarked = {
+            'key': 'trinket-2', 'label': 'Trinket 2', 'candidate_type': 'gear_swap',
+            'params': 'trinket1=id=456,ilevel=700', 'spec_keys': ['warrior_fury'],
+        }
+
+        panel, _plan = replace_panel_config(
+            dict(self.payload, candidates=[marked, unmarked]), self.user_id,
+        )
+
+        saved_profiles = list(panel.candidates.order_by('display_order', 'id').values_list(
+            'params__benchmark_profile', flat=True,
+        ))
+        self.assertEqual(saved_profiles, [profile, profile])
+        self.assertEqual(
+            build_execution_plan(panel)['cases'][0]['candidates'][1][
+                'candidate_params'
+            ]['equipment_preset']['trinket2'],
+            'id=142508,ilevel=240,bonus_id=607',
+        )
+
+    def test_backend_rejects_two_explicit_candidate_benchmark_profiles(self):
+        candidates = []
+        for index, item_level in enumerate((240, 250), start=1):
+            candidate = dict(self.payload['candidates'][0])
+            candidate.update(key=f'trinket-{index}', label=f'Trinket {index}')
+            candidate['params'] = {
+                'slot': 'trinket1',
+                'raw_value': f'id={100 + index},ilevel=700',
+                'benchmark_profile': {
+                    'kind': 'trinket_standard_reference', 'item_level': item_level,
+                },
+            }
+            candidates.append(candidate)
+
+        with self.assertRaisesMessage(ValidationError, 'Benchmark Profile 不一致'):
+            replace_panel_config(dict(self.payload, candidates=candidates), self.user_id)
+
     def test_derives_spec_and_candidate_display_metadata_from_identity(self):
         spec = dict(self.payload['specs'][0])
         spec.pop('label')

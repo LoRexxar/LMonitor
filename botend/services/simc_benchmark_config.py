@@ -679,6 +679,42 @@ def normalize_panel_payload(payload, user_id, panel=None):
             'is_enabled': _strict_bool(raw.get('is_enabled'), 'candidate.is_enabled', True),
             'display_order': _order(raw.get('display_order'), 'candidate.display_order', index),
         })
+
+    inherited_profiles = {}
+    for spec in normalized['specs']:
+        if not spec['is_enabled']:
+            continue
+        spec_key = spec['spec_key']
+        applicable = [
+            candidate for candidate in normalized['candidates']
+            if candidate['is_enabled'] and (
+                not candidate['spec_keys'] or spec_key in candidate['spec_keys']
+            )
+        ]
+        marked = [
+            candidate['params']['benchmark_profile']
+            for candidate in applicable
+            if 'benchmark_profile' in candidate['params']
+        ]
+        if marked and any(profile != marked[0] for profile in marked[1:]):
+            _error(f'专精 {spec_key} 的候选 Benchmark Profile 不一致')
+        if not marked:
+            continue
+        for candidate in applicable:
+            if 'benchmark_profile' in candidate['params']:
+                continue
+            swap = candidate['params'].get('gear_swap', {})
+            if swap.get('slot') != 'trinket1':
+                _error(f'专精 {spec_key} 的候选混用了不同 Benchmark Profile 语义')
+            existing = inherited_profiles.get(candidate['key'])
+            if existing is not None and existing != marked[0]:
+                _error(f'候选 {candidate["key"]} 的 Benchmark Profile 推导不一致')
+            inherited_profiles[candidate['key']] = marked[0]
+    for candidate in normalized['candidates']:
+        inherited = inherited_profiles.get(candidate['key'])
+        if inherited is not None:
+            candidate['params']['benchmark_profile'] = deepcopy(inherited)
+
     total_size = len(json.dumps(normalized, sort_keys=True, separators=(',', ':'),
                                 ensure_ascii=False, default=str).encode('utf-8'))
     if total_size > MAX_PANEL_CONFIG_BYTES:
