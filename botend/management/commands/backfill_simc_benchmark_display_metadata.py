@@ -16,6 +16,19 @@ SPECIAL_BONUS_LABELS = {
 }
 
 
+def _tooltip_completeness(value):
+    lines = [line.strip() for line in str(value or '').splitlines() if line.strip()]
+    semantic_lines = sum(line.startswith(('+', 'Use:', 'Equip:', 'Passive:', 'Effect:', '使用：', '装备：', '被动：', '效果：')) for line in lines)
+    return (semantic_lines, len(lines), len(str(value or '')))
+
+
+def _best_tooltip(description_zh, description):
+    zh = str(description_zh or '').strip()
+    fallback = str(description or '').strip()
+    return max((zh, fallback), key=_tooltip_completeness)
+
+
+
 def _item_id(candidate_params):
     if not isinstance(candidate_params, dict):
         return None
@@ -70,7 +83,7 @@ def _display_metadata(items, candidate_params):
     while icon_name.rsplit('.', 1)[-1].lower() in {'jpg', 'jpeg', 'png', 'gif', 'webp'}:
         icon_name = icon_name.rsplit('.', 1)[0]
     icon_url = f'/static/wow_icons/small/{icon_name}.jpg' if icon_name else ''
-    effect = str(item.description_zh or item.description or '').strip()
+    effect = _best_tooltip(item.description_zh, item.description)
     return label, effect, icon_url
 
 

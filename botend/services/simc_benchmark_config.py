@@ -477,6 +477,19 @@ def _default_profile(spec_key):
     return matches[0]
 
 
+def _benchmark_tooltip_completeness(value):
+    lines = [line.strip() for line in str(value or '').splitlines() if line.strip()]
+    semantic_lines = sum(line.startswith(('+', 'Use:', 'Equip:', 'Passive:', 'Effect:', '使用：', '装备：', '被动：', '效果：')) for line in lines)
+    return (semantic_lines, len(lines), len(str(value or '')))
+
+
+def _best_benchmark_tooltip(description_zh, description):
+    return max(
+        (str(description_zh or '').strip(), str(description or '').strip()),
+        key=_benchmark_tooltip_completeness,
+    )
+
+
 def _benchmark_item_display_metadata(item_id):
     """Resolve display-only item data before the candidate is frozen into an Execution."""
     item = WowItemSnapshot.objects.filter(item_id=item_id).only(
@@ -485,7 +498,7 @@ def _benchmark_item_display_metadata(item_id):
     if item is None:
         return '', '', ''
     label = str(item.name_zh or item.name or '').strip()
-    effect = str(item.description_zh or item.description or '').strip()
+    effect = _best_benchmark_tooltip(item.description_zh, item.description)
     icon_name = str(item.icon or '').strip().split('?', 1)[0].rsplit('/', 1)[-1]
     while icon_name.rsplit('.', 1)[-1].lower() in {'jpg', 'jpeg', 'png', 'gif', 'webp'}:
         icon_name = icon_name.rsplit('.', 1)[0]
