@@ -5,6 +5,10 @@
   if (!root) return;
 
   const cards = root.querySelectorAll("[data-spec-module]");
+  const scenarioControl = document.getElementById("spec-overview-scenario");
+  const profileControl = document.getElementById("spec-overview-profile");
+  const resetControl = document.getElementById("spec-overview-reset");
+  const moduleRequests = new WeakMap();
   const numberFormat = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 });
   const dateFormat = new Intl.DateTimeFormat("zh-CN", {
     year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
@@ -132,6 +136,60 @@
     "simc-cross-spec": renderSimcCrossSpec,
   };
 
+  function selectedDimension() {
+    return {
+      scenario: scenarioControl?.value || root.dataset.simcDefaultScenario || "",
+      profile: profileControl?.value || root.dataset.simcDefaultProfile || "",
+    };
+  }
+
+  function updateSimcEndpoints() {
+    const selected = selectedDimension();
+    cards.forEach((card) => {
+      if (!card.dataset.specModule.startsWith("simc-")) return;
+      const endpoint = new URL(card.dataset.endpoint, window.location.origin);
+      endpoint.searchParams.set("scenario", selected.scenario);
+      if (card.dataset.specModule === "simc-apl") endpoint.searchParams.set("profile", selected.profile);
+      card.dataset.endpoint = `${endpoint.pathname}?${endpoint.searchParams.toString()}`;
+    });
+  }
+
+  function readJsonScript(id) {
+    const script = document.getElementById(id);
+    if (!script) return [];
+    try {
+      const parsed = JSON.parse(script.textContent || "[]");
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function renderDimensionControls() {
+    if (!scenarioControl || !profileControl) return;
+    const scenarios = readJsonScript("spec-overview-scenarios");
+    const profiles = readJsonScript("spec-overview-profiles");
+    scenarios.forEach((item) => scenarioControl.append(node("option", "", item.label || item.key)));
+    profiles.forEach((item) => profileControl.append(node("option", "", item.label || item.key)));
+    scenarios.forEach((item, index) => { scenarioControl.options[index].value = item.key; });
+    profiles.forEach((item, index) => { profileControl.options[index].value = item.key; });
+    scenarioControl.value = root.dataset.simcDefaultScenario || scenarioControl.value;
+    profileControl.value = root.dataset.simcDefaultProfile || profileControl.value;
+    const reload = () => {
+      updateSimcEndpoints();
+      cards.forEach((card) => {
+        if (card.dataset.specModule.startsWith("simc-")) loadModule(card);
+      });
+    };
+    scenarioControl.addEventListener("change", reload);
+    profileControl.addEventListener("change", reload);
+    resetControl?.addEventListener("click", () => {
+      scenarioControl.value = root.dataset.simcDefaultScenario || scenarioControl.value;
+      profileControl.value = root.dataset.simcDefaultProfile || profileControl.value;
+      reload();
+    });
+  }
+
   function updatedAt(payload) {
     const raw = payload?.updated_at || payload?.data?.updated_at || payload?.result_updated_at;
     if (!raw) return "未提供";
@@ -140,6 +198,10 @@
   }
 
   async function loadModule(card) {
+    const previousRequest = moduleRequests.get(card);
+    previousRequest?.abort();
+    const controller = new AbortController();
+    moduleRequests.set(card, controller);
     const endpoint = card.dataset.endpoint;
     const state = card.querySelector("[data-module-state]");
     const content = card.querySelector("[data-module-content]");
@@ -149,7 +211,9 @@
     state.setAttribute("role", "status");
     state.textContent = "加载中…";
     try {
-      const response = await fetch(endpoint, { credentials: "same-origin", headers: { Accept: "application/json" } });
+      const response = await fetch(endpoint, {
+        credentials: "same-origin", headers: { Accept: "application/json" }, signal: controller.signal,
+      });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const payload = await response.json();
       if (payload?.status === "not_ready") {
@@ -174,7 +238,8 @@
       content.hidden = false;
       state.hidden = true;
       card.setAttribute("data-state", "ready");
-    } catch (_) {
+    } catch (error) {
+      if (error?.name === "AbortError") return;
       card.setAttribute("data-state", "error");
       state.hidden = false;
       state.setAttribute("role", "alert");
@@ -182,9 +247,12 @@
       content.replaceChildren();
       content.hidden = true;
     } finally {
-      card.setAttribute("aria-busy", "false");
+      if (moduleRequests.get(card) === controller) {
+        card.setAttribute("aria-busy", "false");
+      }
     }
   }
 
+  renderDimensionControls();
   cards.forEach(loadModule);
 })();

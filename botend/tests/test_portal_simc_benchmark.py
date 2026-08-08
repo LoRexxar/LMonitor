@@ -286,9 +286,10 @@ class PortalSimcRankingTests(TestCase):
             defaults={'payload': {'name': key, 'content': key}},
         )[0]
 
-    def _baseline(self, spec_key, dps, *, apl_version_key='apl-v1', params=None, candidate_key='baseline', profile_version=None, template_version=None, apl_id=None):
-        panel_spec, panel_profile = self.specs[spec_key]
-        profile = panel_profile.profile
+    def _baseline(self, spec_key, dps, *, apl_version_key='apl-v1', params=None, candidate_key='baseline', profile_version=None, template_version=None, apl_id=None, profile=None, panel_profile=None):
+        panel_spec, default_panel_profile = self.specs[spec_key]
+        panel_profile = panel_profile or default_panel_profile
+        profile = profile or panel_profile.profile
         apl = panel_spec.apl if apl_id is None else SimcApl.objects.get(pk=apl_id)
         profile_version = profile_version or self._version('profile', profile.id, f'profile-{spec_key}')
         template_version = template_version or self._version('template', self.template.id, 'template-v1')
@@ -383,6 +384,39 @@ class PortalSimcRankingTests(TestCase):
         payload = get_portal_apl_ranking(self.panel, 'warrior_fury', 'single')
         self.assertEqual(payload['status'], 'not_ready')
         self.assertEqual(payload['reason'], 'incomplete_frozen_identity')
+
+    def test_explicit_invalid_profile_is_not_ready(self):
+        payload = get_portal_apl_ranking(
+            self.panel, 'warrior_fury', 'single', profile_key='not-a-profile',
+        )
+
+        self.assertEqual(payload, {
+            'status': 'not_ready',
+            'reason': 'dimension_not_configured',
+            'rankings': [],
+        })
+
+    def test_explicit_profile_filters_authoritative_rows(self):
+        panel_spec, panel_profile = self.specs['warrior_fury']
+        alternate = SimcProfile.objects.create(
+            user_id=1, name='Fury alternate', class_name='warrior', spec='warrior_fury',
+        )
+        alternate_panel_profile = SimcBenchmarkProfile.objects.create(
+            panel_spec=panel_spec, profile=alternate, label='Fury alternate', display_order=2,
+        )
+        self._baseline('warrior_fury', 321)
+        self._baseline(
+            'warrior_fury', 456, profile=alternate,
+            panel_profile=alternate_panel_profile,
+        )
+
+        payload = get_portal_apl_ranking(
+            self.panel, 'warrior_fury', 'single', profile_key=str(alternate.pk),
+        )
+
+        self.assertEqual(payload['status'], 'ready')
+        self.assertEqual(payload['profile_key'], str(alternate.pk))
+        self.assertTrue(all(row['profile_key'] == str(alternate.pk) for row in payload['rankings']))
 
 
 @override_settings(ALLOWED_HOSTS=['testserver'])

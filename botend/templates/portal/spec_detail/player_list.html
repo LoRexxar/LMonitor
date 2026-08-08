@@ -9,7 +9,20 @@
 {% endblock %}
 
 {% block content %}
-<main id="spec-overview" class="spec-overview" data-class-name="{{ class_name }}" data-spec-name="{{ spec_name }}">
+{% if simc_dimensions %}
+{{ simc_dimensions.scenarios|json_script:"spec-overview-scenarios" }}
+{{ simc_dimensions.profiles|json_script:"spec-overview-profiles" }}
+{% endif %}
+<main id="spec-overview" class="spec-overview"
+      data-class-name="{{ class_name }}" data-spec-name="{{ spec_name }}"
+      {% if simc_dimensions %}
+      data-simc-panel="{{ simc_dimensions.panel }}"
+      data-simc-spec="{{ simc_dimensions.spec }}"
+      data-simc-default-scenario="{{ simc_dimensions.scenario }}"
+      data-simc-default-profile="{{ simc_dimensions.profile }}"
+      data-simc-scenarios="{{ simc_dimensions.scenario_keys }}"
+      data-simc-profiles="{{ simc_dimensions.profile_keys }}"
+      {% endif %}>
     <header class="spec-overview-hero">
         <div class="spec-overview-identity">
             <img src="{% wow_icon nav.spec_icon "small" %}" alt="" class="spec-overview-icon" width="56" height="56">
@@ -24,6 +37,19 @@
             <dd>{% if season %}{% firstof season.season_name season.season_key "未配置" %}{% else %}未配置{% endif %}</dd>
         </dl>
     </header>
+
+    {% if simc_dimensions %}
+    <section class="spec-overview-controls" aria-label="模拟聚合维度">
+        <div class="spec-overview-control-intro">
+            <span class="spec-overview-control-kicker">聚合维度</span>
+            <strong>选择模拟场景与 Profile</strong>
+            <small>仅影响 SimC 两个模块；人物榜、M+、团本保持各自来源与口径。</small>
+        </div>
+        <label>场景<select id="spec-overview-scenario"></select></label>
+        <label>Profile<select id="spec-overview-profile"></select></label>
+        <button type="button" id="spec-overview-reset" title="恢复默认模拟维度">恢复默认</button>
+    </section>
+    {% endif %}
 
     <nav class="spec-overview-links" aria-label="专精详情入口">
         <a href="#module-players" aria-current="page">人物榜</a>
@@ -81,7 +107,7 @@
         </section>
 
         <section id="module-simc-apl" class="spec-module-card" data-spec-module="simc-apl"
-                 data-endpoint="{% if simc_dimensions %}/portal/api/simc-benchmarks/apl-rankings/?panel={{ simc_dimensions.panel|urlencode }}&amp;spec={{ simc_dimensions.spec|urlencode }}&amp;scenario={{ simc_dimensions.scenario|urlencode }}{% else %}/portal/api/simc-benchmarks/apl-rankings/?panel=&amp;spec={{ class_name|lower }}_{{ spec_name|lower }}&amp;scenario={% endif %}" data-state="loading" aria-busy="true">
+                 data-endpoint="{% if simc_dimensions %}/portal/api/simc-benchmarks/apl-rankings/?panel={{ simc_dimensions.panel|urlencode }}&amp;spec={{ simc_dimensions.spec|urlencode }}&amp;scenario={{ simc_dimensions.scenario|urlencode }}&amp;profile={{ simc_dimensions.profile|urlencode }}{% else %}/portal/api/simc-benchmarks/apl-rankings/?panel=&amp;spec={{ class_name|lower }}_{{ spec_name|lower }}&amp;scenario={% endif %}" data-state="loading" aria-busy="true">
             <header class="spec-module-header">
                 <div><p class="spec-module-kicker">SimC APL</p><h2>APL 场景排名</h2></div>
                 <span class="spec-module-source" data-module-source>来源：SimulationCraft 冻结配置</span>

@@ -104,13 +104,34 @@ class SpecOverviewService:
         spec_key = f'{class_name}_{spec_name}'.lower()
         panel_spec = SimcBenchmarkSpec.objects.filter(
             panel__is_active=True, panel__is_public=True, is_enabled=True, spec_key=spec_key,
-        ).select_related('panel').order_by('panel__name', 'panel_id', 'display_order', 'id').first()
+        ).select_related('panel').prefetch_related('profiles__profile').order_by(
+            'panel__name', 'panel_id', 'display_order', 'id',
+        ).first()
         if panel_spec is None:
             return None
-        scenario = SimcBenchmarkScenario.objects.filter(
+        scenarios = list(SimcBenchmarkScenario.objects.filter(
             panel=panel_spec.panel, is_enabled=True,
-        ).order_by('display_order', 'id').first()
-        if scenario is None:
+        ).order_by('display_order', 'id'))
+        if not scenarios:
             return None
-        return {'panel': panel_spec.panel.slug, 'spec': panel_spec.spec_key,
-                'scenario': scenario.key}
+        profiles = [profile for profile in panel_spec.profiles.all() if profile.is_enabled]
+        if not profiles:
+            return None
+        return {
+            'panel': panel_spec.panel.slug,
+            'spec': panel_spec.spec_key,
+            'scenario': scenarios[0].key,
+            'profile': str(profiles[0].profile_id) if profiles else '',
+            'scenario_keys': ','.join(scenario.key for scenario in scenarios),
+            'profile_keys': ','.join(str(profile.profile_id) for profile in profiles),
+            'scenarios': [
+                {'key': scenario.key, 'label': scenario.name,
+                 'detail': scenario.simulation_params or {}}
+                for scenario in scenarios
+            ],
+            'profiles': [
+                {'key': str(profile.profile_id), 'label': profile.label,
+                 'profile_name': profile.profile.name}
+                for profile in profiles
+            ],
+        }

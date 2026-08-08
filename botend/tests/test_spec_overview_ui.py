@@ -15,9 +15,11 @@ from botend.models import (
     SimcApl,
     SimcBackendBinary,
     SimcBenchmarkPanel,
+    SimcBenchmarkProfile,
     SimcBenchmarkScenario,
     SimcBenchmarkSpec,
     SimcContentTemplate,
+    SimcProfile,
 )
 
 
@@ -53,6 +55,13 @@ class SpecOverviewIntegrationTests(TestCase):
         self.scenario = SimcBenchmarkScenario.objects.create(
             panel=self.panel, key='single', name='Single target',
             simulation_params={'iterations': 1000}, is_enabled=True,
+        )
+        overview_profile = SimcProfile.objects.create(
+            user_id=1, name='Fire overview profile', class_name='mage', spec='mage_fire',
+        )
+        SimcBenchmarkProfile.objects.create(
+            panel_spec=self.panel.specs.get(spec_key='mage_fire'),
+            profile=overview_profile, label='Fire standard', is_enabled=True,
         )
         # This panel must never be selected by overview discovery.
         private = SimcBenchmarkPanel.objects.create(
@@ -108,6 +117,41 @@ class SpecOverviewIntegrationTests(TestCase):
             self.assertEqual(params['scenario'], [self.scenario.key])
             self.assertNotIn('private-overview', endpoints[module])
         self.assertEqual(parse_qs(urlsplit(endpoints['simc-apl']).query)['spec'], ['mage_fire'])
+
+    def test_simc_dimension_controls_expose_all_enabled_profiles_and_scenarios(self):
+        extra_profile = SimcProfile.objects.create(
+            user_id=1, name='Fire alt', class_name='mage', spec='mage_fire',
+        )
+        SimcBenchmarkProfile.objects.create(
+            panel_spec=self.panel.specs.get(spec_key='mage_fire'),
+            profile=extra_profile, label='Fire alternate', display_order=2,
+        )
+        extra_scenario = SimcBenchmarkScenario.objects.create(
+            panel=self.panel, key='cleave', name='Cleave',
+            simulation_params={'desired_targets': 3}, is_enabled=True, display_order=2,
+        )
+        response = self.client.get('/portal/spec/Mage/Fire/')
+        soup = BeautifulSoup(response.content, 'html.parser')
+        root = soup.select_one('#spec-overview')
+        self.assertEqual(root.get('data-simc-panel'), self.panel.slug)
+        self.assertEqual(root.get('data-simc-spec'), 'mage_fire')
+        self.assertEqual(root.get('data-simc-default-scenario'), self.scenario.key)
+        self.assertIn(extra_scenario.key, root.get('data-simc-scenarios'))
+        self.assertIn(str(extra_profile.pk), root.get('data-simc-profiles'))
+        self.assertEqual(root.get('data-simc-default-profile'), str(self.panel.specs.get(spec_key='mage_fire').profiles.order_by('display_order', 'id').first().profile_id))
+        catalog = json.loads(soup.select_one('#spec-overview-scenarios').string)
+        self.assertEqual(catalog[0]['key'], self.scenario.key)
+
+    def test_simc_dimension_controls_are_hidden_when_no_profile_is_enabled(self):
+        panel_spec = self.panel.specs.get(spec_key='mage_fire')
+        panel_spec.profiles.update(is_enabled=False)
+
+        response = self.client.get('/portal/spec/Mage/Fire/')
+
+        soup = BeautifulSoup(response.content, 'html.parser')
+        root = soup.select_one('#spec-overview')
+        self.assertNotIn('data-simc-panel', root.attrs)
+        self.assertIsNone(soup.select_one('#spec-overview-scenario'))
 
     @patch('botend.services.spec_overview_service.SpecOverviewService._aggregate')
     def test_stats_endpoints_are_independent_service_projections(
@@ -195,6 +239,8 @@ class SpecOverviewDOMContractTests(TestCase):
         self.assertIn('"apl_label"', js)
         self.assertIn('payload?.status === "not_ready"', js)
         self.assertIn('description.detail_url', js)
+        self.assertIn('AbortController', js)
+        self.assertIn('signal: controller.signal', js)
 
     def test_simc_loader_explains_not_ready_reason_and_renders_frozen_identity(self):
         js = (Path(__file__).resolve().parents[2] / 'static/portal/js/spec-overview.js').read_text()
