@@ -231,8 +231,10 @@
 .simc-benchmark-item-tooltip[hidden] { display: none; }
 .simc-benchmark-item-tooltip-name { color: #facc15; font-size: 0.76rem; }
 .simc-benchmark-item-tooltip-level { color: #93c5fd; }
+.simc-benchmark-item-tooltip-source { color: #c4b5fd; }
 .simc-benchmark-item-tooltip-stat { color: #86efac; }
 .simc-benchmark-item-tooltip-effect { color: #f8fafc; margin-top: 0.12rem; }
+.simc-benchmark-item-tooltip-note { border-top: 1px solid rgba(148, 163, 184, 0.26); color: #cbd5e1; font-size: 0.64rem; margin-top: 0.18rem; padding-top: 0.28rem; }
 .simc-benchmark-item-tooltip-empty { color: #cbd5e1; font-style: italic; }
 
 .simc-benchmark-state {

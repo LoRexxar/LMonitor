@@ -171,9 +171,15 @@
       const itemIdentity = Number.isFinite(itemId) && itemId > 0 ? `item-${itemId}` : `candidate-${candidate.key || label}`;
       const variantIdentity = candidate.item_variant_key || label;
       const key = `${itemIdentity}|${variantIdentity}`;
-      if (!groups.has(key)) groups.set(key, { key, label, icon_url: candidate.icon_url || "", effect: candidate.effect || "", variants: [] });
+      if (!groups.has(key)) {
+        groups.set(key, {
+          key, label, icon_url: candidate.icon_url || "", effect: candidate.effect || "",
+          source_label: candidate.source_label || "", variants: [],
+        });
+      }
       const group = groups.get(key);
       if (!group.effect && candidate.effect) group.effect = candidate.effect;
+      if (!group.source_label && candidate.source_label) group.source_label = candidate.source_label;
       group.variants.push(candidate);
     });
     return Array.from(groups.values()).map((group) => {
@@ -200,7 +206,7 @@
     levelColors.forEach((color, level) => {
       const key = node("span", "simc-benchmark-gear-level-key");
       const swatch = node("i"); swatch.style.backgroundColor = color; swatch.setAttribute("aria-hidden", "true");
-      key.append(swatch, node("span", "", `${level} 装等`)); legend.appendChild(key);
+      key.append(swatch, node("span", "", `模拟装等 ${level}`)); legend.appendChild(key);
     });
     if (levelColors.size) chart.appendChild(legend);
 
@@ -227,10 +233,12 @@
         .map((line) => line.trim()).filter(Boolean);
       itemTooltip.replaceChildren(
         node("strong", "simc-benchmark-item-tooltip-name", group.label),
-        ...(levels ? [node("span", "simc-benchmark-item-tooltip-level", `模拟装等：${levels}`)] : []),
+        ...(levels ? [node("span", "simc-benchmark-item-tooltip-level", `本次模拟输入装等：${levels}`)] : []),
+        ...(group.source_label ? [node("span", "simc-benchmark-item-tooltip-source", `候选与模拟装等来源：${group.source_label}`)] : []),
         ...(details.length
           ? details.map((line) => node("span", itemTooltipLineClass(line), line))
           : [node("span", "simc-benchmark-item-tooltip-empty", "暂无冻结的物品 tooltip 信息")]),
+        ...(details.length ? [node("span", "simc-benchmark-item-tooltip-note", "属性与特效为物品静态 tooltip 快照，仅用于识别；它们不替代本次模拟输入装等。")] : []),
       );
       const rect = identity.getBoundingClientRect();
       const maxLeft = Math.max(8, window.innerWidth - 370);
@@ -274,7 +282,7 @@
         segment.style.left = `${Math.min(start, end)}%`;
         segment.style.width = `${Math.max(0.45, Math.abs(end - start))}%`;
         segment.style.backgroundColor = levelColors.get(level) || "#64748b";
-        segment.setAttribute("aria-label", `${group.label} ${Number.isFinite(level) && level > 0 ? `${level} 装等` : ""} ${numberFormat.format(dps)} DPS`);
+        segment.setAttribute("aria-label", `${group.label} ${Number.isFinite(level) && level > 0 ? `模拟装等 ${level}` : ""} ${numberFormat.format(dps)} DPS`);
         const moveTooltip = (event) => {
           const rect = body.getBoundingClientRect();
           if (Number.isFinite(event?.clientX) && Number.isFinite(event?.clientY)) {
@@ -290,7 +298,7 @@
           const plotRect = plot.getBoundingClientRect(); const bodyRect = body.getBoundingClientRect();
           guide.style.left = `${plotRect.left - bodyRect.left + plotRect.width * end / 100}px`;
           const delta = baselineDps && baselineDps > 0 ? (dps - baselineDps) * 100 / baselineDps : null;
-          tooltip.replaceChildren(node("strong", "", group.label), node("span", "", `${Number.isFinite(level) && level > 0 ? `${level} 装等 · ` : ""}${numberFormat.format(dps)} DPS`), node("span", "", delta === null ? "无基准对比" : `相对基准 ${delta >= 0 ? "+" : ""}${delta.toFixed(2)}%`));
+          tooltip.replaceChildren(node("strong", "", group.label), node("span", "", `${Number.isFinite(level) && level > 0 ? `模拟装等 ${level} · ` : ""}${numberFormat.format(dps)} DPS`), node("span", "", delta === null ? "无基准对比" : `相对基准 ${delta >= 0 ? "+" : ""}${delta.toFixed(2)}%`));
           moveTooltip(event);
         };
         const hideComparison = () => { row.classList.remove("is-hovered"); guide.hidden = true; tooltip.hidden = true; };
