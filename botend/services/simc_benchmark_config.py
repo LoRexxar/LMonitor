@@ -480,16 +480,17 @@ def _default_profile(spec_key):
 def _benchmark_item_display_metadata(item_id):
     """Resolve display-only item data before the candidate is frozen into an Execution."""
     item = WowItemSnapshot.objects.filter(item_id=item_id).only(
-        'name_zh', 'name', 'icon',
+        'name_zh', 'name', 'description_zh', 'description', 'icon',
     ).first()
     if item is None:
-        return '', ''
+        return '', '', ''
     label = str(item.name_zh or item.name or '').strip()
+    effect = str(item.description_zh or item.description or '').strip()
     icon_name = str(item.icon or '').strip().split('?', 1)[0].rsplit('/', 1)[-1]
     while icon_name.rsplit('.', 1)[-1].lower() in {'jpg', 'jpeg', 'png', 'gif', 'webp'}:
         icon_name = icon_name.rsplit('.', 1)[0]
     icon_url = f'/static/wow_icons/small/{icon_name}.jpg' if icon_name else ''
-    return label, icon_url
+    return label, effect, icon_url
 
 
 def normalize_panel_payload(payload, user_id, panel=None):
@@ -641,7 +642,7 @@ def normalize_panel_payload(payload, user_id, panel=None):
             _error('spec_keys 只能包含字符串', 'spec_keys')
         spec_keys = [_key(item, 'spec_keys') for item in spec_keys]
         if len(set(spec_keys)) != len(spec_keys): _error('spec_keys 包含重复值', 'spec_keys')
-        metadata_label, metadata_icon_url = _benchmark_item_display_metadata(item_id)
+        metadata_label, metadata_effect, metadata_icon_url = _benchmark_item_display_metadata(item_id)
         requested_label = _text(raw.get('label', ''), 'candidate.label', required=False, max_length=200)
         icon_url = metadata_icon_url or _text(raw.get('icon_url', ''), 'icon_url', required=False,
                                                 max_length=500)
@@ -674,6 +675,7 @@ def normalize_panel_payload(payload, user_id, panel=None):
             'params': params,
             'spec_keys': spec_keys,
             'icon_url': icon_url,
+            'effect': metadata_effect,
             'source_label': _text(raw.get('source_label', f'物品 #{item_id}'), 'source_label',
                                   required=False, max_length=200),
             'is_enabled': _strict_bool(raw.get('is_enabled'), 'candidate.is_enabled', True),
@@ -791,6 +793,7 @@ def _candidate_snapshot(candidate):
         'candidate_key': candidate.key, 'candidate_label': candidate.label,
         'candidate_params': deepcopy(candidate.params),
         'candidate_type': candidate.candidate_type, 'icon_url': candidate.icon_url,
+        'effect': candidate.effect,
         'source_label': candidate.source_label,
     }
 
@@ -1057,7 +1060,7 @@ def serialize_panel_config(panel):
         'id': row.pk, 'key': row.key, 'label': row.label,
         'candidate_type': row.candidate_type, 'params': deepcopy(row.params),
         'spec_keys': deepcopy(row.spec_keys), 'icon_url': row.icon_url,
-        'source_label': row.source_label, 'is_enabled': row.is_enabled,
+        'effect': row.effect, 'source_label': row.source_label, 'is_enabled': row.is_enabled,
         'display_order': row.display_order,
     } for row in panel._snapshot_candidates]
     return deepcopy(result)

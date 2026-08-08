@@ -1360,6 +1360,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
             if match:
                 result_task = match['task']
                 source_run = _candidate_source_run(result_task, candidate['candidate_key'])
+                effect = candidate.get('effect') or ''
                 row = {
                     'key': candidate['candidate_key'],
                     'label': candidate['candidate_label'],
@@ -1369,6 +1370,8 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                     'dps': float(match['result'].dps), 'task_id': result_task.pk,
                     'source_result_id': match['result'].pk,
                 }
+                if effect:
+                    row['effect'] = effect
                 report_url = report_urls.get((match['task'].pk, candidate['candidate_key']))
                 if report_url:
                     row['raw_report_url'] = report_url
@@ -2464,14 +2467,18 @@ def serialize_public_execution(panel_or_execution):
                 'status': row['status'], 'candidate_key': run['key'],
                 'dps': run['dps'],
             })
-            candidates.append({
+            candidate_row = {
                 'key': run['key'],
                 'label': str(display.get('label') or candidate['label']),
                 'type': candidate['candidate_type'],
                 'icon_url': str(display.get('icon_url') or candidate['icon_url']),
                 'source_label': candidate['source_label'],
                 'status': run['status'], 'dps': run['dps'],
-            })
+            }
+            effect = str(display.get('effect') or candidate.get('effect') or '')
+            if effect:
+                candidate_row['effect'] = effect
+            candidates.append(candidate_row)
         public_cases.append({
             'coordinates': {
                 'spec_key': row['spec_key'], 'scenario_key': row['scenario_key'],

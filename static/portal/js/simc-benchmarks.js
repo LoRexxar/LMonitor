@@ -171,8 +171,10 @@
       const itemIdentity = Number.isFinite(itemId) && itemId > 0 ? `item-${itemId}` : `candidate-${candidate.key || label}`;
       const variantIdentity = candidate.item_variant_key || label;
       const key = `${itemIdentity}|${variantIdentity}`;
-      if (!groups.has(key)) groups.set(key, { key, label, icon_url: candidate.icon_url || "", variants: [] });
-      groups.get(key).variants.push(candidate);
+      if (!groups.has(key)) groups.set(key, { key, label, icon_url: candidate.icon_url || "", effect: candidate.effect || "", variants: [] });
+      const group = groups.get(key);
+      if (!group.effect && candidate.effect) group.effect = candidate.effect;
+      group.variants.push(candidate);
     });
     return Array.from(groups.values()).map((group) => {
       group.variants.sort((left, right) => Number(left.item_level || Number.MAX_SAFE_INTEGER) - Number(right.item_level || Number.MAX_SAFE_INTEGER));
@@ -246,7 +248,8 @@
           const plotRect = plot.getBoundingClientRect(); const bodyRect = body.getBoundingClientRect();
           guide.style.left = `${plotRect.left - bodyRect.left + plotRect.width * end / 100}px`;
           const delta = baselineDps && baselineDps > 0 ? (dps - baselineDps) * 100 / baselineDps : null;
-          tooltip.replaceChildren(node("strong", "", group.label), node("span", "", `${Number.isFinite(level) && level > 0 ? `${level} 装等 · ` : ""}${numberFormat.format(dps)} DPS`), node("span", "", delta === null ? "无基准对比" : `相对基准 ${delta >= 0 ? "+" : ""}${delta.toFixed(2)}%`));
+          const effect = group.effect ? node("span", "simc-benchmark-gear-tooltip-effect", group.effect) : null;
+          tooltip.replaceChildren(node("strong", "", group.label), ...(effect ? [effect] : []), node("span", "", `${Number.isFinite(level) && level > 0 ? `${level} 装等 · ` : ""}${numberFormat.format(dps)} DPS`), node("span", "", delta === null ? "无基准对比" : `相对基准 ${delta >= 0 ? "+" : ""}${delta.toFixed(2)}%`));
           moveTooltip(event);
         };
         const hideComparison = () => { row.classList.remove("is-hovered"); guide.hidden = true; tooltip.hidden = true; };
