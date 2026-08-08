@@ -250,6 +250,15 @@ class SpecOverviewDOMContractTests(TestCase):
         self.assertIn('resource_versions', js)
         self.assertIn('source_result_id', js)
 
+    def test_overview_assets_keep_cache_query_outside_static_path(self):
+        response = self.client.get('/portal/spec/Mage/Fire/')
+        content = response.content.decode()
+
+        self.assertIn('<link rel="stylesheet" href="/static/portal/css/spec-overview.css?v=20260809">', content)
+        self.assertIn('<script src="/static/portal/js/spec-overview.js?v=20260809" defer></script>', content)
+        self.assertNotIn('spec-overview.js%3Fv', content)
+        self.assertNotIn('spec-overview.css%3Fv', content)
+
     def test_overview_surfaces_decision_context_without_cross_source_score(self):
         response = self.client.get('/portal/spec/Mage/Fire/')
         soup = BeautifulSoup(response.content, 'html.parser')

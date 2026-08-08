@@ -4,8 +4,8 @@
 
 {% block title %}{{ nav.class_cn }} {{ nav.spec_cn }} - 专精总览{% endblock %}
 
-{% block extra_style %}{{ block.super }}
-@import url("{% static 'portal/css/spec-overview.css?v=20260809' %}");
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'portal/css/spec-overview.css' %}?v=20260809">
 {% endblock %}
 
 {% block content %}
@@ -139,5 +139,5 @@
 {% endblock %}
 
 {% block extra_script %}{{ block.super }}
-<script src="{% static 'portal/js/spec-overview.js?v=20260809' %}" defer></script>
+<script src="{% static 'portal/js/spec-overview.js' %}?v=20260809" defer></script>
 {% endblock %}
