@@ -87,7 +87,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertEqual(title.get_text(strip=True), 'SimC 基准面板')
 
     def test_shared_benchmark_assets_use_current_cache_version(self):
-        expected = '?v=20260807_execution_stop'
+        expected = '?v=20260808_candidate_profile'
         for page in (INDEX, CONFIG_PAGE, PANEL_EDIT_PAGE, EXECUTION_PAGE):
             for line in page.splitlines():
                 if 'simc-benchmark-dashboard.' in line:
@@ -159,6 +159,17 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn("row.canonical_spec", JS)
         self.assertIn("function resourceMatches", JS)
         self.assertNotIn("row.spec_key!==undefined?row.spec_key:row.spec", JS)
+
+    def test_new_candidate_inherits_the_panels_unique_benchmark_profile(self):
+        profile_helper = JS[
+            JS.index('function inheritedCandidateParams('):
+            JS.index('function addSpec(', JS.index('function inheritedCandidateParams('))
+        ]
+        self.assertIn('benchmark_profile', profile_helper)
+        self.assertIn('stableEditorValue', profile_helper)
+        self.assertIn('profiles.length!==1', profile_helper)
+        add_candidate = JS[JS.index('function addCandidate('):JS.index('function localDate(')]
+        self.assertIn('inheritedCandidateParams()', add_candidate)
 
     def test_resource_numeric_profile_and_portal_contracts(self):
         self.assertIn("row.canonical_spec", JS)
@@ -403,7 +414,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn('function loadExecutionPage()', JS)
         self.assertIn('function rerunFailedPage(id,button)', JS)
         self.assertIn("dataset:{rerunFailed:data.id}", JS)
-        self.assertIn('?v=20260807_execution_stop', INDEX)
+        self.assertIn('?v=20260808_candidate_profile', INDEX)
         self.assertIn("if(!configPage){document.body.classList.add", JS)
         self.assertIn("data-benchmark-notification", JS)
         self.assertNotIn('data-create-only', CONFIG_PAGE)
@@ -525,7 +536,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
             '.candidate-config-row',
         ):
             self.assertIn(selector, CSS)
-        self.assertIn('?v=20260807_execution_stop', CONFIG_PAGE)
+        self.assertIn('?v=20260808_candidate_profile', CONFIG_PAGE)
 
     def test_panel_name_does_not_collide_with_nested_scenario_names(self):
         soup = BeautifulSoup(PARTIAL, "html.parser")

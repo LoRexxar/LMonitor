@@ -308,6 +308,15 @@ function coalesceCandidateEditorRows(candidates=[]){
 }
 function updateGearIdentity(raw,itemId,itemLevel){let value=String(raw||'');if(!value)return `id=${itemId},ilevel=${itemLevel}`;value=value.replace(/(^|,)\s*id=\d+(?=,|$)/i,`$1id=${itemId}`);value=value.replace(/(^|,)\s*(?:ilevel|item_level)=\d+(?=,|$)/i,`$1ilevel=${itemLevel}`);return value;}
 function candidateParams(meta,itemId,itemLevel){const fallback=`${meta.slot||'trinket1'}=id=${itemId},ilevel=${itemLevel}`,original=meta.params;if(!original)return fallback;if(typeof original==='string'){const match=original.match(/^\s*([a-z][a-z0-9_]*)\s*=(.*)$/i),slot=match?.[1]||meta.slot||'trinket1';return `${slot}=${updateGearIdentity(match?.[2]??original,itemId,itemLevel)}`;}const params=JSON.parse(JSON.stringify(original)),swap=params.gear_swap||params;swap.slot=swap.slot||meta.slot||'trinket1';swap.item_id=Number(itemId);swap.raw_value=updateGearIdentity(swap.raw_value,itemId,itemLevel);return params;}
+function inheritedCandidateParams(){
+  const profiles=[];
+  $$('[data-config="candidate"]',root).forEach(card=>{
+    const profile=card._candidateMeta?.params?.benchmark_profile;
+    if(profile!==undefined&&!profiles.some(item=>JSON.stringify(stableEditorValue(item))===JSON.stringify(stableEditorValue(profile))))profiles.push(profile);
+  });
+  if(profiles.length!==1)return null;
+  return {is_base:false,gear_swap:{slot:'trinket1',source:'manual',item_id:null,raw_value:''},candidate_type:'gear_swap',benchmark_profile:JSON.parse(JSON.stringify(profiles[0]))};
+}
 function addSpec(data={}){
   if($$('[data-config="spec"]',root).length>=limits.max_specs){notify(`专精最多 ${limits.max_specs} 项`,'warning');return;}
   const catalog=(resources?.specs||[]).find(row=>row.value===data.spec_key)||{},persistable=data._catalog_available!==false;
@@ -353,6 +362,7 @@ function addScenario(data={}){
   advanced.body.append(params,renderRaidBuffEditor(card,data.simulation_params||{}));card.append(head,primary,essential,advanced.details);$('[data-editor-scenarios]',root).append(card);syncRaidBuffControls(card);updateSummary();
 }
 function addCandidate(data={}){
+  if(data.params===undefined)data={...data,params:inheritedCandidateParams()};
   const parts=gearParts(data),card=el('div',{class:'config-card candidate-config-row',dataset:{config:'candidate'}}),head=el('div',{class:'config-card-head'});head.append(el('div',{class:'config-card-title'},'装备候选'),removeButton('candidate'));
   const editorLevels=data.editorLevels||[String(parts.itemLevel||'')];
   const editorKeys=data.editorKeys||{[String(parts.itemLevel||'')]:data.key||''};
