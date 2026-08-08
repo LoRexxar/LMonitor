@@ -837,11 +837,90 @@ class SimcBenchmarkExecutionTests(TestCase):
         self._run(rerun_task, 2, 'completed', 'trinket', dps=1300)
         reconcile_execution(rerun)
 
+        self.panel.refresh_from_db()
+        self.assertEqual(self.panel.aggregate_baseline_execution_id, rerun.id)
+        self.assertEqual(self.panel.published_execution_id, rerun.id)
         candidates = serialize_incremental_panel_results(self.panel)['coordinates'][0]['candidates']
         self.assertEqual(
             [(row['key'], row['dps']) for row in candidates],
             [('baseline', 1200.0), ('trinket', 1300.0)],
         )
+
+    def test_failed_full_rerun_keeps_previous_boundary_and_falls_back_per_candidate(self):
+        original = self._published_success()
+        self.panel.aggregate_baseline_execution = original
+        self.panel.save(update_fields=['aggregate_baseline_execution'])
+
+        rerun = self._create(execution_mode='full')
+        task = rerun.cases.get().task
+        task.current_status = 3
+        task.save(update_fields=['current_status'])
+        self._run(task, 1, 'completed', 'baseline', dps=1200)
+        self._run(task, 2, 'failed', 'trinket')
+
+        reconcile_execution(rerun)
+
+        rerun.refresh_from_db()
+        self.panel.refresh_from_db()
+        self.assertEqual(rerun.status, SimcBenchmarkExecution.STATUS_FAILED)
+        self.assertEqual(self.panel.aggregate_baseline_execution_id, original.id)
+        self.assertEqual(self.panel.published_execution_id, original.id)
+        self.assertFalse(rerun.cases.get().results.exists())
+        candidates = serialize_incremental_panel_results(self.panel)['coordinates'][0]['candidates']
+        self.assertEqual(
+            [(row['key'], row['dps']) for row in candidates],
+            [('baseline', 1234.0), ('trinket', 1300.0)],
+        )
+
+    def test_partial_full_rerun_updates_successful_case_and_preserves_failed_case(self):
+        SimcBenchmarkScenario.objects.create(
+            panel=self.panel, key='second-scenario', name='Second scenario',
+            simulation_params={'iterations': 2000},
+        )
+        original = self._create(execution_mode='full')
+        original_cases = {
+            case.scenario_key: case
+            for case in original.cases.select_related('task')
+        }
+        for case in original_cases.values():
+            case.task.current_status = 2
+            case.task.save(update_fields=['current_status'])
+            self._run(case.task, 1, 'completed', 'baseline', dps=1234)
+            self._run(case.task, 2, 'completed', 'trinket', dps=1300)
+        reconcile_execution(original)
+
+        rerun = self._create(execution_mode='full')
+        rerun_cases = {
+            case.scenario_key: case
+            for case in rerun.cases.select_related('task')
+        }
+        successful = rerun_cases['patchwerk']
+        successful.task.current_status = 2
+        successful.task.save(update_fields=['current_status'])
+        self._run(successful.task, 1, 'completed', 'baseline', dps=1200)
+        self._run(successful.task, 2, 'completed', 'trinket', dps=1250)
+        failed = rerun_cases['second-scenario']
+        failed.task.current_status = 3
+        failed.task.save(update_fields=['current_status'])
+        self._run(failed.task, 1, 'failed', 'baseline')
+
+        reconcile_execution(rerun)
+
+        rerun.refresh_from_db()
+        self.panel.refresh_from_db()
+        self.assertEqual(rerun.status, SimcBenchmarkExecution.STATUS_PARTIAL)
+        self.assertEqual(self.panel.aggregate_baseline_execution_id, original.id)
+        self.assertEqual(self.panel.published_execution_id, original.id)
+        by_scenario = {
+            row['scenario_key']: [(item['key'], item['dps']) for item in row['candidates']]
+            for row in serialize_incremental_panel_results(self.panel)['coordinates']
+        }
+        self.assertEqual(by_scenario['patchwerk'], [
+            ('baseline', 1200.0), ('trinket', 1250.0),
+        ])
+        self.assertEqual(by_scenario['second-scenario'], [
+            ('baseline', 1234.0), ('trinket', 1300.0),
+        ])
 
     def test_supplement_rerun_only_schedules_missing_candidates_from_current_baseline(self):
         original = self._published_success()

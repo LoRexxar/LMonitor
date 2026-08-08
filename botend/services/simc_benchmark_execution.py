@@ -2278,6 +2278,14 @@ def reconcile_execution(execution):
         if not newer_already_published and panel.published_execution_id != locked.pk:
             panel.published_execution = locked
             panel_fields.append('published_execution')
+        if (snapshot.get('execution_mode') == 'full'
+                and not newer_already_published
+                and panel.aggregate_baseline_execution_id != locked.pk):
+            # A full rerun becomes the aggregate denominator only after every
+            # frozen Case has been verified and sealed successfully. Until then,
+            # the previous successful full surface remains authoritative.
+            panel.aggregate_baseline_execution = locked
+            panel_fields.append('aggregate_baseline_execution')
         if panel_fields:
             panel.save(update_fields=panel_fields)
         return locked
