@@ -83,21 +83,64 @@ class SpecOverviewService:
             'pages': data.get('pages', 1 if public_players else 0),
         }
 
+    @staticmethod
+    def _summary_fields(row, fields):
+        """Copy a small public read-model projection without leaking detail payloads."""
+        if not isinstance(row, dict):
+            return {}
+        return {field: row[field] for field in fields if field in row}
+
+    @classmethod
+    def _dungeon_summary(cls, dungeon):
+        summary = cls._summary_fields(
+            dungeon, ('dungeon_id', 'dungeon_name', 'name', 'short_name', 'sample_size'),
+        )
+        for field, metric_fields in (
+            ('dps', ('median', 'avg')),
+            ('keystone', ('avg',)),
+            ('clear_time', ('median_fmt',)),
+        ):
+            metric = cls._summary_fields(dungeon.get(field), metric_fields) if isinstance(dungeon, dict) else {}
+            if metric:
+                summary[field] = metric
+        return summary
+
+    @classmethod
+    def _raid_summary(cls, zone):
+        summary = cls._summary_fields(zone, ('zone_id', 'zone_name', 'zone_cn', 'name'))
+        bosses = zone.get('bosses') if isinstance(zone, dict) else []
+        bosses = bosses if isinstance(bosses, list) else []
+        summary['bosses'] = []
+        for boss in bosses:
+            boss_summary = cls._summary_fields(boss, ('boss_id', 'boss_name', 'name', 'sample_size'))
+            for field, metric_fields in (
+                ('dps', ('median', 'avg')),
+                ('kill_time', ('median_fmt',)),
+            ):
+                metric = cls._summary_fields(boss.get(field), metric_fields) if isinstance(boss, dict) else {}
+                if metric:
+                    boss_summary[field] = metric
+            if boss_summary:
+                summary['bosses'].append(boss_summary)
+        return summary
+
     @classmethod
     def mythic_plus(cls, class_name, spec_name):
         data, mtime = cls._aggregate('mythic-plus', class_name, spec_name)
         dungeons = data.get('dungeons') or []
+        dungeons = dungeons if isinstance(dungeons, list) else []
         return {'source': cls.SOURCES['mythic-plus'],
                 'updated_at': data.get('updated_at') or cls._latest_timestamp(dungeons) or mtime,
-                'dungeons': dungeons}
+                'dungeons': [cls._dungeon_summary(dungeon) for dungeon in dungeons if isinstance(dungeon, dict)]}
 
     @classmethod
     def raid(cls, class_name, spec_name):
         data, mtime = cls._aggregate('raid', class_name, spec_name)
         zone_groups = data.get('zone_groups') or []
+        zone_groups = zone_groups if isinstance(zone_groups, list) else []
         return {'source': cls.SOURCES['raid'],
                 'updated_at': data.get('updated_at') or cls._latest_timestamp(zone_groups) or mtime,
-                'zone_groups': zone_groups}
+                'zone_groups': [cls._raid_summary(zone) for zone in zone_groups if isinstance(zone, dict)]}
 
     @staticmethod
     def discover_simc_dimensions(class_name, spec_name):

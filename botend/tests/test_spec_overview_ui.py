@@ -179,6 +179,71 @@ class SpecOverviewIntegrationTests(TestCase):
         self.assertEqual(raid['zone_groups'], [{'zone_id': 22, 'bosses': []}])
         self.assertIn('updated_at', raid)
 
+    @patch('botend.services.spec_overview_service.SpecOverviewService._aggregate')
+    def test_stats_overviews_expose_only_summary_fields_needed_by_first_screen(self, aggregate):
+        aggregate.side_effect = [
+            ({
+                'dungeons': [{
+                    'dungeon_id': 11, 'dungeon_name': 'Test dungeon', 'sample_size': 24,
+                    'dps': {'median': 123456, 'avg': 120000, 'p75': 130000},
+                    'keystone': {'avg': 12.5, 'max': 18},
+                    'clear_time': {'median_fmt': '24:00', 'avg_fmt': '25:00'},
+                    'talent_popularity': [{'name': 'Heavy payload'}],
+                    'talent_usage': {'nodes': ['heavy']},
+                    'talent_popularity_tree': {'tree': ['heavy']},
+                    'gear_popularity': [{'item_id': 123}],
+                    'gem_popularity': [{'item_id': 456}],
+                    'enchant_popularity': [{'spell_id': 789}],
+                    'top5': [{'character_name': 'Not for overview'}],
+                }],
+            }, None),
+            ({
+                'zone_groups': [{
+                    'zone_id': 22, 'zone_name': 'Test raid', 'zone_cn': '测试团本',
+                    'bosses': [{
+                        'boss_id': 33, 'boss_name': 'Test boss', 'sample_size': 48,
+                        'dps': {'median': 234567, 'avg': 230000, 'p75': 240000},
+                        'kill_time': {'median_fmt': '05:00', 'avg_fmt': '05:30'},
+                        'talent_popularity': [{'name': 'Heavy payload'}],
+                        'talent_usage': {'nodes': ['heavy']},
+                        'gear_popularity': [{'item_id': 123}],
+                        'top5': [{'character_name': 'Not for overview'}],
+                    }],
+                }],
+            }, None),
+        ]
+        endpoints = self._rendered_endpoints()
+
+        mythic = self.client.get(endpoints['mythic-plus']).json()
+        raid = self.client.get(endpoints['raid']).json()
+
+        self.assertEqual(mythic['dungeons'], [{
+            'dungeon_id': 11, 'dungeon_name': 'Test dungeon', 'sample_size': 24,
+            'dps': {'median': 123456, 'avg': 120000},
+            'keystone': {'avg': 12.5}, 'clear_time': {'median_fmt': '24:00'},
+        }])
+        self.assertEqual(raid['zone_groups'], [{
+            'zone_id': 22, 'zone_name': 'Test raid', 'zone_cn': '测试团本',
+            'bosses': [{
+                'boss_id': 33, 'boss_name': 'Test boss', 'sample_size': 48,
+                'dps': {'median': 234567, 'avg': 230000},
+                'kill_time': {'median_fmt': '05:00'},
+            }],
+        }])
+
+    @patch('botend.services.spec_overview_service.SpecOverviewService._aggregate')
+    def test_stats_overviews_ignore_malformed_collection_fields(self, aggregate):
+        aggregate.side_effect = [
+            ({'dungeons': 1}, None),
+            ({'zone_groups': [{'zone_id': 22, 'bosses': 1}]}, None),
+        ]
+        endpoints = self._rendered_endpoints()
+
+        self.assertEqual(self.client.get(endpoints['mythic-plus']).json()['dungeons'], [])
+        self.assertEqual(self.client.get(endpoints['raid']).json()['zone_groups'], [
+            {'zone_id': 22, 'bosses': []},
+        ])
+
     def test_stats_endpoints_prefer_aggregate_files_and_cache_each_module(self):
         with tempfile.TemporaryDirectory() as media_root:
             season_id = 99
