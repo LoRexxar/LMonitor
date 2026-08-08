@@ -711,9 +711,13 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             'simc-benchmark-gear-level-legend', 'simc-benchmark-gear-segment',
             'pointerenter', 'pointermove', 'focus', 'blur',
             'simc-benchmark-gear-hover-guide', 'simc-benchmark-gear-tooltip',
+            'simc-benchmark-item-tooltip', 'showItemTooltip', 'hideItemTooltip',
+            'simc-benchmark-gear-identity', 'simc-benchmark-item-tooltip-stat',
+            'simc-benchmark-item-tooltip-effect',
         ):
             self.assertIn(contract, self.JS + self.CSS)
-        self.assertIn('?v=20260805_description_card_clean', self.RESULTS_TEMPLATE)
+        self.assertNotIn('const effect = group.effect', self.JS)
+        self.assertIn('?v=20260809_benchmark_item_tooltip_v2', self.RESULTS_TEMPLATE)
 
     def test_result_renderer_uses_frozen_target_count_and_duration_for_scenarios(self):
         for contract in (

@@ -18,6 +18,7 @@ from botend.models import PlayerSpecTopPlayer, SpecDungeonRanking, SpecRaidRanki
 WOWHEAD_CN_ITEM = 'https://www.wowhead.com/cn/item={item_id}'
 WOWHEAD_EN_ITEM = 'https://www.wowhead.com/item={item_id}'
 WOWHEAD_TOOLTIP_API = 'https://nether.wowhead.com/tooltip/item/{item_id}?locale={locale}'
+WOWHEAD_PTR_TOOLTIP_API = 'https://nether.wowhead.com/ptr/tooltip/item/{item_id}?locale={locale}'
 
 
 def _norm_icon(icon):
@@ -203,6 +204,7 @@ class Command(BaseCommand):
         parser.add_argument('--force', action='store_true', help='强制刷新已有中文数据')
         parser.add_argument('--season-id', type=int, default=0, help='仅收集指定赛季')
         parser.add_argument('--item-id', action='append', type=int, default=[], help='只抓取指定物品 ID；可重复传入')
+        parser.add_argument('--ptr', action='store_true', help='从 Wowhead PTR tooltip endpoint 抓取元数据')
 
     def handle(self, *args, **opts):
         item_ids = [item_id for item_id in (opts.get('item_id') or []) if item_id]
@@ -229,8 +231,8 @@ class Command(BaseCommand):
             if has_complete_row and not opts['force']:
                 skipped += 1
                 continue
-            meta = self._fetch_wowhead_cn(session, item_id) if (opts['force'] or needs_cn) else {}
-            meta_en = self._fetch_wowhead_en(session, item_id) if (opts['force'] or needs_en) else {}
+            meta = self._fetch_wowhead_cn(session, item_id, ptr=opts['ptr']) if (opts['force'] or needs_cn) else {}
+            meta_en = self._fetch_wowhead_en(session, item_id, ptr=opts['ptr']) if (opts['force'] or needs_en) else {}
             if not meta and not meta_en:
                 failed += 1
                 meta = {}
@@ -307,8 +309,9 @@ class Command(BaseCommand):
             'quality': _coerce_quality(payload.get('quality') or 0),
         }
 
-    def _fetch_wowhead_tooltip_api(self, session, item_id, locale):
-        url = WOWHEAD_TOOLTIP_API.format(item_id=item_id, locale=locale)
+    def _fetch_wowhead_tooltip_api(self, session, item_id, locale, *, ptr=False):
+        endpoint = WOWHEAD_PTR_TOOLTIP_API if ptr else WOWHEAD_TOOLTIP_API
+        url = endpoint.format(item_id=item_id, locale=locale)
         try:
             resp = session.get(url, timeout=15)
             if resp.status_code >= 400:
@@ -325,8 +328,8 @@ class Command(BaseCommand):
             'quality': _coerce_quality(data.get('quality')),
         }
 
-    def _fetch_wowhead_cn(self, session, item_id):
-        api_meta = self._fetch_wowhead_tooltip_api(session, item_id, 'zhCN')
+    def _fetch_wowhead_cn(self, session, item_id, *, ptr=False):
+        api_meta = self._fetch_wowhead_tooltip_api(session, item_id, 'zhCN', ptr=ptr)
         if api_meta and (_has_cjk(api_meta.get('name')) or _has_cjk(api_meta.get('description'))):
             return {
                 'name_zh': api_meta.get('name') if _has_cjk(api_meta.get('name')) else '',
@@ -334,6 +337,8 @@ class Command(BaseCommand):
                 'icon': api_meta.get('icon') or '',
                 'quality': api_meta.get('quality') or 0,
             }
+        if ptr:
+            return {}
         url = WOWHEAD_CN_ITEM.format(item_id=item_id)
         try:
             resp = session.get(url, timeout=15)
@@ -358,10 +363,12 @@ class Command(BaseCommand):
             'icon': icon,
         }
 
-    def _fetch_wowhead_en(self, session, item_id):
-        api_meta = self._fetch_wowhead_tooltip_api(session, item_id, 'enUS')
+    def _fetch_wowhead_en(self, session, item_id, *, ptr=False):
+        api_meta = self._fetch_wowhead_tooltip_api(session, item_id, 'enUS', ptr=ptr)
         if api_meta and (api_meta.get('name') or api_meta.get('description')):
             return api_meta
+        if ptr:
+            return {}
         url = WOWHEAD_EN_ITEM.format(item_id=item_id)
         try:
             resp = session.get(url, timeout=15)

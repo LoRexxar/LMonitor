@@ -216,7 +216,9 @@
 .simc-benchmark-gear-row { align-items: center; border-radius: 0.35rem; display: grid; gap: 0.65rem; grid-template-columns: minmax(9rem, 15rem) minmax(8rem, 1fr) minmax(9.5rem, auto); min-width: 0; padding: 0.3rem 0.35rem; }
 .simc-benchmark-gear-row:nth-of-type(even) { background: rgba(226, 232, 240, 0.38); }
 .simc-benchmark-gear-row.is-hovered { background: #eff6ff; }
-.simc-benchmark-gear-identity { align-items: center; display: flex; gap: 0.5rem; min-width: 0; }
+.simc-benchmark-gear-identity { align-items: center; appearance: none; background: transparent; border: 0; color: inherit; cursor: help; display: flex; gap: 0.5rem; min-width: 0; padding: 0; text-align: left; }
+.simc-benchmark-gear-identity:hover .simc-benchmark-gear-name { color: #1d4ed8; text-decoration: underline; text-underline-offset: 2px; }
+.simc-benchmark-gear-identity:focus-visible { border-radius: 0.25rem; outline: 2px solid #2563eb; outline-offset: 2px; }
 .simc-benchmark-gear-name { color: #334155; font-size: 0.74rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .simc-benchmark-gear-plot { background: #e2e8f0; border-radius: 0.2rem; height: 1.15rem; min-width: 0; overflow: visible; position: relative; }
 .simc-benchmark-gear-segment { border: 0; border-radius: 0.16rem; bottom: 0; color: #fff; cursor: pointer; font-size: 0.55rem; font-weight: 800; line-height: 1.15rem; min-width: 0.35rem; overflow: hidden; padding: 0 0.2rem; position: absolute; text-align: center; top: 0; }
@@ -225,7 +227,13 @@
 .simc-benchmark-gear-tooltip { background: rgba(15, 23, 42, 0.96); border-radius: 0.4rem; color: #fff; display: grid; font-size: 0.62rem; gap: 0.18rem; max-width: 280px; padding: 0.42rem 0.52rem; pointer-events: none; position: absolute; white-space: pre-line; z-index: 6; }
 .simc-benchmark-gear-tooltip[hidden], .simc-benchmark-gear-hover-guide[hidden] { display: none; }
 .simc-benchmark-gear-tooltip span { color: #cbd5e1; }
-.simc-benchmark-gear-tooltip-effect { color: #f8fafc !important; line-height: 1.35; }
+.simc-benchmark-item-tooltip { background: rgba(15, 23, 42, 0.98); border: 1px solid rgba(148, 163, 184, 0.48); border-radius: 0.45rem; box-shadow: 0 12px 28px rgba(15, 23, 42, 0.32); color: #f8fafc; display: grid; font-size: 0.7rem; gap: 0.2rem; line-height: 1.38; max-width: min(360px, calc(100vw - 16px)); padding: 0.58rem 0.68rem; pointer-events: none; position: fixed; white-space: pre-wrap; z-index: 20; }
+.simc-benchmark-item-tooltip[hidden] { display: none; }
+.simc-benchmark-item-tooltip-name { color: #facc15; font-size: 0.76rem; }
+.simc-benchmark-item-tooltip-level { color: #93c5fd; }
+.simc-benchmark-item-tooltip-stat { color: #86efac; }
+.simc-benchmark-item-tooltip-effect { color: #f8fafc; margin-top: 0.12rem; }
+.simc-benchmark-item-tooltip-empty { color: #cbd5e1; font-style: italic; }
 
 .simc-benchmark-state {
     background: rgba(248, 250, 252, 0.78);
