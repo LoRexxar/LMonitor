@@ -249,3 +249,17 @@ class SpecOverviewDOMContractTests(TestCase):
         self.assertIn('dimension_not_configured', js)
         self.assertIn('resource_versions', js)
         self.assertIn('source_result_id', js)
+
+    def test_overview_surfaces_decision_context_without_cross_source_score(self):
+        response = self.client.get('/portal/spec/Mage/Fire/')
+        soup = BeautifulSoup(response.content, 'html.parser')
+        js = (Path(__file__).resolve().parents[2] / 'static/portal/js/spec-overview.js').read_text()
+
+        self.assertIsNotNone(soup.select_one('#module-simc-apl [data-simc-context]'))
+        self.assertIsNotNone(soup.select_one('#module-simc-cross-spec [data-simc-context]'))
+        self.assertIn('中位 DPS', js)
+        self.assertIn('M+ 评分', js)
+        self.assertIn('样本有限', js)
+        self.assertIn('dungeon_id', js)
+        self.assertIn('boss_id', js)
+        self.assertIn('跨专精使用各专精配置的标准 Profile', js)

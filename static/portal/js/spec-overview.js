@@ -59,19 +59,41 @@
     return [source, ...identity].join(" · ");
   }
 
-  function rankingList(rows, describe) {
-    const list = node("ol", "spec-module-list");
+  function rankingList(rows, describe, { ranked = true } = {}) {
+    const list = node(ranked ? "ol" : "ul", "spec-module-list");
     rows.slice(0, 20).forEach((row, index) => {
       const description = describe(row, index);
-      const item = node("li", "spec-module-row");
-      const rank = node("span", "spec-module-rank", `#${value(row, ["rank"], index + 1)}`);
+      const item = node("li", `spec-module-row${ranked ? "" : " spec-module-row--fact"}`);
       const copy = node(description.detail_url ? "a" : "span", "spec-module-copy");
       if (description.detail_url) copy.href = description.detail_url;
       copy.append(node("strong", "", description.title), node("small", "", description.detail));
-      item.append(rank, copy, node("span", "spec-module-metric", description.metric));
+      if (description.audit) {
+        const audit = node("details", "spec-module-audit");
+        audit.append(node("summary", "", "查看冻结配置"), node("small", "", description.audit));
+        copy.append(audit);
+      }
+      if (ranked) item.append(node("span", "spec-module-rank", `#${value(row, ["rank"], index + 1)}`));
+      item.append(copy, node("span", "spec-module-metric", description.metric));
       list.append(item);
     });
     return list;
+  }
+
+  function positiveNumber(raw) {
+    const numeric = Number(raw);
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+  }
+
+  function sampleDetail(row, extras = []) {
+    const count = positiveNumber(value(row, ["sample_size", "count"], null));
+    return [...extras.filter(Boolean), count ? `样本 n=${numberFormat.format(count)}` : "样本未提供", count && count < 20 ? "样本有限" : ""].filter(Boolean).join(" · ");
+  }
+
+  function overviewDetailUrl(kind, id) {
+    const className = root.dataset.className;
+    const specName = root.dataset.specName;
+    if (!className || !specName || !id) return "";
+    return `/portal/spec/${encodeURIComponent(className)}/${encodeURIComponent(specName)}/${kind}/?${kind === "dungeons" ? "dungeon_id" : "boss_id"}=${encodeURIComponent(id)}`;
   }
 
   function renderPlayers(payload) {
@@ -79,8 +101,12 @@
     if (!players.length) return null;
     return rankingList(players, (player) => ({
       title: value(player, ["character_name", "name"]),
-      detail: [value(player, ["realm"], ""), String(value(player, ["region"], "")).toUpperCase()].filter(Boolean).join(" · "),
-      metric: metric(value(player, ["score", "rating"])),
+      detail: [
+        [value(player, ["realm"], ""), String(value(player, ["region"], "")).toUpperCase()].filter(Boolean).join(" · "),
+        positiveNumber(player.item_level) ? `装等 ${metric(player.item_level)}` : "",
+        value(player, ["guild_name"], ""),
+      ].filter(Boolean).join(" · "),
+      metric: `${metric(value(player, ["score", "rating"]))} M+ 评分`,
       detail_url: value(player, ["detail_url"], ""),
     }));
   }
@@ -90,40 +116,56 @@
     if (!dungeons.length) return null;
     return rankingList(dungeons, (dungeon) => ({
       title: value(dungeon, ["dungeon_name", "name", "short_name"]),
-      detail: `样本 ${value(dungeon, ["sample_size", "count"], "—")}`,
-      metric: metric(value(dungeon?.score || dungeon?.dps || dungeon, ["median", "avg", "score", "dps"])),
-    }));
+      detail: sampleDetail(dungeon, [
+        positiveNumber(dungeon?.keystone?.avg) ? `平均 +${metric(dungeon.keystone.avg)}` : "",
+        value(dungeon?.clear_time, ["median_fmt"], ""),
+      ]),
+      metric: `中位 DPS ${metric(value(dungeon?.dps, ["median", "avg"], "—"))}`,
+      detail_url: overviewDetailUrl("dungeons", dungeon.dungeon_id),
+    }), { ranked: false });
   }
 
   function renderRaid(payload) {
-    let bosses = firstArray(payload, ["bosses", "items"]);
-    if (!bosses.length) {
-      bosses = firstArray(payload, ["zone_groups"]).flatMap((zone) => asArray(zone?.bosses));
-    }
-    if (!bosses.length) return null;
-    return rankingList(bosses, (boss) => ({
-      title: value(boss, ["boss_name", "name"]),
-      detail: `史诗难度 · 样本 ${value(boss, ["sample_size", "count"], "—")}`,
-      metric: metric(value(boss?.dps || boss, ["median", "avg", "dps"]), " DPS"),
-    }));
+    const zones = firstArray(payload, ["zone_groups"]);
+    const bosses = firstArray(payload, ["bosses", "items"]);
+    if (!zones.length && !bosses.length) return null;
+    const container = node("div", "spec-module-zone-list");
+    const groups = zones.length ? zones : [{ bosses }];
+    groups.forEach((zone) => {
+      const zoneBosses = asArray(zone?.bosses);
+      if (!zoneBosses.length) return;
+      const group = node("section", "spec-module-zone");
+      const zoneName = value(zone, ["zone_cn", "zone_name", "name"], "首领数据");
+      group.append(node("h3", "spec-module-zone-title", zoneName));
+      group.append(rankingList(zoneBosses, (boss) => ({
+        title: value(boss, ["boss_name", "name"]),
+        detail: sampleDetail(boss, [value(boss?.kill_time, ["median_fmt"], "")]),
+        metric: `中位 DPS ${metric(value(boss?.dps, ["median", "avg"], "—"))}`,
+        detail_url: overviewDetailUrl("raid", boss.boss_id),
+      }), { ranked: false }));
+      container.append(group);
+    });
+    return container.childElementCount ? container : null;
   }
 
   function renderSimcApl(payload) {
-    const apl_rankings = firstArray(payload, ["apl_rankings", "rankings", "items"]);
-    if (!apl_rankings.length) return null;
-    return rankingList(apl_rankings, (entry) => ({
+    const aplRankings = firstArray(payload, ["apl_rankings", "rankings", "items"]);
+    if (!aplRankings.length) return null;
+    return rankingList(aplRankings, (entry) => ({
       title: value(entry, ["apl_label", "label", "name"]),
-      detail: `${value(entry, ["scenario_label", "scenario", "profile_label"])} · ${simcAudit(entry)}`,
+      detail: `${value(entry, ["scenario_label", "scenario"])} · ${value(entry, ["profile_label"], "Profile 未提供")}`,
+      audit: simcAudit(entry),
       metric: metric(value(entry, ["dps", "value"]), " DPS"),
     }));
   }
 
   function renderSimcCrossSpec(payload) {
-    const spec_rankings = firstArray(payload, ["spec_rankings", "rankings", "items"]);
-    if (!spec_rankings.length) return null;
-    return rankingList(spec_rankings, (entry) => ({
+    const specRankings = firstArray(payload, ["spec_rankings", "rankings", "items"]);
+    if (!specRankings.length) return null;
+    return rankingList(specRankings, (entry) => ({
       title: value(entry, ["spec_label", "label", "spec_name", "spec_key"]),
-      detail: `${value(entry, ["scenario_label", "scenario", "profile_label"])} · ${simcAudit(entry)}`,
+      detail: `${value(entry, ["scenario_label", "scenario"])} · 标准 Profile：${value(entry, ["profile_label"], "未提供")}`,
+      audit: simcAudit(entry),
       metric: metric(value(entry, ["dps", "value"]), " DPS"),
     }));
   }
@@ -165,6 +207,28 @@
     }
   }
 
+  function formatSimcParams(params) {
+    const values = params && typeof params === "object" ? params : {};
+    const targets = positiveNumber(values.desired_targets) || 1;
+    const seconds = positiveNumber(values.max_time) || 300;
+    return `${numberFormat.format(targets)} 目标 · ${numberFormat.format(seconds)} 秒`;
+  }
+
+  function updateSimcContext(scenarios, profiles) {
+    const selected = selectedDimension();
+    const scenario = scenarios.find((item) => item.key === selected.scenario);
+    const profile = profiles.find((item) => item.key === selected.profile);
+    cards.forEach((card) => {
+      const context = card.querySelector("[data-simc-context]");
+      if (!context) return;
+      if (card.dataset.specModule === "simc-apl") {
+        context.textContent = `场景：${scenario?.label || selected.scenario || "未配置"}（${formatSimcParams(scenario?.detail)}） · Profile：${profile?.label || selected.profile || "未配置"}`;
+      } else {
+        context.textContent = `场景：${scenario?.label || selected.scenario || "未配置"}（${formatSimcParams(scenario?.detail)}） · 跨专精使用各专精配置的标准 Profile`;
+      }
+    });
+  }
+
   function renderDimensionControls() {
     if (!scenarioControl || !profileControl) return;
     const scenarios = readJsonScript("spec-overview-scenarios");
@@ -175,7 +239,9 @@
     profiles.forEach((item, index) => { profileControl.options[index].value = item.key; });
     scenarioControl.value = root.dataset.simcDefaultScenario || scenarioControl.value;
     profileControl.value = root.dataset.simcDefaultProfile || profileControl.value;
+    updateSimcContext(scenarios, profiles);
     const reload = () => {
+      updateSimcContext(scenarios, profiles);
       updateSimcEndpoints();
       cards.forEach((card) => {
         if (card.dataset.specModule.startsWith("simc-")) loadModule(card);

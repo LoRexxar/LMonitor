@@ -5,7 +5,7 @@
 {% block title %}{{ nav.class_cn }} {{ nav.spec_cn }} - 专精总览{% endblock %}
 
 {% block extra_style %}{{ block.super }}
-@import url("{% static 'portal/css/spec-overview.css?v=20260808' %}");
+@import url("{% static 'portal/css/spec-overview.css?v=20260809' %}");
 {% endblock %}
 
 {% block content %}
@@ -43,7 +43,7 @@
         <div class="spec-overview-control-intro">
             <span class="spec-overview-control-kicker">聚合维度</span>
             <strong>选择模拟场景与 Profile</strong>
-            <small>仅影响 SimC 两个模块；人物榜、M+、团本保持各自来源与口径。</small>
+            <small>场景同时影响两张 SimC 卡；Profile 仅影响 APL。跨专精按各专精的标准 Profile 对比。</small>
         </div>
         <label>场景<select id="spec-overview-scenario"></select></label>
         <label>Profile<select id="spec-overview-profile"></select></label>
@@ -90,6 +90,7 @@
                 <div><p class="spec-module-kicker">M+</p><h2>大秘境表现</h2></div>
                 <span class="spec-module-source" data-module-source>来源：Raider.IO 聚合</span>
             </header>
+            <p class="spec-module-context">按副本展示样本中的中位 DPS、平均钥石等级与通关时间；不是跨副本总排名。</p>
             <div class="spec-module-state" data-module-state role="status">加载中…</div>
             <div class="spec-module-content" data-module-content hidden></div>
             <footer>更新时间：<time data-module-updated-at>等待数据</time></footer>
@@ -101,6 +102,7 @@
                 <div><p class="spec-module-kicker">团本</p><h2>史诗团本表现</h2></div>
                 <span class="spec-module-source" data-module-source>来源：Warcraft Logs 聚合</span>
             </header>
+            <p class="spec-module-context">按团本与首领展示中位 DPS、击杀时长和样本量；不与大秘境或模拟数值混合比较。</p>
             <div class="spec-module-state" data-module-state role="status">加载中…</div>
             <div class="spec-module-content" data-module-content hidden></div>
             <footer>更新时间：<time data-module-updated-at>等待数据</time></footer>
@@ -112,6 +114,7 @@
                 <div><p class="spec-module-kicker">SimC APL</p><h2>APL 场景排名</h2></div>
                 <span class="spec-module-source" data-module-source>来源：SimulationCraft 冻结配置</span>
             </header>
+            <p class="spec-module-context" data-simc-context>正在读取当前模拟条件…</p>
             <div class="spec-module-state" data-module-state role="status">加载中…</div>
             <div class="spec-module-content" data-module-content hidden></div>
             <footer>更新时间：<time data-module-updated-at>等待数据</time></footer>
@@ -123,6 +126,7 @@
                 <div><p class="spec-module-kicker">SimC 基准</p><h2>跨专精排名</h2></div>
                 <span class="spec-module-source" data-module-source>来源：SimulationCraft 同场景基准</span>
             </header>
+            <p class="spec-module-context" data-simc-context>正在读取当前模拟条件…</p>
             <div class="spec-module-state" data-module-state role="status">加载中…</div>
             <div class="spec-module-content" data-module-content hidden></div>
             <footer>更新时间：<time data-module-updated-at>等待数据</time></footer>
@@ -135,5 +139,5 @@
 {% endblock %}
 
 {% block extra_script %}{{ block.super }}
-<script src="{% static 'portal/js/spec-overview.js?v=20260808' %}" defer></script>
+<script src="{% static 'portal/js/spec-overview.js?v=20260809' %}" defer></script>
 {% endblock %}
