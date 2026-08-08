@@ -7,7 +7,12 @@ from django.db.models import Q
 from botend.models import (
     SimcBenchmarkCandidate, SimcBenchmarkExecution, SimulationRun, WowItemSnapshot,
 )
-from botend.services.midnight_trinket_catalog import SPECIAL_BONUS_LABELS
+
+
+SPECIAL_BONUS_LABELS = {
+    250462: {606: '暴击', 604: '急速', 605: '精通', 607: '全能'},
+    248583: {13183: '暴击', 13184: '急速', 13185: '精通', 13186: '全能'},
+}
 
 
 def _item_id(candidate_params):
