@@ -192,6 +192,7 @@ class SimcProfileDetailView(View):
         ctx = _base_context(class_name, spec_name)
         ctx.update({
             'simc_profile': profile,
+            'profile_id': profile.id,
             'profile_detail': detail,
             'profile_identity_name': identity.get('name'),
             'profile_source_label': source.get('label'),
