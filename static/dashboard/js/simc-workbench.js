@@ -732,7 +732,8 @@
             const sourceLabel = isPersonal ? '个人' : (row.source === 'simc_upstream' ? 'SimC 上游' : '系统默认');
             const sourceClass = isPersonal ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600';
             const statusClass = active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500';
-            const simulateAction = active && (isPersonal || row.is_selectable === true)
+            const canUseForTask = row.can_use_for_task === true;
+            const simulateAction = active && canUseForTask
                 ? `<button data-apl-action="simulate" data-id="${idOf(row.id)}" data-spec="${esc(row.spec || '')}" class="simc-touch-action text-violet-700 hover:bg-violet-50">立即模拟</button>`
                 : '';
             let actions;

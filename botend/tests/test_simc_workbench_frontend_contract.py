@@ -727,7 +727,8 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('data-apl-action="simulate"', JS)
         self.assertIn('data-spec="${esc(row.spec || \'\')}"', JS)
         self.assertIn("window.startSimcSimulationFromResource({ aplId: id, spec: aplAction.dataset.spec })", JS)
-        self.assertIn("active && (isPersonal || row.is_selectable === true)", JS)
+        self.assertIn('can_use_for_task === true', JS)
+        self.assertNotIn('需先校验发布', JS)
 
     def test_profile_inline_form_uses_delegated_actions_not_inline_handlers(self):
         start = HTML.index('id="simc-workbench-profiles-panel"')

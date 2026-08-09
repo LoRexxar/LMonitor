@@ -247,24 +247,14 @@ class SimcAplPublishValidationTests(TestCase):
         )
         self.assertEqual(response.status_code, 409)
 
-    @patch("botend.services.simc_task_service.validate_apl_for_profile")
-    def test_task_creation_revalidates_with_authoritative_persisted_profile(self, validate):
+    def test_task_creation_accepts_structurally_valid_personal_apl_without_publication(self):
         apl = SimcApl.objects.create(
-            name="Published", spec="warrior_fury", content=CONTENT,
-            owner_user_id=self.user.id, is_selectable=True,
-            validation_status=SimcApl.VALIDATION_VALID,
-            validated_content_hash=digest(CONTENT), validation_revision=REVISION,
-            validation_game_build=BUILD,
+            name="Draft but runnable", spec="warrior_fury", content=CONTENT,
+            owner_user_id=self.user.id, is_selectable=False,
+            validation_status=SimcApl.VALIDATION_DRAFT,
         )
-        validate.return_value = {
-            "valid": False, "content_hash": digest(CONTENT), "revision": REVISION,
-            "game_build": BUILD, "diagnostics": [{"message": "profile-specific failure"}],
-        }
-        with self.assertRaises(TaskCreationError):
-            create_task(self.user.id, "Rejected", self.profile.id, self.template.id, apl.id)
-        validate.assert_called_once()
-        self.assertEqual(validate.call_args.args[0].id, self.profile.id)
-        self.assertEqual(validate.call_args.args[1].id, apl.id)
+        task = create_task(self.user.id, "Runnable", self.profile.id, self.template.id, apl.id)
+        self.assertEqual(task.apl_id, apl.id)
 
     @patch("botend.services.simc_task_service.validate_apl_for_profile")
     def test_existing_task_keeps_immutable_apl_version_after_later_draft_save(self, validate):
@@ -292,8 +282,7 @@ class SimcAplPublishValidationTests(TestCase):
         with self.assertRaises(ProtectedError):
             task.apl_version.delete()
 
-    @patch("botend.services.simc_task_service.validate_apl_for_profile")
-    def test_task_creation_rechecks_apl_after_authoritative_validation(self, validate):
+    def test_task_creation_snapshots_current_apl_content_without_authoritative_validation(self):
         apl = SimcApl.objects.create(
             name="Published", spec="warrior_fury", content=CONTENT,
             owner_user_id=self.user.id, is_selectable=True,
@@ -302,14 +291,8 @@ class SimcAplPublishValidationTests(TestCase):
             validation_game_build=BUILD,
         )
 
-        def mutate(_profile, locked_apl, **_kwargs):
-            SimcApl.objects.filter(pk=locked_apl.pk).update(content=CONTENT + " changed")
-            return {"valid": True, "content_hash": digest(CONTENT), "revision": REVISION,
-                    "game_build": BUILD, "diagnostics": []}
-
-        validate.side_effect = mutate
-        with self.assertRaises(TaskCreationError):
-            create_task(self.user.id, "Race", self.profile.id, self.template.id, apl.id)
+        task = create_task(self.user.id, "Runnable", self.profile.id, self.template.id, apl.id)
+        self.assertEqual(task.apl_version.payload["content"], CONTENT)
 
     @patch("botend.services.simc_task_service.validate_apl_for_profile")
     def test_rerun_copies_frozen_versions_without_live_revalidation(self, validate):

@@ -2789,11 +2789,8 @@ def _get_active_simc_content(spec=None, source=None, class_name=None, selectable
 
 
 def _list_selectable_apl_for_spec(spec_key='', class_name='', spec='', owner_user_id=None):
-    qs = SimcApl.objects.filter(
-        is_active=True,
-        is_selectable=True,
-    ).filter(
-        models.Q(is_system=True, owner_user_id__isnull=True)
+    qs = SimcApl.objects.filter(is_active=True).filter(
+        models.Q(is_system=True, is_selectable=True, owner_user_id__isnull=True)
         | models.Q(is_system=False, owner_user_id=owner_user_id)
     )
     specs = [v for v in [spec_key, spec] if v]
@@ -6419,7 +6416,7 @@ class SimcWorkbenchAPIView(View):
                     'validation_revision': apl.validation_revision,
                     'validation_game_build': apl.validation_game_build,
                     'validation_stale_reason': apl.validation_staleness(current_validation_identity()),
-                    'can_use_for_task': apl.is_active and apl.is_selectable and apl.has_current_validation(current_validation_identity()),
+                    'can_use_for_task': apl.is_active and (not apl.is_system or apl.is_selectable),
                 }, 'can_write': _is_simc_admin(request.user) or not apl.is_system})
             return JsonResponse({'success': True, 'data': [{
                 'id': apl.id, 'name': apl.name, 'spec': apl.spec,
@@ -6430,7 +6427,7 @@ class SimcWorkbenchAPIView(View):
                 'is_selectable': apl.is_selectable,
                 'validation_status': apl.validation_status,
                 'validation_stale_reason': apl.validation_staleness(current_validation_identity()),
-                'can_use_for_task': apl.is_active and apl.is_selectable and apl.has_current_validation(current_validation_identity()),
+                'can_use_for_task': apl.is_active and (not apl.is_system or apl.is_selectable),
                 'read_only': apl.is_system and not _is_simc_admin(request.user),
                 'can_copy': apl.is_system and apl.is_active and apl.is_selectable,
             } for apl in qs], 'can_write': True})

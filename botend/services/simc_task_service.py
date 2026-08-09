@@ -177,7 +177,8 @@ def validate_resource_ownership(
 
     Rules:
     - Profile: user's own or an active upstream system default Profile
-    - Template/APL: allow system (owner_user_id=None) or user's own, is_active=True, is_selectable=True
+    - Template: active and selectable
+    - APL: personal APLs only need to be active; ownerless system APLs must be selectable
     """
     if resource_type == 'profile':
         if not isinstance(resource, SimcProfile):
@@ -218,7 +219,7 @@ def validate_resource_ownership(
             )
         if not resource.is_active:
             raise TaskCreationError(f"APL {resource.id} is not active")
-        if not resource.is_selectable:
+        if resource.is_system and resource.owner_user_id is None and not resource.is_selectable:
             raise TaskCreationError(f"APL {resource.id} is not selectable")
 
 
@@ -695,7 +696,9 @@ def _validate_executable_resource_state(resource, resource_type: str) -> None:
     elif resource_type == 'apl':
         if not resource.is_active:
             raise TaskCreationError(f"APL {resource.id} is not active")
-        if not resource.is_selectable:
+        # Personal APLs are executable after the editor's structural check.
+        # is_selectable remains a publication/listing flag for system resources.
+        if resource.is_system and not resource.is_selectable:
             raise TaskCreationError(f"APL {resource.id} is not selectable")
     elif resource_type == 'template':
         if not resource.is_active:
@@ -709,21 +712,23 @@ def _validate_executable_resource_state(resource, resource_type: str) -> None:
 def prepare_task_creation(user_id: int, profile_id: int, template_id: int,
                           apl_id: int, backend_id: Optional[int] = None,
                           is_admin: bool = False):
-    """Perform authoritative binary preflight without holding database row locks."""
+    """Prepare a structurally valid simulation without a publication gate.
+
+    APL validation is performed when the editor saves the resource.  Running a
+    simulation must be allowed to reach SimC so runtime errors and results are
+    visible to the user instead of being hidden behind a separate publication
+    workflow.
+    """
     is_admin = bool(is_admin)
     backend, profile, apl, template = _load_resources(
         user_id, profile_id, template_id, apl_id, backend_id,
         lock=False, is_admin=is_admin,
     )
     identity = current_validation_identity(backend=backend)
-    stale_reason = apl.validation_staleness(identity)
-    if stale_reason:
-        raise TaskCreationError(f'APL validation is stale: {stale_reason}')
     before = _resource_token(user_id, backend, profile, apl, template, identity)
-    validation = validate_apl_for_profile(profile, apl, backend=backend)
 
-    # Re-read after the external process. This is an optimistic check only; the
-    # definitive check occurs under locks in create_task_from_prepared.
+    # Re-read after loading the resources. The definitive check occurs under
+    # locks in create_task_from_prepared.
     current = _load_resources(
         user_id, profile_id, template_id, apl_id, backend.pk,
         lock=False, is_admin=is_admin,
@@ -739,24 +744,6 @@ def prepare_task_creation(user_id: int, profile_id: int, template_id: int,
             'Profile, APL, Template, or Backend changed during authoritative validation'
         )
     backend, profile, apl, template = current
-    if not isinstance(validation, dict) or not validation.get('valid'):
-        error_class = (
-            TaskValidationUnavailable
-            if _validation_failure_is_retryable(validation)
-            else TaskCreationError
-        )
-        raise error_class(
-            'APL failed authoritative validation for the selected Profile',
-            details=validation,
-        )
-    if (validation.get('content_hash') != apl_content_hash(apl.content)
-            or validation.get('revision') != identity[0]
-            or validation.get('game_build') != identity[1]):
-        # A successful verdict which is not bound to this exact request is unusable,
-        # not proof that the APL content is invalid.
-        raise TaskValidationUnavailable(
-            'Authoritative validation returned a mismatched result'
-        )
     return PreparedTaskCreation(
         user_id=user_id, backend_id=backend.pk, profile_id=profile.pk,
         apl_id=apl.pk, template_id=template.pk,
@@ -837,7 +824,7 @@ def create_task(user_id: int, name: str, profile_id: Optional[int] = None,
                 mode: str = 'normal', simulation_params=None, mode_params=None,
                 candidates=None, backend_id: Optional[int] = None,
                 prepared=None, is_admin: bool = False) -> SimcTask:
-    """Compatibility entry point; unprepared calls retain authoritative validation."""
+    """Compatibility entry point for structural resource validation."""
     if prepared is None:
         prepared = prepare_task_creation(
             user_id, profile_id, template_id, apl_id, backend_id=backend_id,
