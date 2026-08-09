@@ -70,8 +70,9 @@ def _load_candidate_tooltips(path_value, allow_unresolved=False):
         payload = json.loads(path.read_text(encoding='utf-8'))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise CommandError(f'无法读取候选级 tooltip 数据：{path}: {exc}') from exc
-    if not isinstance(payload, dict) or payload.get('schema_version') != 1:
-        raise CommandError('候选级 tooltip 数据必须是 schema_version=1 的 JSON 对象。')
+    schema_version = payload.get('schema_version') if isinstance(payload, dict) else None
+    if schema_version not in (1, 2):
+        raise CommandError('候选级 tooltip 数据必须是 schema_version=1 或 2 的 JSON 对象。')
     source = payload.get('source')
     rows = payload.get('tooltips')
     if not isinstance(source, dict) or not isinstance(rows, list):
@@ -106,7 +107,28 @@ def _load_candidate_tooltips(path_value, allow_unresolved=False):
         key = (item_id, item_level)
         if key in tooltips:
             raise CommandError(f'候选级 tooltip 存在重复键：item={item_id}, ilevel={item_level}。')
-        tooltips[key] = description
+        if schema_version == 1:
+            tooltips[key] = {'effect': description}
+            continue
+        name_zh = str(row.get('name_zh') or '').strip()
+        icon_url = str(row.get('icon_url') or '').strip()
+        stats = row.get('stats')
+        effects = row.get('effects')
+        if (
+            not name_zh or not icon_url.startswith('/static/wow_icons/small/')
+            or not isinstance(stats, list) or not isinstance(effects, list)
+            or any(not isinstance(stat, dict) or not str(stat.get('text') or '').strip() for stat in stats)
+            or any(not isinstance(effect, str) or not effect.strip() for effect in effects)
+        ):
+            raise CommandError(f'候选级 tooltip 第 {index + 1} 行 schema v2 展示字段无效。')
+        tooltips[key] = {
+            'label': name_zh,
+            'icon_url': icon_url,
+            'effect': '\n'.join([
+                *(str(stat['text']).strip() for stat in stats),
+                *(effect.strip() for effect in effects),
+            ]),
+        }
     return tooltips
 
 
@@ -155,10 +177,15 @@ def _display_metadata(items, candidate_params, candidate_tooltips=None):
         while icon_name.rsplit('.', 1)[-1].lower() in {'jpg', 'jpeg', 'png', 'gif', 'webp'}:
             icon_name = icon_name.rsplit('.', 1)[0]
         icon_url = f'/static/wow_icons/small/{icon_name}.jpg' if icon_name else ''
-    if candidate_tooltips is None:
+    frozen = candidate_tooltips.get((item_id, _item_level(candidate_params))) if candidate_tooltips else None
+    if isinstance(frozen, dict):
+        label = str(frozen.get('label') or label).strip()
+        icon_url = str(frozen.get('icon_url') or icon_url).strip()
+        effect = str(frozen.get('effect') or '').strip()
+    elif candidate_tooltips is None:
         effect = _best_tooltip(item.description_zh, item.description) if item is not None else ''
     else:
-        effect = candidate_tooltips.get((item_id, _item_level(candidate_params)), '')
+        effect = ''
     return label, effect, icon_url
 
 

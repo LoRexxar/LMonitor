@@ -217,6 +217,68 @@ class BackfillSimcBenchmarkResultsCommandTests(SimcBenchmarkExecutionTests):
         candidate.refresh_from_db()
         self.assertEqual(candidate.effect, '装备：造成 9876 点火焰伤害。')
 
+    def test_schema_v2_backfills_exact_metadata_without_item_snapshot(self):
+        execution = self._create()
+        case = execution.cases.get()
+        candidate = SimcBenchmarkCandidate.objects.get(panel=execution.panel, key='trinket')
+        gear_swap = {
+            'item_id': 268292, 'slot': 'trinket1', 'source': 'ptr_db2',
+            'raw_value': ',id=268292,ilevel=285',
+        }
+        candidate.params['gear_swap'].update(gear_swap)
+        candidate.save(update_fields=['params'])
+        execution.config_snapshot['candidates'][1]['params']['gear_swap'].update(gear_swap)
+        execution.save(update_fields=['config_snapshot'])
+        run = SimulationRun.objects.create(
+            task=case.task, sequence=2, candidate_key='trinket', candidate_label='old',
+            candidate_params={'candidate_type': 'gear_swap', 'gear_swap': gear_swap},
+        )
+        payload = {
+            'schema_version': 2,
+            'source': {
+                'wago_build': '12.1.0.69189', 'wago_locale': 'zhCN',
+                'simc_build': '12.1.0.69189', 'simc_revision': 'fd9816d69067',
+            },
+            'tooltips': [{
+                'item_id': 268292, 'item_level': 285,
+                'name_zh': '菌丝聚合器', 'icon_file_data_id': 7702761,
+                'icon_name': 'inv_1207_fungarianraid_trinket',
+                'icon_url': '/static/wow_icons/small/inv_1207_fungarianraid_trinket.jpg',
+                'stats': [{'key': 'stragiint', 'value': 128, 'text': '+128 力量/敏捷/智力'}],
+                'effects': ['装备：造成 9,876 点自然伤害。'],
+                'description_zh': '装备：造成 9,876 点自然伤害。',
+                'spell_ids': [123456], 'unresolved_tokens': [],
+            }],
+        }
+        snapshot_before = deepcopy(execution.config_snapshot)
+        hash_before = execution.config_hash
+
+        with TemporaryDirectory() as temp_dir:
+            tooltip_path = Path(temp_dir) / 'tooltips.json'
+            tooltip_path.write_text(json.dumps(payload), encoding='utf-8')
+            call_command(
+                'backfill_simc_benchmark_display_metadata',
+                panel_slug=execution.panel.slug, tooltip_data=str(tooltip_path),
+            )
+
+        candidate.refresh_from_db()
+        run.refresh_from_db()
+        execution.refresh_from_db()
+        effect = '+128 力量/敏捷/智力\n装备：造成 9,876 点自然伤害。'
+        icon_url = '/static/wow_icons/small/inv_1207_fungarianraid_trinket.jpg'
+        self.assertEqual(
+            (candidate.label, candidate.icon_url, candidate.effect),
+            ('菌丝聚合器', icon_url, effect),
+        )
+        self.assertEqual(run.candidate_label, '菌丝聚合器')
+        self.assertEqual(run.display_metadata['icon_url'], icon_url)
+        self.assertEqual(run.display_metadata['effect'], effect)
+        self.assertEqual(execution.display_metadata['trinket'], {
+            'label': '菌丝聚合器', 'icon_url': icon_url, 'effect': effect,
+        })
+        self.assertEqual(execution.config_snapshot, snapshot_before)
+        self.assertEqual(execution.config_hash, hash_before)
+
     def test_unresolved_tooltips_require_explicit_opt_in(self):
         execution = self._create()
         payload = {

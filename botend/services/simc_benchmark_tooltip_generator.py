@@ -25,10 +25,39 @@ _UNRESOLVED_TOKEN_RE = re.compile(
 )
 _CONSTANT_EXPRESSION_RE = re.compile(r'\$\{(?P<expression>[^{}]+)\}')
 
+_STAT_LABELS = {
+    'stragiint': '力量/敏捷/智力', 'stragi': '力量/敏捷',
+    'strint': '力量/智力', 'agiint': '敏捷/智力',
+    'strength': '力量', 'agility': '敏捷', 'intellect': '智力',
+    'crit': '暴击', 'haste': '急速', 'mastery': '精通',
+    'versatility': '全能', 'stamina': '耐力', 'armor': '护甲',
+}
+_STAT_ORDER = {key: index for index, key in enumerate(_STAT_LABELS)}
+
 
 def _number(value):
     number = float(value)
     return int(number) if number.is_integer() else number
+
+
+def render_item_stats(stats):
+    """Render SimC's already-scaled gear stats in stable tooltip order."""
+    rows = []
+    for key, value in sorted(
+        (stats or {}).items(), key=lambda pair: (_STAT_ORDER.get(pair[0], 999), pair[0]),
+    ):
+        label = _STAT_LABELS.get(key)
+        if not label or not isinstance(value, (int, float)) or isinstance(value, bool) or value == 0:
+            continue
+        rows.append(f'{value:+,} {label}')
+    return rows
+
+
+def normalize_tooltip_text(value):
+    """Clean only deterministic DB2 localization artifacts."""
+    text = str(value or '').replace('\r\n', '\n').replace('\r', '\n')
+    text = re.sub(r'(?<=秒)秒', '', text)
+    return '\n'.join(line.rstrip() for line in text.splitlines()).strip()
 
 
 def _evaluate_constant_expression(expression):
@@ -211,4 +240,4 @@ def render_spell_description(
         token = match.group(0)
         if token not in unresolved:
             unresolved.append(token)
-    return text, unresolved
+    return normalize_tooltip_text(text), unresolved
