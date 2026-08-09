@@ -15,6 +15,11 @@ PANEL_EDIT_PAGE = PANEL_EDIT_PATH.read_text(encoding="utf-8") if PANEL_EDIT_PATH
 EXECUTION_PAGE = (ROOT / "templates/dashboard/simc_benchmark_execution.html").read_text(encoding="utf-8")
 JS = (ROOT / "static/dashboard/js/simc-benchmark-dashboard.js").read_text(encoding="utf-8")
 CSS = (ROOT / "static/dashboard/css/simc-benchmark-dashboard.css").read_text(encoding="utf-8")
+PORTAL_JS = (ROOT / "static/portal/js/simc-benchmarks.js").read_text(encoding="utf-8")
+ITEM_LEVEL_PALETTE = [
+    '#4e79a7', '#f28e2b', '#59a14f', '#e15759', '#b07aa1',
+    '#76b7b2', '#edc948', '#ff9da7', '#9c755f', '#bab0ac',
+]
 
 
 class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
@@ -298,6 +303,19 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
             '.benchmark-gear-tooltip',
         ):
             self.assertIn(selector, CSS)
+
+    def test_item_level_palette_is_discrete_and_shared_by_dashboard_and_portal(self):
+        expected = ','.join(f"'{color}'" for color in ITEM_LEVEL_PALETTE)
+        self.assertIn(f'const palette=[{expected}];', JS)
+        portal_expected = ', '.join(f'"{color}"' for color in ITEM_LEVEL_PALETTE)
+        self.assertIn(f'const palette = [{portal_expected}];', PORTAL_JS)
+        self.assertEqual(len(set(ITEM_LEVEL_PALETTE)), len(ITEM_LEVEL_PALETTE))
+        for source in (JS, PORTAL_JS):
+            color_map = source[
+                source.index('function buildItemLevelColorMap('):
+                source.index('}', source.index('function buildItemLevelColorMap(')) + 1
+            ]
+            self.assertIn('.sort((a,b)=>a-b)', ''.join(color_map.split()))
 
     def test_history_has_independent_abort_and_generation_guards(self):
         for contract in ('historyListController', 'historyDetailController',

@@ -190,7 +190,7 @@
   }
 
   function buildItemLevelColorMap(groups) {
-    const palette = ["#2563eb", "#7c3aed", "#db2777", "#ea580c", "#ca8a04", "#16a34a", "#0891b2", "#4f46e5"];
+    const palette = ["#4e79a7", "#f28e2b", "#59a14f", "#e15759", "#b07aa1", "#76b7b2", "#edc948", "#ff9da7", "#9c755f", "#bab0ac"];
     const levels = Array.from(new Set(groups.flatMap((group) => group.variants
       .map((candidate) => Number(candidate.item_level))
       .filter((level) => Number.isFinite(level) && level > 0)))).sort((a, b) => a - b);

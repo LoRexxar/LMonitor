@@ -1,6 +1,9 @@
 from copy import deepcopy
+import json
+from pathlib import Path
+import re
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.db.models import Q
 
@@ -39,6 +42,74 @@ def _item_id(candidate_params):
     return value if isinstance(value, int) and value > 0 else None
 
 
+def _item_level(candidate_params):
+    if not isinstance(candidate_params, dict):
+        return None
+    swap = candidate_params.get('gear_swap')
+    if not isinstance(swap, dict):
+        return None
+    for field in ('item_level', 'ilevel'):
+        value = swap.get(field)
+        if isinstance(value, int) and value > 0:
+            return value
+    raw_value = swap.get('raw_value')
+    if not isinstance(raw_value, str):
+        return None
+    match = re.search(r'(?:^|,)\s*ilevel\s*=\s*(\d+)(?:\s*,|$)', raw_value, re.IGNORECASE)
+    if not match:
+        return None
+    value = int(match.group(1))
+    return value if value > 0 else None
+
+
+def _load_candidate_tooltips(path_value, allow_unresolved=False):
+    if not path_value:
+        return None
+    path = Path(path_value).expanduser()
+    try:
+        payload = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise CommandError(f'无法读取候选级 tooltip 数据：{path}: {exc}') from exc
+    if not isinstance(payload, dict) or payload.get('schema_version') != 1:
+        raise CommandError('候选级 tooltip 数据必须是 schema_version=1 的 JSON 对象。')
+    source = payload.get('source')
+    rows = payload.get('tooltips')
+    if not isinstance(source, dict) or not isinstance(rows, list):
+        raise CommandError('候选级 tooltip 数据缺少 source 或 tooltips。')
+    required_source = ('wago_build', 'wago_locale', 'simc_build', 'simc_revision')
+    if any(not str(source.get(field) or '').strip() for field in required_source):
+        raise CommandError('候选级 tooltip 数据的来源元数据不完整。')
+    tooltips = {}
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            raise CommandError(f'候选级 tooltip 第 {index + 1} 行不是对象。')
+        item_id = row.get('item_id')
+        item_level = row.get('item_level')
+        description = str(row.get('description_zh') or '').strip()
+        spell_ids = row.get('spell_ids')
+        unresolved_tokens = row.get('unresolved_tokens', [])
+        if (
+            not isinstance(item_id, int) or item_id <= 0
+            or not isinstance(item_level, int) or item_level <= 0
+            or not description
+            or not isinstance(spell_ids, list)
+            or any(not isinstance(spell_id, int) or spell_id <= 0 for spell_id in spell_ids)
+            or not isinstance(unresolved_tokens, list)
+            or any(not isinstance(token, str) or not token for token in unresolved_tokens)
+        ):
+            raise CommandError(f'候选级 tooltip 第 {index + 1} 行字段无效。')
+        if unresolved_tokens and not allow_unresolved:
+            raise CommandError(
+                f'候选级 tooltip 第 {index + 1} 行包含 unresolved token；'
+                '确认发布原始模板语法时请使用 --allow-unresolved-tooltips。'
+            )
+        key = (item_id, item_level)
+        if key in tooltips:
+            raise CommandError(f'候选级 tooltip 存在重复键：item={item_id}, ilevel={item_level}。')
+        tooltips[key] = description
+    return tooltips
+
+
 def _bonus_id(swap):
     value = swap.get('bonus_id')
     if isinstance(value, int) and value > 0:
@@ -70,24 +141,28 @@ def _bonus_label(candidate_params):
     return SPECIAL_BONUS_LABELS.get(item_id, {}).get(bonus_id, '')
 
 
-def _display_metadata(items, candidate_params):
+def _display_metadata(items, candidate_params, candidate_tooltips=None):
     item_id = _item_id(candidate_params)
     item = items.get(item_id)
-    if item is None:
-        return '', '', ''
-    label = str(item.name_zh or item.name or '').strip()
-    variant = _bonus_label(candidate_params)
-    if label and variant:
-        label = f'{label} · {variant}'
-    icon_name = str(item.icon or '').strip().split('?', 1)[0].rsplit('/', 1)[-1]
-    while icon_name.rsplit('.', 1)[-1].lower() in {'jpg', 'jpeg', 'png', 'gif', 'webp'}:
-        icon_name = icon_name.rsplit('.', 1)[0]
-    icon_url = f'/static/wow_icons/small/{icon_name}.jpg' if icon_name else ''
-    effect = _best_tooltip(item.description_zh, item.description)
+    label = ''
+    icon_url = ''
+    if item is not None:
+        label = str(item.name_zh or item.name or '').strip()
+        variant = _bonus_label(candidate_params)
+        if label and variant:
+            label = f'{label} · {variant}'
+        icon_name = str(item.icon or '').strip().split('?', 1)[0].rsplit('/', 1)[-1]
+        while icon_name.rsplit('.', 1)[-1].lower() in {'jpg', 'jpeg', 'png', 'gif', 'webp'}:
+            icon_name = icon_name.rsplit('.', 1)[0]
+        icon_url = f'/static/wow_icons/small/{icon_name}.jpg' if icon_name else ''
+    if candidate_tooltips is None:
+        effect = _best_tooltip(item.description_zh, item.description) if item is not None else ''
+    else:
+        effect = candidate_tooltips.get((item_id, _item_level(candidate_params)), '')
     return label, effect, icon_url
 
 
-def _execution_candidate_metadata(items, snapshot):
+def _execution_candidate_metadata(items, snapshot, candidate_tooltips=None):
     if not isinstance(snapshot, dict):
         return {}
     definitions = snapshot.get('candidates')
@@ -101,7 +176,7 @@ def _execution_candidate_metadata(items, snapshot):
         params = candidate.get('params')
         if not isinstance(key, str) or not key or not isinstance(params, dict):
             continue
-        label, effect, icon_url = _display_metadata(items, params)
+        label, effect, icon_url = _display_metadata(items, params, candidate_tooltips)
         if label or effect or icon_url:
             metadata[key] = {
                 **({'label': label} if label else {}),
@@ -120,10 +195,22 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('--dry-run', action='store_true')
         parser.add_argument('--panel-slug', default='', help='仅回填指定 Benchmark Panel')
+        parser.add_argument(
+            '--tooltip-data', default='',
+            help='候选级 item_id + ilevel 中文 tooltip 固定 JSON；未精确命中时保留现有 effect',
+        )
+        parser.add_argument(
+            '--allow-unresolved-tooltips', action='store_true',
+            help='允许回填含 unresolved token 的 tooltip 原始模板语法',
+        )
 
     def handle(self, *args, **options):
         dry_run = options['dry_run']
         panel_slug = str(options.get('panel_slug') or '').strip()
+        candidate_tooltips = _load_candidate_tooltips(
+            options.get('tooltip_data'),
+            allow_unresolved=options.get('allow_unresolved_tooltips', False),
+        )
         candidate_query = SimcBenchmarkCandidate.objects
         execution_query = SimcBenchmarkExecution.objects
         run_query = SimulationRun.objects
@@ -160,7 +247,9 @@ class Command(BaseCommand):
 
         candidate_updates = []
         for candidate in candidates:
-            label, effect, icon_url = _display_metadata(items, candidate.params)
+            label, effect, icon_url = _display_metadata(
+                items, candidate.params, candidate_tooltips,
+            )
             if not label and not effect and not icon_url:
                 continue
             changed = False
@@ -178,7 +267,9 @@ class Command(BaseCommand):
 
         run_updates = []
         for run in runs:
-            label, effect, icon_url = _display_metadata(items, run.candidate_params)
+            label, effect, icon_url = _display_metadata(
+                items, run.candidate_params, candidate_tooltips,
+            )
             if not label and not effect and not icon_url:
                 continue
             changed = False
@@ -200,7 +291,9 @@ class Command(BaseCommand):
 
         execution_updates = []
         for execution in executions:
-            desired = _execution_candidate_metadata(items, execution.config_snapshot)
+            desired = _execution_candidate_metadata(
+                items, execution.config_snapshot, candidate_tooltips,
+            )
             if not desired:
                 continue
             metadata = deepcopy(execution.display_metadata)

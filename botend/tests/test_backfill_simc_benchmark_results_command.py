@@ -1,5 +1,8 @@
 from io import StringIO
 from copy import deepcopy
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -93,3 +96,157 @@ class BackfillSimcBenchmarkResultsCommandTests(SimcBenchmarkExecutionTests):
         repeat = StringIO()
         call_command('backfill_simc_benchmark_display_metadata', stdout=repeat)
         self.assertIn('updated 0 candidates, 0 runs, and 0 executions', repeat.getvalue())
+
+    def test_candidate_level_tooltips_are_exact_and_preserve_results(self):
+        execution = self._create()
+        case = execution.cases.get()
+        candidate = SimcBenchmarkCandidate.objects.get(panel=execution.panel, key='trinket')
+        gear_swap = {
+            'item_id': 270160,
+            'slot': 'trinket1',
+            'source': 'ptr_db2',
+            'raw_value': ',id=270160,ilevel=285',
+        }
+        candidate.params['gear_swap'].update(gear_swap)
+        candidate.effect = '装备：旧快照在 219 装等造成 100 点伤害。'
+        candidate.save(update_fields=['params', 'effect'])
+        execution.config_snapshot['candidates'][1]['params']['gear_swap'].update(gear_swap)
+        execution.display_metadata = {
+            'trinket': {'effect': '装备：旧执行快照在 219 装等造成 100 点伤害。'},
+        }
+        execution.save(update_fields=['config_snapshot', 'display_metadata'])
+        run = SimulationRun.objects.create(
+            task=case.task, sequence=1, candidate_key='trinket', candidate_label='Trinket',
+            candidate_params={
+                'candidate_type': 'gear_swap', 'is_base': False,
+                'gear_swap': gear_swap,
+            },
+            display_metadata={'effect': '装备：旧 Run 快照在 219 装等造成 100 点伤害。'},
+        )
+        result = SimcBenchmarkResult.objects.create(
+            case=case, candidate_key='trinket', dps=4321.5,
+        )
+        WowItemSnapshot.objects.create(
+            item_id=270160, name='Test Trinket', name_zh='测试饰品',
+            description_zh='装备：静态物品快照在 219 装等造成 100 点伤害。',
+        )
+        tooltip_payload = {
+            'schema_version': 1,
+            'source': {
+                'wago_build': '12.1.0.69189',
+                'wago_locale': 'zhCN',
+                'simc_build': '12.1.0.69189',
+                'simc_revision': 'fd9816d69067',
+            },
+            'tooltips': [{
+                'item_id': 270160,
+                'item_level': 285,
+                'description_zh': '装备：造成 9876 点火焰伤害。',
+                'spell_ids': [123456],
+            }],
+        }
+        snapshot_before = deepcopy(execution.config_snapshot)
+        hash_before = execution.config_hash
+        results_before = list(
+            SimcBenchmarkResult.objects.filter(case__execution=execution)
+            .values_list('id', 'candidate_key', 'dps')
+        )
+
+        with TemporaryDirectory() as temp_dir:
+            tooltip_path = Path(temp_dir) / 'tooltips.json'
+            tooltip_path.write_text(json.dumps(tooltip_payload), encoding='utf-8')
+            call_command(
+                'backfill_simc_benchmark_display_metadata',
+                panel_slug=execution.panel.slug,
+                tooltip_data=str(tooltip_path),
+            )
+
+        candidate.refresh_from_db()
+        run.refresh_from_db()
+        execution.refresh_from_db()
+        result.refresh_from_db()
+        expected = '装备：造成 9876 点火焰伤害。'
+        self.assertEqual(candidate.effect, expected)
+        self.assertEqual(run.display_metadata['effect'], expected)
+        self.assertEqual(execution.display_metadata['trinket']['effect'], expected)
+        self.assertNotIn('219', candidate.effect)
+        self.assertEqual(execution.config_snapshot, snapshot_before)
+        self.assertEqual(execution.config_hash, hash_before)
+        self.assertEqual(
+            list(
+                SimcBenchmarkResult.objects.filter(case__execution=execution)
+                .values_list('id', 'candidate_key', 'dps')
+            ),
+            results_before,
+        )
+        self.assertEqual(result.dps, 4321.5)
+
+    def test_candidate_level_tooltip_does_not_require_item_snapshot(self):
+        execution = self._create()
+        candidate = SimcBenchmarkCandidate.objects.get(panel=execution.panel, key='trinket')
+        candidate.params['gear_swap'].update({
+            'item_id': 270160,
+            'raw_value': ',id=270160,ilevel=285',
+        })
+        candidate.save(update_fields=['params'])
+        tooltip_payload = {
+            'schema_version': 1,
+            'source': {
+                'wago_build': '12.1.0.69189',
+                'wago_locale': 'zhCN',
+                'simc_build': '12.1.0.69189',
+                'simc_revision': 'fd9816d69067',
+            },
+            'tooltips': [{
+                'item_id': 270160,
+                'item_level': 285,
+                'description_zh': '装备：造成 9876 点火焰伤害。',
+                'spell_ids': [123456],
+            }],
+        }
+
+        with TemporaryDirectory() as temp_dir:
+            tooltip_path = Path(temp_dir) / 'tooltips.json'
+            tooltip_path.write_text(json.dumps(tooltip_payload), encoding='utf-8')
+            call_command(
+                'backfill_simc_benchmark_display_metadata',
+                panel_slug=execution.panel.slug,
+                tooltip_data=str(tooltip_path),
+            )
+
+        candidate.refresh_from_db()
+        self.assertEqual(candidate.effect, '装备：造成 9876 点火焰伤害。')
+
+    def test_unresolved_tooltips_require_explicit_opt_in(self):
+        execution = self._create()
+        payload = {
+            'schema_version': 1,
+            'source': {
+                'wago_build': '12.1.0.69189',
+                'wago_locale': 'zhCN',
+                'simc_build': '12.1.0.69189',
+                'simc_revision': 'fd9816d69067',
+            },
+            'tooltips': [{
+                'item_id': 270160,
+                'item_level': 285,
+                'description_zh': '装备：造成${100*$<rolemult>}点伤害。',
+                'spell_ids': [123456],
+                'unresolved_tokens': ['$<rolemult>'],
+            }],
+        }
+        with TemporaryDirectory() as temp_dir:
+            tooltip_path = Path(temp_dir) / 'tooltips.json'
+            tooltip_path.write_text(json.dumps(payload), encoding='utf-8')
+            with self.assertRaisesMessage(CommandError, 'unresolved token'):
+                call_command(
+                    'backfill_simc_benchmark_display_metadata',
+                    panel_slug=execution.panel.slug,
+                    tooltip_data=str(tooltip_path),
+                )
+            call_command(
+                'backfill_simc_benchmark_display_metadata',
+                panel_slug=execution.panel.slug,
+                tooltip_data=str(tooltip_path),
+                allow_unresolved_tooltips=True,
+            )
