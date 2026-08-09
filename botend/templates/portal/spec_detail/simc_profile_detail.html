@@ -30,8 +30,8 @@
   <section class="simc-profile-card">
     <h2>属性</h2>
     <dl class="simc-profile-grid">
-      <div><dt>力量</dt><dd>{{ profile_detail.stats.primary.strength.rating|default:profile_detail.stats.primary.strength|default:'未提供' }}</dd></div>
-      {% for key, stat in profile_detail.stats.secondary.items %}<div><dt>{{ key }}</dt><dd>{{ stat.rating|default:'未提供' }}{% if stat.pct %}（{{ stat.pct }}）{% endif %}</dd></div>{% endfor %}
+      {% for stat in primary_stats %}<div><dt>{{ stat.label }}</dt><dd>{{ stat.value|default:'未提供' }}</dd></div>{% endfor %}
+      {% for stat in secondary_stats %}<div><dt>{{ stat.label }}</dt><dd>{{ stat.value|default:'未提供' }}{% if stat.pct %}（{{ stat.pct }}）{% endif %}</dd></div>{% endfor %}
     </dl>
   </section>
   <section class="simc-profile-card">

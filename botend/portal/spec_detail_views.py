@@ -169,8 +169,22 @@ class SimcProfileDetailView(View):
             gear_mastery=profile.gear_mastery,
             gear_versatility=profile.gear_versatility,
         )
+        stats = detail.get('stats') or {}
+        primary_stats = [
+            {'label': '力量', 'value': (stats.get('primary') or {}).get('strength')},
+        ]
+        secondary_stats = [
+            {'label': key, 'value': value.get('rating'), 'pct': value.get('pct')}
+            for key, value in (stats.get('secondary') or {}).items()
+            if isinstance(value, dict)
+        ]
         ctx = _base_context(class_name, spec_name)
-        ctx.update({'simc_profile': profile, 'profile_detail': detail})
+        ctx.update({
+            'simc_profile': profile,
+            'profile_detail': detail,
+            'primary_stats': primary_stats,
+            'secondary_stats': secondary_stats,
+        })
         return render(request, 'portal/spec_detail/simc_profile_detail.html', ctx)
 
 
