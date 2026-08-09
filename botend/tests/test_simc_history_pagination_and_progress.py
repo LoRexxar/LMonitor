@@ -157,6 +157,34 @@ class SimcHistoryBackendPaginationTests(TestCase):
         self.assertEqual(rows[grouped.name]['status_label'], '运行中')
         self.assertIsNone(rows[grouped.name]['progress'])
 
+    def test_history_exposes_frozen_resource_names_and_battle_scenario(self):
+        from botend.models import SimcApl, SimcResourceVersion
+        apl = SimcApl.objects.create(
+            name='个人狂怒优化 APL：长名称用于验证省略', spec='warrior_fury', content='actions=auto_attack',
+            owner_user_id=self.user.id, source='user', is_active=True,
+        )
+        profile_version = SimcResourceVersion.objects.create(
+            resource_type='profile', resource_id=self.profile.id, content_hash='history-profile-v1',
+            payload={'name': '冻结 Profile：12.1 狂怒 Raid 单体配置'},
+        )
+        apl_version = SimcResourceVersion.objects.create(
+            resource_type='apl', resource_id=apl.id, content_hash='history-apl-v1',
+            payload={'name': '冻结 APL：12.1 Fury优化APL-LoRexxar'},
+        )
+        task = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            name='资源展示任务', current_status=2, is_active=True, profile=self.profile, apl=apl,
+            profile_version=profile_version, apl_version=apl_version,
+            simulation_params={'fight_style': 'Patchwerk', 'desired_targets': 3},
+        )
+        request = self.factory.get('/api/simc-workbench/history/')
+        request.user = self.user
+        rows = json.loads(self.view.get(request, resource='history').content)['data']
+        row = next(item for item in rows if item.get('id') == task.id)
+        self.assertEqual(row['apl_name'], '冻结 APL：12.1 Fury优化APL-LoRexxar')
+        self.assertEqual(row['profile_name'], '冻结 Profile：12.1 狂怒 Raid 单体配置')
+        self.assertEqual(row['battle_scenario'], 'Patchwerk · 3目标')
+
     def test_history_groups_benchmark_tasks_as_one_expandable_execution(self):
         panel = SimcBenchmarkPanel.objects.create(name='基准', slug='history-benchmark', created_by_id=self.user.id)
         execution = SimcBenchmarkExecution.objects.create(panel=panel, config_snapshot={}, config_hash='a' * 64)

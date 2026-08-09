@@ -32,7 +32,7 @@ from django.template.loader import render_to_string
 
 from django.conf import settings
 from utils.log import logger
-from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcApl, SimcAplSymbol, SimcTask, SimulationRun, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, SimcAgent, SimcAgentMaintenanceTask, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState, WowSpellSnapshot, WowTalentNodeMetadata, WowTalentVersion, WowItemSnapshot
+from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcApl, SimcAplSymbol, SimcTask, SimulationRun, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, SimcAgent, SimcAgentMaintenanceTask, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState, WowSpellSnapshot, WowTalentNodeMetadata, WowTalentVersion, WowItemSnapshot, SimcResourceVersion
 from botend.alerting import upsert_system_alert
 from botend.dashboard.permissions import DashboardPermissionRequiredMixin, has_dashboard_permission
 from django.db import IntegrityError, models, transaction
@@ -6226,7 +6226,26 @@ class SimcWorkbenchAPIView(View):
             tasks = {
                 task.pk: task for task in SimcTask.objects.filter(pk__in=task_ids).only(
                     'id', 'name', 'current_status', 'ext', 'modified_time', 'mode',
+                    'profile_id', 'apl_id', 'profile_version_id', 'apl_version_id', 'simulation_params',
                 )
+            }
+            version_ids = {
+                version_id for task in tasks.values()
+                for version_id in (task.profile_version_id, task.apl_version_id)
+                if version_id
+            }
+            versions = {
+                version.id: version for version in SimcResourceVersion.objects.filter(
+                    id__in=version_ids,
+                ).only('id', 'resource_type', 'payload')
+            }
+            profile_ids = {task.profile_id for task in tasks.values() if task.profile_id}
+            apl_ids = {task.apl_id for task in tasks.values() if task.apl_id}
+            profiles = {
+                profile.id: profile for profile in SimcProfile.objects.filter(id__in=profile_ids).only('id', 'name')
+            }
+            apls = {
+                apl.id: apl for apl in SimcApl.objects.filter(id__in=apl_ids).only('id', 'name')
             }
             completed_task_ids = set(SimulationRun.objects.filter(
                 task_id__in=task_ids, status='completed',
@@ -6257,6 +6276,20 @@ class SimcWorkbenchAPIView(View):
                     continue
                 task = tasks.get(object_id)
                 if task is not None:
+                    profile_version = versions.get(task.profile_version_id)
+                    apl_version = versions.get(task.apl_version_id)
+                    profile_payload = profile_version.payload if profile_version and isinstance(profile_version.payload, dict) else {}
+                    apl_payload = apl_version.payload if apl_version and isinstance(apl_version.payload, dict) else {}
+                    params = task.simulation_params if isinstance(task.simulation_params, dict) else {}
+                    fight_style = str(params.get('fight_style') or 'Patchwerk').strip()
+                    target_count = params.get('desired_targets', 1)
+                    try:
+                        target_count = int(target_count)
+                    except (TypeError, ValueError):
+                        target_count = None
+                    scenario = fight_style or 'Patchwerk'
+                    if target_count is not None and target_count > 0:
+                        scenario = f'{scenario} · {target_count}目标'
                     page_rows.append({
                         'id': task.id,
                         'name': task.name,
@@ -6267,6 +6300,9 @@ class SimcWorkbenchAPIView(View):
                         'detail_resource': 'tasks',
                         'mode': task.mode,
                         'can_compare': task.current_status == 2 and task.id in completed_task_ids,
+                        'apl_name': apl_payload.get('name') or getattr(apls.get(task.apl_id), 'name', '') or '—',
+                        'profile_name': profile_payload.get('name') or getattr(profiles.get(task.profile_id), 'name', '') or '—',
+                        'battle_scenario': scenario,
                     })
             return JsonResponse({
                 'success': True,

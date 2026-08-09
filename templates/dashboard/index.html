@@ -238,10 +238,24 @@
         #simc-workbench .simc-task-card__main { display: flex; min-width: 0; align-items: center; gap: .65rem; }
         #simc-workbench .simc-task-card__eyebrow { flex: 0 0 auto; margin-bottom: 0; }
         #simc-workbench .simc-task-card__title { flex: 1 1 14rem; min-width: 5rem; font-size: .86rem; }
+        #simc-workbench .simc-task-card__resources { display: grid; grid-template-columns: repeat(3, minmax(6rem, 1fr)); flex: 1 1 24rem; min-width: 0; gap: .35rem; color: #475569; font-size: .68rem; }
+        #simc-workbench .simc-task-card__resources span { display: flex; min-width: 0; align-items: baseline; gap: .25rem; overflow: hidden; white-space: nowrap; }
+        #simc-workbench .simc-task-card__resources b { flex: 0 0 auto; color: #94a3b8; font-size: .62rem; font-weight: 800; }
+        #simc-workbench .simc-task-card__resources em { min-width: 0; overflow: hidden; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
         #simc-workbench .simc-task-card__meta { flex: 0 0 auto; margin-top: 0; gap: .45rem; white-space: nowrap; }
         #simc-workbench .simc-task-progress { flex: 0 1 9rem; min-width: 5rem; margin-top: 0; }
         #simc-workbench .simc-task-card__actions { flex: 0 0 auto; gap: .35rem; }
         #simc-workbench .simc-task-card__actions .simc-touch-action { min-height: 32px; padding: .35rem .55rem; font-size: .7rem; }
+        @media (max-width: 1100px) {
+            #simc-workbench .simc-task-card__resources { grid-template-columns: repeat(3, minmax(4rem, 1fr)); flex-basis: 18rem; }
+        }
+        @media (max-width: 760px) {
+            #simc-workbench .simc-task-card { grid-template-columns: 1fr; }
+            #simc-workbench .simc-task-card__main { flex-wrap: wrap; }
+            #simc-workbench .simc-task-card__resources { order: 3; width: 100%; flex-basis: 100%; }
+            #simc-workbench .simc-task-card__meta { order: 4; }
+            #simc-workbench .simc-task-card__actions { justify-content: flex-start; }
+        }
         #simc-workbench .simc-benchmark-task-group { display: block; padding: .75rem; }
         #simc-workbench .simc-benchmark-task-summary { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
         #simc-workbench .simc-benchmark-task-summary > .simc-task-card__main { flex: 1 1 auto; }

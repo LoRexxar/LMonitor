@@ -224,11 +224,13 @@
             const typeLabel = row.mode === 'comparison' ? '候选对比' : row.mode === 'attribute_sweep' ? '属性寻优' : '普通模拟';
             const rerunButton = `<button type="button" data-task-rerun="${idOf(row.id)}" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-redo-alt" aria-hidden="true"></i><span>重跑</span></button>`;
             const pendingActions = status === 0 ? `<button type="button" data-task-status="5" data-task-id="${idOf(row.id)}" title="取消任务" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-ban" aria-hidden="true"></i><span>取消</span></button><button type="button" data-task-status="3" data-task-id="${idOf(row.id)}" title="标记失败" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-exclamation-circle" aria-hidden="true"></i><span>失败</span></button>` : '';
+            const resourceMeta = `<div class="simc-task-card__resources" aria-label="任务资源"><span title="APL：${esc(row.apl_name || '—')}"><b>APL</b><em>${esc(row.apl_name || '—')}</em></span><span title="Profile：${esc(row.profile_name || '—')}"><b>Profile</b><em>${esc(row.profile_name || '—')}</em></span><span title="战斗场景：${esc(row.battle_scenario || '—')}"><b>场景</b><em>${esc(row.battle_scenario || '—')}</em></span></div>`;
             return `<article class="simc-task-card simc-responsive-row">
                 ${row.can_compare === true && status === 2 ? `<label class="simc-task-card__select"><input type="checkbox" data-task-compare-id="${idOf(row.id)}" aria-label="选择任务 ${idOf(row.id)} 进行对比" class="accent-violet-600"><span>选择对比</span></label>` : ''}
                 <div class="simc-task-card__main">
                     <div class="simc-task-card__eyebrow"><span class="simc-task-type">${typeLabel}</span><span class="simc-task-id">#${idOf(row.id)}</span></div>
                     <h4 class="simc-task-card__title">${esc(row.name || `任务 #${idOf(row.id)}`)}</h4>
+                    ${resourceMeta}
                     <div class="simc-task-card__meta"><span class="simc-task-status ${statusClass}"><i class="fas ${statusIcon}" aria-hidden="true"></i>${esc(row.status_label)}</span><time><i class="far fa-calendar-alt" aria-hidden="true"></i>${esc(row.created_at)}</time></div>
                     ${progressBar}
                 </div>
