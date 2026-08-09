@@ -1483,8 +1483,6 @@ def serialize_panel_apl_ranking_results(panel, *, spec_key, scenario_key):
         if not (task.profile_version_id and task.apl_version_id and task.template_version_id):
             return None
         backend_version = manifest.get('backend_version')
-        if not backend_version:
-            return None
         apl_payload = task.apl_version.payload or {}
         return {
             'spec_key': result.case.spec_key,
