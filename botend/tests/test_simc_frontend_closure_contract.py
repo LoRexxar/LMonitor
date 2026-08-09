@@ -38,6 +38,14 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertNotIn('id="apl-override"', WORKFLOW)
         self.assertNotIn('id="simc-sim-save-profile-btn"', WORKFLOW)
 
+    def test_history_multi_result_comparison_uses_backend_capability_and_task_ids(self):
+        history = WB[WB.index("state.rows.history = data.data || [];"):WB.index("function scheduleTaskRefresh")]
+        self.assertIn("row.can_compare === true && status === 2", history)
+        self.assertIn("data-task-compare-id", history)
+        self.assertIn("data-task-compare-submit", history)
+        self.assertIn("task_ids=${ids.join(',')}", WB)
+        self.assertIn("const taskIds = getUrlParameter('task_ids') || ''", (ROOT / "templates/simc_regular_compare.html").read_text(encoding="utf-8"))
+
     def test_home_creation_success_returns_to_unified_history(self):
         creation = SIM[SIM.index("async function startSelectedSimcCandidateComparisons"):SIM.index("function bindSimcWorkbenchSimulationControls")]
         self.assertGreaterEqual(creation.count("switchSimcWorkbenchL1Tab('history')"), 3)

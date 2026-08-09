@@ -420,16 +420,17 @@
         }
 
         async function loadCompare() {
+            const taskIds = getUrlParameter('task_ids') || '';
             const taskId = getUrlParameter('task_id') || '';
-            document.getElementById('task-ids').textContent = taskId ? `任务 ${taskId}` : '-';
-            if (!taskId) {
-                showError('缺少 task_id 参数');
+            const query = taskIds ? `task_ids=${encodeURIComponent(taskIds)}` : `task_id=${encodeURIComponent(taskId)}`;
+            document.getElementById('task-ids').textContent = taskIds ? `任务 ${taskIds}` : (taskId ? `任务 ${taskId}` : '-');
+            if (!taskIds && !taskId) {
+                showError('缺少 task_ids 参数');
                 return;
             }
 
             try {
                 await loadKeywordTranslations();
-                const query = `task_id=${encodeURIComponent(taskId)}`;
                 const resp = await fetch(`/api/simc-regular-compare/?${query}`, {
                     method: 'GET',
                     credentials: 'same-origin'
@@ -449,7 +450,7 @@
                 const tasks = (data.data && data.data.runs) || [];
                 const invalid = (data.data && data.data.invalid) || [];
                 const comparison = (data.data && data.data.comparison) || {};
-                regularCompareTaskId = taskId;
+                regularCompareTaskId = taskIds || taskId;
 
                 if (!tasks || tasks.length < 2) {
                     showError('可用于对比的任务不足2个');

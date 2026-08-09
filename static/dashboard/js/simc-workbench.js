@@ -180,7 +180,7 @@
         state.taskResponseSignature = responseSignature;
         state.rows.history = data.data || [];
 
-        host.innerHTML = data.data.length ? `<div class="simc-task-list">${data.data.map(row => {
+        host.innerHTML = data.data.length ? `<div class="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-violet-200 bg-violet-50 p-3" data-task-compare-toolbar><span class="text-sm text-violet-900"><i class="fas fa-check-square mr-1" aria-hidden="true"></i>勾选至少两个已完成结果，生成对比页面</span><button type="button" data-task-compare-submit disabled class="simc-touch-action rounded-lg bg-violet-700 px-3 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50"><i class="fas fa-balance-scale mr-1" aria-hidden="true"></i>生成对比结果（0）</button></div><div class="simc-task-list">${data.data.map(row => {
             if (row.row_type === 'benchmark_execution') {
                 const executionId = idOf(row.execution_id);
                 const expanded = expandedExecutionIds.has(executionId);
@@ -225,6 +225,7 @@
             const rerunButton = `<button type="button" data-task-rerun="${idOf(row.id)}" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-redo-alt" aria-hidden="true"></i><span>重跑</span></button>`;
             const pendingActions = status === 0 ? `<button type="button" data-task-status="5" data-task-id="${idOf(row.id)}" title="取消任务" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-ban" aria-hidden="true"></i><span>取消</span></button><button type="button" data-task-status="3" data-task-id="${idOf(row.id)}" title="标记失败" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-exclamation-circle" aria-hidden="true"></i><span>失败</span></button>` : '';
             return `<article class="simc-task-card simc-responsive-row">
+                ${row.can_compare === true && status === 2 ? `<label class="simc-task-card__select"><input type="checkbox" data-task-compare-id="${idOf(row.id)}" aria-label="选择任务 ${idOf(row.id)} 进行对比" class="accent-violet-600"><span>选择对比</span></label>` : ''}
                 <div class="simc-task-card__main">
                     <div class="simc-task-card__eyebrow"><span class="simc-task-type">${typeLabel}</span><span class="simc-task-id">#${idOf(row.id)}</span></div>
                     <h4 class="simc-task-card__title">${esc(row.name || `任务 #${idOf(row.id)}`)}</h4>
@@ -1339,6 +1340,23 @@
                 if (!restoreDialogState()) closeDialog();
             }
 
+            const compareSubmit = event.target.closest('[data-task-compare-submit]');
+            if (compareSubmit) {
+                const host = compareSubmit.closest('[data-task-compare-toolbar]')?.parentElement;
+                const ids = Array.from(host?.querySelectorAll('[data-task-compare-id]:checked') || []).map(input => idOf(input.dataset.taskCompareId));
+                if (ids.length >= 2) window.open(`/simc-compare/?task_ids=${ids.join(',')}`, '_blank', 'noopener,noreferrer');
+                return;
+            }
+            if (event.target.matches('[data-task-compare-id]')) {
+                const host = event.target.closest('[data-task-compare-toolbar]')?.parentElement;
+                const count = host?.querySelectorAll('[data-task-compare-id]:checked').length || 0;
+                const button = host?.querySelector('[data-task-compare-submit]');
+                if (button) {
+                    button.disabled = count < 2;
+                    button.innerHTML = `<i class="fas fa-balance-scale mr-1" aria-hidden="true"></i>生成对比结果（${count}）`;
+                }
+                return;
+            }
             const rerunAction = event.target.closest('[data-task-rerun]');
             if (rerunAction) {
                 renderTaskRerunForm(rerunAction.dataset.taskRerun);

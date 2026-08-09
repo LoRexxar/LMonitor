@@ -5167,9 +5167,83 @@ class SimcRegularCompareAPIView(View):
                 and isinstance(value, (int, float)) and not isinstance(value, bool)
             }
         return candidate
+
+    def _get_multi_task_payload(self, request, task_ids):
+        """Build a safe comparison report from selected ordinary simulation tasks."""
+        tasks = list(SimcTask.objects.filter(
+            id__in=task_ids, user_id=request.user.id, is_active=True,
+        ).order_by('id'))
+        if len(tasks) != len(task_ids):
+            raise PermissionError('所选任务不存在或无权限访问')
+        rows = []
+        invalid = []
+        for task in tasks:
+            run = task.simulation_runs.filter(status='completed').prefetch_related('artifacts').order_by('-sequence').first()
+            if run is None:
+                invalid.append({'id': task.id, 'name': task.name, 'error': '没有已完成的结果'})
+                continue
+            summary = run.result_summary if isinstance(run.result_summary, dict) else {}
+            result_file = SimcComparisonTaskAPIView._run_result_file(run)
+            parsed = {}
+            if not summary.get('dps') and result_file:
+                content = self._get_result_file_content(result_file)
+                parsed = self._parse_regular_result(content) if content else {}
+            dps = summary.get('dps') or parsed.get('dps')
+            if not isinstance(dps, (int, float)):
+                invalid.append({'id': task.id, 'name': task.name, 'error': '无法解析已完成结果的 DPS'})
+                continue
+            rows.append({
+                'id': task.id, 'name': task.name, 'label': task.name,
+                'is_base': not rows, 'is_base_candidate': not rows,
+                'dps': dps, 'candidate_name': '',
+                'character': parsed.get('character', {}),
+                'simulation': parsed.get('simulation', {}),
+                'talents': parsed.get('talents', {}),
+                'abilities': parsed.get('abilities', parsed.get('top_abilities', [])),
+                'top_abilities': parsed.get('top_abilities', []),
+                'apl_list': '', 'run_id': run.id,
+            })
+        if len(rows) < 2:
+            raise ValueError('至少需要两个拥有已完成结果的任务')
+        baseline = rows[0]
+        baseline_dps = baseline['dps']
+        ranked = sorted(rows, key=lambda row: (-row['dps'], row['id']))
+        for rank, row in enumerate(ranked, start=1):
+            row['rank'] = rank
+            row['delta_dps'] = row['dps'] - baseline_dps
+            row['delta_percent'] = round(row['delta_dps'] / baseline_dps * 100, 2) if baseline_dps else None
+        winner = ranked[0]
+        return {
+            'task': {'task_id': None, 'name': '选定模拟结果对比', 'mode': 'multi_task_comparison', 'total': len(rows)},
+            'runs': rows,
+            'comparison': {
+                'baseline': {'id': baseline['id'], 'label': baseline['label'], 'dps': baseline_dps},
+                'winner': {'id': winner['id'], 'label': winner['label'], 'dps': winner['dps'],
+                           'delta_dps': winner['delta_dps'], 'delta_percent': winner['delta_percent']},
+            },
+            'invalid': invalid,
+            'selected_task_ids': [task.id for task in tasks],
+        }
     
     def get(self, request):
         try:
+            raw_task_ids = request.GET.get('task_ids')
+            if raw_task_ids:
+                try:
+                    task_ids = list(dict.fromkeys(
+                        int(value) for value in raw_task_ids.split(',') if str(value).strip()
+                    ))
+                except (TypeError, ValueError):
+                    return JsonResponse({'success': False, 'error': 'task_ids必须是逗号分隔的整数'}, status=400)
+                if len(task_ids) < 2 or len(task_ids) > 20:
+                    return JsonResponse({'success': False, 'error': '请选择2至20个模拟结果'}, status=400)
+                try:
+                    payload = self._get_multi_task_payload(request, task_ids)
+                except PermissionError as error:
+                    return JsonResponse({'success': False, 'error': str(error)}, status=404)
+                except ValueError as error:
+                    return JsonResponse({'success': False, 'error': str(error)}, status=400)
+                return JsonResponse({'success': True, 'data': payload})
             task_id = str(request.GET.get('task_id') or '').strip()
             if not task_id:
                 return JsonResponse({'success': False, 'error': 'task_id不能为空'}, status=400)
@@ -6151,9 +6225,12 @@ class SimcWorkbenchAPIView(View):
             ]
             tasks = {
                 task.pk: task for task in SimcTask.objects.filter(pk__in=task_ids).only(
-                    'id', 'name', 'current_status', 'ext', 'modified_time',
+                    'id', 'name', 'current_status', 'ext', 'modified_time', 'mode',
                 )
             }
+            completed_task_ids = set(SimulationRun.objects.filter(
+                task_id__in=task_ids, status='completed',
+            ).values_list('task_id', flat=True))
             history_cases = SimcBenchmarkCase.objects.select_related('task').only(
                 'id', 'execution_id', 'task_id', 'status', 'error_detail',
                 'spec_key', 'scenario_key', 'profile_key',
@@ -6188,6 +6265,8 @@ class SimcWorkbenchAPIView(View):
                         'progress': self._task_progress(task),
                         'created_at': task.modified_time,
                         'detail_resource': 'tasks',
+                        'mode': task.mode,
+                        'can_compare': task.current_status == 2 and task.id in completed_task_ids,
                     })
             return JsonResponse({
                 'success': True,

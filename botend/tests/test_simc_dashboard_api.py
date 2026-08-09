@@ -2290,6 +2290,30 @@ DPS=208365 DPS-Error=200/0.1%
             )
         return task
 
+    def test_selected_ordinary_tasks_can_generate_a_cross_report_comparison(self):
+        first = create_test_task(user_id=self.user.id, name='结果 A', simc_profile_id=0, mode='regular', current_status=2)
+        second = create_test_task(user_id=self.user.id, name='结果 B', simc_profile_id=0, mode='regular', current_status=2)
+        SimulationRun.objects.create(task=first, sequence=1, candidate_key='result-a', status='completed', result_summary={'dps': 1000})
+        SimulationRun.objects.create(task=second, sequence=1, candidate_key='result-b', status='completed', result_summary={'dps': 1100})
+        payload = self.client.get('/api/simc-regular-compare/', {'task_ids': f'{first.id},{second.id}'}).json()
+        self.assertTrue(payload['success'], payload)
+        self.assertEqual([row['name'] for row in payload['data']['runs']], ['结果 A', '结果 B'])
+        self.assertEqual(payload['data']['comparison']['winner']['id'], second.id)
+
+    def test_selected_comparison_rejects_other_users_task(self):
+        other_user = User.objects.create_user(username='comparison_other', password='pwd')
+        own = create_test_task(user_id=self.user.id, name='我的结果', simc_profile_id=0, mode='regular', current_status=2)
+        other = create_test_task(user_id=other_user.id, name='他人结果', simc_profile_id=0, mode='regular', current_status=2)
+        response = self.client.get('/api/simc-regular-compare/', {'task_ids': f'{own.id},{other.id}'})
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(response.json()['success'])
+
+    def test_selected_comparison_requires_two_task_ids(self):
+        task = create_test_task(user_id=self.user.id, name='单个结果', simc_profile_id=0, mode='regular', current_status=2)
+        response = self.client.get('/api/simc-regular-compare/', {'task_ids': str(task.id)})
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.json()['success'])
+
     def test_attribute_task_report_returns_real_dps_rankings_path_and_local_optimum(self):
         base = {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}
         rows = []
