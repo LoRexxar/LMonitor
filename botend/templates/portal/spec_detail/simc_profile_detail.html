@@ -1,0 +1,44 @@
+{% extends 'portal/base.html' %}
+{% block title %}{{ simc_profile.name|default:'SimC Profile' }} - {{ spec_name }}{% endblock %}
+{% block content %}
+<main class="simc-profile-page">
+  <header class="simc-profile-header">
+    <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/">返回专精总览</a>
+    <p class="eyebrow">SimC 冻结 Profile</p>
+    <h1>{{ simc_profile.name|default:simc_profile.profile_id }}</h1>
+    <p>{{ class_name }} · {{ spec_name }} · 只读配置详情</p>
+  </header>
+  <section class="simc-profile-card">
+    <h2>配置身份</h2>
+    <dl class="simc-profile-grid">
+      <div><dt>Profile ID</dt><dd>{{ simc_profile.id }}</dd></div>
+      <div><dt>Profile 版本</dt><dd>{{ simc_profile.version }}</dd></div>
+      <div><dt>配置模式</dt><dd>{{ simc_profile.player_config_mode }}</dd></div>
+      <div><dt>数据分支</dt><dd>{% if simc_profile.use_ptr %}PTR{% else %}正式服{% endif %}</dd></div>
+      <div><dt>角色</dt><dd>{{ profile_detail.identity.name|default:'未提供' }}</dd></div>
+      <div><dt>来源</dt><dd>{{ profile_detail.source.label|default:'冻结配置' }}</dd></div>
+    </dl>
+  </section>
+  <section class="simc-profile-card">
+    <h2>装备</h2>
+    {% if profile_detail.equipment %}
+    <div class="simc-profile-equipment">
+      {% for item in profile_detail.equipment %}<div><strong>{{ item.slot|default:item.slot_name|default:'装备' }}</strong><span>{{ item.name|default:item.label|default:item.id }}</span></div>{% endfor %}
+    </div>
+    {% else %}<p>未解析到装备槽位。</p>{% endif %}
+  </section>
+  <section class="simc-profile-card">
+    <h2>属性</h2>
+    <dl class="simc-profile-grid">
+      <div><dt>力量</dt><dd>{{ profile_detail.stats.primary.strength.rating|default:profile_detail.stats.primary.strength|default:'未提供' }}</dd></div>
+      {% for key, stat in profile_detail.stats.secondary.items %}<div><dt>{{ key }}</dt><dd>{{ stat.rating|default:'未提供' }}{% if stat.pct %}（{{ stat.pct }}）{% endif %}</dd></div>{% endfor %}
+    </dl>
+  </section>
+  <section class="simc-profile-card">
+    <h2>天赋</h2>
+    <p class="simc-profile-code">{{ profile_detail.talents.build_code|default:'未提供天赋构筑码' }}</p>
+  </section>
+  {% if profile_detail.missing_fields %}<section class="simc-profile-card simc-profile-card--notice"><h2>未解析字段</h2><ul>{% for message in profile_detail.missing_fields %}<li>{{ message }}</li>{% endfor %}</ul></section>{% endif %}
+  {% if simc_profile.player_equipment %}<details class="simc-profile-card"><summary>查看原始 SimC Profile</summary><pre class="simc-profile-code">{{ simc_profile.player_equipment }}</pre></details>{% endif %}
+</main>
+{% endblock %}

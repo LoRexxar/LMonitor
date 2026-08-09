@@ -160,6 +160,40 @@ def get_portal_spec_ranking(panel, scenario_key):
             'rankings': rankings}
 
 
+def get_portal_baseline_results(panel, spec_key):
+    """Return every published baseline coordinate for one specialization."""
+    if not panel.is_active or not panel.is_public:
+        return _ranking_not_ready('panel_not_public')
+    if not SimcBenchmarkSpec.objects.filter(
+        panel=panel, spec_key=spec_key, is_enabled=True,
+    ).exists():
+        return _ranking_not_ready('dimension_not_configured')
+    projection = serialize_incremental_panel_results(panel, spec_filter=spec_key)
+    rows = []
+    for coordinate in projection.get('coordinates', []):
+        if coordinate.get('spec_key') != spec_key:
+            continue
+        baseline = next(
+            (candidate for candidate in coordinate.get('candidates', [])
+             if candidate.get('key') == 'baseline'), None,
+        )
+        if baseline is None or not coordinate.get('audit'):
+            continue
+        row = dict(coordinate)
+        row['dps'] = baseline.get('dps')
+        row['source_result_id'] = baseline.get('source_result_id')
+        rows.append(row)
+    if not rows:
+        return _ranking_not_ready('no_comparable_baseline_results')
+    rows.sort(key=lambda row: (-float(row.get('dps') or 0),
+                               str(row.get('scenario_key') or ''),
+                               str(row.get('profile_key') or '')))
+    for index, row in enumerate(rows, 1):
+        row['rank'] = index
+    return {'status': 'ready', 'panel_id': panel.id, 'spec_key': spec_key,
+            'rankings': rows}
+
+
 def _find_public_panel(request):
     panel_id = request.GET.get('panel_id')
     slug = request.GET.get('panel')
@@ -187,6 +221,16 @@ class PortalSimcAplRankingAPIView(_PortalRankingAPIView):
         return JsonResponse(get_portal_apl_ranking(
             panel, request.GET.get('spec', ''), request.GET.get('scenario', ''),
             request.GET.get('profile') or None,
+        ))
+
+
+class PortalSimcBaselineResultsAPIView(_PortalRankingAPIView):
+    def get(self, request):
+        panel, error = self.panel(request)
+        if error:
+            return error
+        return JsonResponse(get_portal_baseline_results(
+            panel, request.GET.get('spec', ''),
         ))
 
 

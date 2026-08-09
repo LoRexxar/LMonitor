@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlsplit
 from bs4 import BeautifulSoup
 from django.core.cache import cache
 from django.test import TestCase, override_settings
+from django.urls import reverse
 
 from botend.models import (
     SimcApl,
@@ -85,8 +86,7 @@ class SpecOverviewIntegrationTests(TestCase):
         self.assertEqual(len(cards), 4)
         endpoints = {card['data-spec-module']: card.get('data-endpoint') for card in cards}
         simc = soup.select_one('#module-simc')
-        endpoints['simc-apl'] = simc['data-apl-endpoint']
-        endpoints['simc-cross-spec'] = simc['data-cross-spec-endpoint']
+        endpoints['simc'] = simc['data-endpoint']
         return endpoints
 
     @patch('botend.portal.simc_benchmark_api.serialize_incremental_panel_results', return_value={'coordinates': []})
@@ -95,7 +95,7 @@ class SpecOverviewIntegrationTests(TestCase):
         self, aggregate, projection,
     ):
         endpoints = self._rendered_endpoints()
-        self.assertEqual(set(endpoints), {'players', 'mythic-plus', 'raid', 'simc', 'simc-apl', 'simc-cross-spec'})
+        self.assertEqual(set(endpoints), {'players', 'mythic-plus', 'raid', 'simc'})
         for module, endpoint in endpoints.items():
             if module == 'simc':
                 continue
@@ -108,19 +108,14 @@ class SpecOverviewIntegrationTests(TestCase):
 
         self.assertEqual(aggregate.call_count, 3)
 
-    def test_simc_endpoints_use_discovered_public_configured_dimensions(self):
-        endpoints = self._rendered_endpoints()
-        for module in ('simc-apl', 'simc-cross-spec'):
-            parsed = urlsplit(endpoints[module])
-            params = parse_qs(parsed.query)
-            self.assertIn(parsed.path, {
-                '/portal/api/simc-benchmarks/apl-rankings/',
-                '/portal/api/simc-benchmarks/spec-rankings/',
-            })
-            self.assertEqual(params['panel'], [self.panel.slug])
-            self.assertEqual(params['scenario'], [self.scenario.key])
-            self.assertNotIn('private-overview', endpoints[module])
-        self.assertEqual(parse_qs(urlsplit(endpoints['simc-apl']).query)['spec'], ['mage_fire'])
+    def test_simc_endpoint_uses_discovered_public_panel_and_spec(self):
+        endpoint = self._rendered_endpoints()['simc']
+        parsed = urlsplit(endpoint)
+        params = parse_qs(parsed.query)
+        self.assertEqual(parsed.path, '/portal/api/simc-benchmarks/baseline-results/')
+        self.assertEqual(params['panel'], [self.panel.slug])
+        self.assertEqual(params['spec'], ['mage_fire'])
+        self.assertNotIn('private-overview', endpoint)
 
     @patch('botend.portal.simc_benchmark_api.serialize_panel_apl_ranking_results')
     def test_simc_ranking_keeps_legacy_results_without_backend_audit(self, projection):
@@ -136,15 +131,19 @@ class SpecOverviewIntegrationTests(TestCase):
         })
         self.assertEqual(response.json()['status'], 'ready')
 
-    def test_simc_controls_live_inside_the_simc_module(self):
+    def test_simc_controls_are_removed_and_profile_detail_is_linked_by_route(self):
         response = self.client.get('/portal/spec/Mage/Fire/')
         soup = BeautifulSoup(response.content, 'html.parser')
         root = soup.select_one('#spec-overview')
-        controls = root.select_one('#module-simc .spec-overview-controls')
-        self.assertIsNotNone(controls)
-        self.assertIsNone(root.select_one(':scope > .spec-overview-controls'))
+        self.assertIsNotNone(root.select_one('#module-simc[data-endpoint]'))
+        self.assertIsNone(root.select_one('.spec-overview-controls'))
+        self.assertIsNone(root.select_one('[data-cross-spec-endpoint]'))
+        self.assertEqual(
+            reverse('portal_simc_profile_detail', kwargs={'class_name': 'Mage', 'spec_name': 'Fire', 'profile_id': 1}),
+            '/portal/spec/Mage/Fire/simc-profile/1/',
+        )
 
-    def test_simc_dimension_controls_expose_all_enabled_profiles_and_scenarios(self):
+    def test_simc_dimension_catalog_is_no_longer_rendered_as_controls(self):
         extra_profile = SimcProfile.objects.create(
             user_id=1, name='Fire alt', class_name='mage', spec='mage_fire',
         )
@@ -152,21 +151,12 @@ class SpecOverviewIntegrationTests(TestCase):
             panel_spec=self.panel.specs.get(spec_key='mage_fire'),
             profile=extra_profile, label='Fire alternate', display_order=2,
         )
-        extra_scenario = SimcBenchmarkScenario.objects.create(
-            panel=self.panel, key='cleave', name='Cleave',
-            simulation_params={'desired_targets': 3}, is_enabled=True, display_order=2,
-        )
         response = self.client.get('/portal/spec/Mage/Fire/')
         soup = BeautifulSoup(response.content, 'html.parser')
-        root = soup.select_one('#spec-overview')
-        self.assertEqual(root.get('data-simc-panel'), self.panel.slug)
-        self.assertEqual(root.get('data-simc-spec'), 'mage_fire')
-        self.assertEqual(root.get('data-simc-default-scenario'), self.scenario.key)
-        self.assertIn(extra_scenario.key, root.get('data-simc-scenarios'))
-        self.assertIn(str(extra_profile.pk), root.get('data-simc-profiles'))
-        self.assertEqual(root.get('data-simc-default-profile'), str(self.panel.specs.get(spec_key='mage_fire').profiles.order_by('display_order', 'id').first().profile_id))
-        catalog = json.loads(soup.select_one('#spec-overview-scenarios').string)
-        self.assertEqual(catalog[0]['key'], self.scenario.key)
+        self.assertIsNone(soup.select_one('#spec-overview-scenario'))
+        self.assertIsNone(soup.select_one('#spec-overview-profile'))
+        self.assertIsNone(soup.select_one('#spec-overview-scenarios'))
+        self.assertIsNone(soup.select_one('#spec-overview-profiles'))
 
     def test_simc_dimension_controls_are_hidden_when_no_profile_is_enabled(self):
         panel_spec = self.panel.specs.get(spec_key='mage_fire')
@@ -178,6 +168,7 @@ class SpecOverviewIntegrationTests(TestCase):
         root = soup.select_one('#spec-overview')
         self.assertNotIn('data-simc-panel', root.attrs)
         self.assertIsNone(soup.select_one('#spec-overview-scenario'))
+        self.assertIsNone(soup.select_one('#spec-overview-scenarios'))
 
     @patch('botend.services.spec_overview_service.SpecOverviewService._aggregate')
     def test_stats_endpoints_are_independent_service_projections(
@@ -326,8 +317,8 @@ class SpecOverviewDOMContractTests(TestCase):
     def test_loader_is_failure_isolated_and_uses_backend_audit_field(self):
         js = (Path(__file__).resolve().parents[2] / 'static/portal/js/spec-overview.js').read_text()
         self.assertIn('cards.forEach(loadModule)', js)
-        self.assertIn('Promise.all', js)
-        self.assertIn('"apl_label"', js)
+        self.assertIn('fetch(endpoint', js)
+        self.assertIn('apl_identity', js)
         self.assertIn('payload?.status === "not_ready"', js)
         self.assertIn('description.detail_url', js)
         self.assertIn('AbortController', js)
@@ -356,10 +347,12 @@ class SpecOverviewDOMContractTests(TestCase):
         js = (Path(__file__).resolve().parents[2] / 'static/portal/js/spec-overview.js').read_text()
 
         self.assertIsNotNone(soup.select_one('#module-simc [data-simc-context]'))
-        self.assertIsNotNone(soup.select_one('#module-simc[data-apl-endpoint][data-cross-spec-endpoint]'))
+        self.assertIsNotNone(soup.select_one('#module-simc[data-endpoint]'))
+        self.assertNotIn('data-cross-spec-endpoint', str(soup.select_one('#module-simc')))
         self.assertIn('中位 DPS', js)
         self.assertIn('M+ 评分', js)
         self.assertIn('样本有限', js)
         self.assertIn('dungeon_id', js)
         self.assertIn('boss_id', js)
-        self.assertIn('跨专精使用各专精配置的标准 Profile', js)
+        self.assertIn('四个基线任务', js)
+        self.assertIn('simc-profile', js)

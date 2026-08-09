@@ -15,8 +15,10 @@ from django.views import View
 from django.shortcuts import render
 from django.http import Http404, JsonResponse
 
+from botend.models import SimcProfile
 from botend.services.spec_stats_service import SpecStatsService
 from botend.services.spec_overview_service import SpecOverviewService
+from botend.services.simc_player_config import build_player_config_detail
 from botend.constants.wow import CLASS_SPEC_MAP, CLASS_CN, SPEC_CN, SPEC_ICON, SPEC_ROLE
 
 
@@ -142,7 +144,38 @@ class SpecDetailPlayerView(View):
         return render(request, 'portal/spec_detail/player_list.html', ctx)
 
 
+class SimcProfileDetailView(View):
+    """Read-only public view of the frozen benchmark Profile."""
+
+    def get(self, request, class_name, spec_name, profile_id):
+        _validate_spec(class_name, spec_name)
+        profile = SimcProfile.objects.filter(id=profile_id, is_active=True).first()
+        if profile is None:
+            raise Http404
+        expected_spec = f'{class_name}_{spec_name}'.lower()
+        if str(profile.spec).lower() not in {spec_name.lower(), expected_spec}:
+            raise Http404
+        detail = build_player_config_detail(
+            mode=profile.player_config_mode,
+            spec=profile.spec,
+            player_equipment=profile.player_equipment or '',
+            battlenet_region=profile.battlenet_region or '',
+            battlenet_realm=profile.battlenet_realm or '',
+            battlenet_character=profile.battlenet_character or '',
+            talent=profile.talent or '',
+            gear_strength=profile.gear_strength,
+            gear_crit=profile.gear_crit,
+            gear_haste=profile.gear_haste,
+            gear_mastery=profile.gear_mastery,
+            gear_versatility=profile.gear_versatility,
+        )
+        ctx = _base_context(class_name, spec_name)
+        ctx.update({'simc_profile': profile, 'profile_detail': detail})
+        return render(request, 'portal/spec_detail/simc_profile_detail.html', ctx)
+
+
 class SpecOverviewAPIView(View):
+
     """Thin read-only transport for one independently loadable stats module."""
 
     http_method_names = ['get', 'head', 'options']

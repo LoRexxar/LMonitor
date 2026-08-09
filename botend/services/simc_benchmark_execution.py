@@ -1306,11 +1306,13 @@ def _spec_icon_url(spec_key):
 
 
 def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
-                                        scenario_filter=None,
+                                        scenario_filter=None, spec_filter=None,
                                         include_coordinate_options=False):
-    """Aggregate reusable Results for all, one coordinate, or one scenario."""
+    """Aggregate reusable Results for all, one spec, coordinate, or scenario."""
     plan = build_execution_plan(panel, lock=False)
     plan_cases = plan['cases']
+    if spec_filter is not None:
+        plan_cases = [row for row in plan_cases if row['spec_key'] == str(spec_filter)]
     selected = (
         _selected_plan_coordinate(plan_cases, coordinate_filter)
         if coordinate_filter is not None else None
@@ -1377,6 +1379,8 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                     }, coordinate['spec_key'])
                     if profile is not None else None
                 )
+            if profile_details[detail_key] is not None:
+                profile_details[detail_key]['profile_id'] = profile_id
         scenario_params = next(
             (match['task'].simulation_params or {} for match in reusable.values()),
             coordinate['simulation_params'],

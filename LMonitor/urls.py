@@ -49,7 +49,7 @@ from botend.dashboard.user_management import (
 from botend.portal.views import PortalHomeView, PortalSimcBenchmarkResultsView
 from botend.portal.views import PortalArticleView, PortalNewsView, PortalSpecsView
 from botend.portal.views import PortalReportFileView, PortalWowHotfixReportView, PortalWowSkillDiffReportView
-from botend.portal.spec_detail_views import SpecDetailPlayerView, SpecDetailPlayerDetailView, SpecDetailDungeonView, SpecDetailRaidView, SpecOverviewAPIView
+from botend.portal.spec_detail_views import SpecDetailPlayerView, SpecDetailPlayerDetailView, SpecDetailDungeonView, SpecDetailRaidView, SpecOverviewAPIView, SimcProfileDetailView
 from botend.portal.talent_simulator import PortalTalentSimulatorAPIView, PortalTalentSimulatorEncodeAPIView, PortalTalentSimulatorView
 from botend.portal.api import (
     PortalBluepostsAPIView,
@@ -89,6 +89,7 @@ from botend.mythic_planner.views import (
 )
 from botend.portal.simc_benchmark_api import (
     PortalSimcAplRankingAPIView,
+    PortalSimcBaselineResultsAPIView,
     PortalSimcBenchmarkPanelListAPIView,
     PortalSimcBenchmarkPanelDetailAPIView,
     PortalSimcSpecRankingAPIView,
@@ -165,6 +166,7 @@ urlpatterns = [
     path('portal/api/simc-benchmarks/panels/<int:panel_id>/', PortalSimcBenchmarkPanelDetailAPIView.as_view(), name='portal_simc_benchmark_panel_detail_by_id'),
     path('portal/api/simc-benchmarks/panels/<slug:slug>/', PortalSimcBenchmarkPanelDetailAPIView.as_view(), name='portal_simc_benchmark_panel_detail'),
     path('portal/api/simc-benchmarks/apl-rankings/', PortalSimcAplRankingAPIView.as_view(), name='portal_simc_apl_rankings'),
+    path('portal/api/simc-benchmarks/baseline-results/', PortalSimcBaselineResultsAPIView.as_view(), name='portal_simc_baseline_results'),
     path('portal/api/simc-benchmarks/spec-rankings/', PortalSimcSpecRankingAPIView.as_view(), name='portal_simc_spec_rankings'),
     path('portal/api/talents/simulator/', csrf_exempt(PortalTalentSimulatorAPIView.as_view()), name="portal_talent_simulator_api"),
     path('portal/api/talents/simulator/encode/', csrf_exempt(PortalTalentSimulatorEncodeAPIView.as_view()), name="portal_talent_simulator_encode"),
@@ -255,6 +257,7 @@ urlpatterns = [
 
     # 专精详情页
     path('portal/api/spec/<str:class_name>/<str:spec_name>/<str:module>/', SpecOverviewAPIView.as_view(), name="spec_overview_api"),
+    path('portal/spec/<str:class_name>/<str:spec_name>/simc-profile/<int:profile_id>/', SimcProfileDetailView.as_view(), name="portal_simc_profile_detail"),
     path('portal/spec/<str:class_name>/<str:spec_name>/', SpecDetailPlayerView.as_view(), name="spec_detail_player"),
     path('portal/spec/<str:class_name>/<str:spec_name>/player/<int:player_id>/', SpecDetailPlayerDetailView.as_view(), name="spec_detail_player_detail"),
     path('portal/spec/<str:class_name>/<str:spec_name>/dungeons/', SpecDetailDungeonView.as_view(), name="spec_detail_dungeon"),

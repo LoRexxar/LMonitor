@@ -5,9 +5,6 @@
   if (!root) return;
 
   const cards = root.querySelectorAll("[data-spec-module]");
-  const scenarioControl = document.getElementById("spec-overview-scenario");
-  const profileControl = document.getElementById("spec-overview-profile");
-  const resetControl = document.getElementById("spec-overview-reset");
   const moduleRequests = new WeakMap();
   const numberFormat = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 });
   const dateFormat = new Intl.DateTimeFormat("zh-CN", {
@@ -33,7 +30,8 @@
   }
   function value(row, keys, fallback = "—") {
     for (const key of keys) {
-      if (row?.[key] !== undefined && row?.[key] !== null && row?.[key] !== "") return row[key];
+      const resolved = String(key).split(".").reduce((current, part) => current?.[part], row);
+      if (resolved !== undefined && resolved !== null && resolved !== "") return resolved;
     }
     return fallback;
   }
@@ -50,10 +48,12 @@
   };
 
   function simcAudit(entry) {
-    const versions = entry?.resource_versions || {};
+    const versions = entry?.resource_versions || entry?.audit || {};
     const identity = [
-      ["Profile", versions.profile], ["Template", versions.template],
-      ["Backend", versions.backend], ["APL", versions.apl],
+      ["Profile", versions.profile || versions.profile_identity],
+      ["Template", versions.template || versions.template_identity],
+      ["Backend", versions.backend || versions.backend_version],
+      ["APL", versions.apl || versions.apl_identity || versions.apl_label],
     ].filter((item) => item[1]).map((item) => `${item[0]} ${String(item[1]).slice(0, 12)}`);
     const source = entry?.source_result_id ? `结果 #${entry.source_result_id}` : "来源结果未提供";
     return [source, ...identity].join(" · ");
@@ -149,47 +149,38 @@
   }
 
   function renderSimc(payload) {
-    const aplRankings = firstArray(payload?.apl, ["apl_rankings", "rankings", "items"]);
-    const specRankings = firstArray(payload?.crossSpec, ["spec_rankings", "rankings", "items"]);
-    if (!aplRankings.length && !specRankings.length) return null;
-    const currentSpec = root.dataset.simcSpec || "";
-    const current = specRankings.find((entry) => entry?.spec_key === currentSpec);
-    const fragment = node("div", "simc-conclusion");
-    if (aplRankings.length) {
-      const best = aplRankings[0];
-      const conclusion = node("section", "simc-conclusion-hero");
-      conclusion.append(node("p", "simc-conclusion-kicker", "当前选择的模拟"));
-      conclusion.append(node("h3", "", `${value(best, ["scenario_label", "scenario"], "当前场景")} · ${value(best, ["profile_label"], "Profile 未提供")}`));
-      conclusion.append(node("p", "simc-conclusion-apl", `APL：${value(best, ["apl_label", "label", "name"], "未命名 APL")}`));
-      conclusion.append(node("strong", "simc-conclusion-dps", metric(value(best, ["dps", "value"]), " DPS")));
-      conclusion.append(node("small", "simc-conclusion-rank", `本专精 APL 排名第 ${value(best, ["rank"], 1)} / ${aplRankings.length}`));
-      const audit = node("details", "spec-module-audit");
-      audit.append(node("summary", "", "查看冻结配置"), node("small", "", simcAudit(best)));
-      conclusion.append(audit);
-      fragment.append(conclusion);
-    }
-    if (aplRankings.length > 1) {
-      const aplSection = node("section", "simc-secondary");
-      aplSection.append(node("h3", "", "本专精其他 APL"));
-      aplSection.append(rankingList(aplRankings.slice(1), (entry) => ({
-        title: value(entry, ["apl_label", "label", "name"]),
-        detail: `${value(entry, ["scenario_label", "scenario"])} · ${value(entry, ["profile_label"], "Profile 未提供")}`,
-        audit: simcAudit(entry),
-        metric: metric(value(entry, ["dps", "value"]), " DPS"),
-      })));
-      fragment.append(aplSection);
-    }
-    if (current) {
-      const crossSection = node("section", "simc-secondary");
-      const currentRank = specRankings.indexOf(current) + 1;
-      crossSection.append(node("h3", "", `同场景位置 · 第 ${currentRank} / ${specRankings.length}`));
-      crossSection.append(node("p", "simc-secondary-context", `${value(current, ["scenario_label", "scenario"], "当前场景")} · 各专精使用各自标准 Profile，仅作位置对比`));
-      const peers = node("div", "simc-peer-strip");
-      [current, ...specRankings.filter((entry) => entry !== current)].slice(0, 5).forEach((entry) => peers.append(node("span", entry === current ? "simc-peer simc-peer--current" : "simc-peer", `${value(entry, ["spec_label", "label", "spec_name", "spec_key"])} · ${metric(value(entry, ["dps", "value"]))}`)));
-      crossSection.append(peers);
-      fragment.append(crossSection);
-    }
-    return fragment;
+    const rows = firstArray(payload, ["rankings", "items"]);
+    if (!rows.length) return null;
+    const section = node("section", "simc-baseline-results");
+    section.append(node("h3", "simc-baseline-title", "四个基线任务"));
+    section.append(node("p", "simc-baseline-note", "本专精所有公开基线任务，按 DPS 排名；结果为冻结数据。"));
+    const list = node("div", "simc-baseline-list");
+    rows.forEach((entry) => {
+      const row = node("article", "simc-baseline-row");
+      const identity = node("div", "simc-baseline-identity");
+      identity.append(node("strong", "simc-baseline-rank", `第 ${value(entry, ["rank"], "—")} 名`));
+      identity.append(node("h4", "", value(entry, ["labels.scenario", "scenario_label", "scenario_key"], "未命名场景")));
+      const profileLink = node("a", "simc-baseline-profile", value(entry, ["labels.profile", "profile_label", "profile_key"], "查看 Profile"));
+      const profileId = entry?.profile_detail?.profile_id;
+      if (profileId) {
+        profileLink.href = `/portal/spec/${encodeURIComponent(root.dataset.className || "")}/${encodeURIComponent(root.dataset.specName || "")}/simc-profile/${encodeURIComponent(String(profileId))}/`;
+        profileLink.target = "_blank";
+        profileLink.rel = "noopener noreferrer";
+      }
+      identity.append(profileLink);
+      identity.append(node("small", "simc-baseline-condition", formatSimcParams(entry?.scenario_detail)));
+      row.append(identity);
+      const result = node("div", "simc-baseline-result");
+      result.append(node("strong", "simc-baseline-dps", metric(entry?.dps, " DPS")));
+      result.append(node("small", "simc-baseline-frozen", "冻结结果"));
+      row.append(result);
+      const audit = node("details", "simc-baseline-audit");
+      audit.append(node("summary", "", "查看冻结身份"), node("small", "", simcAudit(entry)));
+      row.append(audit);
+      list.append(row);
+    });
+    section.append(list);
+    return section;
   }
 
   const renderers = {
@@ -199,37 +190,6 @@
     "simc": renderSimc,
   };
 
-  function selectedDimension() {
-    return {
-      scenario: scenarioControl?.value || root.dataset.simcDefaultScenario || "",
-      profile: profileControl?.value || root.dataset.simcDefaultProfile || "",
-    };
-  }
-
-  function updateSimcEndpoints() {
-    const selected = selectedDimension();
-    cards.forEach((card) => {
-      if (card.dataset.specModule !== "simc") return;
-      const endpoint = new URL(card.dataset.aplEndpoint, window.location.origin);
-      endpoint.searchParams.set("scenario", selected.scenario);
-      endpoint.searchParams.set("profile", selected.profile);
-      card.dataset.aplEndpoint = `${endpoint.pathname}?${endpoint.searchParams.toString()}`;
-      const cross = new URL(card.dataset.crossSpecEndpoint, window.location.origin);
-      cross.searchParams.set("scenario", selected.scenario);
-      card.dataset.crossSpecEndpoint = `${cross.pathname}?${cross.searchParams.toString()}`;
-    });
-  }
-
-  function readJsonScript(id) {
-    const script = document.getElementById(id);
-    if (!script) return [];
-    try {
-      const parsed = JSON.parse(script.textContent || "[]");
-      return Array.isArray(parsed) ? parsed : [];
-    } catch (_) {
-      return [];
-    }
-  }
 
   function formatSimcParams(params) {
     const values = params && typeof params === "object" ? params : {};
@@ -238,47 +198,6 @@
     return `${numberFormat.format(targets)} 目标 · ${numberFormat.format(seconds)} 秒`;
   }
 
-  function updateSimcContext(scenarios, profiles) {
-    const selected = selectedDimension();
-    const scenario = scenarios.find((item) => item.key === selected.scenario);
-    const profile = profiles.find((item) => item.key === selected.profile);
-    cards.forEach((card) => {
-      const context = card.querySelector("[data-simc-context]");
-      if (!context) return;
-      if (card.dataset.specModule === "simc") {
-        context.textContent = `场景：${scenario?.label || selected.scenario || "未配置"}（${formatSimcParams(scenario?.detail)}） · Profile：${profile?.label || selected.profile || "未配置"}`;
-      } else {
-        context.textContent = `场景：${scenario?.label || selected.scenario || "未配置"}（${formatSimcParams(scenario?.detail)}） · 跨专精使用各专精配置的标准 Profile`;
-      }
-    });
-  }
-
-  function renderDimensionControls() {
-    if (!scenarioControl || !profileControl) return;
-    const scenarios = readJsonScript("spec-overview-scenarios");
-    const profiles = readJsonScript("spec-overview-profiles");
-    scenarios.forEach((item) => scenarioControl.append(node("option", "", item.label || item.key)));
-    profiles.forEach((item) => profileControl.append(node("option", "", item.label || item.key)));
-    scenarios.forEach((item, index) => { scenarioControl.options[index].value = item.key; });
-    profiles.forEach((item, index) => { profileControl.options[index].value = item.key; });
-    scenarioControl.value = root.dataset.simcDefaultScenario || scenarioControl.value;
-    profileControl.value = root.dataset.simcDefaultProfile || profileControl.value;
-    updateSimcContext(scenarios, profiles);
-    const reload = () => {
-      updateSimcContext(scenarios, profiles);
-      updateSimcEndpoints();
-      cards.forEach((card) => {
-        if (card.dataset.specModule === "simc") loadModule(card);
-      });
-    };
-    scenarioControl.addEventListener("change", reload);
-    profileControl.addEventListener("change", reload);
-    resetControl?.addEventListener("click", () => {
-      scenarioControl.value = root.dataset.simcDefaultScenario || scenarioControl.value;
-      profileControl.value = root.dataset.simcDefaultProfile || profileControl.value;
-      reload();
-    });
-  }
 
   function updatedAt(payload) {
     const raw = payload?.updated_at || payload?.data?.updated_at || payload?.result_updated_at;
@@ -303,18 +222,18 @@
     try {
       let payload;
       if (card.dataset.specModule === "simc") {
-        const bodies = await Promise.all([card.dataset.aplEndpoint, card.dataset.crossSpecEndpoint].map((url) => fetch(url, {
+        const response = await fetch(endpoint, {
           credentials: "same-origin", headers: { Accept: "application/json" }, signal: controller.signal,
-        }).then((response) => response.ok ? response.json() : ({ status: "not_ready", reason: "request_failed" }))));
-        payload = { apl: bodies[0], crossSpec: bodies[1] };
-        payload.updated_at = bodies.map((body) => body?.updated_at).filter(Boolean).sort().pop();
-        if (bodies.every((body) => body?.status === "not_ready")) {
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        payload = await response.json();
+        if (payload?.status === "not_ready") {
           card.setAttribute("data-state", "empty");
           state.hidden = false;
-          state.textContent = simcReasons[bodies[0].reason] || "暂无数据";
+          state.textContent = simcReasons[payload.reason] || "暂无数据";
           content.replaceChildren();
           content.hidden = true;
-          updated.textContent = updatedAt(bodies[0]);
+          updated.textContent = "冻结结果";
           return;
         }
       } else {
@@ -361,6 +280,6 @@
     }
   }
 
-  renderDimensionControls();
+
   cards.forEach(loadModule);
 })();
