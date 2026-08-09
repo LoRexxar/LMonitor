@@ -178,10 +178,25 @@ class SimcProfileDetailView(View):
             for key, value in (stats.get('secondary') or {}).items()
             if isinstance(value, dict)
         ]
+        identity = detail.get('identity') or {}
+        source = detail.get('source') or {}
+        talents = detail.get('talents') or {}
+        equipment_rows = []
+        for item in detail.get('equipment') or []:
+            if not isinstance(item, dict):
+                continue
+            equipment_rows.append({
+                'slot': item.get('slot') or item.get('slot_name') or '装备',
+                'name': item.get('name') or item.get('label') or item.get('id') or '未命名装备',
+            })
         ctx = _base_context(class_name, spec_name)
         ctx.update({
             'simc_profile': profile,
             'profile_detail': detail,
+            'profile_identity_name': identity.get('name'),
+            'profile_source_label': source.get('label'),
+            'profile_talent_code': talents.get('build_code'),
+            'equipment_rows': equipment_rows,
             'primary_stats': primary_stats,
             'secondary_stats': secondary_stats,
         })
