@@ -145,11 +145,24 @@ class SpecOverviewService:
     @staticmethod
     def discover_simc_dimensions(class_name, spec_name):
         spec_key = f'{class_name}_{spec_name}'.lower()
-        panel_spec = SimcBenchmarkSpec.objects.filter(
+        panel_specs = list(SimcBenchmarkSpec.objects.filter(
             panel__is_active=True, panel__is_public=True, is_enabled=True, spec_key=spec_key,
         ).select_related('panel').prefetch_related('profiles__profile').order_by(
-            'panel__name', 'panel_id', 'display_order', 'id',
-        ).first()
+            'panel_id', 'display_order', 'id',
+        ))
+        # Trinket panels also contain every specialization, but they are item
+        # comparisons rather than the overview's specialization benchmark.
+        def panel_priority(panel_spec):
+            value = f'{panel_spec.panel.slug} {panel_spec.panel.name}'.lower()
+            if 'default-scenarios' in value or '大秘境天赋模拟' in value:
+                return 0
+            if '纯单体' in value or 'single' in value:
+                return 1
+            if 'trinket' in value or '饰品' in value:
+                return 10
+            return 5
+
+        panel_spec = min(panel_specs, key=panel_priority) if panel_specs else None
         if panel_spec is None:
             return None
         scenarios = list(SimcBenchmarkScenario.objects.filter(

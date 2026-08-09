@@ -38,19 +38,6 @@
         </dl>
     </header>
 
-    {% if simc_dimensions %}
-    <section class="spec-overview-controls" aria-label="模拟聚合维度">
-        <div class="spec-overview-control-intro">
-            <span class="spec-overview-control-kicker">聚合维度</span>
-            <strong>选择模拟场景与 Profile</strong>
-            <small>场景同时影响两张 SimC 卡；Profile 仅影响 APL。跨专精按各专精的标准 Profile 对比。</small>
-        </div>
-        <label>场景<select id="spec-overview-scenario"></select></label>
-        <label>Profile<select id="spec-overview-profile"></select></label>
-        <button type="button" id="spec-overview-reset" title="恢复默认模拟维度">恢复默认</button>
-    </section>
-    {% endif %}
-
     <nav class="spec-overview-links" aria-label="专精详情入口">
         <a href="#module-players" aria-current="page">人物榜</a>
         <a href="#module-mythic-plus">大秘境</a>
@@ -115,6 +102,18 @@
                 <span class="spec-module-source" data-module-source>来源：SimulationCraft 冻结配置</span>
             </header>
             <p class="spec-module-context" data-simc-context>正在读取当前模拟条件…</p>
+            {% if simc_dimensions %}
+            <div class="spec-overview-controls" aria-label="模拟聚合维度">
+                <div class="spec-overview-control-intro">
+                    <span class="spec-overview-control-kicker">SimC 条件</span>
+                    <strong>选择场景与 Profile</strong>
+                    <small>场景同时影响两张 SimC 卡；Profile 仅影响 APL。</small>
+                </div>
+                <label>场景<select id="spec-overview-scenario"></select></label>
+                <label>Profile<select id="spec-overview-profile"></select></label>
+                <button type="button" id="spec-overview-reset" title="恢复默认模拟维度">恢复默认</button>
+            </div>
+            {% endif %}
             <div class="spec-module-state" data-module-state role="status">加载中…</div>
             <div class="spec-module-content" data-module-content hidden></div>
             <footer>更新时间：<time data-module-updated-at>等待数据</time></footer>

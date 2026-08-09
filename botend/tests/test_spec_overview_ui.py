@@ -118,6 +118,14 @@ class SpecOverviewIntegrationTests(TestCase):
             self.assertNotIn('private-overview', endpoints[module])
         self.assertEqual(parse_qs(urlsplit(endpoints['simc-apl']).query)['spec'], ['mage_fire'])
 
+    def test_simc_controls_live_inside_the_simc_module(self):
+        response = self.client.get('/portal/spec/Mage/Fire/')
+        soup = BeautifulSoup(response.content, 'html.parser')
+        root = soup.select_one('#spec-overview')
+        controls = root.select_one('#module-simc-apl .spec-overview-controls')
+        self.assertIsNotNone(controls)
+        self.assertIsNone(root.select_one(':scope > .spec-overview-controls'))
+
     def test_simc_dimension_controls_expose_all_enabled_profiles_and_scenarios(self):
         extra_profile = SimcProfile.objects.create(
             user_id=1, name='Fire alt', class_name='mage', spec='mage_fire',
