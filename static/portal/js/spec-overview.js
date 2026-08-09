@@ -334,7 +334,7 @@
         return;
       }
       const rendered = renderers[card.dataset.specModule]?.(payload);
-      updated.textContent = updatedAt(payload);
+      updated.textContent = card.dataset.specModule === "simc" ? "冻结结果" : updatedAt(payload);
       if (!rendered) {
         card.setAttribute("data-state", "empty");
         state.textContent = "暂无数据";
