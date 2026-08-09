@@ -42,8 +42,7 @@
         <a href="#module-players" aria-current="page">人物榜</a>
         <a href="#module-mythic-plus">大秘境</a>
         <a href="#module-raid">团本</a>
-        <a href="#module-simc-apl">SimC 模拟</a>
-        <a href="#module-simc-cross-spec">同场景专精位置</a>
+        <a href="#module-simc">SimC 模拟</a>
         <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/dungeons/">M+ 详细统计</a>
         <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/raid/">团本详细统计</a>
     </nav>
@@ -95,10 +94,12 @@
             <footer>更新时间：<time data-module-updated-at>等待数据</time></footer>
         </section>
 
-        <section id="module-simc-apl" class="spec-module-card" data-spec-module="simc-apl"
-                 data-endpoint="{% if simc_dimensions %}/portal/api/simc-benchmarks/apl-rankings/?panel={{ simc_dimensions.panel|urlencode }}&amp;spec={{ simc_dimensions.spec|urlencode }}&amp;scenario={{ simc_dimensions.scenario|urlencode }}&amp;profile={{ simc_dimensions.profile|urlencode }}{% else %}/portal/api/simc-benchmarks/apl-rankings/?panel=&amp;spec={{ class_name|lower }}_{{ spec_name|lower }}&amp;scenario={% endif %}" data-state="loading" aria-busy="true">
+        <section id="module-simc" class="spec-module-card spec-module-card--wide spec-module-card--simc" data-spec-module="simc"
+                 data-apl-endpoint="{% if simc_dimensions %}/portal/api/simc-benchmarks/apl-rankings/?panel={{ simc_dimensions.panel|urlencode }}&amp;spec={{ simc_dimensions.spec|urlencode }}&amp;scenario={{ simc_dimensions.scenario|urlencode }}&amp;profile={{ simc_dimensions.profile|urlencode }}{% else %}/portal/api/simc-benchmarks/apl-rankings/?panel=&amp;spec={{ class_name|lower }}_{{ spec_name|lower }}&amp;scenario={% endif %}"
+                 data-cross-spec-endpoint="{% if simc_dimensions %}/portal/api/simc-benchmarks/spec-rankings/?panel={{ simc_dimensions.panel|urlencode }}&amp;spec={{ simc_dimensions.spec|urlencode }}&amp;scenario={{ simc_dimensions.scenario|urlencode }}{% else %}/portal/api/simc-benchmarks/spec-rankings/?panel=&amp;spec={{ class_name|lower }}_{{ spec_name|lower }}&amp;scenario={% endif %}"
+                 data-state="loading" aria-busy="true">
             <header class="spec-module-header">
-                <div><p class="spec-module-kicker">当前专精 · SimC</p><h2>本专精 APL 排名</h2></div>
+                <div><p class="spec-module-kicker">当前专精 · SimC</p><h2>模拟结论</h2></div>
                 <span class="spec-module-source" data-module-source>来源：SimulationCraft 冻结配置</span>
             </header>
             <p class="spec-module-context" data-simc-context>正在读取当前模拟条件…</p>
@@ -118,18 +119,6 @@
             <div class="spec-module-content" data-module-content hidden></div>
             <footer>更新时间：<time data-module-updated-at>等待数据</time></footer>
         </section>
-
-        <section id="module-simc-cross-spec" class="spec-module-card" data-spec-module="simc-cross-spec"
-                 data-endpoint="{% if simc_dimensions %}/portal/api/simc-benchmarks/spec-rankings/?panel={{ simc_dimensions.panel|urlencode }}&amp;spec={{ simc_dimensions.spec|urlencode }}&amp;scenario={{ simc_dimensions.scenario|urlencode }}{% else %}/portal/api/simc-benchmarks/spec-rankings/?panel=&amp;spec={{ class_name|lower }}_{{ spec_name|lower }}&amp;scenario={% endif %}" data-state="loading" aria-busy="true">
-            <header class="spec-module-header">
-                <div><p class="spec-module-kicker">同场景对比</p><h2>当前专精在全职业中的位置</h2></div>
-                <span class="spec-module-source" data-module-source>来源：SimulationCraft 同场景基准</span>
-            </header>
-            <p class="spec-module-context" data-simc-context>正在读取当前模拟条件…</p>
-            <div class="spec-module-state" data-module-state role="status">加载中…</div>
-            <div class="spec-module-content" data-module-content hidden></div>
-            <footer>更新时间：<time data-module-updated-at>等待数据</time></footer>
-        </section>
     </div>
 
     <template id="spec-overview-error-copy">加载失败，请稍后重试；其他模块不受影响。</template>
@@ -138,5 +127,5 @@
 {% endblock %}
 
 {% block extra_script %}{{ block.super }}
-<script src="{% static 'portal/js/spec-overview.js' %}?v=20260809" defer></script>
+<script src="{% static 'portal/js/spec-overview.js' %}?v=20260810" defer></script>
 {% endblock %}

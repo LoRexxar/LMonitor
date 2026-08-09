@@ -81,9 +81,13 @@ class SpecOverviewIntegrationTests(TestCase):
         response = self.client.get('/portal/spec/Mage/Fire/')
         self.assertEqual(response.status_code, 200)
         soup = BeautifulSoup(response.content, 'html.parser')
-        cards = soup.select('#spec-overview [data-spec-module][data-endpoint]')
-        self.assertEqual(len(cards), 5)
-        return {card['data-spec-module']: card['data-endpoint'] for card in cards}
+        cards = soup.select('#spec-overview [data-spec-module]')
+        self.assertEqual(len(cards), 4)
+        endpoints = {card['data-spec-module']: card.get('data-endpoint') for card in cards}
+        simc = soup.select_one('#module-simc')
+        endpoints['simc-apl'] = simc['data-apl-endpoint']
+        endpoints['simc-cross-spec'] = simc['data-cross-spec-endpoint']
+        return endpoints
 
     @patch('botend.portal.simc_benchmark_api.serialize_incremental_panel_results', return_value={'coordinates': []})
     @patch('botend.services.spec_overview_service.SpecOverviewService._aggregate', return_value=({}, None))
@@ -91,10 +95,10 @@ class SpecOverviewIntegrationTests(TestCase):
         self, aggregate, projection,
     ):
         endpoints = self._rendered_endpoints()
-        self.assertEqual(set(endpoints), {
-            'players', 'mythic-plus', 'raid', 'simc-apl', 'simc-cross-spec',
-        })
+        self.assertEqual(set(endpoints), {'players', 'mythic-plus', 'raid', 'simc', 'simc-apl', 'simc-cross-spec'})
         for module, endpoint in endpoints.items():
+            if module == 'simc':
+                continue
             with self.subTest(module=module, endpoint=endpoint):
                 response = self.client.get(endpoint)
                 self.assertNotEqual(response.status_code, 404)
@@ -136,7 +140,7 @@ class SpecOverviewIntegrationTests(TestCase):
         response = self.client.get('/portal/spec/Mage/Fire/')
         soup = BeautifulSoup(response.content, 'html.parser')
         root = soup.select_one('#spec-overview')
-        controls = root.select_one('#module-simc-apl .spec-overview-controls')
+        controls = root.select_one('#module-simc .spec-overview-controls')
         self.assertIsNotNone(controls)
         self.assertIsNone(root.select_one(':scope > .spec-overview-controls'))
 
@@ -314,7 +318,7 @@ class SpecOverviewDOMContractTests(TestCase):
         response = self.client.get('/portal/spec/Mage/Fire/')
         soup = BeautifulSoup(response.content, 'html.parser')
         cards = soup.select('#spec-overview [data-spec-module]')
-        self.assertEqual(len(cards), 5)
+        self.assertEqual(len(cards), 4)
         for card in cards:
             self.assertIsNotNone(card.select_one('[data-module-state][role="status"]'))
             self.assertIsNotNone(card.select_one('[data-module-content]'))
@@ -322,7 +326,7 @@ class SpecOverviewDOMContractTests(TestCase):
     def test_loader_is_failure_isolated_and_uses_backend_audit_field(self):
         js = (Path(__file__).resolve().parents[2] / 'static/portal/js/spec-overview.js').read_text()
         self.assertIn('cards.forEach(loadModule)', js)
-        self.assertNotIn('Promise.all', js)
+        self.assertIn('Promise.all', js)
         self.assertIn('"apl_label"', js)
         self.assertIn('payload?.status === "not_ready"', js)
         self.assertIn('description.detail_url', js)
@@ -342,7 +346,7 @@ class SpecOverviewDOMContractTests(TestCase):
         content = response.content.decode()
 
         self.assertIn('<link rel="stylesheet" href="/static/portal/css/spec-overview.css?v=20260809">', content)
-        self.assertIn('<script src="/static/portal/js/spec-overview.js?v=20260809" defer></script>', content)
+        self.assertIn('<script src="/static/portal/js/spec-overview.js?v=20260810" defer></script>', content)
         self.assertNotIn('spec-overview.js%3Fv', content)
         self.assertNotIn('spec-overview.css%3Fv', content)
 
@@ -351,8 +355,8 @@ class SpecOverviewDOMContractTests(TestCase):
         soup = BeautifulSoup(response.content, 'html.parser')
         js = (Path(__file__).resolve().parents[2] / 'static/portal/js/spec-overview.js').read_text()
 
-        self.assertIsNotNone(soup.select_one('#module-simc-apl [data-simc-context]'))
-        self.assertIsNotNone(soup.select_one('#module-simc-cross-spec [data-simc-context]'))
+        self.assertIsNotNone(soup.select_one('#module-simc [data-simc-context]'))
+        self.assertIsNotNone(soup.select_one('#module-simc[data-apl-endpoint][data-cross-spec-endpoint]'))
         self.assertIn('中位 DPS', js)
         self.assertIn('M+ 评分', js)
         self.assertIn('样本有限', js)

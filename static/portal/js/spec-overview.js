@@ -148,43 +148,55 @@
     return container.childElementCount ? container : null;
   }
 
-  function renderSimcApl(payload) {
-    const aplRankings = firstArray(payload, ["apl_rankings", "rankings", "items"]);
-    if (!aplRankings.length) return null;
-    return rankingList(aplRankings, (entry) => ({
-      title: value(entry, ["apl_label", "label", "name"]),
-      detail: `${value(entry, ["scenario_label", "scenario"])} · ${value(entry, ["profile_label"], "Profile 未提供")}`,
-      audit: simcAudit(entry),
-      metric: metric(value(entry, ["dps", "value"]), " DPS"),
-    }));
-  }
-
-  function renderSimcCrossSpec(payload) {
-    const specRankings = firstArray(payload, ["spec_rankings", "rankings", "items"]);
-    if (!specRankings.length) return null;
+  function renderSimc(payload) {
+    const aplRankings = firstArray(payload?.apl, ["apl_rankings", "rankings", "items"]);
+    const specRankings = firstArray(payload?.crossSpec, ["spec_rankings", "rankings", "items"]);
+    if (!aplRankings.length && !specRankings.length) return null;
     const currentSpec = root.dataset.simcSpec || "";
     const current = specRankings.find((entry) => entry?.spec_key === currentSpec);
-    const ordered = current ? [current, ...specRankings.filter((entry) => entry !== current)] : specRankings;
-    const list = rankingList(ordered, (entry) => ({
-      title: value(entry, ["spec_label", "label", "spec_name", "spec_key"]),
-      detail: `${entry?.spec_key === currentSpec ? "当前页面专精" : "同场景专精"} · ${value(entry, ["scenario_label", "scenario"])} · 标准 Profile：${value(entry, ["profile_label"], "未提供")}`,
-      audit: simcAudit(entry),
-      metric: metric(value(entry, ["dps", "value"]), " DPS"),
-      className: entry?.spec_key === currentSpec ? "spec-module-row--current" : "",
-    }));
-    if (current) {
-      const currentRank = specRankings.indexOf(current) + 1;
-      list.prepend(node("li", "spec-module-summary", `当前专精排名第 ${currentRank} / ${specRankings.length} · 同一场景、同一套比较口径`));
+    const fragment = node("div", "simc-conclusion");
+    if (aplRankings.length) {
+      const best = aplRankings[0];
+      const conclusion = node("section", "simc-conclusion-hero");
+      conclusion.append(node("p", "simc-conclusion-kicker", "当前选择的模拟"));
+      conclusion.append(node("h3", "", `${value(best, ["scenario_label", "scenario"], "当前场景")} · ${value(best, ["profile_label"], "Profile 未提供")}`));
+      conclusion.append(node("p", "simc-conclusion-apl", `APL：${value(best, ["apl_label", "label", "name"], "未命名 APL")}`));
+      conclusion.append(node("strong", "simc-conclusion-dps", metric(value(best, ["dps", "value"]), " DPS")));
+      conclusion.append(node("small", "simc-conclusion-rank", `本专精 APL 排名第 ${value(best, ["rank"], 1)} / ${aplRankings.length}`));
+      const audit = node("details", "spec-module-audit");
+      audit.append(node("summary", "", "查看冻结配置"), node("small", "", simcAudit(best)));
+      conclusion.append(audit);
+      fragment.append(conclusion);
     }
-    return list;
+    if (aplRankings.length > 1) {
+      const aplSection = node("section", "simc-secondary");
+      aplSection.append(node("h3", "", "本专精其他 APL"));
+      aplSection.append(rankingList(aplRankings.slice(1), (entry) => ({
+        title: value(entry, ["apl_label", "label", "name"]),
+        detail: `${value(entry, ["scenario_label", "scenario"])} · ${value(entry, ["profile_label"], "Profile 未提供")}`,
+        audit: simcAudit(entry),
+        metric: metric(value(entry, ["dps", "value"]), " DPS"),
+      })));
+      fragment.append(aplSection);
+    }
+    if (current) {
+      const crossSection = node("section", "simc-secondary");
+      const currentRank = specRankings.indexOf(current) + 1;
+      crossSection.append(node("h3", "", `同场景位置 · 第 ${currentRank} / ${specRankings.length}`));
+      crossSection.append(node("p", "simc-secondary-context", `${value(current, ["scenario_label", "scenario"], "当前场景")} · 各专精使用各自标准 Profile，仅作位置对比`));
+      const peers = node("div", "simc-peer-strip");
+      [current, ...specRankings.filter((entry) => entry !== current)].slice(0, 5).forEach((entry) => peers.append(node("span", entry === current ? "simc-peer simc-peer--current" : "simc-peer", `${value(entry, ["spec_label", "label", "spec_name", "spec_key"])} · ${metric(value(entry, ["dps", "value"]))}`)));
+      crossSection.append(peers);
+      fragment.append(crossSection);
+    }
+    return fragment;
   }
 
   const renderers = {
     "players": renderPlayers,
     "mythic-plus": renderMythicPlus,
     "raid": renderRaid,
-    "simc-apl": renderSimcApl,
-    "simc-cross-spec": renderSimcCrossSpec,
+    "simc": renderSimc,
   };
 
   function selectedDimension() {
@@ -197,11 +209,14 @@
   function updateSimcEndpoints() {
     const selected = selectedDimension();
     cards.forEach((card) => {
-      if (!card.dataset.specModule.startsWith("simc-")) return;
-      const endpoint = new URL(card.dataset.endpoint, window.location.origin);
+      if (card.dataset.specModule !== "simc") return;
+      const endpoint = new URL(card.dataset.aplEndpoint, window.location.origin);
       endpoint.searchParams.set("scenario", selected.scenario);
-      if (card.dataset.specModule === "simc-apl") endpoint.searchParams.set("profile", selected.profile);
-      card.dataset.endpoint = `${endpoint.pathname}?${endpoint.searchParams.toString()}`;
+      endpoint.searchParams.set("profile", selected.profile);
+      card.dataset.aplEndpoint = `${endpoint.pathname}?${endpoint.searchParams.toString()}`;
+      const cross = new URL(card.dataset.crossSpecEndpoint, window.location.origin);
+      cross.searchParams.set("scenario", selected.scenario);
+      card.dataset.crossSpecEndpoint = `${cross.pathname}?${cross.searchParams.toString()}`;
     });
   }
 
@@ -230,7 +245,7 @@
     cards.forEach((card) => {
       const context = card.querySelector("[data-simc-context]");
       if (!context) return;
-      if (card.dataset.specModule === "simc-apl") {
+      if (card.dataset.specModule === "simc") {
         context.textContent = `场景：${scenario?.label || selected.scenario || "未配置"}（${formatSimcParams(scenario?.detail)}） · Profile：${profile?.label || selected.profile || "未配置"}`;
       } else {
         context.textContent = `场景：${scenario?.label || selected.scenario || "未配置"}（${formatSimcParams(scenario?.detail)}） · 跨专精使用各专精配置的标准 Profile`;
@@ -253,7 +268,7 @@
       updateSimcContext(scenarios, profiles);
       updateSimcEndpoints();
       cards.forEach((card) => {
-        if (card.dataset.specModule.startsWith("simc-")) loadModule(card);
+        if (card.dataset.specModule === "simc") loadModule(card);
       });
     };
     scenarioControl.addEventListener("change", reload);
@@ -286,11 +301,29 @@
     state.setAttribute("role", "status");
     state.textContent = "加载中…";
     try {
-      const response = await fetch(endpoint, {
-        credentials: "same-origin", headers: { Accept: "application/json" }, signal: controller.signal,
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const payload = await response.json();
+      let payload;
+      if (card.dataset.specModule === "simc") {
+        const bodies = await Promise.all([card.dataset.aplEndpoint, card.dataset.crossSpecEndpoint].map((url) => fetch(url, {
+          credentials: "same-origin", headers: { Accept: "application/json" }, signal: controller.signal,
+        }).then((response) => response.ok ? response.json() : ({ status: "not_ready", reason: "request_failed" }))));
+        payload = { apl: bodies[0], crossSpec: bodies[1] };
+        payload.updated_at = bodies.map((body) => body?.updated_at).filter(Boolean).sort().pop();
+        if (bodies.every((body) => body?.status === "not_ready")) {
+          card.setAttribute("data-state", "empty");
+          state.hidden = false;
+          state.textContent = simcReasons[bodies[0].reason] || "暂无数据";
+          content.replaceChildren();
+          content.hidden = true;
+          updated.textContent = updatedAt(bodies[0]);
+          return;
+        }
+      } else {
+        const response = await fetch(endpoint, {
+          credentials: "same-origin", headers: { Accept: "application/json" }, signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        payload = await response.json();
+      }
       if (payload?.status === "not_ready") {
         card.setAttribute("data-state", "empty");
         state.hidden = false;
