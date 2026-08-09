@@ -118,6 +118,20 @@ class SpecOverviewIntegrationTests(TestCase):
             self.assertNotIn('private-overview', endpoints[module])
         self.assertEqual(parse_qs(urlsplit(endpoints['simc-apl']).query)['spec'], ['mage_fire'])
 
+    @patch('botend.portal.simc_benchmark_api.serialize_panel_apl_ranking_results')
+    def test_simc_ranking_keeps_legacy_results_without_backend_audit(self, projection):
+        projection.return_value = [{
+            'profile_key': '1', 'resource_versions': {
+                'profile': 'profile', 'template': 'template', 'apl': 'apl', 'backend': None,
+            }, 'simulation_params': {'iterations': 1000}, 'dps': 123.0,
+            'apl_key': 'apl', 'apl_label': 'Legacy APL',
+        }]
+        response = self.client.get('/portal/api/simc-benchmarks/apl-rankings/', {
+            'panel': self.panel.slug, 'spec': 'mage_fire',
+            'scenario': self.scenario.key, 'profile': '1',
+        })
+        self.assertEqual(response.json()['status'], 'ready')
+
     def test_simc_controls_live_inside_the_simc_module(self):
         response = self.client.get('/portal/spec/Mage/Fire/')
         soup = BeautifulSoup(response.content, 'html.parser')

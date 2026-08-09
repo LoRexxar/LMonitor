@@ -35,7 +35,7 @@ def _projected_ranking_row(coordinate):
     baseline = next((row for row in coordinate.get('candidates', [])
                      if row.get('key') == 'baseline'), None)
     audit = coordinate.get('audit') if isinstance(coordinate.get('audit'), dict) else {}
-    required = ('profile_identity', 'apl_identity', 'template_identity', 'backend_version')
+    required = ('profile_identity', 'apl_identity', 'template_identity')
     if baseline is None or not all(audit.get(key) for key in required):
         return None
     if not isinstance(audit.get('simulation_params'), dict):
