@@ -63,7 +63,7 @@
     const list = node(ranked ? "ol" : "ul", "spec-module-list");
     rows.slice(0, 20).forEach((row, index) => {
       const description = describe(row, index);
-      const item = node("li", `spec-module-row${ranked ? "" : " spec-module-row--fact"}`);
+      const item = node("li", `spec-module-row${ranked ? "" : " spec-module-row--fact"}${description.className ? ` ${description.className}` : ""}`);
       const copy = node(description.detail_url ? "a" : "span", "spec-module-copy");
       if (description.detail_url) copy.href = description.detail_url;
       copy.append(node("strong", "", description.title), node("small", "", description.detail));
@@ -162,12 +162,21 @@
   function renderSimcCrossSpec(payload) {
     const specRankings = firstArray(payload, ["spec_rankings", "rankings", "items"]);
     if (!specRankings.length) return null;
-    return rankingList(specRankings, (entry) => ({
+    const currentSpec = root.dataset.simcSpec || "";
+    const current = specRankings.find((entry) => entry?.spec_key === currentSpec);
+    const ordered = current ? [current, ...specRankings.filter((entry) => entry !== current)] : specRankings;
+    const list = rankingList(ordered, (entry) => ({
       title: value(entry, ["spec_label", "label", "spec_name", "spec_key"]),
-      detail: `${value(entry, ["scenario_label", "scenario"])} · 标准 Profile：${value(entry, ["profile_label"], "未提供")}`,
+      detail: `${entry?.spec_key === currentSpec ? "当前页面专精" : "同场景专精"} · ${value(entry, ["scenario_label", "scenario"])} · 标准 Profile：${value(entry, ["profile_label"], "未提供")}`,
       audit: simcAudit(entry),
       metric: metric(value(entry, ["dps", "value"]), " DPS"),
+      className: entry?.spec_key === currentSpec ? "spec-module-row--current" : "",
     }));
+    if (current) {
+      const currentRank = specRankings.indexOf(current) + 1;
+      list.prepend(node("li", "spec-module-summary", `当前专精排名第 ${currentRank} / ${specRankings.length} · 同一场景、同一套比较口径`));
+    }
+    return list;
   }
 
   const renderers = {

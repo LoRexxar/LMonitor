@@ -42,8 +42,8 @@
         <a href="#module-players" aria-current="page">人物榜</a>
         <a href="#module-mythic-plus">大秘境</a>
         <a href="#module-raid">团本</a>
-        <a href="#module-simc-apl">SimC APL</a>
-        <a href="#module-simc-cross-spec">SimC 跨专精</a>
+        <a href="#module-simc-apl">SimC 模拟</a>
+        <a href="#module-simc-cross-spec">同场景专精位置</a>
         <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/dungeons/">M+ 详细统计</a>
         <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/raid/">团本详细统计</a>
     </nav>
@@ -98,7 +98,7 @@
         <section id="module-simc-apl" class="spec-module-card" data-spec-module="simc-apl"
                  data-endpoint="{% if simc_dimensions %}/portal/api/simc-benchmarks/apl-rankings/?panel={{ simc_dimensions.panel|urlencode }}&amp;spec={{ simc_dimensions.spec|urlencode }}&amp;scenario={{ simc_dimensions.scenario|urlencode }}&amp;profile={{ simc_dimensions.profile|urlencode }}{% else %}/portal/api/simc-benchmarks/apl-rankings/?panel=&amp;spec={{ class_name|lower }}_{{ spec_name|lower }}&amp;scenario={% endif %}" data-state="loading" aria-busy="true">
             <header class="spec-module-header">
-                <div><p class="spec-module-kicker">SimC APL</p><h2>APL 场景排名</h2></div>
+                <div><p class="spec-module-kicker">当前专精 · SimC</p><h2>本专精 APL 排名</h2></div>
                 <span class="spec-module-source" data-module-source>来源：SimulationCraft 冻结配置</span>
             </header>
             <p class="spec-module-context" data-simc-context>正在读取当前模拟条件…</p>
@@ -106,8 +106,8 @@
             <div class="spec-overview-controls" aria-label="模拟聚合维度">
                 <div class="spec-overview-control-intro">
                     <span class="spec-overview-control-kicker">SimC 条件</span>
-                    <strong>选择场景与 Profile</strong>
-                    <small>场景同时影响两张 SimC 卡；Profile 仅影响 APL。</small>
+                    <strong>查看本专精的不同配置</strong>
+                    <small>场景和 Profile 只影响 SimC 模块，不会改变人物榜、M+ 或团本。</small>
                 </div>
                 <label>场景<select id="spec-overview-scenario"></select></label>
                 <label>Profile<select id="spec-overview-profile"></select></label>
@@ -122,7 +122,7 @@
         <section id="module-simc-cross-spec" class="spec-module-card" data-spec-module="simc-cross-spec"
                  data-endpoint="{% if simc_dimensions %}/portal/api/simc-benchmarks/spec-rankings/?panel={{ simc_dimensions.panel|urlencode }}&amp;spec={{ simc_dimensions.spec|urlencode }}&amp;scenario={{ simc_dimensions.scenario|urlencode }}{% else %}/portal/api/simc-benchmarks/spec-rankings/?panel=&amp;spec={{ class_name|lower }}_{{ spec_name|lower }}&amp;scenario={% endif %}" data-state="loading" aria-busy="true">
             <header class="spec-module-header">
-                <div><p class="spec-module-kicker">SimC 基准</p><h2>跨专精排名</h2></div>
+                <div><p class="spec-module-kicker">同场景对比</p><h2>当前专精在全职业中的位置</h2></div>
                 <span class="spec-module-source" data-module-source>来源：SimulationCraft 同场景基准</span>
             </header>
             <p class="spec-module-context" data-simc-context>正在读取当前模拟条件…</p>
