@@ -850,8 +850,9 @@ class SimcProfileResourceListTests(TestCase):
             player_config_mode='manual_equipment',
             talent='CURRENT_BUILD',
             player_equipment=(
-                'warrior="PTR Tester"\n'
+                'warrior=PTR_Tester\n'
                 'PtR = 1\n'
+                'DeFaUlT_AcTiOnS = 1\n'
                 'level=90\n'
                 'race=human\n'
                 'spec=fury\n'
@@ -890,6 +891,7 @@ class SimcProfileResourceListTests(TestCase):
             '=' in line and line.partition('=')[0].strip().lower() == 'ptr'
             for line in profile.player_equipment.splitlines()
         ))
+        self.assertNotIn('default_actions', profile.player_equipment.lower())
 
         ptr_content = SimcComposer(self.user.id).compose_validation_input(
             profile, 'actions=/auto_attack',
@@ -898,6 +900,7 @@ class SimcProfileResourceListTests(TestCase):
             line for line in ptr_content.splitlines()
             if '=' in line and line.partition('=')[0].strip().lower() == 'ptr'
         ], ['ptr=1'])
+        self.assertNotIn('default_actions', ptr_content.lower())
 
         profile.use_ptr = False
         live_content = SimcComposer(self.user.id).compose_validation_input(

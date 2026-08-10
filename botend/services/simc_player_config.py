@@ -147,7 +147,7 @@ def authoritative_player_baseline(player_equipment):
     for raw_line in str(player_equipment or '').splitlines():
         if re.match(r'^\s*###\s+(?:Gear from Bags|Weekly Reward Choices)\b', raw_line, re.IGNORECASE):
             break
-        if re.match(r'^\s*ptr\s*=', raw_line, re.IGNORECASE):
+        if re.match(r'^\s*(?:ptr|default_actions)\s*=', raw_line, re.IGNORECASE):
             continue
         lines.append(raw_line)
     return '\n'.join(lines).strip()
@@ -183,7 +183,11 @@ def validate_player_baseline(player_equipment):
         if not key:
             raise ValueError('冻结玩家装备基线包含无法识别的SimC指令')
         if actor_pattern.fullmatch(key):
-            if not (raw_value.startswith('"') and raw_value.endswith('"') and len(raw_value) > 2):
+            quoted_actor = (
+                raw_value.startswith('"') and raw_value.endswith('"') and len(raw_value) > 2
+            )
+            unquoted_actor = re.fullmatch(r'[A-Za-z0-9_]+', raw_value)
+            if not (quoted_actor or unquoted_actor):
                 raise ValueError('冻结玩家装备基线中的玩家角色格式无效')
             actors.append(key.lower())
         elif key in EQUIPMENT_SLOTS or key in EQUIPMENT_SLOT_ALIASES:
