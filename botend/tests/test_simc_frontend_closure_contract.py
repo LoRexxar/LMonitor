@@ -56,9 +56,12 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertLess(resources.index('APL'), resources.index('Profile'))
         self.assertNotIn('场景', resources)
         self.assertLess(identity.index('simc-task-card__title'), identity.index('${resourceMeta}'))
-        self.assertIn('#simc-workbench .simc-task-card__identity {', HTML)
+        self.assertIn('#simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__identity {', HTML)
         self.assertIn('flex-direction: column', HTML)
         self.assertIn('overflow-wrap: anywhere', HTML)
+        self.assertIn('grid-template-columns: auto minmax(0, 1fr) auto', HTML)
+        self.assertIn('.simc-task-card:not(.simc-benchmark-task-group)', HTML)
+        self.assertNotIn('flex-basis: 8rem', HTML)
 
     def test_task_detail_displays_frozen_resource_names_with_version_trace(self):
         reference_card = DETAIL[DETAIL.index("card('引用版本'"):DETAIL.index("function renderTaskComparison")]

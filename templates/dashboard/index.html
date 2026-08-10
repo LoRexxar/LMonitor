@@ -233,32 +233,35 @@
         .simc-task-progress__track { height: .38rem; flex: 1; overflow: hidden; border-radius: 999px; background: #e2e8f0; }
         .simc-task-progress__fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, #2563eb, #60a5fa); }
         .simc-task-card__actions { display: flex; align-items: center; justify-content: flex-end; gap: .55rem; }
-        /* 历史任务采用紧凑单行布局，避免每条任务占用过宽的纵向空间。 */
-        #simc-workbench .simc-task-card { grid-template-columns: minmax(0, 1fr) auto; gap: .75rem; padding: .55rem .75rem; border-radius: .75rem; }
-        #simc-workbench .simc-task-card__main { display: flex; min-width: 0; align-items: center; gap: .65rem; }
-        #simc-workbench .simc-task-card__eyebrow { flex: 0 0 auto; margin-bottom: 0; }
-        #simc-workbench .simc-task-card__identity { display: flex; flex: 1 1 24rem; min-width: 0; flex-direction: column; gap: .2rem; }
-        #simc-workbench .simc-task-card__title { flex: 0 1 auto; min-width: 0; overflow: visible; font-size: .86rem; overflow-wrap: anywhere; text-overflow: clip; white-space: normal; }
-        #simc-workbench .simc-task-card__resources { display: flex; flex: 0 1 auto; min-width: 0; flex-direction: column; gap: .12rem; color: #475569; font-size: .68rem; }
-        #simc-workbench .simc-task-card__resources span { display: grid; min-width: 0; grid-template-columns: 3.5rem minmax(0, 1fr); align-items: baseline; gap: .25rem; }
-        #simc-workbench .simc-task-card__resources b { flex: 0 0 auto; color: #94a3b8; font-size: .62rem; font-weight: 800; }
-        #simc-workbench .simc-task-card__resources em { min-width: 0; font-style: normal; overflow-wrap: anywhere; }
-        #simc-workbench .simc-task-card__meta { flex: 0 0 auto; margin-top: 0; gap: .45rem; white-space: nowrap; }
-        #simc-workbench .simc-task-card__scenario { display: inline-flex; min-width: 0; align-items: baseline; gap: .25rem; }
-        #simc-workbench .simc-task-card__scenario b { color: #94a3b8; font-size: .62rem; font-weight: 800; }
-        #simc-workbench .simc-task-card__scenario em { max-width: 12rem; overflow: hidden; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
-        #simc-workbench .simc-task-progress { flex: 0 1 9rem; min-width: 5rem; margin-top: 0; }
-        #simc-workbench .simc-task-card__actions { flex: 0 0 auto; gap: .35rem; }
-        #simc-workbench .simc-task-card__actions .simc-touch-action { min-height: 32px; padding: .35rem .55rem; font-size: .7rem; }
+        /* 历史任务的复选框、主体和操作区各占自己的列，避免自动布局错位。 */
+        #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) { grid-template-columns: auto minmax(0, 1fr) auto; gap: .75rem; padding: .55rem .75rem; border-radius: .75rem; }
+        #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__main { display: grid; grid-column: 1 / 3; grid-template-columns: auto minmax(12rem, 1fr) minmax(0, auto) minmax(5rem, 9rem); min-width: 0; align-items: center; gap: .65rem; }
+        #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__select + .simc-task-card__main { grid-column: 2 / 3; }
+        #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__eyebrow { flex: 0 0 auto; margin-bottom: 0; }
+        #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__identity { display: flex; min-width: 0; flex-direction: column; gap: .2rem; }
+        #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__title { min-width: 0; overflow: visible; font-size: .86rem; overflow-wrap: anywhere; text-overflow: clip; white-space: normal; }
+        #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__resources { display: flex; min-width: 0; flex-direction: column; gap: .12rem; color: #475569; font-size: .68rem; }
+        #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__resources span { display: grid; min-width: 0; grid-template-columns: 3.5rem minmax(0, 1fr); align-items: baseline; gap: .25rem; }
+        #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__resources b { flex: 0 0 auto; color: #94a3b8; font-size: .62rem; font-weight: 800; }
+        #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__resources em { min-width: 0; font-style: normal; overflow-wrap: anywhere; }
+        #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__meta { flex: 0 0 auto; margin-top: 0; gap: .45rem; white-space: nowrap; }
+        #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__scenario { display: inline-flex; min-width: 0; align-items: baseline; gap: .25rem; }
+        #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__scenario b { color: #94a3b8; font-size: .62rem; font-weight: 800; }
+        #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__scenario em { max-width: 12rem; overflow: hidden; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
+        #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-progress { flex: 0 1 9rem; min-width: 5rem; margin-top: 0; }
+        #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__actions { flex: 0 0 auto; gap: .35rem; }
+        #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__actions .simc-touch-action { min-height: 32px; padding: .35rem .55rem; font-size: .7rem; }
         @media (max-width: 1100px) {
-            #simc-workbench .simc-task-card__identity { flex-basis: 18rem; }
+            #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__main { grid-template-columns: auto minmax(9rem, 1fr) minmax(0, auto); }
+            #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-progress { grid-column: 2 / -1; }
         }
         @media (max-width: 760px) {
-            #simc-workbench .simc-task-card { grid-template-columns: 1fr; }
-            #simc-workbench .simc-task-card__main { flex-wrap: wrap; }
-            #simc-workbench .simc-task-card__identity { order: 3; width: 100%; flex-basis: 100%; }
-            #simc-workbench .simc-task-card__meta { order: 4; }
-            #simc-workbench .simc-task-card__actions { justify-content: flex-start; }
+            #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) { grid-template-columns: minmax(0, 1fr) auto; }
+            #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__select { grid-row: 1; grid-column: 1 / -1; }
+            #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__main { display: block; grid-column: 1 / -1; }
+            #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__meta { display: flex; margin-top: .45rem; white-space: normal; }
+            #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-progress { margin-top: .45rem; }
+            #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__actions { justify-content: flex-start; }
         }
         #simc-workbench .simc-benchmark-task-group { display: block; padding: .75rem; }
         #simc-workbench .simc-benchmark-task-summary { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
@@ -341,7 +344,7 @@
             #simc-workbench .simc-task-card { grid-template-columns: minmax(0, 1fr) auto; gap: .4rem; padding: .45rem .5rem; }
             #simc-workbench .simc-task-card__main { gap: .35rem; }
             #simc-workbench .simc-task-card__eyebrow { display: none; }
-            #simc-workbench .simc-task-card__title { flex-basis: 8rem; font-size: .78rem; }
+            #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__title { font-size: .78rem; }
             #simc-workbench .simc-task-card__meta { display: none; }
             #simc-workbench .simc-task-progress { display: none; }
             #simc-workbench .simc-task-card__actions { display: flex; width: auto; }
