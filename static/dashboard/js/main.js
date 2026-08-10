@@ -3036,10 +3036,13 @@ async function startSimcSimulationFromResource({ profileId = 0, aplId = 0, spec 
         await onSimcProfileSelect();
     }
     if (aplId) {
+        simcPendingAplId = String(aplId);
         const aplInput = Array.from(document.querySelectorAll('input[name="simc-sim-apl"]'))
-            .find(input => input.value === String(aplId));
-        if (!aplInput) throw new Error('该 APL 不可用于当前专精的模拟');
-        aplInput.checked = true;
+            .find(input => input.value === simcPendingAplId);
+        if (aplInput) {
+            aplInput.checked = true;
+            simcPendingAplId = '';
+        }
     }
     document.getElementById('simc-workbench-import-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     showMessage(profileId ? '已预选玩家配置，可继续设置并发起模拟' : '已预选 APL，可继续设置并发起模拟', 'success');
@@ -3048,6 +3051,7 @@ window.startSimcSimulationFromResource = startSimcSimulationFromResource;
 
 let simcResolvedBaseTemplateId = 0;
 let simcResolvedCanonicalSpec = '';
+let simcPendingAplId = '';
 let simcSourceResolutionAbortController = null;
 
 function renderSimcBattlenetLoadState(state, message = '') {
@@ -3219,9 +3223,13 @@ async function loadSimcAplCandidates(spec, control = null) {
         simcResolvedBaseTemplateId = Number(payload.default_template_id) || 0;
         const defaults = rows.filter(row => row.is_default === true);
         if (defaults.length !== 1 || !simcResolvedBaseTemplateId) throw new Error('后端未返回唯一默认 APL 和基础模板');
+        const selectedAplId = rows.some(row => String(row.id) === simcPendingAplId)
+            ? simcPendingAplId
+            : String(defaults[0].id);
+        simcPendingAplId = '';
         container.innerHTML = rows.length ? rows.map(row => `
             <label class="mb-2 flex cursor-pointer items-start gap-2 rounded-xl border bg-white p-3">
-                <input type="radio" name="simc-sim-apl" value="${Number(row.id) || ''}" ${row.is_default === true ? 'checked' : ''}>
+                <input type="radio" name="simc-sim-apl" value="${Number(row.id) || ''}" ${String(row.id) === selectedAplId ? 'checked' : ''}>
                 <span><b>${escapeHtml(row.name || `APL #${row.id}`)}</b><span class="block text-xs text-gray-500">${escapeHtml(row.spec_label || row.spec || '')} · ${escapeHtml(row.source || '')}</span></span>
             </label>`).join('') : '<span class="text-amber-700">当前 Profile 专精没有可选 APL。</span>';
     } catch (error) {

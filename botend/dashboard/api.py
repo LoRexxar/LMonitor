@@ -4651,6 +4651,9 @@ class SimcTaskPreviewAPIView(View):
             return JsonResponse({'success': False, 'error': '任务不存在或无权限访问'})
         manifest = SimcTaskAPIView()._normalize_task_ext(task.task_type, task.ext)
         if task.profile_id and task.template_id and task.apl_id and task.profile_version_id and task.template_version_id and task.apl_version_id:
+            apl_payload = task.apl_version.payload if isinstance(task.apl_version.payload, dict) else {}
+            profile_payload = task.profile_version.payload if isinstance(task.profile_version.payload, dict) else {}
+            params = task.simulation_params if isinstance(task.simulation_params, dict) else {}
             return JsonResponse({'success': True, 'data': {
                 'id': task.id, 'name': task.name,
                 'mode': task.mode, 'status': task.current_status,
@@ -4658,7 +4661,9 @@ class SimcTaskPreviewAPIView(View):
                 'profile_version_id': task.profile_version_id,
                 'template_version_id': task.template_version_id,
                 'apl_version_id': task.apl_version_id,
-                'simulation_params': task.simulation_params or {},
+                'apl_name': apl_payload.get('name') or task.apl.name or params.get('override_action_list_name') or '',
+                'profile_name': profile_payload.get('name') or task.profile.name or '',
+                'simulation_params': params,
                 'mode_params': task.mode_params or {},
                 'candidate_label': task.candidate_label,
             }})
@@ -5172,7 +5177,7 @@ class SimcRegularCompareAPIView(View):
         """Build a safe comparison report from selected ordinary simulation tasks."""
         tasks = list(SimcTask.objects.filter(
             id__in=task_ids, user_id=request.user.id, is_active=True,
-        ).order_by('id'))
+        ).select_related('apl', 'apl_version', 'profile', 'profile_version').order_by('id'))
         if len(tasks) != len(task_ids):
             raise PermissionError('所选任务不存在或无权限访问')
         rows = []
@@ -5183,6 +5188,14 @@ class SimcRegularCompareAPIView(View):
                 invalid.append({'id': task.id, 'name': task.name, 'error': '没有已完成的结果'})
                 continue
             summary = run.result_summary if isinstance(run.result_summary, dict) else {}
+            params = task.simulation_params if isinstance(task.simulation_params, dict) else {}
+            apl_payload = task.apl_version.payload if task.apl_version_id and isinstance(task.apl_version.payload, dict) else {}
+            profile_payload = task.profile_version.payload if task.profile_version_id and isinstance(task.profile_version.payload, dict) else {}
+            apl_name = str(apl_payload.get('name') or getattr(task.apl, 'name', '') or params.get('override_action_list_name') or '—')
+            profile_name = str(profile_payload.get('name') or getattr(task.profile, 'name', '') or '—')
+            fight_style = str(params.get('fight_style') or params.get('fight_style_label') or 'Patchwerk')
+            target_count = params.get('target_count', params.get('desired_targets'))
+            battle_scenario = f'{fight_style} · {target_count}目标' if target_count not in (None, '') else fight_style
             result_file = SimcComparisonTaskAPIView._run_result_file(run)
             parsed = {}
             if not summary.get('dps') and result_file:
@@ -5201,7 +5214,10 @@ class SimcRegularCompareAPIView(View):
                 'talents': parsed.get('talents', {}),
                 'abilities': parsed.get('abilities', parsed.get('top_abilities', [])),
                 'top_abilities': parsed.get('top_abilities', []),
-                'apl_list': '', 'run_id': run.id,
+                'apl_name': apl_name, 'profile_name': profile_name,
+                'battle_scenario': battle_scenario,
+                'apl_list': str(apl_payload.get('content') or getattr(task.apl, 'content', '') or params.get('override_action_list') or ''),
+                'run_id': run.id,
             })
         if len(rows) < 2:
             raise ValueError('至少需要两个拥有已完成结果的任务')
