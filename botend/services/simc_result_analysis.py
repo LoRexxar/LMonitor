@@ -54,10 +54,142 @@ _RESOURCE_ZH = {
     "runic power": "符文能量", "fury": "恶魔之怒", "pain": "痛苦值",
     "maelstrom": "漩涡值", "insanity": "狂乱值", "astral power": "星界能量",
 }
+_REPORT_SECTION_KEYS = {
+    "results, spec and gear": "results",
+    "procs, uptimes & benefits": "procs",
+    "parsed player effects": "effects",
+    "cooldown waste details": "cooldown_waste",
+    "resources": "resources",
+    "statistics & data analysis": "statistics",
+    "action priority list": "action_priority",
+    "stats": "stats",
+    "gear": "gear",
+    "talents": "talents",
+    "scale factors": "scale_factors",
+    "scaling": "scale_factors",
+    "profile": "profile",
+}
+_REPORT_SECTION_MAX_TABLES = 20
+_REPORT_TABLE_MAX_ROWS = 500
+_REPORT_ROW_MAX_CELLS = 24
+_REPORT_CELL_MAX_CHARS = 2000
+_REPORT_SECTION_MAX_TEXT_BLOCKS = 4
+_REPORT_TEXT_BLOCK_MAX_CHARS = 50000
 
 
 def _report_token(value):
     return re.sub(r"[^a-z0-9]+", "_", str(value or "").casefold()).strip("_")
+
+
+def _project_report_sections(player_detail):
+    """Project SimC sections to bounded, plain-text-only table data."""
+    projected = []
+
+    def hidden_by_report(node, boundary):
+        current = node
+        while current is not None and current is not boundary:
+            classes = set(current.get("class") or []) if hasattr(current, "get") else set()
+            if classes.intersection({"details", "hide", "childrow"}):
+                return True
+            current = current.parent
+        return False
+
+    def cell_text(cell, table):
+        parts = []
+        for text_node in cell.find_all(string=True):
+            if text_node.find_parent(["script", "style"]):
+                continue
+            if text_node.find_parent("table") is not table:
+                continue
+            text = " ".join(str(text_node).split())
+            if text:
+                parts.append(text)
+        return " ".join(parts)[:_REPORT_CELL_MAX_CHARS]
+
+    for section in player_detail.select("div.player-section"):
+        if section.find_parent("div", class_="player-section") is not None:
+            continue
+        heading = section.find(["h2", "h3"])
+        title = " ".join(heading.get_text(" ", strip=True).split()) if heading else ""
+        key = _REPORT_SECTION_KEYS.get(title.casefold())
+        if not key:
+            continue
+
+        if key == "statistics":
+            candidate_tables = [
+                table for table in section.find_all("table")
+                if table.find_parent("table") is not None and table.find("table") is None
+            ]
+            if not candidate_tables:
+                candidate_tables = [
+                    table for table in section.find_all("table")
+                    if table.find_parent("table") is None
+                ]
+        else:
+            candidate_tables = [
+                table for table in section.find_all("table")
+                if table.find_parent("table") is None
+            ]
+
+        tables = []
+        for table in candidate_tables:
+            if len(tables) >= _REPORT_SECTION_MAX_TABLES:
+                break
+
+            rows = []
+            for row in table.find_all("tr"):
+                if len(rows) >= _REPORT_TABLE_MAX_ROWS:
+                    break
+                if row.find_parent("table") is not table or hidden_by_report(row, table):
+                    continue
+                cells = []
+                for cell in row.find_all(["th", "td"], recursive=False)[:_REPORT_ROW_MAX_CELLS]:
+                    try:
+                        colspan = max(1, min(_REPORT_ROW_MAX_CELLS, int(cell.get("colspan") or 1)))
+                    except (TypeError, ValueError):
+                        colspan = 1
+                    try:
+                        rowspan = max(1, min(_REPORT_TABLE_MAX_ROWS, int(cell.get("rowspan") or 1)))
+                    except (TypeError, ValueError):
+                        rowspan = 1
+                    cells.append({
+                        "text": cell_text(cell, table),
+                        "header": cell.name == "th",
+                        "colspan": colspan,
+                        "rowspan": rowspan,
+                    })
+                if cells and any(cell["text"] for cell in cells):
+                    rows.append(cells)
+            if not rows:
+                continue
+            label = next((
+                cell["text"] for row in rows[:2] for cell in row
+                if cell["header"] and cell["text"]
+            ), "")[:300]
+            tables.append({"label": label, "rows": rows})
+
+        text_blocks = []
+        block_candidates = list(section.find_all("pre"))
+        if key == "profile" and not block_candidates:
+            block_candidates = list(section.select(".subsection.force-wrap p"))
+        for block in block_candidates:
+            if len(text_blocks) >= _REPORT_SECTION_MAX_TEXT_BLOCKS:
+                break
+            if block.find_parent("div", class_="player-section") is not section:
+                continue
+            separator = "\n" if key == "profile" else ""
+            text = block.get_text(separator, strip=True).strip()
+            if text:
+                text_blocks.append(text[:_REPORT_TEXT_BLOCK_MAX_CHARS])
+
+        if tables or text_blocks:
+            projected.append({
+                "key": key,
+                "title": title[:300],
+                "tables": tables,
+                "text_blocks": text_blocks,
+            })
+    return projected
 
 
 def localize_report_summary(report, bilingual_pairs=(), spell_names=None):
@@ -175,6 +307,7 @@ def parse_simc_html_report(html_content):
         "top_abilities": [],
         "sample_sequence": [],
         "buffs": {"dynamic": [], "constant": []},
+        "sections": [],
     }
     if not isinstance(html_content, str) or not html_content:
         return document
@@ -468,6 +601,8 @@ def parse_simc_html_report(html_content):
                         "buffs": cells[5].get_text(" ", strip=True)[:2000],
                     })
                 document["sample_sequence"] = sequence[:2000]
+
+            document["sections"] = _project_report_sections(player_detail)
 
         masthead = soup.find(id="masthead")
         if masthead:

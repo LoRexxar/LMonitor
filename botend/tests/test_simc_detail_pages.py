@@ -150,6 +150,26 @@ class SimcDetailPageFrontendContractTests(TestCase):
         self.assertNotIn('request_manifest', script)
         self.assertNotIn('.content', script)
 
+    def test_complete_report_sections_use_one_shared_safe_renderer(self):
+        detail_template = (ROOT / 'templates/dashboard/simc_detail.html').read_text(encoding='utf-8')
+        dashboard_template = (ROOT / 'templates/dashboard/index.html').read_text(encoding='utf-8')
+        detail = (ROOT / 'static/dashboard/js/simc-detail.js').read_text(encoding='utf-8')
+        workbench = (ROOT / 'static/dashboard/js/simc-workbench.js').read_text(encoding='utf-8')
+        component_path = ROOT / 'static/dashboard/js/simc-result-report.js'
+        stylesheet_path = ROOT / 'static/dashboard/css/simc-result-report.css'
+
+        self.assertTrue(component_path.exists())
+        self.assertTrue(stylesheet_path.exists())
+        component = component_path.read_text(encoding='utf-8')
+        for template in (detail_template, dashboard_template):
+            self.assertIn('dashboard/css/simc-result-report.css', template)
+            self.assertIn('dashboard/js/simc-result-report.js', template)
+        for token in ('report.sections', 'text_blocks', 'colspan', 'rowspan',
+                      'simc-report-nav', 'Profile / 可复现配置'):
+            self.assertIn(token, component)
+        self.assertIn('window.SimcResultReport.render(report)', detail)
+        self.assertIn('window.SimcResultReport.render(report)', workbench)
+
     def test_run_input_preview_is_available_from_workbench_and_dedicated_detail(self):
         template = (ROOT / 'templates/dashboard/simc_detail.html').read_text(encoding='utf-8')
         detail = (ROOT / 'static/dashboard/js/simc-detail.js').read_text(encoding='utf-8')

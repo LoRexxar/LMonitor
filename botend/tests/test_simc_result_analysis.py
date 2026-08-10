@@ -108,6 +108,69 @@ class SimcResultAnalysisTests(SimpleTestCase):
             },
         ])
 
+    def test_projects_complete_report_sections_as_bounded_plain_text(self):
+        sections = '''
+          <div class="player-section"><h3>Results, Spec and Gear</h3><table class="sc">
+            <tr><th>DPS</th><th>DPS Error</th><th>DPS Range</th><th>DPR</th></tr>
+            <tr><td>91,082.8</td><td>1,976.3 / 2.170%</td><td>38,484.4 / 42.3%</td><td>7,594.4</td></tr>
+          </table></div>
+          <div class="player-section"><h3>Procs, Uptimes &amp; Benefits</h3><table class="sc">
+            <tr><th>Proc</th><th>Count</th><th>Interval</th></tr><tr><td>Tactician</td><td>4.0</td><td>4.9s</td></tr>
+          </table></div>
+          <div class="player-section"><h3>Parsed Player Effects</h3><table class="sc">
+            <tr><th>Passive Effects</th><th>Spell</th><th>ID</th><th>Value</th></tr>
+            <tr><td>All Crit</td><td>Cruel Strikes</td><td>392777</td><td>2.00%</td></tr>
+            <tr class="details hide"><td><table><tr><td>must not leak nested detail</td></tr></table></td></tr>
+          </table></div>
+          <div class="player-section"><h3>Cooldown waste details</h3><table class="sc">
+            <tr><th>Ability</th><th>Average</th></tr><tr><td>Mortal Strike</td><td>0.903</td></tr>
+          </table></div>
+          <div class="player-section"><h3>Resources</h3><table class="sc">
+            <tr><th>Gains</th><th>Type</th><th>Total</th><th>Overflow</th></tr>
+            <tr><td>Bloodsurge</td><td>Rage</td><td>13.64</td><td>0.00</td></tr>
+          </table></div>
+          <div class="player-section"><h3>Statistics &amp; Data Analysis</h3><div><table class="layout"><tr><td>
+            <table class="sc"><tr><th>DPS</th><th>Mean</th><th>Min</th><th>Max</th></tr><tr><td>Distribution</td><td>91,082.8</td><td>70,000</td><td>110,000</td></tr></table>
+          </td></tr></table></div></div>
+          <div class="player-section"><h3>Action Priority List</h3><table class="sc">
+            <tr><th></th><th></th><th>actions.default</th></tr><tr><th>#</th><th>count</th><th>action,conditions</th></tr>
+            <tr><td>A</td><td>4.91</td><td>mortal_strike,if=rage&gt;30</td></tr>
+          </table></div>
+          <div class="player-section"><h3>Stats</h3><table class="sc">
+            <tr><th></th><th>Raid-Buffed</th><th>Unbuffed</th><th>Gear Amount</th></tr>
+            <tr><th>Strength</th><td>2277</td><td>2198</td><td>1243 (878)</td></tr>
+          </table></div>
+          <div class="player-section"><h3>Gear</h3><table class="sc">
+            <tr><th>Source</th><th>Slot</th><th>Average Item Level: 288.00</th></tr>
+            <tr><th>Local</th><th>Head</th><td>Night Ender's Tusks</td></tr>
+            <tr><th colspan="2"></th><td>ilevel: 289, stats: { +115 Mastery }</td></tr>
+          </table></div>
+          <div class="player-section"><h3>Talents</h3><table class="sc talents">
+            <tr><th></th><th colspan="2">Warrior Talents [34]</th></tr><tr><th>1</th><td>Battle Stance [1]</td><td></td></tr>
+          </table></div>
+          <div class="player-section"><h3>Profile</h3><pre>warrior="Tester"\nlevel=90\nactions=/mortal_strike</pre></div>
+        '''
+        html = f'''<html><body><div class="player"><h2>Tester: 91,083 dps</h2><div class="toggle-content">
+          <script type="text/x-deferred-html">{sections}</script>
+        </div></div></body></html>'''
+
+        report = parse_simc_html_report(html)
+
+        projected = {section['key']: section for section in report['sections']}
+        self.assertEqual(list(projected), [
+            'results', 'procs', 'effects', 'cooldown_waste', 'resources',
+            'statistics', 'action_priority', 'stats', 'gear', 'talents', 'profile',
+        ])
+        self.assertEqual(projected['results']['tables'][0]['rows'][1][0]['text'], '91,082.8')
+        self.assertEqual(projected['resources']['tables'][0]['rows'][1][0]['text'], 'Bloodsurge')
+        self.assertEqual(projected['statistics']['tables'][0]['rows'][1][1]['text'], '91,082.8')
+        self.assertEqual(projected['gear']['tables'][0]['rows'][2][1]['text'], 'ilevel: 289, stats: { +115 Mastery }')
+        self.assertEqual(projected['talents']['tables'][0]['rows'][0][1]['colspan'], 2)
+        self.assertEqual(projected['profile']['text_blocks'], [
+            'warrior="Tester"\nlevel=90\nactions=/mortal_strike',
+        ])
+        self.assertNotIn('must not leak nested detail', str(report['sections']))
+
     def test_localizes_report_with_existing_apl_pairs_and_preserves_english(self):
         report = {
             'character': {'class': 'Warrior', 'spec': 'Fury', 'race': 'Orc'},

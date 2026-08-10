@@ -5,6 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{{ detail_title }} · SimC</title>
+  <link rel="stylesheet" href="{% static 'dashboard/css/simc-result-report.css' %}?v=20260811_complete_report">
   <style>
     :root{color-scheme:light;--ink:#172033;--muted:#687386;--line:#dfe5ee;--blue:#2563eb;--purple:#6d5bd0;--wash:#f4f5fa;--card:#fff;--success:#16a085}
     *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 88% 0,#e9e4ff 0,transparent 29%),radial-gradient(circle at 8% 14%,#dbeafe 0,transparent 25%),var(--wash);color:var(--ink);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
@@ -22,12 +23,13 @@
 </head>
 <body>
 <main class="shell">
-  <header class="top"><a href="/dashboard/#simc-workbench">← 返回 SimC 工作台</a><span class="crumb">独立详情 · 安全摘要</span></header>
+  <header class="top"><a href="/dashboard/#simc-workbench">← 返回 SimC 工作台</a><span class="crumb">独立详情 · 完整结果</span></header>
   <div id="simc-detail-root" data-simc-detail-kind="{{ detail_kind }}" data-simc-detail-id="{{ detail_id }}">
     <section class="hero"><span class="pill">正在加载</span><h1>{{ detail_title }}</h1><p>正在从鉴权 JSON API 获取结果摘要…</p></section>
   </div>
 </main>
 <dialog id="simc-input-dialog" class="simc-input-dialog"><div class="simc-input-dialog__body"><div class="simc-input-dialog__head"><h2 data-run-input-status>SimC 输入</h2><button type="button" class="simc-input-dialog__close" data-run-input-close aria-label="关闭">×</button></div><pre><code data-run-input-content></code></pre></div></dialog>
-<script src="{% static 'dashboard/js/simc-detail.js' %}?v=20260810-input-preview"></script>
+<script src="{% static 'dashboard/js/simc-result-report.js' %}?v=20260811_complete_report"></script>
+<script src="{% static 'dashboard/js/simc-detail.js' %}?v=20260811_complete_report"></script>
 </body>
 </html>

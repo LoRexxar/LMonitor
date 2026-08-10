@@ -55,7 +55,7 @@
     const taskFailed = Number(row.status) === 3;
     const failureSummary = runs.find(run => String(run.status) === 'failed' && String(run.error_summary || '').trim())?.error_summary || '';
     const failureTooltip = failureSummary ? `<span class="simc-error-tooltip"><button type="button" class="simc-error-tooltip__trigger" aria-label="查看失败详情"><span aria-hidden="true">!</span></button><span class="simc-error-tooltip__content" role="tooltip">${value(failureSummary)}</span></span>` : '';
-    const nativeReportAction = nativeArtifact ? `<div class="hero-actions"><a class="primary-link" href="${esc(nativeArtifact.preview_url)}">查看完整原生报告 <span aria-hidden="true">↗</span></a><span class="muted" style="color:#dbeafe">技能明细、Buff、Proc 与图表均在原生报告中</span></div>` : '';
+    const nativeReportAction = nativeArtifact ? `<div class="hero-actions"><a class="primary-link" href="${esc(nativeArtifact.preview_url)}">查看完整原生报告 <span aria-hidden="true">↗</span></a><span class="muted" style="color:#dbeafe">当前页已安全展开完整数值；原生报告用于视觉图表与交叉核对</span></div>` : '';
     const characterPills = hasStructuredReport ? `<span class="pill">角色 ${value(character.name, '未命名')}</span><span class="pill">${value(character.class, '职业未知')} · ${value(character.spec, '专精未知')}</span>` : '<span class="pill warning">结构化分析待完善</span>';
     const abilityRows = abilities.map(item => {
       const share = percentNumber(item.dps_percent);
@@ -79,6 +79,7 @@
     root.innerHTML = `<section class="hero"><div class="hero-status"><span class="pill">任务${statusClass(row)}</span>${failureTooltip}</div><div class="hero-primary-column"><h1>${value(row.name, `任务 #${objectId}`)}</h1><div class="hero-resource-stack" aria-label="模拟资源"><div class="hero-resource-line"><span>APL</span><b>${value(row.apl_name, '未命名')}</b></div><div class="hero-resource-line"><span>Profile</span><b>${value(row.profile_name, '未命名')}</b></div></div></div><div class="hero-meta">${characterPills}<span class="pill">更新 ${value(row.updated_at)}</span></div>${nativeReportAction}</section>
       ${hasStructuredReport ? '' : (taskFailed ? '<div class="analysis-warning"><b>模拟执行失败</b><span>失败状态旁的提示图标可查看详情；只有 SimC 实际生成 HTML Artifact 时才会提供原生报告。</span></div>' : '<div class="analysis-warning"><b>模拟已成功，结构化分析信息不完整</b><span>当前仅展示已确认的 DPS、参数、执行轮次和原生报告；缺失字段不会被猜测填充。</span></div>')}
       ${renderTaskComparison(row)}
+      ${window.SimcResultReport.render(report)}
       <div class="grid">
         ${card('结果概览', `<div class="metrics"><div class="metric"><span>DPS</span><b>${number(report.dps ?? row.result_summary?.dps)}</b></div><div class="metric"><span>迭代次数</span><b>${number(simulation.iterations ?? params.iterations)}</b></div><div class="metric"><span>战斗时长</span><b>${value(simulation.fight_length ?? params.max_time)} 秒</b></div><div class="metric"><span>目标数</span><b>${value(params.desired_targets ?? params.target_count)}</b></div></div>`, true)}
         ${card('角色', `<dl><div><dt>名称</dt><dd>${value(character.name)}</dd></div><div><dt>职业 / 专精</dt><dd>${value(character.class)} / ${value(character.spec)}</dd></div><div><dt>种族</dt><dd>${value(character.race)}</dd></div><div><dt>等级</dt><dd>${value(character.level)}</dd></div></dl>`)}
