@@ -1236,8 +1236,10 @@ class SimcComposer:
                 continue
 
             # APL lines also contain '=', so classify them before generic
-            # key/value parsing (actions=, actions+=, actions.foo=...).
-            if stripped.startswith('actions'):
+            # Action directives own the action-list slot. This includes SimC's
+            # default_actions switch: retaining it beside a frozen APL makes SimC
+            # discard the selected actions and regenerate its built-in rotation.
+            if stripped.startswith('actions') or stripped.startswith('default_actions='):
                 actions_lines.append(stripped)
             # Check for actor definition
             elif '=' in stripped:

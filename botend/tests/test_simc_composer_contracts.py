@@ -360,6 +360,25 @@ class SimcComposerEquipmentSlotResolutionTests(ComposerTestCase):
         self.assertIn('head=,id=271474,ilevel=334', content)
         self.assertEqual(content.splitlines().count('talents=CANONICAL_WCL_BUILD_CODE'), 1)
         self.assertEqual(content.splitlines().count('ptr=1'), 1)
+        self.assertNotIn('default_actions=', content)
+
+    def test_wcl_default_actions_cannot_override_frozen_apl(self):
+        final, manifest, error = self.compose(
+            self.base,
+            player_import_mode='wcl',
+            player_equipment=(
+                'warrior="WCL_Player"\nspec=fury\nlevel=90\nrace=orc\n'
+                'default_actions=1\nhead=,id=271474,ilevel=334'
+            ),
+            talent='FROZEN_BUILD',
+            override_action_list='actions=/bloodthirst\nactions+=/rampage',
+        )
+
+        self.assertIsNone(error)
+        self.assertNotIn('default_actions=', final)
+        self.assertIn('actions=/bloodthirst', final)
+        self.assertIn('actions+=/rampage', final)
+        self.assertEqual(manifest.slots['action_list']['source'], 'user_override')
 
     def test_authoritative_validation_keeps_legacy_wcl_node_lists_without_build_code(self):
         from types import SimpleNamespace
