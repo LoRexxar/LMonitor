@@ -87,8 +87,11 @@ class SimcHistoryPaginationContractTests(unittest.TestCase):
         self.assertNotIn('max-height', cases_css)
         self.assertNotIn('overflow-y', cases_css)
 
-    def test_history_task_action_explicitly_advertises_input_preview(self):
-        self.assertIn('查看详情（含输入）', JS)
+    def test_history_task_actions_use_compact_visible_labels(self):
+        self.assertNotIn('<span>选择对比</span>', JS)
+        self.assertIn('aria-label="选择任务 ${idOf(row.id)} 进行对比"', JS)
+        self.assertIn('<span>查看详情</span>', JS)
+        self.assertNotIn('查看详情（含输入）', JS)
         self.assertIn('data-run-input', JS)
 
     def test_batch_compare_is_rendered_inline(self):

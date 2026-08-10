@@ -182,7 +182,7 @@ class SimcDetailPageFrontendContractTests(TestCase):
         self.assertIn('href="/dashboard/simc/${resource}/${idOf(row.id)}/"', history)
         self.assertIn('target="_blank"', history)
         self.assertIn('rel="noopener noreferrer"', history)
-        self.assertIn('<span>查看详情（含输入）</span></a>', history)
+        self.assertIn('<span>查看详情</span></a>', history)
         self.assertNotIn('data-wb-action="detail"', history)
         self.assertIn('row.runs', task_detail)
         self.assertIn('run.sequence', task_detail)
