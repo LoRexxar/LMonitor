@@ -217,6 +217,7 @@
         .simc-task-list { display: grid; gap: .75rem; }
         .simc-task-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 1rem; padding: 1rem 1.125rem; border: 1px solid #e2e8f0; border-radius: 1rem; background: linear-gradient(135deg, #fff 0%, #f8fafc 100%); box-shadow: 0 1px 2px rgba(15, 23, 42, .04); transition: border-color .18s, box-shadow .18s, transform .18s; }
         .simc-task-card:hover { border-color: #bfdbfe; box-shadow: 0 10px 28px rgba(15, 23, 42, .08); transform: translateY(-1px); }
+        .simc-task-card.is-status-actionable { cursor: pointer; }
         .simc-task-card__main { min-width: 0; }
         .simc-task-card__eyebrow { display: flex; align-items: center; gap: .5rem; margin-bottom: .35rem; }
         .simc-task-type { display: inline-flex; align-items: center; border-radius: 999px; background: #eff6ff; color: #1d4ed8; padding: .22rem .55rem; font-size: .68rem; font-weight: 800; letter-spacing: .025em; }
@@ -436,7 +437,7 @@
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
     <script src="{% static 'dashboard/js/main.js' %}?v=simc_profile_overrides_v1"></script>
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806c" defer></script>
-    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260811_compact_task_actions"></script>
+    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260811_task_card_click"></script>
     <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260808_candidate_profile"></script>
     {% if user.is_staff or user.is_superuser %}
     <link rel="stylesheet" href="{% static 'dashboard/css/mythic_planner.css' %}?v=20260806a">

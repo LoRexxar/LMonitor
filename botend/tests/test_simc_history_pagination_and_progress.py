@@ -94,6 +94,20 @@ class SimcHistoryPaginationContractTests(unittest.TestCase):
         self.assertNotIn('查看详情（含输入）', JS)
         self.assertIn('data-run-input', JS)
 
+    def test_task_card_click_is_status_aware(self):
+        self.assertIn(
+            "const cardAction = status === 2 && row.can_compare === true ? 'compare' : status === 3 ? 'error' : '';",
+            JS,
+        )
+        self.assertIn('data-task-card-action="${cardAction}"', JS)
+        self.assertIn("!event.target.closest('a, button, input, label')", JS)
+        self.assertIn('checkbox.click()', JS)
+        self.assertIn("event.target.closest('#simc-wb-task-list')", JS)
+        self.assertIn("showTaskDetail('tasks', taskId).catch(notify)", JS)
+        detail = JS[JS.index('async function showTaskDetail'):JS.index('async function showTaskComparison')]
+        self.assertIn('任务错误', detail)
+        self.assertIn('safeRunErrorSummary(run)', detail)
+
     def test_batch_compare_is_rendered_inline(self):
         self.assertIn('data-wb-action="compare"', JS)
         self.assertIn("/api/simc-regular-compare/?task_id=", JS)

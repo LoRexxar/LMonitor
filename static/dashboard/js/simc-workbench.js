@@ -225,7 +225,8 @@
             const rerunButton = `<button type="button" data-task-rerun="${idOf(row.id)}" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-redo-alt" aria-hidden="true"></i><span>重跑</span></button>`;
             const pendingActions = status === 0 ? `<button type="button" data-task-status="5" data-task-id="${idOf(row.id)}" title="取消任务" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-ban" aria-hidden="true"></i><span>取消</span></button><button type="button" data-task-status="3" data-task-id="${idOf(row.id)}" title="标记失败" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-exclamation-circle" aria-hidden="true"></i><span>失败</span></button>` : '';
             const resourceMeta = `<div class="simc-task-card__resources" aria-label="任务资源"><span title="APL：${esc(row.apl_name || '—')}"><b>APL</b><em>${esc(row.apl_name || '—')}</em></span><span title="Profile：${esc(row.profile_name || '—')}"><b>Profile</b><em>${esc(row.profile_name || '—')}</em></span></div>`;
-            return `<article class="simc-task-card simc-responsive-row">
+            const cardAction = status === 2 && row.can_compare === true ? 'compare' : status === 3 ? 'error' : '';
+            return `<article class="simc-task-card simc-responsive-row${cardAction ? ' is-status-actionable' : ''}"${cardAction ? ` data-task-card-action="${cardAction}" data-task-card-id="${idOf(row.id)}"` : ''}>
                 ${row.can_compare === true && status === 2 ? `<label class="simc-task-card__select"><input type="checkbox" data-task-compare-id="${idOf(row.id)}" aria-label="选择任务 ${idOf(row.id)} 进行对比" class="accent-violet-600"></label>` : ''}
                 <div class="simc-task-card__main">
                     <div class="simc-task-card__eyebrow"><span class="simc-task-type">${typeLabel}</span><span class="simc-task-id">#${idOf(row.id)}</span></div>
@@ -358,6 +359,10 @@
         const rerunButton = editable ? `<button data-task-rerun="${idOf(row.id)}" class="rounded-lg border px-3 py-2 text-blue-700">编辑后重跑</button>` : '';
         const compareButton = row.report_url ? `<button data-wb-action="compare" data-resource="tasks" data-id="${idOf(row.id || id)}" class="rounded-lg border px-3 py-2 text-purple-700">查看对比结果</button>` : '';
         const runs = Array.isArray(row.runs) ? row.runs : [];
+        const taskErrors = Array.from(new Set(
+            runs.filter(run => run?.status === 'failed').map(run => safeRunErrorSummary(run)).filter(Boolean)
+        )).slice(0, 5);
+        const taskErrorPanel = taskFailed ? `<section class="mt-4 rounded-lg border border-red-200 bg-red-50 p-4"><h5 class="font-semibold text-red-800">任务错误</h5>${taskErrors.length ? taskErrors.map(error => `<p class="mt-2 whitespace-pre-wrap text-sm text-red-700">${esc(error)}</p>`).join('') : '<p class="mt-2 text-sm text-red-700">任务执行失败，未记录可展示的错误摘要。</p>'}</section>` : '';
         const runList = runs.length ? runs.map(run => {
             const errorSummary = String(run.error_summary || '').trim();
             const errorTooltip = errorSummary ? `<span class="simc-error-tooltip"><button type="button" class="simc-error-tooltip__trigger" aria-label="查看 Run #${esc(run.sequence)} 失败详情"><i class="fas fa-exclamation-circle" aria-hidden="true"></i></button><span class="simc-error-tooltip__content" role="tooltip">${esc(errorSummary)}</span></span>` : '';
@@ -372,7 +377,7 @@
         const nativeReportButton = reportArtifact?.can_preview === true ? `<a href="${esc(reportArtifact.preview_url)}" class="rounded border px-3 py-2 text-blue-700">查看原生报告</a>` : '';
         const analysisDocument = report ? `<section class="mt-4 rounded-lg border bg-white p-4"><div class="flex flex-wrap items-center justify-between gap-2"><div><h5 class="font-semibold">结果分析文档</h5><p class="text-xs text-gray-500">只读解析精确 Run 的原始 SimC Artifact；原始文件未做任何改动。</p></div>${nativeReportButton}</div><dl class="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4"><div><span class="text-gray-500">角色</span><div class="font-medium">${esc(character.name || '-')}</div></div><div><span class="text-gray-500">职业 / 专精</span><div class="font-medium">${esc(character.class || '-')} / ${esc(character.spec || '-')}</div></div><div><span class="text-gray-500">种族 / 等级</span><div class="font-medium">${esc(character.race || '-')} / ${esc(character.level || '-')}</div></div><div><span class="text-gray-500">DPS</span><div class="font-medium">${esc(report.dps ?? '-')}</div></div><div><span class="text-gray-500">战斗模型</span><div>${esc(simulation.fight_style || '-')}</div></div><div><span class="text-gray-500">战斗时长</span><div>${esc(simulation.fight_length || '-')}</div></div><div><span class="text-gray-500">迭代次数</span><div>${esc(simulation.iterations || '-')}</div></div><div><span class="text-gray-500">时间戳</span><div>${esc(simulation.timestamp || '-')}</div></div></dl><div class="mt-4 overflow-x-auto"><h6 class="mb-2 text-sm font-semibold">主要技能</h6><table class="w-full min-w-[420px] text-sm"><thead><tr class="text-left text-gray-500"><th class="p-2">技能</th><th class="p-2 text-right">DPS</th><th class="p-2 text-right">占比</th></tr></thead><tbody>${abilityRows}</tbody></table></div></section>` : `<section class="mt-4 rounded-lg border p-4 text-sm text-gray-500">${taskFailed && !reportArtifact ? '本次失败未生成原生报告。SimC 在初始化阶段终止时不会产出 HTML Artifact。' : '暂无可用的结果分析文档；原生 Artifact 仍可在结果产物中查看。'}</section>`;
         const comparisonSections = row.mode === 'comparison' || row.mode === 'attribute_sweep' ? `<section class="mt-4"><h5 class="font-semibold">DPS 排名 · 距最佳 · 候选 Run</h5>${renderTaskRanking(row.ranking)}</section><section class="mt-4"><h5 class="font-semibold">属性分析</h5>${renderAttributeReport(row.attribute_report)}</section>` : '';
-        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2"><h4 class="font-bold">任务详情：${esc(row.name || `#${id}`)}</h4><div>${compareButton}${rerunButton}<button class="ml-2" data-wb-close-detail>关闭</button></div></div><dl class="mt-3 grid gap-2 text-sm md:grid-cols-3"><div>状态：${esc(row.status_label)}</div><div>DPS：${esc(row.result_summary?.dps ?? '-')}</div><div>更新时间：${esc(row.updated_at)}</div></dl>${analysisDocument}${editable ? `<div class="mt-4 rounded-lg border bg-gray-50 p-3 text-sm"><div>Profile #${esc(row.profile_id)} · v${esc(row.profile_version_id)}</div><div>模板 #${esc(row.template_id)} · v${esc(row.template_version_id)}</div><div>APL #${esc(row.apl_id)} · v${esc(row.apl_version_id)}</div><pre class="mt-2 overflow-auto text-xs">${esc(JSON.stringify(params, null, 2))}</pre></div>` : ''}${comparisonSections}<section class="mt-4"><h5 class="font-semibold">执行轮次</h5>${runList}</section><section class="mt-4"><h5 class="font-semibold">结果产物</h5>${artifactList}</section>`;
+        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2"><h4 class="font-bold">任务详情：${esc(row.name || `#${id}`)}</h4><div>${compareButton}${rerunButton}<button class="ml-2" data-wb-close-detail>关闭</button></div></div><dl class="mt-3 grid gap-2 text-sm md:grid-cols-3"><div>状态：${esc(row.status_label)}</div><div>DPS：${esc(row.result_summary?.dps ?? '-')}</div><div>更新时间：${esc(row.updated_at)}</div></dl>${taskErrorPanel}${analysisDocument}${editable ? `<div class="mt-4 rounded-lg border bg-gray-50 p-3 text-sm"><div>Profile #${esc(row.profile_id)} · v${esc(row.profile_version_id)}</div><div>模板 #${esc(row.template_id)} · v${esc(row.template_version_id)}</div><div>APL #${esc(row.apl_id)} · v${esc(row.apl_version_id)}</div><pre class="mt-2 overflow-auto text-xs">${esc(JSON.stringify(params, null, 2))}</pre></div>` : ''}${comparisonSections}<section class="mt-4"><h5 class="font-semibold">执行轮次</h5>${runList}</section><section class="mt-4"><h5 class="font-semibold">结果产物</h5>${artifactList}</section>`;
     }
     async function showTaskComparison(id) {
         window.openSimcWorkbenchDialog('task-comparison', null);
@@ -1365,7 +1370,7 @@
                 return;
             }
             if (event.target.matches('[data-task-compare-id]')) {
-                const host = event.target.closest('[data-task-compare-toolbar]')?.parentElement;
+                const host = event.target.closest('#simc-wb-task-list');
                 const count = host?.querySelectorAll('[data-task-compare-id]:checked').length || 0;
                 const button = host?.querySelector('[data-task-compare-submit]');
                 if (button) {
@@ -1410,6 +1415,18 @@
                 benchmarkToggle.setAttribute('aria-expanded', expanded ? 'false' : 'true');
                 benchmarkToggle.textContent = expanded ? '展开子任务进度' : '收起子任务进度';
                 if (cases) cases.hidden = expanded;
+                return;
+            }
+            const taskCardAction = event.target.closest('[data-task-card-action]');
+            if (taskCardAction && !event.target.closest('a, button, input, label')) {
+                const taskId = idOf(taskCardAction.dataset.taskCardId);
+                if (!taskId) return;
+                if (taskCardAction.dataset.taskCardAction === 'compare') {
+                    const checkbox = taskCardAction.querySelector('[data-task-compare-id]');
+                    if (checkbox) checkbox.click();
+                } else if (taskCardAction.dataset.taskCardAction === 'error') {
+                    showTaskDetail('tasks', taskId).catch(notify);
+                }
                 return;
             }
             const action = event.target.closest('[data-wb-action]');
