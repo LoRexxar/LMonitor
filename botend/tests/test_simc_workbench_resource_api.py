@@ -230,6 +230,74 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
         self.assertNotIn('/private/', payload['runs'][0]['error_summary'])
         self.assertNotIn('command=', payload['runs'][0]['error_summary'])
 
+    def test_run_input_preview_rebuilds_with_authoritative_composer_and_verifies_hash(self):
+        task = SimcTask.objects.create(
+            user_id=self.user.id, name='Auditable input', simc_profile_id=0,
+            backend=self.backend, current_status=3, task_type=1, mode='normal',
+        )
+        content = 'warrior="Audit"\nactions=/bloodthirst\n'
+        digest = __import__('hashlib').sha256(content.encode('utf-8')).hexdigest()
+        run = SimulationRun.objects.create(
+            task=task, sequence=1, candidate_key='normal', status='failed',
+            input_hash=digest,
+        )
+
+        with patch(
+            'botend.services.simc_run_control.build_frozen_run_input',
+            return_value=(content, {'output_filename': 'hidden.html'}),
+        ) as build_input:
+            response = self.client.get(
+                f'/api/simc-workbench/tasks/{task.id}/runs/{run.id}/input/'
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        payload = response.json()['data']
+        self.assertEqual(payload['task_id'], task.id)
+        self.assertEqual(payload['run_id'], run.id)
+        self.assertEqual(payload['content'], content)
+        self.assertEqual(payload['input_hash'], digest)
+        self.assertEqual(payload['rebuilt_hash'], digest)
+        self.assertTrue(payload['verified'])
+        self.assertNotIn('output_filename', json.dumps(payload))
+        build_input.assert_called_once_with(task, run)
+
+    def test_run_input_preview_is_owner_scoped(self):
+        foreign_task = SimcTask.objects.create(
+            user_id=self.other.id, name='Foreign input', simc_profile_id=0,
+            backend=self.backend, current_status=3, task_type=1, mode='normal',
+        )
+        foreign_run = SimulationRun.objects.create(
+            task=foreign_task, sequence=1, status='failed', input_hash='a' * 64,
+        )
+
+        response = self.client.get(
+            f'/api/simc-workbench/tasks/{foreign_task.id}/runs/{foreign_run.id}/input/'
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_run_input_preview_rejects_rebuild_that_differs_from_executed_hash(self):
+        task = SimcTask.objects.create(
+            user_id=self.user.id, name='Changed input', simc_profile_id=0,
+            backend=self.backend, current_status=3, task_type=1, mode='normal',
+        )
+        run = SimulationRun.objects.create(
+            task=task, sequence=1, status='failed', input_hash='b' * 64,
+        )
+
+        with patch(
+            'botend.services.simc_run_control.build_frozen_run_input',
+            return_value=('warrior="Different"\n', {}),
+        ):
+            response = self.client.get(
+                f'/api/simc-workbench/tasks/{task.id}/runs/{run.id}/input/'
+            )
+
+        self.assertEqual(response.status_code, 409)
+        payload = response.json()
+        self.assertFalse(payload['success'])
+        self.assertNotIn('Different', json.dumps(payload))
+
     def test_artifact_list_is_paginated_filtered_and_owner_isolated(self):
         owner_task = SimcTask.objects.create(
             user_id=self.user.id, name='Owner Task', simc_profile_id=0)

@@ -16,6 +16,29 @@
   const artifactType = type => ({html_report: 'HTML 原生报告'}[String(type)] || value(type));
   const artifactRows = rows => (Array.isArray(rows) ? rows : []).map(item => `<tr><td title="${value(item.file_name)}">${value(item.file_name || item.artifact_type)}</td><td>${artifactType(item.artifact_type)}</td><td class="right">${humanSize(item.file_size)}</td><td class="right">${item.can_preview === true ? `<a href="${esc(item.preview_url)}">查看原生报告</a>` : '不可预览'}</td></tr>`).join('');
 
+  async function showRunInput(taskId, runId) {
+    const dialog = document.getElementById('simc-input-dialog');
+    const status = dialog?.querySelector('[data-run-input-status]');
+    const hashes = dialog?.querySelector('[data-run-input-hashes]');
+    const code = dialog?.querySelector('[data-run-input-content]');
+    if (!dialog || !status || !hashes || !code) return;
+    status.textContent = '正在重建最终 SimC 输入…';
+    hashes.textContent = '';
+    code.textContent = '';
+    dialog.showModal();
+    try {
+      const response = await fetch(`/api/simc-workbench/tasks/${taskId}/runs/${runId}/input/`, {headers: {'Accept': 'application/json'}});
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || '执行输入加载失败');
+      const payload = result.data || {};
+      status.textContent = `Run #${payload.sequence} · 重建哈希与执行哈希一致`;
+      hashes.textContent = `执行哈希 ${payload.input_hash}\n重建哈希 ${payload.rebuilt_hash}`;
+      code.textContent = payload['content'] || '';
+    } catch (error) {
+      status.textContent = error.message || '执行输入加载失败';
+    }
+  }
+
   function renderTask(row) {
     const report = row.report_summary || {};
     const character = report.character || {};
@@ -49,7 +72,7 @@
     }).join('');
     const constantBuffRows = constantBuffs.map(item => { const details = item.details || {}; return `<tr><td class="ability-name">${value(item.name)}${item.spell_id ? `<small>#${value(item.spell_id)}</small>` : ''}</td><td class="right">${value(details.max_stacks)}</td><td class="right">${value(details.base_duration)}</td><td class="right">${value(details.base_cooldown)}</td><td>${details.stat ? `${value(details.stat)} ${value(details.amount, '')}` : '-'}</td></tr>`; }).join('');
     const sequenceRows = sampleSequence.map(item => `<tr><td class="right">${value(item.time)}</td><td class="right">${value(item.marker)}</td><td class="ability-name">${value(item.action)}${item.action_list ? `<small>${value(item.action_list)}</small>` : ''}</td><td>${value(item.target)}</td><td>${value(item.resources)}</td><td class="sequence-buffs">${value(item.buffs)}</td></tr>`).join('');
-    const runRows = runs.map(run => `<tr><td>#${value(run.sequence)}</td><td><span class="status-dot ${statusKey(run.status)}"></span>${runStatus(run.status)}</td><td class="right">${number(run.result_summary?.dps)}</td><td>${value(run.started_at)}</td><td>${value(run.completed_at)}</td></tr>`).join('');
+    const runRows = runs.map(run => `<tr><td>#${value(run.sequence)}</td><td><span class="status-dot ${statusKey(run.status)}"></span>${runStatus(run.status)}</td><td class="right">${number(run.result_summary?.dps)}</td><td>${value(run.started_at)}</td><td>${value(run.completed_at)}</td><td class="right"><button type="button" class="run-input-button" data-run-input data-task-id="${objectId}" data-run-id="${Number(run.id)}">查看 SimC 输入</button></td></tr>`).join('');
     const talentValue = talents.string ? `<code class="talent-code">${value(talents.string)}</code>` : '报告未解析到天赋字符串';
     const talentCandidate = row.mode_summary?.talent_candidate || null;
     const talentCandidateValue = talentCandidate?.talent
@@ -69,7 +92,7 @@
         ${card('技能施放序列', `<p class="muted">来自 SimC Sample Sequence Table，按一次代表性战斗逐步展示时间、动作列表、目标、资源和当时激活的 Buff。</p><div class="table-scroll sequence-scroll"><table class="dense-table sequence-table"><thead><tr><th class="right">时间</th><th class="right">序号</th><th>技能 / 动作列表</th><th>目标</th><th>资源</th><th>激活 Buff</th></tr></thead><tbody>${sequenceRows || '<tr><td colspan="6" class="empty">报告中未包含技能施放序列</td></tr>'}</tbody></table></div>`, true)}
         ${card('动态 Buff / Proc', `<p class="muted">展示全部动态 Buff 的启动、刷新、总触发、触发间隔、持续时间、覆盖率、收益覆盖和各层数覆盖。</p><div class="table-scroll"><table class="dense-table"><thead><tr><th>Buff</th><th class="right">启动</th><th class="right">刷新</th><th class="right">总触发</th><th class="right">触发间隔</th><th class="right">持续</th><th class="right">覆盖率</th><th class="right">收益覆盖</th><th class="right">溢出</th><th class="right">到期</th><th class="right">触发率</th><th>属性效果</th></tr></thead><tbody>${dynamicBuffRows || '<tr><td colspan="12" class="empty">暂无动态 Buff</td></tr>'}</tbody></table></div>`, true)}
         ${card('常驻 Buff', `<div class="table-scroll"><table class="dense-table"><thead><tr><th>Buff</th><th class="right">最大层数</th><th class="right">基础持续</th><th class="right">基础冷却</th><th>属性效果</th></tr></thead><tbody>${constantBuffRows || '<tr><td colspan="5" class="empty">暂无常驻 Buff</td></tr>'}</tbody></table></div>`, true)}
-        ${card('执行轮次', `<div class="table-scroll"><table><thead><tr><th>轮次</th><th>状态</th><th class="right">DPS</th><th>开始</th><th>完成</th></tr></thead><tbody>${runRows || '<tr><td colspan="5" class="empty">暂无执行轮次</td></tr>'}</tbody></table></div><details><summary>技术追溯说明</summary>失败状态旁的提示图标展示经过清洗的 SimC 诊断；命令、路径、哈希及原始 stderr 均不在页面展示。</details>`, true)}
+        ${card('执行轮次', `<div class="table-scroll"><table><thead><tr><th>轮次</th><th>状态</th><th class="right">DPS</th><th>开始</th><th>完成</th><th class="right">输入</th></tr></thead><tbody>${runRows || '<tr><td colspan="6" class="empty">暂无执行轮次</td></tr>'}</tbody></table></div><details><summary>技术追溯说明</summary>SimC 输入由任务冻结资源通过执行时的同一组装函数重建，并以执行哈希验证；命令、路径及原始 stderr 不在页面展示。</details>`, true)}
         ${card('Artifact / 原生报告', `<p class="muted">${taskFailed && !nativeArtifact ? '本次失败未生成原生报告。SimC 在初始化阶段终止时不会产出 HTML Artifact。' : '原生报告继续通过独立鉴权页面读取。'}</p><div class="table-scroll"><table><thead><tr><th>文件</th><th>类型</th><th class="right">大小</th><th class="right">操作</th></tr></thead><tbody>${artifactRows(artifacts) || '<tr><td colspan="4" class="empty">暂无 Artifact</td></tr>'}</tbody></table></div>`, true)}
         ${card('引用版本', `<dl><div><dt>Profile</dt><dd>${value(row.profile_name, '未命名')} · #${value(row.profile_id)} · v${value(row.profile_version_id)}</dd></div><div><dt>基础模板</dt><dd>#${value(row.template_id)} · v${value(row.template_version_id)}</dd></div><div><dt>APL</dt><dd>${value(row.apl_name, '未命名')} · #${value(row.apl_id)} · v${value(row.apl_version_id)}</dd></div><div><dt>来源任务</dt><dd>${row.source_task_id ? `<a href="/dashboard/simc/tasks/${Number(row.source_task_id)}/">#${Number(row.source_task_id)}</a>` : '-'}</dd></div></dl><details><summary>为什么显示版本号？</summary>名称来自任务创建时的冻结资源版本；版本引用用于复现，不展示配置原文或服务器路径。</details>`, true)}
       </div>`;
@@ -174,9 +197,14 @@
       ${card('候选 Runs', `<div class="table-scroll"><table><thead><tr><th>候选</th><th>状态</th><th class="right">DPS</th><th>完成时间</th></tr></thead><tbody>${runRows || '<tr><td colspan="4" class="empty">暂无 Run</td></tr>'}</tbody></table></div>`, true)}
     </div>`;
   }
-
   fetch(`/api/simc-workbench/${kind}/${objectId}/`, {headers: {'Accept': 'application/json'}})
     .then(async response => { const payload = await response.json(); if (!response.ok || !payload.success) throw new Error(payload.error || '详情加载失败'); return payload.data || {}; })
     .then(renderTask)
     .catch(() => { root.innerHTML = '<div class="error"><b>详情暂时无法加载</b><p>请返回工作台稍后重试。为避免泄露内部信息，此处不展示原始错误。</p></div>'; });
+
+  document.addEventListener('click', event => {
+    const inputButton = event.target.closest('[data-run-input]');
+    if (inputButton) showRunInput(Number(inputButton.dataset.taskId), Number(inputButton.dataset.runId));
+    if (event.target.closest('[data-run-input-close]')) document.getElementById('simc-input-dialog')?.close();
+  });
 })();

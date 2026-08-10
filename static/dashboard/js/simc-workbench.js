@@ -322,6 +322,17 @@
         return summary || '执行失败（详细错误已隐藏）';
     }
 
+    async function showRunInput(taskId, runId) {
+        const host = document.getElementById('simc-dialog-body');
+        if (!host) return;
+        renderState(host, 'loading', '正在重建最终 SimC 输入…');
+        const data = await json(`/api/simc-workbench/tasks/${taskId}/runs/${runId}/input/`);
+        const payload = data.data || {};
+        host.innerHTML = `<div class="flex flex-wrap items-start justify-between gap-3"><div><h4 class="font-bold">Run #${esc(payload.sequence)} · 最终 SimC 输入</h4><p class="mt-1 text-xs text-emerald-700">重建哈希与执行哈希一致</p></div><button type="button" data-wb-close-detail class="simc-touch-action rounded-lg border px-3 py-2">返回</button></div><dl class="mt-3 grid gap-2 text-xs md:grid-cols-2"><div>执行哈希：<code class="break-all">${esc(payload.input_hash)}</code></div><div>重建哈希：<code class="break-all">${esc(payload.rebuilt_hash)}</code></div></dl><pre class="mt-3 max-h-[70vh] overflow-auto rounded-lg border bg-slate-950 p-4 text-xs leading-5 text-slate-100"><code data-run-input-content></code></pre>`;
+        const code = host.querySelector('[data-run-input-content]');
+        if (code) code.textContent = payload['content'] || '';
+    }
+
     async function showTaskDetail(resource, id) {
         resource = 'tasks';
         window.openSimcWorkbenchDialog('task-detail', null);
@@ -350,7 +361,7 @@
         const runList = runs.length ? runs.map(run => {
             const errorSummary = String(run.error_summary || '').trim();
             const errorTooltip = errorSummary ? `<span class="simc-error-tooltip"><button type="button" class="simc-error-tooltip__trigger" aria-label="查看 Run #${esc(run.sequence)} 失败详情"><i class="fas fa-exclamation-circle" aria-hidden="true"></i></button><span class="simc-error-tooltip__content" role="tooltip">${esc(errorSummary)}</span></span>` : '';
-            return `<article class="mt-2 rounded border p-3 text-xs"><div class="font-medium">Run #${esc(run.sequence)} · ${esc(run.status)} · DPS ${esc(run.result_summary?.dps ?? '-')} ${errorTooltip}</div><dl class="mt-2 grid gap-1 md:grid-cols-2"><div>input_hash：<code class="break-all">${esc(run.input_hash || '-')}</code></div><div>开始：${esc(run.started_at || '-')}</div><div>完成：${esc(run.completed_at || '-')}</div></dl></article>`;
+            return `<article class="mt-2 rounded border p-3 text-xs"><div class="flex flex-wrap items-center justify-between gap-2"><div class="font-medium">Run #${esc(run.sequence)} · ${esc(run.status)} · DPS ${esc(run.result_summary?.dps ?? '-')} ${errorTooltip}</div><button type="button" data-run-input data-task-id="${idOf(row.id)}" data-run-id="${idOf(run.id)}" class="simc-touch-action rounded border px-2 py-1 text-blue-700">查看 SimC 输入</button></div><dl class="mt-2 grid gap-1 md:grid-cols-2"><div>input_hash：<code class="break-all">${esc(run.input_hash || '-')}</code></div><div>开始：${esc(run.started_at || '-')}</div><div>完成：${esc(run.completed_at || '-')}</div></dl></article>`;
         }).join('') : '<p class="mt-2 text-sm text-gray-500">暂无执行轮次</p>';
         const report = row.report_summary || null;
         const reportArtifact = artifacts.find(artifact => idOf(artifact.id) === idOf(row.report_artifact_id));
@@ -1366,6 +1377,19 @@
             const rerunAction = event.target.closest('[data-task-rerun]');
             if (rerunAction) {
                 renderTaskRerunForm(rerunAction.dataset.taskRerun);
+                return;
+            }
+            const runInputAction = event.target.closest('[data-run-input]');
+            if (runInputAction) {
+                const taskId = idOf(runInputAction.dataset.taskId);
+                const runId = idOf(runInputAction.dataset.runId);
+                if (taskId && runId) {
+                    pushDialogState();
+                    showRunInput(taskId, runId).catch(error => {
+                        restoreDialogState();
+                        notify(error);
+                    });
+                }
                 return;
             }
             const taskStatusAction = event.target.closest('[data-task-status]');

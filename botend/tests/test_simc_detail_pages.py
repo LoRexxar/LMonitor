@@ -123,6 +123,23 @@ class SimcDetailPageFrontendContractTests(TestCase):
         self.assertNotIn('request_manifest', script)
         self.assertNotIn('.content', script)
 
+    def test_run_input_preview_is_available_from_workbench_and_dedicated_detail(self):
+        template = (ROOT / 'templates/dashboard/simc_detail.html').read_text(encoding='utf-8')
+        detail = (ROOT / 'static/dashboard/js/simc-detail.js').read_text(encoding='utf-8')
+        workbench = (ROOT / 'static/dashboard/js/simc-workbench.js').read_text(encoding='utf-8')
+
+        endpoint = '/api/simc-workbench/tasks/${taskId}/runs/${runId}/input/'
+        self.assertIn(endpoint, workbench)
+        self.assertIn(endpoint, detail)
+        self.assertIn('data-run-input', workbench)
+        self.assertIn('data-run-input', detail)
+        self.assertIn("code.textContent = payload['content']", workbench)
+        self.assertIn("code.textContent = payload['content']", detail)
+        self.assertIn('重建哈希与执行哈希一致', workbench)
+        self.assertIn('重建哈希与执行哈希一致', detail)
+        self.assertIn('id="simc-input-dialog"', template)
+        self.assertIn('@media (max-width: 720px)', template)
+
     def test_history_results_open_in_new_browser_page_and_task_detail_lists_runs(self):
         workbench = (ROOT / 'static/dashboard/js/simc-workbench.js').read_text(encoding='utf-8')
         history_start = workbench.index('async function loadTasks')

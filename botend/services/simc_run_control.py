@@ -108,7 +108,7 @@ def build_frozen_run_input(task, run, output_filename=None):
     composer_spec, composer_class = _composer_identity(
         resolved.simulation_params.get('spec') or profile_spec
     )
-    filename = output_filename or _output_filename(run)
+    filename = output_filename or task.result_file or f'{task.id}.html'
     request = {
         'spec': composer_spec,
         '_trusted_class_name': composer_class,
@@ -143,7 +143,9 @@ def build_frozen_run_input(task, run, output_filename=None):
     code, composition_manifest, error = SimcComposer(task.user_id).compose(request)
     if error or code is None:
         raise ValueError(error or 'SimC composition failed')
-    code = SimcMonitor.ensure_result_file_directive(code, filename)
+    # The local Worker hashes the Composer output before any output-directive
+    # normalization. Return that exact byte sequence so historical input_hash
+    # values remain verifiable.
     serializable = asdict(composition_manifest) if is_dataclass(composition_manifest) else (composition_manifest or {})
     talent_candidate = None
     if isinstance(run.candidate_params, dict) and isinstance(run.candidate_params.get('talent_candidate'), dict):
