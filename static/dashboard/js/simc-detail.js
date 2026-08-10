@@ -53,7 +53,7 @@
       ? `<dl><div><dt>方案名称</dt><dd>${value(talentCandidate.name || row.candidate_label)}</dd></div><div><dt>完整天赋树字符串</dt><dd><code class="talent-code">${value(talentCandidate.talent)}</code></dd></div></dl>`
       : '<p class="muted">当前任务不是命名天赋候选。</p>';
     const bonusValue = setBonuses.length ? `<div class="bonus-list">${setBonuses.map(item => `<span class="bonus-tag">${value(item)}</span>`).join('')}</div>` : '报告未解析到套装效果';
-    root.innerHTML = `<section class="hero"><span class="pill">任务${statusClass(row)}</span><h1>${value(row.name, `任务 #${objectId}`)}</h1><div class="hero-meta">${characterPills}<span class="pill">更新 ${value(row.updated_at)}</span></div>${nativeReportAction}</section>
+    root.innerHTML = `<section class="hero"><span class="pill">任务${statusClass(row)}</span><div class="hero-primary-column"><h1>${value(row.name, `任务 #${objectId}`)}</h1><div class="hero-resource-stack" aria-label="模拟资源"><div class="hero-resource-line"><span>APL</span><b>${value(row.apl_name, '未命名')}</b></div><div class="hero-resource-line"><span>Profile</span><b>${value(row.profile_name, '未命名')}</b></div></div></div><div class="hero-meta">${characterPills}<span class="pill">更新 ${value(row.updated_at)}</span></div>${nativeReportAction}</section>
       ${hasStructuredReport ? '' : '<div class="analysis-warning"><b>模拟已成功，结构化分析信息不完整</b><span>当前仅展示已确认的 DPS、参数、执行轮次和原生报告；缺失字段不会被猜测填充。</span></div>'}
       ${renderTaskComparison(row)}
       <div class="grid">
