@@ -185,6 +185,14 @@ class SimcHistoryBackendPaginationTests(TestCase):
         self.assertEqual(row['profile_name'], '冻结 Profile：12.1 狂怒 Raid 单体配置')
         self.assertEqual(row['battle_scenario'], 'Patchwerk · 3目标')
 
+        detail_request = self.factory.get(f'/api/simc-workbench/tasks/{task.id}/')
+        detail_request.user = self.user
+        detail = json.loads(
+            self.view.get(detail_request, resource='tasks', object_id=task.id).content
+        )['data']
+        self.assertEqual(detail['apl_name'], '冻结 APL：12.1 Fury优化APL-LoRexxar')
+        self.assertEqual(detail['profile_name'], '冻结 Profile：12.1 狂怒 Raid 单体配置')
+
     def test_history_groups_benchmark_tasks_as_one_expandable_execution(self):
         panel = SimcBenchmarkPanel.objects.create(name='基准', slug='history-benchmark', created_by_id=self.user.id)
         execution = SimcBenchmarkExecution.objects.create(panel=panel, config_snapshot={}, config_hash='a' * 64)

@@ -6343,6 +6343,18 @@ class SimcWorkbenchAPIView(View):
                     'profile_version_id': task.profile_version_id,
                     'template_version_id': task.template_version_id,
                     'apl_version_id': task.apl_version_id,
+                    'apl_name': (
+                        ((task.apl_version.payload or {}).get('name')
+                         if task.apl_version and isinstance(task.apl_version.payload, dict) else '')
+                        or (task.apl.name if task.apl else '')
+                        or ''
+                    ),
+                    'profile_name': (
+                        ((task.profile_version.payload or {}).get('name')
+                         if task.profile_version and isinstance(task.profile_version.payload, dict) else '')
+                        or (task.profile.name if task.profile else '')
+                        or ''
+                    ),
                     'simulation_params': task.simulation_params or {},
                     'mode_summary': self._safe_mode_summary(task.mode_params),
                     'source_task_id': task.source_task_id,

@@ -627,6 +627,23 @@ class SimcComposerIdentitySlotResolutionTests(ComposerTestCase):
 
 
 class SimcComposerAplSlotResolutionTests(ComposerTestCase):
+    def test_frozen_apl_overrides_actions_embedded_in_profile_export(self):
+        base = self.template()
+        final, manifest, error = self.compose(
+            base,
+            player_equipment=(
+                'warrior="Player"\n'
+                'spec=fury\n'
+                'head=,id=212048\n'
+                'actions=/old_profile_action'
+            ),
+            override_action_list='actions=/selected_frozen_apl',
+        )
+        self.assertIsNone(error)
+        self.assertIn('actions=/selected_frozen_apl', final)
+        self.assertNotIn('actions=/old_profile_action', final)
+        self.assertEqual(manifest.slots['action_list']['source'], 'user_override')
+
     def test_explicit_empty_apl_does_not_fall_back(self):
         base = self.template()
         selected = self.apl("actions=/rampage")

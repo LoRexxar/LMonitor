@@ -46,6 +46,13 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertIn("task_ids=${ids.join(',')}", WB)
         self.assertIn("const taskIds = getUrlParameter('task_ids') || ''", (ROOT / "templates/simc_regular_compare.html").read_text(encoding="utf-8"))
 
+    def test_task_detail_displays_frozen_resource_names_with_version_trace(self):
+        reference_card = DETAIL[DETAIL.index("card('引用版本'"):DETAIL.index("function renderTaskComparison")]
+        self.assertIn('row.profile_name', reference_card)
+        self.assertIn('row.apl_name', reference_card)
+        self.assertIn('row.profile_version_id', reference_card)
+        self.assertIn('row.apl_version_id', reference_card)
+
     def test_home_creation_success_returns_to_unified_history(self):
         creation = SIM[SIM.index("async function startSelectedSimcCandidateComparisons"):SIM.index("function bindSimcWorkbenchSimulationControls")]
         self.assertGreaterEqual(creation.count("switchSimcWorkbenchL1Tab('history')"), 3)

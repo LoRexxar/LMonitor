@@ -694,6 +694,24 @@ class SimcComposer:
         override_apl = request_data.get('override_action_list')
         selected_apl_id = request_data.get('selected_apl_id')
 
+        # A task's frozen APL is authoritative, including an explicit empty value.
+        # Resolve it before parsing embedded actions from an imported Profile.
+        if override_apl is not None:
+            if override_apl == '':
+                content_hash = hashlib.sha256(b'').hexdigest()
+                return SlotResolution(
+                    slot_name='action_list',
+                    value=SlotValue(content='', source='user_explicit_empty', content_hash=content_hash),
+                    status='explicit_empty'
+                )
+            if override_apl:
+                content_hash = hashlib.sha256(override_apl.encode('utf-8')).hexdigest()
+                return SlotResolution(
+                    slot_name='action_list',
+                    value=SlotValue(content=override_apl, source='user_override', content_hash=content_hash),
+                    status='resolved'
+                )
+
         # For addon/manual export, check parsed actions
         if player_import_mode in ('addon_full_export', 'manual_equipment'):
             player_equipment = request_data.get('player_equipment', '').strip()
@@ -710,24 +728,6 @@ class SimcComposer:
                         ),
                         status='resolved'
                     )
-
-        # Explicit empty APL - maintain distinction from missing
-        if override_apl is not None and override_apl == '':
-            content_hash = hashlib.sha256(b'').hexdigest()
-            return SlotResolution(
-                slot_name='action_list',
-                value=SlotValue(content='', source='user_explicit_empty', content_hash=content_hash),
-                status='explicit_empty'  # Different from 'empty' (missing)
-            )
-
-        # User-provided override
-        if override_apl:
-            content_hash = hashlib.sha256(override_apl.encode('utf-8')).hexdigest()
-            return SlotResolution(
-                slot_name='action_list',
-                value=SlotValue(content=override_apl, source='user_override', content_hash=content_hash),
-                status='resolved'
-            )
 
         # Selected APL by ID - must check user_id isolation
         if selected_apl_id:
