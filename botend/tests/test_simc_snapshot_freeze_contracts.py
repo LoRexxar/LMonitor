@@ -57,12 +57,13 @@ class UpdateSimcBinarySyncContractTests(TestCase):
         command = UpdateSimcBinaryCommand()
         command.simc_source_dir = '/srv/simc'
         command.stdout = SimpleNamespace(write=lambda x: None)
-        command.row = SimpleNamespace(save=lambda **kwargs: None)
+        command.row = SimpleNamespace(current_version='a' * 40, save=lambda **kwargs: None)
         git_hash = 'a' * 40
 
         with patch.object(command, '_get_git_hash', return_value=git_hash), \
              patch.object(command, '_set_status'), \
              patch.object(command, '_sync_default_template') as sync_template, \
+             patch.object(command, '_publish_system_apl_corpus') as publish_corpus, \
              patch.object(command, '_export_runtime_manifest', return_value='/tmp/test-runtime-manifest.json'), \
              patch('botend.management.commands.update_simc_binary.call_command') as call_cmd:
             command._sync_generated_inputs(wow_build_override='12.0.1.70000')
@@ -77,6 +78,7 @@ class UpdateSimcBinarySyncContractTests(TestCase):
         self.assertEqual(apl_calls[0][1]['sync_version'], git_hash)
         symbol_calls = [call for call in call_cmd.call_args_list if call[0][0] == 'sync_simc_apl_symbols']
         self.assertEqual(symbol_calls[0][1]['runtime_manifest'], '/tmp/test-runtime-manifest.json')
+        publish_corpus.assert_called_once_with(git_hash, '12.0.1.70000', '/tmp/simc', git_hash)
 
 
 @override_settings(SIMC_APL_CURRENT_IDENTITY=('a' * 40, '12.0.1.70000'))

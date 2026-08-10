@@ -169,7 +169,7 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
 
     def test_batch_detail_has_only_safe_owned_member_summaries(self):
         task = SimcTask.objects.create(
-            user_id=self.user.id, name='Safe Task', simc_profile_id=0,
+            user_id=self.user.id, name='Safe Task', simc_profile_id=0, backend=self.backend,
             current_status=3, task_type=1, mode='comparison',
             error_detail='SECRET ERROR', ext='{"diagnostic":"SECRET EXT"}',
             result_file='/secret/server/path.html')
@@ -182,7 +182,7 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
             error_detail='SECRET TRACEBACK', result_summary={'dps': 123, 'raw': 'SECRET RAW'},
         )
         foreign_task = SimcTask.objects.create(
-            user_id=self.other.id, name='Foreign Task', simc_profile_id=0, mode='comparison')
+            user_id=self.other.id, name='Foreign Task', simc_profile_id=0, backend=self.backend, mode='comparison')
         SimulationRun.objects.create(
             task=foreign_task, sequence=1, candidate_label='Foreign Member', status='completed',
             result_summary={'dps': 999999},
@@ -230,16 +230,15 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
         self.assertNotIn('/private/', payload['runs'][0]['error_summary'])
         self.assertNotIn('command=', payload['runs'][0]['error_summary'])
 
-    def test_run_input_preview_rebuilds_with_authoritative_composer_and_verifies_hash(self):
+    def test_run_input_preview_composes_readable_input_from_current_task_configuration(self):
         task = SimcTask.objects.create(
             user_id=self.user.id, name='Auditable input', simc_profile_id=0,
             backend=self.backend, current_status=3, task_type=1, mode='normal',
         )
         content = 'warrior="Audit"\nactions=/bloodthirst\n'
-        digest = __import__('hashlib').sha256(content.encode('utf-8')).hexdigest()
         run = SimulationRun.objects.create(
             task=task, sequence=1, candidate_key='normal', status='failed',
-            input_hash=digest,
+            input_hash='a' * 64,
         )
 
         with patch(
@@ -255,10 +254,9 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
         self.assertEqual(payload['task_id'], task.id)
         self.assertEqual(payload['run_id'], run.id)
         self.assertEqual(payload['content'], content)
-        self.assertEqual(payload['input_hash'], digest)
-        self.assertEqual(payload['rebuilt_hash'], digest)
-        self.assertTrue(payload['verified'])
-        self.assertNotIn('output_filename', json.dumps(payload))
+        self.assertNotIn('input_hash', payload)
+        self.assertNotIn('rebuilt_hash', payload)
+        self.assertNotIn('verified', payload)
         build_input.assert_called_once_with(task, run)
 
     def test_run_input_preview_is_owner_scoped(self):
@@ -276,7 +274,7 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
 
         self.assertEqual(response.status_code, 404)
 
-    def test_run_input_preview_rejects_rebuild_that_differs_from_executed_hash(self):
+    def test_run_input_preview_does_not_compare_against_historical_execution_hash(self):
         task = SimcTask.objects.create(
             user_id=self.user.id, name='Changed input', simc_profile_id=0,
             backend=self.backend, current_status=3, task_type=1, mode='normal',
@@ -293,16 +291,18 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
                 f'/api/simc-workbench/tasks/{task.id}/runs/{run.id}/input/'
             )
 
-        self.assertEqual(response.status_code, 409)
-        payload = response.json()
-        self.assertFalse(payload['success'])
-        self.assertNotIn('Different', json.dumps(payload))
+        self.assertEqual(response.status_code, 200, response.content)
+        payload = response.json()['data']
+        self.assertEqual(payload['content'], 'warrior="Different"\n')
+        self.assertNotIn('input_hash', payload)
+        self.assertNotIn('rebuilt_hash', payload)
+        self.assertNotIn('verified', payload)
 
     def test_artifact_list_is_paginated_filtered_and_owner_isolated(self):
         owner_task = SimcTask.objects.create(
-            user_id=self.user.id, name='Owner Task', simc_profile_id=0)
+            user_id=self.user.id, name='Owner Task', simc_profile_id=0, backend=self.backend)
         other_task = SimcTask.objects.create(
-            user_id=self.other.id, name='Other Task', simc_profile_id=0)
+            user_id=self.other.id, name='Other Task', simc_profile_id=0, backend=self.backend)
         artifacts = []
         for index, artifact_type in enumerate(('html_report', 'json_stats', 'html_report', 'log', 'html_report')):
             artifacts.append(SimcTaskArtifact.objects.create(
@@ -355,7 +355,7 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
         task = SimcTask.objects.create(
             user_id=self.user.id,
             name='Archived report',
-            simc_profile_id=0,
+            simc_profile_id=0, backend=self.backend,
             result_file='archived-report.html',
             is_active=False,
         )
@@ -428,10 +428,10 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
 
     def test_legacy_task_report_preview_is_owner_scoped_and_sandbox_safe(self):
         task = SimcTask.objects.create(
-            user_id=self.user.id, name='Legacy report', simc_profile_id=0,
+            user_id=self.user.id, name='Legacy report', simc_profile_id=0, backend=self.backend,
             current_status=2, result_file='simc_task_42.html')
         foreign = SimcTask.objects.create(
-            user_id=self.other.id, name='Foreign report', simc_profile_id=0,
+            user_id=self.other.id, name='Foreign report', simc_profile_id=0, backend=self.backend,
             current_status=2, result_file='simc_task_99.html')
         with tempfile.TemporaryDirectory() as tmp:
             report = Path(tmp) / 'simc_task_42.html'
@@ -453,7 +453,7 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
 
     def test_run_bound_artifact_preview_allows_only_inline_report_scripts(self):
         task = SimcTask.objects.create(
-            user_id=self.user.id, name='Interactive artifact', simc_profile_id=0,
+            user_id=self.user.id, name='Interactive artifact', simc_profile_id=0, backend=self.backend,
             current_status=2, result_file='interactive_run_1.html')
         run = SimulationRun.objects.create(
             task=task, sequence=1, status='completed', result_summary={'dps': 95132})

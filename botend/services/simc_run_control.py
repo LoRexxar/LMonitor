@@ -98,7 +98,7 @@ def _output_filename(run):
 
 
 def build_frozen_run_input(task, run, output_filename=None):
-    """Compose one immutable Run from version snapshots and controlled candidate params."""
+    """Compose readable SimC input from a Run's current frozen task configuration."""
     from botend.controller.plugins.simc.SimcMonitor import SimcMonitor, _composer_identity
     from botend.services.simc_composer import SimcComposer
 
@@ -143,9 +143,6 @@ def build_frozen_run_input(task, run, output_filename=None):
     code, composition_manifest, error = SimcComposer(task.user_id).compose(request)
     if error or code is None:
         raise ValueError(error or 'SimC composition failed')
-    # The local Worker hashes the Composer output before any output-directive
-    # normalization. Return that exact byte sequence so historical input_hash
-    # values remain verifiable.
     serializable = asdict(composition_manifest) if is_dataclass(composition_manifest) else (composition_manifest or {})
     talent_candidate = None
     if isinstance(run.candidate_params, dict) and isinstance(run.candidate_params.get('talent_candidate'), dict):

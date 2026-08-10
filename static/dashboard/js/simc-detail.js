@@ -19,11 +19,9 @@
   async function showRunInput(taskId, runId) {
     const dialog = document.getElementById('simc-input-dialog');
     const status = dialog?.querySelector('[data-run-input-status]');
-    const hashes = dialog?.querySelector('[data-run-input-hashes]');
     const code = dialog?.querySelector('[data-run-input-content]');
-    if (!dialog || !status || !hashes || !code) return;
-    status.textContent = '正在重建最终 SimC 输入…';
-    hashes.textContent = '';
+    if (!dialog || !status || !code) return;
+    status.textContent = '正在生成 SimC 输入…';
     code.textContent = '';
     dialog.showModal();
     try {
@@ -31,8 +29,7 @@
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.error || '执行输入加载失败');
       const payload = result.data || {};
-      status.textContent = `Run #${payload.sequence} · 重建哈希与执行哈希一致`;
-      hashes.textContent = `执行哈希 ${payload.input_hash}\n重建哈希 ${payload.rebuilt_hash}`;
+      status.textContent = `Run #${payload.sequence} · SimC 输入`;
       code.textContent = payload['content'] || '';
     } catch (error) {
       status.textContent = error.message || '执行输入加载失败';
@@ -92,7 +89,7 @@
         ${card('技能施放序列', `<p class="muted">来自 SimC Sample Sequence Table，按一次代表性战斗逐步展示时间、动作列表、目标、资源和当时激活的 Buff。</p><div class="table-scroll sequence-scroll"><table class="dense-table sequence-table"><thead><tr><th class="right">时间</th><th class="right">序号</th><th>技能 / 动作列表</th><th>目标</th><th>资源</th><th>激活 Buff</th></tr></thead><tbody>${sequenceRows || '<tr><td colspan="6" class="empty">报告中未包含技能施放序列</td></tr>'}</tbody></table></div>`, true)}
         ${card('动态 Buff / Proc', `<p class="muted">展示全部动态 Buff 的启动、刷新、总触发、触发间隔、持续时间、覆盖率、收益覆盖和各层数覆盖。</p><div class="table-scroll"><table class="dense-table"><thead><tr><th>Buff</th><th class="right">启动</th><th class="right">刷新</th><th class="right">总触发</th><th class="right">触发间隔</th><th class="right">持续</th><th class="right">覆盖率</th><th class="right">收益覆盖</th><th class="right">溢出</th><th class="right">到期</th><th class="right">触发率</th><th>属性效果</th></tr></thead><tbody>${dynamicBuffRows || '<tr><td colspan="12" class="empty">暂无动态 Buff</td></tr>'}</tbody></table></div>`, true)}
         ${card('常驻 Buff', `<div class="table-scroll"><table class="dense-table"><thead><tr><th>Buff</th><th class="right">最大层数</th><th class="right">基础持续</th><th class="right">基础冷却</th><th>属性效果</th></tr></thead><tbody>${constantBuffRows || '<tr><td colspan="5" class="empty">暂无常驻 Buff</td></tr>'}</tbody></table></div>`, true)}
-        ${card('执行轮次', `<div class="table-scroll"><table><thead><tr><th>轮次</th><th>状态</th><th class="right">DPS</th><th>开始</th><th>完成</th><th class="right">输入</th></tr></thead><tbody>${runRows || '<tr><td colspan="6" class="empty">暂无执行轮次</td></tr>'}</tbody></table></div><details><summary>技术追溯说明</summary>SimC 输入由任务冻结资源通过执行时的同一组装函数重建，并以执行哈希验证；命令、路径及原始 stderr 不在页面展示。</details>`, true)}
+        ${card('执行轮次', `<div class="table-scroll"><table><thead><tr><th>轮次</th><th>状态</th><th class="right">DPS</th><th>开始</th><th>完成</th><th class="right">输入</th></tr></thead><tbody>${runRows || '<tr><td colspan="6" class="empty">暂无执行轮次</td></tr>'}</tbody></table></div><details><summary>输入说明</summary>查看输入会按当前任务冻结配置调用 SimC Composer 生成可读文本；它不是历史执行输入的复原或校验。命令、路径及原始 stderr 不在页面展示。</details>`, true)}
         ${card('Artifact / 原生报告', `<p class="muted">${taskFailed && !nativeArtifact ? '本次失败未生成原生报告。SimC 在初始化阶段终止时不会产出 HTML Artifact。' : '原生报告继续通过独立鉴权页面读取。'}</p><div class="table-scroll"><table><thead><tr><th>文件</th><th>类型</th><th class="right">大小</th><th class="right">操作</th></tr></thead><tbody>${artifactRows(artifacts) || '<tr><td colspan="4" class="empty">暂无 Artifact</td></tr>'}</tbody></table></div>`, true)}
         ${card('引用版本', `<dl><div><dt>Profile</dt><dd>${value(row.profile_name, '未命名')} · #${value(row.profile_id)} · v${value(row.profile_version_id)}</dd></div><div><dt>基础模板</dt><dd>#${value(row.template_id)} · v${value(row.template_version_id)}</dd></div><div><dt>APL</dt><dd>${value(row.apl_name, '未命名')} · #${value(row.apl_id)} · v${value(row.apl_version_id)}</dd></div><div><dt>来源任务</dt><dd>${row.source_task_id ? `<a href="/dashboard/simc/tasks/${Number(row.source_task_id)}/">#${Number(row.source_task_id)}</a>` : '-'}</dd></div></dl><details><summary>为什么显示版本号？</summary>名称来自任务创建时的冻结资源版本；版本引用用于复现，不展示配置原文或服务器路径。</details>`, true)}
       </div>`;

@@ -325,10 +325,10 @@
     async function showRunInput(taskId, runId) {
         const host = document.getElementById('simc-dialog-body');
         if (!host) return;
-        renderState(host, 'loading', '正在重建最终 SimC 输入…');
+        renderState(host, 'loading', '正在生成 SimC 输入…');
         const data = await json(`/api/simc-workbench/tasks/${taskId}/runs/${runId}/input/`);
         const payload = data.data || {};
-        host.innerHTML = `<div class="flex flex-wrap items-start justify-between gap-3"><div><h4 class="font-bold">Run #${esc(payload.sequence)} · 最终 SimC 输入</h4><p class="mt-1 text-xs text-emerald-700">重建哈希与执行哈希一致</p></div><button type="button" data-wb-close-detail class="simc-touch-action rounded-lg border px-3 py-2">返回</button></div><dl class="mt-3 grid gap-2 text-xs md:grid-cols-2"><div>执行哈希：<code class="break-all">${esc(payload.input_hash)}</code></div><div>重建哈希：<code class="break-all">${esc(payload.rebuilt_hash)}</code></div></dl><pre class="mt-3 max-h-[70vh] overflow-auto rounded-lg border bg-slate-950 p-4 text-xs leading-5 text-slate-100"><code data-run-input-content></code></pre>`;
+        host.innerHTML = `<div class="flex flex-wrap items-start justify-between gap-3"><h4 class="font-bold">Run #${esc(payload.sequence)} · SimC 输入</h4><button type="button" data-wb-close-detail class="simc-touch-action rounded-lg border px-3 py-2">返回</button></div><pre class="mt-3 max-h-[70vh] overflow-auto rounded-lg border bg-slate-950 p-4 text-xs leading-5 text-slate-100"><code data-run-input-content></code></pre>`;
         const code = host.querySelector('[data-run-input-content]');
         if (code) code.textContent = payload['content'] || '';
     }

@@ -7037,7 +7037,7 @@ class SimcWorkbenchAPIView(View):
 
 @method_decorator(login_required, name='dispatch')
 class SimcRunInputPreviewAPIView(View):
-    """Rebuild one frozen Run input and prove it matches the executed payload."""
+    """Compose readable SimC input for one owned Run from its task configuration."""
 
     def get(self, request, task_id, run_id):
         run = SimulationRun.objects.filter(
@@ -7050,23 +7050,12 @@ class SimcRunInputPreviewAPIView(View):
         try:
             content, _manifest = build_frozen_run_input(run.task, run)
         except (TypeError, ValueError):
-            return JsonResponse({'success': False, 'error': '执行输入无法重建'}, status=409)
-
-        rebuilt_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
-        executed_hash = str(run.input_hash or '').strip().lower()
-        if not executed_hash or executed_hash != rebuilt_hash:
-            return JsonResponse({
-                'success': False,
-                'error': '冻结资源重建结果无法与执行时输入一致验证，已拒绝展示',
-            }, status=409)
+            return JsonResponse({'success': False, 'error': '当前任务配置无法生成 SimC 输入'}, status=422)
         return JsonResponse({'success': True, 'data': {
             'task_id': run.task_id,
             'run_id': run.id,
             'sequence': run.sequence,
             'content': content,
-            'input_hash': executed_hash,
-            'rebuilt_hash': rebuilt_hash,
-            'verified': bool(executed_hash),
         }})
 
 

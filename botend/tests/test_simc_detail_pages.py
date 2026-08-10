@@ -4,7 +4,13 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
 
-from botend.models import SimcTask, SimulationRun
+from botend.models import (
+    DashboardUserGroup,
+    DashboardUserGroupMembership,
+    SimcBackendBinary,
+    SimcTask,
+    SimulationRun,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -14,13 +20,23 @@ class SimcDetailPageRoutingTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='detail-owner', password='pwd')
         self.other = User.objects.create_user(username='detail-other', password='pwd')
+        history_group = DashboardUserGroup.objects.create(
+            name='SimC detail history group', permission_codes=['simc.history'],
+        )
+        DashboardUserGroupMembership.objects.bulk_create([
+            DashboardUserGroupMembership(user=self.owner, group=history_group),
+            DashboardUserGroupMembership(user=self.other, group=history_group),
+        ])
+        self.backend = SimcBackendBinary.objects.create(
+            identifier='detail-test', name='详情页测试后端', simc_path='/tmp/simc',
+        )
         self.task = SimcTask.objects.create(
             user_id=self.owner.id, name='Owned task', simc_profile_id=0,
-            task_type=1, current_status=2,
+            task_type=1, current_status=2, backend=self.backend,
         )
         self.comparison_task = SimcTask.objects.create(
             user_id=self.owner.id, name='Owned comparison', simc_profile_id=0,
-            mode='comparison', current_status=2,
+            mode='comparison', current_status=2, backend=self.backend,
         )
         SimulationRun.objects.create(
             task=self.comparison_task, sequence=1, status='completed',
@@ -79,8 +95,9 @@ class SimcDetailPageFrontendContractTests(TestCase):
                       'addSimcManualTalentCandidate'):
             self.assertIn(token, main)
         self.assertIn("source: 'manual'", main)
-        self.assertIn('方案内容', detail)
-        self.assertIn('item.candidate?.talent', detail)
+        self.assertIn('候选方案', detail)
+        self.assertIn('row.mode_summary?.talent_candidate', detail)
+        self.assertIn('talentCandidate?.talent', detail)
 
     def test_battlenet_comparison_shows_default_talent_and_checkable_loadouts(self):
         main = (ROOT / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
@@ -135,8 +152,11 @@ class SimcDetailPageFrontendContractTests(TestCase):
         self.assertIn('data-run-input', detail)
         self.assertIn("code.textContent = payload['content']", workbench)
         self.assertIn("code.textContent = payload['content']", detail)
-        self.assertIn('重建哈希与执行哈希一致', workbench)
-        self.assertIn('重建哈希与执行哈希一致', detail)
+        self.assertIn('正在生成 SimC 输入', workbench)
+        self.assertIn('正在生成 SimC 输入', detail)
+        self.assertIn('它不是历史执行输入的复原或校验', detail)
+        self.assertNotIn('重建哈希与执行哈希一致', workbench)
+        self.assertNotIn('重建哈希与执行哈希一致', detail)
         self.assertIn('id="simc-input-dialog"', template)
         self.assertIn('@media (max-width: 720px)', template)
 
@@ -152,7 +172,7 @@ class SimcDetailPageFrontendContractTests(TestCase):
         self.assertIn('href="/dashboard/simc/${resource}/${idOf(row.id)}/"', history)
         self.assertIn('target="_blank"', history)
         self.assertIn('rel="noopener noreferrer"', history)
-        self.assertIn('<span>查看结果</span></a>', history)
+        self.assertIn('<span>查看详情（含输入）</span></a>', history)
         self.assertNotIn('data-wb-action="detail"', history)
         self.assertIn('row.runs', task_detail)
         self.assertIn('run.sequence', task_detail)
