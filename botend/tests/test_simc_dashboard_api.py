@@ -840,6 +840,74 @@ class SimcProfileResourceListTests(TestCase):
         profile.refresh_from_db()
         self.assertIs(profile.use_ptr, False)
 
+    def test_profile_api_can_switch_ptr_export_to_attribute_only(self):
+        profile = SimcProfile.objects.create(
+            user_id=self.user.id,
+            name='12.1 PTR大秘境天赋-属性强制版',
+            spec='warrior_fury',
+            class_name='warrior',
+            use_ptr=True,
+            player_config_mode='manual_equipment',
+            talent='CURRENT_BUILD',
+            player_equipment=(
+                'warrior="PTR Tester"\n'
+                'PtR = 1\n'
+                'level=90\n'
+                'race=human\n'
+                'spec=fury\n'
+                'talents=CURRENT_BUILD\n'
+                'head=,id=1\n'
+                'main_hand=,id=2'
+            ),
+            is_active=True,
+        )
+
+        response = self.client.put(
+            '/api/simc-profile/',
+            data=json.dumps({
+                'id': profile.id,
+                'name': profile.name,
+                'spec': profile.spec,
+                'use_ptr': True,
+                'player_config_mode': 'attribute_only',
+                'player_equipment': profile.player_equipment,
+                'talent': 'CURRENT_BUILD',
+                'gear_crit': 1000,
+                'gear_haste': 2000,
+                'gear_mastery': 3000,
+                'gear_versatility': 4000,
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(response.json()['success'], response.content)
+        profile.refresh_from_db()
+        self.assertEqual(profile.player_config_mode, 'attribute_only')
+        self.assertIs(profile.use_ptr, True)
+        self.assertEqual(profile.gear_crit, 1000)
+        self.assertFalse(any(
+            '=' in line and line.partition('=')[0].strip().lower() == 'ptr'
+            for line in profile.player_equipment.splitlines()
+        ))
+
+        ptr_content = SimcComposer(self.user.id).compose_validation_input(
+            profile, 'actions=/auto_attack',
+        )
+        self.assertEqual([
+            line for line in ptr_content.splitlines()
+            if '=' in line and line.partition('=')[0].strip().lower() == 'ptr'
+        ], ['ptr=1'])
+
+        profile.use_ptr = False
+        live_content = SimcComposer(self.user.id).compose_validation_input(
+            profile, 'actions=/auto_attack',
+        )
+        self.assertFalse(any(
+            '=' in line and line.partition('=')[0].strip().lower() == 'ptr'
+            for line in live_content.splitlines()
+        ))
+
     def test_profile_api_rejects_non_boolean_ptr_attribute(self):
         response = self.client.post(
             '/api/simc-profile/',

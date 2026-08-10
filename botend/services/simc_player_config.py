@@ -147,6 +147,8 @@ def authoritative_player_baseline(player_equipment):
     for raw_line in str(player_equipment or '').splitlines():
         if re.match(r'^\s*###\s+(?:Gear from Bags|Weekly Reward Choices)\b', raw_line, re.IGNORECASE):
             break
+        if re.match(r'^\s*ptr\s*=', raw_line, re.IGNORECASE):
+            continue
         lines.append(raw_line)
     return '\n'.join(lines).strip()
 
