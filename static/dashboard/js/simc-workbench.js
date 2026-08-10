@@ -349,7 +349,8 @@
         const runs = Array.isArray(row.runs) ? row.runs : [];
         const runList = runs.length ? runs.map(run => {
             const errorSummary = String(run.error_summary || '').trim();
-            return `<article class="mt-2 rounded border p-3 text-xs"><div class="font-medium">Run #${esc(run.sequence)} · ${esc(run.status)} · DPS ${esc(run.result_summary?.dps ?? '-')}</div><dl class="mt-2 grid gap-1 md:grid-cols-2"><div>input_hash：<code class="break-all">${esc(run.input_hash || '-')}</code></div><div>开始：${esc(run.started_at || '-')}</div><div>完成：${esc(run.completed_at || '-')}</div>${errorSummary ? `<div class="text-red-700">错误摘要：${esc(errorSummary)}</div>` : ''}</dl></article>`;
+            const errorTooltip = errorSummary ? `<span class="simc-error-tooltip"><button type="button" class="simc-error-tooltip__trigger" aria-label="查看 Run #${esc(run.sequence)} 失败详情"><i class="fas fa-exclamation-circle" aria-hidden="true"></i></button><span class="simc-error-tooltip__content" role="tooltip">${esc(errorSummary)}</span></span>` : '';
+            return `<article class="mt-2 rounded border p-3 text-xs"><div class="font-medium">Run #${esc(run.sequence)} · ${esc(run.status)} · DPS ${esc(run.result_summary?.dps ?? '-')} ${errorTooltip}</div><dl class="mt-2 grid gap-1 md:grid-cols-2"><div>input_hash：<code class="break-all">${esc(run.input_hash || '-')}</code></div><div>开始：${esc(run.started_at || '-')}</div><div>完成：${esc(run.completed_at || '-')}</div></dl></article>`;
         }).join('') : '<p class="mt-2 text-sm text-gray-500">暂无执行轮次</p>';
         const report = row.report_summary || null;
         const reportArtifact = artifacts.find(artifact => idOf(artifact.id) === idOf(row.report_artifact_id));

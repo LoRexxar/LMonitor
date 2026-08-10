@@ -357,6 +357,11 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('run.error_summary', DETAIL_JS)
         self.assertIn('本次失败未生成原生报告', DETAIL_JS)
         self.assertIn('模拟执行失败', DETAIL_JS)
+        self.assertIn('simc-error-tooltip__content', detail)
+        self.assertIn('simc-error-tooltip__content', DETAIL_JS)
+        self.assertIn('aria-label="查看失败详情"', DETAIL_JS)
+        self.assertNotIn('<th>失败详情</th>', DETAIL_JS)
+        self.assertNotIn('错误摘要：${esc(errorSummary)}', detail)
 
     def test_standalone_task_detail_renders_sample_skill_sequence(self):
         for token in (

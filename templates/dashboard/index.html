@@ -227,6 +227,11 @@
         .simc-task-status { display: inline-flex; align-items: center; gap: .32rem; border-radius: 999px; padding: .22rem .55rem; font-weight: 800; }
         .simc-task-status.is-success { background: #ecfdf5; color: #047857; }
         .simc-task-status.is-failed { background: #fef2f2; color: #b91c1c; }
+        .simc-error-tooltip { position: relative; display: inline-flex; vertical-align: middle; }
+        .simc-error-tooltip__trigger { display: inline-grid; width: 24px; height: 24px; place-items: center; border: 1px solid #fecaca; border-radius: 50%; padding: 0; background: #fff; color: #b91c1c; cursor: help; }
+        .simc-error-tooltip__trigger:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
+        .simc-error-tooltip__content { position: absolute; z-index: 1300; left: 0; top: calc(100% + 7px); width: max-content; max-width: min(32rem, calc(100vw - 2rem)); padding: .65rem .75rem; border: 1px solid #fecaca; border-radius: .45rem; background: #fff; color: #7f1d1d; box-shadow: 0 12px 32px rgba(15, 23, 42, .18); font-size: .75rem; font-weight: 600; line-height: 1.55; overflow-wrap: anywhere; opacity: 0; pointer-events: none; transform: translateY(-3px); transition: opacity .14s, transform .14s; }
+        .simc-error-tooltip:hover .simc-error-tooltip__content, .simc-error-tooltip:focus-within .simc-error-tooltip__content { opacity: 1; transform: translateY(0); }
         .simc-task-status.is-running { background: #eff6ff; color: #1d4ed8; }
         .simc-task-status.is-pending { background: #fff7ed; color: #c2410c; }
         .simc-task-progress { display: flex; align-items: center; gap: .55rem; max-width: 30rem; margin-top: .65rem; color: #64748b; font-size: .72rem; font-weight: 700; }
@@ -431,7 +436,7 @@
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
     <script src="{% static 'dashboard/js/main.js' %}?v=20260808_wow_daily_list"></script>
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806c" defer></script>
-    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260810_failure_detail"></script>
+    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260810_failure_tooltip"></script>
     <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260808_candidate_profile"></script>
     {% if user.is_staff or user.is_superuser %}
     <link rel="stylesheet" href="{% static 'dashboard/css/mythic_planner.css' %}?v=20260806a">
