@@ -523,7 +523,7 @@ class SimcMonitor(BaseScan):
                     raise ValueError(f'属性候选缺少 {stat}')
                 request_data[f'gear_{stat}'] = int(ratings[stat])
 
-        elif candidate_type != 'base':
+        elif candidate_type not in ('base', 'attribute_baseline_probe'):
             raise ValueError(f'不支持的候选类型: {candidate_type}')
 
         return request_data
@@ -1028,7 +1028,8 @@ class SimcMonitor(BaseScan):
         return '\n'.join(lines).strip()
 
     @staticmethod
-    def validate_simulation_semantics(stdout_text, *, report_html=''):
+    def validate_simulation_semantics(
+            stdout_text, *, report_html='', extract_gear_ratings=False):
         """Reject reports that technically finish but never execute a real rotation."""
         text = str(stdout_text or '')
         report_text = html.unescape(re.sub(r'<[^>]+>', ' ', str(report_html or '')))
@@ -1114,6 +1115,10 @@ class SimcMonitor(BaseScan):
             else:
                 failure_type = 'auto_attack_only'
                 reason = 'SimC结果语义无效：只有自动攻击，未执行有效技能循环'
+        gear_ratings = {}
+        if report_html and extract_gear_ratings:
+            from botend.services.simc_result_analysis import parse_simc_html_report
+            gear_ratings = parse_simc_html_report(str(report_html)).get('gear_ratings') or {}
         return {
             'valid': valid,
             'dps': float(dps_match.group(1)) if dps_match else 0.0,
@@ -1125,6 +1130,7 @@ class SimcMonitor(BaseScan):
             'unresolved_action_lists': unresolved_action_lists,
             'report_errors': report_errors,
             'reason': reason,
+            'gear_ratings': gear_ratings,
         }
 
     @staticmethod
@@ -1279,6 +1285,12 @@ class SimcMonitor(BaseScan):
                 semantic_validation = self.validate_simulation_semantics(
                     result.stdout,
                     report_html=report_html,
+                    extract_gear_ratings=bool(
+                        active_run
+                        and isinstance(active_run.candidate_params, dict)
+                        and active_run.candidate_params.get('candidate_type')
+                        == 'attribute_baseline_probe'
+                    ),
                 )
                 if not self._persist_claimed_semantic_validation(simc_task, semantic_validation):
                     return False

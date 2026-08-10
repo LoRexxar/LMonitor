@@ -631,6 +631,11 @@ def complete_run(run_id, metadata, authorization):
             summary = SimcMonitor.validate_simulation_semantics(
                 metadata['stdout'],
                 report_html=report_html,
+                extract_gear_ratings=(
+                    isinstance(run.candidate_params, dict)
+                    and run.candidate_params.get('candidate_type')
+                    == 'attribute_baseline_probe'
+                ),
             )
             if summary.get('dps') is None or not re.search(r'\bDPS=', metadata['stdout']):
                 raise AgentAPIError('SimC result does not contain DPS')

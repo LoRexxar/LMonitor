@@ -2423,19 +2423,34 @@ class SimcComparisonTaskAPIView(View):
             specs = []
 
             if kind == 'attribute_variants':
-                if mode not in ('attribute_only', 'battlenet'):
-                    raise ValueError('自动属性比较仅支持 attribute_only 或 Battle.net 配置')
-                if mode == 'attribute_only' and not str(profile.player_equipment or '').strip():
+                if mode not in ('attribute_only', 'manual_equipment', 'battlenet'):
+                    raise ValueError('自动属性比较仅支持属性配置、装备列表或 Battle.net 配置')
+                if mode in ('attribute_only', 'manual_equipment') and not str(profile.player_equipment or '').strip():
                     raise ValueError('自动属性比较需要 Profile 包含玩家装备基线')
                 step = self._int(data.get('attribute_step'), '属性步长')
                 if step != self.ATTRIBUTE_SEARCH_STEP:
                     raise ValueError(f'四属性自动寻优固定使用 {self.ATTRIBUTE_SEARCH_STEP} 绿字步长')
-                values = attribute_baseline_values or {
-                    stat: int(getattr(profile, f'gear_{stat}', 0) or 0)
-                    for stat in self.ATTRIBUTE_STATS
-                }
-                for label, ratings, is_base, candidate in self._attribute_variants(values, step):
-                    specs.append({'label': label, 'is_base': is_base, 'gear': ratings, 'candidate': candidate})
+                if mode == 'manual_equipment':
+                    specs.append({
+                        'label': '基准属性探测',
+                        'is_base': True,
+                        'candidate': {
+                            'type': 'attribute_baseline_probe',
+                            'algorithm': 'four_stat_pairwise_hill_climb',
+                            'algorithm_version': 2,
+                            'round': 1,
+                            'step': self.ATTRIBUTE_SEARCH_STEP,
+                            'baseline_source': 'simc_report_gear_amount',
+                            'move': {'type': 'baseline'},
+                        },
+                    })
+                else:
+                    values = attribute_baseline_values or {
+                        stat: int(getattr(profile, f'gear_{stat}', 0) or 0)
+                        for stat in self.ATTRIBUTE_STATS
+                    }
+                    for label, ratings, is_base, candidate in self._attribute_variants(values, step):
+                        specs.append({'label': label, 'is_base': is_base, 'gear': ratings, 'candidate': candidate})
             else:
                 if mode != 'manual_equipment':
                     raise ValueError('装备和天赋候选比较需要手动 SimC 玩家块')
@@ -2577,12 +2592,18 @@ class SimcComparisonTaskAPIView(View):
                     candidate_params['talent_candidate'] = {
                         key: candidate.get(key) for key in ('name', 'talent', 'source')
                     }
+                elif kind == 'attribute_variants' and candidate_type == 'attribute_baseline_probe':
+                    candidate_params['search'] = {**candidate, 'candidate_index': index}
                 elif kind == 'attribute_variants':
                     candidate_params['candidate_type'] = 'attribute_ratings'
                     candidate_params['attribute_ratings'] = item['gear']
                     candidate_params['search'] = {**candidate, 'candidate_index': index}
                 candidates.append({
-                    'candidate_key': f'candidate-{index}',
+                    'candidate_key': (
+                        'round-1-baseline-probe'
+                        if candidate_type == 'attribute_baseline_probe'
+                        else f'candidate-{index}'
+                    ),
                     'candidate_label': item['label'],
                     'round_number': int((candidate_params.get('search') or {}).get('round') or 1),
                     'candidate_params': candidate_params,

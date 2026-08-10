@@ -56,21 +56,30 @@ def _neighborhood_signature(ratings, is_center, move):
     )
 
 
+def _run_ratings(run):
+    params = run.candidate_params if isinstance(run.candidate_params, dict) else {}
+    summary = run.result_summary if isinstance(run.result_summary, dict) else {}
+    ratings = params.get('attribute_ratings') or {}
+    if params.get('candidate_type') == 'attribute_baseline_probe':
+        ratings = summary.get('gear_ratings') or {}
+    normalized = {stat: int(ratings[stat]) for stat in ATTRIBUTE_STATS}
+    if min(normalized.values()) < 0:
+        raise ValueError('属性寻优绿字不能为负数')
+    return normalized
+
+
 def _completed_round_rows(round_runs):
     rows = []
     for run in round_runs:
         if run.status != 'completed':
             raise ValueError('当前属性搜索轮次必须全部成功后才能续轮')
         params = run.candidate_params if isinstance(run.candidate_params, dict) else {}
-        ratings = params.get('attribute_ratings') or {}
         summary = run.result_summary if isinstance(run.result_summary, dict) else {}
         try:
-            normalized = {stat: int(ratings[stat]) for stat in ATTRIBUTE_STATS}
+            normalized = _run_ratings(run)
             dps = float(summary['dps'])
         except (KeyError, TypeError, ValueError):
             raise ValueError('当前属性搜索轮次存在无法解析 DPS 或绿字的执行')
-        if min(normalized.values()) < 0:
-            raise ValueError('属性寻优绿字不能为负数')
         try:
             dps_error = max(0.0, float(summary['dps_error']))
         except (KeyError, TypeError, ValueError):
@@ -128,6 +137,58 @@ def advance_attribute_search(task_id, expected_started_at=None):
     round_runs = [run for run in runs if run.round_number == current_round]
     if any(run.status in ('pending', 'running') for run in round_runs):
         return {'appended': 0, 'converged': False, 'awaiting': True}
+
+    probe_runs = [
+        run for run in round_runs
+        if isinstance(run.candidate_params, dict)
+        and run.candidate_params.get('candidate_type') == 'attribute_baseline_probe'
+    ]
+    if len(round_runs) == 1 and len(probe_runs) == 1:
+        probe = probe_runs[0]
+        if probe.status != 'completed':
+            raise ValueError('装备属性基准探测执行失败，无法生成属性邻域')
+        try:
+            ratings = _run_ratings(probe)
+            summary = probe.result_summary if isinstance(probe.result_summary, dict) else {}
+            baseline_dps = float(summary['dps'])
+        except (KeyError, TypeError, ValueError):
+            raise ValueError('SimC 基准报告未返回完整的 Gear Amount 四属性')
+        variants = attribute_variants(ratings, current_round)
+        candidates = [{
+            'candidate_key': f'round-{current_round}-candidate-{index}',
+            'candidate_label': label,
+            'round_number': current_round,
+            'candidate_params': {
+                'candidate_type': 'attribute_ratings', 'is_base': is_center,
+                'attribute_ratings': candidate_ratings, 'search': candidate,
+            },
+        } for index, (label, candidate_ratings, is_center, candidate) in enumerate(
+            variants[1:], 1
+        )]
+        if not candidates:
+            recommendation = {
+                'ratings': ratings, 'step': ATTRIBUTE_SEARCH_STEP,
+                'round': current_round, 'dps': baseline_dps, 'converged': True,
+                'stop_reason': 'insufficient_rating_for_50_transfer',
+            }
+            task.analysis_result = {
+                **(task.analysis_result if isinstance(task.analysis_result, dict) else {}),
+                'attribute_search': recommendation,
+            }
+            task.save(update_fields=['analysis_result', 'modified_time'])
+            return {'appended': 0, 'converged': True, 'recommendation': recommendation}
+        created = append_candidate_runs(
+            task,
+            candidates,
+            round_number=current_round,
+            expected_started_at=expected_started_at,
+        )
+        return {
+            'appended': len(created), 'converged': False,
+            'run_ids': [run.id for run in created],
+            'baseline_ratings': ratings,
+        }
+
     rows, center = _completed_round_rows(round_runs)
     best_neighbor = max((row for row in rows if not row['is_center']), key=lambda row: row['dps'])
     combined_error = (
@@ -149,12 +210,11 @@ def advance_attribute_search(task_id, expected_started_at=None):
         visited = set()
         for run in runs:
             params = run.candidate_params if isinstance(run.candidate_params, dict) else {}
-            ratings = params.get('attribute_ratings') or {}
-            if not params.get('is_base') or any(stat not in ratings for stat in ATTRIBUTE_STATS):
+            if not params.get('is_base'):
                 continue
             try:
-                visited.add(_signature(ratings))
-            except (TypeError, ValueError):
+                visited.add(_signature(_run_ratings(run)))
+            except (KeyError, TypeError, ValueError):
                 continue
         if current_round >= MAX_ATTRIBUTE_SEARCH_ROUNDS:
             recommendation.update(

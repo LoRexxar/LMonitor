@@ -20,7 +20,7 @@ from botend.models import (
     SimulationRun,
 )
 from botend.services.simc_attribute_search import advance_attribute_search
-from botend.services.simc_task_service import append_candidate_runs, create_task
+from botend.services.simc_task_service import append_candidate_runs, create_task, initialize_task_runs
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.services.simc_composer import SimcComposer
 
@@ -250,6 +250,74 @@ class ReferenceBatchAPIViewTests(TestCase):
         self.assertNotIn('id=299001', frozen_player_block)
         self.assertIn('head=,id=212048', frozen_player_block)
         self.assertFalse(hasattr(task, 'final_simc_content'))
+
+    def test_manual_equipment_attribute_search_discovers_report_ratings_before_first_neighborhood(self):
+        with patch(
+            'botend.services.simc_task_service.current_validation_identity',
+            return_value=TEST_VALIDATION_IDENTITY,
+        ):
+            response = self.client.post('/api/simc-task/comparison/', data=json.dumps({
+                'kind': 'attribute_variants',
+                'name': 'Manual equipment attribute search',
+                'simc_profile_id': self.profile.id,
+                'attribute_step': 50,
+                'base_template_id': self.template.id,
+                'selected_apl_id': self.apl.id,
+            }), content_type='application/json')
+
+        payload = response.json()
+        self.assertTrue(payload['success'], payload)
+        task = SimcTask.objects.get(id=payload['data']['task_id'])
+        frozen = task.mode_params['initial_candidates']
+        self.assertEqual(len(frozen), 1)
+        self.assertEqual(
+            frozen[0]['candidate_params']['candidate_type'],
+            'attribute_baseline_probe',
+        )
+        self.assertNotIn('attribute_ratings', frozen[0]['candidate_params'])
+
+        started_at = timezone.now()
+        task.current_status = 1
+        task.started_at = started_at
+        task.save(update_fields=['current_status', 'started_at'])
+        initialize_task_runs(task, expected_started_at=started_at)
+        probe = task.simulation_runs.get()
+        report_html = '''
+          <div class="player"><h2>Batcher: 100,000 dps</h2>
+            <div class="player-section"><h3>Stats</h3><table class="sc">
+              <tr><th></th><th>Raid-Buffed</th><th>Unbuffed</th><th>Gear Amount</th></tr>
+              <tr><th>Crit</th><td>20.00% (1000)</td><td>20.00%</td><td>1,000</td></tr>
+              <tr><th>Haste</th><td>30.00% (2000)</td><td>30.00%</td><td>2,000</td></tr>
+              <tr><th>Mastery</th><td>40.00% (3000)</td><td>40.00%</td><td>3,000</td></tr>
+              <tr><th>Versatility</th><td>10.00% (4000)</td><td>10.00%</td><td>4,000</td></tr>
+            </table></div>
+          </div>
+        '''
+        validation = SimcMonitor.validate_simulation_semantics(
+            '''Player: Batcher warrior fury 90
+  DPS=100000 DPS-Error=10/0.01%
+  Actions:
+    mortal_strike Count=50.0 pDPS=90000
+''',
+            report_html=report_html,
+            extract_gear_ratings=True,
+        )
+        self.assertTrue(validation['valid'], validation)
+        self.assertEqual(validation['gear_ratings'], {
+            'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000,
+        })
+        probe.status = 'completed'
+        probe.result_summary = validation
+        probe.save(update_fields=['status', 'result_summary'])
+
+        advanced = advance_attribute_search(task.id, expected_started_at=started_at)
+        self.assertEqual(advanced['appended'], 12)
+        runs = list(task.simulation_runs.order_by('sequence'))
+        self.assertEqual(len(runs), 13)
+        self.assertEqual(runs[0].candidate_key, 'round-1-baseline-probe')
+        neighbors = [run.candidate_params['attribute_ratings'] for run in runs[1:]]
+        self.assertEqual(len(neighbors), 12)
+        self.assertTrue(all(sum(ratings.values()) == 10000 for ratings in neighbors))
 
     def test_attribute_continuation_reuses_exact_resource_versions_without_ext(self):
         profile = SimcProfile.objects.create(

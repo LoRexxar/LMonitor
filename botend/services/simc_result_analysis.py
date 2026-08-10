@@ -75,6 +75,12 @@ _REPORT_ROW_MAX_CELLS = 24
 _REPORT_CELL_MAX_CHARS = 2000
 _REPORT_SECTION_MAX_TEXT_BLOCKS = 4
 _REPORT_TEXT_BLOCK_MAX_CHARS = 50000
+_GEAR_RATING_ROWS = {
+    "crit": "crit",
+    "haste": "haste",
+    "mastery": "mastery",
+    "versatility": "versatility",
+}
 
 
 def _report_token(value):
@@ -190,6 +196,51 @@ def _project_report_sections(player_detail):
                 "text_blocks": text_blocks,
             })
     return projected
+
+
+def _extract_gear_ratings(sections):
+    """Read the four reallocatable ratings from the Stats/Gear Amount column."""
+    for section in sections or []:
+        if not isinstance(section, dict) or section.get("key") != "stats":
+            continue
+        for table in section.get("tables") or []:
+            rows = table.get("rows") if isinstance(table, dict) else None
+            if not isinstance(rows, list):
+                continue
+            gear_column = None
+            header_index = None
+            for row_index, row in enumerate(rows):
+                texts = [
+                    str(cell.get("text") or "").strip()
+                    for cell in row if isinstance(cell, dict)
+                ]
+                for cell_index, text in enumerate(texts):
+                    if text.casefold() == "gear amount":
+                        gear_column = cell_index
+                        header_index = row_index
+                        break
+                if gear_column is not None:
+                    break
+            if gear_column is None:
+                continue
+            ratings = {}
+            for row in rows[(header_index or 0) + 1:]:
+                texts = [
+                    str(cell.get("text") or "").strip()
+                    for cell in row if isinstance(cell, dict)
+                ]
+                if not texts or gear_column >= len(texts):
+                    continue
+                stat = _GEAR_RATING_ROWS.get(texts[0].casefold())
+                value = texts[gear_column]
+                if not stat or not re.fullmatch(r"\+?[0-9][0-9,\s]*", value):
+                    continue
+                ratings[stat] = int(
+                    value.lstrip("+").replace(",", "").replace(" ", "")
+                )
+            if set(ratings) == set(_GEAR_RATING_ROWS.values()):
+                return ratings
+    return {}
 
 
 def localize_report_summary(report, bilingual_pairs=(), spell_names=None):
@@ -308,6 +359,7 @@ def parse_simc_html_report(html_content):
         "sample_sequence": [],
         "buffs": {"dynamic": [], "constant": []},
         "sections": [],
+        "gear_ratings": {},
     }
     if not isinstance(html_content, str) or not html_content:
         return document
@@ -603,6 +655,7 @@ def parse_simc_html_report(html_content):
                 document["sample_sequence"] = sequence[:2000]
 
             document["sections"] = _project_report_sections(player_detail)
+            document["gear_ratings"] = _extract_gear_ratings(document["sections"])
 
         masthead = soup.find(id="masthead")
         if masthead:
