@@ -9217,8 +9217,10 @@ def _benchmark_create_defaults(resources, specs):
     return result
 
 
-def _benchmark_options_payload(owner_id, ownership_context):
-    querysets = benchmark_resource_querysets(owner_id)
+def _benchmark_options_payload(owner_id=None, ownership_context=None):
+    # Benchmark resource selection is global. Keep the parameters temporarily
+    # for call-site/API compatibility, but never use them to scope content.
+    querysets = benchmark_resource_querysets()
     resources = {name: list(queryset) for name, queryset in querysets.items()}
     specs = _benchmark_spec_options()
     backend_game_versions = _benchmark_backend_game_versions(resources['backends'])
@@ -9272,7 +9274,7 @@ def _benchmark_options_payload(owner_id, ownership_context):
             'max_profiles_per_spec': MAX_PROFILES_PER_SPEC,
             'max_scenarios': MAX_SCENARIOS,
         },
-        'ownership_context': ownership_context,
+        'ownership_context': 'benchmark_global',
     }
 
 
@@ -9346,8 +9348,8 @@ class SimcBenchmarkPanelDetailAPIView(_BenchmarkAdminAPIView):
         panel, error = self.panel_or_404(panel_id)
         if error:
             return error
-        # The creator is immutable and remains the resource-ownership context even
-        # when another administrator maintains the configuration.
+        # The creator is immutable and remains the task owner even when another
+        # administrator maintains the globally sourced resource configuration.
         panel, _plan = replace_panel_config(payload, panel.created_by_id, panel=panel)
         data = serialize_panel_config(panel)
         data['next_run_at'] = _benchmark_iso(data['next_run_at'])

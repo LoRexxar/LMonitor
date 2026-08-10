@@ -95,34 +95,23 @@ def _profile_class_name(profile):
     return profile_class or normalize_battlenet_class_name(profile.class_name)
 
 
-def benchmark_resource_access_q(kind, user_id):
-    """Return the single access policy used by benchmark writes and option lists."""
+def benchmark_resource_access_q(kind, user_id=None):
+    """Return Benchmark executable-state policy without user ownership scope."""
     if kind == 'backend':
         return Q(is_active=True)
     if kind == 'template':
-        return Q(is_active=True, is_selectable=True) & (
-            Q(owner_user_id=user_id) | Q(owner_user_id__isnull=True)
-        )
+        return Q(is_active=True, is_selectable=True)
     if kind == 'apl':
-        return Q(is_active=True, is_selectable=True) & (
-            Q(owner_user_id=user_id) | Q(owner_user_id__isnull=True) | Q(is_system=True)
-        )
+        # Personal APLs are executable once active. ``is_selectable`` is the
+        # publication gate only for system APLs; Benchmark ignores ownership.
+        return Q(is_active=True) & (Q(is_system=False) | Q(is_selectable=True))
     if kind == 'profile':
-        system_profile = (
-            Q(user_id__isnull=True, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
-              is_active=True, system_key__isnull=False)
-            & ~Q(system_key='')
-        )
-        global_wcl_profile = Q(
-            user_id__isnull=True, source=SimcProfile.SOURCE_WCL,
-            is_active=True,
-        )
-        return Q(user_id=user_id, is_active=True) | system_profile | global_wcl_profile
+        return Q(is_active=True)
     raise ValueError(f'unknown benchmark resource kind: {kind}')
 
 
-def benchmark_resource_querysets(user_id):
-    """Query resources selectable by a panel whose immutable owner is ``user_id``."""
+def benchmark_resource_querysets(user_id=None):
+    """Query all resources whose content state allows Benchmark execution."""
     models_by_name = {
         'backends': (SimcBackendBinary, 'backend'),
         'templates': (SimcContentTemplate, 'template'),
@@ -282,19 +271,12 @@ def _same_profile_spec(profile, expected_class, expected_spec):
 
 def _resource(model, resource_id, kind, user_id):
     try:
-        # Benchmark configuration is executed in the panel's elevated
-        # resource context. Visibility is still limited by the options/list
-        # APIs, but an explicit saved ID must not be rejected because the
-        # resource belongs to a different user.
         resource = model.objects.get(
+            benchmark_resource_access_q(kind, user_id),
             pk=_id(resource_id, f'{kind}_id'),
-            is_active=True,
-            **({'is_selectable': True} if kind in {'apl', 'template'} else {}),
         )
     except model.DoesNotExist:
         _error(f'{kind} 资源不存在', f'{kind}_id')
-    # Ownership is a visibility concern for option lists, not Benchmark
-    # configuration validation; explicit IDs are validated for state/spec below.
     return resource
 
 

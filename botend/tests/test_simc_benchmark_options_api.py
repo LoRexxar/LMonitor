@@ -12,6 +12,7 @@ from botend.models import (
 )
 from botend.services.simc_benchmark_config import (
     MAX_PROFILES_PER_SPEC, MAX_SCENARIOS, MAX_SPECS,
+    normalize_panel_payload,
 )
 
 
@@ -118,9 +119,9 @@ class SimcBenchmarkOptionsApiTests(TestCase):
             'simc_option': 'override.arcane_intellect',
         })
 
-    def test_create_and_edit_use_different_immutable_ownership_contexts(self):
+    def test_create_and_edit_use_the_same_global_resource_context(self):
         created = self.client.get('/api/simc-benchmarks/options/').json()['data']
-        self.assertEqual(created['ownership_context'], 'current_user')
+        self.assertEqual(created['ownership_context'], 'benchmark_global')
         self.assertIn(self.profile.id, [row['id'] for row in created['resources']['profiles']])
         panel = SimcBenchmarkPanel.objects.create(
             name='Panel', slug='option-panel', created_by_id=self.owner.id,
@@ -130,11 +131,11 @@ class SimcBenchmarkOptionsApiTests(TestCase):
         edited = editor.get(
             f'/api/simc-benchmarks/panels/{panel.id}/options/',
         ).json()['data']
-        self.assertEqual(edited['ownership_context'], 'panel_creator')
+        self.assertEqual(edited['ownership_context'], 'benchmark_global')
         self.assertNotIn('owner_id', json.dumps(edited))
         self.assertIn(self.profile.id, [row['id'] for row in edited['resources']['profiles']])
 
-    def test_options_include_active_global_wcl_profiles_but_not_unowned_user_profiles(self):
+    def test_options_include_all_active_profiles_regardless_of_source_or_owner(self):
         global_wcl = SimcProfile.objects.create(
             user_id=None, name='12.1 WCL Profile', spec='mage_arcane',
             class_name='mage', source=SimcProfile.SOURCE_WCL,
@@ -164,7 +165,7 @@ class SimcBenchmarkOptionsApiTests(TestCase):
         self.assertIn(global_wcl.id, profile_ids)
         self.assertIn(normalized_wcl.id, profile_ids)
         self.assertIn(full_key_wcl.id, profile_ids)
-        self.assertNotIn(unowned_user.id, profile_ids)
+        self.assertIn(unowned_user.id, profile_ids)
         projected = next(row for row in profiles if row['id'] == global_wcl.id)
         self.assertEqual(projected['spec_key'], 'mage_arcane')
         self.assertTrue(projected['is_system'])
@@ -191,28 +192,47 @@ class SimcBenchmarkOptionsApiTests(TestCase):
         for row in rows:
             self.assertEqual(benchmark_tags[row.id], list_tags[row.id])
 
-    def test_filters_other_owner_inactive_and_nonselectable_but_keeps_system(self):
+    def test_benchmark_lists_and_accepts_all_executable_resources_without_owner_scope(self):
         other_template = SimcContentTemplate.objects.create(
             name='Other template', spec='mage_fire', content='x',
             owner_user_id=self.editor.id, is_active=True, is_selectable=True,
         )
-        hidden_apl = SimcApl.objects.create(
-            name='Hidden APL', spec='mage_fire', content='x',
-            owner_user_id=self.owner.id, is_active=True, is_selectable=False,
+        personal_apl = SimcApl.objects.create(
+            name='Other draft APL', spec='mage_fire', content='actions=/auto_attack',
+            owner_user_id=self.editor.id, is_active=True, is_selectable=False,
+        )
+        unavailable_system_apl = SimcApl.objects.create(
+            name='Unavailable system APL', spec='mage_fire', content='actions=/auto_attack',
+            owner_user_id=None, is_system=True, is_active=True, is_selectable=False,
         )
         other_profile = SimcProfile.objects.create(
-            user_id=self.editor.id, name='Other profile', spec='mage_fire', is_active=True,
+            user_id=self.editor.id, name='Other profile', spec='mage_fire',
+            class_name='mage', is_active=True,
         )
         data = self.client.get('/api/simc-benchmarks/options/').json()['data']['resources']
         backend_ids = [row['id'] for row in data['backends']]
         self.assertIn(self.backend.id, backend_ids)
         self.assertNotIn(self.inactive_backend.id, backend_ids)
-        self.assertNotIn(other_template.id, [row['id'] for row in data['templates']])
-        self.assertNotIn(hidden_apl.id, [row['id'] for row in data['apls']])
-        self.assertNotIn(other_profile.id, [row['id'] for row in data['profiles']])
+        self.assertIn(other_template.id, [row['id'] for row in data['templates']])
+        self.assertIn(personal_apl.id, [row['id'] for row in data['apls']])
+        self.assertNotIn(unavailable_system_apl.id, [row['id'] for row in data['apls']])
+        self.assertIn(other_profile.id, [row['id'] for row in data['profiles']])
         self.assertIn(self.system_template.id, [row['id'] for row in data['templates']])
         self.assertIn(self.system_apl.id, [row['id'] for row in data['apls']])
         self.assertIn(self.default_profile.id, [row['id'] for row in data['profiles']])
+
+        normalized = normalize_panel_payload({
+            'name': 'Global resource benchmark',
+            'specs': [{
+                'class_name': 'mage', 'spec_key': 'mage_fire',
+                'apl_id': personal_apl.id, 'template_id': other_template.id,
+                'backend_id': self.backend.id,
+                'profiles': [{'profile_id': other_profile.id}],
+            }],
+            'scenarios': [{'name': 'Patchwerk', 'simulation_params': {}}],
+            'candidates': [],
+        }, self.owner.id)
+        self.assertEqual(normalized['specs'][0]['apl_id'], personal_apl.id)
 
     def test_safe_projection_and_dynamic_limits(self):
         response = self.client.get('/api/simc-benchmarks/options/')
