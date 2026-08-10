@@ -875,26 +875,13 @@ class SimcComposer:
         return validate_simulation_options(request_data)
 
     def _resolve_stat_overrides(self, request_data: Dict[str, Any]) -> SlotResolution:
-        """Resolve secondary-rating overrides for attribute-search tasks only.
-
-        Manual equipment and Battle.net inputs already define the actor's real gear.
-        Persisted profile totals are descriptive snapshots, not executable overrides;
-        applying them would replace the stats calculated from the equipped items.
-        Attribute search intentionally overrides only the four secondary ratings and
-        keeps the primary stat authoritative to the frozen equipment baseline.
-        """
-        if request_data.get('player_import_mode') != 'attribute_only':
-            return SlotResolution(
-                slot_name='stat_overrides',
-                value=None,
-                status='empty',
-            )
-
+        """Resolve explicitly saved final stat overrides for every player source."""
         overrides = []
-        for field in ('crit', 'haste', 'mastery', 'versatility'):
+        for field in ('strength', 'crit', 'haste', 'mastery', 'versatility'):
             value = request_data.get(f'gear_{field}')
             if value is not None:
-                overrides.append(f'gear_{field}_rating={value}')
+                suffix = '' if field == 'strength' else '_rating'
+                overrides.append(f'gear_{field}{suffix}={value}')
 
         if overrides:
             content = '\n'.join(overrides)
@@ -1000,15 +987,16 @@ class SimcComposer:
         """
         result = template_content
         player_import_mode = request_data.get('player_import_mode')
-        if player_import_mode != 'attribute_only':
-            # Real equipment/Armory is authoritative outside attribute search. Strip
-            # legacy template totals before slot rendering so an old base template
-            # cannot silently replace stats calculated from the equipped items.
-            result = re.sub(
-                r'(?mi)^\s*gear_(?:strength|crit|haste|mastery|versatility)(?:_rating)?\s*=.*(?:\n|$)',
-                '',
-                result,
-            )
+        # Stat values are owned by the explicit override slot for every source.
+        # Remove legacy template totals first so each requested override is emitted
+        # once, while omitted values continue to come from the actual equipment.
+        result = re.sub(
+            r'(?mi)^\s*gear_(?:strength|crit|haste|mastery|versatility)(?:_rating)?\s*=.*(?:\n|$)',
+            '',
+            result,
+        )
+        if self._get_slot_content('talents'):
+            result = re.sub(r'(?mi)^\s*talents\s*=.*(?:\n|$)', '', result)
         battlenet_actor_replaced = False
         if player_import_mode == 'battlenet':
             # Legacy upstream base templates contain the actor-scoped options
@@ -1276,6 +1264,15 @@ class SimcComposer:
                 elif key == 'ptr':
                     # PTR selection is owned by the frozen profile execution
                     # property and emitted once in global simulation options.
+                    continue
+                elif re.fullmatch(
+                    r'gear_(?:strength|crit|haste|mastery|versatility)(?:_rating)?',
+                    key,
+                    flags=re.IGNORECASE,
+                ):
+                    # Imported actor blocks may contain historical stat overrides.
+                    # The persisted Profile fields are the sole executable override
+                    # contract, so never let an imported value bypass that layer.
                     continue
                 elif key in equipment_slots:
                     equipment_lines.append(stripped)

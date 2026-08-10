@@ -74,7 +74,7 @@ class SimcComposerEquipmentSlotResolutionTests(ComposerTestCase):
         self.base = self.template()
         self.default_equipment()
 
-    def test_manual_equipment_does_not_emit_profile_total_stat_overrides(self):
+    def test_manual_equipment_emits_explicit_stat_overrides(self):
         base = self.base
         base.content = (
             '{player_identity}\n{equipment}\n{stat_overrides}\n'
@@ -87,13 +87,13 @@ class SimcComposerEquipmentSlotResolutionTests(ComposerTestCase):
         )
 
         self.assertIsNone(error)
-        self.assertNotIn('gear_strength=', content)
-        self.assertNotIn('gear_crit_rating=', content)
-        self.assertNotIn('gear_haste_rating=', content)
-        self.assertNotIn('gear_mastery_rating=', content)
-        self.assertNotIn('gear_versatility_rating=', content)
+        self.assertEqual(content.splitlines().count('gear_strength=93330'), 1)
+        self.assertEqual(content.splitlines().count('gear_crit_rating=10730'), 1)
+        self.assertEqual(content.splitlines().count('gear_haste_rating=18641'), 1)
+        self.assertEqual(content.splitlines().count('gear_mastery_rating=21785'), 1)
+        self.assertEqual(content.splitlines().count('gear_versatility_rating=6757'), 1)
 
-    def test_attribute_only_emits_explicit_secondary_overrides_but_not_strength(self):
+    def test_attribute_only_emits_every_explicit_stat_override(self):
         base = self.base
         base.content = (
             '{player_identity}\n{equipment}\n{stat_overrides}\n'
@@ -107,7 +107,7 @@ class SimcComposerEquipmentSlotResolutionTests(ComposerTestCase):
         )
 
         self.assertIsNone(error)
-        self.assertNotIn('gear_strength=', content)
+        self.assertEqual(content.splitlines().count('gear_strength=93330'), 1)
         self.assertIn('gear_haste_rating=678', content)
         self.assertIn('gear_versatility_rating=456', content)
         self.assertNotIn('gear_crit_rating=', content)

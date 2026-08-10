@@ -565,7 +565,7 @@ class SimcTaskServiceTests(TestCase):
         profile_version.refresh_from_db()
         self.assertIs(profile_version.payload['use_ptr'], True)
 
-    def test_manual_profile_freezes_null_attribute_overrides(self):
+    def test_manual_profile_freezes_explicit_stat_overrides(self):
         from botend.services.simc_task_service import create_task
 
         self.profile.gear_strength = None
@@ -588,9 +588,9 @@ class SimcTaskServiceTests(TestCase):
 
         payload = task.profile_version.payload
         self.assertIsNone(payload['gear_strength'])
-        self.assertIsNone(payload['gear_crit'])
+        self.assertEqual(payload['gear_crit'], 1234)
         self.assertIsNone(payload['gear_haste'])
-        self.assertIsNone(payload['gear_mastery'])
+        self.assertEqual(payload['gear_mastery'], 2345)
         self.assertIsNone(payload['gear_versatility'])
 
     def test_new_profile_without_authored_attributes_freezes_null_overrides(self):
@@ -617,7 +617,7 @@ class SimcTaskServiceTests(TestCase):
         self.assertIsNone(payload['gear_mastery'])
         self.assertIsNone(payload['gear_versatility'])
 
-    def test_task_request_clears_hidden_overrides_when_existing_profile_is_manual(self):
+    def test_task_request_preserves_omitted_overrides_for_manual_profile(self):
         from botend.services.simc_task_service import create_task_from_request
 
         self.profile.player_config_mode = 'manual_equipment'
@@ -640,14 +640,21 @@ class SimcTaskServiceTests(TestCase):
         )
 
         self.profile.refresh_from_db()
-        for field in ('gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility'):
-            self.assertIsNone(getattr(self.profile, field), field)
-            self.assertIsNone(task.profile_version.payload[field], field)
+        expected = {
+            'gear_strength': 93330,
+            'gear_crit': 10730,
+            'gear_haste': 18641,
+            'gear_mastery': 21785,
+            'gear_versatility': 6757,
+        }
+        for field, value in expected.items():
+            self.assertEqual(getattr(self.profile, field), value, field)
+            self.assertEqual(task.profile_version.payload[field], value, field)
 
-    def test_task_request_attribute_only_preserves_missing_and_saves_null_and_zero(self):
+    def test_task_request_preserves_missing_and_saves_null_and_zero_in_every_mode(self):
         from botend.services.simc_task_service import create_task_from_request
 
-        self.profile.player_config_mode = 'attribute_only'
+        self.profile.player_config_mode = 'manual_equipment'
         self.profile.gear_strength = 111
         self.profile.gear_crit = 222
         self.profile.gear_haste = 333
@@ -659,13 +666,13 @@ class SimcTaskServiceTests(TestCase):
             user_id=self.user_id,
             profile_fields={
                 'simc_profile_id': self.profile.id,
-                'player_config_mode': 'attribute_only',
+                'player_config_mode': 'manual_equipment',
                 'gear_strength': 0,
                 'gear_crit': None,
             },
             base_template_id=self.template.id,
             selected_apl_id=self.apl.id,
-            name='Attribute-only partial update task',
+            name='Cross-mode partial update task',
         )
 
         self.profile.refresh_from_db()

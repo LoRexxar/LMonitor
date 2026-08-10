@@ -99,6 +99,16 @@ class SimcDetailPageFrontendContractTests(TestCase):
         self.assertIn('row.mode_summary?.talent_candidate', detail)
         self.assertIn('talentCandidate?.talent', detail)
 
+    def test_profile_form_submits_stat_overrides_for_every_mode(self):
+        main = (ROOT / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
+        save_profile = main[main.index('async function simcWbSaveProfile()'):main.index(
+            'async function simcWbDeleteProfile',
+        )]
+
+        self.assertNotIn("if (payload.player_config_mode === 'attribute_only')", save_profile)
+        for field in ('gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility'):
+            self.assertIn(f"{field}: gv('{field}')", save_profile)
+
     def test_battlenet_comparison_shows_default_talent_and_checkable_loadouts(self):
         main = (ROOT / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
 

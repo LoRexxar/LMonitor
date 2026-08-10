@@ -277,7 +277,6 @@ def _build_profile_payload(profile: SimcProfile) -> dict:
     if profile.player_config_mode == 'manual_equipment' and player_equipment:
         from botend.services.simc_player_config import parse_simc_player_profile
         player_equipment = parse_simc_player_profile(player_equipment)['profile']['raw_player_block']
-    attribute_only = profile.player_config_mode == 'attribute_only'
     return {
         'name': profile.name,
         'spec': profile.spec,
@@ -288,14 +287,12 @@ def _build_profile_payload(profile: SimcProfile) -> dict:
         'battlenet_character': profile.battlenet_character,
         'player_equipment': player_equipment,
         'talent': profile.talent,
-        # Executable stat overrides are exclusive to attribute-only profiles.
-        # Normalize again at the immutable freeze boundary so historical or
-        # externally-written manual/BNet values cannot leak into a new task.
-        'gear_strength': profile.gear_strength if attribute_only else None,
-        'gear_crit': profile.gear_crit if attribute_only else None,
-        'gear_haste': profile.gear_haste if attribute_only else None,
-        'gear_mastery': profile.gear_mastery if attribute_only else None,
-        'gear_versatility': profile.gear_versatility if attribute_only else None,
+        # Explicit Profile overrides are frozen independently of player source.
+        'gear_strength': profile.gear_strength,
+        'gear_crit': profile.gear_crit,
+        'gear_haste': profile.gear_haste,
+        'gear_mastery': profile.gear_mastery,
+        'gear_versatility': profile.gear_versatility,
     }
 
 
@@ -515,17 +512,13 @@ def create_task_from_request(
                 profile.battlenet_character = profile_fields.get('battlenet_character', profile.battlenet_character or '')
                 profile.player_equipment = profile_fields.get('player_equipment', profile.player_equipment or '')
                 profile.talent = profile_fields.get('talent', profile.talent or '')
-                attribute_fields = (
+                override_fields = (
                     'gear_strength', 'gear_crit', 'gear_haste',
                     'gear_mastery', 'gear_versatility',
                 )
-                if profile.player_config_mode == 'attribute_only':
-                    for field in attribute_fields:
-                        if field in profile_fields:
-                            setattr(profile, field, profile_fields[field])
-                else:
-                    for field in attribute_fields:
-                        setattr(profile, field, None)
+                for field in override_fields:
+                    if field in profile_fields:
+                        setattr(profile, field, profile_fields[field])
                 profile.save()
         else:
             # Create new profile
@@ -534,8 +527,8 @@ def create_task_from_request(
                 raise TaskCreationError("Profile name is required when creating new profile")
 
             profile_mode = profile_fields.get('player_config_mode', 'manual_equipment')
-            attribute_values = {
-                field: profile_fields.get(field) if profile_mode == 'attribute_only' else None
+            override_values = {
+                field: profile_fields.get(field)
                 for field in (
                     'gear_strength', 'gear_crit', 'gear_haste',
                     'gear_mastery', 'gear_versatility',
@@ -552,7 +545,7 @@ def create_task_from_request(
                 battlenet_character=profile_fields.get('battlenet_character', ''),
                 player_equipment=profile_fields.get('player_equipment', ''),
                 talent=profile_fields.get('talent', ''),
-                **attribute_values,
+                **override_values,
                 is_active=True,
             )
 

@@ -2307,8 +2307,6 @@ function renderSimcWbPagination(containerId, currentPage, totalPages, loadFn) {
 /* ===== SimC 工具台 — 内联 CRUD ===== */
 let simcWbProfileFormMode = 'create'; // 'create' | 'edit'
 let simcWbProfileFormEditId = null;
-// 属性型配置没有玩家块；载入后在本地保留其天赋和绿字，供预览/任务提交使用。
-let simcWbAttributeOnlyConfig = null;
 let simcWbRuleFormMode = 'create';
 let simcWbRuleFormEditId = null;
 
@@ -2396,7 +2394,6 @@ function simcWbToggleProfileForm(mode, profileData) {
         formWrap.querySelector('input[name="gear_haste"]').value = '';
         formWrap.querySelector('input[name="gear_mastery"]').value = '';
         formWrap.querySelector('input[name="gear_versatility"]').value = '';
-        simcWbAttributeOnlyConfig = null;
     } else {
         simcWbProfileFormEditId = profileData.id;
         formWrap.querySelector('.simc-wb-form-title').textContent = '编辑配置 #' + profileData.id;
@@ -2476,14 +2473,12 @@ async function simcWbSaveProfile() {
         battlenet_character: gv('battlenet_character'),
         player_equipment: gv('player_equipment'),
         talent: gv('talent'),
+        gear_strength: gv('gear_strength') === '' ? null : parseInt(gv('gear_strength')),
+        gear_crit: gv('gear_crit') === '' ? null : parseInt(gv('gear_crit')),
+        gear_haste: gv('gear_haste') === '' ? null : parseInt(gv('gear_haste')),
+        gear_mastery: gv('gear_mastery') === '' ? null : parseInt(gv('gear_mastery')),
+        gear_versatility: gv('gear_versatility') === '' ? null : parseInt(gv('gear_versatility')),
     };
-    if (payload.player_config_mode === 'attribute_only') {
-        payload.gear_strength = gv('gear_strength') === '' ? null : parseInt(gv('gear_strength'));
-        payload.gear_crit = gv('gear_crit') === '' ? null : parseInt(gv('gear_crit'));
-        payload.gear_haste = gv('gear_haste') === '' ? null : parseInt(gv('gear_haste'));
-        payload.gear_mastery = gv('gear_mastery') === '' ? null : parseInt(gv('gear_mastery'));
-        payload.gear_versatility = gv('gear_versatility') === '' ? null : parseInt(gv('gear_versatility'));
-    }
     if (!payload.name) { showMessage('请输入配置名称', 'error'); return; }
     if (!payload.spec) { showMessage('请输入专精', 'error'); return; }
     const csrf = getCSRFToken();
@@ -2571,37 +2566,37 @@ async function simcWbEditProfile(id) {
 
 async function simcWbSaveCurrentSimulatorProfile() {
     const spec = (document.getElementById('simc-sim-spec')?.value || '').trim();
-    if (!spec) { showMessage('请先选择专精', 'error'); return; }
-    const mode = document.querySelector('input[name="simc-player-import-mode"]:checked')?.value || 'battlenet';
-    const attributeConfig = mode === 'attribute_only' ? syncSimcAttributeOnlyConfigFromInputs() : null;
-    if (mode === 'attribute_only' && !attributeConfig.talent) {
-        showMessage('请填写天赋构筑码后再保存', 'error'); return;
+    if (!spec) { showMessage('请先完成玩家来源预检', 'error'); return; }
+    let source;
+    try {
+        source = collectSimcPlayerSource();
+    } catch (error) {
+        showMessage(String(error.message || error), 'error');
+        return;
+    }
+    let mode;
+    if (source.type === 'battlenet') mode = 'battlenet';
+    else if (source.type === 'simc_addon') mode = 'manual_equipment';
+    else {
+        showMessage('当前来源已经是已保存配置，无需重复导入', 'info');
+        return;
     }
     const payload = {
-        name: spec + '-' + (mode === 'battlenet' ? (document.getElementById('simc-sim-battlenet-character')?.value || 'profile') : 'manual'),
-        spec: spec,
+        name: spec + '-' + (mode === 'battlenet' ? source.character : 'manual'),
+        spec,
         player_config_mode: mode,
         player_import_mode: mode,
-        battlenet_region: mode === 'battlenet' ? (document.getElementById('simc-sim-battlenet-region')?.value || '').trim() : '',
-        battlenet_realm: mode === 'battlenet' ? (document.getElementById('simc-sim-battlenet-realm')?.value || '').trim() : '',
-        battlenet_character: mode === 'battlenet' ? (document.getElementById('simc-sim-battlenet-character')?.value || '').trim() : '',
-        player_equipment: ['manual_equipment', 'attribute_only'].includes(mode) ? (document.getElementById('simc-sim-equipment')?.value || '') : '',
-        talent: attributeConfig?.talent || '',
-        gear_strength: attributeConfig?.gear_strength ?? null,
-        gear_crit: attributeConfig?.gear_crit ?? null,
-        gear_haste: attributeConfig?.gear_haste ?? null,
-        gear_mastery: attributeConfig?.gear_mastery ?? null,
-        gear_versatility: attributeConfig?.gear_versatility ?? null,
+        battlenet_region: mode === 'battlenet' ? source.region : '',
+        battlenet_realm: mode === 'battlenet' ? source.realm : '',
+        battlenet_character: mode === 'battlenet' ? source.character : '',
+        player_equipment: mode === 'manual_equipment' ? source.simc_code : '',
+        talent: '',
+        gear_strength: null,
+        gear_crit: null,
+        gear_haste: null,
+        gear_mastery: null,
+        gear_versatility: null,
     };
-    if (mode === 'battlenet' && (!payload.battlenet_region || !payload.battlenet_realm || !payload.battlenet_character)) {
-        showMessage('Battle.net 配置需要填写地区、服务器和角色名', 'error'); return;
-    }
-    if (mode === 'manual_equipment' && !payload.player_equipment.trim()) {
-        showMessage('手动配置需要填写装备/天赋玩家块', 'error'); return;
-    }
-    if (mode === 'attribute_only' && !payload.player_equipment.trim()) {
-        showMessage('属性配置需要填写冻结的玩家装备基线', 'error'); return;
-    }
     switchSimcWorkbenchL1Tab('workflow', 'profiles');
     simcWbToggleProfileForm('create');
     const formWrap = document.getElementById('simc-wb-profile-form');
@@ -2612,7 +2607,7 @@ async function simcWbSaveCurrentSimulatorProfile() {
     });
     simcWbSyncProfileFormMode();
     formWrap.querySelector('input[name="name"]')?.focus();
-    showMessage('请确认配置名称和内容后保存', 'info');
+    showMessage('请确认配置名称和内容，可按需填写最终天赋/属性覆盖后保存', 'info');
 }
 
 /* --- Rule CRUD --- */

@@ -1581,7 +1581,6 @@ class SimcTaskAPIView(View):
                 profile_fields = {
                     'name': f'本次 SimC 导入 · {target_spec}', 'spec': target_spec,
                     'player_config_mode': 'manual_equipment', 'player_equipment': baseline,
-                    'talent': str(parsed.get('talents', {}).get('build_code') or ''),
                 }
             elif source_type == 'battlenet':
                 try:
@@ -1605,14 +1604,15 @@ class SimcTaskAPIView(View):
                     'battlenet_realm': values.get('battlenet_realm', ''),
                     'battlenet_character': values.get('battlenet_character', ''),
                     'player_equipment': values.get('player_equipment', ''),
-                    'talent': values.get('talent', ''),
                 }
             else:
                 return JsonResponse({'success': False, 'error': '请选择玩家配置来源'}, status=400)
 
             # Transient profiles inherit their equipment/player snapshot by default.
-            # Only request-authored numeric fields become final SimC overrides.
+            # Only request-authored fields become final SimC overrides.
             if profile_fields is not None:
+                if talent:
+                    profile_fields['talent'] = talent
                 for field, value in (
                     ('gear_strength', gear_strength),
                     ('gear_crit', gear_crit),
@@ -2291,6 +2291,7 @@ class SimcComparisonTaskAPIView(View):
             target_class, target_spec = canonical_simc_spec_identity(data.get('spec'))
             transient_profile = False
             source_talent_candidates = []
+            attribute_baseline_values = None
             if source_type == 'saved_profile':
                 profile_id = player_source.get('profile_id') or profile_id
                 try:
@@ -2321,12 +2322,10 @@ class SimcComparisonTaskAPIView(View):
                         )
                     default_profile = default_rows.get()
                     baseline = validate_default_player_baseline(default_key, default_profile.player_equipment)
-                    parsed = parse_manual_player_config(baseline, target_spec)
                     profile_fields = {
                         'name': f'本次默认配置 · {target_spec}', 'spec': target_spec,
                         'use_ptr': default_profile.use_ptr,
                         'player_config_mode': 'manual_equipment', 'player_equipment': baseline,
-                        'talent': str(parsed.get('talents', {}).get('build_code') or ''),
                     }
                 elif source_type == 'simc_addon':
                     baseline = authoritative_player_baseline(player_source.get('simc_code'))
@@ -2341,17 +2340,16 @@ class SimcComparisonTaskAPIView(View):
                     if source_spec != target_spec or (source_class and source_class != target_class):
                         raise ValueError('SimC 代码专精与目标专精不一致')
                     raw_fields = parsed.get('raw_fields') or {}
+                    attribute_baseline_values = {
+                        stat: self._int(
+                            raw_fields.get(f'gear_{stat}', raw_fields.get(f'gear_{stat}_rating', 0)),
+                            stat,
+                        )
+                        for stat in self.ATTRIBUTE_STATS
+                    }
                     profile_fields = {
                         'name': f'本次 SimC 导入 · {target_spec}', 'spec': target_spec,
                         'player_config_mode': 'attribute_only', 'player_equipment': baseline,
-                        'talent': str(parsed.get('talents', {}).get('build_code') or ''),
-                        **{
-                            f'gear_{stat}': self._int(
-                                raw_fields.get(f'gear_{stat}', raw_fields.get(f'gear_{stat}_rating', 0)),
-                                stat,
-                            )
-                            for stat in self.ATTRIBUTE_STATS
-                        },
                     }
                 elif source_type == 'battlenet':
                     preflight = fetch_battlenet_character_preflight(
@@ -2379,24 +2377,26 @@ class SimcComparisonTaskAPIView(View):
                         if default_rows.count() != 1:
                             raise ValueError(f'专精 {default_key} 默认玩家配置需要且只能解析到一个')
                         frozen_baseline = validate_default_player_baseline(default_key, default_rows.get().player_equipment)
-                        frozen_parsed = parse_manual_player_config(frozen_baseline, target_spec)
+                        attribute_baseline_values = {
+                            stat: self._int(values.get(f'gear_{stat}', 0), stat)
+                            for stat in self.ATTRIBUTE_STATS
+                        }
                         profile_fields = {
-                            **values,
                             'name': f"本次 Battle.net 属性快照 · {values['battlenet_character']}",
                             'spec': target_spec,
                             'player_config_mode': 'attribute_only',
                             'player_equipment': frozen_baseline,
-                            'talent': str(frozen_parsed.get('talents', {}).get('build_code') or ''),
                         }
                     else:
                         frozen_baseline = validate_player_baseline(values.get('player_equipment'))
                         profile_fields = {
-                            **values,
                             'name': f"本次 Battle.net 玩家快照 · {values['battlenet_character']}",
                             'spec': target_spec,
                             'player_config_mode': 'manual_equipment',
+                            'battlenet_region': values.get('battlenet_region', ''),
+                            'battlenet_realm': values.get('battlenet_realm', ''),
+                            'battlenet_character': values.get('battlenet_character', ''),
                             'player_equipment': frozen_baseline,
-                            'talent': str(values.get('talent') or ''),
                         }
                 else:
                     raise ValueError('请选择玩家配置来源')
@@ -2427,12 +2427,13 @@ class SimcComparisonTaskAPIView(View):
                     raise ValueError('自动属性比较仅支持 attribute_only 或 Battle.net 配置')
                 if mode == 'attribute_only' and not str(profile.player_equipment or '').strip():
                     raise ValueError('自动属性比较需要 Profile 包含玩家装备基线')
-                if mode == 'attribute_only' and not profile.talent:
-                    raise ValueError('自动属性比较需要 Profile 包含天赋构筑码')
                 step = self._int(data.get('attribute_step'), '属性步长')
                 if step != self.ATTRIBUTE_SEARCH_STEP:
                     raise ValueError(f'四属性自动寻优固定使用 {self.ATTRIBUTE_SEARCH_STEP} 绿字步长')
-                values = {stat: int(getattr(profile, f'gear_{stat}', 0) or 0) for stat in self.ATTRIBUTE_STATS}
+                values = attribute_baseline_values or {
+                    stat: int(getattr(profile, f'gear_{stat}', 0) or 0)
+                    for stat in self.ATTRIBUTE_STATS
+                }
                 for label, ratings, is_base, candidate in self._attribute_variants(values, step):
                     specs.append({'label': label, 'is_base': is_base, 'gear': ratings, 'candidate': candidate})
             else:
@@ -3612,14 +3613,9 @@ class SimcProfileAPIView(View):
 
     @classmethod
     def _profile_numeric_values(cls, data, fallback=None, mode=None):
-        # Attribute overrides are a capability of attribute_only profiles only.
-        # Values sent by hidden/stale controls in Battle.net or manual-equipment
-        # requests must never become persisted execution overrides.
-        if mode != 'attribute_only':
-            return {
-                field: None
-                for field in ('gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility')
-            }
+        # Explicit stat totals are an optional final override layer shared by all
+        # Profile source modes. Omitted fields retain their stored value; null/empty
+        # values explicitly clear that single override.
         fallback = fallback or {}
         return {
             field: cls._coerce_profile_number(data, field, fallback.get(field))
@@ -3817,11 +3813,11 @@ class SimcProfileAPIView(View):
                         battlenet_character=getattr(source_profile, 'battlenet_character', '') or '',
                         player_equipment=getattr(source_profile, 'player_equipment', '') or '',
                         talent=source_profile.talent,
-                        gear_strength=source_profile.gear_strength if self._profile_mode(source_profile) == 'attribute_only' else None,
-                        gear_crit=source_profile.gear_crit if self._profile_mode(source_profile) == 'attribute_only' else None,
-                        gear_haste=source_profile.gear_haste if self._profile_mode(source_profile) == 'attribute_only' else None,
-                        gear_mastery=source_profile.gear_mastery if self._profile_mode(source_profile) == 'attribute_only' else None,
-                        gear_versatility=source_profile.gear_versatility if self._profile_mode(source_profile) == 'attribute_only' else None,
+                        gear_strength=source_profile.gear_strength,
+                        gear_crit=source_profile.gear_crit,
+                        gear_haste=source_profile.gear_haste,
+                        gear_mastery=source_profile.gear_mastery,
+                        gear_versatility=source_profile.gear_versatility,
                         is_active=source_profile.is_active,
                     )
                     
@@ -4080,17 +4076,13 @@ class SimcProfileAPIView(View):
                     output.extend(f'{slot}=,id={updates[slot][0]},ilevel={updates[slot][1]}' for slot in missing)
                 profile.player_equipment = '\n'.join(output)
                 update_fields = ['player_equipment']
-                if profile.player_config_mode != 'attribute_only':
-                    for field in ('gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility'):
-                        setattr(profile, field, None)
-                    update_fields.extend(('gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility'))
                 if hasattr(profile, 'update_time'):
                     update_fields.append('update_time')
                 profile.save(update_fields=update_fields)
                 return JsonResponse({'success': True, 'message': '装备配置更新成功'})
             
-            # 验证名称
-            name = data.get('name', '').strip()
+            # 验证名称；partial update 未提交名称时保留现值。
+            name = str(data.get('name', profile.name) or '').strip()
             if not name:
                 return JsonResponse({
                     'success': False,

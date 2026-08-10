@@ -516,11 +516,11 @@ class SimcProfileResourceListTests(TestCase):
         self.assertIsNone(listed[profile.id]['gear_strength'])
         self.assertIsNone(listed[profile.id]['gear_crit'])
 
-    def test_manual_equipment_cannot_persist_hidden_attribute_overrides(self):
+    def test_manual_equipment_persists_explicit_stat_overrides(self):
         response = self.client.post(
             '/api/simc-profile/',
             data=json.dumps({
-                'name': '手动装备不接受隐藏属性',
+                'name': '手动装备绿字覆盖',
                 'spec': 'fury',
                 'player_config_mode': 'manual_equipment',
                 'player_equipment': 'warrior="Tester"\\nhead=,id=1',
@@ -535,10 +535,13 @@ class SimcProfileResourceListTests(TestCase):
 
         self.assertEqual(response.status_code, 200, response.content)
         profile = SimcProfile.objects.get(pk=response.json()['data']['id'])
-        for field in ('gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility'):
-            self.assertIsNone(getattr(profile, field), field)
+        self.assertEqual(profile.gear_strength, 93330)
+        self.assertEqual(profile.gear_crit, 10730)
+        self.assertEqual(profile.gear_haste, 18641)
+        self.assertEqual(profile.gear_mastery, 21785)
+        self.assertEqual(profile.gear_versatility, 6757)
 
-    def test_switching_from_attribute_only_to_manual_equipment_clears_overrides(self):
+    def test_switching_profile_source_preserves_omitted_overrides(self):
         profile = SimcProfile.objects.create(
             user_id=self.user.id,
             name='属性转手动装备',
@@ -568,18 +571,37 @@ class SimcProfileResourceListTests(TestCase):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertTrue(response.json()['success'], response.content)
         profile.refresh_from_db()
-        for field in ('gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility'):
-            self.assertIsNone(getattr(profile, field), field)
+        self.assertEqual(profile.gear_strength, 0)
+        self.assertEqual(profile.gear_crit, 10730)
+        self.assertEqual(profile.gear_haste, 18641)
+        self.assertEqual(profile.gear_mastery, 21785)
+        self.assertEqual(profile.gear_versatility, 6757)
+        self.assertEqual(profile.talent, 'BUILD')
 
-    def test_attribute_only_persists_explicit_zero_override(self):
+        clear_response = self.client.put(
+            '/api/simc-profile/',
+            data=json.dumps({
+                'id': profile.id,
+                'talent': '',
+                'gear_strength': None,
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(clear_response.status_code, 200, clear_response.content)
+        self.assertTrue(clear_response.json()['success'], clear_response.content)
+        profile.refresh_from_db()
+        self.assertEqual(profile.talent, '')
+        self.assertIsNone(profile.gear_strength)
+        self.assertEqual(profile.gear_crit, 10730)
+
+    def test_every_mode_persists_explicit_zero_override(self):
         numeric = SimcProfileAPIView._profile_numeric_values(
             {'gear_strength': 0},
-            mode='attribute_only',
         )
         self.assertEqual(numeric['gear_strength'], 0)
         self.assertIsNone(numeric['gear_crit'])
 
-    def test_equipment_update_clears_hidden_manual_overrides(self):
+    def test_equipment_update_preserves_explicit_overrides(self):
         profile = SimcProfile.objects.create(
             user_id=self.user.id,
             name='装备快速更新清理',
@@ -605,10 +627,13 @@ class SimcProfileResourceListTests(TestCase):
         self.assertEqual(response.status_code, 200)
         profile.refresh_from_db()
         self.assertIn('head=,id=2,ilevel=200', profile.player_equipment)
-        for field in ('gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility'):
-            self.assertIsNone(getattr(profile, field), field)
+        self.assertEqual(profile.gear_strength, 93330)
+        self.assertEqual(profile.gear_crit, 10730)
+        self.assertEqual(profile.gear_haste, 18641)
+        self.assertEqual(profile.gear_mastery, 21785)
+        self.assertEqual(profile.gear_versatility, 6757)
 
-    def test_copying_manual_profile_does_not_propagate_hidden_overrides(self):
+    def test_copying_manual_profile_preserves_explicit_overrides(self):
         source = SimcProfile.objects.create(
             user_id=self.user.id,
             name='历史污染手动配置',
@@ -630,8 +655,11 @@ class SimcProfileResourceListTests(TestCase):
 
         self.assertEqual(response.status_code, 200, response.content)
         copied = SimcProfile.objects.get(pk=response.json()['data']['id'])
-        for field in ('gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility'):
-            self.assertIsNone(getattr(copied, field), field)
+        self.assertEqual(copied.gear_strength, 93330)
+        self.assertEqual(copied.gear_crit, 10730)
+        self.assertEqual(copied.gear_haste, 18641)
+        self.assertEqual(copied.gear_mastery, 21785)
+        self.assertEqual(copied.gear_versatility, 6757)
 
     def test_copying_attribute_only_profile_preserves_null_and_zero(self):
         source = SimcProfile.objects.create(
@@ -1658,14 +1686,18 @@ main_hand=,id=222222
         profile = task.profile_version.payload
         self.assertEqual(profile['player_config_mode'], 'attribute_only')
         self.assertEqual(profile['spec'], 'fury')
-        self.assertEqual(profile['talent'], 'IMPORT_BUILD')
+        self.assertEqual(profile['talent'], '')
         self.assertEqual(
             [profile['gear_crit'], profile['gear_haste'], profile['gear_mastery'], profile['gear_versatility']],
-            [1000, 2000, 3000, 4000],
+            [None, None, None, None],
         )
         self.assertNotIn('actions=', profile['player_equipment'])
         self.assertEqual(task.simulation_runs.count(), 0)
         self.assertEqual(len(task.mode_params['initial_candidates']), 13)
+        self.assertEqual(
+            task.mode_params['initial_candidates'][0]['candidate_params']['attribute_ratings'],
+            {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000},
+        )
 
     @patch('botend.dashboard.api.fetch_battlenet_character_preflight')
     def test_auto_attribute_batch_accepts_battlenet_source_with_frozen_ratings(self, preflight):
@@ -1694,9 +1726,13 @@ main_hand=,id=222222
         profile = task.profile_version.payload
         self.assertEqual(profile['player_config_mode'], 'attribute_only')
         self.assertIn('warrior="FrozenArmory"', profile['player_equipment'])
-        self.assertEqual([profile['gear_crit'], profile['gear_haste'], profile['gear_mastery'], profile['gear_versatility']], [1000, 2000, 3000, 4000])
+        self.assertEqual([profile['gear_crit'], profile['gear_haste'], profile['gear_mastery'], profile['gear_versatility']], [None, None, None, None])
         self.assertEqual(task.simulation_runs.count(), 0)
         self.assertEqual(len(task.mode_params['initial_candidates']), 13)
+        self.assertEqual(
+            task.mode_params['initial_candidates'][0]['candidate_params']['attribute_ratings'],
+            {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000},
+        )
         from botend.services.simc_task_service import initialize_task_runs
         runs = initialize_task_runs(task)
         monitor = SimcMonitor(None, None)

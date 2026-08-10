@@ -43,12 +43,10 @@ def tearDownModule():
 
 
 class SimcReferenceRunContractTests(TestCase):
-    def test_manual_export_does_not_emit_zero_secondary_stat_overrides(self):
+    def test_manual_export_without_explicit_stats_does_not_emit_overrides(self):
         profile = SimcProfile.objects.create(
             user_id=1, name='addon', spec='fury', player_config_mode='manual_equipment',
             player_equipment='warrior="Tester"\nhead=,id=1\noff_hand=,id=2',
-            gear_strength=93330, gear_crit=0, gear_haste=0, gear_mastery=0,
-            gear_versatility=0,
         )
         payload = _build_profile_payload(profile)
         self.assertIsNone(payload['gear_strength'])
@@ -57,7 +55,48 @@ class SimcReferenceRunContractTests(TestCase):
         self.assertIsNone(payload['gear_mastery'])
         self.assertIsNone(payload['gear_versatility'])
 
-    def test_attribute_composer_never_emits_primary_stat_override(self):
+    def test_manual_profile_freezes_and_composes_explicit_talent_and_secondary_overrides(self):
+        profile = SimcProfile.objects.create(
+            user_id=1, name='manual overrides', spec='fury',
+            player_config_mode='manual_equipment',
+            player_equipment=(
+                'warrior="Tester"\nspec=fury\n'
+                'talents=STALE_BUILD\nhead=,id=1\n'
+                'gear_crit_rating=1\ngear_haste_rating=2\n'
+                'gear_mastery_rating=3\ngear_versatility_rating=4'
+            ),
+            talent='SAVED_BUILD', gear_strength=93330,
+            gear_crit=10730, gear_haste=18641,
+            gear_mastery=21785, gear_versatility=6757,
+        )
+
+        payload = _build_profile_payload(profile)
+        self.assertEqual(payload['gear_strength'], 93330)
+        self.assertEqual(payload['gear_crit'], 10730)
+        self.assertEqual(payload['gear_haste'], 18641)
+        self.assertEqual(payload['gear_mastery'], 21785)
+        self.assertEqual(payload['gear_versatility'], 6757)
+
+        final, _manifest, error = SimcComposer(1).compose({
+            **payload,
+            'player_import_mode': payload['player_config_mode'],
+            'base_template_content': '{player_config}',
+            '_result_file_path': 'simc/result.html',
+        })
+        self.assertIsNone(error)
+        self.assertEqual(final.splitlines().count('talents=SAVED_BUILD'), 1)
+        self.assertNotIn('STALE_BUILD', final)
+        self.assertEqual(final.splitlines().count('gear_strength=93330'), 1)
+        self.assertEqual(final.splitlines().count('gear_crit_rating=10730'), 1)
+        self.assertEqual(final.splitlines().count('gear_haste_rating=18641'), 1)
+        self.assertEqual(final.splitlines().count('gear_mastery_rating=21785'), 1)
+        self.assertEqual(final.splitlines().count('gear_versatility_rating=6757'), 1)
+        rendered_lines = set(final.splitlines())
+        for stale in ('gear_crit_rating=1', 'gear_haste_rating=2',
+                      'gear_mastery_rating=3', 'gear_versatility_rating=4'):
+            self.assertNotIn(stale, rendered_lines)
+
+    def test_attribute_composer_emits_explicit_primary_stat_override(self):
         request = {
             'spec': 'fury', 'player_import_mode': 'attribute_only',
             'player_equipment': (
@@ -72,7 +111,7 @@ class SimcReferenceRunContractTests(TestCase):
         }
         final, _manifest, error = SimcComposer(1).compose(request)
         self.assertIsNone(error)
-        self.assertNotRegex(final, r'(?m)^\s*gear_strength\s*=')
+        self.assertEqual(final.splitlines().count('gear_strength=0'), 1)
         self.assertIn('gear_crit_rating=1200', final)
 
     def setUp(self):
