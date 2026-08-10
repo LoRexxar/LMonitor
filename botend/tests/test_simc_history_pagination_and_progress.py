@@ -87,6 +87,10 @@ class SimcHistoryPaginationContractTests(unittest.TestCase):
         self.assertNotIn('max-height', cases_css)
         self.assertNotIn('overflow-y', cases_css)
 
+    def test_history_task_action_explicitly_advertises_input_preview(self):
+        self.assertIn('查看详情（含输入）', JS)
+        self.assertIn('data-run-input', JS)
+
     def test_batch_compare_is_rendered_inline(self):
         self.assertIn('data-wb-action="compare"', JS)
         self.assertIn("/api/simc-regular-compare/?task_id=", JS)

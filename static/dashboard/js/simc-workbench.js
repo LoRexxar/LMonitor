@@ -236,7 +236,7 @@
                     <div class="simc-task-card__meta"><span class="simc-task-card__scenario" title="战斗场景：${esc(row.battle_scenario || '—')}"><b>场景</b><em>${esc(row.battle_scenario || '—')}</em></span><span class="simc-task-status ${statusClass}"><i class="fas ${statusIcon}" aria-hidden="true"></i>${esc(row.status_label)}</span><time><i class="far fa-calendar-alt" aria-hidden="true"></i>${esc(row.created_at)}</time></div>
                     ${progressBar}
                 </div>
-                <div class="simc-task-card__actions"><a href="/dashboard/simc/${resource}/${idOf(row.id)}/" target="_blank" rel="noopener noreferrer" class="simc-touch-action simc-task-primary-action"><i class="fas fa-chart-line" aria-hidden="true"></i><span>查看结果</span></a>${pendingActions}${rerunButton}</div>
+                <div class="simc-task-card__actions"><a href="/dashboard/simc/${resource}/${idOf(row.id)}/" target="_blank" rel="noopener noreferrer" class="simc-touch-action simc-task-primary-action"><i class="fas fa-list-alt" aria-hidden="true"></i><span>查看详情（含输入）</span></a>${pendingActions}${rerunButton}</div>
             </article>`;
         }).join('')}</div>` : empty('暂无记录');
 
