@@ -237,22 +237,26 @@
         #simc-workbench .simc-task-card { grid-template-columns: minmax(0, 1fr) auto; gap: .75rem; padding: .55rem .75rem; border-radius: .75rem; }
         #simc-workbench .simc-task-card__main { display: flex; min-width: 0; align-items: center; gap: .65rem; }
         #simc-workbench .simc-task-card__eyebrow { flex: 0 0 auto; margin-bottom: 0; }
-        #simc-workbench .simc-task-card__title { flex: 1 1 14rem; min-width: 5rem; font-size: .86rem; }
-        #simc-workbench .simc-task-card__resources { display: grid; grid-template-columns: repeat(3, minmax(6rem, 1fr)); flex: 1 1 24rem; min-width: 0; gap: .35rem; color: #475569; font-size: .68rem; }
-        #simc-workbench .simc-task-card__resources span { display: flex; min-width: 0; align-items: baseline; gap: .25rem; overflow: hidden; white-space: nowrap; }
+        #simc-workbench .simc-task-card__identity { display: flex; flex: 1 1 24rem; min-width: 0; flex-direction: column; gap: .2rem; }
+        #simc-workbench .simc-task-card__title { flex: 0 1 auto; min-width: 0; overflow: visible; font-size: .86rem; overflow-wrap: anywhere; text-overflow: clip; white-space: normal; }
+        #simc-workbench .simc-task-card__resources { display: flex; flex: 0 1 auto; min-width: 0; flex-direction: column; gap: .12rem; color: #475569; font-size: .68rem; }
+        #simc-workbench .simc-task-card__resources span { display: grid; min-width: 0; grid-template-columns: 3.5rem minmax(0, 1fr); align-items: baseline; gap: .25rem; }
         #simc-workbench .simc-task-card__resources b { flex: 0 0 auto; color: #94a3b8; font-size: .62rem; font-weight: 800; }
-        #simc-workbench .simc-task-card__resources em { min-width: 0; overflow: hidden; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
+        #simc-workbench .simc-task-card__resources em { min-width: 0; font-style: normal; overflow-wrap: anywhere; }
         #simc-workbench .simc-task-card__meta { flex: 0 0 auto; margin-top: 0; gap: .45rem; white-space: nowrap; }
+        #simc-workbench .simc-task-card__scenario { display: inline-flex; min-width: 0; align-items: baseline; gap: .25rem; }
+        #simc-workbench .simc-task-card__scenario b { color: #94a3b8; font-size: .62rem; font-weight: 800; }
+        #simc-workbench .simc-task-card__scenario em { max-width: 12rem; overflow: hidden; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
         #simc-workbench .simc-task-progress { flex: 0 1 9rem; min-width: 5rem; margin-top: 0; }
         #simc-workbench .simc-task-card__actions { flex: 0 0 auto; gap: .35rem; }
         #simc-workbench .simc-task-card__actions .simc-touch-action { min-height: 32px; padding: .35rem .55rem; font-size: .7rem; }
         @media (max-width: 1100px) {
-            #simc-workbench .simc-task-card__resources { grid-template-columns: repeat(3, minmax(4rem, 1fr)); flex-basis: 18rem; }
+            #simc-workbench .simc-task-card__identity { flex-basis: 18rem; }
         }
         @media (max-width: 760px) {
             #simc-workbench .simc-task-card { grid-template-columns: 1fr; }
             #simc-workbench .simc-task-card__main { flex-wrap: wrap; }
-            #simc-workbench .simc-task-card__resources { order: 3; width: 100%; flex-basis: 100%; }
+            #simc-workbench .simc-task-card__identity { order: 3; width: 100%; flex-basis: 100%; }
             #simc-workbench .simc-task-card__meta { order: 4; }
             #simc-workbench .simc-task-card__actions { justify-content: flex-start; }
         }
@@ -424,7 +428,7 @@
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
     <script src="{% static 'dashboard/js/main.js' %}?v=20260808_wow_daily_list"></script>
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806c" defer></script>
-    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260807_resource_simulation"></script>
+    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260810_history_identity"></script>
     <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260808_candidate_profile"></script>
     {% if user.is_staff or user.is_superuser %}
     <link rel="stylesheet" href="{% static 'dashboard/css/mythic_planner.css' %}?v=20260806a">

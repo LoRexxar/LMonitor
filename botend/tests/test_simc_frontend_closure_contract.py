@@ -46,6 +46,20 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertIn("task_ids=${ids.join(',')}", WB)
         self.assertIn("const taskIds = getUrlParameter('task_ids') || ''", (ROOT / "templates/simc_regular_compare.html").read_text(encoding="utf-8"))
 
+    def test_history_task_identity_stacks_title_apl_and_profile(self):
+        history = WB[WB.index("const resourceMeta ="):WB.index("function scheduleTaskRefresh")]
+        resources = history[history.index("const resourceMeta ="):history.index("return `<article")]
+        identity_start = history.index('class="simc-task-card__identity"')
+        identity_end = history.index('</div>', history.index('${resourceMeta}', identity_start))
+        identity = history[identity_start:identity_end]
+
+        self.assertLess(resources.index('APL'), resources.index('Profile'))
+        self.assertNotIn('场景', resources)
+        self.assertLess(identity.index('simc-task-card__title'), identity.index('${resourceMeta}'))
+        self.assertIn('#simc-workbench .simc-task-card__identity {', HTML)
+        self.assertIn('flex-direction: column', HTML)
+        self.assertIn('overflow-wrap: anywhere', HTML)
+
     def test_task_detail_displays_frozen_resource_names_with_version_trace(self):
         reference_card = DETAIL[DETAIL.index("card('引用版本'"):DETAIL.index("function renderTaskComparison")]
         self.assertIn('row.profile_name', reference_card)
