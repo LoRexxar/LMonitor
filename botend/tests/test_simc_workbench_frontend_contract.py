@@ -347,6 +347,17 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         ):
             self.assertIn(token, detail)
 
+    def test_failed_task_detail_explains_missing_native_report(self):
+        start = JS.index('async function showTaskDetail')
+        end = JS.index('\n    async function', start + 20)
+        detail = JS[start:end]
+        self.assertIn('本次失败未生成原生报告', detail)
+        self.assertIn('run.error_summary', detail)
+        self.assertIn('reportArtifact?.can_preview === true', detail)
+        self.assertIn('run.error_summary', DETAIL_JS)
+        self.assertIn('本次失败未生成原生报告', DETAIL_JS)
+        self.assertIn('模拟执行失败', DETAIL_JS)
+
     def test_standalone_task_detail_renders_sample_skill_sequence(self):
         for token in (
             'report.sample_sequence', '技能施放序列', 'action_list',

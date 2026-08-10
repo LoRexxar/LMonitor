@@ -203,6 +203,33 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
         self.assertEqual(self.client.get(
             f'/api/simc-workbench/tasks/{foreign_task.id}/').status_code, 404)
 
+    def test_failed_task_detail_exposes_safe_simc_diagnostic_without_fake_report(self):
+        task = SimcTask.objects.create(
+            user_id=self.user.id, name='Failed initialization', simc_profile_id=0,
+            backend=self.backend, current_status=3, task_type=1, mode='normal',
+            error_detail='SimC execution failed', result_file='allocated-only.html',
+        )
+        run = SimulationRun.objects.create(
+            task=task, sequence=1, candidate_key='normal', status='failed',
+            error_detail=(
+                "SimC执行失败\n返回码: 30\n错误输出: Error: Initialization error: "
+                "Actor 'MID1_Warrior_Fury': Invalid expression "
+                "'buff.fury_mid2_4pc_crit.stack<2': Buff 'fury_mid2_4pc_crit' not found.\n"
+                "command=/private/simc stderr=/private/input.simc"
+            ),
+        )
+
+        response = self.client.get(f'/api/simc-workbench/tasks/{task.id}/')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()['data']
+        self.assertEqual(payload['artifacts'], [])
+        self.assertIsNone(payload['report_artifact_id'])
+        self.assertEqual(payload['runs'][0]['id'], run.id)
+        self.assertIn("Buff 'fury_mid2_4pc_crit' not found", payload['runs'][0]['error_summary'])
+        self.assertNotIn('/private/', payload['runs'][0]['error_summary'])
+        self.assertNotIn('command=', payload['runs'][0]['error_summary'])
+
     def test_artifact_list_is_paginated_filtered_and_owner_isolated(self):
         owner_task = SimcTask.objects.create(
             user_id=self.user.id, name='Owner Task', simc_profile_id=0)

@@ -5968,6 +5968,21 @@ class SimcWorkbenchAPIView(View):
         return 0
 
     @staticmethod
+    def _safe_run_error_summary(error_detail):
+        """Expose the first native SimC diagnostic without leaking execution context."""
+        text = str(error_detail or '')
+        match = re.search(r'错误输出\s*:\s*([^\r\n]+)', text, flags=re.IGNORECASE)
+        if not match:
+            return '任务执行失败'
+        diagnostic = match.group(1).strip()
+        diagnostic = re.sub(r'^Error\s*:\s*', '', diagnostic, flags=re.IGNORECASE)
+        diagnostic = re.split(r'\s+(?:command|stderr|stdout)\s*=', diagnostic, maxsplit=1)[0]
+        diagnostic = re.sub(r'https?://\S+', '[已隐藏链接]', diagnostic)
+        diagnostic = re.sub(r'(?<![\w.])/(?:[^\s/:]+/)+[^\s:]*', '[已隐藏路径]', diagnostic)
+        diagnostic = re.sub(r'\b[A-Za-z]:\\(?:[^\s\\]+\\)*[^\s]*', '[已隐藏路径]', diagnostic)
+        return diagnostic.strip()[:800] or '任务执行失败'
+
+    @staticmethod
     def _run_row(run):
         params = run.candidate_params if isinstance(run.candidate_params, dict) else {}
         return {
@@ -5980,7 +5995,10 @@ class SimcWorkbenchAPIView(View):
             'status': run.status,
             'input_hash': run.input_hash,
             'result_summary': SimcWorkbenchAPIView._safe_summary(run.result_summary or {}),
-            'error_summary': '任务执行失败' if run.status == 'failed' else '',
+            'error_summary': (
+                SimcWorkbenchAPIView._safe_run_error_summary(run.error_detail)
+                if run.status == 'failed' else ''
+            ),
             'started_at': _fmt_dt(run.started_at),
             'completed_at': _fmt_dt(run.completed_at),
         }
