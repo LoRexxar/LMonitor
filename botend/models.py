@@ -989,9 +989,11 @@ class SimcApl(models.Model):
     """
     id = models.BigAutoField(primary_key=True)
     SOURCE_SIMC_UPSTREAM = 'simc_upstream'
+    SOURCE_SIMC_BUILTIN = 'simc_builtin'
     SOURCE_USER = 'user'
     SOURCE_CHOICES = (
         (SOURCE_SIMC_UPSTREAM, 'SimC源码同步'),
+        (SOURCE_SIMC_BUILTIN, 'SimC内置APL'),
         (SOURCE_USER, '用户维护'),
     )
     VALIDATION_DRAFT = 'draft'
