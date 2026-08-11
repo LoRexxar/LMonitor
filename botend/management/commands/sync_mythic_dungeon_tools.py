@@ -52,12 +52,10 @@ def load_payload_seed(path):
             if not isinstance(floor, dict):
                 continue
             floor_key = str(floor.get('key') or '')
-            background_url = str(floor.get('background_url') or '')
-            if (
-                floor_key
-                and background_url
-                and not references_legacy_oss(background_url)
-            ):
+            background_url = _preserved_floor_url(
+                floor.get('background_url'),
+            )
+            if floor_key and background_url:
                 floor_background_urls[(dungeon_key, floor_key)] = background_url
         for enemy in dungeon.get('enemies') or []:
             if not isinstance(enemy, dict):
@@ -115,7 +113,15 @@ def _without_legacy_asset_snapshot(metadata):
 
 def _preserved_floor_url(value):
     value = str(value or '').strip()
-    return value if value and not references_legacy_oss(value) else ''
+    if not value or references_legacy_oss(value):
+        return ''
+    expected_static = f'/vendor/mdt-{SOURCE_TAG}/'
+    if '/vendor/mdt-' in value and expected_static not in value:
+        return ''
+    expected_version = f'/versions/mdt-{SOURCE_TAG.replace(".", "-")}/'
+    if '/versions/mdt-' in value and expected_version not in value:
+        return ''
+    return value
 
 
 class Command(BaseCommand):

@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-SOURCE_TAG = '6.2.0-alpha5'
-SOURCE_COMMIT = '94473b391b6fb7563f8466c4a596a11ef6218a12'
+SOURCE_TAG = '6.2.0-alpha6'
+SOURCE_COMMIT = 'b594e9047949e84cc1822ab6cba37c0d5dc96b4a'
 SOURCE_URL = f'https://github.com/Nnoggie/MythicDungeonTools/tree/{SOURCE_TAG}'
 MAP_SOURCE_WIDTH = 840
 MAP_SOURCE_HEIGHT = 560

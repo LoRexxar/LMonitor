@@ -1779,7 +1779,7 @@
                     <div><strong>分享：</strong>可复制 <kbd>!LMDT1!</kbd> 路线字符串，也可生成无需登录的站内短链接；两者都包含拉怪组和地图标注。</div>
                     <div><strong>实时协作：</strong>开启后，同一浏览器的多个标签页会通过 BroadcastChannel 同步当前路线。</div>
                     <div><strong>快捷键：</strong><kbd>V</kbd> 选择、<kbd>H</kbd> 拖动、<kbd>B</kbd> 框选、<kbd>P</kbd> 画笔、<kbd>L</kbd> 直线、<kbd>A</kbd> 箭头、<kbd>N</kbd> 文字、<kbd>E</kbd> 擦除、<kbd>Ctrl+Z</kbd> 撤销。</div>
-                    <div><strong>数据来源：</strong>副本地图、怪物、刷新点、编队、进度、技能 ID、特性和 POI 直接转换自 <a href="https://github.com/Nnoggie/MythicDungeonTools/tree/6.2.0-alpha5" target="_blank" rel="noopener noreferrer">MythicDungeonTools 6.2.0-alpha5</a>，按 GPLv2 保留来源。</div>
+                    <div><strong>数据来源：</strong>副本地图、怪物、刷新点、编队、进度、技能 ID、特性和 POI 直接转换自 <a href="https://github.com/Nnoggie/MythicDungeonTools/tree/6.2.0-alpha6" target="_blank" rel="noopener noreferrer">MythicDungeonTools 6.2.0-alpha6</a>，按 GPLv2 保留来源。</div>
                     <div><strong>技能资料：</strong>技能名称、基础说明和图标来自固定客户端 build 的 <a href="https://wago.tools/" target="_blank" rel="noopener noreferrer">Wago DB2</a> 快照；完整中文数值说明由 <a href="https://www.wowhead.com/cn" target="_blank" rel="noopener noreferrer">Wowhead</a> 已渲染 Tooltip 补全，并记录来源 build。</div>
                 </div>
             `,

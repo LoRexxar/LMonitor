@@ -96,6 +96,13 @@ class Command(BaseCommand):
             help='只同步指定地下城，可重复传入；默认同步版本内全部地下城',
         )
         parser.add_argument(
+            '--spell-id',
+            action='append',
+            type=int,
+            default=[],
+            help='只同步指定技能 ID，可重复传入；适合新版本增量补全',
+        )
+        parser.add_argument(
             '--build',
             default='latest',
             help='WoW build；默认自动解析所选分支的最新已处理版本，也可传入明确版本',
@@ -185,9 +192,24 @@ class Command(BaseCommand):
             ability_queryset = ability_queryset.filter(
                 enemy__dungeon__key__in=dungeon_keys,
             )
+        requested_spell_ids = {
+            int(spell_id)
+            for spell_id in options.get('spell_id') or []
+            if int(spell_id) > 0
+        }
+        if requested_spell_ids:
+            ability_queryset = ability_queryset.filter(
+                spell_id__in=requested_spell_ids,
+            )
         spell_ids = set(ability_queryset.values_list('spell_id', flat=True))
         if not spell_ids:
             raise CommandError(f'数据版本 {version.key} 没有可补全的怪物技能')
+        missing_requested_spell_ids = sorted(requested_spell_ids - spell_ids)
+        if missing_requested_spell_ids:
+            raise CommandError(
+                '数据版本不包含指定技能 ID: '
+                + ', '.join(str(spell_id) for spell_id in missing_requested_spell_ids)
+            )
 
         dump_root = Path(str(options.get('dump_root') or '.cache/wago_db2_dumps'))
         if not dump_root.is_absolute():

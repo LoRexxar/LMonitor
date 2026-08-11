@@ -72,7 +72,7 @@ from botend.management.commands.sync_mythic_dungeon_tools import (
     load_payload_seed,
 )
 from botend.wow.spell_text import SpellTextResolver
-from scripts.import_mdt_alpha5 import validate_package as validate_alpha5_package
+from scripts.import_mdt_alpha6 import validate_package as validate_alpha6_package
 
 
 def demo_payload():
@@ -87,7 +87,7 @@ def demo_payload():
 
 
 class MythicPlannerImportTests(TestCase):
-    def test_builtin_alpha5_package_imports_complete_dataset(self):
+    def test_builtin_alpha6_package_imports_complete_dataset(self):
         call_command(
             'import_mythic_dungeon_data',
             activate=True,
@@ -96,31 +96,31 @@ class MythicPlannerImportTests(TestCase):
         )
 
         version = MythicDungeonDataVersion.objects.get(
-            key='mdt-6-2-0-alpha5',
+            key='mdt-6-2-0-alpha6',
             is_active=True,
         )
-        self.assertEqual(version.metadata['source_tag'], '6.2.0-alpha5')
+        self.assertEqual(version.metadata['source_tag'], '6.2.0-alpha6')
         self.assertEqual(version.dungeons.filter(is_active=True).count(), 16)
         self.assertEqual(
             MythicDungeonEnemy.objects.filter(
                 dungeon__data_version=version,
                 is_active=True,
             ).count(),
-            467,
+            468,
         )
         self.assertEqual(
             MythicDungeonSpawn.objects.filter(
                 enemy__dungeon__data_version=version,
                 is_active=True,
             ).count(),
-            3012,
+            2932,
         )
         self.assertEqual(
             MythicDungeonAbility.objects.filter(
                 enemy__dungeon__data_version=version,
                 is_active=True,
             ).count(),
-            1648,
+            1674,
         )
         self.assertFalse(
             MythicDungeonAbility.objects.filter(
@@ -129,7 +129,7 @@ class MythicPlannerImportTests(TestCase):
             ).exists()
         )
 
-    def test_builtin_alpha5_assets_resolve_to_current_short_oss_keys(self):
+    def test_builtin_alpha6_assets_resolve_to_current_short_oss_keys(self):
         call_command(
             'import_mythic_dungeon_data',
             activate=True,
@@ -137,12 +137,12 @@ class MythicPlannerImportTests(TestCase):
             verbosity=0,
         )
         version = MythicDungeonDataVersion.objects.get(
-            key='mdt-6-2-0-alpha5',
+            key='mdt-6-2-0-alpha6',
         )
         jobs, stats = SyncMythicDungeonAssetsCommand()._build_jobs(
             version=version,
             base_prefix='mythic-planner',
-            version_prefix='mythic-planner/versions/mdt-6-2-0-alpha5',
+            version_prefix='mythic-planner/versions/mdt-6-2-0-alpha6',
             oss_base_url='https://oss.wowdaily.cn/',
             force=False,
         )
@@ -540,16 +540,16 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             / 'data'
             / 'mythic_planner'
             / 'vendor'
-            / 'mythic-dungeon-tools-6.2.0-alpha5'
+            / 'mythic-dungeon-tools-6.2.0-alpha6'
         )
 
     def test_fixed_upstream_snapshot_converts_real_dungeons_and_assets(self):
         payload = build_payload(self.source_root())
 
-        self.assertEqual(payload['data_version']['key'], 'mdt-6-2-0-alpha5')
+        self.assertEqual(payload['data_version']['key'], 'mdt-6-2-0-alpha6')
         self.assertEqual(
             payload['data_version']['metadata']['source_commit'],
-            '94473b391b6fb7563f8466c4a596a11ef6218a12',
+            'b594e9047949e84cc1822ab6cba37c0d5dc96b4a',
         )
         self.assertEqual(payload['data_version']['metadata']['license'], 'GPL-2.0-only')
         self.assertEqual(len(payload['dungeons']), 16)
@@ -569,7 +569,7 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
         )
         self.assertEqual(
             sum(len(dungeon['enemies']) for dungeon in payload['dungeons']),
-            467,
+            468,
         )
         self.assertEqual(
             sum(
@@ -577,7 +577,7 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
                 for dungeon in payload['dungeons']
                 for enemy in dungeon['enemies']
             ),
-            3012,
+            2932,
         )
         murder_row = next(
             dungeon for dungeon in payload['dungeons'] if dungeon['key'] == 'murder-row'
@@ -589,7 +589,7 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             'midnight-season-2',
         )
         self.assertIn(
-            '/static/portal/mythic_planner/vendor/mdt-6.2.0-alpha5/maps/',
+            '/static/portal/mythic_planner/vendor/mdt-6.2.0-alpha6/maps/',
             murder_row['floors'][0]['background_url'],
         )
         self.assertTrue(all(
@@ -604,10 +604,18 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             ability_supplement['relative_path'],
             'LMonitor/ability_overrides.json',
         )
-        expected_ability_counts = {
-            'ruby-life-pools': 93,
-            'temple-of-sethraliss': 108,
-            'kings-rest': 77,
+        expected_ability_sources = {
+            'ruby-life-pools': {
+                'LMonitorAbilitySupplement': 93,
+            },
+            'temple-of-sethraliss': {
+                'LMonitorAbilitySupplement': 108,
+                'MythicDungeonTools': 7,
+            },
+            'kings-rest': {
+                'LMonitorAbilitySupplement': 77,
+                'MythicDungeonTools': 3,
+            },
         }
         excluded_non_dungeon_spells = {
             181089,
@@ -625,7 +633,7 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             346202,
             454782,
         }
-        for dungeon_key, expected_count in expected_ability_counts.items():
+        for dungeon_key, expected_sources in expected_ability_sources.items():
             dungeon = next(
                 row for row in payload['dungeons'] if row['key'] == dungeon_key
             )
@@ -634,11 +642,11 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
                 for enemy in dungeon['enemies']
                 for ability in enemy['abilities']
             ]
-            self.assertEqual(len(abilities), expected_count, dungeon_key)
-            self.assertTrue(all(
-                ability['metadata']['source'] == 'LMonitorAbilitySupplement'
-                for ability in abilities
-            ))
+            actual_sources = {}
+            for ability in abilities:
+                source = ability['metadata']['source']
+                actual_sources[source] = actual_sources.get(source, 0) + 1
+            self.assertEqual(actual_sources, expected_sources, dungeon_key)
             self.assertFalse(
                 excluded_non_dungeon_spells
                 & {ability['spell_id'] for ability in abilities},
@@ -676,18 +684,18 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
                 for dungeon in payload['dungeons']
                 for enemy in dungeon['enemies']
             ),
-            1648,
+            1674,
         )
 
-    def test_builtin_alpha5_package_passes_release_contract(self):
+    def test_builtin_alpha6_package_passes_release_contract(self):
         self.assertEqual(
-            validate_alpha5_package(),
+            validate_alpha6_package(),
             {
                 'dungeons': 16,
-                'enemies': 467,
-                'spawns': 3012,
-                'abilities': 1648,
-                'spells': 1459,
+                'enemies': 468,
+                'spawns': 2932,
+                'abilities': 1674,
+                'spells': 1375,
             },
         )
 
@@ -740,7 +748,7 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
         )
         self.assertEqual(metadata['spell_snapshot']['source_branch'], 'wowt')
 
-    def test_existing_payload_rejects_legacy_oss_maps_and_unwraps_icons(self):
+    def test_existing_payload_rejects_stale_maps_and_unwraps_icons(self):
         legacy_icon = (
             'https://oss.wowdaily.cn/mythic-planner/sources/'
             'oss.shengnong.club/mythic-planner/sources/wow.zamimg.com/'
@@ -757,13 +765,22 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             },
             'dungeons': [{
                 'key': 'demo-dungeon',
-                'floors': [{
-                    'key': 'floor-1',
-                    'background_url': (
-                        'https://oss.shengnong.club/mythic-planner/'
-                        'versions/mdt-6-2-0-alpha3/maps/demo/floor-1.webp'
-                    ),
-                }],
+                'floors': [
+                    {
+                        'key': 'floor-1',
+                        'background_url': (
+                            'https://oss.shengnong.club/mythic-planner/'
+                            'versions/mdt-6-2-0-alpha3/maps/demo/floor-1.webp'
+                        ),
+                    },
+                    {
+                        'key': 'floor-2',
+                        'background_url': (
+                            '/static/portal/mythic_planner/vendor/'
+                            'mdt-6.2.0-alpha5/maps/demo/floor-2.webp'
+                        ),
+                    },
+                ],
                 'enemies': [{
                     'key': 'npc-1',
                     'icon_url': legacy_icon,
@@ -1221,6 +1238,21 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
 
         self.assertEqual(resolved, '12.1.0.68914')
         session.get.assert_not_called()
+
+    def test_spell_sync_parser_accepts_repeated_spell_ids(self):
+        parser = SyncMythicDungeonSpellsCommand().create_parser(
+            'manage.py',
+            'sync_mythic_dungeon_spells',
+        )
+
+        options = parser.parse_args([
+            '--spell-id',
+            '1311712',
+            '--spell-id',
+            '1311778',
+        ])
+
+        self.assertEqual(options.spell_id, [1311712, 1311778])
 
     @override_settings(
         PROXY_CONFIG={
@@ -2140,10 +2172,10 @@ class MythicPlannerAssetPersistenceTests(TestCase):
 
     def test_asset_sync_migrates_legacy_floor_from_current_static_map(self):
         version = MythicDungeonDataVersion.objects.create(
-            key='mdt-6-2-0-alpha5',
+            key='mdt-6-2-0-alpha6',
             label='地图路径测试',
             is_active=True,
-            metadata={'source_tag': '6.2.0-alpha5'},
+            metadata={'source_tag': '6.2.0-alpha6'},
         )
         dungeon = MythicDungeon.objects.create(
             data_version=version,
@@ -2163,7 +2195,7 @@ class MythicPlannerAssetPersistenceTests(TestCase):
         jobs, stats = SyncMythicDungeonAssetsCommand()._build_jobs(
             version=version,
             base_prefix='mythic-planner',
-            version_prefix='mythic-planner/versions/mdt-6-2-0-alpha5',
+            version_prefix='mythic-planner/versions/mdt-6-2-0-alpha6',
             oss_base_url='https://oss.wowdaily.cn/',
             force=False,
         )
@@ -2176,13 +2208,13 @@ class MythicPlannerAssetPersistenceTests(TestCase):
             jobs[0]['source_url'],
             (
                 '/static/portal/mythic_planner/vendor/'
-                'mdt-6.2.0-alpha5/maps/kings-rest/floor-1.webp'
+                'mdt-6.2.0-alpha6/maps/kings-rest/floor-1.webp'
             ),
         )
         self.assertEqual(
             jobs[0]['object_key'],
             (
-                'mythic-planner/versions/mdt-6-2-0-alpha5/'
+                'mythic-planner/versions/mdt-6-2-0-alpha6/'
                 'maps/kings-rest/floor-1.webp'
             ),
         )

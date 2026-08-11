@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""在线上安全刷新 MythicDungeonTools 6.2.0-alpha5 数据。"""
+"""在线上安全刷新 MythicDungeonTools 6.2.0-alpha6 数据。"""
 
 import argparse
 import json
@@ -14,26 +14,26 @@ PACKAGE_PATH = (
     / 'botend'
     / 'data'
     / 'mythic_planner'
-    / 'mdt_6_2_0_alpha5.json'
+    / 'mdt_6_2_0_alpha6.json'
 )
-SOURCE_VERSION_KEY = 'mdt-6-2-0-alpha3'
-TARGET_VERSION_KEY = 'mdt-6-2-0-alpha5'
-SOURCE_TAG = '6.2.0-alpha5'
-SOURCE_COMMIT = '94473b391b6fb7563f8466c4a596a11ef6218a12'
+SOURCE_VERSION_KEY = 'mdt-6-2-0-alpha5'
+TARGET_VERSION_KEY = 'mdt-6-2-0-alpha6'
+SOURCE_TAG = '6.2.0-alpha6'
+SOURCE_COMMIT = 'b594e9047949e84cc1822ab6cba37c0d5dc96b4a'
 EXPECTED_COUNTS = {
     'dungeons': 16,
-    'enemies': 467,
-    'spawns': 3012,
-    'abilities': 1648,
-    'spells': 1459,
+    'enemies': 468,
+    'spawns': 2932,
+    'abilities': 1674,
+    'spells': 1375,
 }
 
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
         description=(
-            '校验并导入 MDT 6.2.0-alpha5 内置数据包；首次升级会复用 '
-            'alpha3 数据版本主键，保留路线、短链和人工编辑。'
+            '校验并导入 MDT 6.2.0-alpha6 内置数据包；首次升级会复用 '
+            'alpha5 数据版本主键，保留路线、短链和人工编辑。'
         ),
     )
     parser.add_argument(
@@ -59,11 +59,11 @@ def validate_package():
     version = payload.get('data_version') or {}
     metadata = version.get('metadata') or {}
     if version.get('key') != TARGET_VERSION_KEY:
-        raise RuntimeError('数据包版本键不是预期的 alpha5。')
+        raise RuntimeError('数据包版本键不是预期的 alpha6。')
     if metadata.get('source_tag') != SOURCE_TAG:
-        raise RuntimeError('数据包来源标签不是预期的 alpha5。')
+        raise RuntimeError('数据包来源标签不是预期的 alpha6。')
     if metadata.get('source_commit') != SOURCE_COMMIT:
-        raise RuntimeError('数据包来源提交与固定 alpha5 提交不一致。')
+        raise RuntimeError('数据包来源提交与固定 alpha6 提交不一致。')
 
     serialized_payload = json.dumps(payload, ensure_ascii=False)
     forbidden_asset_paths = {
@@ -174,7 +174,7 @@ def main():
         print('dry-run 完成；未修改线上数据库。')
         return
 
-    print('dry-run 通过，开始正式导入并激活 alpha5。')
+    print('dry-run 通过，开始正式导入并激活 alpha6。')
     call_command(
         'import_mythic_dungeon_data',
         dry_run=False,
@@ -190,12 +190,12 @@ def main():
             f'导入后数据库计数异常：实际 {actual_counts}，'
             f'预期 {EXPECTED_COUNTS}。'
         )
-    print(f'alpha5 导入完成并通过数据库复核：{actual_counts}')
+    print(f'alpha6 导入完成并通过数据库复核：{actual_counts}')
 
 
 if __name__ == '__main__':
     try:
         main()
     except Exception as exc:
-        print(f'alpha5 导入失败：{exc}', file=sys.stderr)
+        print(f'alpha6 导入失败：{exc}', file=sys.stderr)
         raise SystemExit(1) from exc
