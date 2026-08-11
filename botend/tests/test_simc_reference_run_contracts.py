@@ -238,7 +238,7 @@ class SimcReferenceRunContractTests(TestCase):
         from botend.dashboard.api import SimcComparisonTaskAPIView
 
         rows = SimcComparisonTaskAPIView._attribute_variants(
-            {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}, 50,
+            {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}, 100,
         )
         candidates = [{
             'candidate_key': f'round-1-candidate-{index}',
@@ -255,11 +255,10 @@ class SimcReferenceRunContractTests(TestCase):
         monitor = SimcMonitor(None, task)
 
         def complete_run(_task, run):
-            # Round one moves to its first neighbor; round two is already a local optimum.
+            # No precision level improves the centre, so the worker drains 100 -> 50 -> 20.
             run.status = 'completed'
             run.result_summary = {
-                'dps': (101500 if run.sequence == 2 else 100000)
-                if run.round_number == 1 else (101500 if run.candidate_params.get('is_base') else 101000),
+                'dps': 100000,
             }
             run.save(update_fields=['status', 'result_summary'])
             return True
@@ -270,11 +269,12 @@ class SimcReferenceRunContractTests(TestCase):
         task.refresh_from_db()
         self.assertEqual(task.simulation_runs.filter(round_number=1).count(), len(rows))
         self.assertEqual(task.simulation_runs.filter(round_number=2).count(), len(rows))
+        self.assertEqual(task.simulation_runs.filter(round_number=3).count(), len(rows))
         self.assertFalse(task.simulation_runs.filter(status='pending').exists())
         self.assertTrue(task.analysis_result['attribute_search']['converged'])
         self.assertEqual(
             task.analysis_result['attribute_search']['stop_reason'],
-            'local_optimum_50_pairwise',
+            'local_optimum_20_pairwise',
         )
 
     def _make_completed_attribute_round(self, task, center, round_number, winner_index=1):

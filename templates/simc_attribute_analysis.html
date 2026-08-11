@@ -81,7 +81,7 @@
             </div>
 
             <div id="four-stat-report" class="panel mb-3 d-none">
-                <div class="panel-header">四属性 50 rating 局部寻优</div>
+                <div class="panel-header">四属性渐进寻优（100 → 50 → 20）</div>
                 <div id="four-stat-report-body" class="panel-body small"></div>
             </div>
 
@@ -166,16 +166,16 @@
                 return `${attrName(key)} ${num(ratings[key])}${delta ? ` (${delta > 0 ? '+' : ''}${delta})` : ''}`;
             }).join(' / ');
             const path = Array.isArray(fourStatReport.search_path) ? fourStatReport.search_path : [];
-            const pathText = path.length ? path.map((row) => `第${row.round}轮：${['crit', 'haste', 'mastery', 'versatility'].map((key) => `${attrName(key)} ${num((row.ratings || {})[key])}`).join(' / ')}${row.dps !== null && row.dps !== undefined ? `，DPS ${num(row.dps).toLocaleString()}` : ''}`).join('<br>') : '尚无完成轮次';
-            const scope = fourStatReport.stop_reason === 'local_optimum_50_pairwise'
-                ? '当前天赋、APL、战斗参数和 SimC 精度下，已验证该点在完整 50 rating 两两有向交换邻域中没有更优候选；这不是全局最优声明。'
+            const pathText = path.length ? path.map((row) => `第${row.round}轮（步长 ${num(row.step)}）：${['crit', 'haste', 'mastery', 'versatility'].map((key) => `${attrName(key)} ${num((row.ratings || {})[key])}`).join(' / ')}${row.dps !== null && row.dps !== undefined ? `，DPS ${num(row.dps).toLocaleString()}` : ''}`).join('<br>') : '尚无完成轮次';
+            const scope = fourStatReport.stop_reason === 'local_optimum_20_pairwise'
+                ? '当前天赋、APL、战斗参数和 SimC 精度下，已完成 100 → 50 → 20 渐进搜索，并验证该点在完整 20 rating 两两有向交换邻域中没有更优候选；这不是全局最优声明。'
                 : '当前结果仍可能在继续搜索；仅展示已完成候选，不能据此宣称最优。';
             const candidates = Array.isArray(fourStatReport.all_candidates) ? fourStatReport.all_candidates : [];
             body.innerHTML = `<div class="mb-2"><strong>初始基准：</strong>${esc(initialText)}；固定四属性总预算 ${esc(fourStatReport.total_rating ?? '-')}。</div>
                 <div class="mb-2"><strong>当前推荐：</strong>${esc(recommendationText || '-')}；DPS ${recommendation.dps === null || recommendation.dps === undefined ? '等待结果' : num(recommendation.dps).toLocaleString()}。</div>
                 <div class="mb-2"><strong>搜索路径：</strong><br>${pathText}</div>
                 <div class="mb-2 text-muted">${esc(scope)}</div>
-                <details><summary>全部候选（${candidates.length}）</summary><div class="table-wrap mt-2"><table class="table table-sm"><thead><tr><th>轮次</th><th>四属性</th><th>DPS</th><th>受控结果</th></tr></thead><tbody>${candidates.map((row) => `<tr><td>${esc(row.round)}</td><td>${esc(['crit', 'haste', 'mastery', 'versatility'].map((key) => `${attrName(key)} ${num((row.ratings || {})[key])}`).join(' / '))}</td><td>${row.dps === null || row.dps === undefined ? '等待结果' : num(row.dps).toLocaleString()}</td><td>${row.result_file ? `<a target="_blank" href="/simc-result/?file=${encodeURIComponent(row.result_file)}">打开</a>` : '-'}</td></tr>`).join('')}</tbody></table></div></details>`;
+                <details><summary>全部候选（${candidates.length}）</summary><div class="table-wrap mt-2"><table class="table table-sm"><thead><tr><th>轮次</th><th>步长</th><th>四属性</th><th>DPS</th><th>受控结果</th></tr></thead><tbody>${candidates.map((row) => `<tr><td>${esc(row.round)}</td><td>${esc(row.step)}</td><td>${esc(['crit', 'haste', 'mastery', 'versatility'].map((key) => `${attrName(key)} ${num((row.ratings || {})[key])}`).join(' / '))}</td><td>${row.dps === null || row.dps === undefined ? '等待结果' : num(row.dps).toLocaleString()}</td><td>${row.result_file ? `<a target="_blank" href="/simc-result/?file=${encodeURIComponent(row.result_file)}">打开</a>` : '-'}</td></tr>`).join('')}</tbody></table></div></details>`;
             panel.classList.remove('d-none');
         }
 

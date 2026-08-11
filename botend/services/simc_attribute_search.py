@@ -1,4 +1,4 @@
-"""Server-side lifecycle for fixed-step four-stat SimC optimization.
+"""Server-side lifecycle for progressive four-stat SimC optimization.
 
 The browser creates round one only.  The Worker calls ``advance_attribute_search``
 after a complete round; this function either appends the next immutable Run set to
@@ -13,34 +13,54 @@ from botend.services.simc_task_service import append_candidate_runs
 
 
 ATTRIBUTE_STATS = ('crit', 'haste', 'mastery', 'versatility')
-ATTRIBUTE_SEARCH_STEP = 50
+ATTRIBUTE_SEARCH_STEPS = (100, 50, 20)
+ATTRIBUTE_SEARCH_STEP = ATTRIBUTE_SEARCH_STEPS[0]
 ATTRIBUTE_DPS_TOLERANCE = 1.0
 MAX_ATTRIBUTE_SEARCH_ROUNDS = 20
 
 
-def attribute_variants(values, round_number=1, mark_base=True):
+def _normalized_step(step):
+    try:
+        value = int(step)
+    except (TypeError, ValueError):
+        raise ValueError('属性寻优步长无效')
+    if value not in ATTRIBUTE_SEARCH_STEPS:
+        raise ValueError(
+            f'属性寻优步长必须是 {"、".join(str(item) for item in ATTRIBUTE_SEARCH_STEPS)} 之一'
+        )
+    return value
+
+
+def _finer_step(step):
+    step = _normalized_step(step)
+    index = ATTRIBUTE_SEARCH_STEPS.index(step)
+    return ATTRIBUTE_SEARCH_STEPS[index + 1] if index + 1 < len(ATTRIBUTE_SEARCH_STEPS) else None
+
+
+def attribute_variants(values, round_number=1, mark_base=True, step=None):
+    step = _normalized_step(ATTRIBUTE_SEARCH_STEP if step is None else step)
     base = {stat: int(values[stat]) for stat in ATTRIBUTE_STATS}
     if min(base.values()) < 0:
         raise ValueError('属性寻优绿字不能为负数')
     rows = [('基准属性', base, bool(mark_base), {
         'type': 'attribute', 'algorithm': 'four_stat_pairwise_hill_climb',
-        'algorithm_version': 2, 'round': round_number, 'step': ATTRIBUTE_SEARCH_STEP,
+        'algorithm_version': 3, 'round': round_number, 'step': step,
         'total_rating': sum(base.values()), 'move': {'type': 'baseline'},
     })]
     for source in ATTRIBUTE_STATS:
-        if base[source] < ATTRIBUTE_SEARCH_STEP:
+        if base[source] < step:
             continue
         for target in ATTRIBUTE_STATS:
             if source == target:
                 continue
             ratings = dict(base)
-            ratings[source] -= ATTRIBUTE_SEARCH_STEP
-            ratings[target] += ATTRIBUTE_SEARCH_STEP
-            rows.append((f'{source} -{ATTRIBUTE_SEARCH_STEP} / {target} +{ATTRIBUTE_SEARCH_STEP}', ratings, False, {
+            ratings[source] -= step
+            ratings[target] += step
+            rows.append((f'{source} -{step} / {target} +{step}', ratings, False, {
                 'type': 'attribute', 'algorithm': 'four_stat_pairwise_hill_climb',
-                'algorithm_version': 2, 'round': round_number, 'step': ATTRIBUTE_SEARCH_STEP,
+                'algorithm_version': 3, 'round': round_number, 'step': step,
                 'total_rating': sum(base.values()),
-                'move': {'from': source, 'to': target, 'transfer': ATTRIBUTE_SEARCH_STEP},
+                'move': {'from': source, 'to': target, 'transfer': step},
             }))
     return rows
 
@@ -77,26 +97,35 @@ def _completed_round_rows(round_runs):
             raise ValueError('当前属性搜索轮次必须全部成功后才能续轮')
         params = run.candidate_params if isinstance(run.candidate_params, dict) else {}
         summary = run.result_summary if isinstance(run.result_summary, dict) else {}
+        search = params.get('search') if isinstance(params.get('search'), dict) else {}
         try:
             normalized = _run_ratings(run)
             dps = float(summary['dps'])
+            step = _normalized_step(search.get('step'))
         except (KeyError, TypeError, ValueError):
-            raise ValueError('当前属性搜索轮次存在无法解析 DPS 或绿字的执行')
+            raise ValueError('当前属性搜索轮次存在无法解析 DPS、绿字或步长的执行')
         try:
             dps_error = max(0.0, float(summary['dps_error']))
         except (KeyError, TypeError, ValueError):
             dps_error = None
         rows.append({
             'ratings': normalized, 'dps': dps, 'dps_error': dps_error,
-            'is_center': bool(params.get('is_base')),
-            'move': ((params.get('search') or {}).get('move') or {}),
+            'step': step, 'is_center': bool(params.get('is_base')),
+            'move': (search.get('move') or {}),
         })
     if len(rows) < 2:
         raise ValueError('当前属性搜索轮次没有足够完成结果')
+    steps = {row['step'] for row in rows}
+    if len(steps) != 1:
+        raise ValueError('当前属性搜索轮次步长不一致')
+    current_step = steps.pop()
     centers = [row for row in rows if row['is_center']]
     if len(centers) != 1:
         raise ValueError('当前属性搜索轮次必须包含且仅包含一个基准点')
-    expected = attribute_variants(centers[0]['ratings'], round_runs[0].round_number)
+    expected = attribute_variants(
+        centers[0]['ratings'], round_number=round_runs[0].round_number,
+        step=current_step,
+    )
     actual_signatures = [
         _neighborhood_signature(row['ratings'], row['is_center'], row['move']) for row in rows
     ]
@@ -106,7 +135,7 @@ def _completed_round_rows(round_runs):
     ]
     if len(actual_signatures) != len(set(actual_signatures)) or set(actual_signatures) != set(expected_signatures):
         raise ValueError('当前属性搜索轮次候选邻域不完整或存在重复')
-    return rows, centers[0]
+    return rows, centers[0], current_step
 
 
 @transaction.atomic
@@ -155,43 +184,57 @@ def advance_attribute_search(task_id, expected_started_at=None):
             baseline_dps = float(summary['dps'])
         except (KeyError, TypeError, ValueError):
             raise ValueError('SimC 基准报告未返回完整的 Gear Amount 四属性')
-        variants = attribute_variants(ratings, current_round)
+        probe_params = probe.candidate_params if isinstance(probe.candidate_params, dict) else {}
+        probe_search = probe_params.get('search') if isinstance(probe_params.get('search'), dict) else {}
+        search_step = _normalized_step(probe_search.get('step', ATTRIBUTE_SEARCH_STEP))
+        candidate_round = current_round
+        variants = attribute_variants(
+            ratings, round_number=candidate_round, step=search_step,
+        )
+        variant_rows = variants[1:]
+        while not variant_rows:
+            search_step = _finer_step(search_step)
+            if search_step is None:
+                recommendation = {
+                    'ratings': ratings, 'step': ATTRIBUTE_SEARCH_STEPS[-1],
+                    'round': current_round, 'dps': baseline_dps, 'converged': True,
+                    'stop_reason': 'insufficient_rating_for_20_transfer',
+                }
+                task.analysis_result = {
+                    **(task.analysis_result if isinstance(task.analysis_result, dict) else {}),
+                    'attribute_search': recommendation,
+                }
+                task.save(update_fields=['analysis_result', 'modified_time'])
+                return {'appended': 0, 'converged': True, 'recommendation': recommendation}
+            candidate_round = current_round + 1
+            refined_variants = attribute_variants(
+                ratings, round_number=candidate_round, step=search_step,
+            )
+            variant_rows = refined_variants if len(refined_variants) > 1 else []
         candidates = [{
-            'candidate_key': f'round-{current_round}-candidate-{index}',
+            'candidate_key': f'round-{candidate_round}-candidate-{index}',
             'candidate_label': label,
-            'round_number': current_round,
+            'round_number': candidate_round,
             'candidate_params': {
                 'candidate_type': 'attribute_ratings', 'is_base': is_center,
                 'attribute_ratings': candidate_ratings, 'search': candidate,
             },
         } for index, (label, candidate_ratings, is_center, candidate) in enumerate(
-            variants[1:], 1
+            variant_rows, 1
         )]
-        if not candidates:
-            recommendation = {
-                'ratings': ratings, 'step': ATTRIBUTE_SEARCH_STEP,
-                'round': current_round, 'dps': baseline_dps, 'converged': True,
-                'stop_reason': 'insufficient_rating_for_50_transfer',
-            }
-            task.analysis_result = {
-                **(task.analysis_result if isinstance(task.analysis_result, dict) else {}),
-                'attribute_search': recommendation,
-            }
-            task.save(update_fields=['analysis_result', 'modified_time'])
-            return {'appended': 0, 'converged': True, 'recommendation': recommendation}
         created = append_candidate_runs(
             task,
             candidates,
-            round_number=current_round,
+            round_number=candidate_round,
             expected_started_at=expected_started_at,
         )
         return {
             'appended': len(created), 'converged': False,
             'run_ids': [run.id for run in created],
-            'baseline_ratings': ratings,
+            'baseline_ratings': ratings, 'step': search_step,
         }
 
-    rows, center = _completed_round_rows(round_runs)
+    rows, center, current_step = _completed_round_rows(round_runs)
     best_neighbor = max((row for row in rows if not row['is_center']), key=lambda row: row['dps'])
     combined_error = (
         math.hypot(center['dps_error'], best_neighbor['dps_error'])
@@ -201,14 +244,24 @@ def advance_attribute_search(task_id, expected_started_at=None):
     improvement_threshold = max(ATTRIBUTE_DPS_TOLERANCE, combined_error)
     improved = best_neighbor['dps'] > center['dps'] + improvement_threshold
     winner = best_neighbor if improved else center
+    next_step = current_step if improved else _finer_step(current_step)
+    converged = next_step is None
     recommendation = {
-        'ratings': winner['ratings'], 'step': ATTRIBUTE_SEARCH_STEP,
-        'round': current_round if not improved else current_round + 1, 'dps': winner['dps'],
-        'converged': not improved,
-        'stop_reason': '' if improved else 'local_optimum_50_pairwise',
+        'ratings': winner['ratings'],
+        'step': current_step if converged else next_step,
+        'round': current_round if converged else current_round + 1,
+        'dps': winner['dps'],
+        'converged': converged,
+        'stop_reason': f'local_optimum_{current_step}_pairwise' if converged else (
+            '' if improved else 'refining_step'
+        ),
     }
-    if improved:
-        next_round = current_round + 1
+    if current_round >= MAX_ATTRIBUTE_SEARCH_ROUNDS and not recommendation['converged']:
+        recommendation.update(
+            converged=True, stop_reason='max_rounds_reached',
+            round=current_round, step=current_step,
+        )
+    elif improved:
         visited = set()
         for run in runs:
             params = run.candidate_params if isinstance(run.candidate_params, dict) else {}
@@ -218,13 +271,10 @@ def advance_attribute_search(task_id, expected_started_at=None):
                 visited.add(_signature(_run_ratings(run)))
             except (KeyError, TypeError, ValueError):
                 continue
-        if current_round >= MAX_ATTRIBUTE_SEARCH_ROUNDS:
+        if _signature(winner['ratings']) in visited:
             recommendation.update(
-                converged=True, stop_reason='max_rounds_reached', round=current_round,
-            )
-        elif _signature(winner['ratings']) in visited:
-            recommendation.update(
-                converged=True, stop_reason='cycle_detected', round=current_round,
+                converged=True, stop_reason='cycle_detected',
+                round=current_round, step=current_step,
             )
 
     if recommendation['converged']:
@@ -245,7 +295,10 @@ def advance_attribute_search(task_id, expected_started_at=None):
             'attribute_ratings': ratings, 'search': candidate,
         },
     } for index, (label, ratings, is_center, candidate) in enumerate(
-        attribute_variants(winner['ratings'], next_round)
+        attribute_variants(
+            winner['ratings'], round_number=next_round,
+            step=recommendation['step'],
+        )
     )]
     created = append_candidate_runs(
         task,

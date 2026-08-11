@@ -260,7 +260,7 @@ class ReferenceBatchAPIViewTests(TestCase):
                 'kind': 'attribute_variants',
                 'name': 'Manual equipment attribute search',
                 'simc_profile_id': self.profile.id,
-                'attribute_step': 50,
+                'attribute_step': 100,
                 'base_template_id': self.template.id,
                 'selected_apl_id': self.apl.id,
             }), content_type='application/json')
@@ -403,6 +403,86 @@ class ReferenceBatchAPIViewTests(TestCase):
         third = advance_attribute_search(task.id, expected_started_at=lease)
         self.assertEqual(set(SimulationRun.objects.filter(id__in=third['run_ids']).values_list(
             'round_number', flat=True)), {3})
+
+    def test_attribute_search_refines_100_to_50_to_20_before_converging(self):
+        from botend.services.simc_attribute_search import attribute_variants
+
+        ratings = {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}
+        rows = attribute_variants(ratings, step=100)
+        candidates = [{
+            'candidate_key': f'candidate-{index}', 'candidate_label': label,
+            'round_number': 1,
+            'candidate_params': {
+                'candidate_type': 'attribute_ratings', 'is_base': is_base,
+                'attribute_ratings': candidate_ratings, 'search': search,
+            },
+        } for index, (label, candidate_ratings, is_base, search) in enumerate(rows)]
+        with patch(
+            'botend.services.simc_task_service.current_validation_identity',
+            return_value=TEST_VALIDATION_IDENTITY,
+        ):
+            task = create_task(
+                user_id=self.user.id, name='progressive attribute refinement',
+                profile_id=self.profile.id, template_id=self.template.id,
+                apl_id=self.apl.id, mode='attribute_sweep', candidates=candidates,
+            )
+        lease = timezone.now()
+        task.current_status = 1
+        task.started_at = lease
+        task.save(update_fields=['current_status', 'started_at'])
+        initialize_task_runs(task, expected_started_at=lease)
+
+        def complete_round(round_number):
+            for run in task.simulation_runs.filter(round_number=round_number):
+                run.status = 'completed'
+                run.result_summary = {
+                    'dps': 100000 if run.candidate_params.get('is_base') else 99900,
+                    'dps_error': 10,
+                }
+                run.save(update_fields=['status', 'result_summary'])
+
+        complete_round(1)
+        coarse = advance_attribute_search(task.id, expected_started_at=lease)
+        self.assertEqual(coarse['recommendation']['step'], 50)
+        self.assertEqual({
+            run.candidate_params['search']['step']
+            for run in SimulationRun.objects.filter(id__in=coarse['run_ids'])
+        }, {50})
+
+        complete_round(2)
+        medium = advance_attribute_search(task.id, expected_started_at=lease)
+        self.assertEqual(medium['recommendation']['step'], 20)
+        self.assertEqual({
+            run.candidate_params['search']['step']
+            for run in SimulationRun.objects.filter(id__in=medium['run_ids'])
+        }, {20})
+
+        complete_round(3)
+        precise = advance_attribute_search(task.id, expected_started_at=lease)
+        self.assertTrue(precise['converged'])
+        self.assertEqual(precise['recommendation']['step'], 20)
+        self.assertEqual(
+            precise['recommendation']['stop_reason'],
+            'local_optimum_20_pairwise',
+        )
+        task.refresh_from_db()
+        from botend.dashboard.api import SimcRegularCompareAPIView
+        report = SimcRegularCompareAPIView()._build_reference_attribute_report(
+            task.simulation_runs.order_by('sequence'), task.analysis_result,
+        )
+        self.assertEqual(report['steps'], [100, 50, 20])
+        self.assertEqual(
+            [point['step'] for point in report['search_path']],
+            [100, 50, 20],
+        )
+        self.assertEqual(report['stop_reason'], 'local_optimum_20_pairwise')
+        self.assertTrue(report['converged'])
+        self.assertEqual(report['recommendation']['round'], 3)
+        self.assertEqual(report['recommendation']['step'], 20)
+        self.assertEqual(
+            report['recommendation']['id'],
+            task.simulation_runs.get(round_number=3, candidate_params__is_base=True).id,
+        )
 
     def test_attribute_search_advances_when_gain_exceeds_independent_combined_error(self):
         from botend.dashboard.api import SimcComparisonTaskAPIView

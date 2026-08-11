@@ -3723,7 +3723,7 @@ function simcAttributeSearchRequestBody() {
         kind: 'attribute_variants', name: `${simcResolvedCanonicalSpec || 'SimC'} 四属性自动寻优`,
         spec: simcResolvedCanonicalSpec,
         ...references,
-        attribute_step: 50, ...currentSimcScenario(),
+        attribute_step: 100, ...currentSimcScenario(),
     };
 }
 

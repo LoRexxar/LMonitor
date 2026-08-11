@@ -120,8 +120,8 @@ class SimcResultUXTests(TestCase):
         with open('templates/simc_attribute_analysis.html', encoding='utf-8') as f:
             client = f.read()
 
-        self.assertIn('四属性 50 rating 局部寻优', client)
+        self.assertIn('四属性渐进寻优', client)
         self.assertIn('initial_ratings', client)
         self.assertIn('search_path', client)
         self.assertIn('all_candidates', client)
-        self.assertIn('local_optimum_50_pairwise', client)
+        self.assertIn('local_optimum_20_pairwise', client)

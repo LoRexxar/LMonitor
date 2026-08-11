@@ -1674,7 +1674,7 @@ main_hand=,id=222222
             },
             'base_template_id': self.base_template.id,
             'selected_apl_id': self.default_apl.id,
-            'attribute_step': 50, 'fight_style': 'Patchwerk', 'time': 300, 'target_count': 1,
+            'attribute_step': 100, 'fight_style': 'Patchwerk', 'time': 300, 'target_count': 1,
         }), content_type='application/json')
 
         self.assertEqual(response.status_code, 200)
@@ -1717,7 +1717,7 @@ main_hand=,id=222222
             'player_source': {'type': 'battlenet', 'region': 'eu', 'realm': 'Kazzak', 'character': 'Batcher'},
             'base_template_id': self.base_template.id,
             'selected_apl_id': self.default_apl.id,
-            'attribute_step': 50,
+            'attribute_step': 100,
         }), content_type='application/json')
 
         self.assertEqual(response.status_code, 200)
@@ -1760,7 +1760,7 @@ main_hand=,id=222222
             rendered.append(simc_code)
         self.assertNotEqual(rendered[0], rendered[1])
         self.assertIn('gear_crit_rating=1000', rendered[0])
-        self.assertIn('gear_crit_rating=950', rendered[1])
+        self.assertIn('gear_crit_rating=900', rendered[1])
         self.assertNotIn('armory=', rendered[0])
 
     def test_auto_attribute_batch_rejects_missing_frozen_player_baseline(self):
@@ -1772,7 +1772,7 @@ main_hand=,id=222222
             'simc_profile_id': self.profile.id,
             'base_template_id': self.base_template.id,
             'selected_apl_id': self.default_apl.id,
-            'attribute_step': 50, 'fight_style': 'Patchwerk', 'time': 300, 'target_count': 1,
+            'attribute_step': 100, 'fight_style': 'Patchwerk', 'time': 300, 'target_count': 1,
         }), content_type='application/json')
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()['success'])
@@ -2343,7 +2343,7 @@ DPS=208365 DPS-Error=200/0.1%
         self.assertEqual(validation['dps_error'], 150.0)
         self.assertEqual(validation['dps_error_pct'], 0.24)
 
-    def test_attribute_search_rejects_any_non_50_step(self):
+    def test_attribute_search_requires_100_as_initial_step(self):
         self.profile.player_config_mode = 'attribute_only'
         self.profile.save(update_fields=['player_config_mode'])
         bad_response = self.client.post('/api/simc-task/comparison/', data=json.dumps({
@@ -2351,10 +2351,10 @@ DPS=208365 DPS-Error=200/0.1%
             'simc_profile_id': self.profile.id,
             'base_template_id': self.base_template.id,
             'selected_apl_id': self.default_apl.id,
-            'attribute_step': 100,
+            'attribute_step': 50,
         }), content_type='application/json')
         self.assertFalse(bad_response.json()['success'])
-        self.assertIn('固定使用 50', bad_response.json()['error'])
+        self.assertIn('从 100 绿字步长开始', bad_response.json()['error'])
 
 
 
@@ -2499,7 +2499,7 @@ DPS=208365 DPS-Error=200/0.1%
         self.assertEqual(response.status_code, 400)
         self.assertFalse(response.json()['success'])
 
-    def test_attribute_task_report_returns_real_dps_rankings_path_and_local_optimum(self):
+    def test_attribute_task_report_returns_real_dps_rankings_path_and_refinement_state(self):
         base = {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}
         rows = []
         for label, ratings, is_base, candidate in SimcComparisonTaskAPIView._attribute_variants(base, 50):
@@ -2516,7 +2516,8 @@ DPS=208365 DPS-Error=200/0.1%
         self.assertEqual(report['total_rating'], 10000)
         self.assertEqual(report['rounds_completed'], 1)
         self.assertEqual(report['recommendation']['ratings'], base)
-        self.assertEqual(report['stop_reason'], 'local_optimum_50_pairwise')
+        self.assertEqual(report['stop_reason'], 'refining_step')
+        self.assertFalse(report['converged'])
         self.assertEqual(len(report['candidates']), 13)
         self.assertTrue(all('result_file' not in row for row in report['candidates']))
 

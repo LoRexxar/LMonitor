@@ -370,7 +370,7 @@ class SimcAgentJobAPITests(TestCase):
         task.save(update_fields=['current_status', 'execution_owner', 'started_at'])
         ratings = {'crit': 1077, 'haste': 928, 'mastery': 947, 'versatility': 0}
         for sequence, (label, candidate_ratings, is_base, search) in enumerate(
-            attribute_variants(ratings), 1
+            attribute_variants(ratings, step=20), 1
         ):
             SimulationRun.objects.create(
                 task=task,
@@ -400,7 +400,7 @@ class SimcAgentJobAPITests(TestCase):
         self.assertTrue(task.analysis_result['attribute_search']['converged'])
         self.assertEqual(
             task.analysis_result['attribute_search']['stop_reason'],
-            'local_optimum_50_pairwise',
+            'local_optimum_20_pairwise',
         )
 
     def test_disabled_unavailable_and_offline_rejected(self):

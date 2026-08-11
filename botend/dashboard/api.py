@@ -61,6 +61,7 @@ from botend.services.simc_task_service import create_task, create_task_from_requ
 from botend.services.simc_attribute_search import (
     ATTRIBUTE_DPS_TOLERANCE as SIMC_ATTRIBUTE_DPS_TOLERANCE,
     ATTRIBUTE_SEARCH_STEP as SIMC_ATTRIBUTE_SEARCH_STEP,
+    ATTRIBUTE_SEARCH_STEPS as SIMC_ATTRIBUTE_SEARCH_STEPS,
     ATTRIBUTE_STATS as SIMC_ATTRIBUTE_STATS,
     attribute_variants,
 )
@@ -2325,6 +2326,7 @@ class SimcComparisonTaskAPIView(View):
     MAX_ATTRIBUTE_TASKS = 13
     ATTRIBUTE_STATS = SIMC_ATTRIBUTE_STATS
     ATTRIBUTE_SEARCH_STEP = SIMC_ATTRIBUTE_SEARCH_STEP
+    ATTRIBUTE_SEARCH_STEPS = SIMC_ATTRIBUTE_SEARCH_STEPS
     ATTRIBUTE_DPS_TOLERANCE = SIMC_ATTRIBUTE_DPS_TOLERANCE
 
     @staticmethod
@@ -2339,14 +2341,14 @@ class SimcComparisonTaskAPIView(View):
 
     @classmethod
     def _attribute_variants(cls, values, step=None, round_number=1, mark_base=True):
-        """Return the server-owned fixed 50-rating pairwise neighborhood."""
+        """Return one server-owned pairwise neighborhood for an allowed search step."""
         try:
             step = int(step if step is not None else cls.ATTRIBUTE_SEARCH_STEP)
         except (TypeError, ValueError):
             raise ValueError('属性寻优步长无效')
-        if step != cls.ATTRIBUTE_SEARCH_STEP:
-            raise ValueError(f'四属性自动寻优固定使用 {cls.ATTRIBUTE_SEARCH_STEP} 绿字步长')
-        return attribute_variants(values, round_number=round_number, mark_base=mark_base)
+        return attribute_variants(
+            values, round_number=round_number, mark_base=mark_base, step=step,
+        )
 
     @staticmethod
     def _run_result_file(run):
@@ -2561,7 +2563,9 @@ class SimcComparisonTaskAPIView(View):
                     raise ValueError('自动属性比较需要 Profile 包含玩家装备基线')
                 step = self._int(data.get('attribute_step'), '属性步长')
                 if step != self.ATTRIBUTE_SEARCH_STEP:
-                    raise ValueError(f'四属性自动寻优固定使用 {self.ATTRIBUTE_SEARCH_STEP} 绿字步长')
+                    raise ValueError(
+                        f'四属性自动寻优从 {self.ATTRIBUTE_SEARCH_STEP} 绿字步长开始并自动缩小精度'
+                    )
                 if mode == 'manual_equipment':
                     specs.append({
                         'label': '基准属性探测',
@@ -2569,7 +2573,7 @@ class SimcComparisonTaskAPIView(View):
                         'candidate': {
                             'type': 'attribute_baseline_probe',
                             'algorithm': 'four_stat_pairwise_hill_climb',
-                            'algorithm_version': 2,
+                            'algorithm_version': 3,
                             'round': 1,
                             'step': self.ATTRIBUTE_SEARCH_STEP,
                             'baseline_source': 'simc_report_gear_amount',
@@ -5137,7 +5141,7 @@ class SimcRegularCompareAPIView(View):
     def _safe_attribute_report(attribute_report):
         if not isinstance(attribute_report, dict):
             return None
-        safe_candidate_fields = ('id', 'label', 'round', 'is_center', 'ratings', 'dps')
+        safe_candidate_fields = ('id', 'label', 'round', 'step', 'is_center', 'ratings', 'dps')
 
         def safe_candidate(value):
             if not isinstance(value, dict):
@@ -5147,14 +5151,14 @@ class SimcRegularCompareAPIView(View):
         safe = {
             key: attribute_report.get(key)
             for key in (
-                'algorithm', 'algorithm_version', 'step', 'tolerance',
+                'algorithm', 'algorithm_version', 'step', 'steps', 'tolerance',
                 'rounds_completed', 'current_round', 'total_rating',
                 'initial_ratings', 'stop_reason', 'local_optimum',
             )
         }
         safe['recommendation'] = safe_candidate(attribute_report.get('recommendation'))
         safe['search_path'] = [{
-            key: point.get(key) for key in ('round', 'ratings', 'dps') if key in point
+            key: point.get(key) for key in ('round', 'step', 'ratings', 'dps') if key in point
         } for point in attribute_report.get('search_path', []) if isinstance(point, dict)]
         safe['candidates'] = [
             safe_candidate(value) for value in attribute_report.get('candidates', [])
@@ -5178,17 +5182,27 @@ class SimcRegularCompareAPIView(View):
         report['stop_reason'] = str(persisted.get('stop_reason') or '')
         report['local_optimum'] = (
             persisted['converged']
-            and report['stop_reason'] == 'local_optimum_50_pairwise'
+            and report['stop_reason'].startswith('local_optimum_')
+            and report['stop_reason'].endswith('_pairwise')
         )
         persisted_ratings = persisted.get('ratings')
         if isinstance(persisted_ratings, dict):
+            persisted_round = persisted.get('round')
             recommendation = next(
-                (row for row in report['all_candidates'] if row.get('ratings') == persisted_ratings),
+                (
+                    row for row in report['all_candidates']
+                    if row.get('ratings') == persisted_ratings
+                    and (
+                        persisted_round in (None, '')
+                        or row.get('round') == persisted_round
+                    )
+                ),
                 None,
             )
             if recommendation is None:
                 recommendation = {
-                    'round': persisted.get('round'),
+                    'round': persisted_round,
+                    'step': persisted.get('step'),
                     'ratings': persisted_ratings,
                     'dps': persisted.get('dps'),
                 }
@@ -5198,7 +5212,7 @@ class SimcRegularCompareAPIView(View):
         return report
 
     def _build_attribute_report(self, run_candidates):
-        """Return a truthful report for the measured 50-rating local search only."""
+        """Return a truthful report for the measured progressive pairwise search."""
         stats = SimcComparisonTaskAPIView.ATTRIBUTE_STATS
         tolerance = SimcComparisonTaskAPIView.ATTRIBUTE_DPS_TOLERANCE
         candidates = []
@@ -5215,7 +5229,9 @@ class SimcRegularCompareAPIView(View):
                 ratings = summary.get('gear_ratings') or {}
             row = {
                 'id': run.id, 'label': run.candidate_label or run.candidate_key,
-                'round': round_number, 'is_center': bool(params.get('is_base')),
+                'round': round_number, 'step': candidate.get('step'),
+                'algorithm_version': candidate.get('algorithm_version'),
+                'is_center': bool(params.get('is_base')),
                 'move': candidate.get('move') or {}, 'ratings': ratings,
                 'result_file': result_file, 'status': run.status,
                 'dps': summary.get('dps'),
@@ -5245,6 +5261,14 @@ class SimcRegularCompareAPIView(View):
         ranked = sorted(completed, key=lambda row: row['dps'], reverse=True)
         current_round = max([row['round'] for row in candidates] or [1])
         current = [row for row in candidates if row['round'] == current_round]
+        current_steps = {
+            int(row['step']) for row in current
+            if row.get('step') in SimcComparisonTaskAPIView.ATTRIBUTE_SEARCH_STEPS
+        }
+        current_step = (
+            next(iter(current_steps)) if len(current_steps) == 1
+            else SimcComparisonTaskAPIView.ATTRIBUTE_SEARCH_STEP
+        )
         center = next((row for row in current if row['is_center']), None)
         current_complete = bool(current) and all(row['dps'] is not None for row in current)
         recommendation = ranked[0] if ranked else None
@@ -5252,9 +5276,17 @@ class SimcRegularCompareAPIView(View):
         if current_complete and center:
             best_neighbor = max((row for row in current if not row['is_center']), key=lambda row: row['dps'], default=None)
             recommendation = best_neighbor if best_neighbor and best_neighbor['dps'] > center['dps'] + tolerance else center
-            stop_reason = '' if recommendation is not center else 'local_optimum_50_pairwise'
+            stop_reason = '' if recommendation is not center else (
+                f'local_optimum_{current_step}_pairwise'
+                if current_step == SimcComparisonTaskAPIView.ATTRIBUTE_SEARCH_STEPS[-1]
+                else 'refining_step'
+            )
         path = [
-            {'round': row['round'], 'ratings': row['ratings'], 'dps': row['dps'], 'result_file': row['result_file']}
+            {
+                'round': row['round'], 'step': row.get('step'),
+                'ratings': row['ratings'], 'dps': row['dps'],
+                'result_file': row['result_file'],
+            }
             for row in sorted(centers, key=lambda item: item['round'])
         ]
         first_center = next((row for row in sorted(centers, key=lambda item: item['round']) if row['round'] == 1), None)
@@ -5265,8 +5297,15 @@ class SimcRegularCompareAPIView(View):
             if len(round_centers) != 1 or any(row['dps'] is None for row in round_rows):
                 continue
             try:
+                round_steps = {
+                    int(row['step']) for row in round_rows
+                    if int(row['step']) in SimcComparisonTaskAPIView.ATTRIBUTE_SEARCH_STEPS
+                }
+                if len(round_steps) != 1:
+                    continue
+                round_step = next(iter(round_steps))
                 expected = SimcComparisonTaskAPIView._attribute_variants(
-                    round_centers[0]['ratings'], SimcComparisonTaskAPIView.ATTRIBUTE_SEARCH_STEP,
+                    round_centers[0]['ratings'], round_step,
                     round_number=round_number, mark_base=True,
                 )
                 expected_ratings = {
@@ -5281,15 +5320,26 @@ class SimcRegularCompareAPIView(View):
                 continue
             if len(actual_ratings) == len(set(actual_ratings)) and set(actual_ratings) == expected_ratings:
                 completed_rounds += 1
+        algorithm_versions = [
+            int(row['algorithm_version']) for row in candidates
+            if isinstance(row.get('algorithm_version'), int)
+        ]
         return {
-            'algorithm': 'four_stat_pairwise_hill_climb', 'algorithm_version': 2,
-            'step': SimcComparisonTaskAPIView.ATTRIBUTE_SEARCH_STEP,
+            'algorithm': 'four_stat_pairwise_hill_climb',
+            'algorithm_version': max(algorithm_versions or [3]),
+            'step': current_step,
+            'steps': list(SimcComparisonTaskAPIView.ATTRIBUTE_SEARCH_STEPS),
             'tolerance': tolerance, 'rounds_completed': completed_rounds,
             'current_round': current_round, 'total_rating': sum(first_center['ratings'].values()) if first_center else None,
             'initial_ratings': first_center['ratings'] if first_center else {},
             'recommendation': recommendation, 'stop_reason': stop_reason,
-            'converged': stop_reason not in ('', 'awaiting_current_round'),
-            'local_optimum': stop_reason == 'local_optimum_50_pairwise',
+            'converged': stop_reason not in (
+                '', 'awaiting_current_round', 'refining_step',
+            ),
+            'local_optimum': (
+                stop_reason.startswith('local_optimum_')
+                and stop_reason.endswith('_pairwise')
+            ),
             'search_path': path, 'candidates': ranked, 'all_candidates': candidates, 'invalid': invalid,
         }
 
