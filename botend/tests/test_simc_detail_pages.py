@@ -167,29 +167,44 @@ class SimcDetailPageFrontendContractTests(TestCase):
         for token in ('report.sections', 'text_blocks', 'colspan', 'rowspan',
                       'simc-report-nav', 'Profile / 可复现配置'):
             self.assertIn(token, component)
-        self.assertIn('window.SimcResultReport.render(report)', detail)
-        self.assertIn('window.SimcResultReport.render(report)', workbench)
+        for entry in (detail, workbench):
+            self.assertIn('window.SimcResultReport.renderSummary(report)', entry)
+            self.assertIn('window.SimcResultReport.renderDetails(report)', entry)
 
-    def test_complete_report_places_results_first_and_localizes_report_tables(self):
+    def test_result_page_prioritizes_conclusion_and_defers_non_repeating_evidence(self):
+        detail_template = (ROOT / 'templates/dashboard/simc_detail.html').read_text(encoding='utf-8')
+        dashboard_template = (ROOT / 'templates/dashboard/index.html').read_text(encoding='utf-8')
         detail = (ROOT / 'static/dashboard/js/simc-detail.js').read_text(encoding='utf-8')
         workbench = (ROOT / 'static/dashboard/js/simc-workbench.js').read_text(encoding='utf-8')
         component = (ROOT / 'static/dashboard/js/simc-result-report.js').read_text(encoding='utf-8')
 
         for token in (
-            'renderResultSummary(report)', 'simc-report-result-summary',
+            'renderSummary(report)', 'renderDetails(report)',
+            'simc-report-result-summary', 'simc-report-damage-profile',
+            'simc-report-evidence', '完整 SimC 数据',
             'DPS 误差', 'DPS 波动范围', '每点资源伤害（DPR）',
-            '装备数值（Gear Amount）', '团队增益后', '角色属性',
+            '每次执行间隔', '平均值分布', '获取速率', '动作列表：',
         ):
             self.assertIn(token, component)
 
-        shell = component[component.index('return `<section class="simc-report-shell">'):]
-        self.assertLess(shell.index('${renderResultSummary(report)}'), shell.index('<header class="simc-report-header">'))
+        details = component[component.index('function renderDetails(report)'):]
+        self.assertIn('return `<details class="simc-report-evidence">', details)
+        self.assertNotIn('${renderResultSummary(report)}', details)
 
         detail_output = detail[detail.index('root.innerHTML = `<section class="hero">'):]
-        self.assertLess(detail_output.index('${window.SimcResultReport.render(report)}'), detail_output.index('${renderTaskComparison(row)}'))
+        self.assertLess(detail_output.index('${resultSummary}'), detail_output.index('${renderTaskComparison(row)}'))
+        self.assertLess(detail_output.index('${renderTaskComparison(row)}'), detail_output.index('${completeReport}'))
+        for duplicate in ("card('结果概览'", "card('角色'", "card('模拟参数'"):
+            self.assertNotIn(duplicate, detail)
 
         workbench_output = workbench[workbench.index('host.innerHTML = `<div class="flex flex-wrap justify-between gap-2">'):]
-        self.assertLess(workbench_output.index('${completeReport}'), workbench_output.index('${analysisDocument}'))
+        self.assertLess(workbench_output.index('${resultSummary}'), workbench_output.index('${comparisonSections}'))
+        self.assertLess(workbench_output.index('${comparisonSections}'), workbench_output.index('${completeReport}'))
+        self.assertNotIn('analysisDocument', workbench)
+
+        cache_token = '20260811_result_architecture_zh'
+        self.assertIn(cache_token, detail_template)
+        self.assertIn(cache_token, dashboard_template)
 
     def test_run_input_preview_is_available_from_workbench_and_dedicated_detail(self):
         template = (ROOT / 'templates/dashboard/simc_detail.html').read_text(encoding='utf-8')

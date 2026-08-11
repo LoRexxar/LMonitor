@@ -5,12 +5,12 @@
     results: {
       title: '结果、精度与资源',
       description: 'DPS、误差、资源效率、角色摘要与套装激活状态。',
-      open: true,
+      open: false,
     },
     procs: {
       title: 'Proc 与覆盖率',
       description: '触发次数、触发间隔、持续时间及有效覆盖。',
-      open: true,
+      open: false,
     },
     effects: {
       title: '玩家效果解析',
@@ -25,7 +25,7 @@
     resources: {
       title: '资源获取、变化与消耗',
       description: '资源来源、净变化、溢出及各技能的实际消耗。',
-      open: true,
+      open: false,
     },
     statistics: {
       title: '模拟统计与结果分布',
@@ -40,17 +40,17 @@
     stats: {
       title: '最终角色属性',
       description: 'SimC 计算后的基础值、装备贡献、增益后数值与战斗评分。',
-      open: true,
+      open: false,
     },
     gear: {
       title: '逐槽装备',
       description: '每个装备槽位的物品、装等、属性、附魔、宝石和 Bonus ID。',
-      open: true,
+      open: false,
     },
     talents: {
       title: '天赋树',
       description: '完整天赋选择、等级、Spell ID 与被动效果。',
-      open: true,
+      open: false,
     },
     profile: {
       title: 'Profile / 可复现配置',
@@ -60,7 +60,7 @@
     scale_factors: {
       title: '属性权重',
       description: '报告包含的 Scale Factors、标准化权重与误差。',
-      open: true,
+      open: false,
     },
   };
 
@@ -196,6 +196,53 @@
     'Standard Deviation': '标准差',
     'Std Dev': '标准差',
     'Percentile': '分位数',
+    'Cooldown waste details': '冷却浪费明细',
+    'Seconds per Execute': '每次执行间隔',
+    'Seconds per Iteration': '每次迭代耗时',
+    'Gains': '资源获取',
+    'Usage': '资源使用',
+    'Change': '资源变化',
+    'Local': '局部值（Local）',
+    'action,conditions': '动作与条件',
+    'Mean Distribution': '平均值分布',
+    'Approx. Iterations needed for ( always use n>=50 )': '达到目标误差所需迭代次数（至少 50 次）',
+    'Minimum': '最小值',
+    'Maximum': '最大值',
+    'Total': '总计',
+    'Tot%': '总占比',
+    'Avg': '平均值',
+    'APM': '每分钟动作数（APM）',
+    'Notes': '备注',
+    'Ovr%': '溢出占比',
+    'Start': '初始值',
+    'Gain/s': '获取速率',
+    'Loss/s': '消耗速率',
+    'End (Avg)': '结束时平均值',
+    'Time': '时间',
+    'Name [List]': '名称 [动作列表]',
+    'Pre': '战前（Pre）',
+    '5th Percentile': '5% 分位数',
+    '95th Percentile': '95% 分位数',
+    '( 95th Percentile - 5th Percentile )': '90% 分位区间',
+    '95.00% Confidence Interval': '95% 置信区间',
+    'Normalized 95.00% Confidence Interval': '标准化 95% 置信区间',
+    'Spread ( max - min )': '极差（最大值 - 最小值）',
+    'Range [ ( max - min ) / 2 * 100% ]': '波动范围 [（最大值 - 最小值）/ 2 × 100% ]',
+    'All Haste': '全部急速',
+    'All Crit': '全部暴击',
+    'Mountain Thane': '山丘领主',
+  });
+  const actorMetricTranslations = Object.freeze({
+    'Priority Target Damage Per Second': '优先目标每秒伤害',
+    'Damage Per Second (Effective)': '有效每秒伤害',
+    'Damage Per Second': '每秒伤害',
+    'Damage Taken Per Second': '每秒承受伤害',
+    'Healing Per Second (Effective)': '有效每秒治疗',
+    'Healing Per Second': '每秒治疗',
+    'Healing Taken Per Second': '每秒受到治疗',
+    'Fight Length': '战斗时长',
+    'Damage': '总伤害',
+    'Heal': '总治疗',
   });
   const reportTextTranslationsFolded = new Map(
     Object.entries(reportTextTranslations).map(([source, translated]) => [source.toLocaleLowerCase(), translated]),
@@ -226,6 +273,9 @@
     collect(report?.buffs?.dynamic);
     collect(report?.buffs?.constant);
     collect(report?.sample_sequence, 'action_en', 'action');
+    add(report?.character?.class_en, report?.character?.class);
+    add(report?.character?.spec_en, report?.character?.spec);
+    add(report?.character?.race_en, report?.character?.race);
     return names;
   }
 
@@ -236,8 +286,31 @@
     if (localizedName) return localizedName;
     const exact = reportTextTranslationsFolded.get(text.toLocaleLowerCase());
     if (exact) return exact;
+    for (const [source, translated] of Object.entries(actorMetricTranslations)) {
+      if (text.endsWith(` ${source}`)) {
+        return `${text.slice(0, -(source.length + 1))} · ${translated}`;
+      }
+    }
+    if (text === 'actions.precombat Executed before combat begins. Accepts non-harmful actions only.') {
+      return '动作列表：actions.precombat · 战斗开始前执行，仅允许非伤害性动作';
+    }
+    if (text === 'Default action list Executed every time the actor is available.') {
+      return '默认动作列表 · 角色每次可行动时执行';
+    }
+    if (/^actions\.[a-z0-9_.-]+$/i.test(text)) return `动作列表：${text}`;
+    const talents = text.match(/^(.+?) Talents (\[\d+\])$/i);
+    if (talents) {
+      const tree = localizedNames?.get(talents[1])
+        || reportTextTranslationsFolded.get(talents[1].toLocaleLowerCase())
+        || talents[1];
+      return `${tree}天赋 ${talents[2]}`;
+    }
     const percentile = text.match(/^(\d+)(?:st|nd|rd|th) Percentile$/i);
     if (percentile) return `${percentile[1]}% 分位数`;
+    const scaleError = text.match(/^([\d.]+) Scale Factor Error with Delta=(\d+)$/i);
+    if (scaleError) return `属性权重误差 ${scaleError[1]}（Delta=${scaleError[2]}）`;
+    const error = text.match(/^([\d.]+)% Error$/i);
+    if (error) return `${error[1]}% 误差`;
     return text;
   }
 
@@ -340,7 +413,24 @@
       : displayValue(value);
   }
 
-  function renderResultSummary(report) {
+  function renderDamageProfile(report) {
+    const source = Array.isArray(report?.top_abilities) && report.top_abilities.length
+      ? report.top_abilities
+      : (Array.isArray(report?.abilities) ? report.abilities : []);
+    const abilities = source.filter(row => row?.name && (row?.dps || row?.dps_percent)).slice(0, 5);
+    if (!abilities.length) return '';
+    return `<section class="simc-report-damage-profile">
+      <div class="simc-report-damage-profile-heading"><div><b>核心伤害构成</b><small>当前 Run 的前 5 个伤害来源</small></div><span>按 DPS 排序</span></div>
+      <div class="simc-report-damage-profile-list">${abilities.map(row => {
+        const percent = Number.parseFloat(String(row.dps_percent || '').replace('%', ''));
+        const width = Number.isFinite(percent) ? Math.max(2, Math.min(100, percent)) : 2;
+        const original = row.name_en && row.name_en !== row.name ? `<small>${esc(row.name_en)}</small>` : '';
+        return `<article><div class="simc-report-damage-profile-name"><b>${esc(row.name)}</b>${original}</div><div class="simc-report-damage-profile-value"><b>${esc(displayValue(row.dps_percent))}</b><small>${esc(displayValue(row.dps))} DPS</small></div><div class="simc-report-damage-profile-track"><span style="width:${width}%"></span></div></article>`;
+      }).join('')}</div>
+    </section>`;
+  }
+
+  function renderSummary(report) {
     const character = report?.character || {};
     const simulation = report?.simulation || {};
     const results = tableValueMap(report, 'results', 'DPS');
@@ -364,10 +454,11 @@
     ].filter(([, value]) => value !== undefined && value !== null && value !== '');
     const stats = extractPrimaryStats(report);
     return `<section class="simc-report-result-summary" aria-labelledby="simc-report-result-title">
-      <div class="simc-report-result-heading"><span>模拟结论</span><div><h2 id="simc-report-result-title">${esc(character.name ? `${character.name} · 模拟结果` : '模拟结果')}</h2><p>直接读取当前 Run 的 SimC Results 与 Stats 表；未解析到的数据不推算、不补值。</p></div></div>
+      <div class="simc-report-result-heading"><span>模拟结论</span><div><h2 id="simc-report-result-title">${esc(character.name ? `${character.name} · 模拟结果` : '模拟结果')}</h2><p>结论来自当前 Run；技能、属性和战斗条件均直接引用 SimC 报告，未解析字段不推算。</p></div></div>
       <div class="simc-report-result-metrics">${metrics.map(metric => `<article class="simc-report-result-metric ${metric.primary ? 'is-primary' : ''}"><span>${esc(metric.label)}</span><strong>${esc(displayValue(metric.value))}</strong></article>`).join('')}</div>
       ${stats.length ? `<div class="simc-report-result-stats"><b>角色属性</b><div>${stats.map(stat => `<span><small>${esc(localizeReportText(stat.name))}</small><strong>${esc(displayValue(stat.value))}</strong></span>`).join('')}</div></div>` : ''}
       ${facts.length ? `<dl class="simc-report-result-facts">${facts.map(([label, value]) => `<div><dt>${esc(label)}</dt><dd>${esc(displayValue(value))}</dd></div>`).join('')}</dl>` : ''}
+      ${renderDamageProfile(report)}
     </section>`;
   }
 
@@ -397,7 +488,7 @@
     </details>`;
   }
 
-  function render(report) {
+  function renderDetails(report) {
     const sections = Array.isArray(report?.sections) ? report.sections.filter(section => {
       const facts = sectionFacts(section);
       return facts.tables.length || facts.textBlocks.length;
@@ -409,12 +500,18 @@
       const sectionId = `simc-report-${key.replace(/[^a-z0-9_-]+/gi, '-')}`;
       return `<a href="#${esc(sectionId)}" data-simc-report-target="${esc(sectionId)}">${esc(meta.title)}</a>`;
     }).join('');
-    return `<section class="simc-report-shell">
-      ${renderResultSummary(report)}
-      <header class="simc-report-header"><div><span class="simc-report-kicker">完整 SimC 数据投影</span><h2>详细数据表</h2><p>下方保留原报告顶层数据表和 Profile 文本；标题、表头与通用行名提供中文显示，悬停可查看对应英文原文，未知专有名词保持原样。</p></div><div class="simc-report-header-actions"><span class="simc-report-coverage">${sections.length} 个版块</span><button type="button" data-simc-report-toggle="expand">全部展开</button><button type="button" data-simc-report-toggle="collapse">全部折叠</button></div></header>
-      ${nav ? `<nav class="simc-report-nav" aria-label="完整模拟报告版块">${nav}</nav>` : ''}
-      <div class="simc-report-sections">${sections.length ? sections.map((section, index) => renderSection(section, index, localizedNames)).join('') : '<section class="simc-report-empty">此 Artifact 尚未生成完整报告投影。</section>'}</div>
-    </section>`;
+    return `<details class="simc-report-evidence">
+      <summary><span><b>完整 SimC 数据</b><small>原始数据表、统计分布、APL 执行明细与可复现 Profile；仅在审计时展开。</small></span><strong>${sections.length} 个版块</strong></summary>
+      <section class="simc-report-shell">
+        <header class="simc-report-header"><div><span class="simc-report-kicker">详细证据</span><h2>原始数据表与 Profile</h2><p>标题、表头和通用统计术语优先显示中文，悬停可查看英文原文；未知专有名词保持原样。</p></div><div class="simc-report-header-actions"><button type="button" data-simc-report-toggle="expand">全部展开</button><button type="button" data-simc-report-toggle="collapse">全部折叠</button></div></header>
+        ${nav ? `<nav class="simc-report-nav" aria-label="完整模拟报告版块">${nav}</nav>` : ''}
+        <div class="simc-report-sections">${sections.length ? sections.map((section, index) => renderSection(section, index, localizedNames)).join('') : '<section class="simc-report-empty">此 Artifact 尚未生成完整报告投影。</section>'}</div>
+      </section>
+    </details>`;
+  }
+
+  function render(report) {
+    return `${renderSummary(report)}${renderDetails(report)}`;
   }
 
   document.addEventListener('click', event => {
@@ -445,5 +542,5 @@
     target.scrollIntoView({behavior: 'smooth', block: 'start'});
   });
 
-  window.SimcResultReport = Object.freeze({render});
+  window.SimcResultReport = Object.freeze({render, renderSummary, renderDetails});
 })();

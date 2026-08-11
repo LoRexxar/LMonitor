@@ -8,6 +8,7 @@
   const number = value => Number.isFinite(Number(value)) ? Math.round(Number(value)).toLocaleString() : '-';
   const value = (item, fallback = '-') => item == null || item === '' ? fallback : esc(item);
   const card = (title, body, wide = false) => `<section class="card${wide ? ' wide' : ''}"><h2>${title}</h2>${body}</section>`;
+  const disclosureCard = (title, description, body, count = '') => `<details class="card wide result-disclosure"><summary><span><b>${title}</b><small>${description}</small></span>${count ? `<strong>${count}</strong>` : ''}</summary><div class="result-disclosure__body">${body}</div></details>`;
   const statusClass = row => [0, 1, 4].includes(Number(row.status)) ? '运行中' : value(row.status_label || row.status);
   const statusKey = status => ['completed', 'running', 'failed'].includes(String(status)) ? String(status) : '';
   const percentNumber = input => { const parsed = Number.parseFloat(String(input == null ? '' : input).replace('%', '')); return Number.isFinite(parsed) ? Math.max(0, Math.min(100, parsed)) : 0; };
@@ -59,8 +60,8 @@
     const taskFailed = Number(row.status) === 3;
     const failureSummary = runs.find(run => String(run.status) === 'failed' && String(run.error_summary || '').trim())?.error_summary || '';
     const failureTooltip = failureSummary ? `<span class="simc-error-tooltip"><button type="button" class="simc-error-tooltip__trigger" aria-label="查看失败详情"><span aria-hidden="true">!</span></button><span class="simc-error-tooltip__content" role="tooltip">${value(failureSummary)}</span></span>` : '';
-    const nativeReportAction = nativeArtifact ? `<div class="hero-actions"><a class="primary-link" href="${esc(nativeArtifact.preview_url)}">查看完整原生报告 <span aria-hidden="true">↗</span></a><span class="muted" style="color:#dbeafe">当前页已安全展开完整数值；原生报告用于视觉图表与交叉核对</span></div>` : '';
-    const characterPills = hasStructuredReport ? `<span class="pill">角色 ${value(character.name, '未命名')}</span><span class="pill">${value(character.class, '职业未知')} · ${value(character.spec, '专精未知')}</span>` : '<span class="pill warning">结构化分析待完善</span>';
+    const nativeReportAction = nativeArtifact ? `<div class="hero-actions"><a class="primary-link" href="${esc(nativeArtifact.preview_url)}">查看完整原生报告 <span aria-hidden="true">↗</span></a><span class="muted" style="color:#dbeafe">当前页先展示结论；完整数据在页面底部按需展开，原生报告用于视觉图表与交叉核对</span></div>` : '';
+    const modeLabel = row.mode === 'comparison' ? '候选对比' : '普通模拟';
     const abilityRows = abilities.map(item => {
       const share = percentNumber(item.dps_percent);
       const details = item.details || {};
@@ -76,28 +77,41 @@
     const runRows = runs.map(run => `<tr><td>#${value(run.sequence)}</td><td><span class="status-dot ${statusKey(run.status)}"></span>${runStatus(run.status)}</td><td class="right">${number(run.result_summary?.dps)}</td><td>${value(run.started_at)}</td><td>${value(run.completed_at)}</td><td class="right"><button type="button" class="run-input-button" data-run-input data-task-id="${objectId}" data-run-id="${Number(run.id)}">查看 SimC 输入</button></td></tr>`).join('');
     const talentValue = talents.string ? `<code class="talent-code">${value(talents.string)}</code>` : '报告未解析到天赋字符串';
     const talentCandidate = row.mode_summary?.talent_candidate || null;
-    const talentCandidateValue = talentCandidate?.talent
-      ? `<dl><div><dt>方案名称</dt><dd>${value(talentCandidate.name || row.candidate_label)}</dd></div><div><dt>完整天赋树字符串</dt><dd><code class="talent-code">${value(talentCandidate.talent)}</code></dd></div></dl>`
-      : '<p class="muted">当前任务不是命名天赋候选。</p>';
+    const talentCandidateCard = talentCandidate?.talent
+      ? card('候选方案', `<dl><div><dt>方案名称</dt><dd>${value(talentCandidate.name || row.candidate_label)}</dd></div><div><dt>完整天赋树字符串</dt><dd><code class="talent-code">${value(talentCandidate.talent)}</code></dd></div></dl>`, true)
+      : '';
     const bonusValue = setBonuses.length ? `<div class="bonus-list">${setBonuses.map(item => `<span class="bonus-tag">${value(item)}</span>`).join('')}</div>` : '报告未解析到套装效果';
-    root.innerHTML = `<section class="hero"><div class="hero-status"><span class="pill">任务${statusClass(row)}</span>${failureTooltip}</div><div class="hero-primary-column"><h1>${value(row.name, `任务 #${objectId}`)}</h1><div class="hero-resource-stack" aria-label="模拟资源"><div class="hero-resource-line"><span>APL</span><b>${value(row.apl_name, '未命名')}</b></div><div class="hero-resource-line"><span>Profile</span><b>${value(row.profile_name, '未命名')}</b></div></div></div><div class="hero-meta">${characterPills}<span class="pill">更新 ${value(row.updated_at)}</span></div>${nativeReportAction}</section>
-      ${hasStructuredReport ? '' : (taskFailed ? '<div class="analysis-warning"><b>模拟执行失败</b><span>失败状态旁的提示图标可查看详情；只有 SimC 实际生成 HTML Artifact 时才会提供原生报告。</span></div>' : '<div class="analysis-warning"><b>模拟已成功，结构化分析信息不完整</b><span>当前仅展示已确认的 DPS、参数、执行轮次和原生报告；缺失字段不会被猜测填充。</span></div>')}
-      ${window.SimcResultReport.render(report)}
-      ${renderTaskComparison(row)}
+    const resultSummary = hasStructuredReport || report.dps != null
+      ? window.SimcResultReport.renderSummary(report)
+      : '';
+    const completeReport = Array.isArray(report.sections) && report.sections.length
+      ? window.SimcResultReport.renderDetails(report)
+      : '';
+    const corePerformance = hasStructuredReport ? `<section class="result-group">
+      <header class="result-group__heading"><span>核心表现</span><div><h2>伤害与效果明细</h2><p>结论卡先给出前 5 个伤害来源；这里保留全部技能、Proc 与 Buff 证据。</p></div></header>
       <div class="grid">
-        ${card('结果概览', `<div class="metrics"><div class="metric"><span>DPS</span><b>${number(report.dps ?? row.result_summary?.dps)}</b></div><div class="metric"><span>迭代次数</span><b>${number(simulation.iterations ?? params.iterations)}</b></div><div class="metric"><span>战斗时长</span><b>${value(simulation.fight_length ?? params.max_time)} 秒</b></div><div class="metric"><span>目标数</span><b>${value(params.desired_targets ?? params.target_count)}</b></div></div>`, true)}
-        ${card('角色', `<dl><div><dt>名称</dt><dd>${value(character.name)}</dd></div><div><dt>职业 / 专精</dt><dd>${value(character.class)} / ${value(character.spec)}</dd></div><div><dt>种族</dt><dd>${value(character.race)}</dd></div><div><dt>等级</dt><dd>${value(character.level)}</dd></div></dl>`)}
-        ${card('模拟参数', `<dl><div><dt>战斗模型</dt><dd>${value(simulation.fight_style ?? params.fight_style)}</dd></div><div><dt>最长时间</dt><dd>${value(params.max_time)} 秒</dd></div><div><dt>迭代次数</dt><dd>${value(simulation.iterations ?? params.iterations)}</dd></div><div><dt>目标数量</dt><dd>${value(params.desired_targets ?? params.target_count)}</dd></div><div><dt>报告时间</dt><dd>${value(simulation.timestamp)}</dd></div></dl>`)}
-        ${card('候选方案', talentCandidateValue, true)}
-        ${card('天赋与套装', `<dl><div><dt>天赋字符串</dt><dd>${talentValue}</dd></div><div><dt>套装效果</dt><dd>${bonusValue}</dd></div></dl>`, true)}
-        ${card('技能伤害与触发明细', `<p class="muted">保留报告中的全部伤害技能；施放、间隔、暴击、覆盖、Tick 和刷新次数均按原始 SimC 数值展示。</p><div class="table-scroll"><table class="dense-table"><thead><tr><th>技能</th><th class="right">DPS</th><th>伤害占比</th><th class="right">施放</th><th class="right">间隔</th><th class="right">暴击</th><th class="right">覆盖</th><th class="right">Ticks</th><th class="right">刷新</th></tr></thead><tbody>${abilityRows || '<tr><td colspan="9" class="empty">暂无已解析技能</td></tr>'}</tbody></table></div>`, true)}
-        ${card('技能施放序列', `<p class="muted">来自 SimC Sample Sequence Table，按一次代表性战斗逐步展示时间、动作列表、目标、资源和当时激活的 Buff。</p><div class="table-scroll sequence-scroll"><table class="dense-table sequence-table"><thead><tr><th class="right">时间</th><th class="right">序号</th><th>技能 / 动作列表</th><th>目标</th><th>资源</th><th>激活 Buff</th></tr></thead><tbody>${sequenceRows || '<tr><td colspan="6" class="empty">报告中未包含技能施放序列</td></tr>'}</tbody></table></div>`, true)}
-        ${card('动态 Buff / Proc', `<p class="muted">展示全部动态 Buff 的启动、刷新、总触发、触发间隔、持续时间、覆盖率、收益覆盖和各层数覆盖。</p><div class="table-scroll"><table class="dense-table"><thead><tr><th>Buff</th><th class="right">启动</th><th class="right">刷新</th><th class="right">总触发</th><th class="right">触发间隔</th><th class="right">持续</th><th class="right">覆盖率</th><th class="right">收益覆盖</th><th class="right">溢出</th><th class="right">到期</th><th class="right">触发率</th><th>属性效果</th></tr></thead><tbody>${dynamicBuffRows || '<tr><td colspan="12" class="empty">暂无动态 Buff</td></tr>'}</tbody></table></div>`, true)}
+        ${card('技能伤害与触发明细', `<p class="muted">全部伤害技能按 SimC 原始数值展示；中文名称来自现有技能词典。</p><div class="table-scroll"><table class="dense-table"><thead><tr><th>技能</th><th class="right">DPS</th><th>伤害占比</th><th class="right">施放</th><th class="right">间隔</th><th class="right">暴击</th><th class="right">覆盖</th><th class="right">Ticks</th><th class="right">刷新</th></tr></thead><tbody>${abilityRows || '<tr><td colspan="9" class="empty">暂无已解析技能</td></tr>'}</tbody></table></div>`, true)}
+        ${card('动态 Buff / Proc', `<p class="muted">展示启动、刷新、触发间隔、持续时间、覆盖率、收益覆盖与各层数覆盖。</p><div class="table-scroll"><table class="dense-table"><thead><tr><th>Buff</th><th class="right">启动</th><th class="right">刷新</th><th class="right">总触发</th><th class="right">触发间隔</th><th class="right">持续</th><th class="right">覆盖率</th><th class="right">收益覆盖</th><th class="right">溢出</th><th class="right">到期</th><th class="right">触发率</th><th>属性效果</th></tr></thead><tbody>${dynamicBuffRows || '<tr><td colspan="12" class="empty">暂无动态 Buff</td></tr>'}</tbody></table></div>`, true)}
         ${card('常驻 Buff', `<div class="table-scroll"><table class="dense-table"><thead><tr><th>Buff</th><th class="right">最大层数</th><th class="right">基础持续</th><th class="right">基础冷却</th><th>属性效果</th></tr></thead><tbody>${constantBuffRows || '<tr><td colspan="5" class="empty">暂无常驻 Buff</td></tr>'}</tbody></table></div>`, true)}
-        ${card('执行轮次', `<div class="table-scroll"><table><thead><tr><th>轮次</th><th>状态</th><th class="right">DPS</th><th>开始</th><th>完成</th><th class="right">输入</th></tr></thead><tbody>${runRows || '<tr><td colspan="6" class="empty">暂无执行轮次</td></tr>'}</tbody></table></div><details><summary>输入说明</summary>查看输入会按当前任务冻结配置调用 SimC Composer 生成可读文本；它不是历史执行输入的复原或校验。命令、路径及原始 stderr 不在页面展示。</details>`, true)}
-        ${card('Artifact / 原生报告', `<p class="muted">${taskFailed && !nativeArtifact ? '本次失败未生成原生报告。SimC 在初始化阶段终止时不会产出 HTML Artifact。' : '原生报告继续通过独立鉴权页面读取。'}</p><div class="table-scroll"><table><thead><tr><th>文件</th><th>类型</th><th class="right">大小</th><th class="right">操作</th></tr></thead><tbody>${artifactRows(artifacts) || '<tr><td colspan="4" class="empty">暂无 Artifact</td></tr>'}</tbody></table></div>`, true)}
-        ${card('引用版本', `<dl><div><dt>Profile</dt><dd>${value(row.profile_name, '未命名')} · #${value(row.profile_id)} · v${value(row.profile_version_id)}</dd></div><div><dt>基础模板</dt><dd>#${value(row.template_id)} · v${value(row.template_version_id)}</dd></div><div><dt>APL</dt><dd>${value(row.apl_name, '未命名')} · #${value(row.apl_id)} · v${value(row.apl_version_id)}</dd></div><div><dt>来源任务</dt><dd>${row.source_task_id ? `<a href="/dashboard/simc/tasks/${Number(row.source_task_id)}/">#${Number(row.source_task_id)}</a>` : '-'}</dd></div></dl><details><summary>为什么显示版本号？</summary>名称来自任务创建时的冻结资源版本；版本引用用于复现，不展示配置原文或服务器路径。</details>`, true)}
-      </div>`;
+        ${disclosureCard('技能施放序列', '代表性战斗的逐步动作、目标、资源与激活 Buff，仅在排查 APL 时展开。', `<div class="table-scroll sequence-scroll"><table class="dense-table sequence-table"><thead><tr><th class="right">时间</th><th class="right">序号</th><th>技能 / 动作列表</th><th>目标</th><th>资源</th><th>激活 Buff</th></tr></thead><tbody>${sequenceRows || '<tr><td colspan="6" class="empty">报告中未包含技能施放序列</td></tr>'}</tbody></table></div>`, `${sampleSequence.length} 条`)}
+      </div>
+    </section>` : '';
+    root.innerHTML = `<section class="hero"><div class="hero-status"><span class="pill">任务${statusClass(row)}</span>${failureTooltip}</div><div class="hero-primary-column"><h1>${value(row.name, `任务 #${objectId}`)}</h1><div class="hero-resource-stack" aria-label="模拟资源"><div class="hero-resource-line"><span>APL</span><b>${value(row.apl_name, '未命名')}</b></div><div class="hero-resource-line"><span>Profile</span><b>${value(row.profile_name, '未命名')}</b></div></div></div><div class="hero-meta"><span class="pill">${modeLabel}</span><span class="pill">更新 ${value(row.updated_at)}</span></div>${nativeReportAction}</section>
+      ${hasStructuredReport ? '' : (taskFailed ? '<div class="analysis-warning"><b>模拟执行失败</b><span>失败状态旁的提示图标可查看详情；只有 SimC 实际生成 HTML Artifact 时才会提供原生报告。</span></div>' : '<div class="analysis-warning"><b>模拟已成功，结构化分析信息不完整</b><span>当前仅展示已确认的执行轮次和原生报告；缺失字段不会被猜测填充。</span></div>')}
+      ${resultSummary}
+      ${renderTaskComparison(row)}
+      ${corePerformance}
+      <section class="result-group">
+        <header class="result-group__heading"><span>配置与复现</span><div><h2>输入、模拟参数、产物与冻结版本</h2><p>把用于解释结果的配置证据集中到页面后部，不与模拟结论混排。</p></div></header>
+        <div class="grid">
+          ${talentCandidateCard}
+          ${card('天赋与套装', `<dl><div><dt>天赋字符串</dt><dd>${talentValue}</dd></div><div><dt>套装效果</dt><dd>${bonusValue}</dd></div></dl>`, true)}
+          ${card('执行轮次', `<div class="table-scroll"><table><thead><tr><th>轮次</th><th>状态</th><th class="right">DPS</th><th>开始</th><th>完成</th><th class="right">输入</th></tr></thead><tbody>${runRows || '<tr><td colspan="6" class="empty">暂无执行轮次</td></tr>'}</tbody></table></div><details><summary>输入说明</summary>查看输入会按当前任务冻结配置调用 SimC Composer 生成可读文本；它不是历史执行输入的复原或校验。命令、路径及原始 stderr 不在页面展示。</details>`, true)}
+          ${card('Artifact / 原生报告', `<p class="muted">${taskFailed && !nativeArtifact ? '本次失败未生成原生报告。SimC 在初始化阶段终止时不会产出 HTML Artifact。' : '原生报告继续通过独立鉴权页面读取。'}</p><div class="table-scroll"><table><thead><tr><th>文件</th><th>类型</th><th class="right">大小</th><th class="right">操作</th></tr></thead><tbody>${artifactRows(artifacts) || '<tr><td colspan="4" class="empty">暂无 Artifact</td></tr>'}</tbody></table></div>`, true)}
+          ${card('引用版本', `<dl><div><dt>Profile</dt><dd>${value(row.profile_name, '未命名')} · #${value(row.profile_id)} · v${value(row.profile_version_id)}</dd></div><div><dt>基础模板</dt><dd>#${value(row.template_id)} · v${value(row.template_version_id)}</dd></div><div><dt>APL</dt><dd>${value(row.apl_name, '未命名')} · #${value(row.apl_id)} · v${value(row.apl_version_id)}</dd></div><div><dt>报告时间</dt><dd>${value(simulation.timestamp)}</dd></div><div><dt>来源任务</dt><dd>${row.source_task_id ? `<a href="/dashboard/simc/tasks/${Number(row.source_task_id)}/">#${Number(row.source_task_id)}</a>` : '-'}</dd></div></dl><details><summary>为什么显示版本号？</summary>名称来自任务创建时的冻结资源版本；版本引用用于复现，不展示配置原文或服务器路径。</details>`, true)}
+        </div>
+      </section>
+      ${completeReport}`;
   }
 
   function renderAttributeTask(row) {
