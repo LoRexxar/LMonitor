@@ -61,10 +61,10 @@ class SimcDetailPageRoutingTests(TestCase):
         self.assertContains(comparison_response, 'data-simc-detail-kind="tasks"')
         self.assertContains(comparison_response, f'data-simc-detail-id="{self.comparison_task.id}"')
 
-    def test_foreign_objects_are_not_disclosed(self):
+    def test_result_detail_pages_are_not_owner_scoped(self):
         self.client.force_login(self.other)
-        self.assertEqual(self.client.get(reverse('simc_task_detail_page', args=[self.task.id])).status_code, 404)
-        self.assertEqual(self.client.get(reverse('simc_task_detail_page', args=[self.comparison_task.id])).status_code, 404)
+        self.assertEqual(self.client.get(reverse('simc_task_detail_page', args=[self.task.id])).status_code, 200)
+        self.assertEqual(self.client.get(reverse('simc_task_detail_page', args=[self.comparison_task.id])).status_code, 200)
 
 
 class SimcDetailPageFrontendContractTests(TestCase):

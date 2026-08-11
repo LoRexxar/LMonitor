@@ -2346,14 +2346,14 @@ class SimcComparisonTaskAPIView(View):
         return value if value and '/' not in value and '\\' not in value and '\n' not in value else ''
 
     def get(self, request):
-        """Return one owned comparison/attribute task with safe run summaries."""
+        """Return one comparison/attribute task with safe run summaries."""
         try:
             task_id = str(request.GET.get('task_id') or '').strip()
             if not task_id:
                 return JsonResponse({'success': False, 'error': 'task_id不能为空'}, status=400)
             try:
                 task = SimcTask.objects.get(
-                    id=int(task_id), user_id=request.user.id, is_active=True,
+                    id=int(task_id), is_active=True,
                     mode__in=('comparison', 'attribute_sweep'),
                 )
             except (TypeError, ValueError, SimcTask.DoesNotExist):
@@ -4776,12 +4776,12 @@ class OssConfigAPIView(View):
 
 @method_decorator([csrf_exempt, login_required], name='dispatch')
 class SimcTaskPreviewAPIView(View):
-    """Return a user-authorized, structured snapshot of a task manifest only."""
+    """Return a structured, display-safe snapshot of a task manifest only."""
 
     def get(self, request):
         task_id = request.GET.get('task_id')
         try:
-            task = SimcTask.objects.get(id=task_id, user_id=request.user.id, is_active=True)
+            task = SimcTask.objects.get(id=task_id, is_active=True)
         except (SimcTask.DoesNotExist, TypeError, ValueError):
             return JsonResponse({'success': False, 'error': '任务不存在或无权限访问'})
         manifest = SimcTaskAPIView()._normalize_task_ext(task.task_type, task.ext)
@@ -4804,7 +4804,7 @@ class SimcTaskPreviewAPIView(View):
             }})
         profile = None
         if not manifest and task.simc_profile_id:
-            profile = SimcProfile.objects.filter(id=task.simc_profile_id, user_id=request.user.id).first()
+            profile = SimcProfile.objects.filter(id=task.simc_profile_id).first()
         context = {
             'id': task.id,
             'name': task.name,
@@ -4853,12 +4853,11 @@ class SimcResultProxyAPIView(View):
                     'error': '文件名不能为空'
                 })
             
-            # 只允许当前用户自己任务中精确登记的结果文件，禁止借代理读取任意 OSS/local 文件。
+            # 只允许任务中精确登记的结果文件，禁止借代理读取任意 OSS/local 文件。
             requested_files = [part.strip() for part in str(result_file).split(',') if part.strip()]
             if len(requested_files) != 1 or requested_files[0] != result_file.strip() or '/' in result_file or '\\' in result_file:
                 return JsonResponse({'success': False, 'error': '结果文件名无效'})
             legacy_tasks = SimcTask.objects.filter(
-                user_id=request.user.id,
                 is_active=True,
             ).exclude(
                 profile_id__isnull=False,
@@ -4951,9 +4950,8 @@ class SimcAttributeAnalysisAPIView(View):
                     'error': '任务ID不能为空'
                 })
             
-            # 仅允许当前用户读取自己的任务分析，避免以 task_id 枚举他人 DPS/装备结果。
             try:
-                task = SimcTask.objects.get(id=task_id, user_id=request.user.id, is_active=True)
+                task = SimcTask.objects.get(id=task_id, is_active=True)
             except SimcTask.DoesNotExist:
                 return JsonResponse({
                     'success': False,
@@ -5547,7 +5545,7 @@ class SimcRegularCompareAPIView(View):
     def _get_multi_task_payload(self, request, task_ids):
         """Build a safe comparison report from selected ordinary simulation tasks."""
         tasks = list(SimcTask.objects.filter(
-            id__in=task_ids, user_id=request.user.id, is_active=True,
+            id__in=task_ids, is_active=True,
         ).select_related(
             'apl', 'apl_version', 'profile', 'profile_version',
             'template', 'template_version', 'backend',
@@ -5656,11 +5654,11 @@ class SimcRegularCompareAPIView(View):
                 return JsonResponse({'success': False, 'error': 'task_id不能为空'}, status=400)
             try:
                 task = SimcTask.objects.get(
-                    id=int(task_id), user_id=request.user.id, is_active=True,
+                    id=int(task_id), is_active=True,
                     mode__in=('comparison', 'attribute_sweep'),
                 )
             except (TypeError, ValueError, SimcTask.DoesNotExist):
-                return JsonResponse({'success': False, 'error': '比较任务不存在或无权限访问'}, status=404)
+                return JsonResponse({'success': False, 'error': '比较任务不存在'}, status=404)
             runs = list(task.simulation_runs.prefetch_related('artifacts').order_by('sequence'))
             if not runs:
                 return JsonResponse({'success': False, 'error': '比较任务没有执行记录'}, status=404)
@@ -6744,9 +6742,8 @@ class SimcWorkbenchAPIView(View):
             })
 
         if resource == 'tasks':
-            qs = SimcTask.objects.filter(user_id=request.user.id).order_by('-modified_time')
             if object_id:
-                task = qs.filter(id=object_id).first()
+                task = SimcTask.objects.filter(id=object_id).first()
                 if not task:
                     return JsonResponse({'success': False, 'error': '任务不存在'}, status=404)
                 row = self._task_row(task)
@@ -6906,6 +6903,9 @@ class SimcWorkbenchAPIView(View):
                 )
                 return JsonResponse({'success': True, 'data': row})
 
+            qs = SimcTask.objects.filter(
+                user_id=request.user.id,
+            ).order_by('-modified_time')
             # 分页参数白名单校验
             try:
                 page = int(request.GET.get('page', 1))
@@ -6933,15 +6933,19 @@ class SimcWorkbenchAPIView(View):
             })
 
         if resource == 'artifacts':
-            qs = SimcTaskArtifact.objects.filter(task__user_id=request.user.id).select_related('task').order_by('-created_at')
             if object_id:
-                row = qs.filter(id=object_id).first()
+                row = SimcTaskArtifact.objects.filter(
+                    id=object_id,
+                ).select_related('task').first()
                 if not row:
                     return JsonResponse({'success': False, 'error': '产物不存在'}, status=404)
                 return JsonResponse({
                     'success': True,
                     'data': self._artifact_row(row, include_task=True),
                 })
+            qs = SimcTaskArtifact.objects.filter(
+                task__user_id=request.user.id,
+            ).select_related('task').order_by('-created_at')
             try:
                 page = int(request.GET.get('page', 1))
                 page_size = int(request.GET.get('page_size', 20))
@@ -7465,11 +7469,11 @@ class SimcWorkbenchAPIView(View):
 
 @method_decorator(login_required, name='dispatch')
 class SimcRunInputPreviewAPIView(View):
-    """Compose readable SimC input for one owned Run from its task configuration."""
+    """Compose readable SimC input for one Run from its task configuration."""
 
     def get(self, request, task_id, run_id):
         run = SimulationRun.objects.filter(
-            id=run_id, task_id=task_id, task__user_id=request.user.id,
+            id=run_id, task_id=task_id,
         ).select_related('task').first()
         if run is None:
             return JsonResponse({'success': False, 'error': '执行输入不存在'}, status=404)
@@ -7492,7 +7496,7 @@ class SimcTaskReportPreviewAPIView(View):
     """兼容没有 Artifact 记录的旧任务，并隐藏报告文件名与存储路径。"""
 
     def get(self, request, object_id):
-        task = SimcTask.objects.filter(id=object_id, user_id=request.user.id).first()
+        task = SimcTask.objects.filter(id=object_id).first()
         if not task or not task.result_file:
             return JsonResponse({'success': False, 'error': '任务报告不存在'}, status=404)
         if all((task.profile_id, task.template_id, task.apl_id,
@@ -7516,7 +7520,7 @@ class SimcTaskReportPreviewAPIView(View):
 class SimcArtifactPreviewAPIView(View):
     def get(self, request, object_id):
         artifact = SimcTaskArtifact.objects.filter(
-            id=object_id, task__user_id=request.user.id,
+            id=object_id,
         ).select_related('task', 'run').first()
         artifact_path = str(artifact.file_path or '').replace('\\', '/') if artifact else ''
         allowed_prefixes = ('simc_results/', 'simc_agent_results/')

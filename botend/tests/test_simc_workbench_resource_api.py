@@ -167,7 +167,7 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
         self.assertFalse(execute.json()['success'])
         self.assertFalse(SimcTask.objects.filter(name='must fail').exists())
 
-    def test_batch_detail_has_only_safe_owned_member_summaries(self):
+    def test_batch_detail_has_only_safe_task_member_summaries_and_is_not_owner_scoped(self):
         task = SimcTask.objects.create(
             user_id=self.user.id, name='Safe Task', simc_profile_id=0, backend=self.backend,
             current_status=3, task_type=1, mode='comparison',
@@ -200,8 +200,16 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
             self.assertNotIn(secret, serialized)
         self.assertNotIn('Foreign Member', serialized)
 
-        self.assertEqual(self.client.get(
-            f'/api/simc-workbench/tasks/{foreign_task.id}/').status_code, 404)
+        listed_ids = [row['id'] for row in self.client.get('/api/simc-task/').json()['data']]
+        self.assertIn(task.id, listed_ids)
+        self.assertNotIn(foreign_task.id, listed_ids)
+
+        foreign_response = self.client.get(f'/api/simc-workbench/tasks/{foreign_task.id}/')
+        self.assertEqual(foreign_response.status_code, 200)
+        self.assertEqual(
+            [row['candidate_label'] for row in foreign_response.json()['data']['runs']],
+            ['Foreign Member'],
+        )
 
     def test_failed_task_detail_exposes_safe_simc_diagnostic_without_fake_report(self):
         task = SimcTask.objects.create(
@@ -259,7 +267,7 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
         self.assertNotIn('verified', payload)
         build_input.assert_called_once_with(task, run)
 
-    def test_run_input_preview_is_owner_scoped(self):
+    def test_run_input_preview_is_not_owner_scoped(self):
         foreign_task = SimcTask.objects.create(
             user_id=self.other.id, name='Foreign input', simc_profile_id=0,
             backend=self.backend, current_status=3, task_type=1, mode='normal',
@@ -268,11 +276,16 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
             task=foreign_task, sequence=1, status='failed', input_hash='a' * 64,
         )
 
-        response = self.client.get(
-            f'/api/simc-workbench/tasks/{foreign_task.id}/runs/{foreign_run.id}/input/'
-        )
+        with patch(
+            'botend.services.simc_run_control.build_frozen_run_input',
+            return_value=('warrior="Foreign evidence"\n', {}),
+        ):
+            response = self.client.get(
+                f'/api/simc-workbench/tasks/{foreign_task.id}/runs/{foreign_run.id}/input/'
+            )
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['data']['content'], 'warrior="Foreign evidence"\n')
 
     def test_run_input_preview_does_not_compare_against_historical_execution_hash(self):
         task = SimcTask.objects.create(
@@ -341,8 +354,9 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
         foreign_filter = self.client.get(
             f'/api/simc-workbench/artifacts/?task_id={other_task.id}').json()
         self.assertEqual(foreign_filter['pagination']['total'], 0)
-        self.assertEqual(self.client.get(
-            f'/api/simc-workbench/artifacts/{foreign.id}/').status_code, 404)
+        foreign_detail = self.client.get(f'/api/simc-workbench/artifacts/{foreign.id}/')
+        self.assertEqual(foreign_detail.status_code, 200)
+        self.assertEqual(foreign_detail.json()['data']['id'], foreign.id)
 
     def test_artifact_rejects_invalid_pagination_and_clamps_page_size(self):
         self.assertEqual(self.client.get(
@@ -426,7 +440,7 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
         validated.assert_called_once_with(task, 'current_run_2.html', run=latest_run)
         self.assertEqual(payload['report_artifact_id'], latest_artifact.id)
 
-    def test_legacy_task_report_preview_is_owner_scoped_and_sandbox_safe(self):
+    def test_legacy_task_report_preview_is_not_owner_scoped_and_is_sandbox_safe(self):
         task = SimcTask.objects.create(
             user_id=self.user.id, name='Legacy report', simc_profile_id=0, backend=self.backend,
             current_status=2, result_file='simc_task_42.html')
@@ -438,6 +452,8 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
             report.write_text('<html><body>123 DPS</body></html>', encoding='utf-8')
             with patch('botend.services.simc_artifacts._validated_result', return_value=(report, 'simc_results/simc_task_42.html')):
                 response = self.client.get(f'/api/simc-workbench/tasks/{task.id}/report-preview/')
+                foreign_response = self.client.get(
+                    f'/api/simc-workbench/tasks/{foreign.id}/report-preview/')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response['Content-Type'], 'text/html; charset=utf-8')
         csp = response['Content-Security-Policy']
@@ -446,14 +462,11 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
         self.assertIn('sandbox allow-scripts', csp)
         self.assertNotIn('allow-same-origin', csp)
         self.assertNotIn('https:', csp)
-        self.assertEqual(
-            self.client.get(f'/api/simc-workbench/tasks/{foreign.id}/report-preview/').status_code,
-            404,
-        )
+        self.assertEqual(foreign_response.status_code, 200)
 
-    def test_run_bound_artifact_preview_allows_only_inline_report_scripts(self):
+    def test_run_bound_artifact_preview_is_not_owner_scoped_and_allows_only_inline_report_scripts(self):
         task = SimcTask.objects.create(
-            user_id=self.user.id, name='Interactive artifact', simc_profile_id=0, backend=self.backend,
+            user_id=self.other.id, name='Interactive artifact', simc_profile_id=0, backend=self.backend,
             current_status=2, result_file='interactive_run_1.html')
         run = SimulationRun.objects.create(
             task=task, sequence=1, status='completed', result_summary={'dps': 95132})

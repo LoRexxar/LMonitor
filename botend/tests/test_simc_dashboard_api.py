@@ -2486,13 +2486,43 @@ DPS=208365 DPS-Error=200/0.1%
         self.assertIn('实际输入差异（相对基准）', compare_template)
         self.assertIn('input_differences', compare_template)
 
-    def test_selected_comparison_rejects_other_users_task(self):
+    def test_selected_comparison_can_read_other_users_task_results(self):
         other_user = User.objects.create_user(username='comparison_other', password='pwd')
         own = create_test_task(user_id=self.user.id, name='我的结果', simc_profile_id=0, mode='regular', current_status=2)
         other = create_test_task(user_id=other_user.id, name='他人结果', simc_profile_id=0, mode='regular', current_status=2)
+        SimulationRun.objects.create(
+            task=own, sequence=1, candidate_key='own-result', status='completed',
+            result_summary={'dps': 1000},
+        )
+        SimulationRun.objects.create(
+            task=other, sequence=1, candidate_key='other-result', status='completed',
+            result_summary={'dps': 1100},
+        )
         response = self.client.get('/api/simc-regular-compare/', {'task_ids': f'{own.id},{other.id}'})
-        self.assertEqual(response.status_code, 404)
-        self.assertFalse(response.json()['success'])
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['success'], response.json())
+        self.assertEqual(
+            [row['id'] for row in response.json()['data']['runs']],
+            [own.id, other.id],
+        )
+
+    def test_legacy_comparison_detail_apis_are_not_owner_scoped(self):
+        other_user = User.objects.create_user(username='comparison_detail_other', password='pwd')
+        task = self._comparison_task_with_runs('comparison', [
+            ('基准', 'completed', 1000, {'is_base': True}),
+            ('候选', 'completed', 1100, {'is_base': False}),
+        ])
+        task.user_id = other_user.id
+        task.save(update_fields=['user_id'])
+
+        for url in (
+            f'/api/simc-task/comparison/?task_id={task.id}',
+            f'/api/simc-regular-compare/?task_id={task.id}',
+        ):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, 200)
+                self.assertTrue(response.json()['success'], response.json())
 
     def test_selected_comparison_requires_two_task_ids(self):
         task = create_test_task(user_id=self.user.id, name='单个结果', simc_profile_id=0, mode='regular', current_status=2)
@@ -2976,9 +3006,10 @@ class SimcNewConfigModeTests(TestCase):
         self.assertNotIn('result_file', listed)
         self.assertNotIn('result-secret', json.dumps(response.json(), ensure_ascii=False))
 
-    def test_attribute_analysis_ssr_parses_task_owned_attribute_report(self):
+    def test_attribute_analysis_ssr_is_not_owner_scoped(self):
+        other_user = User.objects.create_user(username='attribute_ssr_other', password='pwd')
         task = create_test_task(
-            user_id=self.user.id,
+            user_id=other_user.id,
             name='SSR attribute report',
             task_type=2,
             simc_profile_id=0,
@@ -2998,9 +3029,10 @@ class SimcNewConfigModeTests(TestCase):
         self.assertContains(response, '123456')
         self.assertContains(response, 'gear_crit')
 
-    def test_attribute_analysis_api_parses_only_current_task_owned_reports(self):
+    def test_attribute_analysis_api_reads_foreign_task_but_only_its_registered_reports(self):
+        other_user = User.objects.create_user(username='attribute_api_other', password='pwd')
         task = create_test_task(
-            user_id=self.user.id,
+            user_id=other_user.id,
             name='API attribute report',
             task_type=2,
             simc_profile_id=0,
@@ -3025,7 +3057,7 @@ class SimcNewConfigModeTests(TestCase):
         self.assertEqual(payload['data']['results'][0]['attr1_value'], 850)
         self.assertEqual(payload['data']['results'][0]['dps'], 123456)
 
-    def test_preview_returns_only_current_users_manifest_snapshot(self):
+    def test_preview_manifest_is_not_owner_scoped(self):
         task = create_test_task(
             user_id=self.user.id,
             name='Preview manifest task',
@@ -3063,10 +3095,30 @@ class SimcNewConfigModeTests(TestCase):
 
         other = User.objects.create_user(username='preview_other_user', password='pwd')
         self.client.force_login(other)
-        forbidden = self.client.get(f'/api/simc-task/preview/?task_id={task.id}')
-        self.assertEqual(forbidden.status_code, 200)
-        self.assertFalse(forbidden.json()['success'])
-        self.assertIn('无权限', forbidden.json()['error'])
+        foreign_detail = self.client.get(f'/api/simc-task/preview/?task_id={task.id}')
+        self.assertEqual(foreign_detail.status_code, 200)
+        self.assertTrue(foreign_detail.json()['success'], foreign_detail.json())
+        self.assertEqual(foreign_detail.json()['data']['id'], task.id)
+
+    def test_result_proxy_is_not_owner_scoped_for_legacy_task_results(self):
+        other = User.objects.create_user(username='result_proxy_other', password='pwd')
+        task = create_test_task(
+            user_id=other.id,
+            name='Foreign legacy result',
+            simc_profile_id=0,
+            mode='regular',
+            current_status=2,
+            result_file='foreign-legacy-result.html',
+        )
+        response_mock = SimpleNamespace(status_code=200, text='<html>foreign result</html>')
+
+        with patch('botend.dashboard.api.settings.OSS_CONFIG', {'base_url': 'https://oss.example/'}, create=True), \
+             patch('botend.dashboard.api.requests.get', return_value=response_mock):
+            response = self.client.get('/api/simc-result-proxy/', {'file': task.result_file})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['success'], response.json())
+        self.assertIn('foreign result', response.json()['content'])
 
     def test_task_detail_uses_workbench_dialog_and_old_modal_is_removed(self):
         main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')

@@ -1104,7 +1104,7 @@ class DashboardView(View):
 
 @method_decorator(login_required, name='dispatch')
 class SimcWorkbenchDetailPageView(DashboardPermissionRequiredMixin, View):
-    """Owner-scoped HTML shell; safe details are loaded through the existing API."""
+    """Authenticated HTML shell; safe result details are loaded through the API."""
 
     model_by_kind = {'tasks': SimcTask}
     dashboard_permission = 'simc.history'
@@ -1113,7 +1113,7 @@ class SimcWorkbenchDetailPageView(DashboardPermissionRequiredMixin, View):
         model = self.model_by_kind.get(kind)
         if model is None:
             return HttpResponse(status=404)
-        obj = get_object_or_404(model, id=object_id, user_id=request.user.id)
+        obj = get_object_or_404(model, id=object_id)
         return render(request, 'dashboard/simc_detail.html', {
             'detail_kind': kind,
             'detail_id': obj.id,
@@ -1233,7 +1233,7 @@ class SimcAttributeAnalysisSSRView(DashboardPermissionRequiredMixin, View):
             import requests
             
             try:
-                task = SimcTask.objects.get(id=task_id, user_id=request.user.id, is_active=True)
+                task = SimcTask.objects.get(id=task_id, is_active=True)
             except SimcTask.DoesNotExist:
                 return HttpResponse("任务不存在或无权限访问", status=404)
             
