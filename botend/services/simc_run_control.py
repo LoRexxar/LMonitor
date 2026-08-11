@@ -515,6 +515,7 @@ def _finalize_task(task, now):
                 task.completed_at = None
                 task.save(update_fields=['current_status', 'completed_at', 'modified_time'])
                 return
+            task.refresh_from_db(fields=['analysis_result'])
     completed = [run for run in runs if run.status == 'completed']
     failed = [run for run in runs if run.status == 'failed']
     task.analysis_result = {

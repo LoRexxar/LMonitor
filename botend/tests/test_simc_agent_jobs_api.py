@@ -358,6 +358,51 @@ class SimcAgentJobAPITests(TestCase):
         self.assertEqual(second['sequence'], 2)
         self.assertIn('execute', second['input'])
 
+    def test_attribute_agent_finalization_preserves_converged_recommendation(self):
+        from botend.services.simc_attribute_search import attribute_variants
+        from botend.services.simc_run_control import _finalize_task
+
+        task = self.task(mode='attribute_sweep', name='attribute finalization')
+        claimed_at = timezone.now()
+        task.current_status = 1
+        task.execution_owner = SimcTask.EXECUTION_OWNER_AGENT
+        task.started_at = claimed_at
+        task.save(update_fields=['current_status', 'execution_owner', 'started_at'])
+        ratings = {'crit': 1077, 'haste': 928, 'mastery': 947, 'versatility': 0}
+        for sequence, (label, candidate_ratings, is_base, search) in enumerate(
+            attribute_variants(ratings), 1
+        ):
+            SimulationRun.objects.create(
+                task=task,
+                sequence=sequence,
+                round_number=1,
+                candidate_key=f'round-1-candidate-{sequence}',
+                candidate_label=label,
+                candidate_params={
+                    'candidate_type': 'attribute_ratings',
+                    'is_base': is_base,
+                    'attribute_ratings': candidate_ratings,
+                    'search': search,
+                },
+                status='completed',
+                result_summary={
+                    'dps': 100000 if is_base else 99900,
+                    'dps_error': 100,
+                },
+                started_at=claimed_at,
+                completed_at=timezone.now(),
+            )
+
+        _finalize_task(task, timezone.now())
+
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 2)
+        self.assertTrue(task.analysis_result['attribute_search']['converged'])
+        self.assertEqual(
+            task.analysis_result['attribute_search']['stop_reason'],
+            'local_optimum_50_pairwise',
+        )
+
     def test_disabled_unavailable_and_offline_rejected(self):
         for field, value in (('is_active', False), ('binary_available', False),
                              ('last_seen_at', timezone.now() - timedelta(seconds=91))):
