@@ -72,7 +72,9 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
 
     def test_home_creation_success_returns_to_unified_history(self):
         creation = SIM[SIM.index("async function startSelectedSimcCandidateComparisons"):SIM.index("function bindSimcWorkbenchSimulationControls")]
-        self.assertGreaterEqual(creation.count("switchSimcWorkbenchL1Tab('history')"), 3)
+        history_navigation = "showDashboardSection(SIMC_DASHBOARD_SECTIONS.history)"
+        self.assertGreaterEqual(creation.count(history_navigation), 4)
+        self.assertNotIn("switchSimcWorkbenchL1Tab('history')", creation)
         self.assertNotIn("window.location.assign(`/dashboard/simc/tasks/", creation)
         self.assertNotIn("window.simcWorkbenchShowTaskDetail('tasks',", creation)
         self.assertGreaterEqual(creation.count("/api/simc-task/comparison/"), 2)
