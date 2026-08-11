@@ -17,14 +17,12 @@ class SimcWorkerIntegrationTests(SimpleTestCase):
         self.assertEqual(_composer_identity('fury'), ('fury', 'warrior'))
         self.assertEqual(_composer_identity('paladin_protection'), ('protection', 'paladin'))
 
-    def test_deploy_ignores_runtime_simc_results_during_collectstatic(self):
+    def test_deploy_only_runs_repeatable_release_steps(self):
         with open('deploy.sh', 'r', encoding='utf-8') as handle:
             script = handle.read()
+        self.assertIn("git pull origin master", script)
+        self.assertIn("manage.py migrate --no-input", script)
         self.assertIn("collectstatic --no-input --ignore='simc_results/*'", script)
-
-    def test_deploy_manages_dedicated_lmsimc_screen(self):
-        with open('deploy.sh', 'r', encoding='utf-8') as handle:
-            script = handle.read()
         self.assertIn("manage.py runserver 0.0.0.0:18000 --noreload", script)
         self.assertIn("for session in lmweb lmback lmsimc", script)
         self.assertIn('curl -fsS http://127.0.0.1:18000/', script)
@@ -32,9 +30,11 @@ class SimcWorkerIntegrationTests(SimpleTestCase):
         self.assertIn("screen -dmS lmsimc", script)
         self.assertIn("manage.py simc_worker", script)
         self.assertIn("lmweb|lmback|lmsimc", script)
-        self.assertIn("manage.py update_simc_binary --apply-patches", script)
         self.assertIn("flock -n 9", script)
+        self.assertNotIn("manage.py update_simc_binary", script)
+        self.assertNotIn("repair_ptr_talent_metadata", script)
+        self.assertNotIn("import_mythic_dungeon_data", script)
         self.assertGreater(
             script.index("screen -S lmsimc -X quit"),
-            script.index("=== 9. 重启 lmsimc ==="),
+            script.index("=== 6. 重启 lmsimc ==="),
         )

@@ -291,7 +291,7 @@ class PtrTalentDescriptionRepairTests(SimpleTestCase):
         self.assertTrue(result['_force_description'])
         self.assertEqual(result['description'], '')
 
-    def test_bundled_ptr_db2_asset_manifest_and_deploy_contract(self):
+    def test_bundled_ptr_db2_asset_manifest_is_valid(self):
         asset = Path('botend/data/ptr_talent_db2_12.1.0.68914.tar.gz')
         self.assertTrue(asset.is_file())
         with tarfile.open(asset, 'r:gz') as archive:
@@ -312,22 +312,6 @@ class PtrTalentDescriptionRepairTests(SimpleTestCase):
                     expected['sha256'],
                     relative_path,
                 )
-
-        deploy_script = Path('deploy.sh').read_text(encoding='utf-8')
-        self.assertIn('PTR_DB2_BUILD="12.1.0.68914"', deploy_script)
-        self.assertIn('repair_ptr_talent_metadata \\\n', deploy_script)
-        self.assertIn('--backup-dir .cache/backups', deploy_script)
-        self.assertIn('--skip-wowhead', deploy_script)
-        self.assertIn('libc.renameat2(', deploy_script)
-        self.assertIn('ctypes.c_uint(2),  # RENAME_EXCHANGE', deploy_script)
-        self.assertIn('os.replace(sys.argv[1], sys.argv[2])', deploy_script)
-        self.assertIn('trap ptr_db2_exit_handler EXIT', deploy_script)
-        self.assertIn("trap 'exit 130' INT", deploy_script)
-        self.assertIn("trap 'exit 143' TERM", deploy_script)
-        self.assertLess(
-            deploy_script.index('PTR_DB2_REPAIR_SUCCEEDED=1'),
-            deploy_script.index('rm -rf "$PTR_DB2_PREVIOUS"'),
-        )
 
     def test_normalizes_listfile_whitespace_in_icon_keys(self):
         command = RepairPtrTalentMetadataCommand()
