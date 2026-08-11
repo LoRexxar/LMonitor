@@ -4,6 +4,8 @@ The browser creates round one only.  The Worker calls ``advance_attribute_search
 after a complete round; this function either appends the next immutable Run set to
 the same Task or persists the final recommendation.
 """
+import math
+
 from django.db import transaction
 
 from botend.models import SimcTask
@@ -192,7 +194,7 @@ def advance_attribute_search(task_id, expected_started_at=None):
     rows, center = _completed_round_rows(round_runs)
     best_neighbor = max((row for row in rows if not row['is_center']), key=lambda row: row['dps'])
     combined_error = (
-        center['dps_error'] + best_neighbor['dps_error']
+        math.hypot(center['dps_error'], best_neighbor['dps_error'])
         if center['dps_error'] is not None and best_neighbor['dps_error'] is not None
         else ATTRIBUTE_DPS_TOLERANCE
     )

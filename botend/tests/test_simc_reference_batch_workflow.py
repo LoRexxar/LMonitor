@@ -404,7 +404,7 @@ class ReferenceBatchAPIViewTests(TestCase):
         self.assertEqual(set(SimulationRun.objects.filter(id__in=third['run_ids']).values_list(
             'round_number', flat=True)), {3})
 
-    def test_attribute_search_converges_when_gain_is_within_combined_dps_error(self):
+    def test_attribute_search_advances_when_gain_exceeds_independent_combined_error(self):
         from botend.dashboard.api import SimcComparisonTaskAPIView
         rows = SimcComparisonTaskAPIView()._attribute_variants(
             {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}, 50,
@@ -416,18 +416,21 @@ class ReferenceBatchAPIViewTests(TestCase):
                 'attribute_ratings': ratings, 'search': candidate,
             },
         } for index, (label, ratings, is_base, candidate) in enumerate(rows)]
-        task = create_task(
-            user_id=self.user.id, name='error-aware convergence', profile_id=self.profile.id,
-            template_id=self.template.id, apl_id=self.apl.id,
-            mode='attribute_sweep', candidates=candidates,
-        )
+        with patch(
+                'botend.services.simc_task_service.current_validation_identity',
+                return_value=TEST_VALIDATION_IDENTITY):
+            task = create_task(
+                user_id=self.user.id, name='error-aware continuation', profile_id=self.profile.id,
+                template_id=self.template.id, apl_id=self.apl.id,
+                mode='attribute_sweep', candidates=candidates,
+            )
         from botend.services.simc_task_service import initialize_task_runs
         runs = initialize_task_runs(task)
         for index, run in enumerate(runs):
             run.status = 'completed'
             run.result_summary = {
-                'dps': 100250 if index == 1 else 100000,
-                'dps_error': 150,
+                'dps': 100384 if index == 1 else 100000,
+                'dps_error': 268,
             }
             run.save(update_fields=['status', 'result_summary'])
         lease = timezone.now()
@@ -437,13 +440,12 @@ class ReferenceBatchAPIViewTests(TestCase):
 
         result = advance_attribute_search(task.id, expected_started_at=lease)
 
-        self.assertTrue(result['converged'])
-        self.assertEqual(result['appended'], 0)
-        task.refresh_from_db()
-        recommendation = task.analysis_result['attribute_search']
-        self.assertEqual(recommendation['ratings'], {
-            'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000,
-        })
+        self.assertFalse(result['converged'])
+        self.assertEqual(result['appended'], len(rows))
+        self.assertEqual(result['recommendation']['ratings'], rows[1][1])
+        self.assertEqual(set(SimulationRun.objects.filter(
+            id__in=result['run_ids'],
+        ).values_list('round_number', flat=True)), {2})
 
     def test_attribute_continuation_requires_success_parseable_dps_and_consistent_current_versions(self):
         from botend.dashboard.api import SimcComparisonTaskAPIView
