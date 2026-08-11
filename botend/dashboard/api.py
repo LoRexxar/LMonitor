@@ -5128,6 +5128,10 @@ class SimcRegularCompareAPIView(View):
         if not isinstance(attribute_report, dict):
             return None
         safe_candidate_fields = ('id', 'label', 'round', 'step', 'is_center', 'ratings', 'dps')
+        safe_marginal_fields = (
+            'run_id', 'stat', 'amount', 'ratings', 'baseline_dps', 'dps',
+            'dps_error', 'dps_gain', 'gain_percent',
+        )
 
         def safe_candidate(value):
             if not isinstance(value, dict):
@@ -5140,6 +5144,8 @@ class SimcRegularCompareAPIView(View):
                 'algorithm', 'algorithm_version', 'step', 'steps', 'tolerance',
                 'rounds_completed', 'current_round', 'total_rating',
                 'initial_ratings', 'stop_reason', 'local_optimum',
+                'marginal_gain_status', 'marginal_gain_round',
+                'marginal_gain_amounts', 'marginal_gain_baseline_dps',
             )
         }
         safe['recommendation'] = safe_candidate(attribute_report.get('recommendation'))
@@ -5150,6 +5156,11 @@ class SimcRegularCompareAPIView(View):
             safe_candidate(value) for value in attribute_report.get('candidates', [])
             if isinstance(value, dict)
         ]
+        safe['marginal_gains'] = [
+            {key: value.get(key) for key in safe_marginal_fields if key in value}
+            for value in attribute_report.get('marginal_gains', [])
+            if isinstance(value, dict)
+        ]
         return safe
 
     def _build_reference_attribute_report(self, runs, analysis_result=None):
@@ -5157,6 +5168,9 @@ class SimcRegularCompareAPIView(View):
         run_rows = []
         for run in runs:
             params = run.candidate_params if isinstance(run.candidate_params, dict) else {}
+            search = params.get('search') if isinstance(params.get('search'), dict) else {}
+            if search.get('type') == 'attribute_marginal_gain':
+                continue
             run_rows.append((run, params))
         report = self._build_attribute_report(run_rows)
         analysis = analysis_result if isinstance(analysis_result, dict) else {}
@@ -5164,6 +5178,16 @@ class SimcRegularCompareAPIView(View):
         if not isinstance(persisted, dict) or not isinstance(persisted.get('converged'), bool):
             return report
 
+        for key in (
+            'marginal_gain_status', 'marginal_gain_round',
+            'marginal_gain_amounts', 'marginal_gain_baseline_dps',
+        ):
+            if key in persisted:
+                report[key] = persisted[key]
+        report['marginal_gains'] = [
+            row for row in persisted.get('marginal_gains', [])
+            if isinstance(row, dict)
+        ]
         report['converged'] = persisted['converged']
         report['stop_reason'] = str(persisted.get('stop_reason') or '')
         report['local_optimum'] = (

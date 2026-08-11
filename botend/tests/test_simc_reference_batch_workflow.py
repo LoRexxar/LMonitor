@@ -465,12 +465,55 @@ class ReferenceBatchAPIViewTests(TestCase):
             precise['recommendation']['stop_reason'],
             'local_optimum_20_pairwise',
         )
+        self.assertEqual(precise['appended'], 12)
+        marginal_runs = list(SimulationRun.objects.filter(
+            id__in=precise['run_ids'],
+        ).order_by('sequence'))
+        self.assertEqual(
+            [
+                (
+                    run.candidate_params['search']['marginal_gain']['stat'],
+                    run.candidate_params['search']['marginal_gain']['amount'],
+                )
+                for run in marginal_runs
+            ],
+            [
+                (stat, amount)
+                for stat in ('crit', 'haste', 'mastery', 'versatility')
+                for amount in (20, 50, 100)
+            ],
+        )
+        weights = {'crit': 2, 'haste': 3, 'mastery': 1, 'versatility': 0.5}
+        for run in marginal_runs:
+            marginal = run.candidate_params['search']['marginal_gain']
+            run.status = 'completed'
+            run.result_summary = {
+                'dps': 100000 + weights[marginal['stat']] * marginal['amount'],
+                'dps_error': 5,
+            }
+            run.save(update_fields=['status', 'result_summary'])
+
+        completed = advance_attribute_search(task.id, expected_started_at=lease)
+        self.assertTrue(completed['converged'])
+        self.assertEqual(completed['appended'], 0)
         task.refresh_from_db()
+        persisted_gains = task.analysis_result['attribute_search']['marginal_gains']
+        self.assertEqual(len(persisted_gains), 12)
+        self.assertEqual(
+            next(
+                row for row in persisted_gains
+                if row['stat'] == 'haste' and row['amount'] == 100
+            )['dps_gain'],
+            300,
+        )
         from botend.dashboard.api import SimcRegularCompareAPIView
         report = SimcRegularCompareAPIView()._build_reference_attribute_report(
             task.simulation_runs.order_by('sequence'), task.analysis_result,
         )
+        safe_report = SimcRegularCompareAPIView._safe_attribute_report(report)
         self.assertEqual(report['steps'], [100, 50, 20])
+        self.assertEqual(len(report['marginal_gains']), 12)
+        self.assertEqual(len(safe_report['marginal_gains']), 12)
         self.assertEqual(
             [point['step'] for point in report['search_path']],
             [100, 50, 20],

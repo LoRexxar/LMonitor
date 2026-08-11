@@ -15,8 +15,16 @@ from botend.services.simc_task_service import append_candidate_runs
 ATTRIBUTE_STATS = ('crit', 'haste', 'mastery', 'versatility')
 ATTRIBUTE_SEARCH_STEPS = (100, 50, 20)
 ATTRIBUTE_SEARCH_STEP = ATTRIBUTE_SEARCH_STEPS[0]
+ATTRIBUTE_MARGINAL_AMOUNTS = (20, 50, 100)
 ATTRIBUTE_DPS_TOLERANCE = 1.0
 MAX_ATTRIBUTE_SEARCH_ROUNDS = 20
+
+ATTRIBUTE_STAT_LABELS = {
+    'crit': '暴击',
+    'haste': '急速',
+    'mastery': '精通',
+    'versatility': '全能',
+}
 
 
 def _normalized_step(step):
@@ -63,6 +71,143 @@ def attribute_variants(values, round_number=1, mark_base=True, step=None):
                 'move': {'from': source, 'to': target, 'transfer': step},
             }))
     return rows
+
+
+def _marginal_gain_candidates(ratings, round_number):
+    base = {stat: int(ratings[stat]) for stat in ATTRIBUTE_STATS}
+    candidates = []
+    for stat in ATTRIBUTE_STATS:
+        for amount in ATTRIBUTE_MARGINAL_AMOUNTS:
+            measured = dict(base)
+            measured[stat] += amount
+            candidates.append({
+                'candidate_key': f'marginal-{stat}-{amount}',
+                'candidate_label': f'{ATTRIBUTE_STAT_LABELS[stat]} +{amount}',
+                'round_number': round_number,
+                'candidate_params': {
+                    'candidate_type': 'attribute_ratings',
+                    'is_base': False,
+                    'attribute_ratings': measured,
+                    'search': {
+                        'type': 'attribute_marginal_gain',
+                        'algorithm': 'single_stat_marginal_gain',
+                        'algorithm_version': 1,
+                        'round': round_number,
+                        'marginal_gain': {'stat': stat, 'amount': amount},
+                    },
+                },
+            })
+    return candidates
+
+
+def _marginal_gain_metadata(run):
+    params = run.candidate_params if isinstance(run.candidate_params, dict) else {}
+    search = params.get('search') if isinstance(params.get('search'), dict) else {}
+    marginal = search.get('marginal_gain')
+    return marginal if search.get('type') == 'attribute_marginal_gain' and isinstance(marginal, dict) else None
+
+
+def _append_marginal_gain_runs(task, recommendation, round_number, expected_started_at):
+    recommendation = {
+        **recommendation,
+        'marginal_gain_status': 'pending',
+        'marginal_gain_round': round_number,
+        'marginal_gain_amounts': list(ATTRIBUTE_MARGINAL_AMOUNTS),
+    }
+    task.analysis_result = {
+        **(task.analysis_result if isinstance(task.analysis_result, dict) else {}),
+        'attribute_search': recommendation,
+    }
+    task.save(update_fields=['analysis_result', 'modified_time'])
+    created = append_candidate_runs(
+        task,
+        _marginal_gain_candidates(recommendation['ratings'], round_number),
+        round_number=round_number,
+        expected_started_at=expected_started_at,
+    )
+    return {
+        'appended': len(created),
+        'converged': True,
+        'awaiting_marginal_gains': True,
+        'run_ids': [run.id for run in created],
+        'recommendation': recommendation,
+    }
+
+
+def _complete_marginal_gains(task, round_runs):
+    analysis = task.analysis_result if isinstance(task.analysis_result, dict) else {}
+    persisted = analysis.get('attribute_search')
+    if not isinstance(persisted, dict) or persisted.get('converged') is not True:
+        raise ValueError('属性边际收益缺少已收敛的最优解')
+    try:
+        baseline_ratings = {
+            stat: int(persisted['ratings'][stat]) for stat in ATTRIBUTE_STATS
+        }
+        baseline_dps = float(persisted['dps'])
+    except (KeyError, TypeError, ValueError):
+        raise ValueError('属性边际收益缺少可解析的最优属性或基准 DPS')
+
+    rows = []
+    signatures = set()
+    for run in round_runs:
+        if run.status != 'completed':
+            raise ValueError('属性边际收益必须全部成功后才能完成任务')
+        marginal = _marginal_gain_metadata(run)
+        summary = run.result_summary if isinstance(run.result_summary, dict) else {}
+        try:
+            stat = str(marginal['stat'])
+            amount = int(marginal['amount'])
+            ratings = _run_ratings(run)
+            dps = float(summary['dps'])
+        except (KeyError, TypeError, ValueError):
+            raise ValueError('属性边际收益存在无法解析的执行结果')
+        if stat not in ATTRIBUTE_STATS or amount not in ATTRIBUTE_MARGINAL_AMOUNTS:
+            raise ValueError('属性边际收益的属性或增量无效')
+        expected_ratings = dict(baseline_ratings)
+        expected_ratings[stat] += amount
+        if ratings != expected_ratings or (stat, amount) in signatures:
+            raise ValueError('属性边际收益候选与最优解不一致或存在重复')
+        signatures.add((stat, amount))
+        try:
+            dps_error = max(0.0, float(summary['dps_error']))
+        except (KeyError, TypeError, ValueError):
+            dps_error = None
+        dps_gain = dps - baseline_dps
+        rows.append({
+            'run_id': run.id,
+            'stat': stat,
+            'amount': amount,
+            'ratings': ratings,
+            'baseline_dps': baseline_dps,
+            'dps': dps,
+            'dps_error': dps_error,
+            'dps_gain': dps_gain,
+            'gain_percent': dps_gain / baseline_dps * 100 if baseline_dps else None,
+        })
+
+    expected = {
+        (stat, amount)
+        for stat in ATTRIBUTE_STATS
+        for amount in ATTRIBUTE_MARGINAL_AMOUNTS
+    }
+    if signatures != expected:
+        raise ValueError('属性边际收益候选集合不完整')
+    order = {stat: index for index, stat in enumerate(ATTRIBUTE_STATS)}
+    rows.sort(key=lambda row: (order[row['stat']], ATTRIBUTE_MARGINAL_AMOUNTS.index(row['amount'])))
+    recommendation = {
+        **persisted,
+        'marginal_gain_status': 'completed',
+        'marginal_gain_baseline_dps': baseline_dps,
+        'marginal_gains': rows,
+    }
+    task.analysis_result = {**analysis, 'attribute_search': recommendation}
+    task.save(update_fields=['analysis_result', 'modified_time'])
+    return {
+        'appended': 0,
+        'converged': True,
+        'recommendation': recommendation,
+        'marginal_gains': rows,
+    }
 
 
 def _signature(ratings):
@@ -169,6 +314,12 @@ def advance_attribute_search(task_id, expected_started_at=None):
     if any(run.status in ('pending', 'running') for run in round_runs):
         return {'appended': 0, 'converged': False, 'awaiting': True}
 
+    marginal_runs = [run for run in round_runs if _marginal_gain_metadata(run) is not None]
+    if marginal_runs:
+        if len(marginal_runs) != len(round_runs):
+            raise ValueError('属性边际收益轮次混入了搜索候选')
+        return _complete_marginal_gains(task, marginal_runs)
+
     probe_runs = [
         run for run in round_runs
         if isinstance(run.candidate_params, dict)
@@ -200,12 +351,9 @@ def advance_attribute_search(task_id, expected_started_at=None):
                     'round': current_round, 'dps': baseline_dps, 'converged': True,
                     'stop_reason': 'insufficient_rating_for_20_transfer',
                 }
-                task.analysis_result = {
-                    **(task.analysis_result if isinstance(task.analysis_result, dict) else {}),
-                    'attribute_search': recommendation,
-                }
-                task.save(update_fields=['analysis_result', 'modified_time'])
-                return {'appended': 0, 'converged': True, 'recommendation': recommendation}
+                return _append_marginal_gain_runs(
+                    task, recommendation, current_round + 1, expected_started_at,
+                )
             candidate_round = current_round + 1
             refined_variants = attribute_variants(
                 ratings, round_number=candidate_round, step=search_step,
@@ -278,12 +426,9 @@ def advance_attribute_search(task_id, expected_started_at=None):
             )
 
     if recommendation['converged']:
-        task.analysis_result = {
-            **(task.analysis_result if isinstance(task.analysis_result, dict) else {}),
-            'attribute_search': recommendation,
-        }
-        task.save(update_fields=['analysis_result', 'modified_time'])
-        return {'appended': 0, 'converged': True, 'recommendation': recommendation}
+        return _append_marginal_gain_runs(
+            task, recommendation, current_round + 1, expected_started_at,
+        )
 
     next_round = current_round + 1
     candidates = [{
