@@ -245,7 +245,7 @@
                         <h4 class="simc-task-card__title">${esc(row.name || `任务 #${idOf(row.id)}`)}</h4>
                         ${resourceMeta}
                     </div>
-                    <div class="simc-task-card__meta"><span class="simc-task-card__scenario" title="战斗场景：${esc(row.battle_scenario || '—')}"><b>场景</b><em>${esc(row.battle_scenario || '—')}</em></span><span class="simc-task-status ${statusClass}"><i class="fas ${statusIcon}" aria-hidden="true"></i>${esc(row.status_label)}</span><time><i class="far fa-calendar-alt" aria-hidden="true"></i>${esc(row.created_at)}</time></div>
+                    <div class="simc-task-card__meta"><span class="simc-task-card__context"><span class="simc-task-card__scenario" title="战斗场景：${esc(row.battle_scenario || '—')}"><b>场景</b><em>${esc(row.battle_scenario || '—')}</em></span><time><i class="far fa-calendar-alt" aria-hidden="true"></i>${esc(row.created_at)}</time></span><span class="simc-task-status ${statusClass}"><i class="fas ${statusIcon}" aria-hidden="true"></i>${esc(row.status_label)}</span></div>
                     ${progressBar}
                 </div>
                 <div class="simc-task-card__actions"><a href="/dashboard/simc/${resource}/${idOf(row.id)}/" target="_blank" rel="noopener noreferrer" class="simc-touch-action simc-task-primary-action"><i class="fas fa-list-alt" aria-hidden="true"></i><span>查看详情</span></a>${pendingActions}${rerunButton}</div>

@@ -42,6 +42,16 @@ class SimcHistoryPaginationContractTests(unittest.TestCase):
         """任务必须显示可信生命周期进度"""
         self.assertIn("progress", JS.lower())
 
+    def test_task_card_stacks_battle_scenario_and_created_time(self):
+        """场景和创建时间属于同一上下文竖列，状态保持为独立同级信息。"""
+        history = JS[JS.index('async function loadTasks('):JS.index('function scheduleTaskRefresh(', JS.index('async function loadTasks('))]
+        self.assertIn('<span class="simc-task-card__context">', history)
+        context_start = history.index('<span class="simc-task-card__context">')
+        context_end = history.index('</span><span class="simc-task-status', context_start)
+        context = history[context_start:context_end]
+        self.assertIn('simc-task-card__scenario', context)
+        self.assertIn('<time>', context)
+
     def test_active_task_polling_is_silent_and_preserves_expanded_benchmark(self):
         """后台轮询不能反复展示 loading，也不能收起用户正在看的基准子任务。"""
         self.assertIn("loadTasks(page, { background: true })", JS)
