@@ -244,7 +244,7 @@
         #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) { grid-template-columns: auto minmax(0, 1fr) auto; gap: .75rem; padding: .55rem .75rem; border-radius: .75rem; }
         #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__main { display: grid; grid-column: 1 / 3; grid-template-columns: auto minmax(12rem, 1fr) minmax(0, auto) minmax(5rem, 9rem); min-width: 0; align-items: center; gap: .65rem; }
         #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__select + .simc-task-card__main { grid-column: 2 / 3; }
-        #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__eyebrow { flex: 0 0 auto; margin-bottom: 0; }
+        #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__kind { display: flex; flex: 0 0 auto; flex-direction: column; align-items: flex-start; gap: .12rem; }
         #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__identity { display: flex; min-width: 0; flex-direction: column; gap: .2rem; }
         #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__title { min-width: 0; overflow: visible; font-size: .86rem; overflow-wrap: anywhere; text-overflow: clip; white-space: normal; }
         #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__resources { display: flex; min-width: 0; flex-direction: column; gap: .12rem; color: #475569; font-size: .68rem; }
@@ -368,7 +368,7 @@
             .simc-template-detail-meta { grid-template-columns: minmax(0, 1fr); }
             #simc-workbench .simc-task-card { grid-template-columns: minmax(0, 1fr) auto; gap: .4rem; padding: .45rem .5rem; }
             #simc-workbench .simc-task-card__main { gap: .35rem; }
-            #simc-workbench .simc-task-card__eyebrow { display: none; }
+            #simc-workbench .simc-task-card__eyebrow, #simc-workbench .simc-task-card__kind { display: none; }
             #simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__title { font-size: .78rem; }
             #simc-workbench .simc-task-card__meta { display: none; }
             #simc-workbench .simc-task-progress { display: none; }
@@ -462,7 +462,7 @@
     <script src="{% static 'dashboard/js/main.js' %}?v=20260811_simc_history_redirect"></script>
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806c" defer></script>
     <script src="{% static 'dashboard/js/simc-result-report.js' %}?v=20260811_result_first_zh"></script>
-    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=task_context_stack_v1"></script>
+    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=task_identity_context_stack_v2"></script>
     <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260808_candidate_profile"></script>
     {% if user.is_staff or user.is_superuser %}
     <link rel="stylesheet" href="{% static 'dashboard/css/mythic_planner.css' %}?v=20260806a">

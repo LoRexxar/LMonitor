@@ -240,7 +240,7 @@
             return `<article class="simc-task-card simc-responsive-row${cardAction ? ' is-status-actionable' : ''}"${cardAction ? ` data-task-card-action="${cardAction}" data-task-card-id="${idOf(row.id)}"` : ''}>
                 ${row.can_compare === true && status === 2 ? `<label class="simc-task-card__select"><input type="checkbox" data-task-compare-id="${idOf(row.id)}" aria-label="选择任务 ${idOf(row.id)} 进行对比" class="accent-violet-600"></label>` : ''}
                 <div class="simc-task-card__main">
-                    <div class="simc-task-card__eyebrow"><span class="simc-task-type">${typeLabel}</span><span class="simc-task-id">#${idOf(row.id)}</span></div>
+                    <div class="simc-task-card__kind"><span class="simc-task-id">#${idOf(row.id)}</span><span class="simc-task-type">${typeLabel}</span></div>
                     <div class="simc-task-card__identity">
                         <h4 class="simc-task-card__title">${esc(row.name || `任务 #${idOf(row.id)}`)}</h4>
                         ${resourceMeta}

@@ -52,6 +52,17 @@ class SimcHistoryPaginationContractTests(unittest.TestCase):
         self.assertIn('simc-task-card__scenario', context)
         self.assertIn('<time>', context)
 
+    def test_task_card_stacks_id_and_simulation_type(self):
+        """任务 ID 和模拟类型属于同一 identity 竖列，ID 在上、类型在下。"""
+        history = JS[JS.index('async function loadTasks('):JS.index('function scheduleTaskRefresh(', JS.index('async function loadTasks('))]
+        self.assertIn('<div class="simc-task-card__kind">', history)
+        kind_start = history.index('<div class="simc-task-card__kind">')
+        kind_end = history.index('</div>', kind_start)
+        kind = history[kind_start:kind_end]
+        self.assertIn('simc-task-id', kind)
+        self.assertIn('simc-task-type', kind)
+        self.assertLess(kind.index('simc-task-id'), kind.index('simc-task-type'))
+
     def test_active_task_polling_is_silent_and_preserves_expanded_benchmark(self):
         """后台轮询不能反复展示 loading，也不能收起用户正在看的基准子任务。"""
         self.assertIn("loadTasks(page, { background: true })", JS)
