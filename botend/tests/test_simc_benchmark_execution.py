@@ -865,14 +865,46 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(rerun.status, SimcBenchmarkExecution.STATUS_FAILED)
         self.assertEqual(self.panel.aggregate_baseline_execution_id, original.id)
         self.assertEqual(self.panel.published_execution_id, original.id)
-        self.assertFalse(rerun.cases.get().results.exists())
+        self.assertEqual(
+            list(rerun.cases.get().results.values_list('candidate_key', 'dps')),
+            [('baseline', 1200.0)],
+        )
         candidates = serialize_incremental_panel_results(self.panel)['coordinates'][0]['candidates']
         self.assertEqual(
             [(row['key'], row['dps']) for row in candidates],
-            [('baseline', 1234.0), ('trinket', 1300.0)],
+            [('baseline', 1200.0), ('trinket', 1300.0)],
         )
 
-    def test_partial_full_rerun_preserves_previous_projection_until_fully_sealed(self):
+    def test_failed_full_rerun_preserves_results_across_equivalent_raid_buff_schema(self):
+        original = self._published_success()
+        scenario = self.panel.scenarios.get(key='patchwerk')
+        scenario.simulation_params = {
+            'iterations': 1000,
+            'raid_buffs': [],
+            'use_class_raid_buff': True,
+        }
+        scenario.save(update_fields=['simulation_params'])
+
+        rerun = self._create(execution_mode='full')
+        task = rerun.cases.get().task
+        task.current_status = 3
+        task.save(update_fields=['current_status'])
+        self._run(task, 1, 'completed', 'baseline', dps=1200)
+        self._run(task, 2, 'failed', 'trinket')
+
+        reconcile_execution(rerun)
+
+        rerun.refresh_from_db()
+        self.panel.refresh_from_db()
+        self.assertEqual(rerun.status, SimcBenchmarkExecution.STATUS_FAILED)
+        self.assertEqual(self.panel.published_execution_id, original.id)
+        candidates = serialize_incremental_panel_results(self.panel)['coordinates'][0]['candidates']
+        self.assertEqual(
+            [(row['key'], row['dps']) for row in candidates],
+            [('baseline', 1200.0), ('trinket', 1300.0)],
+        )
+
+    def test_partial_full_rerun_updates_successful_case_and_preserves_failed_case(self):
         SimcBenchmarkScenario.objects.create(
             panel=self.panel, key='second-scenario', name='Second scenario',
             simulation_params={'iterations': 2000},
@@ -916,7 +948,7 @@ class SimcBenchmarkExecutionTests(TestCase):
             for row in serialize_incremental_panel_results(self.panel)['coordinates']
         }
         self.assertEqual(by_scenario['patchwerk'], [
-            ('baseline', 1234.0), ('trinket', 1300.0),
+            ('baseline', 1200.0), ('trinket', 1250.0),
         ])
         self.assertEqual(by_scenario['second-scenario'], [
             ('baseline', 1234.0), ('trinket', 1300.0),

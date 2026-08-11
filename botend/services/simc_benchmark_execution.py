@@ -345,30 +345,48 @@ def _task_candidate_identities_through_source_chain(task):
     return identities
 
 
+def _normalized_simulation_params_for_identity(params):
+    """Canonicalize historical and explicit raid-buff schemas for result reuse.
+
+    Composer historically treated an absent ``raid_buffs`` field as the actor's
+    class raid buff.  The explicit schema represents that same behavior as an
+    empty extra-buff list plus ``use_class_raid_buff=true``.  When only an
+    explicit list existed historically, the equivalent toggle is false.
+    """
+    normalized = deepcopy(params) if isinstance(params, dict) else {}
+    has_raid_buffs = 'raid_buffs' in normalized
+    has_class_toggle = 'use_class_raid_buff' in normalized
+    if not has_raid_buffs and not has_class_toggle:
+        normalized['raid_buffs'] = []
+        normalized['use_class_raid_buff'] = True
+    elif has_raid_buffs and not has_class_toggle:
+        normalized['use_class_raid_buff'] = False
+    elif has_class_toggle and not has_raid_buffs:
+        normalized['raid_buffs'] = []
+    return normalized
+
+
 def _coordinate_input_identity(coordinate):
     return _canonical_hash({
         'spec_key': coordinate['spec_key'], 'scenario_key': coordinate['scenario_key'],
         'profile_key': coordinate['profile_key'], 'profile_id': coordinate['profile_id'],
         'apl_id': coordinate['apl_id'], 'template_id': coordinate['template_id'],
         'backend_id': coordinate['backend_id'],
-        'simulation_params': coordinate['simulation_params'],
+        'simulation_params': _normalized_simulation_params_for_identity(
+            coordinate['simulation_params'],
+        ),
     })
 
 
 def _execution_contributes_to_projection(execution):
-    """Whether an Execution may replace any row on the live aggregate surface.
+    """Every independently sealed candidate may contribute to the live projection.
 
-    New full reruns are atomic: a failed, partial, cancelled, or still-running
-    full Execution is diagnostic history only.  Its rows remain immutable for
-    retry/audit, but cannot alter the previous visible projection.  Older
-    snapshots lack this explicit policy marker and retain their historical
-    behavior for a non-destructive rollout.
+    Execution status remains diagnostic: a partial/failed full rerun does not move
+    the full-snapshot publication boundary, but its successful immutable candidate
+    rows supersede older rows while failed/missing candidates keep falling back.
+    Historical ``atomic_full`` markers use this corrected per-candidate policy too.
     """
-    snapshot = execution.config_snapshot if isinstance(execution.config_snapshot, dict) else {}
-    return not (
-        snapshot.get('result_publication') == 'atomic_full'
-        and execution.status != SimcBenchmarkExecution.STATUS_SUCCESS
-    )
+    return True
 
 
 def _latest_source_tasks_by_coordinate(panel, coordinate_filter=None):
@@ -2043,18 +2061,26 @@ def _collect_success_results(execution, live, *, require_complete_execution):
                 return None
             continue
         case = live_by_coordinate[coordinate]
-        if case['status'] != 'success':
-            if require_complete_execution:
-                return None
-            continue
-        if ([run['key'] for run in case['runs']] != candidate_keys
-                or type(case.get('_case_id')) is not int):
+        if type(case.get('_case_id')) is not int:
             return None
-        for run in case['runs']:
+        runs_by_key = {run['key']: run for run in case['runs']}
+        if len(runs_by_key) != len(case['runs']) or not set(runs_by_key).issubset(candidate_keys):
+            return None
+        if require_complete_execution and (
+                case['status'] != 'success' or list(runs_by_key) != candidate_keys):
+            return None
+        for candidate_key in candidate_keys:
+            run = runs_by_key.get(candidate_key)
+            if run is None or run.get('status') != 'success':
+                if require_complete_execution:
+                    return None
+                continue
             dps = run.get('_raw_dps')
             if (isinstance(dps, bool) or not isinstance(dps, (int, float))
                     or not math.isfinite(dps) or dps <= 0):
-                return None
+                if require_complete_execution:
+                    return None
+                continue
             rows.append({
                 'case_id': case['_case_id'],
                 'spec_key': coordinate[0], 'scenario_key': coordinate[1],
@@ -2062,7 +2088,7 @@ def _collect_success_results(execution, live, *, require_complete_execution):
                 'spec_label': case['labels']['spec'],
                 'scenario_label': case['labels']['scenario'],
                 'profile_label': case['labels']['profile'],
-                'status': case['status'], 'candidate_key': run['key'],
+                'status': case['status'], 'candidate_key': candidate_key,
                 'dps': float(dps),
             })
     return rows
