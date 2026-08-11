@@ -170,6 +170,27 @@ class SimcDetailPageFrontendContractTests(TestCase):
         self.assertIn('window.SimcResultReport.render(report)', detail)
         self.assertIn('window.SimcResultReport.render(report)', workbench)
 
+    def test_complete_report_places_results_first_and_localizes_report_tables(self):
+        detail = (ROOT / 'static/dashboard/js/simc-detail.js').read_text(encoding='utf-8')
+        workbench = (ROOT / 'static/dashboard/js/simc-workbench.js').read_text(encoding='utf-8')
+        component = (ROOT / 'static/dashboard/js/simc-result-report.js').read_text(encoding='utf-8')
+
+        for token in (
+            'renderResultSummary(report)', 'simc-report-result-summary',
+            'DPS 误差', 'DPS 波动范围', '每点资源伤害（DPR）',
+            '装备数值（Gear Amount）', '团队增益后', '角色属性',
+        ):
+            self.assertIn(token, component)
+
+        shell = component[component.index('return `<section class="simc-report-shell">'):]
+        self.assertLess(shell.index('${renderResultSummary(report)}'), shell.index('<header class="simc-report-header">'))
+
+        detail_output = detail[detail.index('root.innerHTML = `<section class="hero">'):]
+        self.assertLess(detail_output.index('${window.SimcResultReport.render(report)}'), detail_output.index('${renderTaskComparison(row)}'))
+
+        workbench_output = workbench[workbench.index('host.innerHTML = `<div class="flex flex-wrap justify-between gap-2">'):]
+        self.assertLess(workbench_output.index('${completeReport}'), workbench_output.index('${analysisDocument}'))
+
     def test_run_input_preview_is_available_from_workbench_and_dedicated_detail(self):
         template = (ROOT / 'templates/dashboard/simc_detail.html').read_text(encoding='utf-8')
         detail = (ROOT / 'static/dashboard/js/simc-detail.js').read_text(encoding='utf-8')
