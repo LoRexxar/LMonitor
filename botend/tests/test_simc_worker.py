@@ -117,6 +117,30 @@ class SimcWorkerTests(TestCase):
         self.assertEqual(local_task.current_status, 0)
         self.assertEqual(monitor.process_simc_task.call_args.args[0].pk, agent_task.pk)
 
+    def test_attribute_search_waits_thirty_seconds_before_local_fallback(self):
+        from botend.services.simc_worker import SimcWorker
+
+        task = self.make_task(name='attribute search')
+        task.mode = 'attribute_sweep'
+        task.save(update_fields=['mode'])
+        monitor = MagicMock()
+        monitor.process_simc_task.return_value = True
+        worker = SimcWorker(monitor=monitor, poll_interval=0)
+
+        self.assertFalse(worker.consume_once())
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 0)
+        monitor.process_simc_task.assert_not_called()
+
+        SimcTask.objects.filter(pk=task.pk).update(
+            create_time=timezone.now() - timedelta(seconds=31),
+        )
+        self.assertTrue(worker.consume_once())
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 2)
+        self.assertEqual(task.execution_owner, SimcTask.EXECUTION_OWNER_LOCAL)
+        monitor.process_simc_task.assert_called_once()
+
     def test_consume_once_never_claims_agent_owned_task(self):
         from botend.services.simc_worker import SimcWorker
 

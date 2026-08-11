@@ -26,6 +26,9 @@ class SimcWorker:
         )
         self.stale_seconds = int(getattr(settings, 'SIMC_WORKER_STALE_SECONDS', 900) or 900)
         self.max_attempts = int(getattr(settings, 'SIMC_WORKER_MAX_ATTEMPTS', 3) or 3)
+        self.attribute_search_agent_grace_seconds = max(0.0, float(getattr(
+            settings, 'SIMC_ATTRIBUTE_SEARCH_AGENT_GRACE_SECONDS', 30,
+        )))
         self.maintenance_interval = float(
             maintenance_interval if maintenance_interval is not None
             else getattr(settings, 'SIMC_WORKER_MAINTENANCE_INTERVAL', 30)
@@ -220,10 +223,16 @@ class SimcWorker:
         claimed = 0
         try:
             with transaction.atomic():
+                attribute_search_local_cutoff = timezone.now() - timedelta(
+                    seconds=self.attribute_search_agent_grace_seconds,
+                )
                 task = SimcTask.objects.select_for_update().filter(
                     is_active=True, current_status=0,
                     execution_owner__in=(SimcTask.EXECUTION_OWNER_UNASSIGNED,
                                          SimcTask.EXECUTION_OWNER_LOCAL),
+                ).filter(
+                    ~Q(mode='attribute_sweep')
+                    | Q(create_time__lte=attribute_search_local_cutoff),
                 ).annotate(
                     queue_priority=Case(
                         When(benchmark_case__isnull=True, then=Value(0)),
