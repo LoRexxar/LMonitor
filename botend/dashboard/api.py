@@ -32,7 +32,7 @@ from django.template.loader import render_to_string
 
 from django.conf import settings
 from utils.log import logger
-from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcApl, SimcAplSymbol, SimcAplSymbolScope, SimcTask, SimulationRun, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, SimcAgent, SimcAgentMaintenanceTask, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState, WowSpellSnapshot, WowTalentNodeMetadata, WowTalentVersion, WowItemSnapshot, SimcResourceVersion
+from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcApl, SimcAplSymbol, SimcAplSymbolScope, SimcTask, SimcTaskFavorite, SimulationRun, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, SimcAgent, SimcAgentMaintenanceTask, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState, WowSpellSnapshot, WowTalentNodeMetadata, WowTalentVersion, WowItemSnapshot, SimcResourceVersion
 from botend.alerting import upsert_system_alert
 from botend.dashboard.permissions import DashboardPermissionRequiredMixin, has_dashboard_permission
 from django.db import IntegrityError, models, transaction
@@ -6601,6 +6601,9 @@ class SimcWorkbenchAPIView(View):
                 return JsonResponse({'success': False, 'error': '分页参数必须为整数'}, status=400)
             page = max(1, page)
             page_size = max(1, min(50, page_size))
+            scope = str(request.GET.get('scope') or 'all').strip().lower()
+            if scope not in ('all', 'favorites'):
+                return JsonResponse({'success': False, 'error': '历史任务范围无效'}, status=400)
 
             benchmark_ancestor_ids = set()
             ancestor_frontier = set(
@@ -6618,21 +6621,34 @@ class SimcWorkbenchAPIView(View):
                     ).values_list('source_task_id', flat=True)
                 ) - benchmark_ancestor_ids
 
-            ordinary_refs = [
-                ('task', task_id, modified_time)
-                for task_id, modified_time in SimcTask.objects.filter(
-                    user_id=request.user.id,
-                    benchmark_case__isnull=True,
-                ).exclude(
-                    pk__in=benchmark_ancestor_ids,
-                ).values_list('id', 'modified_time')
-            ]
-            execution_refs = [
-                ('benchmark_execution', execution_id, created_at)
-                for execution_id, created_at in SimcBenchmarkExecution.objects.filter(
-                    cases__task__user_id=request.user.id,
-                ).distinct().values_list('id', 'created_at')
-            ]
+            if scope == 'favorites':
+                ordinary_refs = [
+                    ('task', task_id, favorited_at)
+                    for task_id, favorited_at in SimcTaskFavorite.objects.filter(
+                        user_id=request.user.id,
+                        task__user_id=request.user.id,
+                        task__benchmark_case__isnull=True,
+                    ).exclude(
+                        task_id__in=benchmark_ancestor_ids,
+                    ).values_list('task_id', 'created_at')
+                ]
+                execution_refs = []
+            else:
+                ordinary_refs = [
+                    ('task', task_id, modified_time)
+                    for task_id, modified_time in SimcTask.objects.filter(
+                        user_id=request.user.id,
+                        benchmark_case__isnull=True,
+                    ).exclude(
+                        pk__in=benchmark_ancestor_ids,
+                    ).values_list('id', 'modified_time')
+                ]
+                execution_refs = [
+                    ('benchmark_execution', execution_id, created_at)
+                    for execution_id, created_at in SimcBenchmarkExecution.objects.filter(
+                        cases__task__user_id=request.user.id,
+                    ).distinct().values_list('id', 'created_at')
+                ]
             refs = ordinary_refs + execution_refs
             # Stable page boundaries even when MySQL timestamps have identical precision.
             refs.sort(
@@ -6649,6 +6665,10 @@ class SimcWorkbenchAPIView(View):
                 object_id for row_type, object_id, _created_at in page_refs
                 if row_type == 'benchmark_execution'
             ]
+            favorite_task_ids = set(SimcTaskFavorite.objects.filter(
+                user_id=request.user.id,
+                task_id__in=task_ids,
+            ).values_list('task_id', flat=True))
             tasks = {
                 task.pk: task for task in SimcTask.objects.filter(pk__in=task_ids).only(
                     'id', 'name', 'current_status', 'ext', 'modified_time', 'mode',
@@ -6725,6 +6745,7 @@ class SimcWorkbenchAPIView(View):
                         'created_at': task.modified_time,
                         'detail_resource': 'tasks',
                         'mode': task.mode,
+                        'is_favorite': task.id in favorite_task_ids,
                         'can_compare': task.current_status == 2 and task.id in completed_task_ids,
                         'apl_name': apl_payload.get('name') or getattr(apls.get(task.apl_id), 'name', '') or '—',
                         'profile_name': profile_payload.get('name') or getattr(profiles.get(task.profile_id), 'name', '') or '—',
@@ -7110,6 +7131,26 @@ class SimcWorkbenchAPIView(View):
         if 'task_type' in data:
             return JsonResponse({'success': False, 'error': '不再支持 task_type 参数；请使用 SimC 工作台的任务模式入口。'}, status=400)
         action = str(data.get('action') or '').strip()
+        if resource == 'task-favorites' and object_id:
+            task = SimcTask.objects.filter(
+                id=object_id,
+                user_id=request.user.id,
+                benchmark_case__isnull=True,
+            ).first()
+            if not task:
+                return JsonResponse({'success': False, 'error': '任务不存在'}, status=404)
+            if action == 'favorite':
+                SimcTaskFavorite.objects.get_or_create(user=request.user, task=task)
+                is_favorite = True
+            elif action == 'unfavorite':
+                SimcTaskFavorite.objects.filter(user=request.user, task=task).delete()
+                is_favorite = False
+            else:
+                return JsonResponse({'success': False, 'error': '收藏操作无效'}, status=400)
+            return JsonResponse({
+                'success': True,
+                'data': {'task_id': task.id, 'is_favorite': is_favorite},
+            })
         if resource == 'tasks' and object_id:
             task = SimcTask.objects.filter(id=object_id, user_id=request.user.id).first()
             if not task:

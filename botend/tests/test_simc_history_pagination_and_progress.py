@@ -233,6 +233,51 @@ class SimcHistoryBackendPaginationTests(TestCase):
         self.assertEqual(rows[grouped.name]['status_label'], '运行中')
         self.assertIsNone(rows[grouped.name]['progress'])
 
+    def test_task_favorites_are_account_scoped_and_switchable(self):
+        """收藏关系按账号隔离，收藏选项卡只返回当前账号收藏的普通任务。"""
+        other_user = User.objects.create_user(username='favorite-other', password='testpass')
+        own_task = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            name='我的收藏任务', current_status=2, is_active=True,
+        )
+        other_task = SimcTask.objects.create(
+            user_id=other_user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            name='其他账号收藏任务', current_status=2, is_active=True,
+        )
+
+        def favorite(user, task, action='favorite'):
+            request = self.factory.post(
+                f'/api/simc-workbench/task-favorites/{task.id}/',
+                data=json.dumps({'action': action}), content_type='application/json',
+            )
+            request.user = user
+            return json.loads(self.view.post(
+                request, resource='task-favorites', object_id=task.id,
+            ).content)
+
+        self.assertTrue(favorite(self.user, own_task)['success'])
+        self.assertTrue(favorite(other_user, other_task)['success'])
+
+        request = self.factory.get('/api/simc-workbench/history/?scope=favorites')
+        request.user = self.user
+        mine = json.loads(self.view.get(request, resource='history').content)
+        self.assertEqual([row['id'] for row in mine['data']], [own_task.id])
+        self.assertTrue(mine['data'][0]['is_favorite'])
+
+        request = self.factory.get('/api/simc-workbench/history/?scope=favorites')
+        request.user = other_user
+        theirs = json.loads(self.view.get(request, resource='history').content)
+        self.assertEqual([row['id'] for row in theirs['data']], [other_task.id])
+
+        self.assertTrue(favorite(self.user, own_task, action='unfavorite')['success'])
+        request = self.factory.get('/api/simc-workbench/history/?scope=favorites')
+        request.user = self.user
+        self.assertEqual(json.loads(self.view.get(request, resource='history').content)['data'], [])
+
+        self.assertIn('data-task-history-scope="all"', HTML)
+        self.assertIn('data-task-history-scope="favorites"', HTML)
+        self.assertIn("resourceUrl('task-favorites'", JS)
+
     def test_history_exposes_frozen_resource_names_and_battle_scenario(self):
         from botend.models import SimcApl, SimcResourceVersion
         apl = SimcApl.objects.create(

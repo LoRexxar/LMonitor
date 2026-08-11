@@ -1243,6 +1243,38 @@ class SimcTask(models.Model):
         ]
 
 
+class SimcTaskFavorite(models.Model):
+    """账号级 SimC 任务收藏关系；不改变任务本身及其归属。"""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='simc_task_favorites',
+    )
+    task = models.ForeignKey(
+        SimcTask,
+        on_delete=models.CASCADE,
+        related_name='favorite_relations',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'simc_task_favorite'
+        ordering = ('-created_at', '-id')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('user', 'task'),
+                name='unique_simc_task_favorite',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=('user', '-created_at'),
+                name='simctaskfav_user_created_idx',
+            ),
+        ]
+
+
 class SimcTaskArtifact(models.Model):
     """SimC任务产物 - 分离存储HTML报告、JSON统计等文件路径"""
     task = models.ForeignKey(SimcTask, on_delete=models.CASCADE, related_name='artifacts')

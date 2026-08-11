@@ -4,7 +4,7 @@
     const apiRoot = '/api/simc-workbench/';
     const TASK_POLL_MS = 10000;
     const state = {
-        activePanel: '', taskPage: 1, taskFetchInFlight: false,
+        activePanel: '', taskPage: 1, taskScope: 'all', taskFetchInFlight: false,
         taskRequestSerial: 0, taskPollTimer: null, taskAbortController: null,
         taskResponseSignature: '',
         detailRequestSerial: 0, detailAbortController: null, detailRequestKey: '',
@@ -131,8 +131,37 @@
         const active = row.is_active !== false;
         return `<button data-wb-action="detail" data-resource="${esc(resource)}" data-id="${id}" class="text-blue-700">详情</button> <button data-wb-action="${active ? 'archive' : 'restore'}" data-resource="${esc(resource)}" data-id="${id}" class="text-amber-700">${active ? '停用' : '恢复'}</button>`;
     };
+    function syncTaskHistoryScopeTabs() {
+        document.querySelectorAll('[data-task-history-scope]').forEach(button => {
+            const active = button.dataset.taskHistoryScope === state.taskScope;
+            button.setAttribute('aria-selected', active ? 'true' : 'false');
+            button.className = active
+                ? 'border-b-2 border-blue-600 px-3 py-2 text-sm font-bold text-blue-700'
+                : 'border-b-2 border-transparent px-3 py-2 text-sm font-bold text-slate-500 hover:text-slate-800';
+        });
+    }
+    async function toggleTaskFavorite(button) {
+        const taskId = idOf(button.dataset.taskFavoriteId);
+        const action = button.dataset.taskFavoriteAction;
+        if (!taskId || !['favorite', 'unfavorite'].includes(action)) return;
+        button.disabled = true;
+        try {
+            await json(resourceUrl('task-favorites', taskId), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
+                body: JSON.stringify({ action }),
+            });
+            state.taskResponseSignature = '';
+            await loadTasks(state.taskPage);
+            window.showMessage(action === 'favorite' ? '任务已收藏' : '已取消收藏', 'success');
+        } finally {
+            button.disabled = false;
+        }
+    }
     async function loadTasks(page = 1, { background = false } = {}) {
         state.taskPage = Number.isSafeInteger(Number(page)) && Number(page) > 0 ? Number(page) : 1;
+        state.taskScope = state.taskScope === 'favorites' ? 'favorites' : 'all';
+        syncTaskHistoryScopeTabs();
         const requestedPage = state.taskPage;
         const host = document.getElementById('simc-wb-task-list');
         if (!host) return;
@@ -156,7 +185,7 @@
         state.taskFetchInFlight = true;
         let data;
         try {
-            data = await json(`${resourceUrl('history')}?page=${requestedPage}&page_size=20`, { signal: controller.signal });
+            data = await json(`${resourceUrl('history')}?page=${requestedPage}&page_size=20&scope=${encodeURIComponent(state.taskScope)}`, { signal: controller.signal });
         } catch (error) {
             if (error.name === 'AbortError') return;
             if (requestSerial === state.taskRequestSerial && state.activePanel === 'tasks') {
@@ -172,7 +201,7 @@
         }
         if (requestSerial !== state.taskRequestSerial || state.activePanel !== 'tasks') return;
         const hasActive = data.data.some(row => row.row_type === 'benchmark_execution' ? ['pending', 'running'].includes(row.status) : [0, 1, 4].includes(Number(row.status)));
-        const responseSignature = JSON.stringify({ data: data.data, pagination: data.pagination || {} });
+        const responseSignature = JSON.stringify({ scope: state.taskScope, data: data.data, pagination: data.pagination || {} });
         if (background && responseSignature === state.taskResponseSignature) {
             scheduleTaskRefresh(hasActive);
             return;
@@ -234,6 +263,9 @@
             const statusIcon = status === 2 ? 'fa-check-circle' : status === 3 ? 'fa-exclamation-circle' : status === 5 ? 'fa-ban' : status === 1 ? 'fa-spinner fa-spin' : 'fa-clock';
             const typeLabel = row.mode === 'comparison' ? '候选对比' : row.mode === 'attribute_sweep' ? '属性寻优' : '普通模拟';
             const rerunButton = `<button type="button" data-task-rerun="${idOf(row.id)}" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-redo-alt" aria-hidden="true"></i><span>重跑</span></button>`;
+            const favoriteAction = row.is_favorite === true ? 'unfavorite' : 'favorite';
+            const favoriteLabel = row.is_favorite === true ? '取消收藏' : '收藏';
+            const favoriteButton = `<button type="button" data-task-favorite-id="${idOf(row.id)}" data-task-favorite-action="${favoriteAction}" aria-pressed="${row.is_favorite === true}" title="${favoriteLabel}" class="simc-touch-action simc-task-secondary-action"><i class="${row.is_favorite === true ? 'fas' : 'far'} fa-star text-amber-500" aria-hidden="true"></i><span>${favoriteLabel}</span></button>`;
             const pendingActions = status === 0 ? `<button type="button" data-task-status="5" data-task-id="${idOf(row.id)}" title="取消任务" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-ban" aria-hidden="true"></i><span>取消</span></button><button type="button" data-task-status="3" data-task-id="${idOf(row.id)}" title="标记失败" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-exclamation-circle" aria-hidden="true"></i><span>失败</span></button>` : '';
             const resourceMeta = `<div class="simc-task-card__resources" aria-label="任务资源"><span title="APL：${esc(row.apl_name || '—')}"><b>APL</b><em>${esc(row.apl_name || '—')}</em></span><span title="Profile：${esc(row.profile_name || '—')}"><b>Profile</b><em>${esc(row.profile_name || '—')}</em></span></div>`;
             const cardAction = status === 2 && row.can_compare === true ? 'compare' : status === 3 ? 'error' : '';
@@ -248,9 +280,9 @@
                     <div class="simc-task-card__meta"><span class="simc-task-card__context"><span class="simc-task-card__scenario" title="战斗场景：${esc(row.battle_scenario || '—')}"><b>场景</b><em>${esc(row.battle_scenario || '—')}</em></span><time><i class="far fa-calendar-alt" aria-hidden="true"></i>${esc(row.created_at)}</time></span><span class="simc-task-status ${statusClass}"><i class="fas ${statusIcon}" aria-hidden="true"></i>${esc(row.status_label)}</span></div>
                     ${progressBar}
                 </div>
-                <div class="simc-task-card__actions"><a href="/dashboard/simc/${resource}/${idOf(row.id)}/" target="_blank" rel="noopener noreferrer" class="simc-touch-action simc-task-primary-action"><i class="fas fa-list-alt" aria-hidden="true"></i><span>查看详情</span></a>${pendingActions}${rerunButton}</div>
+                <div class="simc-task-card__actions"><a href="/dashboard/simc/${resource}/${idOf(row.id)}/" target="_blank" rel="noopener noreferrer" class="simc-touch-action simc-task-primary-action"><i class="fas fa-list-alt" aria-hidden="true"></i><span>查看详情</span></a>${favoriteButton}${pendingActions}${rerunButton}</div>
             </article>`;
-        }).join('')}</div>` : empty('暂无记录');
+        }).join('')}</div>` : empty(state.taskScope === 'favorites' ? '暂无收藏任务' : '暂无记录');
 
         expandedExecutionState.forEach((saved, executionId) => {
             const cases = document.querySelector(`[data-benchmark-task-cases="${executionId}"]`);
@@ -1362,6 +1394,22 @@
                 const actionName = templateAction.dataset.templateAction;
                 if (actionName === 'cancel') closeTemplateForm();
                 else if (actionName === 'close-detail') closeTemplateDetail();
+            }
+            const taskScopeButton = event.target.closest('[data-task-history-scope]');
+            if (taskScopeButton) {
+                const scope = taskScopeButton.dataset.taskHistoryScope;
+                if (['all', 'favorites'].includes(scope) && scope !== state.taskScope) {
+                    state.taskScope = scope;
+                    state.taskResponseSignature = '';
+                    syncTaskHistoryScopeTabs();
+                    loadTasks(1).catch(notify);
+                }
+                return;
+            }
+            const taskFavoriteButton = event.target.closest('[data-task-favorite-id]');
+            if (taskFavoriteButton) {
+                toggleTaskFavorite(taskFavoriteButton).catch(notify);
+                return;
             }
             const paginationBtn = event.target.closest('[data-pagination-page]');
             if (paginationBtn) {
