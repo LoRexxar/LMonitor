@@ -87,6 +87,40 @@ class SimcHistoryPaginationContractTests(unittest.TestCase):
         self.assertNotIn('max-height', cases_css)
         self.assertNotIn('overflow-y', cases_css)
 
+    def test_benchmark_history_uses_explicit_columns_instead_of_left_stacked_blocks(self):
+        """宽屏基准摘要和子任务应横向分栏利用宽度，窄屏再回落。"""
+        self.assertIn('simc-benchmark-task-summary__identity', JS)
+        self.assertIn('simc-benchmark-task-summary__metrics', JS)
+        self.assertIn('simc-benchmark-task-summary__progress', JS)
+        self.assertIn('simc-benchmark-task-case__identity', JS)
+        self.assertIn('simc-benchmark-task-case__fact', JS)
+
+        summary_start = HTML.index('#simc-workbench .simc-benchmark-task-summary {')
+        summary_end = HTML.index('}', summary_start) + 1
+        summary_css = HTML[summary_start:summary_end]
+        self.assertIn('display: grid', summary_css)
+        self.assertIn('grid-template-columns', summary_css)
+        self.assertNotIn('display: flex', summary_css)
+
+        metrics_start = HTML.index('#simc-workbench .simc-benchmark-task-summary__metrics {')
+        metrics_end = HTML.index('}', metrics_start) + 1
+        metrics_css = HTML[metrics_start:metrics_end]
+        self.assertIn('display: grid', metrics_css)
+        self.assertIn('grid-template-columns', metrics_css)
+
+        cases_start = HTML.index('#simc-workbench .simc-benchmark-task-cases {')
+        cases_end = HTML.index('}', cases_start) + 1
+        cases_css = HTML[cases_start:cases_end]
+        self.assertIn('grid-template-columns: minmax(0, 1fr)', cases_css)
+
+        case_start = HTML.index('#simc-workbench .simc-benchmark-task-case {')
+        case_end = HTML.index('}', case_start) + 1
+        case_css = HTML[case_start:case_end]
+        self.assertIn('display: grid', case_css)
+        self.assertIn('grid-template-columns', case_css)
+        self.assertIn('@media (max-width: 900px)', HTML)
+        self.assertIn('@media (max-width: 640px)', HTML)
+
     def test_history_task_actions_use_compact_visible_labels(self):
         self.assertNotIn('<span>选择对比</span>', JS)
         self.assertIn('aria-label="选择任务 ${idOf(row.id)} 进行对比"', JS)
