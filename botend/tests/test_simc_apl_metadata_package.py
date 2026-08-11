@@ -154,6 +154,36 @@ class SimcAplMetadataImportTests(TestCase):
         self.assertEqual(summary.deactivated, 1)
         self.assertFalse(stale.is_active)
 
+    def test_refresh_all_deactivates_old_generated_catalog_and_preserves_manual(self):
+        old_generated = SimcAplSymbol.objects.create(
+            simc_revision='old-revision', wow_build='old-build',
+            class_name='warrior', token='old_buff', symbol_kind='buff',
+            source=SimcAplSymbol.SOURCE_SIMC_MANIFEST,
+        )
+        old_manual = SimcAplSymbol.objects.create(
+            simc_revision='old-revision', wow_build='old-build',
+            class_name='warrior', token='manual_buff', symbol_kind='buff',
+            source=SimcAplSymbol.SOURCE_MANUAL,
+        )
+        old_resource = SimcAplSymbol.objects.create(
+            simc_revision='old-revision', wow_build='old-build',
+            class_name='warrior', token='rage', symbol_kind='resource',
+            source=SimcAplSymbol.SOURCE_SIMC_MANIFEST,
+        )
+
+        summary = import_metadata_package(self.package, refresh_all=True)
+
+        old_generated.refresh_from_db()
+        old_manual.refresh_from_db()
+        old_resource.refresh_from_db()
+        self.assertEqual(summary.deactivated, 1)
+        self.assertFalse(old_generated.is_active)
+        self.assertTrue(old_manual.is_active)
+        self.assertTrue(old_resource.is_active)
+        self.assertEqual(SimcAplSymbol.objects.filter(
+            simc_revision=REVISION, wow_build=BUILD, is_active=True,
+        ).count(), 2)
+
 
 class SimcAplBuiltInPackageTests(TestCase):
     EXPECTED_COUNTS = {
@@ -252,7 +282,10 @@ class SimcAplBuiltInPackageTests(TestCase):
 
     def test_management_command_dry_run_uses_validated_package(self):
         output = StringIO()
-        call_command('import_simc_apl_metadata', dry_run=True, stdout=output)
+        call_command(
+            'import_simc_apl_metadata', dry_run=True, refresh_all=True,
+            stdout=output,
+        )
         text = output.getvalue()
         self.assertIn('[DRY-RUN]', text)
         self.assertIn('facts=5021', text)

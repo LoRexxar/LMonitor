@@ -27,6 +27,10 @@ class Command(BaseCommand):
             '--deactivate-missing', action='store_true',
             help='显式停用同 revision/build 下数据包未包含的非人工同类记录',
         )
+        parser.add_argument(
+            '--refresh-all', action='store_true',
+            help='全量刷新 active 目录：停用所有旧版本自动生成的五类字段并导入当前包；保留人工记录',
+        )
 
     def handle(self, *args, **options):
         try:
@@ -39,6 +43,7 @@ class Command(BaseCommand):
                 payload,
                 dry_run=bool(options['dry_run']),
                 deactivate_missing=bool(options['deactivate_missing']),
+                refresh_all=bool(options['refresh_all']),
             )
         except (OSError, TypeError, ValueError) as exc:
             raise CommandError(str(exc)) from exc

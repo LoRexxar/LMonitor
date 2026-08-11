@@ -731,19 +731,19 @@ class SimcAplEditorApiTests(TestCase):
             self.assertEqual(response.status_code, 400)
             self.assertEqual(response.json()["error"]["code"], "invalid_position")
 
-    def test_symbols_use_current_backend_revision(self):
+    def test_symbols_include_all_active_revisions_without_backend(self):
         SimcAplSymbol.objects.create(simc_revision="old", wow_build="old", class_name="warrior", spec="fury", token="old", symbol_kind="action")
         SimcAplSymbol.objects.create(simc_revision=self.REVISION, wow_build="current", class_name="warrior", spec="fury", token="current", symbol_kind="action")
-        SimcBackendBinary.objects.create(platform="linux64", current_version=self.REVISION)
-        response = self.client.get("/api/simc-workbench/apl-symbols/?spec=warrior_fury")
-        self.assertEqual(response.json()["data"]["items"][0]["simc_revision"], self.REVISION)
-
-    @mock.patch("botend.dashboard.api.py_platform.system", return_value="Windows")
-    @mock.patch("botend.dashboard.api.py_platform.machine", return_value="AMD64")
-    def test_symbols_use_windows_backend_revision(self, _machine, _system):
-        SimcBackendBinary.objects.create(
-            platform="win64", current_version=self.REVISION,
+        response = self.client.get(
+            "/api/simc-workbench/apl-symbols/?spec=warrior_fury&page_size=100",
         )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            {item["token"] for item in response.json()["data"]["items"]},
+            {"old", "current"},
+        )
+
+    def test_symbols_do_not_require_backend_identity(self):
         SimcAplSymbol.objects.create(
             simc_revision=self.REVISION,
             wow_build="current",
@@ -761,9 +761,6 @@ class SimcAplEditorApiTests(TestCase):
         self.assertEqual(response.json()["data"]["items"][0]["token"], "current")
 
     def test_symbols_search_includes_class_scoped_buff_for_specialization(self):
-        SimcBackendBinary.objects.create(
-            platform="linux64", current_version=self.REVISION,
-        )
         SimcAplSymbol.objects.create(
             simc_revision=self.REVISION,
             wow_build="12.0.7.68974",
@@ -777,14 +774,7 @@ class SimcAplEditorApiTests(TestCase):
             source="simc_manifest",
         )
 
-        response = self.client.get("/api/simc-workbench/apl-symbols/", {
-            "spec": "warrior_fury",
-            "query": "burst_of_power",
-            "kinds": "action,buff,debuff,dot,cooldown",
-        })
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["data"]["items"], [{
+        expected = [{
             "token": "burst_of_power",
             "kind": "buff",
             "scope": "class",
@@ -801,7 +791,16 @@ class SimcAplEditorApiTests(TestCase):
             "availability": "",
             "actor": "",
             "expression_template": "",
-        }])
+        }]
+        for spec in ("warrior_arms", "warrior_fury", "warrior_protection"):
+            with self.subTest(spec=spec):
+                response = self.client.get("/api/simc-workbench/apl-symbols/", {
+                    "spec": spec,
+                    "query": "burst_of_power",
+                    "kinds": "action,buff,debuff,dot,cooldown",
+                })
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()["data"]["items"], expected)
 
     def test_symbols_keep_future_pet_fields_visible_but_not_insertable(self):
         SimcBackendBinary.objects.create(
@@ -863,25 +862,27 @@ class SimcAplEditorApiTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["error"]["code"], "profile_spec_mismatch")
 
-    def test_symbols_reject_catalogs_without_an_explicit_current_identity(self):
+    def test_symbols_show_active_catalog_without_current_backend_identity(self):
         SimcAplSymbol.objects.create(simc_revision="arbitrary-old", wow_build="11.0.0",
             class_name="warrior", spec="fury", token="stale", symbol_kind="action")
 
         response = self.client.get("/api/simc-workbench/apl-symbols/?spec=warrior_fury")
 
-        self.assertEqual(response.status_code, 503)
-        self.assertEqual(response["Content-Type"], "application/json")
-        self.assertEqual(response.json()["error"]["code"], "catalog_unavailable")
-        self.assertNotIn("stale", response.content.decode())
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"]["items"][0]["token"], "stale")
 
     @override_settings(SIMC_APL_CURRENT_IDENTITY=("current", "12.0.5"))
-    def test_configured_catalog_identity_must_use_full_git_sha(self):
+    def test_invalid_configured_identity_does_not_hide_readable_catalog(self):
+        SimcAplSymbol.objects.create(
+            simc_revision="readable", wow_build="future",
+            class_name="warrior", spec="fury", token="visible", symbol_kind="buff",
+        )
         response = self.client.get("/api/simc-workbench/apl-symbols/?spec=warrior_fury")
 
-        self.assertEqual(response.status_code, 503)
-        self.assertEqual(response.json()["error"]["code"], "catalog_unavailable")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"]["items"][0]["token"], "visible")
 
-    def test_symbols_reject_ambiguous_active_builds_for_current_revision(self):
+    def test_symbols_deduplicate_same_scope_across_builds(self):
         SimcBackendBinary.objects.create(platform="linux64", current_version=self.REVISION)
         for wow_build in ("11.1.0", "11.2.0"):
             SimcAplSymbol.objects.create(simc_revision=self.REVISION, wow_build=wow_build,
@@ -889,9 +890,11 @@ class SimcAplEditorApiTests(TestCase):
 
         response = self.client.get("/api/simc-workbench/apl-symbols/?spec=warrior_fury")
 
-        self.assertEqual(response.status_code, 503)
-        self.assertEqual(response["Content-Type"], "application/json")
-        self.assertEqual(response.json()["error"]["code"], "catalog_unavailable")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [item["token"] for item in response.json()["data"]["items"]],
+            ["bloodthirst"],
+        )
 
     def _catalog(self):
         for token, kind, spell_id in (("bloodthirst", "action", 23881), ("rampage", "action", 184367), ("rage", "resource", None)):

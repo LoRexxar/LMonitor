@@ -419,8 +419,9 @@ def _import_payload(symbol):
     )
 
 
-def import_metadata_package(payload, *, dry_run=False, deactivate_missing=False):
-    """幂等导入一份数据包；默认保护人工事实且不删除包外记录。"""
+def import_metadata_package(payload, *, dry_run=False, deactivate_missing=False,
+                            refresh_all=False):
+    """幂等导入数据包；全量刷新只停用旧的自动生成同类事实。"""
     validate_metadata_package(payload)
     revision = payload['simc_revision']
     game_build = payload['game_build']
@@ -488,18 +489,29 @@ def import_metadata_package(payload, *, dry_run=False, deactivate_missing=False)
                 bulk_kwargs['unique_fields'] = identity_fields
             SimcAplSymbol.objects.bulk_create(importable, **bulk_kwargs)
 
-        deactivated = 0
-        if deactivate_missing:
-            stale_ids = [
+        stale_ids = set()
+        if deactivate_missing or refresh_all:
+            stale_ids.update(
                 row.pk for identity, row in existing.items()
                 if identity not in incoming and row.is_active and
                 row.source != SimcAplSymbol.SOURCE_MANUAL and
                 row.symbol_kind in SUPPORTED_KINDS
-            ]
-            if stale_ids:
-                deactivated = SimcAplSymbol.objects.filter(pk__in=stale_ids).update(
-                    is_active=False,
-                )
+            )
+        if refresh_all:
+            stale_ids.update(
+                SimcAplSymbol.objects.filter(
+                    is_active=True, symbol_kind__in=SUPPORTED_KINDS,
+                ).exclude(
+                    source=SimcAplSymbol.SOURCE_MANUAL,
+                ).exclude(
+                    simc_revision=revision, wow_build=game_build,
+                ).values_list('pk', flat=True)
+            )
+        deactivated = 0
+        if stale_ids:
+            deactivated = SimcAplSymbol.objects.filter(pk__in=stale_ids).update(
+                is_active=False,
+            )
         summary = ImportSummary(
             package_facts=len(payload['facts']),
             created=created,

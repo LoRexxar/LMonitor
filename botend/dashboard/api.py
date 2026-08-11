@@ -68,7 +68,7 @@ from botend.services.task_rerun import create_rerun, TaskRerunError
 from botend.services.battlenet_preflight import fetch_battlenet_character_preflight
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.constants.wow import CLASS_SPEC_MAP, CLASS_CN, CLASS_COLOR, SPEC_CN, SPEC_ICON, SPEC_ROLE
-from botend.services.simc_apl.catalog import query_symbol_catalog
+from botend.services.simc_apl.catalog import query_symbol_catalog, query_visible_symbols
 from botend.services.simc_apl.validation import validate_payload
 from botend.services.simc_apl.authoritative_validator import RestrictedSimcValidator
 from botend.services.simc_apl.publish import validate_apl_for_profile, content_hash, current_validation_identity
@@ -686,6 +686,45 @@ def _authoritative_action_bindings(parsed_spec, identity):
     return bindings
 
 
+def _readable_action_bindings(parsed_spec):
+    """跨版本解析动作中文所需 SpellID，同时保留冲突保护。"""
+    if not parsed_spec:
+        return {}, set()
+    _, class_name, spec_name = parsed_spec
+    base = SimcAplSymbol.objects.filter(
+        is_active=True, symbol_kind=SimcAplSymbol.KIND_ACTION,
+        hero_tree__isnull=True,
+    ).exclude(token='').exclude(token__in=CONTROL_ACTIONS)
+    visible_scope = (
+        models.Q(class_name__isnull=True, spec__isnull=True) |
+        models.Q(class_name=class_name, spec__isnull=True) |
+        models.Q(class_name=class_name, spec=spec_name)
+    )
+    visible_rows = list(base.filter(visible_scope).values_list('token', 'spell_id'))
+    visible_tokens = {token for token, _spell_id in visible_rows}
+    visible_ids = defaultdict(set)
+    for token, spell_id in visible_rows:
+        if spell_id:
+            visible_ids[token].add(spell_id)
+    conflicts = {token for token, spell_ids in visible_ids.items() if len(spell_ids) > 1}
+    bindings = {
+        token: next(iter(spell_ids))
+        for token, spell_ids in visible_ids.items() if len(spell_ids) == 1
+    }
+    missing = visible_tokens - set(bindings) - conflicts
+    fallback_ids = defaultdict(set)
+    for token, spell_id in base.filter(
+            class_name=class_name, token__in=missing,
+            spell_id__isnull=False).values_list('token', 'spell_id'):
+        fallback_ids[token].add(spell_id)
+    for token, spell_ids in fallback_ids.items():
+        if len(spell_ids) == 1:
+            bindings[token] = next(iter(spell_ids))
+        elif len(spell_ids) > 1:
+            conflicts.add(token)
+    return bindings, conflicts
+
+
 def _authoritative_action_tokens(spell_ids, parsed_spec, identity):
     """Return the visible authoritative tokens grouped by requested SpellID."""
     requested = set(spell_ids or ())
@@ -703,7 +742,9 @@ def _catalog_item(item, simc_revision='', game_build=''):
         'token': item.token, 'kind': item.kind, 'scope': scope, 'spell_id': item.spell_id,
         'name_zh': item.name, 'name_en': item.name_en, 'description_zh': item.description,
         'icon': item.icon, 'insertable': item.insertable, 'reason': item.reason,
-        'source': item.source, 'simc_revision': simc_revision, 'game_build': game_build,
+        'source': item.source,
+        'simc_revision': simc_revision or item.simc_revision,
+        'game_build': game_build or item.wow_build,
         'availability': item.availability, 'actor': item.actor,
         'expression_template': item.expression_template,
     }
@@ -854,10 +895,6 @@ class SimcAplSymbolsAPIView(SimcAplEditorAPIView):
         if page < 1 or page_size < 1:
             return _editor_error('invalid_pagination', 'Invalid pagination parameters.')
         page_size = min(100, page_size)
-        identity = _latest_catalog_identity()
-        if not identity:
-            return _editor_error('catalog_unavailable', 'The current symbol catalog is unavailable.', 503)
-        revision, build = identity
         kind = (request.GET.get('kind') or '').strip()
         kinds = {
             value.strip() for value in (request.GET.get('kinds') or '').split(',')
@@ -872,7 +909,11 @@ class SimcAplSymbolsAPIView(SimcAplEditorAPIView):
         if not _APL_EDITOR_SEMAPHORE.acquire():
             return _editor_error('concurrency_limited', 'Symbol query capacity is busy.', 429)
         try:
-            items = query_symbol_catalog(revision, build, spec[1], spec[2], search=query or None)
+            # 编辑器目录是跨版本的人类可读字段全集。revision/build 仅保留在
+            # 每条记录中作来源溯源，不能决定字段是否可见。
+            items = query_symbol_catalog(
+                None, None, spec[1], spec[2], search=query or None,
+            )
         finally:
             _APL_EDITOR_SEMAPHORE.release()
         if kinds:
@@ -881,7 +922,7 @@ class SimcAplSymbolsAPIView(SimcAplEditorAPIView):
         total_pages = (total + page_size - 1) // page_size
         start = (page - 1) * page_size
         return JsonResponse({'success': True, 'data': {
-            'items': [_catalog_item(item, revision, build) for item in items[start:start + page_size]],
+            'items': [_catalog_item(item) for item in items[start:start + page_size]],
             'pagination': {'page': page, 'page_size': page_size, 'total': total, 'total_pages': total_pages},
         }})
 
@@ -1046,9 +1087,8 @@ class ConvertTextAPIView(View):
     
     def bilingual_pairs(self, spec='', text=''):
         """Build a typed catalog, then scope visible names to the submitted document."""
-        identity = _latest_catalog_identity()
         parsed_spec = _editor_spec(spec) if spec else None
-        if not identity or not parsed_spec:
+        if not parsed_spec:
             return [], []
         class_key, class_name, spec_name = parsed_spec
         demands = list(extract_translation_demands(text))
@@ -1066,17 +1106,16 @@ class ConvertTextAPIView(View):
             if token_key not in parsed_action_tokens:
                 demands.append(TranslationDemand('action', token_key, token_key in CONTROL_ACTIONS))
                 parsed_action_tokens.add(token_key)
-        symbol_rows = SimcAplSymbol.objects.filter(
-            simc_revision=identity[0], wow_build=identity[1], is_active=True,
-        ).filter(
-            models.Q(class_name__isnull=True, spec__isnull=True) |
-            models.Q(class_name=class_name, spec__isnull=True) |
-            models.Q(class_name=class_name, spec=spec_name)
-        ).filter(models.Q(hero_tree__isnull=True) | models.Q(hero_tree='')).values(
-            'symbol_kind', 'token', 'spell_id', 'trait_id', 'hero_tree',
-            'class_name', 'spec', 'name_zh',
-        )
-        catalog_facts = list(symbol_rows)
+        visible_symbols = query_visible_symbols(class_name, spec_name)
+        catalog_facts = [
+            {
+                'symbol_kind': row.symbol_kind, 'token': row.token,
+                'spell_id': row.spell_id, 'trait_id': row.trait_id,
+                'hero_tree': row.hero_tree, 'class_name': row.class_name,
+                'spec': row.spec, 'name_zh': row.name_zh,
+            }
+            for row in visible_symbols if not row.hero_tree
+        ]
         class_scope_key = class_name.casefold()
         spec_scope_key = spec_name.casefold()
 
@@ -1091,50 +1130,44 @@ class ConvertTextAPIView(View):
                 return 0
             return -1
 
-        action_bindings = _authoritative_action_bindings(parsed_spec, identity)
-        # The action resolver is the stricter source of truth (including the
-        # same-class exact-token fallback). Replace visible action rows with
-        # its single resolved fact so a visible NULL row cannot conflict with
-        # the fallback fact we just proved authoritative.
-        non_action_by_key = {}
-        for row in catalog_facts:
-            if row['symbol_kind'] == 'action':
-                continue
-            key = (row['symbol_kind'], str(row.get('token') or '').casefold())
-            rank = visible_scope_rank(row)
-            current = non_action_by_key.get(key)
-            if current is None or rank > current[0]:
-                non_action_by_key[key] = (rank, row)
-        non_action_facts = [row for _rank, row in non_action_by_key.values()]
-        action_facts = [
+        action_bindings, action_conflicts = _readable_action_bindings(parsed_spec)
+        facts = [
+            row for row in catalog_facts if row['symbol_kind'] != 'action'
+        ] + [
             {
-                'symbol_kind': 'action', 'token': token, 'spell_id': spell_id,
-                'trait_id': None, 'hero_tree': None,
+                'symbol_kind': 'action', 'token': token,
+                'spell_id': spell_id, 'trait_id': None, 'hero_tree': None,
             }
-            for token, (spell_id, _source) in action_bindings.items()
+            for token, spell_id in action_bindings.items()
         ]
-        facts = non_action_facts + action_facts
         spell_ids = {row['spell_id'] for row in facts if row['spell_id']}
         trait_ids = {row['trait_id'] for row in facts if row['trait_id']}
         localized = {}
-        for row in WowSpellSnapshot.objects.filter(
-            branch='wow', locale='zhCN', snapshot_build=identity[1],
-            spell_id__in=spell_ids,
-        ).exclude(name_zh='').values('spell_id', 'name_zh').order_by('spell_id', '-updated_at', '-id'):
+        identity = _latest_catalog_identity()
+        snapshot_rows = WowSpellSnapshot.objects.filter(
+            branch='wow', locale='zhCN', spell_id__in=spell_ids,
+        ).exclude(name_zh='')
+        ordered_snapshots = []
+        if identity:
+            ordered_snapshots.extend(snapshot_rows.filter(
+                snapshot_build=identity[1],
+            ).values('spell_id', 'name_zh').order_by('spell_id', '-updated_at', '-id'))
+            snapshot_rows = snapshot_rows.exclude(snapshot_build=identity[1])
+        ordered_snapshots.extend(snapshot_rows.values(
+            'spell_id', 'name_zh',
+        ).order_by('spell_id', '-updated_at', '-id'))
+        for row in ordered_snapshots:
             localized.setdefault(('spell', row['spell_id']), row['name_zh'])
         # 快照是首选来源；快照缺失时才使用随 APL 数据包固化的 Wowhead 中文。
         packaged_names = defaultdict(set)
-        for row in SimcAplSymbol.objects.filter(
-            simc_revision=identity[0], wow_build=identity[1], is_active=True,
-            spell_id__in=spell_ids, name_zh__gt='',
-        ).values('spell_id', 'name_zh'):
-            packaged_names[row['spell_id']].add(row['name_zh'])
+        for row in catalog_facts:
+            if row.get('spell_id') and str(row.get('name_zh') or '').strip():
+                packaged_names[row['spell_id']].add(row['name_zh'])
         for spell_id, names in packaged_names.items():
             if len(names) == 1:
                 localized.setdefault(('spell', spell_id), next(iter(names)))
         for row in WowTalentNodeMetadata.objects.filter(
             talent_version__branch='retail', talent_version__is_active=True,
-            talent_version__current_build__in=(identity[1], ''),
             name_zh__gt='', talent_id__in=trait_ids,
         ).values('talent_id', 'name_zh').order_by('talent_id', '-last_updated', '-id'):
             localized.setdefault(('trait', row['talent_id']), row['name_zh'])
@@ -1178,6 +1211,8 @@ class ConvertTextAPIView(View):
             if not token or not chinese or kind not in {
                 'action', 'buff', 'debuff', 'dot', 'cooldown', 'talent',
             }:
+                continue
+            if kind == 'action' and token in action_conflicts:
                 continue
             scope_rank = visible_scope_rank(row)
             if scope_rank < 0:

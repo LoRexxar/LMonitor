@@ -30,6 +30,8 @@ class CatalogItem:
     availability: str = ''
     actor: str = ''
     expression_template: str = ''
+    simc_revision: str = ''
+    wow_build: str = ''
 
 
 def _fold(value):
@@ -46,10 +48,10 @@ def _scope_rank(symbol, class_name, spec, hero_tree):
     return 0
 
 
-def _spell_details(spell_ids, wow_build):
-    rows = WowSpellSnapshot.objects.filter(
-        spell_id__in=spell_ids, snapshot_build=wow_build,
-    )
+def _spell_details(spell_ids, wow_build=None):
+    rows = WowSpellSnapshot.objects.filter(spell_id__in=spell_ids)
+    if wow_build:
+        rows = rows.filter(snapshot_build=wow_build)
     details = {}
     for row in rows.order_by('spell_id', 'locale', '-updated_at'):
         item = details.setdefault(row.spell_id, {'zh': '', 'en': '', 'description': ''})
@@ -63,36 +65,73 @@ def _spell_details(spell_ids, wow_build):
     return details
 
 
-def query_symbol_catalog(simc_revision, wow_build, class_name, spec,
-                         hero_tree=None, search=None, spec_id=None, talent_version=None):
-    """Merge global→class→spec→hero facts without admitting another spec."""
+def _symbol_preference(symbol):
+    """同作用域跨版本重复时选择信息最完整、最近导入的一条。"""
+    source_rank = {
+        SimcAplSymbol.SOURCE_MANUAL: 3,
+        SimcAplSymbol.SOURCE_SIMC_MANIFEST: 2,
+        SimcAplSymbol.SOURCE_SYSTEM_APL: 1,
+    }.get(symbol.source, 0)
+    return (
+        source_rank,
+        bool(str(symbol.name_zh or '').strip()),
+        bool(str(symbol.name_en or '').strip()),
+        symbol.spell_id is not None or symbol.trait_id is not None,
+        symbol.updated_at,
+        symbol.id,
+    )
+
+
+def query_visible_symbols(class_name, spec, hero_tree=None, *,
+                          simc_revision=None, wow_build=None):
+    """按 global→class→spec→hero 合并 active 字段；版本只作可选溯源筛选。"""
     class_name = str(class_name or '').strip().lower()
     spec = str(spec or '').strip().lower()
     hero_tree = str(hero_tree or '').strip().lower() or None
-    candidates = SimcAplSymbol.objects.filter(
-        simc_revision=simc_revision, wow_build=wow_build, is_active=True,
-    ).filter(
+    candidates = SimcAplSymbol.objects.filter(is_active=True).filter(
         Q(class_name__isnull=True) |
         Q(class_name=class_name, spec__isnull=True) |
         Q(class_name=class_name, spec=spec, hero_tree__isnull=True) |
         Q(class_name=class_name, spec=spec, hero_tree=hero_tree)
     )
+    if simc_revision:
+        candidates = candidates.filter(simc_revision=simc_revision)
+    if wow_build:
+        candidates = candidates.filter(wow_build=wow_build)
     selected = {}
     ranks = {}
     for symbol in candidates:
         identity = (symbol.token, symbol.symbol_kind)
         rank = _scope_rank(symbol, class_name, spec, hero_tree)
-        if rank >= 0 and rank > ranks.get(identity, -1):
+        if rank < 0:
+            continue
+        current = selected.get(identity)
+        if (rank > ranks.get(identity, -1) or
+                (rank == ranks.get(identity, -1) and current is not None and
+                 _symbol_preference(symbol) > _symbol_preference(current))):
             selected[identity], ranks[identity] = symbol, rank
+    return list(selected.values())
 
-    if talent_version is None:
+
+def query_symbol_catalog(simc_revision, wow_build, class_name, spec,
+                         hero_tree=None, search=None, spec_id=None, talent_version=None):
+    """合并可见字段；revision/build 为空时返回跨版本完整目录。"""
+    class_name = str(class_name or '').strip().lower()
+    spec = str(spec or '').strip().lower()
+    hero_tree = str(hero_tree or '').strip().lower() or None
+    selected_symbols = query_visible_symbols(
+        class_name, spec, hero_tree,
+        simc_revision=simc_revision, wow_build=wow_build,
+    )
+
+    if talent_version is None and wow_build:
         versions = list(WowTalentVersion.objects.filter(
             current_build=wow_build, is_active=True, is_default_simulator=True,
         )[:2])
         if len(versions) > 1:
             raise ValueError(f'multiple authoritative talent versions for wow_build {wow_build}')
         talent_version = versions[0] if versions else None
-    elif getattr(talent_version, 'pk', None) is None:
+    elif talent_version is not None and getattr(talent_version, 'pk', None) is None:
         talent_version = WowTalentVersion.objects.get(pk=talent_version)
     talent_rows = []
     if talent_version is not None:
@@ -100,13 +139,13 @@ def query_symbol_catalog(simc_revision, wow_build, class_name, spec,
             class_name__iexact=class_name, spec_name__iexact=spec,
             talent_version=talent_version,
         ).exclude(spell_id__isnull=True).order_by('id'))
-    spell_ids = {s.spell_id for s in selected.values() if s.spell_id is not None}
+    spell_ids = {s.spell_id for s in selected_symbols if s.spell_id is not None}
     spell_ids.update(row.spell_id for row in talent_rows)
 
     # No audited slug→spec-id map exists here. An authoritative Blizzard id may
     # be supplied by the caller; this service deliberately never guesses one.
     mapped_spell_ids = set()
-    if spec_id is not None:
+    if spec_id is not None and wow_build:
         maps = WowSpecSpellMapSnapshot.objects.filter(
             spec_id=spec_id, snapshot_build=wow_build,
         )
@@ -119,7 +158,7 @@ def query_symbol_catalog(simc_revision, wow_build, class_name, spec,
 
     items = []
     bound_spell_ids = set()
-    for symbol in selected.values():
+    for symbol in selected_symbols:
         sid = symbol.spell_id
         if sid is not None:
             bound_spell_ids.add(sid)
@@ -145,6 +184,7 @@ def query_symbol_catalog(simc_revision, wow_build, class_name, spec,
             availability=str(coverage.get('availability') or ''),
             actor=str(coverage.get('actor') or ''),
             expression_template=str(metadata.get('apl_expression_template') or ''),
+            simc_revision=symbol.simc_revision, wow_build=symbol.wow_build,
         ))
 
     for talent in talent_rows:

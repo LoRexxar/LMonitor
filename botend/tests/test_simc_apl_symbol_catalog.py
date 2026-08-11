@@ -30,6 +30,39 @@ class SimcAplSymbolCatalogTests(TestCase):
         self.assertNotIn(('other_revision', 'action'), identities)
         self.assertNotIn(('inactive', 'action'), identities)
 
+    def test_unversioned_catalog_inherits_class_scope_across_all_class_specs(self):
+        self.symbol(
+            token='burst_of_power', symbol_kind='buff', class_name='warrior',
+            spec=None, name_zh='能量爆发', simc_revision='old-revision',
+            wow_build='old-build',
+        )
+
+        for spec in ('arms', 'fury', 'protection'):
+            with self.subTest(spec=spec):
+                rows = query_symbol_catalog(
+                    None, None, 'warrior', spec, search='burst_of_power',
+                )
+                self.assertEqual([(row.token, row.name) for row in rows], [
+                    ('burst_of_power', '能量爆发'),
+                ])
+
+    def test_unversioned_catalog_deduplicates_same_scope_across_versions(self):
+        self.symbol(
+            token='shared_buff', symbol_kind='buff', class_name='warrior',
+            name_zh='', simc_revision='old-revision', wow_build='old-build',
+        )
+        preferred = self.symbol(
+            token='shared_buff', symbol_kind='buff', class_name='warrior',
+            name_zh='共享增益', simc_revision='new-revision', wow_build='new-build',
+        )
+
+        rows = query_symbol_catalog(None, None, 'warrior', 'fury')
+        shared = [row for row in rows if row.token == 'shared_buff']
+
+        self.assertEqual(len(shared), 1)
+        self.assertEqual(shared[0].name, '共享增益')
+        self.assertEqual(shared[0].simc_revision, preferred.simc_revision)
+
     def test_localization_fallback_search_and_bound_insertability(self):
         WowSpellSnapshot.objects.create(branch='wow', locale='enUS', spell_id=23881,
                                          name='Bloodthirst', snapshot_build='b1')
