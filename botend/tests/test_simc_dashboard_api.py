@@ -2442,6 +2442,38 @@ DPS=208365 DPS-Error=200/0.1%
         self.assertEqual(len(report['candidates']), 13)
         self.assertTrue(all('result_file' not in row for row in report['candidates']))
 
+    def test_completed_attribute_report_uses_persisted_error_aware_conclusion(self):
+        base = {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}
+        rows = []
+        for index, (label, ratings, is_base, candidate) in enumerate(
+                SimcComparisonTaskAPIView._attribute_variants(base, 50)):
+            dps = 100000
+            if index == 1:
+                dps = 100384
+            rows.append((label, 'completed', dps, {
+                'candidate_type': 'attribute_ratings', 'is_base': is_base,
+                'attribute_ratings': ratings, 'search': candidate,
+            }))
+        task = self._comparison_task_with_runs('attribute_sweep', rows)
+        task.current_status = 2
+        task.analysis_result = {'attribute_search': {
+            'ratings': base, 'dps': 100000, 'step': 50, 'round': 1,
+            'converged': True, 'stop_reason': 'local_optimum_50_pairwise',
+        }}
+        task.save(update_fields=['current_status', 'analysis_result'])
+        for run in task.simulation_runs.all():
+            run.result_summary['dps_error'] = 268
+            run.save(update_fields=['result_summary'])
+
+        payload = self.client.get('/api/simc-regular-compare/', {'task_id': task.id}).json()
+
+        self.assertTrue(payload['success'], payload)
+        report = payload['data']['attribute_report']
+        self.assertTrue(report['local_optimum'])
+        self.assertEqual(report['stop_reason'], 'local_optimum_50_pairwise')
+        self.assertEqual(report['recommendation']['ratings'], base)
+        self.assertEqual(report['recommendation']['dps'], 100000)
+
     def test_regular_candidate_task_returns_only_safe_summary(self):
         task = self._comparison_task_with_runs(rows=[
             ('基准配置', 'completed', 1744, {'is_base': True, 'search': {'candidate_index': 0}}),

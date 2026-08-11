@@ -4934,7 +4934,9 @@ class SimcAttributeAnalysisAPIView(View):
             attribute_report = None
             if is_attribute_sweep:
                 runs = task.simulation_runs.order_by('sequence')
-                attribute_report = SimcRegularCompareAPIView()._build_reference_attribute_report(runs)
+                attribute_report = SimcRegularCompareAPIView()._build_reference_attribute_report(
+                    runs, task.analysis_result,
+                )
             
             return JsonResponse({
                 'success': True,
@@ -5028,13 +5030,40 @@ class SimcRegularCompareAPIView(View):
         ]
         return safe
 
-    def _build_reference_attribute_report(self, runs):
+    def _build_reference_attribute_report(self, runs, analysis_result=None):
         """Build an attribute report from frozen run candidate parameters."""
         run_rows = []
         for run in runs:
             params = run.candidate_params if isinstance(run.candidate_params, dict) else {}
             run_rows.append((run, params))
-        return self._build_attribute_report(run_rows)
+        report = self._build_attribute_report(run_rows)
+        analysis = analysis_result if isinstance(analysis_result, dict) else {}
+        persisted = analysis.get('attribute_search')
+        if not isinstance(persisted, dict) or not isinstance(persisted.get('converged'), bool):
+            return report
+
+        report['converged'] = persisted['converged']
+        report['stop_reason'] = str(persisted.get('stop_reason') or '')
+        report['local_optimum'] = (
+            persisted['converged']
+            and report['stop_reason'] == 'local_optimum_50_pairwise'
+        )
+        persisted_ratings = persisted.get('ratings')
+        if isinstance(persisted_ratings, dict):
+            recommendation = next(
+                (row for row in report['all_candidates'] if row.get('ratings') == persisted_ratings),
+                None,
+            )
+            if recommendation is None:
+                recommendation = {
+                    'round': persisted.get('round'),
+                    'ratings': persisted_ratings,
+                    'dps': persisted.get('dps'),
+                }
+            else:
+                recommendation = {**recommendation, 'dps': persisted.get('dps')}
+            report['recommendation'] = recommendation
+        return report
 
     def _build_attribute_report(self, run_candidates):
         """Return a truthful report for the measured 50-rating local search only."""
@@ -5050,6 +5079,8 @@ class SimcRegularCompareAPIView(View):
             round_number = run.round_number
             result_file = SimcComparisonTaskAPIView._run_result_file(run)
             summary = run.result_summary if isinstance(run.result_summary, dict) else {}
+            if params.get('candidate_type') == 'attribute_baseline_probe':
+                ratings = summary.get('gear_ratings') or {}
             row = {
                 'id': run.id, 'label': run.candidate_label or run.candidate_key,
                 'round': round_number, 'is_center': bool(params.get('is_base')),
@@ -5125,6 +5156,7 @@ class SimcRegularCompareAPIView(View):
             'current_round': current_round, 'total_rating': sum(first_center['ratings'].values()) if first_center else None,
             'initial_ratings': first_center['ratings'] if first_center else {},
             'recommendation': recommendation, 'stop_reason': stop_reason,
+            'converged': stop_reason not in ('', 'awaiting_current_round'),
             'local_optimum': stop_reason == 'local_optimum_50_pairwise',
             'search_path': path, 'candidates': ranked, 'all_candidates': candidates, 'invalid': invalid,
         }
@@ -5337,7 +5369,10 @@ class SimcRegularCompareAPIView(View):
                             'delta_percent': winner_row.get('delta_percent')} if winner_row else None),
             }
             current_round = max([run.round_number for run in runs] or [1])
-            attribute_report = self._build_attribute_report(run_candidates) if task.mode == 'attribute_sweep' else None
+            attribute_report = (
+                self._build_reference_attribute_report(runs, task.analysis_result)
+                if task.mode == 'attribute_sweep' else None
+            )
             task_payload = {
                 'task_id': task.id, 'name': task.name, 'status': task.current_status,
                 'mode': task.mode, 'total': len(rows), 'current_round': current_round,
@@ -6483,7 +6518,9 @@ class SimcWorkbenchAPIView(View):
                 row['ranking'] = ranking
                 row['attribute_report'] = None
                 if task.mode == 'attribute_sweep':
-                    raw_report = SimcRegularCompareAPIView()._build_reference_attribute_report(ordered_runs)
+                    raw_report = SimcRegularCompareAPIView()._build_reference_attribute_report(
+                        ordered_runs, task.analysis_result,
+                    )
                     row['attribute_report'] = SimcRegularCompareAPIView()._safe_attribute_report(raw_report)
                 row['report_url'] = (
                     f'/simc-compare/?task_id={task.id}'
