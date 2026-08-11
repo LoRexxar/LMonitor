@@ -28,8 +28,10 @@ from botend.services.simc_agent_oss import (
     ReportStorageError, public_legacy_report_url, public_report_url,
 )
 from botend.services.simc_benchmark_config import (
-    MAX_PANEL_CONFIG_BYTES, build_execution_plan,
+    MAX_PANEL_CONFIG_BYTES, SIMC_FIGHT_STYLES, SIMC_RAID_BUFFS,
+    build_execution_plan,
 )
+from botend.services.simc_composer import SIMC_CLASS_RAID_BUFFS
 from botend.services.simc_player_config import parse_manual_player_config
 from botend.services.simc_task_service import (
     TaskCreationError, TaskPreparedResourceChanged, TaskValidationUnavailable,
@@ -1314,6 +1316,50 @@ def _profile_detail_from_payload(payload, spec_key):
     return detail
 
 
+def _simulation_detail_from_task(task, fallback_params, profile_detail):
+    """Project the effective combat and Buff facts frozen on the result Task."""
+    params = task.simulation_params if task is not None else fallback_params
+    params = params if isinstance(params, dict) else {}
+    fight_style = str(params.get('fight_style') or 'Patchwerk')
+    fight_style_labels = dict(SIMC_FIGHT_STYLES)
+    raid_buff_labels = dict(SIMC_RAID_BUFFS)
+
+    def labeled_buffs(values):
+        return [
+            {'value': value, 'label': raid_buff_labels.get(value, value)}
+            for value in values
+        ]
+
+    # Preserve the Composer's historical three-state contract: a request with
+    # neither key enables the actor's own class Buff, while explicit raid_buffs
+    # without the newer toggle means extras only.
+    use_class_raid_buff = (
+        params.get('use_class_raid_buff') is True
+        if 'use_class_raid_buff' in params
+        else 'raid_buffs' not in params
+    )
+    identity = (profile_detail or {}).get('identity') or {}
+    class_name = str(identity.get('class_name') or '').strip().lower()
+    class_raid_buffs = SIMC_CLASS_RAID_BUFFS.get(class_name, ()) if use_class_raid_buff else ()
+    raid_buffs = params.get('raid_buffs') or ()
+    return {
+        'fight_style': {
+            'value': fight_style,
+            'label': fight_style_labels.get(fight_style, fight_style),
+        },
+        'desired_targets': params.get('desired_targets', 1),
+        'max_time': params.get('max_time', 300),
+        'vary_combat_length': params.get('vary_combat_length'),
+        'enemy_type': params.get('enemy_type'),
+        'iterations': params.get('iterations', 10000),
+        'target_error': params.get('target_error'),
+        'use_class_raid_buff': use_class_raid_buff,
+        'class_raid_buffs': labeled_buffs(class_raid_buffs),
+        'raid_buffs': labeled_buffs(raid_buffs),
+        'source_task_id': task.pk if task is not None else None,
+    }
+
+
 def _spec_icon_url(spec_key):
     class_key, _, spec_name = str(spec_key or '').lower().partition('_')
     normalized = (
@@ -1466,6 +1512,9 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                 'profile': coordinate['profile_label'],
             },
             'profile_detail': profile_details[detail_key],
+            'simulation_detail': _simulation_detail_from_task(
+                source_task, coordinate['simulation_params'], profile_details[detail_key],
+            ),
             'scenario_detail': {
                 'desired_targets': scenario_params.get('desired_targets', 1),
                 'max_time': scenario_params.get('max_time', 300),

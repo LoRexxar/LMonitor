@@ -331,15 +331,31 @@
     return `/portal/talents/?${params.toString()}`;
   }
 
-  function renderProfileDetails(profileDetail, summaryText = "展开 Profile 配置", reportUrl = "") {
+  function appendProfileFactSection(body, title, entries, className = "") {
+    const facts = node("dl", `simc-benchmark-profile-identity ${className}`.trim());
+    entries.forEach(([label, value]) => {
+      if (value === null || value === undefined || value === "") return;
+      facts.append(node("dt", "", label), node("dd", "", value));
+    });
+    if (!facts.childElementCount) return;
+    const section = node("section", "simc-benchmark-profile-section");
+    section.append(node("h4", "", title), facts);
+    body.appendChild(section);
+  }
+
+  function renderProfileDetails(profileDetail, simulationDetail, summaryText = "展开 Profile 配置", reportUrl = "") {
     const details = node("details", "simc-benchmark-profile-details");
     const summary = node("summary", "profile-details-toggle", summaryText);
     if (!summaryText) summary.hidden = true;
     details.appendChild(summary);
-    if (!profileDetail || typeof profileDetail !== "object") {
+    const hasProfile = profileDetail && typeof profileDetail === "object";
+    const hasSimulation = simulationDetail && typeof simulationDetail === "object";
+    if (!hasProfile && !hasSimulation) {
       details.appendChild(node("div", "simc-benchmark-profile-empty", "该 Profile 没有可展示的配置内容"));
       return details;
     }
+    profileDetail = hasProfile ? profileDetail : {};
+    simulationDetail = hasSimulation ? simulationDetail : {};
     const identity = profileDetail.identity || {};
     const basics = node("dl", "simc-benchmark-profile-identity");
     [
@@ -363,6 +379,34 @@
       const section = node("section", "simc-benchmark-profile-section");
       section.append(node("h4", "", "基础信息"), basics); body.appendChild(section);
     }
+    const fightStyle = simulationDetail?.fight_style?.label || simulationDetail?.fight_style?.value;
+    const simulationNumber = (value) => (
+      value === null || value === undefined || value === "" ? null : Number(value)
+    );
+    const targets = simulationNumber(simulationDetail?.desired_targets);
+    const maxTime = simulationNumber(simulationDetail?.max_time);
+    const varyCombatLength = simulationNumber(simulationDetail?.vary_combat_length);
+    const iterations = simulationNumber(simulationDetail?.iterations);
+    const targetError = simulationNumber(simulationDetail?.target_error);
+    appendProfileFactSection(body, "战斗场景", [
+      ["战斗类型", fightStyle],
+      ["目标数量", Number.isFinite(targets) ? numberFormat.format(targets) : null],
+      ["模拟时长", Number.isFinite(maxTime) ? `${numberFormat.format(maxTime)} 秒` : null],
+      ["时长浮动", Number.isFinite(varyCombatLength) ? `${numberFormat.format(varyCombatLength * 100)}%` : null],
+      ["敌人类型", simulationDetail?.enemy_type],
+      ["迭代次数", Number.isFinite(iterations) ? numberFormat.format(iterations) : null],
+      ["目标误差", Number.isFinite(targetError) ? `${numberFormat.format(targetError * 100)}%` : null],
+    ], "simc-benchmark-simulation-facts");
+    const classRaidBuffs = Array.isArray(simulationDetail?.class_raid_buffs)
+      ? simulationDetail.class_raid_buffs.map((buff) => buff?.label || buff?.value).filter(Boolean) : [];
+    const raidBuffs = Array.isArray(simulationDetail?.raid_buffs)
+      ? simulationDetail.raid_buffs.map((buff) => buff?.label || buff?.value).filter(Boolean) : [];
+    appendProfileFactSection(body, "团队 Buff", [
+      ["职业自身团队增益", simulationDetail?.use_class_raid_buff
+        ? `已启用${classRaidBuffs.length ? ` · ${classRaidBuffs.join("、")}` : ""}`
+        : "未启用"],
+      ["额外团队增益", raidBuffs.length ? raidBuffs.join("、") : "未启用额外团队增益"],
+    ], "simc-benchmark-simulation-facts");
     const talentCode = profileDetail?.talents?.build_code;
     if (talentCode) {
       const section = node("section", "simc-benchmark-profile-section");
@@ -417,7 +461,8 @@
       info.appendChild(item);
     });
     caseNode.append(info, renderProfileDetails(
-      coordinate?.profile_detail, "展开 Profile 配置", rawReportUrlForCoordinate(coordinate),
+      coordinate?.profile_detail, coordinate?.simulation_detail,
+      "展开 Profile 配置", rawReportUrlForCoordinate(coordinate),
     ));
     if (!candidates.length) { caseNode.appendChild(state("当前坐标暂无已完成候选结果", "empty")); return caseNode; }
     const values = candidates.map((candidate) => validDps(candidate?.dps)).filter((value) => value !== null);
@@ -511,7 +556,8 @@
         metrics.appendChild(node("strong", "simc-benchmark-spec-dps", entry.dps === null ? "暂无结果" : `${numberFormat.format(entry.dps)} DPS`));
         metrics.appendChild(node("small", "simc-benchmark-spec-relative", entry.dps === null || highest <= 0 ? "该场景未完成" : `相对最高 ${(entry.dps * 100 / highest).toFixed(1)}%`));
         let profileDetails = renderProfileDetails(
-          coordinate?.profile_detail, "", rawReportUrlForCoordinate(coordinate),
+          coordinate?.profile_detail, coordinate?.simulation_detail,
+          "", rawReportUrlForCoordinate(coordinate),
         );
         const detailId = `simc-benchmark-spec-profile-${index}`;
         profileDetails.id = detailId;
@@ -550,9 +596,11 @@
             ));
             if (!nextCoordinate?.profile_detail) throw new Error("Frozen profile detail unavailable");
             coordinate.profile_detail = nextCoordinate.profile_detail;
+            coordinate.simulation_detail = nextCoordinate.simulation_detail;
             coordinate.candidates = nextCoordinate.candidates;
             const loadedDetails = renderProfileDetails(
-              nextCoordinate?.profile_detail, "", rawReportUrlForCoordinate(nextCoordinate),
+              nextCoordinate?.profile_detail, nextCoordinate?.simulation_detail,
+              "", rawReportUrlForCoordinate(nextCoordinate),
             );
             loadedDetails.id = detailId;
             loadedDetails.classList.add("simc-benchmark-spec-profile-details");

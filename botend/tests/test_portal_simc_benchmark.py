@@ -729,8 +729,10 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
 
     def test_result_renderer_has_collapsible_profile_detail_panel(self):
         for contract in (
-            'profile_detail', 'simc-benchmark-profile-details', 'profile-details-toggle',
-            'identity', 'equipment', 'talents',
+            'profile_detail', 'simulation_detail', 'simc-benchmark-profile-details',
+            'profile-details-toggle', 'identity', 'equipment', 'talents',
+            '战斗场景', '团队 Buff', '职业自身团队增益', '额外团队增益',
+            'fight_style', 'class_raid_buffs', 'raid_buffs',
         ):
             self.assertIn(contract, self.JS)
 

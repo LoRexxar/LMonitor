@@ -583,6 +583,47 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(profile['talents']['build_code'], 'frozen-build')
         self.assertEqual(profile['equipment'][0]['item_id'], 100)
 
+    def test_profile_expansion_projects_result_task_combat_and_buff_configuration(self):
+        scenario = self.panel.scenarios.get(key='patchwerk')
+        scenario.simulation_params = {
+            'iterations': 20000,
+            'target_error': 0.05,
+            'fight_style': 'HecticAddCleave',
+            'max_time': 240,
+            'vary_combat_length': 0.15,
+            'enemy_type': 'humanoid',
+            'desired_targets': 4,
+            'use_class_raid_buff': True,
+            'raid_buffs': ['arcane_intellect', 'bloodlust'],
+        }
+        scenario.save(update_fields=['simulation_params'])
+        execution = self._published_success()
+        source_task = execution.cases.get().task
+
+        coordinate = serialize_incremental_panel_results(self.panel)['coordinates'][0]
+
+        self.assertEqual(coordinate['simulation_detail'], {
+            'fight_style': {
+                'value': 'HecticAddCleave',
+                'label': 'HecticAddCleave（高频小怪顺劈）',
+            },
+            'desired_targets': 4,
+            'max_time': 240,
+            'vary_combat_length': 0.15,
+            'enemy_type': 'humanoid',
+            'iterations': 20000,
+            'target_error': 0.05,
+            'use_class_raid_buff': True,
+            'class_raid_buffs': [
+                {'value': 'battle_shout', 'label': '战斗怒吼'},
+            ],
+            'raid_buffs': [
+                {'value': 'arcane_intellect', 'label': '奥术智慧'},
+                {'value': 'bloodlust', 'label': '嗜血 / 英勇'},
+            ],
+            'source_task_id': source_task.id,
+        })
+
     def test_incremental_projection_uses_profile_frozen_by_failed_source_task(self):
         self.profile.player_equipment = (
             'warrior="Frozen Failure"\nlevel=80\nspec=fury\n'
