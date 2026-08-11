@@ -1,8 +1,4 @@
-"""Read-only merged SimC-token and WoW-skill catalog.
-
-Localization remains in the existing WoW snapshot tables; no display text is copied
-into :class:`SimcAplSymbol`.
-"""
+"""只读合并 SimC token、WoW 技能快照与 APL 本地化元数据。"""
 from dataclasses import dataclass
 from typing import Optional
 
@@ -126,8 +122,8 @@ def query_symbol_catalog(simc_revision, wow_build, class_name, spec,
             bound_spell_ids.add(sid)
         spell = details.get(sid, {})
         talent = talents_by_spell.get(sid)
-        en = spell.get('en') or (talent.name if talent else '')
-        zh = spell.get('zh') or (talent.name_zh if talent else '')
+        en = spell.get('en') or (talent.name if talent else '') or symbol.name_en or symbol.token
+        zh = spell.get('zh') or (talent.name_zh if talent else '') or symbol.name_zh
         label = zh or en or symbol.token or (f'Spell {sid}' if sid else '')
         items.append(CatalogItem(
             token=symbol.token, kind=symbol.symbol_kind, spell_id=sid,

@@ -810,6 +810,26 @@ class SimcAplSymbol(models.Model):
     identity_candidates = models.JSONField(default=list, blank=True)
     aliases = models.JSONField(default=list, blank=True)
     options = models.JSONField(default=dict, blank=True)
+    name_en = models.CharField(
+        max_length=255, default='', blank=True,
+        help_text='APL 英文名称；至少保留原始 token',
+    )
+    name_zh = models.CharField(
+        max_length=255, default='', blank=True,
+        help_text='APL 简体中文名称；上游无中文时允许为空',
+    )
+    localization_source = models.CharField(
+        max_length=64, default='', blank=True,
+        help_text='本地化来源，例如 wowhead',
+    )
+    localization_status = models.CharField(
+        max_length=32, default='', blank=True,
+        help_text='本地化状态，例如 ok/unlocalized/unbound',
+    )
+    metadata = models.JSONField(
+        default=dict, blank=True,
+        help_text='表达式模板、覆盖专精与 Wowhead 审计元数据',
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

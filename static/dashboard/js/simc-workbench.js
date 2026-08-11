@@ -575,8 +575,11 @@
                     <div class="simc-apl-import-picker__copy"><strong>加载其他 APL 内容</strong><span data-apl-import-summary>请选择专精后选择可用 APL；仅点击“加载”后才会替换编辑区正文。</span></div>
                     <div class="simc-apl-import-picker__controls"><select data-apl-import-select class="simc-editor-input" aria-label="选择要加载的 APL"><option value="">请选择 APL</option></select><button type="button" data-apl-import-load disabled>加载</button></div>
                 </section>
+                <div class="simc-editor-section__heading simc-apl-command-bar" data-apl-command-bar aria-label="APL 编辑操作">
+                    <div><h5 class="text-sm font-bold text-slate-900">APL 内容</h5><p class="mt-1 text-xs text-slate-500">操作栏会跟随编辑区；中文正文保存时自动转换为权威 APL。</p></div>
+                    <div class="simc-apl-editor-heading-actions"><div class="simc-apl-language-switch" role="group" aria-label="正文语言"><button type="button" data-apl-language="apl" aria-pressed="true">APL</button><button type="button" data-apl-language="cn" aria-pressed="false">中文</button></div><button type="button" data-apl-validate-now>立即结构检查</button><button type="button" data-apl-action="cancel">取消</button><button type="submit" data-apl-save class="simc-apl-command-save"><i class="fas fa-save mr-1"></i>保存 APL</button></div>
+                </div>
                 <section class="simc-editor-section">
-                    <div class="simc-editor-section__heading"><div><h5 class="text-sm font-bold text-slate-900">APL 内容</h5><p class="mt-1 text-xs text-slate-500">APL/中文共用一个可编辑正文；保存时会自动转换为权威 APL。</p></div><div class="simc-apl-editor-heading-actions"><div class="simc-apl-language-switch" role="group" aria-label="正文语言"><button type="button" data-apl-language="apl" aria-pressed="true">APL</button><button type="button" data-apl-language="cn" aria-pressed="false">中文</button></div><button type="button" data-apl-validate-now>立即结构检查</button></div></div>
                     <input type="hidden" name="apl_code" value="">
                     <div class="simc-apl-workspace">
                         <div class="simc-apl-editor-column"><div class="simc-apl-editor-shell"><div class="simc-apl-editor-mount" data-apl-editor-mount></div><div class="simc-apl-diagnostics" data-apl-editor-diagnostics aria-live="polite"></div></div></div>
@@ -584,7 +587,6 @@
                     <button type="button" class="simc-apl-assistant-toggle" data-apl-assistant-toggle>技能与 Buff 助手</button>
                     <div class="simc-code-editor-toolbar"><span data-code-editor-stats>${codeStats(content)}</span><span data-apl-editor-status>准备检查</span></div>
                 </section>
-                <div class="simc-editor-actions"><span class="mr-auto hidden text-xs text-gray-500 sm:block">保存后，新任务将引用新的不可变版本。</span><button type="button" data-apl-action="cancel" class="rounded-lg border bg-white px-4 py-2 text-sm text-slate-700">取消</button><button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"><i class="fas fa-save mr-1"></i>保存 APL</button></div>
             </div>
             <aside class="simc-apl-assistant" data-apl-assistant aria-label="技能与 Buff 助手"><div data-apl-assistant-host></div></aside>
         </form>`;

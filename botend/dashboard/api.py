@@ -1038,14 +1038,40 @@ class ConvertTextAPIView(View):
             models.Q(class_name__isnull=True, spec__isnull=True) |
             models.Q(class_name=class_name, spec__isnull=True) |
             models.Q(class_name=class_name, spec=spec_name)
-        ).filter(models.Q(hero_tree__isnull=True) | models.Q(hero_tree='')).values('symbol_kind', 'token', 'spell_id', 'trait_id', 'hero_tree')
-        facts = list(symbol_rows)
+        ).filter(models.Q(hero_tree__isnull=True) | models.Q(hero_tree='')).values(
+            'symbol_kind', 'token', 'spell_id', 'trait_id', 'hero_tree',
+            'class_name', 'spec', 'name_zh',
+        )
+        catalog_facts = list(symbol_rows)
+        class_scope_key = class_name.casefold()
+        spec_scope_key = spec_name.casefold()
+
+        def visible_scope_rank(row):
+            row_class = str(row.get('class_name') or '').casefold()
+            row_spec = str(row.get('spec') or '').casefold()
+            if row_class == class_scope_key and row_spec == spec_scope_key:
+                return 2
+            if row_class == class_scope_key and not row_spec:
+                return 1
+            if not row_class and not row_spec:
+                return 0
+            return -1
+
         action_bindings = _authoritative_action_bindings(parsed_spec, identity)
         # The action resolver is the stricter source of truth (including the
         # same-class exact-token fallback). Replace visible action rows with
         # its single resolved fact so a visible NULL row cannot conflict with
         # the fallback fact we just proved authoritative.
-        non_action_facts = [row for row in facts if row['symbol_kind'] != 'action']
+        non_action_by_key = {}
+        for row in catalog_facts:
+            if row['symbol_kind'] == 'action':
+                continue
+            key = (row['symbol_kind'], str(row.get('token') or '').casefold())
+            rank = visible_scope_rank(row)
+            current = non_action_by_key.get(key)
+            if current is None or rank > current[0]:
+                non_action_by_key[key] = (rank, row)
+        non_action_facts = [row for _rank, row in non_action_by_key.values()]
         action_facts = [
             {
                 'symbol_kind': 'action', 'token': token, 'spell_id': spell_id,
@@ -1062,6 +1088,16 @@ class ConvertTextAPIView(View):
             spell_id__in=spell_ids,
         ).exclude(name_zh='').values('spell_id', 'name_zh').order_by('spell_id', '-updated_at', '-id'):
             localized.setdefault(('spell', row['spell_id']), row['name_zh'])
+        # 快照是首选来源；快照缺失时才使用随 APL 数据包固化的 Wowhead 中文。
+        packaged_names = defaultdict(set)
+        for row in SimcAplSymbol.objects.filter(
+            simc_revision=identity[0], wow_build=identity[1], is_active=True,
+            spell_id__in=spell_ids, name_zh__gt='',
+        ).values('spell_id', 'name_zh'):
+            packaged_names[row['spell_id']].add(row['name_zh'])
+        for spell_id, names in packaged_names.items():
+            if len(names) == 1:
+                localized.setdefault(('spell', spell_id), next(iter(names)))
         for row in WowTalentNodeMetadata.objects.filter(
             talent_version__branch='retail', talent_version__is_active=True,
             talent_version__current_build__in=(identity[1], ''),
@@ -1094,6 +1130,33 @@ class ConvertTextAPIView(View):
             key: value for key, value in mapping.items()
             if key[0] != 'action' or key[1] not in CONTROL_ACTIONS
         }
+        # Rows without a spell/trait ID still carry useful human-readable
+        # names from the versioned localization package.  Add them only after
+        # authoritative ID mappings, and only when the most specific visible
+        # scope has one unambiguous Chinese label.  This also intentionally
+        # permits catalog-defined control action names without treating those
+        # DSL controls as game spells.
+        scoped_names = defaultdict(list)
+        for row in catalog_facts:
+            kind = str(row.get('symbol_kind') or '')
+            token = str(row.get('token') or '').strip()
+            chinese = str(row.get('name_zh') or '').strip()
+            if not token or not chinese or kind not in {
+                'action', 'buff', 'debuff', 'dot', 'cooldown', 'talent',
+            }:
+                continue
+            scope_rank = visible_scope_rank(row)
+            if scope_rank < 0:
+                continue
+            scoped_names[(kind, token.casefold())].append((scope_rank, chinese))
+        for key, candidates in scoped_names.items():
+            highest_rank = max(rank for rank, _chinese in candidates)
+            highest_names = {
+                chinese.casefold(): chinese
+                for rank, chinese in candidates if rank == highest_rank
+            }
+            if len(highest_names) == 1:
+                mapping.setdefault(key, next(iter(highest_names.values())))
         active_keys = {(demand.kind, demand.token.casefold()) for demand in demands}
         # Scope disambiguation to the submitted document: unrelated runtime
         # aliases stay plain and cannot make a normal single-token edit verbose.

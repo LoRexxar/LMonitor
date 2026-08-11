@@ -72,6 +72,18 @@
     gap: .45rem;
 }
 
+.simc-apl-command-bar {
+    position: sticky;
+    z-index: 8;
+    top: 4.25rem;
+    align-items: center;
+    border: 1px solid #cbd5e1;
+    border-radius: .85rem;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, .12);
+}
+
+.simc-apl-language-switch { display: inline-flex; gap: .25rem; }
+
 .simc-apl-editor-heading-actions button {
     border: 1px solid #cbd5e1;
     border-radius: .55rem;
@@ -85,6 +97,8 @@
 .simc-apl-editor-heading-actions button:hover,
 .simc-apl-editor-heading-actions button[aria-pressed="true"] { border-color: #2563eb; color: #1d4ed8; background: #eff6ff; }
 .simc-apl-editor-heading-actions button:disabled { opacity: .55; cursor: wait; }
+.simc-apl-editor-heading-actions .simc-apl-command-save { border-color: #2563eb; color: #fff; background: #2563eb; }
+.simc-apl-editor-heading-actions .simc-apl-command-save:hover { border-color: #1d4ed8; color: #fff; background: #1d4ed8; }
 
 .simc-apl-editor-shell {
     border-top: 1px solid #e7d9a4;
@@ -217,6 +231,10 @@
     [data-apl-storage-form] .simc-apl-workspace,
     [data-apl-storage-form] .simc-apl-editor-column { min-width: 0; max-width: 100%; }
     .simc-apl-editor-form { display: block; }
+    .simc-apl-command-bar { top: 4rem; align-items: stretch; gap: .65rem; }
+    .simc-apl-command-bar > :first-child { display: none; }
+    .simc-apl-editor-heading-actions { width: 100%; justify-content: flex-start; }
+    .simc-apl-editor-heading-actions .simc-apl-command-save { margin-left: auto; }
     .simc-apl-workspace { display: block; }
     .simc-apl-import-picker { align-items: stretch; flex-direction: column; gap: .65rem; }
     .simc-apl-import-picker__controls { width: 100%; min-width: 0; }

@@ -43,6 +43,14 @@ class SimcAplSymbolCatalogTests(TestCase):
         self.assertEqual(query_symbol_catalog('r1', 'b1', 'warrior', 'fury', search='23881')[0].token,
                          'bloodthirst')
 
+    def test_packaged_localization_is_used_when_spell_snapshot_is_missing(self):
+        self.symbol(
+            token='bloodthirst', class_name='warrior', spec='fury', spell_id=23881,
+            name_en='Bloodthirst', name_zh='嗜血',
+        )
+        row = query_symbol_catalog('r1', 'b1', 'warrior', 'fury', search='嗜血')[0]
+        self.assertEqual((row.name, row.name_en), ('嗜血', 'Bloodthirst'))
+
     def test_unbound_talent_is_visible_but_never_guesses_token(self):
         version = WowTalentVersion.objects.create(
             key='b1', current_build='b1', is_active=True, is_default_simulator=True)

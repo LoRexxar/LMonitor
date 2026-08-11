@@ -21,6 +21,11 @@ class SimcAplSymbolSchemaTests(TestCase):
         self.assertEqual(symbol.source, SimcAplSymbol.SOURCE_MANIFEST)
         self.assertEqual(symbol.aliases, [])
         self.assertEqual(symbol.options, {})
+        self.assertEqual(symbol.name_en, '')
+        self.assertEqual(symbol.name_zh, '')
+        self.assertEqual(symbol.localization_source, '')
+        self.assertEqual(symbol.localization_status, '')
+        self.assertEqual(symbol.metadata, {})
         self.assertTrue(symbol.is_active)
         self.assertIn(
             SimcAplSymbol.KIND_ACTION,
@@ -221,6 +226,23 @@ class SimcAplSymbolVersioningTests(TestCase):
         )
         missing.refresh_from_db()
         self.assertFalse(missing.is_active)
+
+    def test_runtime_sync_preserves_imported_localization_metadata(self):
+        symbol = self.make_symbol(
+            name_en='Bloodthirst', name_zh='嗜血', localization_source='wowhead',
+            localization_status='ok', metadata={'covered_specs': ['fury']},
+        )
+        SimcAplSymbol.sync_revision_catalog(
+            'revision-one', '12.0.1.70000',
+            [{
+                'class_name': 'warrior', 'spec': 'fury', 'hero_tree': 'slayer',
+                'token': 'bloodthirst', 'symbol_kind': SimcAplSymbol.KIND_ACTION,
+                'spell_id': 23881, 'source': SimcAplSymbol.SOURCE_SIMC_MANIFEST,
+            }],
+        )
+        symbol.refresh_from_db()
+        self.assertEqual((symbol.name_en, symbol.name_zh), ('Bloodthirst', '嗜血'))
+        self.assertEqual(symbol.metadata, {'covered_specs': ['fury']})
 
     def test_sync_deduplicates_identical_canonical_identity_payloads(self):
         facts = [{

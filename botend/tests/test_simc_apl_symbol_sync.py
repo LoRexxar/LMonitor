@@ -54,7 +54,8 @@ class SimcAplSymbolSyncTests(TestCase):
              'aliases': [], 'options': {}}
             for index in range(100)
         ]
-        with self.assertNumQueries(5):
+        # SQLite 会按最大绑定参数数拆批；新增本地化列后 100 行需要 3 个 INSERT。
+        with self.assertNumQueries(6):
             SimcAplSymbol.sync_revision_catalog('sha1', 'b1', facts)
         self.assertEqual(
             SimcAplSymbol.objects.filter(

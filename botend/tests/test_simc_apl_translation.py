@@ -66,6 +66,21 @@ class SimcAplTranslationTests(SimpleTestCase):
         ])
         self.assertTrue(all('death_strike' not in chinese for _, _, chinese in result))
 
+    def test_only_active_noncanonical_duplicate_keeps_a_reversible_suffix(self):
+        pairs = [
+            ('action', 'death_strike', '灵界打击'),
+            ('action', 'death_strike_heal', '灵界打击'),
+        ]
+
+        result = disambiguate_chinese_labels(
+            pairs, active_keys={('action', 'death_strike_heal')},
+        )
+
+        self.assertEqual(result, [
+            ('action', 'death_strike', '灵界打击'),
+            ('action', 'death_strike_heal', '灵界打击-治疗'),
+        ])
+
     def test_invalid_document_is_not_partially_translated(self):
         source = "actions=/bloodthirst,if=(buff.enrage.up\n"
         self.assertEqual(

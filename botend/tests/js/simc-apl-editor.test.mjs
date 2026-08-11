@@ -122,9 +122,9 @@ test('APL editor uses a light yellow code surface and a compact desktop assistan
 
 test('dashboard cache-busts the published light APL stylesheet', async () => {
     const dashboard = await readFile(new URL('../../../templates/dashboard/index.html', import.meta.url), 'utf8');
-    assert.match(dashboard, /simc-apl-editor\.css[^\n]*\?v=20260727b/);
+    assert.match(dashboard, /simc-apl-editor\.css[^\n]*\?v=20260811_apl_sticky_actions/);
     assert.match(dashboard, /simc-apl-editor\.js[^\n]*\?v=20260727b/);
-    assert.match(dashboard, /simc-workbench\.js[^\n]*\?v=20260727a/);
+    assert.match(dashboard, /simc-workbench\.js[^\n]*\?v=20260811_apl_sticky_actions/);
 });
 
 test('document and catalog completions merge without duplicate insertions', () => {
@@ -304,6 +304,21 @@ test('APL workspace contract uses a larger desktop dialog, tall editor, and inde
     assert.match(css, /\.simc-apl-editor-mount\s*\{[^}]*min-height:\s*34rem/s);
     assert.match(workbench, /<aside class="simc-apl-assistant"[^>]*aria-label="技能与 Buff 助手"/);
     assert.match(css, /@media \(max-width:\s*900px\)[\s\S]*\.simc-apl-assistant[^}]*position:\s*fixed/);
+});
+
+test('APL editor keeps language, validation, cancel, and its only save action in one sticky command bar', async () => {
+    const [css, workbench] = await Promise.all([
+        readFile(editorCssUrl, 'utf8'), readFile(workbenchSourceUrl, 'utf8'),
+    ]);
+    const formMarkup = workbench.match(/<form data-apl-storage-form[\s\S]*?<\/form>`;/)?.[0] || '';
+    const commandMarkup = formMarkup.match(/<div class="simc-editor-section__heading simc-apl-command-bar"[\s\S]*?<\/div>\s*<section class="simc-editor-section">/)?.[0] || '';
+
+    assert.match(css, /\.simc-apl-command-bar\s*\{[^}]*position:\s*sticky[^}]*z-index:\s*8[^}]*top:\s*4\.25rem/s);
+    assert.match(css, /@media \(max-width:\s*900px\)[\s\S]*\.simc-apl-command-bar > :first-child\s*\{[^}]*display:\s*none/s);
+    assert.match(commandMarkup, /data-apl-language="apl"[\s\S]*data-apl-language="cn"[\s\S]*data-apl-validate-now[\s\S]*data-apl-action="cancel"[\s\S]*data-apl-save/);
+    assert.equal((formMarkup.match(/type="submit"/g) || []).length, 1);
+    assert.equal((formMarkup.match(/data-apl-save/g) || []).length, 1);
+    assert.doesNotMatch(formMarkup, /class="simc-editor-actions"/);
 });
 
 test('new APL form exposes default import and replaces readonly bilingual panel with language switch', async () => {

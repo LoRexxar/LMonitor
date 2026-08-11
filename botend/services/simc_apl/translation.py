@@ -38,7 +38,10 @@ def disambiguate_chinese_labels(pairs, active_keys=None, include_plain_alias=Fal
         active_group = group if active_keys is None else [
             item for item in group if (item[0], str(item[1]).casefold()) in active_keys
         ]
-        if len(active_group) < 2:
+        needs_disambiguation = len(active_group) >= 2 or (
+            len(active_group) == 1 and len(group) > 1 and active_group[0] != group[0]
+        )
+        if not needs_disambiguation:
             result.extend(group)
             continue
         base = group[0][2]

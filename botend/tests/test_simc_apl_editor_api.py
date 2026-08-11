@@ -88,6 +88,167 @@ class SimcAplEditorApiTests(TestCase):
         self.assertEqual(authoritative.json(), {"success": True, "result": apl})
 
     @override_settings(SIMC_APL_CURRENT_IDENTITY=('a' * 40, '12.0.5'))
+    def test_editor_language_api_uses_packaged_chinese_without_spell_snapshot(self):
+        SimcAplSymbol.objects.create(
+            simc_revision='a' * 40, wow_build='12.0.5',
+            class_name='warrior', spec='fury', token='bloodthirst',
+            symbol_kind='action', spell_id=23881,
+            name_en='Bloodthirst', name_zh='嗜血',
+            localization_source='wowhead', localization_status='ok',
+        )
+        apl = 'actions+=/bloodthirst,if=target.health.pct<20'
+
+        chinese = self.client.post('/api/convert-text/', data=json.dumps({
+            'text': apl, 'conversion_type': 'apl_to_cn', 'spec': 'warrior_fury',
+        }), content_type='application/json')
+        restored = self.client.post('/api/convert-text/', data=json.dumps({
+            'text': chinese.json()['result'], 'conversion_type': 'cn_to_apl',
+            'spec': 'warrior_fury',
+        }), content_type='application/json')
+
+        self.assertEqual(chinese.json()['result'], 'actions+=/嗜血,if=target.health.pct<20')
+        self.assertEqual(restored.json()['result'], apl)
+
+    @override_settings(SIMC_APL_CURRENT_IDENTITY=('a' * 40, '12.0.5'))
+    def test_editor_language_api_round_trips_inferred_names_and_keeps_unknown_tokens(self):
+        revision, build = 'a' * 40, '12.0.5'
+        SimcAplSymbol.objects.bulk_create([
+            SimcAplSymbol(
+                simc_revision=revision, wow_build=build,
+                class_name='deathknight', spec='blood',
+                class_key='deathknight', spec_key='blood',
+                token='any_dnd', symbol_kind='action',
+                name_en='Any DnD', name_zh='任意枯萎凋零',
+                localization_source='manual', localization_status='inferred',
+            ),
+            SimcAplSymbol(
+                simc_revision=revision, wow_build=build,
+                class_name='deathknight', spec=None,
+                class_key='deathknight', spec_key='',
+                token='run_action_list', symbol_kind='action',
+                name_en='Run Action List', name_zh='执行动作列表',
+                localization_source='control_dictionary', localization_status='ok',
+            ),
+            SimcAplSymbol(
+                simc_revision=revision, wow_build=build,
+                class_name='deathknight', spec=None,
+                class_key='deathknight', spec_key='',
+                token='shared_state', symbol_kind='buff',
+                name_en='Shared State', name_zh='职业状态',
+                localization_source='manual', localization_status='inferred',
+            ),
+            SimcAplSymbol(
+                simc_revision=revision, wow_build=build,
+                class_name='deathknight', spec='blood',
+                class_key='deathknight', spec_key='blood',
+                token='shared_state', symbol_kind='buff',
+                name_en='Shared State', name_zh='专精状态',
+                localization_source='manual', localization_status='inferred',
+            ),
+            SimcAplSymbol(
+                simc_revision=revision, wow_build=build,
+                class_name='deathknight', spec='blood',
+                class_key='deathknight', spec_key='blood',
+                token='inferred_buff', symbol_kind='buff',
+                name_en='Inferred Buff', name_zh='推断增益',
+                localization_source='manual', localization_status='inferred',
+            ),
+        ])
+        apl = (
+            'actions=/any_dnd\n'
+            'actions+=/run_action_list,name=aoe\n'
+            'actions.aoe=/unknown_action,if=buff.shared_state.up'
+            '&buff.inferred_buff.up&buff.unknown_state.up'
+        )
+        expected_chinese = (
+            'actions=/任意枯萎凋零\n'
+            'actions+=/执行动作列表,name=aoe\n'
+            'actions.aoe=/unknown_action,if=buff.专精状态.up'
+            '&buff.推断增益.up&buff.unknown_state.up'
+        )
+
+        chinese = self.client.post('/api/convert-text/', data=json.dumps({
+            'text': apl, 'conversion_type': 'apl_to_cn', 'spec': 'deathknight_blood',
+        }), content_type='application/json')
+        restored = self.client.post('/api/convert-text/', data=json.dumps({
+            'text': chinese.json()['result'], 'conversion_type': 'cn_to_apl',
+            'spec': 'deathknight_blood',
+        }), content_type='application/json')
+
+        self.assertEqual(chinese.status_code, 200)
+        self.assertEqual(chinese.json()['result'], expected_chinese)
+        self.assertEqual(restored.status_code, 200)
+        self.assertEqual(restored.json()['result'], apl)
+
+    @override_settings(SIMC_APL_CURRENT_IDENTITY=('a' * 40, '12.0.5'))
+    def test_editor_language_api_prefers_authoritative_snapshot_over_inferred_name(self):
+        revision, build = 'a' * 40, '12.0.5'
+        WowSpellSnapshot.objects.create(
+            branch='wow', locale='zhCN', spell_id=23881,
+            name='Bloodthirst', name_zh='嗜血', snapshot_build=build,
+        )
+        SimcAplSymbol.objects.create(
+            simc_revision=revision, wow_build=build,
+            class_name='warrior', spec='fury',
+            token='bloodthirst', symbol_kind='action', spell_id=23881,
+            name_en='Bloodthirst', name_zh='推断嗜血',
+            localization_source='manual', localization_status='inferred',
+        )
+
+        response = self.client.post('/api/convert-text/', data=json.dumps({
+            'text': 'actions=/bloodthirst',
+            'conversion_type': 'apl_to_cn', 'spec': 'warrior_fury',
+        }), content_type='application/json')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['result'], 'actions=/嗜血')
+
+    @override_settings(SIMC_APL_CURRENT_IDENTITY=('a' * 40, '12.0.5'))
+    def test_editor_language_api_resolves_authoritative_id_at_most_specific_scope(self):
+        revision, build = 'a' * 40, '12.0.5'
+        WowSpellSnapshot.objects.bulk_create([
+            WowSpellSnapshot(
+                branch='wow', locale='zhCN', spell_id=1001,
+                name='Class State', name_zh='职业官方状态', snapshot_build=build,
+            ),
+            WowSpellSnapshot(
+                branch='wow', locale='zhCN', spell_id=1002,
+                name='Spec State', name_zh='专精官方状态', snapshot_build=build,
+            ),
+        ])
+        SimcAplSymbol.objects.bulk_create([
+            SimcAplSymbol(
+                simc_revision=revision, wow_build=build,
+                class_name='warrior', spec=None,
+                class_key='warrior', spec_key='',
+                token='shared_state', symbol_kind='buff', spell_id=1001,
+                name_zh='职业推断状态', localization_source='manual',
+            ),
+            SimcAplSymbol(
+                simc_revision=revision, wow_build=build,
+                class_name='warrior', spec='fury',
+                class_key='warrior', spec_key='fury',
+                token='shared_state', symbol_kind='buff', spell_id=1002,
+                name_zh='专精推断状态', localization_source='manual',
+            ),
+        ])
+        apl = 'actions=/unknown_action,if=buff.shared_state.up'
+
+        chinese = self.client.post('/api/convert-text/', data=json.dumps({
+            'text': apl, 'conversion_type': 'apl_to_cn', 'spec': 'warrior_fury',
+        }), content_type='application/json')
+        restored = self.client.post('/api/convert-text/', data=json.dumps({
+            'text': chinese.json()['result'], 'conversion_type': 'cn_to_apl',
+            'spec': 'warrior_fury',
+        }), content_type='application/json')
+
+        self.assertEqual(
+            chinese.json()['result'],
+            'actions=/unknown_action,if=buff.专精官方状态.up',
+        )
+        self.assertEqual(restored.json()['result'], apl)
+
+    @override_settings(SIMC_APL_CURRENT_IDENTITY=('a' * 40, '12.0.5'))
     def test_editor_language_api_round_trips_talent_before_arithmetic_operator(self):
         revision, build = 'a' * 40, '12.0.5'
         SimcBackendBinary.objects.create(platform='linux64', current_version=revision)
@@ -157,6 +318,38 @@ class SimcAplEditorApiTests(TestCase):
             'actions=/灵界打击\n'
             'actions+=/灵界打击'
         ))
+        self.assertEqual(restored.json()['result'], apl)
+
+    @override_settings(SIMC_APL_CURRENT_IDENTITY=('a' * 40, '12.0.5'))
+    def test_editor_language_api_disambiguates_only_active_noncanonical_alias(self):
+        revision, build = 'a' * 40, '12.0.5'
+        SimcAplSymbol.objects.bulk_create([
+            SimcAplSymbol(
+                simc_revision=revision, wow_build=build,
+                class_name='deathknight', spec='blood',
+                class_key='deathknight', spec_key='blood',
+                token='death_strike', symbol_kind='action',
+                name_zh='灵界打击', localization_source='wowhead',
+            ),
+            SimcAplSymbol(
+                simc_revision=revision, wow_build=build,
+                class_name='deathknight', spec='blood',
+                class_key='deathknight', spec_key='blood',
+                token='death_strike_heal', symbol_kind='action',
+                name_zh='灵界打击', localization_source='wowhead',
+            ),
+        ])
+        apl = 'actions=/death_strike_heal'
+
+        translated = self.client.post('/api/convert-text/', data=json.dumps({
+            'text': apl, 'conversion_type': 'apl_to_cn', 'spec': 'deathknight_blood',
+        }), content_type='application/json')
+        restored = self.client.post('/api/convert-text/', data=json.dumps({
+            'text': translated.json()['result'], 'conversion_type': 'cn_to_apl',
+            'spec': 'deathknight_blood',
+        }), content_type='application/json')
+
+        self.assertEqual(translated.json()['result'], 'actions=/灵界打击-治疗')
         self.assertEqual(restored.json()['result'], apl)
 
     @override_settings(SIMC_APL_CURRENT_IDENTITY=('a' * 40, '12.0.5'))
