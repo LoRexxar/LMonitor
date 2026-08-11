@@ -6,7 +6,7 @@ from pathlib import Path
 from django.core.management import call_command
 from django.test import TestCase
 
-from botend.models import SimcAplSymbol
+from botend.models import SimcAplSymbol, SimcAplSymbolScope
 from botend.services.simc_apl.metadata_package import (
     build_metadata_package,
     find_default_metadata_package,
@@ -118,32 +118,66 @@ class SimcAplMetadataImportTests(TestCase):
 
         self.assertEqual((first.created, first.updated), (2, 0))
         self.assertEqual((second.created, second.updated, second.unchanged), (0, 0, 2))
-        missing = SimcAplSymbol.objects.get(token='imaginary_buff')
+        missing = SimcAplSymbolScope.objects.get(symbol__token='imaginary_buff')
         self.assertEqual((missing.name_en, missing.name_zh), ('imaginary_buff', ''))
         self.assertEqual(missing.spec, 'fury')
         self.assertEqual(SimcAplSymbol.objects.count(), 2)
+        self.assertEqual(SimcAplSymbolScope.objects.count(), 2)
+
+    def test_new_revision_and_build_update_same_unversioned_rows(self):
+        first = import_metadata_package(self.package)
+        refreshed = copy.deepcopy(self.package)
+        refreshed['simc_revision'] = '9' * 40
+        refreshed['game_build'] = '12.1.0.70000'
+
+        second = import_metadata_package(refreshed, refresh_all=True)
+
+        self.assertEqual(first.symbols_created, 2)
+        self.assertEqual((second.created, second.updated, second.unchanged), (0, 0, 2))
+        self.assertEqual(second.symbols_created, 0)
+        self.assertEqual(SimcAplSymbol.objects.count(), 2)
+        self.assertEqual(SimcAplSymbolScope.objects.count(), 2)
+
+    def test_refresh_all_repairs_scope_without_duplicate_field_subject(self):
+        import_metadata_package(self.package)
+        corrected = copy.deepcopy(self.package)
+        corrected['simc_revision'] = '9' * 40
+        corrected['game_build'] = '12.1.0.70000'
+        fact = next(row for row in corrected['facts'] if row['token'] == 'imaginary_buff')
+        fact['spec'] = 'arms'
+
+        summary = import_metadata_package(corrected, refresh_all=True)
+
+        self.assertEqual((summary.created, summary.deactivated), (1, 1))
+        self.assertEqual(SimcAplSymbol.objects.filter(
+            token='imaginary_buff', symbol_kind='buff').count(), 1)
+        active = SimcAplSymbolScope.objects.get(
+            symbol__token='imaginary_buff', is_active=True,
+        )
+        self.assertEqual((active.class_name, active.spec), ('warrior', 'arms'))
 
     def test_import_dry_run_rolls_back_all_rows(self):
         summary = import_metadata_package(self.package, dry_run=True)
         self.assertEqual(summary.created, 2)
         self.assertEqual(SimcAplSymbol.objects.count(), 0)
+        self.assertEqual(SimcAplSymbolScope.objects.count(), 0)
 
     def test_import_preserves_exact_manual_identity(self):
-        SimcAplSymbol.objects.create(
-            simc_revision=REVISION, wow_build=BUILD, class_name='warrior',
-            token='execute', symbol_kind='action', spell_id=999,
+        symbol = SimcAplSymbol.objects.create(token='execute', symbol_kind='action')
+        SimcAplSymbolScope.objects.create(
+            symbol=symbol, class_name='warrior', spell_id=999,
             source=SimcAplSymbol.SOURCE_MANUAL, name_zh='人工名称',
         )
         summary = import_metadata_package(self.package)
-        manual = SimcAplSymbol.objects.get(token='execute')
+        manual = SimcAplSymbolScope.objects.get(symbol__token='execute')
         self.assertEqual(summary.manual_preserved, 1)
         self.assertEqual((manual.spell_id, manual.name_zh, manual.source),
                          (999, '人工名称', SimcAplSymbol.SOURCE_MANUAL))
 
     def test_missing_rows_are_only_deactivated_when_explicit(self):
-        stale = SimcAplSymbol.objects.create(
-            simc_revision=REVISION, wow_build=BUILD, class_name='warrior', spec='fury',
-            token='stale_buff', symbol_kind='buff', is_active=True,
+        symbol = SimcAplSymbol.objects.create(token='stale_buff', symbol_kind='buff')
+        stale = SimcAplSymbolScope.objects.create(
+            symbol=symbol, class_name='warrior', spec='fury', is_active=True,
         )
         import_metadata_package(self.package)
         stale.refresh_from_db()
@@ -155,19 +189,19 @@ class SimcAplMetadataImportTests(TestCase):
         self.assertFalse(stale.is_active)
 
     def test_refresh_all_deactivates_old_generated_catalog_and_preserves_manual(self):
-        old_generated = SimcAplSymbol.objects.create(
-            simc_revision='old-revision', wow_build='old-build',
-            class_name='warrior', token='old_buff', symbol_kind='buff',
+        generated_symbol = SimcAplSymbol.objects.create(token='old_buff', symbol_kind='buff')
+        old_generated = SimcAplSymbolScope.objects.create(
+            symbol=generated_symbol, class_name='warrior',
             source=SimcAplSymbol.SOURCE_SIMC_MANIFEST,
         )
-        old_manual = SimcAplSymbol.objects.create(
-            simc_revision='old-revision', wow_build='old-build',
-            class_name='warrior', token='manual_buff', symbol_kind='buff',
+        manual_symbol = SimcAplSymbol.objects.create(token='manual_buff', symbol_kind='buff')
+        old_manual = SimcAplSymbolScope.objects.create(
+            symbol=manual_symbol, class_name='warrior',
             source=SimcAplSymbol.SOURCE_MANUAL,
         )
-        old_resource = SimcAplSymbol.objects.create(
-            simc_revision='old-revision', wow_build='old-build',
-            class_name='warrior', token='rage', symbol_kind='resource',
+        resource_symbol = SimcAplSymbol.objects.create(token='rage', symbol_kind='resource')
+        old_resource = SimcAplSymbolScope.objects.create(
+            symbol=resource_symbol, class_name='warrior',
             source=SimcAplSymbol.SOURCE_SIMC_MANIFEST,
         )
 
@@ -180,8 +214,8 @@ class SimcAplMetadataImportTests(TestCase):
         self.assertFalse(old_generated.is_active)
         self.assertTrue(old_manual.is_active)
         self.assertTrue(old_resource.is_active)
-        self.assertEqual(SimcAplSymbol.objects.filter(
-            simc_revision=REVISION, wow_build=BUILD, is_active=True,
+        self.assertEqual(SimcAplSymbolScope.objects.filter(
+            symbol__token__in={'execute', 'imaginary_buff'}, is_active=True,
         ).count(), 2)
 
 
@@ -223,8 +257,9 @@ class SimcAplBuiltInPackageTests(TestCase):
         second = import_metadata_package(payload)
         self.assertEqual(first.created, 5021)
         self.assertEqual(second.unchanged, 5021)
-        self.assertEqual(SimcAplSymbol.objects.filter(name_zh='').count(), 0)
-        self.assertEqual(SimcAplSymbol.objects.exclude(name_zh='').count(), 5021)
+        self.assertEqual(SimcAplSymbol.objects.count(), 1991)
+        self.assertEqual(SimcAplSymbolScope.objects.filter(name_zh='').count(), 0)
+        self.assertEqual(SimcAplSymbolScope.objects.exclude(name_zh='').count(), 5021)
 
     def test_built_in_package_keeps_all_static_source_supplements_with_metadata(self):
         payload = load_metadata_package(find_default_metadata_package())
@@ -290,3 +325,4 @@ class SimcAplBuiltInPackageTests(TestCase):
         self.assertIn('[DRY-RUN]', text)
         self.assertIn('facts=5021', text)
         self.assertEqual(SimcAplSymbol.objects.count(), 0)
+        self.assertEqual(SimcAplSymbolScope.objects.count(), 0)

@@ -10,6 +10,10 @@ from botend.models import (
     SimcAplSymbol, SimcProfile, SimcBackendBinary, WowSpellSnapshot,
     WowTalentNodeMetadata, WowTalentVersion,
 )
+from botend.tests.simc_apl_symbol_test_utils import (
+    bulk_create_symbol_scopes, create_symbol_scope, get_or_create_symbol_scope,
+    symbol_scope,
+)
 
 
 class SimcAplEditorApiTests(TestCase):
@@ -31,7 +35,7 @@ class SimcAplEditorApiTests(TestCase):
             tree_type='spec', node_id=90421, talent_id=112292,
             name='Deft Experience', name_zh='熟能生巧',
         )
-        SimcAplSymbol.objects.create(
+        create_symbol_scope(
             simc_revision=revision, wow_build=build, class_name='warrior', spec='fury',
             token='deft_experience', symbol_kind='talent', trait_id=112292,
         )
@@ -66,7 +70,7 @@ class SimcAplEditorApiTests(TestCase):
         WowSpellSnapshot.objects.create(
             branch="wow", locale="zhCN", spell_id=23881,
             name="Bloodthirst", name_zh="嗜血", snapshot_build=build)
-        SimcAplSymbol.objects.create(
+        create_symbol_scope(
             simc_revision=revision, wow_build=build, class_name='warrior', spec='fury',
             token='bloodthirst', symbol_kind='action', spell_id=23881)
         apl = "actions+=/bloodthirst,if=target.health.pct<20"
@@ -89,7 +93,7 @@ class SimcAplEditorApiTests(TestCase):
 
     @override_settings(SIMC_APL_CURRENT_IDENTITY=('a' * 40, '12.0.5'))
     def test_editor_language_api_uses_packaged_chinese_without_spell_snapshot(self):
-        SimcAplSymbol.objects.create(
+        create_symbol_scope(
             simc_revision='a' * 40, wow_build='12.0.5',
             class_name='warrior', spec='fury', token='bloodthirst',
             symbol_kind='action', spell_id=23881,
@@ -112,8 +116,8 @@ class SimcAplEditorApiTests(TestCase):
     @override_settings(SIMC_APL_CURRENT_IDENTITY=('a' * 40, '12.0.5'))
     def test_editor_language_api_round_trips_inferred_names_and_keeps_unknown_tokens(self):
         revision, build = 'a' * 40, '12.0.5'
-        SimcAplSymbol.objects.bulk_create([
-            SimcAplSymbol(
+        bulk_create_symbol_scopes([
+            symbol_scope(
                 simc_revision=revision, wow_build=build,
                 class_name='deathknight', spec='blood',
                 class_key='deathknight', spec_key='blood',
@@ -121,7 +125,7 @@ class SimcAplEditorApiTests(TestCase):
                 name_en='Any DnD', name_zh='任意枯萎凋零',
                 localization_source='manual', localization_status='inferred',
             ),
-            SimcAplSymbol(
+            symbol_scope(
                 simc_revision=revision, wow_build=build,
                 class_name='deathknight', spec=None,
                 class_key='deathknight', spec_key='',
@@ -129,7 +133,7 @@ class SimcAplEditorApiTests(TestCase):
                 name_en='Run Action List', name_zh='执行动作列表',
                 localization_source='control_dictionary', localization_status='ok',
             ),
-            SimcAplSymbol(
+            symbol_scope(
                 simc_revision=revision, wow_build=build,
                 class_name='deathknight', spec=None,
                 class_key='deathknight', spec_key='',
@@ -137,7 +141,7 @@ class SimcAplEditorApiTests(TestCase):
                 name_en='Shared State', name_zh='职业状态',
                 localization_source='manual', localization_status='inferred',
             ),
-            SimcAplSymbol(
+            symbol_scope(
                 simc_revision=revision, wow_build=build,
                 class_name='deathknight', spec='blood',
                 class_key='deathknight', spec_key='blood',
@@ -145,7 +149,7 @@ class SimcAplEditorApiTests(TestCase):
                 name_en='Shared State', name_zh='专精状态',
                 localization_source='manual', localization_status='inferred',
             ),
-            SimcAplSymbol(
+            symbol_scope(
                 simc_revision=revision, wow_build=build,
                 class_name='deathknight', spec='blood',
                 class_key='deathknight', spec_key='blood',
@@ -187,7 +191,7 @@ class SimcAplEditorApiTests(TestCase):
             branch='wow', locale='zhCN', spell_id=23881,
             name='Bloodthirst', name_zh='嗜血', snapshot_build=build,
         )
-        SimcAplSymbol.objects.create(
+        create_symbol_scope(
             simc_revision=revision, wow_build=build,
             class_name='warrior', spec='fury',
             token='bloodthirst', symbol_kind='action', spell_id=23881,
@@ -216,15 +220,15 @@ class SimcAplEditorApiTests(TestCase):
                 name='Spec State', name_zh='专精官方状态', snapshot_build=build,
             ),
         ])
-        SimcAplSymbol.objects.bulk_create([
-            SimcAplSymbol(
+        bulk_create_symbol_scopes([
+            symbol_scope(
                 simc_revision=revision, wow_build=build,
                 class_name='warrior', spec=None,
                 class_key='warrior', spec_key='',
                 token='shared_state', symbol_kind='buff', spell_id=1001,
                 name_zh='职业推断状态', localization_source='manual',
             ),
-            SimcAplSymbol(
+            symbol_scope(
                 simc_revision=revision, wow_build=build,
                 class_name='warrior', spec='fury',
                 class_key='warrior', spec_key='fury',
@@ -261,7 +265,7 @@ class SimcAplEditorApiTests(TestCase):
             tree_type='spec', node_id=90421, talent_id=112292,
             name='Deft Experience', name_zh='熟能生巧',
         )
-        SimcAplSymbol.objects.create(
+        create_symbol_scope(
             simc_revision=revision, wow_build=build, class_name='warrior', spec='fury',
             token='deft_experience', symbol_kind='talent', trait_id=112292,
         )
@@ -294,12 +298,12 @@ class SimcAplEditorApiTests(TestCase):
                 branch='wow', locale='zhCN', spell_id=45470,
                 name='Death Strike Heal', name_zh='灵界打击', snapshot_build=build),
         ])
-        SimcAplSymbol.objects.bulk_create([
-            SimcAplSymbol(
+        bulk_create_symbol_scopes([
+            symbol_scope(
                 simc_revision=revision, wow_build=build, class_name='deathknight', spec='blood',
                 class_key='deathknight', spec_key='blood',
                 token='death_strike', symbol_kind='action', spell_id=49998),
-            SimcAplSymbol(
+            symbol_scope(
                 simc_revision=revision, wow_build=build, class_name='deathknight', spec='blood',
                 class_key='deathknight', spec_key='blood',
                 token='death_strike_heal', symbol_kind='action', spell_id=45470),
@@ -323,15 +327,15 @@ class SimcAplEditorApiTests(TestCase):
     @override_settings(SIMC_APL_CURRENT_IDENTITY=('a' * 40, '12.0.5'))
     def test_editor_language_api_disambiguates_only_active_noncanonical_alias(self):
         revision, build = 'a' * 40, '12.0.5'
-        SimcAplSymbol.objects.bulk_create([
-            SimcAplSymbol(
+        bulk_create_symbol_scopes([
+            symbol_scope(
                 simc_revision=revision, wow_build=build,
                 class_name='deathknight', spec='blood',
                 class_key='deathknight', spec_key='blood',
                 token='death_strike', symbol_kind='action',
                 name_zh='灵界打击', localization_source='wowhead',
             ),
-            SimcAplSymbol(
+            symbol_scope(
                 simc_revision=revision, wow_build=build,
                 class_name='deathknight', spec='blood',
                 class_key='deathknight', spec_key='blood',
@@ -364,12 +368,12 @@ class SimcAplEditorApiTests(TestCase):
                 branch='wow', locale='zhCN', spell_id=45470,
                 name='Death Strike Heal', name_zh='灵界打击', snapshot_build=build),
         ])
-        SimcAplSymbol.objects.bulk_create([
-            SimcAplSymbol(
+        bulk_create_symbol_scopes([
+            symbol_scope(
                 simc_revision=revision, wow_build=build, class_name='deathknight', spec='blood',
                 class_key='deathknight', spec_key='blood',
                 token='death_strike', symbol_kind='action', spell_id=49998),
-            SimcAplSymbol(
+            symbol_scope(
                 simc_revision=revision, wow_build=build, class_name='deathknight', spec='blood',
                 class_key='deathknight', spec_key='blood',
                 token='death_strike_heal', symbol_kind='action', spell_id=45470),
@@ -396,20 +400,20 @@ class SimcAplEditorApiTests(TestCase):
             branch='wow', locale='zhCN', snapshot_build='12.0.5',
             spell_id=6343, name='Thunder Clap', name_zh='雷霆一击',
         )
-        SimcAplSymbol.objects.bulk_create([
-            SimcAplSymbol(
+        bulk_create_symbol_scopes([
+            symbol_scope(
                 simc_revision=self.REVISION, wow_build='12.0.5',
                 class_name='warrior', class_key='warrior',
                 spec='fury', spec_key='fury', token='thunder_clap',
                 symbol_kind='action', spell_id=None,
             ),
-            SimcAplSymbol(
+            symbol_scope(
                 simc_revision=self.REVISION, wow_build='12.0.5',
                 class_name='warrior', class_key='warrior',
                 spec='protection', spec_key='protection', token='thunder_clap',
                 symbol_kind='action', spell_id=6343,
             ),
-            SimcAplSymbol(
+            symbol_scope(
                 simc_revision=self.REVISION, wow_build='12.0.5',
                 class_name='warrior', class_key='warrior',
                 spec='fury', spec_key='fury', hero_tree='slayer', hero_tree_key='slayer',
@@ -436,20 +440,20 @@ class SimcAplEditorApiTests(TestCase):
             branch='wow', locale='zhCN', snapshot_build='12.0.5',
             spell_id=6343, name='Thunder Clap', name_zh='雷霆一击',
         )
-        SimcAplSymbol.objects.bulk_create([
-            SimcAplSymbol(
+        bulk_create_symbol_scopes([
+            symbol_scope(
                 simc_revision=self.REVISION, wow_build='12.0.5',
                 class_name='warrior', class_key='warrior',
                 spec='fury', spec_key='fury', token='thunder_clap',
                 symbol_kind='action', spell_id=None,
             ),
-            SimcAplSymbol(
+            symbol_scope(
                 simc_revision=self.REVISION, wow_build='12.0.5',
                 class_name='warrior', class_key='warrior',
                 spec='protection', spec_key='protection', token='thunder_clap',
                 symbol_kind='action', spell_id=6343,
             ),
-            SimcAplSymbol(
+            symbol_scope(
                 simc_revision=self.REVISION, wow_build='12.0.5',
                 class_name='warrior', class_key='warrior',
                 spec='protection', spec_key='protection', token='shield_slam',
@@ -469,13 +473,13 @@ class SimcAplEditorApiTests(TestCase):
 
     @override_settings(SIMC_APL_CURRENT_IDENTITY=(REVISION, "12.0.5"))
     def test_binding_conflicts_never_fallback(self):
-        SimcAplSymbol.objects.bulk_create([
-            SimcAplSymbol(
+        bulk_create_symbol_scopes([
+            symbol_scope(
                 simc_revision=self.REVISION, wow_build='12.0.5',
                 class_name='warrior', class_key='warrior', spec=None, spec_key='',
                 token='conflict', symbol_kind='action', spell_id=1001,
             ),
-            SimcAplSymbol(
+            symbol_scope(
                 simc_revision=self.REVISION, wow_build='12.0.5',
                 class_name='warrior', class_key='warrior', spec='fury', spec_key='fury',
                 token='conflict', symbol_kind='action', spell_id=1002,
@@ -510,7 +514,7 @@ class SimcAplEditorApiTests(TestCase):
         WowSpellSnapshot.objects.create(
             branch='wow', locale='zhCN', spell_id=23881,
             name='Bloodthirst', name_zh='嗜血', snapshot_build=build)
-        SimcAplSymbol.objects.create(
+        create_symbol_scope(
             simc_revision=revision, wow_build=build,
             class_name='warrior', class_key='warrior', spec='fury', spec_key='fury',
             token='bloodthirst', symbol_kind='action', spell_id=23881)
@@ -537,12 +541,12 @@ class SimcAplEditorApiTests(TestCase):
             WowSpellSnapshot(branch='wow', locale='zhCN', spell_id=1002,
                              name='Variant Two', name_zh='变体二', snapshot_build=build),
         ])
-        SimcAplSymbol.objects.bulk_create([
-            SimcAplSymbol(simc_revision=revision, wow_build=build,
+        bulk_create_symbol_scopes([
+            symbol_scope(simc_revision=revision, wow_build=build,
                           class_name='warrior', class_key='warrior',
                           spec='fury', spec_key='fury',
                           token='shared_action', symbol_kind='action', spell_id=1001),
-            SimcAplSymbol(simc_revision=revision, wow_build=build,
+            symbol_scope(simc_revision=revision, wow_build=build,
                           class_name='warrior', class_key='warrior', spec=None,
                           token='shared_action', symbol_kind='action', spell_id=1002),
         ])
@@ -566,7 +570,7 @@ class SimcAplEditorApiTests(TestCase):
                 branch='wow', locale='zhCN', spell_id=99999,
                 name='Unrelated', name_zh='无关技能', snapshot_build=build),
         ])
-        SimcAplSymbol.objects.create(
+        create_symbol_scope(
             simc_revision=revision, wow_build=build, class_name='warrior', spec='fury',
             token='bloodthirst', symbol_kind='action', spell_id=23881)
 
@@ -590,7 +594,7 @@ class SimcAplEditorApiTests(TestCase):
             branch="wow", locale="zhCN", spell_id=23881,
             name="Bloodthirst", name_zh="嗜血", snapshot_build=build,
         )
-        SimcAplSymbol.objects.create(
+        create_symbol_scope(
             simc_revision=revision, wow_build=build, class_name='warrior', spec='fury',
             token='bloodthirst', symbol_kind='action', spell_id=23881)
         WowSpellSnapshot.objects.create(
@@ -623,7 +627,7 @@ class SimcAplEditorApiTests(TestCase):
             WowSpellSnapshot.objects.create(
                 branch='wow', locale='zhCN', spell_id=spell_id,
                 name=english, name_zh=chinese, snapshot_build=build)
-            SimcAplSymbol.objects.create(
+            create_symbol_scope(
                 simc_revision=revision, wow_build=build, class_name=class_name,
                 spec=spec, token=token, symbol_kind='action', spell_id=spell_id)
 
@@ -650,7 +654,7 @@ class SimcAplEditorApiTests(TestCase):
         WowSpellSnapshot.objects.create(
             branch="wow", locale="zhCN", spell_id=30451,
             name="Arcane Blast", name_zh="奥术冲击", snapshot_build=build)
-        SimcAplSymbol.objects.create(
+        create_symbol_scope(
             simc_revision=revision, wow_build=build, class_name='mage', spec='arcane',
             token='arcane_blast', symbol_kind='action', spell_id=30451)
 
@@ -676,7 +680,7 @@ class SimcAplEditorApiTests(TestCase):
         WowSpellSnapshot.objects.create(
             branch='wow', locale='zhCN', spell_id=30451,
             name='Arcane Blast', name_zh='奥术冲击', snapshot_build=build)
-        SimcAplSymbol.objects.create(
+        create_symbol_scope(
             simc_revision=revision, wow_build=build, class_name='mage', spec='arcane',
             token='arcane_blast', symbol_kind='action', spell_id=30451)
         source = '# use arcane blast here\nactions=/arcane_blast'
@@ -732,8 +736,8 @@ class SimcAplEditorApiTests(TestCase):
             self.assertEqual(response.json()["error"]["code"], "invalid_position")
 
     def test_symbols_include_all_active_revisions_without_backend(self):
-        SimcAplSymbol.objects.create(simc_revision="old", wow_build="old", class_name="warrior", spec="fury", token="old", symbol_kind="action")
-        SimcAplSymbol.objects.create(simc_revision=self.REVISION, wow_build="current", class_name="warrior", spec="fury", token="current", symbol_kind="action")
+        create_symbol_scope(simc_revision="old", wow_build="old", class_name="warrior", spec="fury", token="old", symbol_kind="action")
+        create_symbol_scope(simc_revision=self.REVISION, wow_build="current", class_name="warrior", spec="fury", token="current", symbol_kind="action")
         response = self.client.get(
             "/api/simc-workbench/apl-symbols/?spec=warrior_fury&page_size=100",
         )
@@ -744,7 +748,7 @@ class SimcAplEditorApiTests(TestCase):
         )
 
     def test_symbols_do_not_require_backend_identity(self):
-        SimcAplSymbol.objects.create(
+        create_symbol_scope(
             simc_revision=self.REVISION,
             wow_build="current",
             class_name="warrior",
@@ -761,7 +765,7 @@ class SimcAplEditorApiTests(TestCase):
         self.assertEqual(response.json()["data"]["items"][0]["token"], "current")
 
     def test_symbols_search_includes_class_scoped_buff_for_specialization(self):
-        SimcAplSymbol.objects.create(
+        create_symbol_scope(
             simc_revision=self.REVISION,
             wow_build="12.0.7.68974",
             class_name="warrior",
@@ -786,8 +790,6 @@ class SimcAplEditorApiTests(TestCase):
             "insertable": True,
             "reason": None,
             "source": "simc_manifest",
-            "simc_revision": self.REVISION,
-            "game_build": "12.0.7.68974",
             "availability": "",
             "actor": "",
             "expression_template": "",
@@ -806,7 +808,7 @@ class SimcAplEditorApiTests(TestCase):
         SimcBackendBinary.objects.create(
             platform="linux64", current_version=self.REVISION,
         )
-        SimcAplSymbol.objects.create(
+        create_symbol_scope(
             simc_revision=self.REVISION,
             wow_build="12.0.7.68974",
             class_name="warlock",
@@ -863,7 +865,7 @@ class SimcAplEditorApiTests(TestCase):
         self.assertEqual(response.json()["error"]["code"], "profile_spec_mismatch")
 
     def test_symbols_show_active_catalog_without_current_backend_identity(self):
-        SimcAplSymbol.objects.create(simc_revision="arbitrary-old", wow_build="11.0.0",
+        create_symbol_scope(simc_revision="arbitrary-old", wow_build="11.0.0",
             class_name="warrior", spec="fury", token="stale", symbol_kind="action")
 
         response = self.client.get("/api/simc-workbench/apl-symbols/?spec=warrior_fury")
@@ -873,7 +875,7 @@ class SimcAplEditorApiTests(TestCase):
 
     @override_settings(SIMC_APL_CURRENT_IDENTITY=("current", "12.0.5"))
     def test_invalid_configured_identity_does_not_hide_readable_catalog(self):
-        SimcAplSymbol.objects.create(
+        create_symbol_scope(
             simc_revision="readable", wow_build="future",
             class_name="warrior", spec="fury", token="visible", symbol_kind="buff",
         )
@@ -883,9 +885,11 @@ class SimcAplEditorApiTests(TestCase):
         self.assertEqual(response.json()["data"]["items"][0]["token"], "visible")
 
     def test_symbols_deduplicate_same_scope_across_builds(self):
-        SimcBackendBinary.objects.create(platform="linux64", current_version=self.REVISION)
+        SimcBackendBinary.objects.create(
+            platform="linux64", current_version=self.REVISION, game_build="11.2.0",
+        )
         for wow_build in ("11.1.0", "11.2.0"):
-            SimcAplSymbol.objects.create(simc_revision=self.REVISION, wow_build=wow_build,
+            get_or_create_symbol_scope(simc_revision=self.REVISION, wow_build=wow_build,
                 class_name="warrior", spec="fury", token="bloodthirst", symbol_kind="action")
 
         response = self.client.get("/api/simc-workbench/apl-symbols/?spec=warrior_fury")
@@ -898,10 +902,12 @@ class SimcAplEditorApiTests(TestCase):
 
     def _catalog(self):
         for token, kind, spell_id in (("bloodthirst", "action", 23881), ("rampage", "action", 184367), ("rage", "resource", None)):
-            SimcAplSymbol.objects.create(simc_revision=self.REVISION, wow_build="11.2.0",
+            create_symbol_scope(simc_revision=self.REVISION, wow_build="11.2.0",
                 class_name="warrior", spec="fury", token=token, symbol_kind=kind, spell_id=spell_id,
                 source="simc_manifest")
-        SimcBackendBinary.objects.create(platform="linux64", current_version=self.REVISION)
+        SimcBackendBinary.objects.create(
+            platform="linux64", current_version=self.REVISION, game_build="11.2.0",
+        )
         WowSpellSnapshot.objects.create(locale="enUS", spell_id=23881, name="Bloodthirst", snapshot_build="11.2.0")
         WowSpellSnapshot.objects.create(locale="zhCN", spell_id=23881, name_zh="嗜血", description="中文说明", snapshot_build="11.2.0")
 
@@ -918,7 +924,7 @@ class SimcAplEditorApiTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['data']['items'][0]['simc_revision'], self.REVISION)
+        self.assertNotIn('simc_revision', response.json()['data']['items'][0])
 
     def test_catalog_identity_ignores_inactive_backend_version(self):
         """An inactive historical binary cannot make the live catalog ambiguous."""
@@ -933,11 +939,11 @@ class SimcAplEditorApiTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['data']['items'][0]['simc_revision'], self.REVISION)
+        self.assertNotIn('simc_revision', response.json()['data']['items'][0])
 
     def test_symbols_filter_search_all_public_fields_and_paginate(self):
         self._catalog()
-        SimcAplSymbol.objects.create(
+        create_symbol_scope(
             simc_revision=self.REVISION, wow_build="11.2.0",
             class_name="warrior", spec="fury", token="recklessness",
             symbol_kind="buff", source="simc_manifest",
@@ -966,8 +972,8 @@ class SimcAplEditorApiTests(TestCase):
     def test_catalog_identity_resolves_unique_full_revision_from_binary_version_suffix(self):
         revision = "62ababb127bef2a35f96357968d455dde7de7616"
         SimcBackendBinary.objects.create(
-            platform="linux64", current_version="1205-01-62ababb")
-        SimcAplSymbol.objects.create(
+            platform="linux64", current_version=revision, game_build="12.0.7.68453")
+        create_symbol_scope(
             simc_revision=revision, wow_build="12.0.7.68453",
             token="bloodthirst", symbol_kind="action", spell_id=23881)
         WowSpellSnapshot.objects.create(
@@ -998,11 +1004,11 @@ class SimcAplEditorApiTests(TestCase):
             branch="wow", locale="zhCN", spell_id=23881,
             name="Blood Thirst!", name_zh="嗜血", snapshot_build="12.0.5",
         )
-        SimcAplSymbol.objects.create(
+        create_symbol_scope(
             simc_revision=self.REVISION, wow_build="12.0.5", class_name="warrior",
             spec="fury", token="bloodthirst", symbol_kind="action", spell_id=23881,
         )
-        SimcAplSymbol.objects.create(
+        create_symbol_scope(
             simc_revision=self.REVISION, wow_build="12.0.5", class_name="warrior",
             spec="arms", token="wrong_spec_token", symbol_kind="action", spell_id=23881,
         )
@@ -1023,10 +1029,10 @@ class SimcAplEditorApiTests(TestCase):
             WowSpellSnapshot(branch="wow", locale="zhCN", spell_id=184367,
                 name="Rampage", name_zh="暴怒", snapshot_build="12.0.5"),
         ])
-        SimcAplSymbol.objects.create(simc_revision=self.REVISION, wow_build="12.0.5",
+        create_symbol_scope(simc_revision=self.REVISION, wow_build="12.0.5",
             class_name="warrior", spec="fury", token="bloodthirst",
             symbol_kind="action", spell_id=23881)
-        SimcAplSymbol.objects.create(simc_revision=self.REVISION, wow_build="12.0.5",
+        create_symbol_scope(simc_revision=self.REVISION, wow_build="12.0.5",
             class_name="warrior", spec="fury", token="rampage",
             symbol_kind="action", spell_id=184367)
 
@@ -1055,12 +1061,12 @@ class SimcAplEditorApiTests(TestCase):
                 branch="wow", locale="zhCN", spell_id=99999,
                 name="Unrelated", name_zh="无关技能", snapshot_build="12.0.5"),
         ])
-        SimcAplSymbol.objects.bulk_create([
-            SimcAplSymbol(
+        bulk_create_symbol_scopes([
+            symbol_scope(
                 simc_revision=self.REVISION, wow_build="12.0.5", class_name="warrior",
                 class_key="warrior", spec="fury", spec_key="fury",
                 token="bloodthirst", symbol_kind="action", spell_id=23881),
-            SimcAplSymbol(
+            symbol_scope(
                 simc_revision=self.REVISION, wow_build="12.0.5", class_name="warrior",
                 class_key="warrior", spec="arms", spec_key="arms",
                 token="mortal_strike", symbol_kind="action", spell_id=12294),
@@ -1087,8 +1093,8 @@ class SimcAplEditorApiTests(TestCase):
             )
             for spell_id in range(100, 100 + len(tokens))
         ])
-        SimcAplSymbol.objects.bulk_create([
-            SimcAplSymbol(
+        bulk_create_symbol_scopes([
+            symbol_scope(
                 simc_revision=self.REVISION, wow_build="12.0.5",
                 class_name="warrior", class_key="warrior",
                 spec="fury", spec_key="fury", token=token,
@@ -1118,8 +1124,8 @@ class SimcAplEditorApiTests(TestCase):
                 name=english, name_zh=chinese, snapshot_build="12.0.5")
             for spell_id, english, chinese, _token in fixtures
         ])
-        SimcAplSymbol.objects.bulk_create([
-            SimcAplSymbol(
+        bulk_create_symbol_scopes([
+            symbol_scope(
                 simc_revision=self.REVISION, wow_build="12.0.5", class_name="warrior",
                 class_key="warrior", spec="fury", spec_key="fury",
                 token=token, symbol_kind="action", spell_id=spell_id)
@@ -1204,18 +1210,18 @@ class SimcAplEditorApiTests(TestCase):
                 self.assertEqual(data["authoritative_status"], "structural_only")
                 self.assertEqual(data["authoritative_error"]["code"], "validation_context_unavailable")
 
-    def test_symbol_items_include_catalog_identity_metadata(self):
+    def test_symbol_items_do_not_expose_version_identity_metadata(self):
         self._catalog()
         item = self.client.get("/api/simc-workbench/apl-symbols/?spec=warrior_fury&page_size=1").json()["data"]["items"][0]
-        self.assertEqual(item["simc_revision"], self.REVISION)
-        self.assertEqual(item["game_build"], "11.2.0")
+        self.assertNotIn("simc_revision", item)
+        self.assertNotIn("game_build", item)
 
     @override_settings(SIMC_APL_EDITOR_RATE_LIMIT=1, SIMC_APL_EDITOR_RATE_WINDOW=60)
     def test_completion_and_symbols_frequency_are_limited(self):
         from botend.dashboard import api
         api._APL_EDITOR_RATE_BUCKETS.clear()
         SimcBackendBinary.objects.create(platform="linux64", current_version=self.REVISION)
-        SimcAplSymbol.objects.create(simc_revision=self.REVISION, wow_build="current",
+        create_symbol_scope(simc_revision=self.REVISION, wow_build="current",
             class_name="warrior", spec="fury", token="current", symbol_kind="action")
         completion = json.dumps({"content": "act", "position": {"line": 1, "column": 4}, "spec": "warrior_fury"})
         self.assertEqual(self.client.post("/api/simc-workbench/apl-completions/", data=completion, content_type="application/json").status_code, 200)
@@ -1225,7 +1231,7 @@ class SimcAplEditorApiTests(TestCase):
 
     def test_completion_and_symbol_queries_have_concurrency_boundaries(self):
         SimcBackendBinary.objects.create(platform="linux64", current_version=self.REVISION)
-        SimcAplSymbol.objects.create(simc_revision=self.REVISION, wow_build="current",
+        create_symbol_scope(simc_revision=self.REVISION, wow_build="current",
             class_name="warrior", spec="fury", token="current", symbol_kind="action")
         completion = json.dumps({"content": "act", "position": {"line": 1, "column": 4}, "spec": "warrior_fury"})
         with mock.patch("botend.dashboard.api._APL_EDITOR_SEMAPHORE.acquire", return_value=False):

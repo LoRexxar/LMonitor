@@ -1,4 +1,4 @@
-"""校验并幂等导入版本化 SimC APL 中英文本地化元数据。"""
+"""校验并幂等导入无版本 SimC APL 中英文本地化元数据。"""
 
 from pathlib import Path
 
@@ -25,11 +25,11 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             '--deactivate-missing', action='store_true',
-            help='显式停用同 revision/build 下数据包未包含的非人工同类记录',
+            help='显式停用数据包未包含的非人工同类归属',
         )
         parser.add_argument(
             '--refresh-all', action='store_true',
-            help='全量刷新 active 目录：停用所有旧版本自动生成的五类字段并导入当前包；保留人工记录',
+            help='全量刷新 active 目录：修正字段归属并停用包外自动归属；保留人工记录',
         )
 
     def handle(self, *args, **options):
@@ -50,8 +50,9 @@ class Command(BaseCommand):
 
         prefix = '[DRY-RUN] ' if options['dry_run'] else ''
         self.stdout.write(
-            f"数据包={package_path} revision={payload['simc_revision']} "
-            f"build={payload['game_build']} facts={summary.package_facts}"
+            f"数据包={package_path} source_revision={payload['simc_revision']} "
+            f"source_build={payload['game_build']} facts={summary.package_facts} "
+            f"symbols={summary.symbols_total} symbols_created={summary.symbols_created}"
         )
         self.stdout.write(self.style.SUCCESS(
             f'{prefix}created={summary.created} updated={summary.updated} '

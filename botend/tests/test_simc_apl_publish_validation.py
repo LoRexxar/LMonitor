@@ -12,6 +12,9 @@ from botend.models import (SimcApl, SimcAplSymbol, SimcBackendBinary,
 from botend.services.simc_apl.publish import (current_validation_identity,
                                               validate_apl_for_profile)
 from botend.services.simc_task_service import TaskCreationError, create_task
+from botend.tests.simc_apl_symbol_test_utils import (
+    create_symbol_scope, get_or_create_symbol_scope,
+)
 
 
 CONTENT = "actions=/auto_attack\nactions+=/bloodthirst"
@@ -25,16 +28,17 @@ def digest(value):
 
 @override_settings(SIMC_APL_CURRENT_IDENTITY=None)
 class SimcAplCurrentIdentityTests(TestCase):
-    def test_resolves_unique_full_revision_from_binary_version_suffix(self):
+    def test_uses_backend_full_revision_and_game_build(self):
         full_revision = "62ababb127bef2a35f96357968d455dde7de7616"
         backend, _ = SimcBackendBinary.objects.update_or_create(
             identifier='production',
             defaults={
                 'name': '正式服', 'platform': 'linux64',
-                'current_version': '1205-01-62ababb', 'is_active': True,
+                'current_version': full_revision, 'game_build': '12.0.7.68453',
+                'is_active': True,
             },
         )
-        SimcAplSymbol.objects.create(
+        create_symbol_scope(
             simc_revision=full_revision, wow_build="12.0.7.68453",
             token="bloodthirst", symbol_kind="action", is_active=True,
         )
@@ -44,24 +48,26 @@ class SimcAplCurrentIdentityTests(TestCase):
             (full_revision, "12.0.7.68453"),
         )
 
+    @patch("botend.services.simc_apl.publish.RestrictedSimcValidator")
     @patch("botend.services.simc_apl.publish.validate_payload")
     @patch("botend.services.simc_apl.publish.SimcComposer.compose_validation_input",
            return_value='warrior="Player"\nspec=fury\nactions=/auto_attack')
-    def test_authoritative_validation_uses_resolved_full_binary_revision(
-            self, compose_validation_input, validate):
+    def test_authoritative_validation_uses_backend_full_revision(
+            self, compose_validation_input, validate, validator_class):
         full_revision = "62ababb127bef2a35f96357968d455dde7de7616"
         backend, _ = SimcBackendBinary.objects.update_or_create(
             identifier='production',
             defaults={
                 'name': '正式服', 'platform': 'linux64',
-                'current_version': '1205-01-62ababb',
+                'current_version': full_revision, 'game_build': '12.0.7.68453',
                 'simc_path': '/tmp/simc', 'is_active': True,
             },
         )
-        SimcAplSymbol.objects.create(
+        create_symbol_scope(
             simc_revision=full_revision, wow_build="12.0.7.68453",
             token="bloodthirst", symbol_kind="action", is_active=True,
         )
+        validator_class.return_value.binary_revision = full_revision
         profile = SimcProfile.objects.create(
             user_id=1, name="Player", spec="warrior_fury",
             player_config_mode="manual_equipment",
@@ -87,7 +93,8 @@ class SimcAplCurrentIdentityTests(TestCase):
 
         validate.side_effect = validation_result
 
-        self.assertTrue(validate_apl_for_profile(profile, apl)["valid"])
+        result = validate_apl_for_profile(profile, apl)
+        self.assertTrue(result["valid"], result)
 
 
 @override_settings(SIMC_APL_CURRENT_IDENTITY=(REVISION, BUILD))
@@ -101,7 +108,7 @@ class SimcAplPublishValidationTests(TestCase):
                 'is_active': True,
             },
         )
-        SimcAplSymbol.objects.get_or_create(
+        get_or_create_symbol_scope(
             simc_revision=REVISION, wow_build=BUILD,
             token='auto_attack', symbol_kind='action',
             defaults={'is_active': True},

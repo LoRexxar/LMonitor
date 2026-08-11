@@ -13,7 +13,7 @@ from typing import Iterable
 from django.db import connection, transaction
 from django.utils import timezone
 
-from botend.models import SimcAplSymbol
+from botend.models import SimcAplSymbol, SimcAplSymbolScope
 
 
 PACKAGE_SCHEMA_VERSION = 1
@@ -48,6 +48,8 @@ class ImportSummary:
     unchanged: int = 0
     manual_preserved: int = 0
     deactivated: int = 0
+    symbols_created: int = 0
+    symbols_total: int = 0
 
 
 def _canonical_class(value):
@@ -400,11 +402,12 @@ def find_default_metadata_package():
     return files[0]
 
 
-def _model_identity(symbol):
-    prepared = SimcAplSymbol.prepare(symbol)
+def _model_identity(symbol, scope):
+    symbol = SimcAplSymbol.prepare(symbol)
+    scope = SimcAplSymbolScope.prepare(scope)
     return (
-        prepared.class_key, prepared.spec_key, prepared.hero_tree_key,
-        prepared.token, prepared.symbol_kind,
+        symbol.token, symbol.symbol_kind, scope.class_key, scope.spec_key,
+        scope.hero_tree_key,
     )
 
 
@@ -421,14 +424,9 @@ def _import_payload(symbol):
 
 def import_metadata_package(payload, *, dry_run=False, deactivate_missing=False,
                             refresh_all=False):
-    """幂等导入数据包；全量刷新只停用旧的自动生成同类事实。"""
+    """幂等导入无版本字段及归属；全量刷新保留人工归属。"""
     validate_metadata_package(payload)
-    revision = payload['simc_revision']
-    game_build = payload['game_build']
-    identity_fields = (
-        'simc_revision', 'wow_build', 'class_key', 'spec_key',
-        'hero_tree_key', 'token', 'symbol_kind',
-    )
+    identity_fields = ('symbol', 'class_key', 'spec_key', 'hero_tree_key')
     update_fields = (
         'class_name', 'spec', 'hero_tree', 'spell_id', 'trait_id', 'source',
         'identity_source', 'identity_reason', 'identity_candidates',
@@ -440,34 +438,69 @@ def import_metadata_package(payload, *, dry_run=False, deactivate_missing=False,
         values = dict(fact)
         values.pop('scope', None)
         values['identity_reason'] = str(values.get('identity_reason') or '')[:128]
-        candidate = SimcAplSymbol.prepare(SimcAplSymbol(
-            simc_revision=revision,
-            wow_build=game_build,
-            **values,
+        symbol = SimcAplSymbol.prepare(SimcAplSymbol(
+            token=values.pop('token'), symbol_kind=values.pop('symbol_kind'),
         ))
-        candidate.is_active = True
-        candidates.append(candidate)
-    incoming = {_model_identity(candidate): candidate for candidate in candidates}
+        scope = SimcAplSymbolScope.prepare(SimcAplSymbolScope(**values))
+        scope.is_active = True
+        candidates.append((symbol, scope))
+    incoming = {
+        _model_identity(symbol, scope): (symbol, scope)
+        for symbol, scope in candidates
+    }
     if len(incoming) != len(candidates):
         raise ValueError('数据包规范化后出现重复数据库身份')
 
     summary = None
     with transaction.atomic():
-        existing_rows = list(SimcAplSymbol.objects.filter(
-            simc_revision=revision, wow_build=game_build,
-        ))
-        existing = {_model_identity(row): row for row in existing_rows}
+        symbol_keys = {(key[0], key[1]) for key in incoming}
+        existing_symbols = {
+            (row.token, row.symbol_kind): row
+            for row in SimcAplSymbol.objects.filter(
+                token__in={token for token, _kind in symbol_keys},
+                symbol_kind__in={kind for _token, kind in symbol_keys},
+            )
+            if (row.token, row.symbol_kind) in symbol_keys
+        }
+        missing_symbols = [
+            SimcAplSymbol(token=token, symbol_kind=kind, is_active=True)
+            for token, kind in symbol_keys if (token, kind) not in existing_symbols
+        ]
+        symbols_created = len(missing_symbols)
+        if missing_symbols:
+            SimcAplSymbol.objects.bulk_create(missing_symbols, ignore_conflicts=True)
+        symbols = {
+            (row.token, row.symbol_kind): row
+            for row in SimcAplSymbol.objects.filter(
+                token__in={token for token, _kind in symbol_keys},
+                symbol_kind__in={kind for _token, kind in symbol_keys},
+            )
+            if (row.token, row.symbol_kind) in symbol_keys
+        }
+        existing_rows = list(
+            SimcAplSymbolScope.objects.select_related('symbol').all()
+        )
+        existing = {
+            (row.symbol.token, row.symbol.symbol_kind, row.class_key,
+             row.spec_key, row.hero_tree_key): row
+            for row in existing_rows
+        }
         manual_identities = {
             identity for identity, row in existing.items()
             if row.source == SimcAplSymbol.SOURCE_MANUAL
         }
-        importable = [
-            candidate for identity, candidate in incoming.items()
-            if identity not in manual_identities
-        ]
+        importable = []
+        for identity, (_symbol, scope) in incoming.items():
+            if identity in manual_identities:
+                continue
+            scope.symbol = symbols[(identity[0], identity[1])]
+            importable.append(scope)
         created = updated = unchanged = 0
         for candidate in importable:
-            identity = _model_identity(candidate)
+            identity = (
+                candidate.symbol.token, candidate.symbol.symbol_kind,
+                candidate.class_key, candidate.spec_key, candidate.hero_tree_key,
+            )
             previous = existing.get(identity)
             if previous is None:
                 created += 1
@@ -487,7 +520,7 @@ def import_metadata_package(payload, *, dry_run=False, deactivate_missing=False,
             }
             if connection.features.supports_update_conflicts_with_target:
                 bulk_kwargs['unique_fields'] = identity_fields
-            SimcAplSymbol.objects.bulk_create(importable, **bulk_kwargs)
+            SimcAplSymbolScope.objects.bulk_create(importable, **bulk_kwargs)
 
         stale_ids = set()
         if deactivate_missing or refresh_all:
@@ -495,23 +528,18 @@ def import_metadata_package(payload, *, dry_run=False, deactivate_missing=False,
                 row.pk for identity, row in existing.items()
                 if identity not in incoming and row.is_active and
                 row.source != SimcAplSymbol.SOURCE_MANUAL and
-                row.symbol_kind in SUPPORTED_KINDS
-            )
-        if refresh_all:
-            stale_ids.update(
-                SimcAplSymbol.objects.filter(
-                    is_active=True, symbol_kind__in=SUPPORTED_KINDS,
-                ).exclude(
-                    source=SimcAplSymbol.SOURCE_MANUAL,
-                ).exclude(
-                    simc_revision=revision, wow_build=game_build,
-                ).values_list('pk', flat=True)
+                row.symbol.symbol_kind in SUPPORTED_KINDS
             )
         deactivated = 0
         if stale_ids:
-            deactivated = SimcAplSymbol.objects.filter(pk__in=stale_ids).update(
+            deactivated = SimcAplSymbolScope.objects.filter(pk__in=stale_ids).update(
                 is_active=False,
             )
+        active_symbol_ids = SimcAplSymbolScope.objects.filter(
+            is_active=True,
+        ).values_list('symbol_id', flat=True).distinct()
+        SimcAplSymbol.objects.update(is_active=False)
+        SimcAplSymbol.objects.filter(pk__in=active_symbol_ids).update(is_active=True)
         summary = ImportSummary(
             package_facts=len(payload['facts']),
             created=created,
@@ -519,6 +547,8 @@ def import_metadata_package(payload, *, dry_run=False, deactivate_missing=False,
             unchanged=unchanged,
             manual_preserved=len(manual_identities & set(incoming)),
             deactivated=deactivated,
+            symbols_created=symbols_created,
+            symbols_total=len(symbol_keys),
         )
         if dry_run:
             transaction.set_rollback(True)

@@ -14,6 +14,7 @@ from django.test import TestCase, override_settings
 
 from botend.models import (SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate,
                            WowSpellSnapshotState)
+from botend.tests.simc_apl_symbol_test_utils import create_symbol_scope
 
 
 class UpdateSimcBinaryCommandTests(TestCase):
@@ -231,7 +232,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
         from botend.management.commands.update_simc_binary import Command
 
         revision = 'a' * 40
-        SimcAplSymbol.objects.create(
+        create_symbol_scope(
             simc_revision=revision, wow_build='old-build', token='bloodthirst',
         )
         command = Command()
@@ -253,7 +254,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
         from botend.management.commands.update_simc_binary import Command
 
         revision = 'a' * 40
-        SimcAplSymbol.objects.create(
+        create_symbol_scope(
             simc_revision=revision, wow_build='current-build', token='bloodthirst',
         )
         command = Command()

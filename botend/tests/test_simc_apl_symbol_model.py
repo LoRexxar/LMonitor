@@ -2,291 +2,171 @@ from django.db import IntegrityError, transaction
 from django.db.models import Index
 from django.test import TestCase
 
-from botend.models import SimcAplSymbol
+from botend.models import SimcAplSymbol, SimcAplSymbolScope
 
 
 class SimcAplSymbolSchemaTests(TestCase):
-    def test_fact_defaults_and_choices(self):
+    def test_field_identity_contains_only_token_and_kind(self):
         symbol = SimcAplSymbol.objects.create(
-            simc_revision="abc123",
-            wow_build="12.0.1.70000",
-            token="bloodthirst",
-            symbol_kind=SimcAplSymbol.KIND_ACTION,
+            token=' BloodThirst ', symbol_kind=SimcAplSymbol.KIND_ACTION,
         )
 
-        self.assertIsNone(symbol.class_name)
-        self.assertIsNone(symbol.spec)
-        self.assertIsNone(symbol.hero_tree)
-        self.assertIsNone(symbol.spell_id)
-        self.assertEqual(symbol.source, SimcAplSymbol.SOURCE_MANIFEST)
-        self.assertEqual(symbol.aliases, [])
-        self.assertEqual(symbol.options, {})
-        self.assertEqual(symbol.name_en, '')
-        self.assertEqual(symbol.name_zh, '')
-        self.assertEqual(symbol.localization_source, '')
-        self.assertEqual(symbol.localization_status, '')
-        self.assertEqual(symbol.metadata, {})
+        self.assertEqual(symbol.token, 'bloodthirst')
         self.assertTrue(symbol.is_active)
-        self.assertIn(
-            SimcAplSymbol.KIND_ACTION,
-            dict(SimcAplSymbol.SYMBOL_KIND_CHOICES),
+        self.assertEqual(
+            SimcAplSymbol._meta.ordering,
+            ['symbol_kind', 'token', 'id'],
         )
-        self.assertIn(
-            SimcAplSymbol.SOURCE_MANIFEST,
-            dict(SimcAplSymbol.SOURCE_CHOICES),
+        constraint = next(
+            value for value in SimcAplSymbol._meta.constraints
+            if value.name == 'simc_symbol_token_kind_uniq'
         )
-        expected_kinds = {
-            "action", "pseudo_action", "action_option", "expression",
-            "namespace", "resource", "buff", "debuff", "dot", "cooldown",
-            "talent", "hero_tree", "option",
-        }
-        self.assertTrue(expected_kinds <= set(dict(SimcAplSymbol.SYMBOL_KIND_CHOICES)))
-        self.assertTrue(
-            {"simc_manifest", "system_apl", "wago", "manual"}
-            <= set(dict(SimcAplSymbol.SOURCE_CHOICES))
-        )
+        self.assertEqual(tuple(constraint.fields), ('token', 'symbol_kind'))
+        self.assertNotIn('simc_revision', {field.name for field in SimcAplSymbol._meta.fields})
+        self.assertNotIn('wow_build', {field.name for field in SimcAplSymbol._meta.fields})
 
-    def test_json_defaults_are_not_shared(self):
-        first = SimcAplSymbol(simc_revision="r1", wow_build="b1", token="one")
-        second = SimcAplSymbol(simc_revision="r1", wow_build="b1", token="two")
-        first.aliases.append("alias")
-        first.options["if"] = {"type": "expression"}
+    def test_scope_defaults_and_choices(self):
+        symbol = SimcAplSymbol.objects.create(token='bloodthirst', symbol_kind='action')
+        scope = SimcAplSymbolScope.objects.create(symbol=symbol)
 
-        self.assertEqual(second.aliases, [])
-        self.assertEqual(second.options, {})
+        self.assertIsNone(scope.class_name)
+        self.assertIsNone(scope.spec)
+        self.assertIsNone(scope.hero_tree)
+        self.assertIsNone(scope.spell_id)
+        self.assertEqual(scope.source, SimcAplSymbol.SOURCE_MANIFEST)
+        self.assertEqual(scope.aliases, [])
+        self.assertEqual(scope.options, {})
+        self.assertEqual(scope.name_en, '')
+        self.assertEqual(scope.name_zh, '')
+        self.assertEqual(scope.metadata, {})
+        self.assertTrue(scope.is_active)
+        self.assertIn(SimcAplSymbol.KIND_ACTION, dict(SimcAplSymbol.SYMBOL_KIND_CHOICES))
+        self.assertIn(SimcAplSymbol.SOURCE_MANIFEST, dict(SimcAplSymbol.SOURCE_CHOICES))
 
-    def test_spell_id_is_an_integer_fact_not_a_foreign_key(self):
-        field = SimcAplSymbol._meta.get_field("spell_id")
+    def test_scope_spell_id_is_integer_not_foreign_key(self):
+        field = SimcAplSymbolScope._meta.get_field('spell_id')
         self.assertIsNone(field.remote_field)
         self.assertTrue(field.null)
 
-    def test_query_indexes_and_ordering_are_declared(self):
-        indexes = {
-            tuple(index.fields)
-            for index in SimcAplSymbol._meta.indexes
+    def test_query_indexes_are_declared_on_subject_and_scope(self):
+        symbol_indexes = {
+            tuple(index.fields) for index in SimcAplSymbol._meta.indexes
             if isinstance(index, Index)
         }
-        self.assertIn(("simc_revision", "spec", "symbol_kind", "token"), indexes)
-        self.assertIn(("simc_revision", "spell_id"), indexes)
-        self.assertEqual(
-            SimcAplSymbol._meta.ordering,
-            ["simc_revision", "symbol_kind", "token", "id"],
-        )
-
-
-class SimcAplSymbolVersioningTests(TestCase):
-    def make_symbol(self, **overrides):
-        values = {
-            "simc_revision": "revision-one",
-            "wow_build": "12.0.1.70000",
-            "class_name": "warrior",
-            "spec": "fury",
-            "hero_tree": "slayer",
-            "token": "bloodthirst",
-            "symbol_kind": SimcAplSymbol.KIND_ACTION,
-            "source": SimcAplSymbol.SOURCE_MANIFEST,
+        scope_indexes = {
+            tuple(index.fields) for index in SimcAplSymbolScope._meta.indexes
+            if isinstance(index, Index)
         }
-        values.update(overrides)
-        return SimcAplSymbol.objects.create(**values)
+        self.assertIn(('symbol_kind', 'token'), symbol_indexes)
+        self.assertIn(('class_name', 'spec', 'hero_tree', 'is_active'), scope_indexes)
+        self.assertIn(('spell_id',), scope_indexes)
 
-    def test_same_token_can_coexist_across_version_build_spec_and_kind(self):
-        self.make_symbol()
-        self.make_symbol(simc_revision="revision-two")
-        self.make_symbol(wow_build="12.0.1.70001")
-        self.make_symbol(spec="arms")
-        self.make_symbol(symbol_kind=SimcAplSymbol.KIND_EXPRESSION)
 
-        self.assertEqual(SimcAplSymbol.objects.count(), 5)
+class SimcAplSymbolIdentityTests(TestCase):
+    def make_scope(self, *, token='bloodthirst', kind='action', **values):
+        symbol, _created = SimcAplSymbol.objects.get_or_create(
+            token=token, symbol_kind=kind,
+        )
+        return SimcAplSymbolScope.objects.create(symbol=symbol, **values)
 
-    def test_exact_versioned_scope_duplicate_is_rejected(self):
-        self.make_symbol()
+    def test_same_token_kind_is_one_subject_with_multiple_scopes(self):
+        self.make_scope(class_name='warrior', spec='fury', spell_id=23881)
+        self.make_scope(class_name='warrior', spec='arms', spell_id=None)
+        self.make_scope(class_name='mage', spec='fire', spell_id=123)
+        self.make_scope(token='bloodthirst', kind='buff', class_name='warrior')
 
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                self.make_symbol()
+        self.assertEqual(SimcAplSymbol.objects.count(), 2)
+        self.assertEqual(SimcAplSymbolScope.objects.count(), 4)
 
-    def test_global_duplicate_is_rejected_even_with_null_scope(self):
-        self.make_symbol(class_name=None, spec=None, hero_tree=None)
+    def test_duplicate_token_kind_subject_is_rejected(self):
+        SimcAplSymbol.objects.create(token='execute', symbol_kind='action')
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            SimcAplSymbol.objects.create(token='execute', symbol_kind='action')
 
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                self.make_symbol(class_name=None, spec=None, hero_tree=None)
-
-    def test_global_class_spec_and_hero_scopes_are_distinct_facts(self):
-        global_symbol = self.make_symbol(class_name=None, spec=None, hero_tree=None)
-        class_symbol = self.make_symbol(spec=None, hero_tree=None)
-        spec_symbol = self.make_symbol(hero_tree=None)
-        hero_symbol = self.make_symbol()
-
-        self.assertIsNone(global_symbol.class_name)
-        self.assertEqual(class_symbol.class_name, "warrior")
-        self.assertEqual(spec_symbol.spec, "fury")
-        self.assertEqual(hero_symbol.hero_tree, "slayer")
-        self.assertEqual(SimcAplSymbol.objects.count(), 4)
+    def test_duplicate_scope_binding_is_rejected(self):
+        self.make_scope(token='execute', class_name='warrior', spec='fury')
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self.make_scope(token='execute', class_name='warrior', spec='fury')
 
     def test_scope_normalization_and_canonical_keys(self):
-        symbol = self.make_symbol(class_name=" warrior ", spec="  ", hero_tree="")
-        symbol.refresh_from_db()
-        self.assertEqual((symbol.class_name, symbol.class_key), ("warrior", "warrior"))
-        self.assertEqual((symbol.spec, symbol.spec_key), (None, ""))
-        self.assertEqual((symbol.hero_tree, symbol.hero_tree_key), (None, ""))
+        scope = self.make_scope(class_name=' Warrior ', spec='  ', hero_tree='')
+        scope.refresh_from_db()
+        self.assertEqual((scope.class_name, scope.class_key), ('warrior', 'warrior'))
+        self.assertEqual((scope.spec, scope.spec_key), (None, ''))
+        self.assertEqual((scope.hero_tree, scope.hero_tree_key), (None, ''))
 
-    def test_prepare_normalizes_before_bulk_create(self):
-        symbol = SimcAplSymbol(
-            simc_revision="bulk", wow_build="build", token="Execute",
-            class_name=" warrior ", spec=" ", hero_tree=None,
-        )
-        SimcAplSymbol.objects.bulk_create([SimcAplSymbol.prepare(symbol)])
-        symbol.refresh_from_db()
-        self.assertEqual((symbol.class_name, symbol.class_key), ("warrior", "warrior"))
-        self.assertEqual((symbol.spec, symbol.spec_key), (None, ""))
-        self.assertEqual(symbol.token, "execute")
-
-    def test_database_checks_reject_scope_key_drift_from_direct_update(self):
-        symbol = self.make_symbol()
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                SimcAplSymbol.objects.filter(pk=symbol.pk).update(class_key="mage")
-
-    def test_database_checks_reject_null_scope_with_drift_key_on_direct_create(self):
-        for scope, key in (
-            ("class_name", "class_key"),
-            ("spec", "spec_key"),
-            ("hero_tree", "hero_tree_key"),
-        ):
-            with self.subTest(scope=scope):
-                symbol = SimcAplSymbol(
-                    simc_revision=f"create-{scope}", wow_build="build",
-                    token="execute", **{scope: None, key: "drift"},
-                )
-                with self.assertRaises(IntegrityError):
-                    with transaction.atomic():
-                        SimcAplSymbol.objects.bulk_create([symbol])
-
-    def test_database_checks_reject_null_scope_with_drift_key_on_direct_update(self):
-        for scope, key in (
-            ("class_name", "class_key"),
-            ("spec", "spec_key"),
-            ("hero_tree", "hero_tree_key"),
-        ):
-            with self.subTest(scope=scope):
-                symbol = self.make_symbol(token=f"update-{scope}")
-                with self.assertRaises(IntegrityError):
-                    with transaction.atomic():
-                        SimcAplSymbol.objects.filter(pk=symbol.pk).update(
-                            **{scope: None, key: "drift"}
-                        )
+    def test_scope_checks_reject_key_drift(self):
+        scope = self.make_scope(class_name='warrior', spec='fury')
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            SimcAplSymbolScope.objects.filter(pk=scope.pk).update(class_key='mage')
 
     def test_save_update_fields_persists_scope_prepare_changes(self):
-        symbol = self.make_symbol()
-        symbol.class_name = " mage "
-        symbol.save(update_fields={"class_name"})
-        symbol.refresh_from_db()
-        self.assertEqual((symbol.class_name, symbol.class_key), ("mage", "mage"))
+        scope = self.make_scope(class_name='warrior', spec='fury')
+        scope.class_name = ' Mage '
+        scope.save(update_fields={'class_name'})
+        scope.refresh_from_db()
+        self.assertEqual((scope.class_name, scope.class_key), ('mage', 'mage'))
 
-        symbol.class_name = "  "
-        symbol.save(update_fields={"class_name"})
-        symbol.refresh_from_db()
-        self.assertEqual((symbol.class_name, symbol.class_key), (None, ""))
+    def test_sync_different_build_updates_same_physical_rows(self):
+        fact = {
+            'class_name': 'warrior', 'spec': 'fury', 'hero_tree': None,
+            'token': 'bloodthirst', 'symbol_kind': 'action', 'spell_id': 23881,
+            'source': SimcAplSymbol.SOURCE_SIMC_MANIFEST,
+        }
+        SimcAplSymbol.sync_revision_catalog('revision-one', 'build-one', [fact])
+        SimcAplSymbol.sync_revision_catalog('revision-two', 'build-two', [fact])
 
-    def test_save_update_fields_persists_token_canonicalization(self):
-        symbol = self.make_symbol()
-        symbol.token = "  Execute  "
-        symbol.save(update_fields={"token"})
-        symbol.refresh_from_db()
-        self.assertEqual(symbol.token, "execute")
-
-    def test_inactive_identity_is_reactivated_in_place(self):
-        symbol = self.make_symbol(is_active=False)
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                self.make_symbol(is_active=True)
-        SimcAplSymbol.sync_revision_catalog(
-            "revision-one", "12.0.1.70000",
-            [{
-                "class_name": "warrior", "spec": "fury", "hero_tree": "slayer",
-                "token": "bloodthirst", "symbol_kind": SimcAplSymbol.KIND_ACTION,
-                "source": SimcAplSymbol.SOURCE_SIMC_MANIFEST,
-            }],
-        )
-        symbol.refresh_from_db()
-        self.assertTrue(symbol.is_active)
         self.assertEqual(SimcAplSymbol.objects.count(), 1)
+        self.assertEqual(SimcAplSymbolScope.objects.count(), 1)
+        self.assertTrue(SimcAplSymbolScope.objects.get().is_active)
 
-    def test_sync_marks_missing_revision_identity_inactive(self):
-        missing = self.make_symbol(token="execute")
-        self.make_symbol(token="rampage")
-        SimcAplSymbol.sync_revision_catalog(
-            "revision-one", "12.0.1.70000",
-            [{
-                "class_name": "warrior", "spec": "fury", "hero_tree": "slayer",
-                "token": "rampage", "symbol_kind": SimcAplSymbol.KIND_ACTION,
-                "source": SimcAplSymbol.SOURCE_SIMC_MANIFEST,
-            }],
-        )
-        missing.refresh_from_db()
-        self.assertFalse(missing.is_active)
+    def test_sync_scope_correction_does_not_create_duplicate_subject(self):
+        first = {
+            'class_name': 'warrior', 'spec': None, 'hero_tree': None,
+            'token': 'burst_of_power', 'symbol_kind': 'buff',
+            'source': SimcAplSymbol.SOURCE_SIMC_MANIFEST,
+        }
+        corrected = dict(first, spec='fury')
+        SimcAplSymbol.sync_revision_catalog('revision-one', 'build-one', [first])
+        SimcAplSymbol.sync_revision_catalog('revision-two', 'build-two', [corrected])
 
-    def test_runtime_sync_preserves_imported_localization_metadata(self):
-        symbol = self.make_symbol(
-            name_en='Bloodthirst', name_zh='嗜血', localization_source='wowhead',
-            localization_status='ok', metadata={'covered_specs': ['fury']},
-        )
-        SimcAplSymbol.sync_revision_catalog(
-            'revision-one', '12.0.1.70000',
-            [{
-                'class_name': 'warrior', 'spec': 'fury', 'hero_tree': 'slayer',
-                'token': 'bloodthirst', 'symbol_kind': SimcAplSymbol.KIND_ACTION,
-                'spell_id': 23881, 'source': SimcAplSymbol.SOURCE_SIMC_MANIFEST,
-            }],
-        )
-        symbol.refresh_from_db()
-        self.assertEqual((symbol.name_en, symbol.name_zh), ('Bloodthirst', '嗜血'))
-        self.assertEqual(symbol.metadata, {'covered_specs': ['fury']})
+        self.assertEqual(SimcAplSymbol.objects.count(), 1)
+        self.assertEqual(SimcAplSymbolScope.objects.filter(is_active=True).count(), 1)
+        self.assertEqual(SimcAplSymbolScope.objects.get(is_active=True).spec, 'fury')
 
-    def test_sync_deduplicates_identical_canonical_identity_payloads(self):
+    def test_runtime_sync_preserves_packaged_localization(self):
+        scope = self.make_scope(
+            class_name='warrior', spec='fury', name_en='Bloodthirst', name_zh='嗜血',
+            localization_source='wowhead', metadata={'covered_specs': ['fury']},
+        )
+        SimcAplSymbol.sync_revision_catalog('revision-two', 'build-two', [{
+            'class_name': 'warrior', 'spec': 'fury', 'hero_tree': None,
+            'token': 'bloodthirst', 'symbol_kind': 'action', 'spell_id': 23881,
+            'source': SimcAplSymbol.SOURCE_SIMC_MANIFEST,
+        }])
+
+        scope.refresh_from_db()
+        self.assertEqual((scope.name_en, scope.name_zh), ('Bloodthirst', '嗜血'))
+        self.assertEqual(scope.metadata, {'covered_specs': ['fury']})
+
+    def test_sync_rejects_conflicting_canonical_duplicate_before_writes(self):
+        self.make_scope(token='existing')
         facts = [{
-            "class_name": " warrior ", "spec": "fury", "hero_tree": "slayer",
-            "token": " BloodThirst ", "symbol_kind": SimcAplSymbol.KIND_ACTION,
-            "spell_id": 23881, "source": SimcAplSymbol.SOURCE_SIMC_MANIFEST,
-            "aliases": ["bt", "blood_thirst"], "options": {"if": "ready"},
-            "is_active": False,
+            'class_name': 'warrior', 'spec': 'fury', 'hero_tree': None,
+            'token': 'execute', 'symbol_kind': 'action', 'spell_id': 5308,
+            'aliases': ['execute'],
         }, {
-            "class_name": "warrior", "spec": "fury", "hero_tree": "slayer",
-            "token": "bloodthirst", "symbol_kind": SimcAplSymbol.KIND_ACTION,
-            "spell_id": 23881, "source": SimcAplSymbol.SOURCE_SIMC_MANIFEST,
-            "aliases": ["bt", "blood_thirst"], "options": {"if": "ready"},
-            "is_active": True,
-        }]
-        SimcAplSymbol.sync_revision_catalog("revision-one", "12.0.1.70000", facts)
-
-        symbol = SimcAplSymbol.objects.get()
-        self.assertEqual(symbol.token, "bloodthirst")
-        self.assertTrue(symbol.is_active)
-
-    def test_sync_rejects_conflicting_duplicate_before_writes_or_deactivation(self):
-        existing = self.make_symbol(token="existing")
-        facts = [{
-            "class_name": "warrior", "spec": "fury", "hero_tree": "slayer",
-            "token": "execute", "symbol_kind": SimcAplSymbol.KIND_ACTION,
-            "spell_id": 5308, "aliases": ["execute"],
-        }, {
-            "class_name": " warrior ", "spec": "fury", "hero_tree": "slayer",
-            "token": " EXECUTE ", "symbol_kind": SimcAplSymbol.KIND_ACTION,
-            "spell_id": 5308, "aliases": ["execute", "exec"],
+            'class_name': ' Warrior ', 'spec': 'fury', 'hero_tree': None,
+            'token': ' EXECUTE ', 'symbol_kind': 'action', 'spell_id': 5308,
+            'aliases': ['execute', 'exec'],
         }]
 
-        with self.assertRaisesRegex(ValueError, "conflicting duplicate identity"):
-            SimcAplSymbol.sync_revision_catalog(
-                "revision-one", "12.0.1.70000", reversed(facts)
-            )
-
-        existing.refresh_from_db()
-        self.assertTrue(existing.is_active)
+        with self.assertRaisesRegex(ValueError, 'conflicting duplicate identity'):
+            SimcAplSymbol.sync_revision_catalog('revision', 'build', facts)
         self.assertEqual(SimcAplSymbol.objects.count(), 1)
+        self.assertTrue(SimcAplSymbolScope.objects.get().is_active)
 
     def test_token_identity_is_case_insensitive(self):
-        self.make_symbol(token="BloodThirst")
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                self.make_symbol(token="bloodthirst")
+        SimcAplSymbol.objects.create(token='BloodThirst', symbol_kind='action')
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            SimcAplSymbol.objects.create(token='bloodthirst', symbol_kind='action')

@@ -20,6 +20,7 @@ from botend.models import (
     SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate,
     SimcProfile, SimcTask,
 )
+from botend.tests.simc_apl_symbol_test_utils import get_or_create_symbol_scope
 
 
 TEST_VALIDATION_IDENTITY = ('a' * 40, 'test-game-build')
@@ -31,10 +32,10 @@ def create_test_backend():
         defaults={
             'name': '正式服', 'platform': 'linux64',
             'simc_path': '/tmp/simc', 'current_version': TEST_VALIDATION_IDENTITY[0],
-            'is_active': True,
+            'game_build': TEST_VALIDATION_IDENTITY[1], 'is_active': True,
         },
     )
-    SimcAplSymbol.objects.get_or_create(
+    get_or_create_symbol_scope(
         simc_revision=TEST_VALIDATION_IDENTITY[0], wow_build=TEST_VALIDATION_IDENTITY[1],
         symbol_kind='action', token='auto_attack',
         defaults={'is_active': True},
@@ -487,7 +488,7 @@ class SimcTaskServiceTests(TestCase):
         alternate = SimcBackendBinary.objects.create(
             identifier='ptr', name='PTR', platform='linux64',
             simc_path='/tmp/simc-ptr', current_version=TEST_VALIDATION_IDENTITY[0],
-            is_active=True,
+            game_build=TEST_VALIDATION_IDENTITY[1], is_active=True,
         )
         explicit_task = create_task(
             user_id=self.user_id, name='PTR backend', profile_id=self.profile.id,

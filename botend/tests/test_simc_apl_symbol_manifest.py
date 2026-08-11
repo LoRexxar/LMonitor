@@ -7,7 +7,7 @@ from unittest import skipUnless
 
 from django.test import TestCase
 
-from botend.models import SimcApl, SimcAplSymbol
+from botend.models import SimcApl, SimcAplSymbol, SimcAplSymbolScope
 from botend.services.simc_apl.symbol_sync import load_runtime_manifest, sync_symbols
 
 
@@ -108,10 +108,9 @@ class RuntimeManifestImportTests(TestCase):
             REVISION, BUILD, apl_queryset=SimcApl.objects.none(),
             manifest_path=self.write(payload))
 
-        fact = SimcAplSymbol.objects.get(
-            simc_revision=REVISION, wow_build=BUILD,
-            class_name='druid', spec='balance', token='eclipse',
-            symbol_kind=SimcAplSymbol.KIND_BUFF)
+        fact = SimcAplSymbolScope.objects.get(
+            class_name='druid', spec='balance', symbol__token='eclipse',
+            symbol__symbol_kind=SimcAplSymbol.KIND_BUFF)
         self.assertEqual(fact.identity_source, 'runtime_expression_binding')
         self.assertEqual(fact.identity_reason, 'ambiguous_expression_identity')
         self.assertEqual(fact.identity_candidates, [48517, 48518])
@@ -223,10 +222,10 @@ class RuntimeManifestImportTests(TestCase):
         )
         summary = sync_symbols(REVISION, BUILD, manifest_path=self.write(manifest()))
         self.assertEqual(summary.completeness, 'runtime/partial')
-        bloodthirst = SimcAplSymbol.objects.get(
-            simc_revision=REVISION, wow_build=BUILD, token='bloodthirst', symbol_kind='action')
-        rampage = SimcAplSymbol.objects.get(
-            simc_revision=REVISION, wow_build=BUILD, token='rampage', symbol_kind='action')
+        bloodthirst = SimcAplSymbolScope.objects.get(
+            symbol__token='bloodthirst', symbol__symbol_kind='action')
+        rampage = SimcAplSymbolScope.objects.get(
+            symbol__token='rampage', symbol__symbol_kind='action')
         self.assertEqual((bloodthirst.source, bloodthirst.spell_id),
                          (SimcAplSymbol.SOURCE_SIMC_MANIFEST, 23881))
         self.assertEqual(rampage.source, SimcAplSymbol.SOURCE_SYSTEM_APL)

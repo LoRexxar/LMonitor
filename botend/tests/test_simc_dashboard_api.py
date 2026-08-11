@@ -16,6 +16,7 @@ from botend.services.simc_player_config import build_player_config_detail, parse
 from botend.services.simc_composer import SimcComposer
 from botend.services.simc_task_service import append_candidate_runs
 from botend.models import DashboardUserGroup, DashboardUserGroupMembership, PlayerSpecTopPlayer, SeasonMeta, SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate, SimcProfile, SimcResourceVersion, SimcTask, SimcTaskArtifact, SimulationRun, WowItemSnapshot, WowTalentVersion
+from botend.tests.simc_apl_symbol_test_utils import get_or_create_symbol_scope
 
 
 TEST_SIMC_REVISION = 'a' * 40
@@ -31,7 +32,7 @@ def get_test_backend():
             'is_active': True,
         },
     )
-    SimcAplSymbol.objects.get_or_create(
+    get_or_create_symbol_scope(
         simc_revision=TEST_SIMC_REVISION,
         wow_build=TEST_WOW_BUILD,
         token='auto_attack',

@@ -24,7 +24,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
-from botend.models import (SimcApl, SimcAplSymbol, SimcBackendBinary,
+from botend.models import (SimcApl, SimcBackendBinary,
                            SimcContentTemplate, SimcProfile,
                            WowSpellSnapshotState, WowTalentVersion)
 from botend.services.simc_apl.authoritative_validator import RestrictedSimcValidator
@@ -384,6 +384,9 @@ class Command(BaseCommand):
                 )
                 self._publish_system_apl_corpus(
                     git_hash, wow_build, binary_path, binary_revision)
+                if hasattr(self, 'row') and self.row.game_build != wow_build:
+                    self.row.game_build = wow_build
+                    self.row.save(update_fields=['game_build'])
             finally:
                 try:
                     os.unlink(manifest_path)
@@ -977,10 +980,7 @@ class Command(BaseCommand):
                 or (isinstance(update_progress, int) and update_progress < 100)
             )
             if target_build and re.fullmatch(r'[0-9a-fA-F]{40}', str(git_hash or '')):
-                active_builds = set(SimcAplSymbol.objects.filter(
-                    simc_revision=git_hash, is_active=True,
-                ).values_list('wow_build', flat=True).distinct())
-                catalog_build_differs = active_builds != {target_build}
+                catalog_build_differs = str(getattr(row, 'game_build', '') or '').strip() != target_build
         if (not changed and not binary_stale and not revision_unpromoted
                 and not publication_incomplete and not catalog_build_differs):
             self.stdout.write('SimC 本地补丁已存在，无需重新编译')

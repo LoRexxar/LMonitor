@@ -32,7 +32,7 @@ from django.template.loader import render_to_string
 
 from django.conf import settings
 from utils.log import logger
-from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcApl, SimcAplSymbol, SimcTask, SimulationRun, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, SimcAgent, SimcAgentMaintenanceTask, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState, WowSpellSnapshot, WowTalentNodeMetadata, WowTalentVersion, WowItemSnapshot, SimcResourceVersion
+from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcApl, SimcAplSymbol, SimcAplSymbolScope, SimcTask, SimulationRun, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, SimcAgent, SimcAgentMaintenanceTask, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState, WowSpellSnapshot, WowTalentNodeMetadata, WowTalentVersion, WowItemSnapshot, SimcResourceVersion
 from botend.alerting import upsert_system_alert
 from botend.dashboard.permissions import DashboardPermissionRequiredMixin, has_dashboard_permission
 from django.db import IntegrityError, models, transaction
@@ -598,26 +598,14 @@ def _latest_catalog_identity():
     if len(versions) != 1:
         return None
     current = versions[0]
-
-    revision = current if re.fullmatch(r'[0-9a-f]{40}', current) else None
-    catalog = SimcAplSymbol.objects.filter(is_active=True)
-    if revision:
-        catalog = catalog.filter(simc_revision=revision)
-    else:
-        suffix = re.search(r'(?:^|-)([0-9a-f]{7,39})$', current)
-        if not suffix:
-            return None
-        catalog = catalog.filter(simc_revision__startswith=suffix.group(1))
-
-    identities = list(catalog.order_by().values_list(
-        'simc_revision', 'wow_build',
-    ).distinct()[:2])
-    if len(identities) != 1:
+    if not re.fullmatch(r'[0-9a-f]{40}', current):
         return None
-    revision, build = identities[0]
-    if not re.fullmatch(r'[0-9a-f]{40}', revision):
-        return None
-    return revision, build
+    matching = active_backends.filter(current_version=current).exclude(game_build='')
+    preferred = matching.filter(platform=runtime_platform) if runtime_platform else matching.none()
+    builds = sorted(set((preferred if preferred.exists() else matching).values_list(
+        'game_build', flat=True,
+    )))
+    return (current, builds[0]) if len(builds) == 1 else None
 
 
 def _authoritative_action_bindings(parsed_spec, identity):
@@ -631,17 +619,17 @@ def _authoritative_action_bindings(parsed_spec, identity):
     if not parsed_spec or not identity:
         return {}
     _, class_name, spec_name = parsed_spec
-    base = SimcAplSymbol.objects.filter(
-        simc_revision=identity[0], wow_build=identity[1], is_active=True,
-        symbol_kind=SimcAplSymbol.KIND_ACTION, hero_tree__isnull=True,
-    ).exclude(token='').exclude(token__in=CONTROL_ACTIONS)
+    base = SimcAplSymbolScope.objects.filter(
+        is_active=True, symbol__is_active=True,
+        symbol__symbol_kind=SimcAplSymbol.KIND_ACTION, hero_tree__isnull=True,
+    ).exclude(symbol__token='').exclude(symbol__token__in=CONTROL_ACTIONS)
     visible_scope = (
         models.Q(class_name__isnull=True, spec__isnull=True) |
         models.Q(class_name=class_name, spec__isnull=True) |
         models.Q(class_name=class_name, spec=spec_name)
     )
     visible_rows = list(base.filter(visible_scope).values_list(
-        'token', 'spell_id', 'class_name', 'spec',
+        'symbol__token', 'spell_id', 'class_name', 'spec',
     ))
     visible_tokens = {token for token, _spell_id, _class, _spec in visible_rows}
     visible_spell_ids = {}
@@ -674,8 +662,8 @@ def _authoritative_action_bindings(parsed_spec, identity):
     conflicts = {token for token, spell_ids in visible_spell_ids.items() if len(spell_ids) > 1}
     missing = {token for token in visible_tokens if token not in bindings and token not in conflicts}
     fallback_rows = base.filter(
-        class_name=class_name, token__in=missing, spell_id__isnull=False,
-    ).values_list('token', 'spell_id')
+        class_name=class_name, symbol__token__in=missing, spell_id__isnull=False,
+    ).values_list('symbol__token', 'spell_id')
     fallback_ids = {}
     for token, spell_id in fallback_rows:
         if token not in missing:
@@ -692,16 +680,17 @@ def _readable_action_bindings(parsed_spec):
     if not parsed_spec:
         return {}, set()
     _, class_name, spec_name = parsed_spec
-    base = SimcAplSymbol.objects.filter(
-        is_active=True, symbol_kind=SimcAplSymbol.KIND_ACTION,
+    base = SimcAplSymbolScope.objects.filter(
+        is_active=True, symbol__is_active=True,
+        symbol__symbol_kind=SimcAplSymbol.KIND_ACTION,
         hero_tree__isnull=True,
-    ).exclude(token='').exclude(token__in=CONTROL_ACTIONS)
+    ).exclude(symbol__token='').exclude(symbol__token__in=CONTROL_ACTIONS)
     visible_scope = (
         models.Q(class_name__isnull=True, spec__isnull=True) |
         models.Q(class_name=class_name, spec__isnull=True) |
         models.Q(class_name=class_name, spec=spec_name)
     )
-    visible_rows = list(base.filter(visible_scope).values_list('token', 'spell_id'))
+    visible_rows = list(base.filter(visible_scope).values_list('symbol__token', 'spell_id'))
     visible_tokens = {token for token, _spell_id in visible_rows}
     visible_ids = defaultdict(set)
     for token, spell_id in visible_rows:
@@ -715,8 +704,8 @@ def _readable_action_bindings(parsed_spec):
     missing = visible_tokens - set(bindings) - conflicts
     fallback_ids = defaultdict(set)
     for token, spell_id in base.filter(
-            class_name=class_name, token__in=missing,
-            spell_id__isnull=False).values_list('token', 'spell_id'):
+            class_name=class_name, symbol__token__in=missing,
+            spell_id__isnull=False).values_list('symbol__token', 'spell_id'):
         fallback_ids[token].add(spell_id)
     for token, spell_ids in fallback_ids.items():
         if len(spell_ids) == 1:
@@ -737,15 +726,13 @@ def _authoritative_action_tokens(spell_ids, parsed_spec, identity):
     return {spell_id: tuple(sorted(tokens)) for spell_id, tokens in selected.items()}
 
 
-def _catalog_item(item, simc_revision='', game_build=''):
+def _catalog_item(item):
     scope = 'hero_tree' if item.hero_tree else ('spec' if item.spec else ('class' if item.class_name else 'global'))
     return {
         'token': item.token, 'kind': item.kind, 'scope': scope, 'spell_id': item.spell_id,
         'name_zh': item.name, 'name_en': item.name_en, 'description_zh': item.description,
         'icon': item.icon, 'insertable': item.insertable, 'reason': item.reason,
         'source': item.source,
-        'simc_revision': simc_revision or item.simc_revision,
-        'game_build': game_build or item.wow_build,
         'availability': item.availability, 'actor': item.actor,
         'expression_template': item.expression_template,
     }
@@ -910,8 +897,7 @@ class SimcAplSymbolsAPIView(SimcAplEditorAPIView):
         if not _APL_EDITOR_SEMAPHORE.acquire():
             return _editor_error('concurrency_limited', 'Symbol query capacity is busy.', 429)
         try:
-            # 编辑器目录是跨版本的人类可读字段全集。revision/build 仅保留在
-            # 每条记录中作来源溯源，不能决定字段是否可见。
+            # 编辑器目录来自无版本字段词典；版本不会进入字段或归属查询。
             items = query_symbol_catalog(
                 None, None, spec[1], spec[2], search=query or None,
             )
@@ -1199,7 +1185,7 @@ class ConvertTextAPIView(View):
             if key[0] != 'action' or key[1] not in CONTROL_ACTIONS
         }
         # Rows without a spell/trait ID still carry useful human-readable
-        # names from the versioned localization package.  Add them only after
+        # names from the built-in localization package.  Add them only after
         # authoritative ID mappings, and only when the most specific visible
         # scope has one unambiguous Chinese label.  This also intentionally
         # permits catalog-defined control action names without treating those
@@ -9552,32 +9538,11 @@ def _benchmark_spec_options():
 
 
 def _benchmark_backend_game_versions(backends):
-    """Resolve all backend WoW builds with one catalog query (never one per row)."""
-    selectors = {}
-    catalog_q = models.Q()
-    for backend in backends:
-        current = str(backend.current_version or '').strip()
-        if re.fullmatch(r'[0-9a-f]{40}', current):
-            selectors[backend.pk] = ('exact', current)
-            catalog_q |= models.Q(simc_revision=current)
-            continue
-        suffix = re.search(r'(?:^|-)([0-9a-f]{7,39})$', current)
-        if suffix:
-            selectors[backend.pk] = ('prefix', suffix.group(1))
-            catalog_q |= models.Q(simc_revision__startswith=suffix.group(1))
-    if not selectors:
-        return {}
-    identities = list(SimcAplSymbol.objects.filter(
-        catalog_q, is_active=True,
-    ).order_by().values_list('simc_revision', 'wow_build').distinct())
-    result = {}
-    for backend_id, (mode, revision) in selectors.items():
-        matches = [row for row in identities if (
-            row[0] == revision if mode == 'exact' else row[0].startswith(revision)
-        )]
-        if len(matches) == 1 and re.fullmatch(r'[0-9a-f]{40}', matches[0][0]):
-            result[backend_id] = matches[0][1]
-    return result
+    """读取后端自身记录的 WoW build；字段词典不承担版本映射。"""
+    return {
+        backend.pk: str(backend.game_build or '').strip()
+        for backend in backends if str(backend.game_build or '').strip()
+    }
 
 
 def _benchmark_resource_spec_key(row, *, allow_generic=False):

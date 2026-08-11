@@ -25,23 +25,11 @@ def current_validation_identity(backend=None):
     if not backend or not backend.current_version:
         return None
     current = str(backend.current_version).strip()
-    revision = current if re.fullmatch(r'[0-9a-f]{40}', current) else None
-    catalog = SimcAplSymbol.objects.filter(is_active=True)
-    if revision:
-        catalog = catalog.filter(simc_revision=revision)
-    else:
-        suffix = re.search(r'(?:^|-)([0-9a-f]{7,39})$', current)
-        if not suffix:
-            return None
-        catalog = catalog.filter(simc_revision__startswith=suffix.group(1))
-    identities = list(catalog.order_by().values_list(
-        'simc_revision', 'wow_build').distinct()[:2])
-    if len(identities) != 1:
+    build = str(backend.game_build or '').strip()
+    if (not re.fullmatch(r'[0-9a-f]{40}', current) or not build or
+            not SimcAplSymbol.objects.filter(is_active=True).exists()):
         return None
-    revision, build = identities[0]
-    if not re.fullmatch(r'[0-9a-f]{40}', revision):
-        return None
-    return revision, build
+    return current, build
 
 
 def validate_apl_for_profile(profile, apl, backend=None):

@@ -1,7 +1,7 @@
 from django.test import TestCase
 
 from botend.models import (
-    SimcAplSymbol, WowSpellSnapshot, WowSpecSpellMapSnapshot, WowTalentVersion,
+    SimcAplSymbol, SimcAplSymbolScope, WowSpellSnapshot, WowSpecSpellMapSnapshot, WowTalentVersion,
     WowTalentNodeMetadata,
 )
 from botend.services.simc_apl.catalog import query_symbol_catalog
@@ -9,25 +9,31 @@ from botend.services.simc_apl.catalog import query_symbol_catalog
 
 class SimcAplSymbolCatalogTests(TestCase):
     def symbol(self, **overrides):
-        values = dict(simc_revision='r1', wow_build='b1', token='execute',
-                      symbol_kind='action', source='system_apl')
+        values = dict(token='execute', symbol_kind='action', source='system_apl')
         values.update(overrides)
-        return SimcAplSymbol.objects.create(**values)
+        values.pop('simc_revision', None)
+        values.pop('wow_build', None)
+        token = values.pop('token')
+        kind = values.pop('symbol_kind')
+        symbol, _created = SimcAplSymbol.objects.get_or_create(
+            token=token, symbol_kind=kind,
+        )
+        return SimcAplSymbolScope.objects.create(symbol=symbol, **values)
 
-    def test_scope_merge_specificity_revision_isolation_and_kind_identity(self):
+    def test_scope_merge_specificity_and_kind_identity(self):
         self.symbol(token='shared', symbol_kind='action')
         self.symbol(token='shared', symbol_kind='namespace')
         self.symbol(token='shared', class_name='warrior', spell_id=1)
         self.symbol(token='shared', class_name='warrior', spec='fury', spell_id=2)
         self.symbol(token='other_spec', class_name='warrior', spec='arms')
-        self.symbol(token='other_revision', simc_revision='r2')
+        self.symbol(token='other_field', simc_revision='r2')
         self.symbol(token='inactive', is_active=False)
         rows = query_symbol_catalog('r1', 'b1', 'warrior', 'fury')
         identities = {(row.token, row.kind): row for row in rows}
         self.assertEqual(identities[('shared', 'action')].spell_id, 2)
         self.assertIn(('shared', 'namespace'), identities)
         self.assertNotIn(('other_spec', 'action'), identities)
-        self.assertNotIn(('other_revision', 'action'), identities)
+        self.assertIn(('other_field', 'action'), identities)
         self.assertNotIn(('inactive', 'action'), identities)
 
     def test_unversioned_catalog_inherits_class_scope_across_all_class_specs(self):
@@ -46,22 +52,27 @@ class SimcAplSymbolCatalogTests(TestCase):
                     ('burst_of_power', '能量爆发'),
                 ])
 
-    def test_unversioned_catalog_deduplicates_same_scope_across_versions(self):
-        self.symbol(
+    def test_one_token_kind_subject_can_hold_multiple_scope_bindings(self):
+        warrior = self.symbol(
             token='shared_buff', symbol_kind='buff', class_name='warrior',
             name_zh='', simc_revision='old-revision', wow_build='old-build',
         )
-        preferred = self.symbol(
-            token='shared_buff', symbol_kind='buff', class_name='warrior',
+        self.symbol(
+            token='shared_buff', symbol_kind='buff', class_name='mage',
             name_zh='共享增益', simc_revision='new-revision', wow_build='new-build',
         )
+        warrior.name_zh = '战士共享增益'
+        warrior.save(update_fields=['name_zh'])
 
         rows = query_symbol_catalog(None, None, 'warrior', 'fury')
         shared = [row for row in rows if row.token == 'shared_buff']
 
         self.assertEqual(len(shared), 1)
-        self.assertEqual(shared[0].name, '共享增益')
-        self.assertEqual(shared[0].simc_revision, preferred.simc_revision)
+        self.assertEqual(shared[0].name, '战士共享增益')
+        self.assertEqual(SimcAplSymbol.objects.filter(
+            token='shared_buff', symbol_kind='buff').count(), 1)
+        self.assertEqual(SimcAplSymbolScope.objects.filter(
+            symbol__token='shared_buff', symbol__symbol_kind='buff').count(), 2)
 
     def test_localization_fallback_search_and_bound_insertability(self):
         WowSpellSnapshot.objects.create(branch='wow', locale='enUS', spell_id=23881,

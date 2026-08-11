@@ -8,7 +8,7 @@ from typing import Tuple
 from django.conf import settings
 from django.db import transaction
 
-from botend.models import SimcApl, SimcAplSymbol
+from botend.models import SimcApl, SimcAplSymbol, SimcAplSymbolScope
 from .ast import ActionAssignment, ActionEntry, Option
 from .expression import is_valid_identifier
 from .validation import validate_document
@@ -325,13 +325,13 @@ def build_symbol_facts(simc_revision, wow_build, apl_queryset=None, bindings=Non
 
 
 def _snapshot(revision, build):
-    fields = ('class_key', 'spec_key', 'hero_tree_key', 'token', 'symbol_kind',
+    fields = ('class_key', 'spec_key', 'hero_tree_key',
+              'symbol__token', 'symbol__symbol_kind',
               'class_name', 'spec', 'hero_tree', 'spell_id', 'trait_id', 'source',
               'identity_source', 'identity_reason', 'identity_candidates', 'aliases',
               'options', 'is_active')
     return {tuple(row[:5]): tuple(row[5:]) for row in
-            SimcAplSymbol.objects.filter(simc_revision=revision, wow_build=build)
-            .values_list(*fields)}
+            SimcAplSymbolScope.objects.select_related('symbol').values_list(*fields)}
 
 
 def sync_symbols(simc_revision, wow_build, *, dry_run=False, apl_queryset=None,

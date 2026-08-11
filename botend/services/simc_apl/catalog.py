@@ -5,7 +5,7 @@ from typing import Optional
 from django.db.models import Q
 
 from botend.models import (
-    SimcAplSymbol, WowSpellSnapshot, WowSpecSpellMapSnapshot,
+    SimcAplSymbol, SimcAplSymbolScope, WowSpellSnapshot, WowSpecSpellMapSnapshot,
     WowTalentNodeMetadata, WowTalentVersion,
 )
 
@@ -30,8 +30,6 @@ class CatalogItem:
     availability: str = ''
     actor: str = ''
     expression_template: str = ''
-    simc_revision: str = ''
-    wow_build: str = ''
 
 
 def _fold(value):
@@ -66,7 +64,7 @@ def _spell_details(spell_ids, wow_build=None):
 
 
 def _symbol_preference(symbol):
-    """同作用域跨版本重复时选择信息最完整、最近导入的一条。"""
+    """同一字段有重叠归属时选择人工或信息更完整的一条。"""
     source_rank = {
         SimcAplSymbol.SOURCE_MANUAL: 3,
         SimcAplSymbol.SOURCE_SIMC_MANIFEST: 2,
@@ -84,20 +82,21 @@ def _symbol_preference(symbol):
 
 def query_visible_symbols(class_name, spec, hero_tree=None, *,
                           simc_revision=None, wow_build=None):
-    """按 global→class→spec→hero 合并 active 字段；版本只作可选溯源筛选。"""
+    """按 global→class→spec→hero 合并无版本字段及其归属绑定。
+
+    两个版本参数仅为兼容旧调用签名保留，绝不参与数据库筛选。
+    """
     class_name = str(class_name or '').strip().lower()
     spec = str(spec or '').strip().lower()
     hero_tree = str(hero_tree or '').strip().lower() or None
-    candidates = SimcAplSymbol.objects.filter(is_active=True).filter(
+    candidates = SimcAplSymbolScope.objects.select_related('symbol').filter(
+        is_active=True, symbol__is_active=True,
+    ).filter(
         Q(class_name__isnull=True) |
         Q(class_name=class_name, spec__isnull=True) |
         Q(class_name=class_name, spec=spec, hero_tree__isnull=True) |
         Q(class_name=class_name, spec=spec, hero_tree=hero_tree)
     )
-    if simc_revision:
-        candidates = candidates.filter(simc_revision=simc_revision)
-    if wow_build:
-        candidates = candidates.filter(wow_build=wow_build)
     selected = {}
     ranks = {}
     for symbol in candidates:
@@ -115,7 +114,7 @@ def query_visible_symbols(class_name, spec, hero_tree=None, *,
 
 def query_symbol_catalog(simc_revision, wow_build, class_name, spec,
                          hero_tree=None, search=None, spec_id=None, talent_version=None):
-    """合并可见字段；revision/build 为空时返回跨版本完整目录。"""
+    """合并无版本字段；wow_build 只可用于增强外部 WoW 快照。"""
     class_name = str(class_name or '').strip().lower()
     spec = str(spec or '').strip().lower()
     hero_tree = str(hero_tree or '').strip().lower() or None
@@ -184,7 +183,6 @@ def query_symbol_catalog(simc_revision, wow_build, class_name, spec,
             availability=str(coverage.get('availability') or ''),
             actor=str(coverage.get('actor') or ''),
             expression_template=str(metadata.get('apl_expression_template') or ''),
-            simc_revision=symbol.simc_revision, wow_build=symbol.wow_build,
         ))
 
     for talent in talent_rows:

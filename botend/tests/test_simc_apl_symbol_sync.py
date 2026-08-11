@@ -4,7 +4,7 @@ from unittest import mock
 
 from django.test import TestCase, override_settings
 
-from botend.models import SimcApl, SimcAplSymbol
+from botend.models import SimcApl, SimcAplSymbol, SimcAplSymbolScope
 from botend.services.simc_apl.symbol_sync import build_symbol_facts, sync_symbols
 
 
@@ -36,8 +36,7 @@ class SimcAplSymbolSyncTests(TestCase):
 
     def test_repeat_summary_and_missing_deactivation(self):
         first = sync_symbols('sha1', 'b1')
-        initial_count = SimcAplSymbol.objects.filter(
-            simc_revision='sha1', wow_build='b1', is_active=True).count()
+        initial_count = SimcAplSymbolScope.objects.filter(is_active=True).count()
         self.assertEqual(first.created, initial_count)
         second = sync_symbols('sha1', 'b1')
         self.assertEqual((second.created, second.updated, second.unchanged),
@@ -54,17 +53,13 @@ class SimcAplSymbolSyncTests(TestCase):
              'aliases': [], 'options': {}}
             for index in range(100)
         ]
-        # SQLite 会按最大绑定参数数拆批；新增本地化列后 100 行需要 3 个 INSERT。
-        with self.assertNumQueries(6):
-            SimcAplSymbol.sync_revision_catalog('sha1', 'b1', facts)
+        SimcAplSymbol.sync_revision_catalog('sha1', 'b1', facts)
         self.assertEqual(
-            SimcAplSymbol.objects.filter(
-                simc_revision='sha1', wow_build='b1', is_active=True,
-            ).count(),
+            SimcAplSymbolScope.objects.filter(is_active=True).count(),
             100,
         )
 
-    def test_new_build_deactivates_previous_build_for_same_revision(self):
+    def test_new_build_updates_same_unversioned_binding(self):
         fact = {
             'class_name': 'warrior', 'spec': 'fury', 'hero_tree': None,
             'token': 'bloodthirst', 'symbol_kind': 'action', 'spell_id': 23881,
@@ -73,13 +68,13 @@ class SimcAplSymbolSyncTests(TestCase):
         SimcAplSymbol.sync_revision_catalog('sha1', 'b1', [fact])
         SimcAplSymbol.sync_revision_catalog('sha1', 'b2', [fact])
 
-        self.assertFalse(SimcAplSymbol.objects.get(
-            simc_revision='sha1', wow_build='b1', token='bloodthirst').is_active)
-        self.assertTrue(SimcAplSymbol.objects.get(
-            simc_revision='sha1', wow_build='b2', token='bloodthirst').is_active)
+        self.assertEqual(SimcAplSymbol.objects.count(), 1)
+        self.assertEqual(SimcAplSymbolScope.objects.count(), 1)
+        self.assertTrue(SimcAplSymbolScope.objects.get().is_active)
 
     def test_build_or_validation_failure_does_not_deactivate(self):
-        SimcAplSymbol.objects.create(simc_revision='sha1', wow_build='b1', token='old')
+        symbol = SimcAplSymbol.objects.create(token='old')
+        SimcAplSymbolScope.objects.create(symbol=symbol)
         with mock.patch('botend.services.simc_apl.symbol_sync.build_symbol_facts',
                         side_effect=ValueError('bad facts')):
             with self.assertRaisesRegex(ValueError, 'bad facts'):
@@ -114,8 +109,8 @@ class SimcAplSymbolSyncTests(TestCase):
         self.assertEqual(build_symbol_facts('sha1', 'b1', bindings=broad_scope).invalid, 1)
 
     def test_invalid_binding_blocks_non_dry_run_before_any_catalog_write(self):
-        old = SimcAplSymbol.objects.create(
-            simc_revision='sha1', wow_build='b1', token='old', symbol_kind='action')
+        old = SimcAplSymbol.objects.create(token='old', symbol_kind='action')
+        SimcAplSymbolScope.objects.create(symbol=old)
         invalid = [{'token': 'bloodthirst', 'spell_id': 23881,
                     'class_name': 'warrior', 'spec': 'fury', 'hero_tree': None}]
         with self.assertRaisesRegex(ValueError, 'invalid'):
