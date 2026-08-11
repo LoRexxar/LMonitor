@@ -102,7 +102,12 @@
 
   function renderAttributeTask(row) {
     const attribute = row.attribute_report || {};
-    const finalResult = attribute.final_result || attribute.recommendation || null;
+    const searchConverged = attribute.converged === true || Number(row.status) === 2;
+    const finalResult = searchConverged
+      ? (attribute.final_result || attribute.recommendation || null)
+      : (attribute.recommendation || null);
+    const resultHeading = searchConverged ? '最终推荐结果' : '当前最佳结果';
+    const resultBadge = searchConverged ? '最终推荐' : '当前最佳';
     const initialRatings = attribute.initial_ratings || {};
     const searchPath = Array.isArray(attribute.search_path) ? attribute.search_path : [];
     const candidates = Array.isArray(attribute.candidates) ? [...attribute.candidates] : [];
@@ -138,6 +143,8 @@
       insufficient_rating_for_20_transfer: '没有足够绿字生成 20 点转移候选',
       no_valid_candidate: '没有可用候选',
       cancelled: '搜索已取消',
+      awaiting_current_round: `第 ${number(attribute.current_round)} 轮执行中`,
+      awaiting_marginal_gains: '搜索已收敛，正在测量边际收益',
     })[rawStopReason] || value(rawStopReason, '等待结论');
     const succeeded = runs.filter(run => run.status === 'completed').length;
     const running = runs.filter(run => run.status === 'running').length;
@@ -149,15 +156,26 @@
     const finalDelta = Number.isFinite(initialDps) && Number.isFinite(finalDps) ? finalDps - initialDps : NaN;
     const finalReportUrl = String(finalResult?.report_url || '');
     const finalReportAction = finalReportUrl
-      ? `<a class="primary-link attribute-final-report-link" href="${esc(finalReportUrl)}" target="_blank" rel="noopener noreferrer">查看最终结果报告 <span aria-hidden="true">↗</span></a>`
-      : '<span class="attribute-report-unavailable">最终候选的 HTML 报告暂不可用</span>';
+      ? `<a class="primary-link attribute-final-report-link" href="${esc(finalReportUrl)}" target="_blank" rel="noopener noreferrer">查看${searchConverged ? '最终' : '当前最佳'}结果报告 <span aria-hidden="true">↗</span></a>`
+      : `<span class="attribute-report-unavailable">${searchConverged ? '最终' : '当前最佳'}候选的 HTML 报告暂不可用</span>`;
     const trailRows = searchPath.map(point => `<tr><td><b>第 ${number(point.round)} 轮</b></td><td class="right"><b>${number(point.step)}</b></td>${statCells(point.ratings)}<td class="right"><b>${number(point.dps)}</b></td></tr>`).join('');
     const rankedCandidates = candidates
       .filter(item => Number.isFinite(Number(item.dps)))
       .sort((left, right) => Number(right.dps) - Number(left.dps) || Number(left.id) - Number(right.id));
     const candidateRows = rankedCandidates.map((item, index) => {
-      const isFinal = Number(item.id) === Number(finalResult?.id);
-      return `<tr class="${isFinal ? 'rank-winner attribute-final-candidate' : ''}"><td><span class="rank-medal">${index === 0 ? '🥇' : index + 1}</span></td><td><b>${value(item.label, `Run #${item.id}`)}</b>${isFinal ? '<small class="attribute-final-badge">最终推荐</small>' : ''}</td><td class="right">${number(item.round)}</td><td class="right">${number(item.step)}</td>${statCells(item.ratings)}<td class="right"><b>${number(item.dps)}</b></td></tr>`;
+      const isFinal = searchConverged && Number(item.id) === Number(finalResult?.id);
+      const isCurrentBest = !searchConverged && Number(item.id) === Number(finalResult?.id);
+      return `<tr class="${isFinal || isCurrentBest ? 'rank-winner attribute-final-candidate' : ''}"><td><span class="rank-medal">${index === 0 ? '🥇' : index + 1}</span></td><td><b>${value(item.label, `Run #${item.id}`)}</b>${isFinal || isCurrentBest ? `<small class="attribute-final-badge">${resultBadge}</small>` : ''}</td><td class="right">${number(item.round)}</td><td class="right">${number(item.step)}</td>${statCells(item.ratings)}<td class="right"><b>${number(item.dps)}</b></td></tr>`;
+    }).join('');
+    const currentRound = Number(attribute.current_round);
+    const currentRoundRuns = runs.filter(run => Number(run.round_number) === currentRound);
+    const runStatusLabels = {pending: '等待', running: '执行中', completed: '完成', failed: '失败'};
+    const currentRoundRows = currentRoundRuns.map(run => {
+      const summary = run.candidate_summary || {};
+      const ratings = summary.attribute_ratings || {};
+      const dps = run.result_summary?.dps;
+      const runState = String(run.status || 'pending');
+      return `<tr><td><b>${value(run.candidate_label, `Run #${run.id}`)}</b></td><td><span class="pill ${statusKey(runState)}">${value(runStatusLabels[runState], runState)}</span></td>${statCells(ratings)}<td class="right">${Number.isFinite(Number(dps)) ? `<b>${number(dps)}</b>` : '—'}</td></tr>`;
     }).join('');
     const initialStats = stats.map(stat => `<div><dt>${stat.label}</dt><dd>${number(rating(initialRatings, stat))}</dd></div>`).join('');
     const marginalGains = Array.isArray(attribute.marginal_gains) ? [...attribute.marginal_gains] : [];
@@ -176,17 +194,23 @@
       const gain = Number(item.dps_gain);
       return `<tr class="${groupStart ? 'marginal-group-start' : ''}"><td>${groupStart ? `<b>${value(stat?.label, item.stat)}</b>` : ''}</td><td class="right"><b>+${number(item.amount)}</b></td><td class="right">${number(item.dps)}</td><td class="right delta ${gain > 0 ? 'positive' : gain < 0 ? 'negative' : ''}">${signed(item.dps_gain)}</td><td class="right delta ${gain > 0 ? 'positive' : gain < 0 ? 'negative' : ''}">${marginalPercent(item.gain_percent)}</td></tr>`;
     }).join('');
-    const marginalEmpty = attribute.marginal_gain_status === 'pending'
-      ? '最优解已固定，正在完成 12 个边际收益 Run。'
-      : '此任务没有边际收益结果。';
+    const marginalEmpty = !searchConverged
+      ? '搜索尚未收敛，完成当前邻域后才会开始边际收益测量。'
+      : attribute.marginal_gain_status === 'pending'
+        ? '最优解已固定，正在完成 12 个边际收益 Run。'
+        : '此任务没有边际收益结果。';
     const marginalBaselineDps = attribute.marginal_gain_baseline_dps ?? finalResult?.dps;
+    const marginalDescription = searchConverged
+      ? `固定最优四属性与其他全部模拟条件，仅额外增加一个属性；提升值和百分比均相对固定最优点 ${number(marginalBaselineDps)} DPS。`
+      : '当前搜索仍在执行；收敛后才会固定最优点并追加 12 个边际收益 Run。';
 
     return `<section class="hero attribute-hero"><div class="report-kicker">ATTRIBUTE OPTIMIZATION</div><div class="hero-status"><span class="pill">任务${statusClass(row)}</span><span class="pill">${number(progress)}% 完成</span><span class="pill">${number(runs.length)} 个候选 Run</span></div><div class="hero-primary-column"><h1>${value(row.name, `任务 #${objectId}`)}</h1><div class="hero-resource-stack" aria-label="模拟资源"><div class="hero-resource-line"><span>APL</span><b>${value(row.apl_name, '未命名')}</b></div><div class="hero-resource-line"><span>Profile</span><b>${value(row.profile_name, '未命名')}</b></div></div></div><div class="hero-meta"><span class="pill">搜索精度 ${value(stepText)} · 当前 ${number(attribute.step)}</span><span class="pill">${stopReason}</span><span class="pill">更新 ${value(row.updated_at)}</span></div></section>
       <div class="grid attribute-task-grid">
-        <section class="card wide attribute-report attribute-final-result"><div class="report-kicker">FINAL RESULT</div><div class="attribute-final-heading"><div><h2>最终推荐结果</h2><p>以任务持久化结论为准，并精确绑定产生该结论的 Run #${value(finalResult?.id)}。</p></div><div class="attribute-final-dps"><span>推荐 DPS</span><b>${number(finalResult?.dps)}</b><em class="${finalDelta > 0 ? 'positive' : finalDelta < 0 ? 'negative' : ''}">${Number.isFinite(finalDelta) ? `${signed(finalDelta)} vs 初始轮` : '等待完整结果'}</em></div></div><div class="attribute-grid">${finalResult ? finalStatCards : '<p class="muted">候选尚未收敛，等待最终推荐结果。</p>'}</div><div class="attribute-final-footer"><span><b>${stopReason}</b> · 完成 ${number(attribute.rounds_completed)} 轮搜索</span>${finalReportAction}</div></section>
-        ${card('收敛后边际收益', `<p class="muted">固定最优四属性与其他全部模拟条件，仅额外增加一个属性；提升值和百分比均相对固定最优点 ${number(marginalBaselineDps)} DPS。</p><div class="table-scroll"><table class="marginal-gain-table"><thead><tr><th>属性</th><th class="right">额外属性</th><th class="right">绝对 DPS</th><th class="right">DPS 提升</th><th class="right">提升百分比</th></tr></thead><tbody>${marginalRows || `<tr><td colspan="5" class="empty">${marginalEmpty}</td></tr>`}</tbody></table></div>`, true)}
+        <section class="card wide attribute-report attribute-final-result"><div class="report-kicker">${searchConverged ? 'FINAL RESULT' : 'LIVE BEST'}</div><div class="attribute-final-heading"><div><h2>${resultHeading}</h2><p>${searchConverged ? `以任务持久化结论为准，并精确绑定产生该结论的 Run #${value(finalResult?.id)}。` : `第 ${number(attribute.current_round)} 轮尚未结束；这里只展示当前已完成 Run 中的最佳测量值，后续仍可能变化。`}</p></div><div class="attribute-final-dps"><span>${searchConverged ? '推荐' : '当前最佳'} DPS</span><b>${number(finalResult?.dps)}</b><em class="${finalDelta > 0 ? 'positive' : finalDelta < 0 ? 'negative' : ''}">${Number.isFinite(finalDelta) ? `${signed(finalDelta)} vs 初始轮` : '等待完整结果'}</em></div></div><div class="attribute-grid">${finalResult ? finalStatCards : '<p class="muted">当前尚无已完成候选。</p>'}</div><div class="attribute-final-footer"><span><b>${stopReason}</b> · 完成 ${number(attribute.rounds_completed)} 轮搜索</span>${finalReportAction}</div></section>
+        ${card('当前轮候选', `<p class="muted">第 ${number(attribute.current_round)} 轮的全部 Run，包括已完成、执行中和等待中的候选；尚未完成的候选不会提前参与排名。</p><div class="table-scroll"><table class="attribute-current-round-table"><thead><tr><th>候选</th><th>状态</th>${stats.map(stat => `<th class="right">${stat.label}</th>`).join('')}<th class="right">DPS</th></tr></thead><tbody>${currentRoundRows || '<tr><td colspan="7" class="empty">当前轮尚未创建候选 Run</td></tr>'}</tbody></table></div>`, true)}
+        ${card('收敛后边际收益', `<p class="muted">${marginalDescription}</p><div class="table-scroll"><table class="marginal-gain-table"><thead><tr><th>属性</th><th class="right">额外属性</th><th class="right">绝对 DPS</th><th class="right">DPS 提升</th><th class="right">提升百分比</th></tr></thead><tbody>${marginalRows || `<tr><td colspan="5" class="empty">${marginalEmpty}</td></tr>`}</tbody></table></div>`, true)}
         ${card('搜索轨迹', `<p class="muted">每一行是该轮搜索的中心点和权威步长；系统在当前精度无显著提升时按 ${value(stepText)} 逐步缩小步长。</p><div class="table-scroll"><table class="attribute-path-table"><thead><tr><th>轮次</th><th class="right">步长</th>${stats.map(stat => `<th class="right">${stat.label}</th>`).join('')}<th class="right">中心 DPS</th></tr></thead><tbody>${trailRows || '<tr><td colspan="7" class="empty">首轮中心点尚未完成</td></tr>'}</tbody></table></div>`, true)}
-        ${card('候选测量排名', `<p class="muted">展示全部已完成候选的真实测量值；最终推荐由任务持久化结论标记，不以页面临时重算替代。</p><div class="table-scroll"><table class="ranking-table attribute-ranking-table"><thead><tr><th>排名</th><th>候选</th><th class="right">轮次</th><th class="right">步长</th>${stats.map(stat => `<th class="right">${stat.label}</th>`).join('')}<th class="right">DPS</th></tr></thead><tbody>${candidateRows || '<tr><td colspan="9" class="empty">暂无已完成候选</td></tr>'}</tbody></table></div>`, true)}
+        ${card('候选测量排名', `<p class="muted">展示全部已完成候选的真实测量值；${searchConverged ? '最终推荐由任务持久化结论标记' : '当前最佳仅代表已完成测量，搜索收敛前不是最终结论'}，不以页面临时重算替代。</p><div class="table-scroll"><table class="ranking-table attribute-ranking-table"><thead><tr><th>排名</th><th>候选</th><th class="right">轮次</th><th class="right">步长</th>${stats.map(stat => `<th class="right">${stat.label}</th>`).join('')}<th class="right">DPS</th></tr></thead><tbody>${candidateRows || '<tr><td colspan="9" class="empty">暂无已完成候选</td></tr>'}</tbody></table></div>`, true)}
         ${card('寻优口径', `<dl>${initialStats}<div><dt>总绿字</dt><dd>${number(attribute.total_rating)}</dd></div><div><dt>搜索精度</dt><dd>${value(stepText)}（当前 ${number(attribute.step)}）</dd></div><div><dt>完成轮次</dt><dd>${number(attribute.rounds_completed)}</dd></div><div><dt>任务进度</dt><dd>成功 ${number(succeeded)} · 运行 ${number(running)} · 等待 ${number(pending)} · 失败 ${number(failed)}</dd></div></dl><details><summary>结论口径</summary>只展示属性寻优搜索路径、候选测量值与最终推荐；技能、Buff、施放序列等单次 SimC 原始分析不参与本页结论。</details>`, true)}
       </div>`;
   }

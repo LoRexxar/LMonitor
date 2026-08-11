@@ -2554,6 +2554,52 @@ DPS=208365 DPS-Error=200/0.1%
         self.assertEqual(report['recommendation']['ratings'], base)
         self.assertEqual(report['recommendation']['dps'], 100000)
 
+    def test_running_attribute_task_keeps_best_result_provisional_and_lists_current_round_queue(self):
+        center = {'crit': 1100, 'haste': 900, 'mastery': 800, 'versatility': 0}
+        candidate = {'crit': 1080, 'haste': 920, 'mastery': 800, 'versatility': 0}
+        task = self._comparison_task_with_runs('attribute_sweep', [
+            ('基准属性', 'completed', 100000, {
+                'candidate_type': 'attribute_ratings', 'is_base': True,
+                'attribute_ratings': center,
+                'search': {'type': 'attribute', 'round': 4, 'step': 20, 'candidate_index': 0},
+            }),
+            ('暴击 -20 / 急速 +20', 'running', None, {
+                'candidate_type': 'attribute_ratings', 'is_base': False,
+                'attribute_ratings': candidate,
+                'search': {'type': 'attribute', 'round': 4, 'step': 20, 'candidate_index': 1},
+            }),
+            ('急速 -20 / 暴击 +20', 'pending', None, {
+                'candidate_type': 'attribute_ratings', 'is_base': False,
+                'attribute_ratings': center,
+                'search': {'type': 'attribute', 'round': 4, 'step': 20, 'candidate_index': 2},
+            }),
+        ])
+        task.current_status = 1
+        task.save(update_fields=['current_status'])
+        task.simulation_runs.update(round_number=4)
+
+        payload = self.client.get(f'/api/simc-workbench/tasks/{task.id}/').json()
+
+        self.assertTrue(payload['success'], payload)
+        report = payload['data']['attribute_report']
+        self.assertFalse(report['local_optimum'])
+        self.assertNotIn('final_result', report)
+        current_round_runs = [
+            run for run in payload['data']['runs'] if run['round_number'] == report['current_round']
+        ]
+        self.assertEqual(
+            [run['status'] for run in current_round_runs],
+            ['completed', 'running', 'pending'],
+        )
+        detail = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/simc-detail.js').read_text()
+        attribute_renderer = detail[
+            detail.index('function renderAttributeTask'):detail.index('function renderTaskComparison')
+        ]
+        self.assertIn("const searchConverged = attribute.converged === true || Number(row.status) === 2", attribute_renderer)
+        self.assertIn('当前最佳结果', attribute_renderer)
+        self.assertIn('currentRoundRuns', attribute_renderer)
+        self.assertIn('当前轮候选', attribute_renderer)
+
     def test_attribute_task_detail_is_dedicated_and_links_the_persisted_final_run_report(self):
         initial = {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}
         final = {'crit': 1050, 'haste': 1950, 'mastery': 3000, 'versatility': 4000}

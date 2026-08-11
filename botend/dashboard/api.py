@@ -5143,7 +5143,7 @@ class SimcRegularCompareAPIView(View):
             for key in (
                 'algorithm', 'algorithm_version', 'step', 'steps', 'tolerance',
                 'rounds_completed', 'current_round', 'total_rating',
-                'initial_ratings', 'stop_reason', 'local_optimum',
+                'initial_ratings', 'stop_reason', 'converged', 'local_optimum',
                 'marginal_gain_status', 'marginal_gain_round',
                 'marginal_gain_amounts', 'marginal_gain_baseline_dps',
             )
@@ -6872,7 +6872,15 @@ class SimcWorkbenchAPIView(View):
                         attribute_report.get('recommendation')
                         if isinstance(attribute_report, dict) else None
                     )
-                    final_result = dict(recommendation) if isinstance(recommendation, dict) else None
+                    search_converged = (
+                        attribute_report.get('converged') is True
+                        or task.current_status == 2
+                    )
+                    final_result = (
+                        dict(recommendation)
+                        if search_converged and isinstance(recommendation, dict)
+                        else None
+                    )
                     final_artifact = None
                     if final_result and final_result.get('id') is not None:
                         final_artifact = next((
