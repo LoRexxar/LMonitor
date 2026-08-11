@@ -15,7 +15,7 @@ from botend.management.commands.update_simc_binary import Command as UpdateSimcB
 from botend.services.simc_player_config import build_player_config_detail, parse_manual_player_config, parse_manual_simc_candidates, parse_simc_player_profile
 from botend.services.simc_composer import SimcComposer
 from botend.services.simc_task_service import append_candidate_runs
-from botend.models import DashboardUserGroup, DashboardUserGroupMembership, PlayerSpecTopPlayer, SeasonMeta, SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate, SimcProfile, SimcResourceVersion, SimcTask, SimulationRun, WowItemSnapshot, WowTalentVersion
+from botend.models import DashboardUserGroup, DashboardUserGroupMembership, PlayerSpecTopPlayer, SeasonMeta, SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate, SimcProfile, SimcResourceVersion, SimcTask, SimcTaskArtifact, SimulationRun, WowItemSnapshot, WowTalentVersion
 
 
 TEST_SIMC_REVISION = 'a' * 40
@@ -2551,6 +2551,57 @@ DPS=208365 DPS-Error=200/0.1%
         self.assertEqual(report['stop_reason'], 'local_optimum_50_pairwise')
         self.assertEqual(report['recommendation']['ratings'], base)
         self.assertEqual(report['recommendation']['dps'], 100000)
+
+    def test_attribute_task_detail_is_dedicated_and_links_the_persisted_final_run_report(self):
+        initial = {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}
+        final = {'crit': 1050, 'haste': 1950, 'mastery': 3000, 'versatility': 4000}
+        task = self._comparison_task_with_runs('attribute_sweep', [
+            ('初始属性', 'completed', 100000, {
+                'candidate_type': 'attribute_ratings', 'is_base': True,
+                'attribute_ratings': initial, 'search': {'round': 1, 'candidate_index': 0},
+            }),
+            ('暴击 +50 / 急速 -50', 'completed', 101000, {
+                'candidate_type': 'attribute_ratings', 'is_base': False,
+                'attribute_ratings': final, 'search': {'round': 1, 'candidate_index': 1},
+            }),
+        ])
+        initial_run, final_run = task.simulation_runs.order_by('sequence')
+        SimcTaskArtifact.objects.create(
+            task=task, run=initial_run, artifact_type='html_report',
+            file_path='simc_results/attribute-initial.html',
+        )
+        final_artifact = SimcTaskArtifact.objects.create(
+            task=task, run=final_run, artifact_type='html_report',
+            file_path='simc_results/attribute-final.html',
+        )
+        task.current_status = 2
+        task.analysis_result = {'attribute_search': {
+            'ratings': final, 'dps': 101000, 'step': 50, 'round': 1,
+            'converged': True, 'stop_reason': 'local_optimum_50_pairwise',
+        }}
+        task.save(update_fields=['current_status', 'analysis_result'])
+
+        payload = self.client.get(f'/api/simc-workbench/tasks/{task.id}/').json()
+
+        self.assertTrue(payload['success'], payload)
+        report = payload['data']['attribute_report']
+        self.assertEqual(report['search_path'][0]['ratings'], initial)
+        self.assertEqual(report['final_result']['id'], final_run.id)
+        self.assertEqual(report['final_result']['ratings'], final)
+        self.assertEqual(
+            report['final_result']['report_url'],
+            f'/api/simc-workbench/artifacts/{final_artifact.id}/preview/',
+        )
+        detail = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/simc-detail.js').read_text()
+        attribute_renderer = detail[
+            detail.index('function renderAttributeTask'):detail.index('function renderTaskComparison')
+        ]
+        self.assertIn("if (row.mode === 'attribute_sweep')", detail)
+        self.assertIn('attribute.search_path', attribute_renderer)
+        self.assertIn('attribute.final_result', attribute_renderer)
+        self.assertIn('查看最终结果报告', attribute_renderer)
+        for generic_section in ('SimcResultReport', '技能伤害与触发明细', '动态 Buff / Proc', 'Artifact / 原生报告'):
+            self.assertNotIn(generic_section, attribute_renderer)
 
     def test_regular_candidate_task_returns_only_safe_summary(self):
         task = self._comparison_task_with_runs(rows=[

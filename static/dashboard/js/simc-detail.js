@@ -37,6 +37,10 @@
   }
 
   function renderTask(row) {
+    if (row.mode === 'attribute_sweep') {
+      root.innerHTML = renderAttributeTask(row);
+      return;
+    }
     const report = row.report_summary || {};
     const character = report.character || {};
     const simulation = report.simulation || {};
@@ -93,6 +97,68 @@
         ${card('执行轮次', `<div class="table-scroll"><table><thead><tr><th>轮次</th><th>状态</th><th class="right">DPS</th><th>开始</th><th>完成</th><th class="right">输入</th></tr></thead><tbody>${runRows || '<tr><td colspan="6" class="empty">暂无执行轮次</td></tr>'}</tbody></table></div><details><summary>输入说明</summary>查看输入会按当前任务冻结配置调用 SimC Composer 生成可读文本；它不是历史执行输入的复原或校验。命令、路径及原始 stderr 不在页面展示。</details>`, true)}
         ${card('Artifact / 原生报告', `<p class="muted">${taskFailed && !nativeArtifact ? '本次失败未生成原生报告。SimC 在初始化阶段终止时不会产出 HTML Artifact。' : '原生报告继续通过独立鉴权页面读取。'}</p><div class="table-scroll"><table><thead><tr><th>文件</th><th>类型</th><th class="right">大小</th><th class="right">操作</th></tr></thead><tbody>${artifactRows(artifacts) || '<tr><td colspan="4" class="empty">暂无 Artifact</td></tr>'}</tbody></table></div>`, true)}
         ${card('引用版本', `<dl><div><dt>Profile</dt><dd>${value(row.profile_name, '未命名')} · #${value(row.profile_id)} · v${value(row.profile_version_id)}</dd></div><div><dt>基础模板</dt><dd>#${value(row.template_id)} · v${value(row.template_version_id)}</dd></div><div><dt>APL</dt><dd>${value(row.apl_name, '未命名')} · #${value(row.apl_id)} · v${value(row.apl_version_id)}</dd></div><div><dt>来源任务</dt><dd>${row.source_task_id ? `<a href="/dashboard/simc/tasks/${Number(row.source_task_id)}/">#${Number(row.source_task_id)}</a>` : '-'}</dd></div></dl><details><summary>为什么显示版本号？</summary>名称来自任务创建时的冻结资源版本；版本引用用于复现，不展示配置原文或服务器路径。</details>`, true)}
+      </div>`;
+  }
+
+  function renderAttributeTask(row) {
+    const attribute = row.attribute_report || {};
+    const finalResult = attribute.final_result || attribute.recommendation || null;
+    const initialRatings = attribute.initial_ratings || {};
+    const searchPath = Array.isArray(attribute.search_path) ? attribute.search_path : [];
+    const candidates = Array.isArray(attribute.candidates) ? [...attribute.candidates] : [];
+    const runs = Array.isArray(row.runs) ? row.runs : [];
+    const stats = [
+      {key: 'crit', legacyKey: 'crit_rating', label: '暴击'},
+      {key: 'haste', legacyKey: 'haste_rating', label: '急速'},
+      {key: 'mastery', legacyKey: 'mastery_rating', label: '精通'},
+      {key: 'versatility', legacyKey: 'versatility_rating', label: '全能'},
+    ];
+    const rating = (ratings, stat) => {
+      if (!ratings || typeof ratings !== 'object') return null;
+      return ratings[stat.key] ?? ratings[stat.legacyKey] ?? null;
+    };
+    const signed = amount => Number.isFinite(Number(amount)) ? `${Number(amount) > 0 ? '+' : ''}${number(amount)}` : '—';
+    const statCells = ratings => stats.map(stat => `<td class="right">${number(rating(ratings, stat))}</td>`).join('');
+    const finalStatCards = stats.map(stat => {
+      const current = rating(finalResult?.ratings, stat);
+      const initial = rating(initialRatings, stat);
+      const delta = Number(current) - Number(initial);
+      return `<div class="attribute-change attribute-stat-delta"><span>${stat.label}</span><b>${number(current)}</b><em class="${delta > 0 ? 'positive' : delta < 0 ? 'negative' : ''}">${Number.isFinite(delta) ? signed(delta) : '—'}</em></div>`;
+    }).join('');
+    const stopReason = ({
+      local_optimum_50_pairwise: '50 点两两邻域已收敛',
+      max_rounds: '达到最大搜索轮次',
+      no_valid_candidate: '没有可用候选',
+      cancelled: '搜索已取消',
+    })[String(attribute.stop_reason || '')] || value(attribute.stop_reason, '等待结论');
+    const succeeded = runs.filter(run => run.status === 'completed').length;
+    const running = runs.filter(run => run.status === 'running').length;
+    const pending = runs.filter(run => run.status === 'pending').length;
+    const failed = runs.filter(run => run.status === 'failed').length;
+    const progress = runs.length ? Math.round((succeeded + failed) / runs.length * 100) : 0;
+    const initialDps = Number(searchPath[0]?.dps);
+    const finalDps = Number(finalResult?.dps);
+    const finalDelta = Number.isFinite(initialDps) && Number.isFinite(finalDps) ? finalDps - initialDps : NaN;
+    const finalReportUrl = String(finalResult?.report_url || '');
+    const finalReportAction = finalReportUrl
+      ? `<a class="primary-link attribute-final-report-link" href="${esc(finalReportUrl)}" target="_blank" rel="noopener noreferrer">查看最终结果报告 <span aria-hidden="true">↗</span></a>`
+      : '<span class="attribute-report-unavailable">最终候选的 HTML 报告暂不可用</span>';
+    const trailRows = searchPath.map(point => `<tr><td><b>第 ${number(point.round)} 轮</b></td>${statCells(point.ratings)}<td class="right"><b>${number(point.dps)}</b></td></tr>`).join('');
+    const rankedCandidates = candidates
+      .filter(item => Number.isFinite(Number(item.dps)))
+      .sort((left, right) => Number(right.dps) - Number(left.dps) || Number(left.id) - Number(right.id));
+    const candidateRows = rankedCandidates.map((item, index) => {
+      const isFinal = Number(item.id) === Number(finalResult?.id);
+      return `<tr class="${isFinal ? 'rank-winner attribute-final-candidate' : ''}"><td><span class="rank-medal">${index === 0 ? '🥇' : index + 1}</span></td><td><b>${value(item.label, `Run #${item.id}`)}</b>${isFinal ? '<small class="attribute-final-badge">最终推荐</small>' : ''}</td><td class="right">${number(item.round)}</td>${statCells(item.ratings)}<td class="right"><b>${number(item.dps)}</b></td></tr>`;
+    }).join('');
+    const initialStats = stats.map(stat => `<div><dt>${stat.label}</dt><dd>${number(rating(initialRatings, stat))}</dd></div>`).join('');
+
+    return `<section class="hero attribute-hero"><div class="report-kicker">ATTRIBUTE OPTIMIZATION</div><div class="hero-status"><span class="pill">任务${statusClass(row)}</span><span class="pill">${number(progress)}% 完成</span><span class="pill">${number(runs.length)} 个候选 Run</span></div><div class="hero-primary-column"><h1>${value(row.name, `任务 #${objectId}`)}</h1><div class="hero-resource-stack" aria-label="模拟资源"><div class="hero-resource-line"><span>APL</span><b>${value(row.apl_name, '未命名')}</b></div><div class="hero-resource-line"><span>Profile</span><b>${value(row.profile_name, '未命名')}</b></div></div></div><div class="hero-meta"><span class="pill">步进 ${number(attribute.step)}</span><span class="pill">${stopReason}</span><span class="pill">更新 ${value(row.updated_at)}</span></div></section>
+      <div class="grid attribute-task-grid">
+        <section class="card wide attribute-report attribute-final-result"><div class="report-kicker">FINAL RESULT</div><div class="attribute-final-heading"><div><h2>最终推荐结果</h2><p>以任务持久化结论为准，并精确绑定产生该结论的 Run #${value(finalResult?.id)}。</p></div><div class="attribute-final-dps"><span>推荐 DPS</span><b>${number(finalResult?.dps)}</b><em class="${finalDelta > 0 ? 'positive' : finalDelta < 0 ? 'negative' : ''}">${Number.isFinite(finalDelta) ? `${signed(finalDelta)} vs 初始轮` : '等待完整结果'}</em></div></div><div class="attribute-grid">${finalResult ? finalStatCards : '<p class="muted">候选尚未收敛，等待最终推荐结果。</p>'}</div><div class="attribute-final-footer"><span><b>${stopReason}</b> · 完成 ${number(attribute.rounds_completed)} 轮搜索</span>${finalReportAction}</div></section>
+        ${card('搜索轨迹', `<p class="muted">每一行是该轮搜索的中心点；下轮候选在此属性分配周围按 ${number(attribute.step)} 点进行两两转移。</p><div class="table-scroll"><table class="attribute-path-table"><thead><tr><th>轮次</th>${stats.map(stat => `<th class="right">${stat.label}</th>`).join('')}<th class="right">中心 DPS</th></tr></thead><tbody>${trailRows || '<tr><td colspan="6" class="empty">首轮中心点尚未完成</td></tr>'}</tbody></table></div>`, true)}
+        ${card('候选测量排名', `<p class="muted">展示全部已完成候选的真实测量值；最终推荐由任务持久化结论标记，不以页面临时重算替代。</p><div class="table-scroll"><table class="ranking-table attribute-ranking-table"><thead><tr><th>排名</th><th>候选</th><th class="right">轮次</th>${stats.map(stat => `<th class="right">${stat.label}</th>`).join('')}<th class="right">DPS</th></tr></thead><tbody>${candidateRows || '<tr><td colspan="8" class="empty">暂无已完成候选</td></tr>'}</tbody></table></div>`, true)}
+        ${card('寻优口径', `<dl>${initialStats}<div><dt>总绿字</dt><dd>${number(attribute.total_rating)}</dd></div><div><dt>步进粒度</dt><dd>${number(attribute.step)}</dd></div><div><dt>完成轮次</dt><dd>${number(attribute.rounds_completed)}</dd></div><div><dt>任务进度</dt><dd>成功 ${number(succeeded)} · 运行 ${number(running)} · 等待 ${number(pending)} · 失败 ${number(failed)}</dd></div></dl><details><summary>结论口径</summary>只展示属性寻优搜索路径、候选测量值与最终推荐；技能、Buff、施放序列等单次 SimC 原始分析不参与本页结论。</details>`, true)}
       </div>`;
   }
 
@@ -176,9 +242,9 @@
     }
     const recommendation = attribute?.recommendation || null;
     const initial = attribute?.initial_ratings || {};
-    const statLabels = {crit_rating:'暴击',haste_rating:'急速',mastery_rating:'精通',versatility_rating:'全能'};
+    const statLabels = {crit:'暴击',crit_rating:'暴击',haste:'急速',haste_rating:'急速',mastery:'精通',mastery_rating:'精通',versatility:'全能',versatility_rating:'全能'};
     const attributeChanges = recommendation ? Object.entries(recommendation.ratings || {}).map(([key, rating]) => { const delta = Number(rating) - Number(initial[key] || 0); return `<div class="attribute-change attribute-stat-delta"><span>${value(statLabels[key] || key)}</span><b>${number(rating)}</b><em class="${delta > 0 ? 'positive' : delta < 0 ? 'negative' : ''}">${signed(delta)}</em></div>`; }).join('') : '';
-    const searchTrail = Array.isArray(attribute?.history) ? attribute.history : [];
+    const searchTrail = Array.isArray(attribute?.search_path) ? attribute.search_path : [];
     const trailRows = searchTrail.slice(-8).map((step, index) => `<span>第 ${index + 1} 步 · ${number(step.dps)}</span>`).join('');
     const attributePanel = isAttribute ? `<section class="card wide attribute-report attribute-landscape"><div class="report-kicker">ATTRIBUTE OPTIMIZATION</div><h2>属性寻优结论</h2><div class="report-summary"><div><span>推荐 DPS</span><b>${number(recommendation?.dps)}</b></div><div><span>搜索轮次</span><b>${number(attribute.rounds_completed)} / ${number(attribute.current_round)}</b></div><div><span>步进粒度</span><b>${number(attribute.step)}</b></div><div><span>结论</span><b>${attribute.local_optimum ? '局部最优' : '继续搜索'}</b></div></div><h3>推荐属性</h3><div class="attribute-grid">${attributeChanges || '<p class="muted">等待候选完成后生成属性变化。</p>'}</div><h3>搜索轨迹</h3><div class="search-trail">${trailRows || '<span class="muted">暂无轨迹数据</span>'}</div></section>` : '';
     const succeeded = runs.filter(run => run.status === 'completed').length;

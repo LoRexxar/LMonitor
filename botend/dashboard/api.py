@@ -6772,10 +6772,34 @@ class SimcWorkbenchAPIView(View):
                     raw_report = SimcRegularCompareAPIView()._build_reference_attribute_report(
                         ordered_runs, task.analysis_result,
                     )
-                    row['attribute_report'] = SimcRegularCompareAPIView()._safe_attribute_report(raw_report)
+                    attribute_report = SimcRegularCompareAPIView()._safe_attribute_report(raw_report)
+                    recommendation = (
+                        attribute_report.get('recommendation')
+                        if isinstance(attribute_report, dict) else None
+                    )
+                    final_result = dict(recommendation) if isinstance(recommendation, dict) else None
+                    final_artifact = None
+                    if final_result and final_result.get('id') is not None:
+                        final_artifact = next((
+                            artifact for artifact in artifacts
+                            if artifact.run_id == final_result['id']
+                            and artifact.artifact_type == 'html_report'
+                        ), None)
+                        final_result['artifact_id'] = final_artifact.id if final_artifact else None
+                        final_result['report_url'] = ''
+                        if final_artifact:
+                            final_artifact_row = self._artifact_row(final_artifact)
+                            if final_artifact_row.get('can_preview'):
+                                final_result['report_url'] = final_artifact_row.get('preview_url', '')
+                        attribute_report['final_result'] = final_result
+                    row['attribute_report'] = attribute_report
+                    row['report_artifact_id'] = final_artifact.id if final_artifact else None
+                    row['report_preview_url'] = (final_result or {}).get('report_url', '')
+                    row['has_report'] = bool(row['report_preview_url'])
                 row['report_url'] = (
-                    f'/simc-compare/?task_id={task.id}'
-                    if task.mode in ('comparison', 'attribute_sweep') and runs else ''
+                    (row.get('attribute_report') or {}).get('final_result', {}).get('report_url', '')
+                    if task.mode == 'attribute_sweep'
+                    else f'/simc-compare/?task_id={task.id}' if task.mode == 'comparison' and runs else ''
                 )
                 return JsonResponse({'success': True, 'data': row})
 
