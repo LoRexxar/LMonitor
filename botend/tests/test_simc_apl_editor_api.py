@@ -830,6 +830,11 @@ class SimcAplEditorApiTests(TestCase):
 
     def test_symbols_filter_search_all_public_fields_and_paginate(self):
         self._catalog()
+        SimcAplSymbol.objects.create(
+            simc_revision=self.REVISION, wow_build="11.2.0",
+            class_name="warrior", spec="fury", token="recklessness",
+            symbol_kind="buff", source="simc_manifest",
+        )
         first = self.client.get("/api/simc-workbench/apl-symbols/?spec=warrior_fury&kind=action&page=1&page_size=1")
         self.assertEqual(first.status_code, 200)
         self.assertEqual(first.json()["data"]["pagination"], {"page": 1, "page_size": 1, "total": 2, "total_pages": 2})
@@ -840,6 +845,16 @@ class SimcAplEditorApiTests(TestCase):
                 self.assertEqual([row["token"] for row in rows], ["bloodthirst"])
         rows = self.client.get("/api/simc-workbench/apl-symbols/?spec=warrior_fury&kind=resource").json()["data"]["items"]
         self.assertEqual([row["token"] for row in rows], ["rage"])
+        mixed = self.client.get("/api/simc-workbench/apl-symbols/", {
+            "spec": "warrior_fury", "kinds": "action,buff", "page_size": 100,
+        }).json()["data"]
+        self.assertEqual(mixed["pagination"]["total"], 3)
+        self.assertEqual({row["kind"] for row in mixed["items"]}, {"action", "buff"})
+        invalid = self.client.get("/api/simc-workbench/apl-symbols/", {
+            "spec": "warrior_fury", "kinds": "action,unknown_kind",
+        })
+        self.assertEqual(invalid.status_code, 400)
+        self.assertEqual(invalid.json()["error"]["code"], "invalid_kind")
 
     def test_catalog_identity_resolves_unique_full_revision_from_binary_version_suffix(self):
         revision = "62ababb127bef2a35f96357968d455dde7de7616"

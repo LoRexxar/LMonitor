@@ -833,16 +833,25 @@ class SimcAplSymbolsAPIView(SimcAplEditorAPIView):
         if not identity:
             return _editor_error('catalog_unavailable', 'The current symbol catalog is unavailable.', 503)
         revision, build = identity
+        kind = (request.GET.get('kind') or '').strip()
+        kinds = {
+            value.strip() for value in (request.GET.get('kinds') or '').split(',')
+            if value.strip()
+        }
+        if kind:
+            kinds = {kind}
+        valid_kinds = {value for value, _label in SimcAplSymbol.SYMBOL_KIND_CHOICES}
+        if not kinds.issubset(valid_kinds):
+            return _editor_error('invalid_kind', 'Unknown symbol kind.')
+        query = (request.GET.get('query') or '').strip()[:200]
         if not _APL_EDITOR_SEMAPHORE.acquire():
             return _editor_error('concurrency_limited', 'Symbol query capacity is busy.', 429)
-        kind = (request.GET.get('kind') or '').strip()
-        query = (request.GET.get('query') or '').strip()[:200]
         try:
             items = query_symbol_catalog(revision, build, spec[1], spec[2], search=query or None)
         finally:
             _APL_EDITOR_SEMAPHORE.release()
-        if kind:
-            items = [item for item in items if item.kind == kind]
+        if kinds:
+            items = [item for item in items if item.kind in kinds]
         total = len(items)
         total_pages = (total + page_size - 1) // page_size
         start = (page - 1) * page_size

@@ -20,7 +20,7 @@
     <!-- Font Awesome for icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Custom styles -->
-    <link rel="stylesheet" href="{% static 'dashboard/css/simc-apl-editor.css' %}?v=20260811_apl_sticky_actions">
+    <link rel="stylesheet" href="{% static 'dashboard/css/simc-apl-editor.css' %}?v=20260811_apl_full_catalog">
     <link rel="stylesheet" href="{% static 'dashboard/css/simc-benchmark-dashboard.css' %}?v=20260808_candidate_profile">
     <link rel="stylesheet" href="{% static 'dashboard/css/simc-result-report.css' %}?v=20260811_result_first_zh">
     <style>
@@ -432,7 +432,7 @@
     {% block dashboard_extra_head %}{% endblock %}
     {% if page_name == 'dashboard' %}
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script>window.SIMC_APL_EDITOR_MODULE_URL = "{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260727b";</script>
+    <script>window.SIMC_APL_EDITOR_MODULE_URL = "{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260811_apl_full_catalog";</script>
     {{ dashboard_permissions|json_script:"dashboard-permissions-data" }}
     {{ dashboard_permission_catalog|json_script:"dashboard-permission-catalog-data" }}
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>

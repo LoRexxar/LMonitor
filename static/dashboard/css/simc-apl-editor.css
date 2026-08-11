@@ -46,13 +46,13 @@
 .simc-apl-catalog__pager button:hover:not(:disabled) { border-color: #2563eb; background: #eff6ff; }
 .simc-apl-catalog__pager button:disabled { color: #94a3b8; background: #f8fafc; cursor: not-allowed; }
 .simc-apl-skill {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    display: flex;
+    flex-direction: column;
     width: 100%;
-    gap: .75rem;
+    gap: .18rem;
     border: 0;
     border-bottom: 1px solid #e2e8f0;
-    padding: .5rem .75rem;
+    padding: .55rem .75rem;
     color: #334155;
     background: transparent;
     text-align: left;
@@ -60,8 +60,12 @@
 }
 .simc-apl-skill:hover,
 .simc-apl-skill:focus-visible { background: #eaf2ff; outline: none; }
-.simc-apl-skill__english { overflow: hidden; color: #0f172a; font-size: .75rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.simc-apl-skill__chinese { overflow: hidden; color: #475569; font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
+.simc-apl-skill:disabled { opacity: .6; cursor: not-allowed; }
+.simc-apl-skill__heading { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: .5rem; }
+.simc-apl-skill__chinese { overflow: hidden; color: #0f172a; font-size: .78rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.simc-apl-skill__kind { flex: none; border-radius: 999px; padding: .1rem .4rem; color: #1d4ed8; background: #dbeafe; font-size: .62rem; font-weight: 700; }
+.simc-apl-skill__english { overflow: hidden; color: #475569; font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
+.simc-apl-skill__token { overflow: hidden; width: fit-content; max-width: 100%; color: #7c3aed; font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
 .simc-apl-assistant-toggle { display: none; }
 
 .simc-apl-editor-heading-actions {

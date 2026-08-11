@@ -12,26 +12,19 @@ import {simcAplLanguage} from './simc-apl-language.js';
 const VALIDATION_URL = '/api/simc-workbench/apl-validation/';
 const COMPLETION_URL = '/api/simc-workbench/apl-completions/';
 const SYMBOLS_URL = '/api/simc-workbench/apl-symbols/';
-const SPELLS_URL = '/api/simc-workbench/apl-spells/';
 const CATALOG_DEFAULT_PAGE_SIZE = 10;
 const CATALOG_MIN_PAGE_SIZE = 8;
 const CATALOG_MAX_PAGE_SIZE = 30;
-const CATALOG_ROW_HEIGHT = 36;
+const CATALOG_ROW_HEIGHT = 68;
 
 const BILINGUAL_URL = '/api/convert-text/';
 
 const CATALOG_CATEGORIES = [
-    ['all', '全部'], ['class', '职业'], ['spec', '专精'], ['talent', '天赋'],
-    ['hero_tree', '英雄'], ['global', '通用'],
+    ['', '全部'], ['action', '技能'], ['buff', 'Buff'], ['debuff', 'Debuff'],
+    ['dot', 'Dot'], ['cooldown', '冷却'],
 ];
-
-function catalogCategory(item) {
-    if (item.scope === 'hero_tree' || item.kind === 'hero_tree') return 'hero_tree';
-    if (item.kind === 'talent') return 'talent';
-    if (item.scope === 'spec') return 'spec';
-    if (item.scope === 'class') return 'class';
-    return 'global';
-}
+const CATALOG_SUPPORTED_KINDS = CATALOG_CATEGORIES.slice(1).map(([value]) => value);
+const CATALOG_KIND_LABELS = Object.fromEntries(CATALOG_CATEGORIES.slice(1));
 
 export function catalogPageSizeForHeight(height) {
     const availableHeight = Number(height) || 0;
@@ -60,12 +53,14 @@ function createCatalogAssistant(options) {
     let searchTimer = null;
     let destroyed = false;
     let query = '';
+    let kind = '';
     let page = 1;
     let pageSize = CATALOG_DEFAULT_PAGE_SIZE;
     let resizeTimer = null;
 
-    host.innerHTML = `<div class="simc-apl-assistant__mobile-heading"><strong>技能列表</strong><button type="button" data-apl-assistant-close>关闭</button></div><div class="simc-apl-assistant__toolbar">
-        <label class="simc-apl-assistant__search"><span class="sr-only">搜索技能</span><input type="search" data-apl-catalog-query placeholder="搜索英文或中文技能名"></label>
+    host.innerHTML = `<div class="simc-apl-assistant__mobile-heading"><strong>技能与 Buff 助手</strong><button type="button" data-apl-assistant-close>关闭</button></div><div class="simc-apl-assistant__toolbar">
+        <label class="simc-apl-assistant__search"><span class="sr-only">搜索 APL 字段</span><input type="search" data-apl-catalog-query placeholder="搜索中文、英文或 token"></label>
+        <div class="simc-apl-assistant__categories" role="group" aria-label="APL 字段类型">${CATALOG_CATEGORIES.map(([value, label], index) => `<button type="button" data-apl-catalog-kind="${value}" class="${index === 0 ? 'is-active' : ''}">${label}</button>`).join('')}</div>
     </div><div class="simc-apl-catalog" data-apl-catalog-list></div><nav class="simc-apl-catalog__pager" aria-label="技能列表分页">
         <button type="button" data-page-action="prev">上一页</button>
         <span data-page-summary>第 1/1 页</span>
@@ -76,23 +71,37 @@ function createCatalogAssistant(options) {
     const pageSummary = host.querySelector('[data-page-summary]');
     const previousButton = host.querySelector('[data-page-action="prev"]');
     const nextButton = host.querySelector('[data-page-action="next"]');
+    const categoryButtons = Array.from(host.querySelectorAll('[data-apl-catalog-kind]'));
     host.querySelector('[data-apl-assistant-close]').addEventListener('click', () => options.close?.());
 
     function render(items) {
         list.replaceChildren();
-        if (!items.length) replaceTextMessage(list, '没有匹配技能');
+        if (!items.length) replaceTextMessage(list, '当前分类没有匹配字段');
         items.forEach(item => {
+            const token = String(item.token || '');
+            const insertable = item.insertable === true && Boolean(token);
             const row = document.createElement('button');
             row.type = 'button';
             row.className = 'simc-apl-skill';
-            const english = document.createElement('span');
-            english.className = 'simc-apl-skill__english';
-            english.textContent = item.english;
+            row.disabled = !insertable;
+            if (!insertable) row.title = String(item.reason || '该字段尚不可插入');
+            const heading = document.createElement('span');
+            heading.className = 'simc-apl-skill__heading';
             const chinese = document.createElement('span');
             chinese.className = 'simc-apl-skill__chinese';
-            chinese.textContent = item.chinese;
-            row.append(english, chinese);
-            row.addEventListener('click', () => options.insert(item.token));
+            chinese.textContent = item.name_zh || item.name_en || token;
+            const kindLabel = document.createElement('span');
+            kindLabel.className = 'simc-apl-skill__kind';
+            kindLabel.textContent = CATALOG_KIND_LABELS[item.kind] || item.kind || '字段';
+            heading.append(chinese, kindLabel);
+            const english = document.createElement('span');
+            english.className = 'simc-apl-skill__english';
+            english.textContent = item.name_en || token;
+            const tokenLabel = document.createElement('code');
+            tokenLabel.className = 'simc-apl-skill__token';
+            tokenLabel.textContent = token;
+            row.append(heading, english, tokenLabel);
+            if (insertable) row.addEventListener('click', () => options.insert(token));
             list.append(row);
         });
     }
@@ -117,19 +126,22 @@ function createCatalogAssistant(options) {
             spec: String(options.getSpec?.() || ''),
             page: String(page), page_size: String(pageSize),
         });
+        if (kind) params.set('kind', kind);
+        else params.set('kinds', CATALOG_SUPPORTED_KINDS.join(','));
         if (query) params.set('query', query);
         try {
-            const response = await fetchImpl(`${SPELLS_URL}?${params}`, {
+            const response = await fetchImpl(`${SYMBOLS_URL}?${params}`, {
                 credentials: 'same-origin', signal: activeController.signal,
             });
             const body = await response.json();
-            if (!response.ok || body.success !== true) throw new Error(body.error?.message || '技能列表不可用');
+            if (!response.ok || body.success !== true) throw new Error(body.error?.message || '完整字段目录不可用');
             if (destroyed || controller !== activeController) return;
             render(body.data?.items || []);
             renderPagination(body.data?.pagination || {});
         } catch (error) {
             if (error.name !== 'AbortError' && !destroyed && controller === activeController) {
-                replaceTextMessage(list, error.message || '技能列表暂不可用');
+                replaceTextMessage(list, error.message || '完整字段目录暂不可用');
+                renderPagination({page: 1, total: 0, total_pages: 1});
             }
         }
     }
@@ -140,6 +152,14 @@ function createCatalogAssistant(options) {
         clearTimeout(searchTimer);
         searchTimer = setTimeout(() => load(), 250);
     });
+    categoryButtons.forEach(button => button.addEventListener('click', () => {
+        const nextKind = button.dataset.aplCatalogKind || '';
+        if (nextKind === kind) return;
+        kind = nextKind;
+        page = 1;
+        categoryButtons.forEach(item => item.classList.toggle('is-active', item === button));
+        load();
+    }));
     previousButton.addEventListener('click', () => {
         if (page <= 1) return;
         page -= 1;

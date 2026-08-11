@@ -97,17 +97,25 @@ test('APL picker selects active accessible system and personal rows by spec', ()
     assert.deepEqual(selectAplsForSpec(rows, 'WARRIOR_FURY').map(row => row.id), [1, 2]);
 });
 
-test('visible APL list is a compact Wago bilingual row list and the whole row inserts', async () => {
-    const source = await readFile(editorSourceUrl, 'utf8');
-    assert.match(source, /\/api\/simc-workbench\/apl-spells\//);
+test('visible APL assistant browses the complete typed symbol catalog and inserts authoritative tokens', async () => {
+    const [source, css] = await Promise.all([
+        readFile(editorSourceUrl, 'utf8'), readFile(editorCssUrl, 'utf8'),
+    ]);
+    assert.match(source, /\/api\/simc-workbench\/apl-symbols\//);
+    assert.doesNotMatch(source, /const SPELLS_URL/);
     assert.match(source, /spec:\s*String\(options\.getSpec\?\.\(\) \|\| ''\)/);
-    assert.match(source, /row\.addEventListener\('click'.*options\.insert\(item\.token\)/s);
-    assert.doesNotMatch(source, /loadKeywordCatalog/);
-    assert.doesNotMatch(source, /button\.textContent = item\.insertable \? '插入'/);
-    assert.match(source, /english\.textContent = item\.english/);
-    assert.match(source, /chinese\.textContent = item\.chinese/);
+    assert.match(source, /data-apl-catalog-kind="\$\{value\}"/);
+    assert.match(source, /params\.set\('kind', kind\)/);
+    assert.match(source, /params\.set\('kinds', CATALOG_SUPPORTED_KINDS\.join\(','\)\)/);
+    assert.match(source, /row\.addEventListener\('click'.*options\.insert\(token\)/s);
+    assert.match(source, /chinese\.textContent = item\.name_zh \|\| item\.name_en \|\| token/);
+    assert.match(source, /english\.textContent = item\.name_en \|\| token/);
+    assert.match(source, /tokenLabel\.textContent = token/);
+    assert.match(source, /row\.disabled = !insertable/);
     assert.match(source, /destroyed \|\| controller !== activeController/);
     assert.match(source, /error\.name !== 'AbortError' && !destroyed && controller === activeController/);
+    assert.match(css, /\.simc-apl-skill__kind\s*\{/);
+    assert.match(css, /\.simc-apl-skill__token\s*\{/);
 });
 
 test('APL editor uses a light yellow code surface and a compact desktop assistant', async () => {
@@ -122,8 +130,8 @@ test('APL editor uses a light yellow code surface and a compact desktop assistan
 
 test('dashboard cache-busts the published light APL stylesheet', async () => {
     const dashboard = await readFile(new URL('../../../templates/dashboard/index.html', import.meta.url), 'utf8');
-    assert.match(dashboard, /simc-apl-editor\.css[^\n]*\?v=20260811_apl_sticky_actions/);
-    assert.match(dashboard, /simc-apl-editor\.js[^\n]*\?v=20260727b/);
+    assert.match(dashboard, /simc-apl-editor\.css[^\n]*\?v=20260811_apl_full_catalog/);
+    assert.match(dashboard, /simc-apl-editor\.js[^\n]*\?v=20260811_apl_full_catalog/);
     assert.match(dashboard, /simc-workbench\.js[^\n]*\?v=20260811_apl_sticky_actions/);
 });
 
@@ -180,9 +188,10 @@ test('cancel aborts the active request and advances document version', async () 
 
 test('catalog page size follows the visible list height within safe API bounds', () => {
     assert.equal(catalogPageSizeForHeight(0), 10);
-    assert.equal(catalogPageSizeForHeight(360), 10);
-    assert.equal(catalogPageSizeForHeight(540), 15);
-    assert.equal(catalogPageSizeForHeight(2000), 30);
+    assert.equal(catalogPageSizeForHeight(360), 8);
+    assert.equal(catalogPageSizeForHeight(680), 10);
+    assert.equal(catalogPageSizeForHeight(1020), 15);
+    assert.equal(catalogPageSizeForHeight(3000), 30);
 });
 
 test('catalog assistant requests one adaptive server page and renders page controls', async () => {
