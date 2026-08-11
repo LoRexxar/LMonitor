@@ -2681,6 +2681,79 @@ DPS=208365 DPS-Error=200/0.1%
         for generic_section in ('SimcResultReport', '技能伤害与触发明细', '动态 Buff / Proc', 'Artifact / 原生报告'):
             self.assertNotIn(generic_section, attribute_renderer)
 
+    def test_attribute_final_report_prioritizes_final_run_stats_and_marginal_gains(self):
+        initial = {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}
+        final = {'crit': 1200, 'haste': 1800, 'mastery': 3100, 'versatility': 3900}
+        task = self._comparison_task_with_runs('attribute_sweep', [
+            ('初始属性', 'completed', 100000, {
+                'candidate_type': 'attribute_ratings', 'is_base': True,
+                'attribute_ratings': initial, 'search': {'round': 1, 'candidate_index': 0},
+            }),
+            ('最终推荐', 'completed', 102000, {
+                'candidate_type': 'attribute_ratings', 'is_base': False,
+                'attribute_ratings': final, 'search': {'round': 1, 'candidate_index': 1},
+            }),
+            ('边际暴击 +100', 'completed', 102100, {
+                'candidate_type': 'attribute_ratings', 'is_base': False,
+                'attribute_ratings': {**final, 'crit': 1300},
+                'search': {'type': 'attribute_marginal_gain', 'round': 2, 'candidate_index': 0},
+            }),
+        ])
+        _, final_run, marginal_run = task.simulation_runs.order_by('sequence')
+        final_artifact = SimcTaskArtifact.objects.create(
+            task=task, run=final_run, artifact_type='html_report',
+            file_path='simc_results/attribute-final-percentages.html',
+        )
+        SimcTaskArtifact.objects.create(
+            task=task, run=marginal_run, artifact_type='html_report',
+            file_path='simc_results/attribute-marginal-percentages.html',
+        )
+        task.current_status = 2
+        task.analysis_result = {'attribute_search': {
+            'ratings': final, 'dps': 102000, 'step': 20, 'round': 1,
+            'converged': True, 'stop_reason': 'local_optimum_20_pairwise',
+            'marginal_gain_status': 'completed',
+            'marginal_gains': [{
+                'run_id': marginal_run.id, 'stat': 'crit', 'amount': 100,
+                'ratings': {**final, 'crit': 1300}, 'baseline_dps': 102000,
+                'dps': 102100, 'dps_gain': 100, 'gain_percent': 0.098,
+            }],
+        }}
+        task.save(update_fields=['current_status', 'analysis_result'])
+        final_report = {'sections': [{'key': 'stats', 'tables': [{'rows': [
+            [{'text': ''}, {'text': 'Raid-Buffed'}],
+            [{'text': 'Crit'}, {'text': '21.50% (1200)'}],
+            [{'text': 'Haste'}, {'text': '18.25% (1800)'}],
+            [{'text': 'Mastery'}, {'text': '44.00% (3100)'}],
+            [{'text': 'Versatility'}, {'text': '12.75% (3900)'}],
+        ]}]}]}
+        marginal_report = {'sections': [{'key': 'stats', 'tables': [{'rows': [
+            [{'text': ''}, {'text': 'Raid-Buffed'}],
+            [{'text': 'Crit'}, {'text': '99.99% (1300)'}],
+        ]}]}]}
+
+        with patch(
+            'botend.services.simc_result_analysis.analyze_run_artifact',
+            side_effect=lambda _task, artifact: (
+                final_report if artifact.id == final_artifact.id else marginal_report
+            ),
+        ):
+            payload = self.client.get(f'/api/simc-workbench/tasks/{task.id}/').json()
+
+        self.assertTrue(payload['success'], payload)
+        final_result = payload['data']['attribute_report']['final_result']
+        self.assertEqual(final_result['id'], final_run.id)
+        self.assertEqual(final_result['raid_buffed_stats'], {
+            'crit': '21.50%', 'haste': '18.25%',
+            'mastery': '44.00%', 'versatility': '12.75%',
+        })
+        detail = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/simc-detail.js').read_text()
+        renderer = detail[detail.index('function renderAttributeTask'):detail.index('function renderTaskComparison')]
+        self.assertIn('finalResult?.raid_buffed_stats', renderer)
+        self.assertIn('attribute-stat-percent', renderer)
+        self.assertLess(renderer.index('attribute-final-result'), renderer.index("card('收敛后边际收益'"))
+        self.assertLess(renderer.index("card('收敛后边际收益'"), renderer.index("card('当前轮候选'"))
+
     def test_regular_candidate_task_returns_only_safe_summary(self):
         task = self._comparison_task_with_runs(rows=[
             ('基准配置', 'completed', 1744, {'is_base': True, 'search': {'candidate_index': 0}}),

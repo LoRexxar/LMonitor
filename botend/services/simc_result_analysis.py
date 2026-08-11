@@ -243,6 +243,49 @@ def _extract_gear_ratings(sections):
     return {}
 
 
+def extract_raid_buffed_secondary_stats(report):
+    """Return the four real Raid-Buffed secondary percentages from a parsed report."""
+    sections = report.get("sections") if isinstance(report, dict) else None
+    for section in sections or []:
+        if not isinstance(section, dict) or section.get("key") != "stats":
+            continue
+        for table in section.get("tables") or []:
+            rows = table.get("rows") if isinstance(table, dict) else None
+            if not isinstance(rows, list):
+                continue
+            raid_buffed_column = None
+            header_index = None
+            for row_index, row in enumerate(rows):
+                texts = [
+                    str(cell.get("text") or "").strip()
+                    for cell in row if isinstance(cell, dict)
+                ]
+                for cell_index, text in enumerate(texts):
+                    if text.casefold() == "raid-buffed":
+                        raid_buffed_column = cell_index
+                        header_index = row_index
+                        break
+                if raid_buffed_column is not None:
+                    break
+            if raid_buffed_column is None:
+                continue
+            stats = {}
+            for row in rows[(header_index or 0) + 1:]:
+                texts = [
+                    str(cell.get("text") or "").strip()
+                    for cell in row if isinstance(cell, dict)
+                ]
+                if not texts or raid_buffed_column >= len(texts):
+                    continue
+                stat = _GEAR_RATING_ROWS.get(texts[0].casefold())
+                percentage = re.search(r"[-+]?\d+(?:\.\d+)?%", texts[raid_buffed_column])
+                if stat and percentage:
+                    stats[stat] = percentage.group(0)
+            if stats:
+                return stats
+    return {}
+
+
 def localize_report_summary(report, bilingual_pairs=(), spell_names=None):
     """Localize a parsed report with the authoritative APL bilingual catalog.
 
