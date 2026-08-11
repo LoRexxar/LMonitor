@@ -422,8 +422,11 @@ class SimcComposer:
                 status='resolved',
             )
 
-        # For addon/manual/WCL export modes, parse and check for conflicts
-        if player_import_mode in ('addon_full_export', 'manual_equipment', 'wcl'):
+        # Frozen actor-export modes parse the baseline identity and actor-scoped
+        # options as well as equipment. Attribute-only baselines must follow the
+        # same path or valid consumables are silently dropped from composed input.
+        if player_import_mode in (
+                'addon_full_export', 'manual_equipment', 'wcl', 'attribute_only'):
             player_equipment = request_data.get('player_equipment', '').strip()
             if player_equipment:
                 parsed = self._parse_player_export(player_equipment)
@@ -459,6 +462,7 @@ class SimcComposer:
                                 'addon_full_export': 'addon_export',
                                 'manual_equipment': 'manual_equipment',
                                 'wcl': 'wcl_export',
+                                'attribute_only': 'attribute_frozen_baseline',
                             }[player_import_mode],
                             content_hash=content_hash,
                         ),

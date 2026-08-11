@@ -4,6 +4,7 @@ from django.core.management import call_command
 from django.test import TestCase
 
 from botend.models import SimcProfile
+from botend.services.simc_composer import SimcComposer
 
 
 FURY_CONSUMABLES = (
@@ -73,6 +74,25 @@ class SyncPtrProfileConsumablesTests(TestCase):
                 'main_hand=,id=21',
             )),
         )
+        attribute_target = SimcProfile.objects.create(
+            user_id=1,
+            name='12.1 PTR大秘境天赋-属性强制版',
+            source=SimcProfile.SOURCE_WCL,
+            class_name='warrior',
+            version='12.1',
+            use_ptr=True,
+            spec='warrior_fury',
+            player_config_mode='attribute_only',
+            player_equipment='\n'.join((
+                '# Frozen attribute baseline',
+                'ptr=1',
+                'warrior=MID2_Warrior_Fury',
+                'spec=fury',
+                '# Gear',
+                'head=,id=12',
+                'main_hand=,id=22',
+            )),
+        )
         unmatched = SimcProfile.objects.create(
             user_id=None,
             name='12.1 PTR大秘境天赋 Priest Holy',
@@ -89,12 +109,12 @@ class SyncPtrProfileConsumablesTests(TestCase):
         call_command('sync_ptr_profile_consumables', stdout=dry_run)
         single_target.refresh_from_db()
         self.assertNotIn(FURY_CONSUMABLES[0], single_target.player_equipment)
-        self.assertIn('DRY RUN: targets=3 matched=2 unmatched=1 changed_profiles=2', dry_run.getvalue())
+        self.assertIn('DRY RUN: targets=4 matched=3 unmatched=1 changed_profiles=3', dry_run.getvalue())
 
         first_apply = StringIO()
         call_command('sync_ptr_profile_consumables', apply=True, stdout=first_apply)
         first_contents = {}
-        for target in (single_target, dungeon_target):
+        for target in (single_target, dungeon_target, attribute_target):
             target.refresh_from_db()
             first_contents[target.pk] = target.player_equipment
             for line in FURY_CONSUMABLES:
@@ -108,11 +128,16 @@ class SyncPtrProfileConsumablesTests(TestCase):
             unmatched.player_equipment,
             'priest=PTR_Holy\nspec=holy\nmain_hand=,id=30',
         )
-        self.assertIn('changed_profiles=2', first_apply.getvalue())
+        composed = SimcComposer(attribute_target.user_id).compose_validation_input(
+            attribute_target, ''
+        )
+        for line in FURY_CONSUMABLES:
+            self.assertEqual(composed.splitlines().count(line), 1)
+        self.assertIn('changed_profiles=3', first_apply.getvalue())
 
         second_apply = StringIO()
         call_command('sync_ptr_profile_consumables', apply=True, stdout=second_apply)
-        for target in (single_target, dungeon_target):
+        for target in (single_target, dungeon_target, attribute_target):
             target.refresh_from_db()
             self.assertEqual(target.player_equipment, first_contents[target.pk])
         self.assertIn('changed_profiles=0', second_apply.getvalue())
