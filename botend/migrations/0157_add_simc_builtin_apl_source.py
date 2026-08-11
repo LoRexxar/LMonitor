@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('botend', '0155_simcbenchmarkcandidate_effect'),
+        ('botend', '0156_simcaplsymbol_localization_metadata'),
     ]
 
     operations = [
