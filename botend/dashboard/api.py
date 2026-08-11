@@ -6914,11 +6914,11 @@ class SimcWorkbenchAPIView(View):
                                 final_result['report_url'] = final_artifact_row.get('preview_url', '')
                             from botend.services.simc_result_analysis import (
                                 analyze_run_artifact,
-                                extract_raid_buffed_secondary_stats,
+                                extract_unbuffed_secondary_stats,
                             )
                             final_report_summary = analyze_run_artifact(task, final_artifact)
-                            final_result['raid_buffed_stats'] = (
-                                extract_raid_buffed_secondary_stats(final_report_summary)
+                            final_result['unbuffed_stats'] = (
+                                extract_unbuffed_secondary_stats(final_report_summary)
                             )
                         attribute_report['final_result'] = final_result
                     row['attribute_report'] = attribute_report

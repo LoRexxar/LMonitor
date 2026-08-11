@@ -243,8 +243,8 @@ def _extract_gear_ratings(sections):
     return {}
 
 
-def extract_raid_buffed_secondary_stats(report):
-    """Return the four real Raid-Buffed secondary percentages from a parsed report."""
+def extract_unbuffed_secondary_stats(report):
+    """Return the four real Unbuffed secondary percentages from a parsed report."""
     sections = report.get("sections") if isinstance(report, dict) else None
     for section in sections or []:
         if not isinstance(section, dict) or section.get("key") != "stats":
@@ -253,7 +253,7 @@ def extract_raid_buffed_secondary_stats(report):
             rows = table.get("rows") if isinstance(table, dict) else None
             if not isinstance(rows, list):
                 continue
-            raid_buffed_column = None
+            unbuffed_column = None
             header_index = None
             for row_index, row in enumerate(rows):
                 texts = [
@@ -261,13 +261,13 @@ def extract_raid_buffed_secondary_stats(report):
                     for cell in row if isinstance(cell, dict)
                 ]
                 for cell_index, text in enumerate(texts):
-                    if text.casefold() == "raid-buffed":
-                        raid_buffed_column = cell_index
+                    if text.casefold() == "unbuffed":
+                        unbuffed_column = cell_index
                         header_index = row_index
                         break
-                if raid_buffed_column is not None:
+                if unbuffed_column is not None:
                     break
-            if raid_buffed_column is None:
+            if unbuffed_column is None:
                 continue
             stats = {}
             for row in rows[(header_index or 0) + 1:]:
@@ -275,10 +275,10 @@ def extract_raid_buffed_secondary_stats(report):
                     str(cell.get("text") or "").strip()
                     for cell in row if isinstance(cell, dict)
                 ]
-                if not texts or raid_buffed_column >= len(texts):
+                if not texts or unbuffed_column >= len(texts):
                     continue
                 stat = _GEAR_RATING_ROWS.get(texts[0].casefold())
-                percentage = re.search(r"[-+]?\d+(?:\.\d+)?%", texts[raid_buffed_column])
+                percentage = re.search(r"[-+]?\d+(?:\.\d+)?%", texts[unbuffed_column])
                 if stat and percentage:
                     stats[stat] = percentage.group(0)
             if stats:

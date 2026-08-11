@@ -142,8 +142,8 @@
       const current = rating(finalResult?.ratings, stat);
       const initial = rating(initialRatings, stat);
       const delta = Number(current) - Number(initial);
-      const raidBuffedPercent = finalResult?.raid_buffed_stats?.[stat.key];
-      return `<div class="attribute-change attribute-stat-delta"><span>${stat.label}</span><b>${number(current)}</b><em class="${delta > 0 ? 'positive' : delta < 0 ? 'negative' : ''}">${Number.isFinite(delta) ? signed(delta) : '—'}</em><small class="attribute-stat-percent"><span>团队增益后</span><strong>${value(raidBuffedPercent, '—')}</strong></small></div>`;
+      const unbuffedPercent = finalResult?.unbuffed_stats?.[stat.key];
+      return `<div class="attribute-change attribute-stat-delta"><span>${stat.label}</span><b>${number(current)}</b><em class="${delta > 0 ? 'positive' : delta < 0 ? 'negative' : ''}">${Number.isFinite(delta) ? signed(delta) : '—'}</em><small class="attribute-stat-percent"><span>团队增益前</span><strong>${value(unbuffedPercent, '—')}</strong></small></div>`;
     }).join('');
     const configuredSteps = (Array.isArray(attribute.steps) ? attribute.steps : [100, 50, 20])
       .map(item => Number(item)).filter(Number.isFinite);

@@ -2721,15 +2721,15 @@ DPS=208365 DPS-Error=200/0.1%
         }}
         task.save(update_fields=['current_status', 'analysis_result'])
         final_report = {'sections': [{'key': 'stats', 'tables': [{'rows': [
-            [{'text': ''}, {'text': 'Raid-Buffed'}],
-            [{'text': 'Crit'}, {'text': '21.50% (1200)'}],
-            [{'text': 'Haste'}, {'text': '18.25% (1800)'}],
-            [{'text': 'Mastery'}, {'text': '44.00% (3100)'}],
-            [{'text': 'Versatility'}, {'text': '12.75% (3900)'}],
+            [{'text': ''}, {'text': 'Raid-Buffed'}, {'text': 'Unbuffed'}],
+            [{'text': 'Crit'}, {'text': '21.50% (1200)'}, {'text': '18.50% (1200)'}],
+            [{'text': 'Haste'}, {'text': '18.25% (1800)'}, {'text': '15.25% (1800)'}],
+            [{'text': 'Mastery'}, {'text': '44.00% (3100)'}, {'text': '40.00% (3100)'}],
+            [{'text': 'Versatility'}, {'text': '12.75% (3900)'}, {'text': '9.75% (3900)'}],
         ]}]}]}
         marginal_report = {'sections': [{'key': 'stats', 'tables': [{'rows': [
-            [{'text': ''}, {'text': 'Raid-Buffed'}],
-            [{'text': 'Crit'}, {'text': '99.99% (1300)'}],
+            [{'text': ''}, {'text': 'Raid-Buffed'}, {'text': 'Unbuffed'}],
+            [{'text': 'Crit'}, {'text': '99.99% (1300)'}, {'text': '88.88% (1300)'}],
         ]}]}]}
 
         with patch(
@@ -2743,13 +2743,14 @@ DPS=208365 DPS-Error=200/0.1%
         self.assertTrue(payload['success'], payload)
         final_result = payload['data']['attribute_report']['final_result']
         self.assertEqual(final_result['id'], final_run.id)
-        self.assertEqual(final_result['raid_buffed_stats'], {
-            'crit': '21.50%', 'haste': '18.25%',
-            'mastery': '44.00%', 'versatility': '12.75%',
+        self.assertEqual(final_result['unbuffed_stats'], {
+            'crit': '18.50%', 'haste': '15.25%',
+            'mastery': '40.00%', 'versatility': '9.75%',
         })
         detail = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/simc-detail.js').read_text()
         renderer = detail[detail.index('function renderAttributeTask'):detail.index('function renderTaskComparison')]
-        self.assertIn('finalResult?.raid_buffed_stats', renderer)
+        self.assertIn('finalResult?.unbuffed_stats', renderer)
+        self.assertIn('团队增益前', renderer)
         self.assertIn('attribute-stat-percent', renderer)
         self.assertLess(renderer.index('attribute-final-result'), renderer.index("card('收敛后边际收益'"))
         self.assertLess(renderer.index("card('收敛后边际收益'"), renderer.index("card('当前轮候选'"))
