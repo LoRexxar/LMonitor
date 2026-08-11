@@ -15,7 +15,7 @@ from botend.management.commands.update_simc_binary import Command as UpdateSimcB
 from botend.services.simc_player_config import build_player_config_detail, parse_manual_player_config, parse_manual_simc_candidates, parse_simc_player_profile
 from botend.services.simc_composer import SimcComposer
 from botend.services.simc_task_service import append_candidate_runs
-from botend.models import DashboardUserGroup, DashboardUserGroupMembership, PlayerSpecTopPlayer, SeasonMeta, SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate, SimcProfile, SimcTask, SimulationRun, WowItemSnapshot, WowTalentVersion
+from botend.models import DashboardUserGroup, DashboardUserGroupMembership, PlayerSpecTopPlayer, SeasonMeta, SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate, SimcProfile, SimcResourceVersion, SimcTask, SimulationRun, WowItemSnapshot, WowTalentVersion
 
 
 TEST_SIMC_REVISION = 'a' * 40
@@ -2406,6 +2406,84 @@ DPS=208365 DPS-Error=200/0.1%
         self.assertTrue(payload['success'], payload)
         self.assertEqual([row['name'] for row in payload['data']['runs']], ['结果 A', '结果 B'])
         self.assertEqual(payload['data']['comparison']['winner']['id'], second.id)
+
+    def test_selected_tasks_expose_and_render_actual_frozen_input_differences(self):
+        profile_versions = [
+            SimcResourceVersion.objects.create(
+                resource_type='profile', resource_id=self.profile.id,
+                content_hash=f'compare-profile-{suffix}', payload={
+                    'name': name, 'spec': 'warrior_fury',
+                    'player_config_mode': 'manual_equipment',
+                    'player_equipment': (
+                        f'warrior="Batcher"\nspec=fury\ntalents={talent}\n'
+                        f'head={item_name},id={item_id},ilevel={item_level}'
+                    ),
+                },
+            )
+            for suffix, name, talent, item_name, item_id, item_level in (
+                ('base', '基准 Profile', 'BASE_TALENT', '基准头盔', 111, 650),
+                ('candidate', '候选 Profile', 'ALT_TALENT', '候选头盔', 222, 660),
+            )
+        ]
+        apl_versions = [
+            SimcResourceVersion.objects.create(
+                resource_type='apl', resource_id=self.default_apl.id,
+                content_hash=f'compare-apl-{suffix}',
+                payload={'name': name, 'spec': 'warrior_fury', 'content': content},
+            )
+            for suffix, name, content in (
+                ('base', '单体 APL', 'actions=/bloodthirst'),
+                ('candidate', '多目标 APL', 'actions=/whirlwind'),
+            )
+        ]
+        template_version = SimcResourceVersion.objects.create(
+            resource_type='template', resource_id=self.base_template.id,
+            content_hash='compare-template-base',
+            payload={'name': '统一模板', 'spec': 'warrior_fury', 'content': self.base_template.content},
+        )
+        tasks = []
+        for index, (profile_version, apl_version, targets, dps) in enumerate(zip(
+                profile_versions, apl_versions, (1, 5), (1000, 1100)), start=1):
+            task = create_test_task(
+                user_id=self.user.id, name=f'冻结输入 {index}', simc_profile_id=self.profile.id,
+                mode='normal', current_status=2, profile=self.profile,
+                template=self.base_template, apl=self.default_apl,
+                profile_version=profile_version, template_version=template_version,
+                apl_version=apl_version,
+                simulation_params={
+                    'fight_style': 'Patchwerk', 'desired_targets': targets,
+                    'max_time': 300, 'iterations': 10000,
+                },
+            )
+            SimulationRun.objects.create(
+                task=task, sequence=1, candidate_key=f'result-{index}',
+                status='completed', result_summary={'dps': dps},
+            )
+            tasks.append(task)
+
+        payload = self.client.get(
+            '/api/simc-regular-compare/',
+            {'task_ids': ','.join(str(task.id) for task in tasks)},
+        ).json()
+
+        self.assertTrue(payload['success'], payload)
+        baseline, candidate = payload['data']['runs']
+        self.assertEqual(baseline['input_difference_summary'], '对比基准')
+        self.assertEqual(baseline['input_differences'], [])
+        differences = {row['key']: row for row in candidate['input_differences']}
+        self.assertEqual(differences['profile']['before'], '基准 Profile')
+        self.assertEqual(differences['profile']['after'], '候选 Profile')
+        self.assertEqual(differences['apl']['before'], '单体 APL')
+        self.assertEqual(differences['apl']['after'], '多目标 APL')
+        self.assertEqual(differences['simulation.desired_targets']['before'], '1')
+        self.assertEqual(differences['simulation.desired_targets']['after'], '5')
+        self.assertEqual(differences['talent']['before'], 'BASE_TALENT')
+        self.assertEqual(differences['talent']['after'], 'ALT_TALENT')
+        self.assertIn('ID 111', differences['equipment.head']['before'])
+        self.assertIn('ID 222', differences['equipment.head']['after'])
+        compare_template = (Path(__file__).resolve().parents[2] / 'templates/simc_regular_compare.html').read_text()
+        self.assertIn('实际输入差异（相对基准）', compare_template)
+        self.assertIn('input_differences', compare_template)
 
     def test_selected_comparison_rejects_other_users_task(self):
         other_user = User.objects.create_user(username='comparison_other', password='pwd')

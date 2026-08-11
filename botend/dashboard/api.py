@@ -5218,11 +5218,148 @@ class SimcRegularCompareAPIView(View):
             }
         return candidate
 
+    @classmethod
+    def _frozen_input_facts(cls, task, baseline=None):
+        """Return display-safe facts from the immutable inputs selected by a task."""
+        baseline = baseline or SimcWorkbenchAPIView._comparison_baseline_summary(task)
+        facts = {}
+
+        def add(key, label, value, display=None, detail=''):
+            facts[key] = {
+                'label': label,
+                'value': value,
+                'display': cls._format_input_value(value) if display is None else str(display or '—'),
+                'detail': str(detail or ''),
+            }
+
+        def resource_fact(key, label, version, fallback, summary):
+            name = str((summary or {}).get('name') or fallback or '—')
+            identity = (
+                ('snapshot', str(version.content_hash or f'id:{version.id}'))
+                if version else ('live', getattr(fallback, 'id', None), name)
+            )
+            add(key, label, identity, name, f'快照 #{version.id}' if version else '')
+
+        resource_fact('profile', 'Profile', task.profile_version, task.profile, baseline.get('profile'))
+        resource_fact('template', '基础模板', task.template_version, task.template, baseline.get('template'))
+        resource_fact('apl', 'APL', task.apl_version, task.apl, baseline.get('apl'))
+
+        backend = baseline.get('backend') or {}
+        backend_name = str(backend.get('name') or '—')
+        backend_version = str(backend.get('version') or '')
+        add(
+            'backend', '执行后端',
+            (task.backend_id, backend_version),
+            backend_name,
+            f'版本 {backend_version}' if backend_version else '',
+        )
+
+        simulation_labels = (
+            ('fight_style', '战斗类型'), ('desired_targets', '目标数'),
+            ('max_time', '模拟时长'), ('iterations', '迭代次数'),
+            ('target_error', '目标误差'), ('vary_combat_length', '战斗时长浮动'),
+            ('threads', '线程数'), ('enemy_type', '敌人类型'),
+            ('raid_buffs', '团队增益'), ('use_class_raid_buff', '使用职业团队增益'),
+        )
+        simulation_params = task.simulation_params if isinstance(task.simulation_params, dict) else {}
+        for key, label in simulation_labels:
+            if key in simulation_params:
+                value = simulation_params[key]
+                normalized = sorted(value) if key == 'raid_buffs' and isinstance(value, list) else value
+                add(f'simulation.{key}', label, normalized)
+
+        character_labels = (
+            ('name', '玩家'), ('class', '职业'), ('spec', '专精'),
+            ('race', '种族'), ('level', '等级'),
+        )
+        character = baseline.get('character') if isinstance(baseline.get('character'), dict) else {}
+        for key, label in character_labels:
+            value = character.get(key)
+            if value not in (None, ''):
+                add(f'character.{key}', label, value)
+
+        talent = str(baseline.get('_talent') or '')
+        if talent:
+            add('talent', '天赋', talent)
+
+        stat_labels = {
+            'strength': '力量', 'agility': '敏捷', 'intellect': '智力',
+            'crit': '暴击', 'haste': '急速', 'mastery': '精通',
+            'versatility': '全能',
+        }
+        stats = baseline.get('stats') if isinstance(baseline.get('stats'), dict) else {}
+        for key, value in stats.items():
+            add(f'stat.{key}', stat_labels.get(key, key), value)
+
+        equipped = baseline.get('equipped') if isinstance(baseline.get('equipped'), dict) else {}
+        for slot, item in equipped.items():
+            signature = SimcWorkbenchAPIView._simc_item_signature(item)
+            add(
+                f'equipment.{slot}', f'装备 · {slot}', signature,
+                cls._format_input_item(item),
+            )
+        return facts
+
+    @staticmethod
+    def _format_input_value(value):
+        if value is None or value == '':
+            return '—'
+        if isinstance(value, bool):
+            return '是' if value else '否'
+        if isinstance(value, (list, tuple)):
+            return '、'.join(str(item) for item in value) if value else '无'
+        if isinstance(value, dict):
+            return json.dumps(value, ensure_ascii=False, sort_keys=True)
+        return str(value)
+
+    @staticmethod
+    def _format_input_item(item):
+        item = item if isinstance(item, dict) else {}
+        title = str(item.get('name') or '物品')
+        details = []
+        if item.get('item_id') is not None:
+            details.append(f"ID {item['item_id']}")
+        if item.get('item_level') is not None:
+            details.append(f"装等 {item['item_level']}")
+        modifiers = item.get('modifiers') if isinstance(item.get('modifiers'), dict) else {}
+        if modifiers:
+            details.append(json.dumps(modifiers, ensure_ascii=False, sort_keys=True))
+        return f"{title}（{'，'.join(details)}）" if details else title
+
+    @classmethod
+    def _frozen_input_differences(cls, baseline, current):
+        differences = []
+        ordered_keys = list(baseline) + [key for key in current if key not in baseline]
+        for key in ordered_keys:
+            before = baseline.get(key)
+            after = current.get(key)
+            before_value = before.get('value') if before else None
+            after_value = after.get('value') if after else None
+            if before_value == after_value:
+                continue
+            before_display = before.get('display', '—') if before else '—'
+            after_display = after.get('display', '—') if after else '—'
+            if before_display == after_display:
+                if before and before.get('detail'):
+                    before_display = f"{before_display}（{before['detail']}）"
+                if after and after.get('detail'):
+                    after_display = f"{after_display}（{after['detail']}）"
+            differences.append({
+                'key': key,
+                'label': (after or before or {}).get('label') or key,
+                'before': before_display,
+                'after': after_display,
+            })
+        return differences
+
     def _get_multi_task_payload(self, request, task_ids):
         """Build a safe comparison report from selected ordinary simulation tasks."""
         tasks = list(SimcTask.objects.filter(
             id__in=task_ids, user_id=request.user.id, is_active=True,
-        ).select_related('apl', 'apl_version', 'profile', 'profile_version').order_by('id'))
+        ).select_related(
+            'apl', 'apl_version', 'profile', 'profile_version',
+            'template', 'template_version', 'backend',
+        ).order_by('id'))
         if len(tasks) != len(task_ids):
             raise PermissionError('所选任务不存在或无权限访问')
         rows = []
@@ -5236,6 +5373,8 @@ class SimcRegularCompareAPIView(View):
             params = task.simulation_params if isinstance(task.simulation_params, dict) else {}
             apl_payload = task.apl_version.payload if task.apl_version_id and isinstance(task.apl_version.payload, dict) else {}
             profile_payload = task.profile_version.payload if task.profile_version_id and isinstance(task.profile_version.payload, dict) else {}
+            frozen_baseline = SimcWorkbenchAPIView._comparison_baseline_summary(task)
+            frozen_input_facts = self._frozen_input_facts(task, frozen_baseline)
             apl_name = str(apl_payload.get('name') or getattr(task.apl, 'name', '') or params.get('override_action_list_name') or '—')
             profile_name = str(profile_payload.get('name') or getattr(task.profile, 'name', '') or '—')
             fight_style = str(params.get('fight_style') or params.get('fight_style_label') or 'Patchwerk')
@@ -5254,20 +5393,35 @@ class SimcRegularCompareAPIView(View):
                 'id': task.id, 'name': task.name, 'label': task.name,
                 'is_base': not rows, 'is_base_candidate': not rows,
                 'dps': dps, 'candidate_name': '',
-                'character': parsed.get('character', {}),
-                'simulation': parsed.get('simulation', {}),
-                'talents': parsed.get('talents', {}),
+                'character': parsed.get('character') or frozen_baseline.get('character') or {},
+                'simulation': parsed.get('simulation') or frozen_baseline.get('simulation_params') or {},
+                'talents': parsed.get('talents') or {'string': frozen_baseline.get('_talent') or ''},
                 'abilities': parsed.get('abilities', parsed.get('top_abilities', [])),
                 'top_abilities': parsed.get('top_abilities', []),
                 'apl_name': apl_name, 'profile_name': profile_name,
                 'battle_scenario': battle_scenario,
                 'apl_list': str(apl_payload.get('content') or getattr(task.apl, 'content', '') or params.get('override_action_list') or ''),
                 'run_id': run.id,
+                '_input_facts': frozen_input_facts,
             })
         if len(rows) < 2:
             raise ValueError('至少需要两个拥有已完成结果的任务')
         baseline = rows[0]
         baseline_dps = baseline['dps']
+        baseline_input_facts = baseline.get('_input_facts') or {}
+        for row in rows:
+            current_input_facts = row.pop('_input_facts', {})
+            if row is baseline:
+                row['input_differences'] = []
+                row['input_difference_summary'] = '对比基准'
+            else:
+                differences = self._frozen_input_differences(
+                    baseline_input_facts, current_input_facts,
+                )
+                row['input_differences'] = differences
+                row['input_difference_summary'] = (
+                    f'{len(differences)} 项输入不同' if differences else '与基准输入一致'
+                )
         ranked = sorted(rows, key=lambda row: (-row['dps'], row['id']))
         for rank, row in enumerate(ranked, start=1):
             row['rank'] = rank
