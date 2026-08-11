@@ -1,23 +1,23 @@
 {
   "counts": {
-    "bound_count": 2004,
-    "fact_count": 4947,
+    "bound_count": 2067,
+    "fact_count": 5021,
     "kind_counts": {
-      "action": 1395,
-      "buff": 3352,
+      "action": 1414,
+      "buff": 3400,
       "cooldown": 135,
-      "debuff": 30,
+      "debuff": 37,
       "dot": 35
     },
-    "localized_count": 4947,
+    "localized_count": 5021,
     "missing_zh_count": 0,
     "official_spec_count": 34,
     "scope_counts": {
-      "class": 1948,
-      "spec": 2999
+      "class": 1966,
+      "spec": 3055
     },
-    "source_record_count": 8318,
-    "unbound_count": 2943
+    "source_record_count": 8418,
+    "unbound_count": 2954
   },
   "expression_suffixes": {
     "action": [],
@@ -179,6 +179,62 @@
       "spell_id": 274738,
       "symbol_kind": "action",
       "token": "ancestral_call",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "deathknight",
+      "hero_tree": null,
+      "identity_candidates": [
+        51052
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "antimagic_zone",
+        "apl_field": "antimagic_zone",
+        "class_zh": "死亡骑士",
+        "covered_specs": [
+          "blood",
+          "frost",
+          "unholy"
+        ],
+        "covered_specs_zh": {
+          "blood": "鲜血",
+          "frost": "冰霜",
+          "unholy": "邪恶"
+        },
+        "expression_suffixes": [],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insertable": true,
+          "source_file": "engine/class_modules/sc_death_knight.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "",
+        "wowhead_raw_name": "反魔法领域",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=51052"
+      },
+      "name_en": "antimagic_zone",
+      "name_zh": "反魔法领域",
+      "options": [],
+      "scope": "class",
+      "source": "simc_manifest",
+      "spec": null,
+      "spell_id": 51052,
+      "symbol_kind": "action",
+      "token": "antimagic_zone",
       "trait_id": null
     },
     {
@@ -477,6 +533,228 @@
       "class_name": "deathknight",
       "hero_tree": null,
       "identity_candidates": [
+        45524
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "chains_of_ice",
+        "apl_field": "chains_of_ice",
+        "class_zh": "死亡骑士",
+        "covered_specs": [
+          "blood",
+          "frost",
+          "unholy"
+        ],
+        "covered_specs_zh": {
+          "blood": "鲜血",
+          "frost": "冰霜",
+          "unholy": "邪恶"
+        },
+        "expression_suffixes": [],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insertable": true,
+          "source_file": "engine/class_modules/sc_death_knight.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "",
+        "wowhead_raw_name": "冰霜锁链",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=45524"
+      },
+      "name_en": "chains_of_ice",
+      "name_zh": "冰霜锁链",
+      "options": [],
+      "scope": "class",
+      "source": "simc_manifest",
+      "spec": null,
+      "spell_id": 45524,
+      "symbol_kind": "action",
+      "token": "chains_of_ice",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "deathknight",
+      "hero_tree": null,
+      "identity_candidates": [
+        56222
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "dark_command",
+        "apl_field": "dark_command",
+        "class_zh": "死亡骑士",
+        "covered_specs": [
+          "blood",
+          "frost",
+          "unholy"
+        ],
+        "covered_specs_zh": {
+          "blood": "鲜血",
+          "frost": "冰霜",
+          "unholy": "邪恶"
+        },
+        "expression_suffixes": [],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insertable": true,
+          "source_file": "engine/class_modules/sc_death_knight.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "",
+        "wowhead_raw_name": "黑暗命令",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=56222"
+      },
+      "name_en": "dark_command",
+      "name_zh": "黑暗命令",
+      "options": [],
+      "scope": "class",
+      "source": "simc_manifest",
+      "spec": null,
+      "spell_id": 56222,
+      "symbol_kind": "action",
+      "token": "dark_command",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "deathknight",
+      "hero_tree": null,
+      "identity_candidates": [
+        49576
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "death_grip",
+        "apl_field": "death_grip",
+        "class_zh": "死亡骑士",
+        "covered_specs": [
+          "blood",
+          "frost",
+          "unholy"
+        ],
+        "covered_specs_zh": {
+          "blood": "鲜血",
+          "frost": "冰霜",
+          "unholy": "邪恶"
+        },
+        "expression_suffixes": [],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insertable": true,
+          "source_file": "engine/class_modules/sc_death_knight.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "",
+        "wowhead_raw_name": "死亡之握",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=49576"
+      },
+      "name_en": "death_grip",
+      "name_zh": "死亡之握",
+      "options": [],
+      "scope": "class",
+      "source": "simc_manifest",
+      "spec": null,
+      "spell_id": 49576,
+      "symbol_kind": "action",
+      "token": "death_grip",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "deathknight",
+      "hero_tree": null,
+      "identity_candidates": [],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_semantic",
+      "metadata": {
+        "apl_expression_template": "dnd_any",
+        "apl_field": "dnd_any",
+        "class_zh": "死亡骑士",
+        "covered_specs": [
+          "blood",
+          "frost",
+          "unholy"
+        ],
+        "covered_specs_zh": {
+          "blood": "鲜血",
+          "frost": "冰霜",
+          "unholy": "邪恶"
+        },
+        "expression_suffixes": [],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "未绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insertable": true,
+          "source_file": "engine/class_modules/sc_death_knight.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "",
+        "wowhead_raw_name": "任意枯萎凋零",
+        "wowhead_url": ""
+      },
+      "name_en": "dnd_any",
+      "name_zh": "任意枯萎凋零",
+      "options": [],
+      "scope": "class",
+      "source": "simc_manifest",
+      "spec": null,
+      "spell_id": null,
+      "symbol_kind": "action",
+      "token": "dnd_any",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "deathknight",
+      "hero_tree": null,
+      "identity_candidates": [
         265221
       ],
       "identity_reason": "",
@@ -540,6 +818,62 @@
       "spell_id": 265221,
       "symbol_kind": "action",
       "token": "fireblood",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "deathknight",
+      "hero_tree": null,
+      "identity_candidates": [
+        48792
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "icebound_fortitude",
+        "apl_field": "icebound_fortitude",
+        "class_zh": "死亡骑士",
+        "covered_specs": [
+          "blood",
+          "frost",
+          "unholy"
+        ],
+        "covered_specs_zh": {
+          "blood": "鲜血",
+          "frost": "冰霜",
+          "unholy": "邪恶"
+        },
+        "expression_suffixes": [],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insertable": true,
+          "source_file": "engine/class_modules/sc_death_knight.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "",
+        "wowhead_raw_name": "冰封之韧",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=48792"
+      },
+      "name_en": "icebound_fortitude",
+      "name_zh": "冰封之韧",
+      "options": [],
+      "scope": "class",
+      "source": "simc_manifest",
+      "spec": null,
+      "spell_id": 48792,
+      "symbol_kind": "action",
+      "token": "icebound_fortitude",
       "trait_id": null
     },
     {
@@ -8700,6 +9034,85 @@
       "aliases": [],
       "class_name": "deathknight",
       "hero_tree": null,
+      "identity_candidates": [
+        326984
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.rune_of_unending_thirst.duration",
+        "apl_field": "buff.rune_of_unending_thirst",
+        "class_zh": "死亡骑士",
+        "covered_specs": [
+          "blood",
+          "frost",
+          "unholy"
+        ],
+        "covered_specs_zh": {
+          "blood": "鲜血",
+          "frost": "冰霜",
+          "unholy": "邪恶"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "conditional_equipment",
+          "coverage_source": "simc_static_source",
+          "insertable": true,
+          "source_file": "engine/class_modules/sc_death_knight.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "",
+        "wowhead_raw_name": "无尽渴求符文",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=326984"
+      },
+      "name_en": "rune_of_unending_thirst",
+      "name_zh": "无尽渴求符文",
+      "options": [],
+      "scope": "class",
+      "source": "simc_manifest",
+      "spec": null,
+      "spell_id": 326984,
+      "symbol_kind": "buff",
+      "token": "rune_of_unending_thirst",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "deathknight",
+      "hero_tree": null,
       "identity_candidates": [],
       "identity_reason": "fallback_buff_unselected",
       "identity_source": "runtime_fallback_buff",
@@ -11339,6 +11752,58 @@
       "aliases": [],
       "class_name": "deathknight",
       "hero_tree": null,
+      "identity_candidates": [
+        315443
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "abomination_limb",
+        "apl_field": "abomination_limb",
+        "class_zh": "死亡骑士",
+        "covered_specs": [
+          "blood"
+        ],
+        "covered_specs_zh": {
+          "blood": "鲜血"
+        },
+        "expression_suffixes": [],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insertable": true,
+          "source_file": "engine/class_modules/sc_death_knight.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "鲜血",
+        "wowhead_raw_name": "憎恶附肢",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=315443"
+      },
+      "name_en": "abomination_limb",
+      "name_zh": "憎恶附肢",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "blood",
+      "spell_id": 315443,
+      "symbol_kind": "action",
+      "token": "abomination_limb",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "deathknight",
+      "hero_tree": null,
       "identity_candidates": [],
       "identity_reason": "apl_action_unbound_spell",
       "identity_source": "runtime_apl_action",
@@ -11857,6 +12322,58 @@
       "spell_id": 195292,
       "symbol_kind": "action",
       "token": "deaths_caress",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "deathknight",
+      "hero_tree": null,
+      "identity_candidates": [
+        108199
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "gorefiends_grasp",
+        "apl_field": "gorefiends_grasp",
+        "class_zh": "死亡骑士",
+        "covered_specs": [
+          "blood"
+        ],
+        "covered_specs_zh": {
+          "blood": "鲜血"
+        },
+        "expression_suffixes": [],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insertable": true,
+          "source_file": "engine/class_modules/sc_death_knight.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "鲜血",
+        "wowhead_raw_name": "血魔之握",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=108199"
+      },
+      "name_en": "gorefiends_grasp",
+      "name_zh": "血魔之握",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "blood",
+      "spell_id": 108199,
+      "symbol_kind": "action",
+      "token": "gorefiends_grasp",
       "trait_id": null
     },
     {
@@ -18116,6 +18633,58 @@
       "spell_id": 49143,
       "symbol_kind": "action",
       "token": "frost_strike",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "deathknight",
+      "hero_tree": null,
+      "identity_candidates": [
+        1228433
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "frostbane",
+        "apl_field": "frostbane",
+        "class_zh": "死亡骑士",
+        "covered_specs": [
+          "frost"
+        ],
+        "covered_specs_zh": {
+          "frost": "冰霜"
+        },
+        "expression_suffixes": [],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insertable": true,
+          "source_file": "engine/class_modules/sc_death_knight.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "冰霜",
+        "wowhead_raw_name": "冰霜灾祸",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1228433"
+      },
+      "name_en": "frostbane",
+      "name_zh": "冰霜灾祸",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "frost",
+      "spell_id": 1228433,
+      "symbol_kind": "action",
+      "token": "frostbane",
       "trait_id": null
     },
     {
@@ -25513,6 +26082,156 @@
       "aliases": [],
       "class_name": "deathknight",
       "hero_tree": null,
+      "identity_candidates": [
+        1239385
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.blighted_arrow_aoe.duration",
+        "apl_field": "buff.blighted_arrow_aoe",
+        "class_zh": "死亡骑士",
+        "covered_specs": [
+          "unholy"
+        ],
+        "covered_specs_zh": {
+          "unholy": "邪恶"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "pet",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "宠物内部 Buff，需要在对应宠物表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_death_knight.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "邪恶",
+        "wowhead_raw_name": "枯萎箭（范围）",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1239385"
+      },
+      "name_en": "blighted_arrow_aoe",
+      "name_zh": "枯萎箭（范围）",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "unholy",
+      "spell_id": 1239385,
+      "symbol_kind": "buff",
+      "token": "blighted_arrow_aoe",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "deathknight",
+      "hero_tree": null,
+      "identity_candidates": [],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_semantic",
+      "metadata": {
+        "apl_expression_template": "buff.blighted_arrow_st.duration",
+        "apl_field": "buff.blighted_arrow_st",
+        "class_zh": "死亡骑士",
+        "covered_specs": [
+          "unholy"
+        ],
+        "covered_specs_zh": {
+          "unholy": "邪恶"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "未绑定",
+        "source_coverage": {
+          "actor": "pet",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "宠物内部 Buff，需要在对应宠物表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_death_knight.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "邪恶",
+        "wowhead_raw_name": "枯萎箭（单体）",
+        "wowhead_url": ""
+      },
+      "name_en": "blighted_arrow_st",
+      "name_zh": "枯萎箭（单体）",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "unholy",
+      "spell_id": null,
+      "symbol_kind": "buff",
+      "token": "blighted_arrow_st",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "deathknight",
+      "hero_tree": null,
       "identity_candidates": [],
       "identity_reason": "fallback_buff_unselected",
       "identity_source": "runtime_fallback_buff",
@@ -26192,6 +26911,80 @@
       "spell_id": null,
       "symbol_kind": "buff",
       "token": "cryogenic_chamber",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "deathknight",
+      "hero_tree": null,
+      "identity_candidates": [],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_semantic",
+      "metadata": {
+        "apl_expression_template": "buff.dark_empowerment.duration",
+        "apl_field": "buff.dark_empowerment",
+        "class_zh": "死亡骑士",
+        "covered_specs": [
+          "unholy"
+        ],
+        "covered_specs_zh": {
+          "unholy": "邪恶"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "未绑定",
+        "source_coverage": {
+          "actor": "pet",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "宠物内部 Buff，需要在对应宠物表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_death_knight.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "邪恶",
+        "wowhead_raw_name": "黑暗强化",
+        "wowhead_url": ""
+      },
+      "name_en": "dark_empowerment",
+      "name_zh": "黑暗强化",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "unholy",
+      "spell_id": null,
+      "symbol_kind": "buff",
+      "token": "dark_empowerment",
       "trait_id": null
     },
     {
@@ -27289,6 +28082,80 @@
       "class_name": "deathknight",
       "hero_tree": null,
       "identity_candidates": [],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_semantic",
+      "metadata": {
+        "apl_expression_template": "buff.grave_mastery.duration",
+        "apl_field": "buff.grave_mastery",
+        "class_zh": "死亡骑士",
+        "covered_specs": [
+          "unholy"
+        ],
+        "covered_specs_zh": {
+          "unholy": "邪恶"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "未绑定",
+        "source_coverage": {
+          "actor": "pet",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "宠物内部 Buff，需要在对应宠物表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_death_knight.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "邪恶",
+        "wowhead_raw_name": "墓穴精通",
+        "wowhead_url": ""
+      },
+      "name_en": "grave_mastery",
+      "name_zh": "墓穴精通",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "unholy",
+      "spell_id": null,
+      "symbol_kind": "buff",
+      "token": "grave_mastery",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "deathknight",
+      "hero_tree": null,
+      "identity_candidates": [],
       "identity_reason": "fallback_buff_unselected",
       "identity_source": "runtime_fallback_buff",
       "localization_source": "catalog_exact",
@@ -27622,6 +28489,82 @@
       "spell_id": 1254252,
       "symbol_kind": "buff",
       "token": "lesser_ghoul_ready",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "deathknight",
+      "hero_tree": null,
+      "identity_candidates": [
+        1250728
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.mastery_dreadblade.duration",
+        "apl_field": "buff.mastery_dreadblade",
+        "class_zh": "死亡骑士",
+        "covered_specs": [
+          "unholy"
+        ],
+        "covered_specs_zh": {
+          "unholy": "邪恶"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "pet",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "宠物内部精通 Buff，需要在对应宠物表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_death_knight.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "邪恶",
+        "wowhead_raw_name": "精通：恐惧之刃",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1250728"
+      },
+      "name_en": "mastery_dreadblade",
+      "name_zh": "精通：恐惧之刃",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "unholy",
+      "spell_id": 1250728,
+      "symbol_kind": "buff",
+      "token": "mastery_dreadblade",
       "trait_id": null
     },
     {
@@ -29027,6 +29970,80 @@
       "aliases": [],
       "class_name": "deathknight",
       "hero_tree": null,
+      "identity_candidates": [],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_semantic",
+      "metadata": {
+        "apl_expression_template": "buff.transfusion.duration",
+        "apl_field": "buff.transfusion",
+        "class_zh": "死亡骑士",
+        "covered_specs": [
+          "unholy"
+        ],
+        "covered_specs_zh": {
+          "unholy": "邪恶"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "未绑定",
+        "source_coverage": {
+          "actor": "pet",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "宠物内部 Buff，需要在对应宠物表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_death_knight.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "邪恶",
+        "wowhead_raw_name": "输血",
+        "wowhead_url": ""
+      },
+      "name_en": "transfusion",
+      "name_zh": "输血",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "unholy",
+      "spell_id": null,
+      "symbol_kind": "buff",
+      "token": "transfusion",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "deathknight",
+      "hero_tree": null,
       "identity_candidates": [
         1268917
       ],
@@ -29086,6 +30103,80 @@
       "spell_id": 1268917,
       "symbol_kind": "buff",
       "token": "unholy_aura",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "deathknight",
+      "hero_tree": null,
+      "identity_candidates": [],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_semantic",
+      "metadata": {
+        "apl_expression_template": "buff.unholy_devotion.duration",
+        "apl_field": "buff.unholy_devotion",
+        "class_zh": "死亡骑士",
+        "covered_specs": [
+          "unholy"
+        ],
+        "covered_specs_zh": {
+          "unholy": "邪恶"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "未绑定",
+        "source_coverage": {
+          "actor": "pet",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "宠物内部 Buff，需要在对应宠物表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_death_knight.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "邪恶",
+        "wowhead_raw_name": "邪恶奉献",
+        "wowhead_url": ""
+      },
+      "name_en": "unholy_devotion",
+      "name_zh": "邪恶奉献",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "unholy",
+      "spell_id": null,
+      "symbol_kind": "buff",
+      "token": "unholy_devotion",
       "trait_id": null
     },
     {
@@ -29592,6 +30683,82 @@
       "class_name": "deathknight",
       "hero_tree": null,
       "identity_candidates": [
+        317792
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "debuff.frostbolt_magus.duration",
+        "apl_field": "debuff.frostbolt_magus",
+        "class_zh": "死亡骑士",
+        "covered_specs": [
+          "unholy"
+        ],
+        "covered_specs_zh": {
+          "unholy": "邪恶"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "pet_target",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "魔导师宠物施加的目标 Debuff，需要在对应宠物目标表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_death_knight.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "邪恶",
+        "wowhead_raw_name": "寒冰箭（魔导师）",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=317792"
+      },
+      "name_en": "frostbolt_magus",
+      "name_zh": "寒冰箭（魔导师）",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "unholy",
+      "spell_id": 317792,
+      "symbol_kind": "debuff",
+      "token": "frostbolt_magus",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "deathknight",
+      "hero_tree": null,
+      "identity_candidates": [
         1241521
       ],
       "identity_reason": "",
@@ -29856,6 +31023,118 @@
       "spell_id": null,
       "symbol_kind": "action",
       "token": "call_action_list",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "demonhunter",
+      "hero_tree": null,
+      "identity_candidates": [
+        179057
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "chaos_nova",
+        "apl_field": "chaos_nova",
+        "class_zh": "恶魔猎手",
+        "covered_specs": [
+          "devourer",
+          "havoc",
+          "vengeance"
+        ],
+        "covered_specs_zh": {
+          "devourer": "吞噬",
+          "havoc": "浩劫",
+          "vengeance": "复仇"
+        },
+        "expression_suffixes": [],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insertable": true,
+          "source_file": "engine/class_modules/sc_demon_hunter.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "",
+        "wowhead_raw_name": "混乱新星",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=179057"
+      },
+      "name_en": "chaos_nova",
+      "name_zh": "混乱新星",
+      "options": [],
+      "scope": "class",
+      "source": "simc_manifest",
+      "spec": null,
+      "spell_id": 179057,
+      "symbol_kind": "action",
+      "token": "chaos_nova",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "demonhunter",
+      "hero_tree": null,
+      "identity_candidates": [
+        278326
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "consume_magic",
+        "apl_field": "consume_magic",
+        "class_zh": "恶魔猎手",
+        "covered_specs": [
+          "devourer",
+          "havoc",
+          "vengeance"
+        ],
+        "covered_specs_zh": {
+          "devourer": "吞噬",
+          "havoc": "浩劫",
+          "vengeance": "复仇"
+        },
+        "expression_suffixes": [],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insertable": true,
+          "source_file": "engine/class_modules/sc_demon_hunter.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "",
+        "wowhead_raw_name": "吞噬魔法",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=278326"
+      },
+      "name_en": "consume_magic",
+      "name_zh": "吞噬魔法",
+      "options": [],
+      "scope": "class",
+      "source": "simc_manifest",
+      "spec": null,
+      "spell_id": 278326,
+      "symbol_kind": "action",
+      "token": "consume_magic",
       "trait_id": null
     },
     {
@@ -41238,6 +42517,58 @@
       "class_name": "demonhunter",
       "hero_tree": null,
       "identity_candidates": [
+        198589
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "blur",
+        "apl_field": "blur",
+        "class_zh": "恶魔猎手",
+        "covered_specs": [
+          "devourer"
+        ],
+        "covered_specs_zh": {
+          "devourer": "吞噬"
+        },
+        "expression_suffixes": [],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insertable": true,
+          "source_file": "engine/class_modules/sc_demon_hunter.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "吞噬",
+        "wowhead_raw_name": "疾影",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=198589"
+      },
+      "name_en": "blur",
+      "name_zh": "疾影",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "devourer",
+      "spell_id": 198589,
+      "symbol_kind": "action",
+      "token": "blur",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "demonhunter",
+      "hero_tree": null,
+      "identity_candidates": [
         1221150
       ],
       "identity_reason": "",
@@ -47402,6 +48733,58 @@
       "spell_id": 188499,
       "symbol_kind": "action",
       "token": "blade_dance",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "demonhunter",
+      "hero_tree": null,
+      "identity_candidates": [
+        198589
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "blur",
+        "apl_field": "blur",
+        "class_zh": "恶魔猎手",
+        "covered_specs": [
+          "havoc"
+        ],
+        "covered_specs_zh": {
+          "havoc": "浩劫"
+        },
+        "expression_suffixes": [],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insertable": true,
+          "source_file": "engine/class_modules/sc_demon_hunter.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "浩劫",
+        "wowhead_raw_name": "疾影",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=198589"
+      },
+      "name_en": "blur",
+      "name_zh": "疾影",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "havoc",
+      "spell_id": 198589,
+      "symbol_kind": "action",
+      "token": "blur",
       "trait_id": null
     },
     {
@@ -54948,6 +56331,58 @@
       "spell_id": 390163,
       "symbol_kind": "action",
       "token": "sigil_of_spite",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "demonhunter",
+      "hero_tree": null,
+      "identity_candidates": [
+        263648
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "soul_barrier",
+        "apl_field": "soul_barrier",
+        "class_zh": "恶魔猎手",
+        "covered_specs": [
+          "vengeance"
+        ],
+        "covered_specs_zh": {
+          "vengeance": "复仇"
+        },
+        "expression_suffixes": [],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insertable": true,
+          "source_file": "engine/class_modules/sc_demon_hunter.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "复仇",
+        "wowhead_raw_name": "灵魂壁障",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=263648"
+      },
+      "name_en": "soul_barrier",
+      "name_zh": "灵魂壁障",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "vengeance",
+      "spell_id": 263648,
+      "symbol_kind": "action",
+      "token": "soul_barrier",
       "trait_id": null
     },
     {
@@ -83756,6 +85191,81 @@
       "class_name": "druid",
       "hero_tree": null,
       "identity_candidates": [
+        450214
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "debuff.stellar_amplification.duration",
+        "apl_field": "debuff.stellar_amplification",
+        "class_zh": "德鲁伊",
+        "covered_specs": [
+          "balance"
+        ],
+        "covered_specs_zh": {
+          "balance": "平衡"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "target",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insertable": true,
+          "source_file": "engine/class_modules/sc_druid.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "平衡",
+        "wowhead_raw_name": "星辰强化",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=450214"
+      },
+      "name_en": "stellar_amplification",
+      "name_zh": "星辰强化",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "balance",
+      "spell_id": 450214,
+      "symbol_kind": "debuff",
+      "token": "stellar_amplification",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "druid",
+      "hero_tree": null,
+      "identity_candidates": [
         8921
       ],
       "identity_reason": "",
@@ -93460,6 +94970,156 @@
       "spell_id": 5217,
       "symbol_kind": "cooldown",
       "token": "tigers_fury",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "druid",
+      "hero_tree": null,
+      "identity_candidates": [
+        439531
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "debuff.bloodseeker_vines.duration",
+        "apl_field": "debuff.bloodseeker_vines",
+        "class_zh": "德鲁伊",
+        "covered_specs": [
+          "feral"
+        ],
+        "covered_specs_zh": {
+          "feral": "野性"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "target",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insertable": true,
+          "source_file": "engine/class_modules/sc_druid.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "野性",
+        "wowhead_raw_name": "觅血缠藤",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=439531"
+      },
+      "name_en": "bloodseeker_vines",
+      "name_zh": "觅血缠藤",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "feral",
+      "spell_id": 439531,
+      "symbol_kind": "debuff",
+      "token": "bloodseeker_vines",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "druid",
+      "hero_tree": null,
+      "identity_candidates": [
+        391722
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "debuff.sabertooth.duration",
+        "apl_field": "debuff.sabertooth",
+        "class_zh": "德鲁伊",
+        "covered_specs": [
+          "feral"
+        ],
+        "covered_specs_zh": {
+          "feral": "野性"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "target",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insertable": true,
+          "source_file": "engine/class_modules/sc_druid.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "野性",
+        "wowhead_raw_name": "剑齿利刃",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=391722"
+      },
+      "name_en": "sabertooth",
+      "name_zh": "剑齿利刃",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "feral",
+      "spell_id": 391722,
+      "symbol_kind": "debuff",
+      "token": "sabertooth",
       "trait_id": null
     },
     {
@@ -115253,6 +116913,82 @@
       "class_name": "evoker",
       "hero_tree": null,
       "identity_candidates": [],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_semantic",
+      "metadata": {
+        "apl_expression_template": "buff.deep_breath.duration",
+        "apl_field": "buff.deep_breath",
+        "class_zh": "唤魔师",
+        "covered_specs": [
+          "augmentation",
+          "devastation"
+        ],
+        "covered_specs_zh": {
+          "augmentation": "增辉",
+          "devastation": "湮灭"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "未绑定",
+        "source_coverage": {
+          "actor": "pet",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "召唤物内部 Buff，需要在对应召唤物表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_evoker.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "",
+        "wowhead_raw_name": "深呼吸",
+        "wowhead_url": ""
+      },
+      "name_en": "deep_breath",
+      "name_zh": "深呼吸",
+      "options": [],
+      "scope": "class",
+      "source": "simc_manifest",
+      "spec": null,
+      "spell_id": null,
+      "symbol_kind": "buff",
+      "token": "deep_breath",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "evoker",
+      "hero_tree": null,
+      "identity_candidates": [],
       "identity_reason": "fallback_buff_unselected",
       "identity_source": "runtime_fallback_buff",
       "localization_source": "wowhead_name_search",
@@ -128852,6 +130588,59 @@
       "spell_id": 370553,
       "symbol_kind": "action",
       "token": "tip_the_scales",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "evoker",
+      "hero_tree": null,
+      "identity_candidates": [
+        1292321
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "unbound_flame",
+        "apl_field": "unbound_flame",
+        "class_zh": "唤魔师",
+        "covered_specs": [
+          "devastation"
+        ],
+        "covered_specs_zh": {
+          "devastation": "湮灭"
+        },
+        "expression_suffixes": [],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "12.1",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "仅在 SimC 12.1 数据分支中可用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_evoker.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "湮灭",
+        "wowhead_raw_name": "不羁烈焰",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1292321"
+      },
+      "name_en": "unbound_flame",
+      "name_zh": "不羁烈焰",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "devastation",
+      "spell_id": 1292321,
+      "symbol_kind": "action",
+      "token": "unbound_flame",
       "trait_id": null
     },
     {
@@ -143471,6 +145260,82 @@
       "class_name": "hunter",
       "hero_tree": null,
       "identity_candidates": [
+        1225858
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.bear_summon.duration",
+        "apl_field": "buff.bear_summon",
+        "class_zh": "猎人",
+        "covered_specs": [
+          "beast_mastery"
+        ],
+        "covered_specs_zh": {
+          "beast_mastery": "野兽控制"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "pet",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "宠物内部 Buff，需要在对应宠物表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_hunter.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "野兽控制",
+        "wowhead_raw_name": "熊灵召唤",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1225858"
+      },
+      "name_en": "bear_summon",
+      "name_zh": "熊灵召唤",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "beast_mastery",
+      "spell_id": 1225858,
+      "symbol_kind": "buff",
+      "token": "bear_summon",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "hunter",
+      "hero_tree": null,
+      "identity_candidates": [
         19574
       ],
       "identity_reason": "",
@@ -143529,6 +145394,82 @@
       "spell_id": 19574,
       "symbol_kind": "buff",
       "token": "bestial_wrath",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "hunter",
+      "hero_tree": null,
+      "identity_candidates": [
+        1285912
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.bestial_wrath_apex.duration",
+        "apl_field": "buff.bestial_wrath_apex",
+        "class_zh": "猎人",
+        "covered_specs": [
+          "beast_mastery"
+        ],
+        "covered_specs_zh": {
+          "beast_mastery": "野兽控制"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "pet",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "宠物内部 Buff，需要在对应宠物表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_hunter.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "野兽控制",
+        "wowhead_raw_name": "终极狂野怒火",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1285912"
+      },
+      "name_en": "bestial_wrath_apex",
+      "name_zh": "终极狂野怒火",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "beast_mastery",
+      "spell_id": 1285912,
+      "symbol_kind": "buff",
+      "token": "bestial_wrath_apex",
       "trait_id": null
     },
     {
@@ -143729,6 +145670,82 @@
       "spell_id": null,
       "symbol_kind": "buff",
       "token": "bullseye",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "hunter",
+      "hero_tree": null,
+      "identity_candidates": [
+        1299389
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.cobra_fang.duration",
+        "apl_field": "buff.cobra_fang",
+        "class_zh": "猎人",
+        "covered_specs": [
+          "beast_mastery"
+        ],
+        "covered_specs_zh": {
+          "beast_mastery": "野兽控制"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "mid2",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "仅在 SimC MID2 套装条件下可用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_hunter.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "野兽控制",
+        "wowhead_raw_name": "眼镜蛇之牙",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1299389"
+      },
+      "name_en": "cobra_fang",
+      "name_zh": "眼镜蛇之牙",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "beast_mastery",
+      "spell_id": 1299389,
+      "symbol_kind": "buff",
+      "token": "cobra_fang",
       "trait_id": null
     },
     {
@@ -144605,6 +146622,82 @@
       "aliases": [],
       "class_name": "hunter",
       "hero_tree": null,
+      "identity_candidates": [
+        1284992
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.pet_damage.duration",
+        "apl_field": "buff.pet_damage",
+        "class_zh": "猎人",
+        "covered_specs": [
+          "beast_mastery"
+        ],
+        "covered_specs_zh": {
+          "beast_mastery": "野兽控制"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "pet",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "宠物内部 Buff，需要在对应宠物表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_hunter.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "野兽控制",
+        "wowhead_raw_name": "宠物伤害",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1284992"
+      },
+      "name_en": "pet_damage",
+      "name_zh": "宠物伤害",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "beast_mastery",
+      "spell_id": 1284992,
+      "symbol_kind": "buff",
+      "token": "pet_damage",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "hunter",
+      "hero_tree": null,
       "identity_candidates": [],
       "identity_reason": "unbound_buff_registry_entry",
       "identity_source": "runtime_buff_registry",
@@ -144874,6 +146967,82 @@
       "spell_id": null,
       "symbol_kind": "buff",
       "token": "shrapnel_bomb",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "hunter",
+      "hero_tree": null,
+      "identity_candidates": [
+        474751
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.solitary_companion.duration",
+        "apl_field": "buff.solitary_companion",
+        "class_zh": "猎人",
+        "covered_specs": [
+          "beast_mastery"
+        ],
+        "covered_specs_zh": {
+          "beast_mastery": "野兽控制"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "pet",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "宠物内部 Buff，需要在对应宠物表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_hunter.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "野兽控制",
+        "wowhead_raw_name": "独行伙伴",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=474751"
+      },
+      "name_en": "solitary_companion",
+      "name_zh": "独行伙伴",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "beast_mastery",
+      "spell_id": 474751,
+      "symbol_kind": "buff",
+      "token": "solitary_companion",
       "trait_id": null
     },
     {
@@ -148256,6 +150425,82 @@
       "class_name": "hunter",
       "hero_tree": null,
       "identity_candidates": [
+        1302277
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.death_bringer.duration",
+        "apl_field": "buff.death_bringer",
+        "class_zh": "猎人",
+        "covered_specs": [
+          "marksmanship"
+        ],
+        "covered_specs_zh": {
+          "marksmanship": "射击"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "12.1",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "仅在 SimC 12.1 数据分支中可用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_hunter.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "射击",
+        "wowhead_raw_name": "死亡使者",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1302277"
+      },
+      "name_en": "death_bringer",
+      "name_zh": "死亡使者",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "marksmanship",
+      "spell_id": 1302277,
+      "symbol_kind": "buff",
+      "token": "death_bringer",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "hunter",
+      "hero_tree": null,
+      "identity_candidates": [
         378770
       ],
       "identity_reason": "",
@@ -150014,6 +152259,82 @@
       "spell_id": 1265808,
       "symbol_kind": "buff",
       "token": "umbral_plume",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "hunter",
+      "hero_tree": null,
+      "identity_candidates": [
+        1301778
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.unstable_trigger.duration",
+        "apl_field": "buff.unstable_trigger",
+        "class_zh": "猎人",
+        "covered_specs": [
+          "marksmanship"
+        ],
+        "covered_specs_zh": {
+          "marksmanship": "射击"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "12.1",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "仅在 SimC 12.1 数据分支中可用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_hunter.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "射击",
+        "wowhead_raw_name": "不稳定扳机",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1301778"
+      },
+      "name_en": "unstable_trigger",
+      "name_zh": "不稳定扳机",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "marksmanship",
+      "spell_id": 1301778,
+      "symbol_kind": "buff",
+      "token": "unstable_trigger",
       "trait_id": null
     },
     {
@@ -152564,6 +154885,82 @@
       "aliases": [],
       "class_name": "hunter",
       "hero_tree": null,
+      "identity_candidates": [
+        1225858
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.bear_summon.duration",
+        "apl_field": "buff.bear_summon",
+        "class_zh": "猎人",
+        "covered_specs": [
+          "survival"
+        ],
+        "covered_specs_zh": {
+          "survival": "生存"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "pet",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "宠物内部 Buff，需要在对应宠物表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_hunter.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "生存",
+        "wowhead_raw_name": "熊灵召唤",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1225858"
+      },
+      "name_en": "bear_summon",
+      "name_zh": "熊灵召唤",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "survival",
+      "spell_id": 1225858,
+      "symbol_kind": "buff",
+      "token": "bear_summon",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "hunter",
+      "hero_tree": null,
       "identity_candidates": [],
       "identity_reason": "unbound_buff_registry_entry",
       "identity_source": "runtime_buff_registry",
@@ -153038,6 +155435,81 @@
       "spell_id": 1241762,
       "symbol_kind": "buff",
       "token": "frenzied_focus",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "hunter",
+      "hero_tree": null,
+      "identity_candidates": [
+        470488
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.grenade_juggler.duration",
+        "apl_field": "buff.grenade_juggler",
+        "class_zh": "猎人",
+        "covered_specs": [
+          "survival"
+        ],
+        "covered_specs_zh": {
+          "survival": "生存"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insertable": true,
+          "source_file": "engine/class_modules/sc_hunter.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "生存",
+        "wowhead_raw_name": "榴弹杂耍",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=470488"
+      },
+      "name_en": "grenade_juggler",
+      "name_zh": "榴弹杂耍",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "survival",
+      "spell_id": 470488,
+      "symbol_kind": "buff",
+      "token": "grenade_juggler",
       "trait_id": null
     },
     {
@@ -168799,6 +171271,59 @@
       "aliases": [],
       "class_name": "mage",
       "hero_tree": null,
+      "identity_candidates": [
+        1295924
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "prismatic_bolt",
+        "apl_field": "prismatic_bolt",
+        "class_zh": "法师",
+        "covered_specs": [
+          "arcane"
+        ],
+        "covered_specs_zh": {
+          "arcane": "奥术"
+        },
+        "expression_suffixes": [],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "12.1",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "仅在 SimC 12.1 数据分支中可用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_mage.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "奥术",
+        "wowhead_raw_name": "棱彩之箭",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1295924"
+      },
+      "name_en": "prismatic_bolt",
+      "name_zh": "棱彩之箭",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "arcane",
+      "spell_id": 1295924,
+      "symbol_kind": "action",
+      "token": "prismatic_bolt",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "mage",
+      "hero_tree": null,
       "identity_candidates": [],
       "identity_reason": "probe_action_unbound_spell",
       "identity_source": "runtime_action_probe",
@@ -169339,6 +171864,82 @@
       "class_name": "mage",
       "hero_tree": null,
       "identity_candidates": [
+        1296930
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.cumulative_power.duration",
+        "apl_field": "buff.cumulative_power",
+        "class_zh": "法师",
+        "covered_specs": [
+          "arcane"
+        ],
+        "covered_specs_zh": {
+          "arcane": "奥术"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "mid2",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "仅在 SimC MID2 套装条件下可用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_mage.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "奥术",
+        "wowhead_raw_name": "累积能量",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1296930"
+      },
+      "name_en": "cumulative_power",
+      "name_zh": "累积能量",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "arcane",
+      "spell_id": 1296930,
+      "symbol_kind": "buff",
+      "token": "cumulative_power",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "mage",
+      "hero_tree": null,
+      "identity_candidates": [
         1235057
       ],
       "identity_reason": "",
@@ -169592,6 +172193,82 @@
       "spell_id": 1241715,
       "symbol_kind": "buff",
       "token": "might_of_the_void",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "mage",
+      "hero_tree": null,
+      "identity_candidates": [
+        1295942
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.prismatic_bolt.duration",
+        "apl_field": "buff.prismatic_bolt",
+        "class_zh": "法师",
+        "covered_specs": [
+          "arcane"
+        ],
+        "covered_specs_zh": {
+          "arcane": "奥术"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "12.1",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "仅在 SimC 12.1 数据分支中可用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_mage.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "奥术",
+        "wowhead_raw_name": "棱彩之箭",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1295942"
+      },
+      "name_en": "prismatic_bolt",
+      "name_zh": "棱彩之箭",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "arcane",
+      "spell_id": 1295942,
+      "symbol_kind": "buff",
+      "token": "prismatic_bolt",
       "trait_id": null
     },
     {
@@ -175212,6 +177889,81 @@
       "class_name": "mage",
       "hero_tree": null,
       "identity_candidates": [
+        205473
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.icicles.duration",
+        "apl_field": "buff.icicles",
+        "class_zh": "法师",
+        "covered_specs": [
+          "frost"
+        ],
+        "covered_specs_zh": {
+          "frost": "冰霜"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insertable": true,
+          "source_file": "engine/class_modules/sc_mage.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "冰霜",
+        "wowhead_raw_name": "冰刺",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=205473"
+      },
+      "name_en": "icicles",
+      "name_zh": "冰刺",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "frost",
+      "spell_id": 205473,
+      "symbol_kind": "buff",
+      "token": "icicles",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "mage",
+      "hero_tree": null,
+      "identity_candidates": [
         449322
       ],
       "identity_reason": "",
@@ -175920,6 +178672,82 @@
       "spell_id": 1285161,
       "symbol_kind": "buff",
       "token": "protective_toadstools",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "mage",
+      "hero_tree": null,
+      "identity_candidates": [
+        1310248
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.rapid_refreezing.duration",
+        "apl_field": "buff.rapid_refreezing",
+        "class_zh": "法师",
+        "covered_specs": [
+          "frost"
+        ],
+        "covered_specs_zh": {
+          "frost": "冰霜"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "mid2",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "仅在 SimC MID2 套装条件下可用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_mage.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "冰霜",
+        "wowhead_raw_name": "急速再冻结",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1310248"
+      },
+      "name_en": "rapid_refreezing",
+      "name_zh": "急速再冻结",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "frost",
+      "spell_id": 1310248,
+      "symbol_kind": "buff",
+      "token": "rapid_refreezing",
       "trait_id": null
     },
     {
@@ -190416,6 +193244,81 @@
       "aliases": [],
       "class_name": "monk",
       "hero_tree": null,
+      "identity_candidates": [
+        1241059
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.celestial_infusion.duration",
+        "apl_field": "buff.celestial_infusion",
+        "class_zh": "武僧",
+        "covered_specs": [
+          "brewmaster"
+        ],
+        "covered_specs_zh": {
+          "brewmaster": "酒仙"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "target",
+          "availability": "conditional_target",
+          "coverage_source": "simc_static_source",
+          "insertable": true,
+          "source_file": "engine/class_modules/monk/sc_monk.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "酒仙",
+        "wowhead_raw_name": "天神灌注",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1241059"
+      },
+      "name_en": "celestial_infusion",
+      "name_zh": "天神灌注",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "brewmaster",
+      "spell_id": 1241059,
+      "symbol_kind": "buff",
+      "token": "celestial_infusion",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "monk",
+      "hero_tree": null,
       "identity_candidates": [],
       "identity_reason": "fallback_buff_unselected",
       "identity_source": "runtime_fallback_buff",
@@ -199889,6 +202792,62 @@
       "spell_id": null,
       "symbol_kind": "action",
       "token": "holy_prism",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "paladin",
+      "hero_tree": null,
+      "identity_candidates": [
+        20473
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "holy_shock",
+        "apl_field": "holy_shock",
+        "class_zh": "圣骑士",
+        "covered_specs": [
+          "protection",
+          "retribution"
+        ],
+        "covered_specs_zh": {
+          "protection": "防护",
+          "retribution": "惩戒"
+        },
+        "expression_suffixes": [],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "unsupported_default_apl_spec",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "源码属于神圣专精；当前编辑器没有神圣默认 APL 专精",
+          "insertable": false,
+          "intended_spec": "holy",
+          "source_file": "engine/class_modules/paladin/sc_paladin_holy.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "",
+        "wowhead_raw_name": "神圣震击",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=20473"
+      },
+      "name_en": "holy_shock",
+      "name_zh": "神圣震击",
+      "options": [],
+      "scope": "class",
+      "source": "simc_manifest",
+      "spec": null,
+      "spell_id": 20473,
+      "symbol_kind": "action",
+      "token": "holy_shock",
       "trait_id": null
     },
     {
@@ -215994,6 +218953,249 @@
       "class_name": "paladin",
       "hero_tree": null,
       "identity_candidates": [
+        432496
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.holy_bulwark_ally_{target}.duration",
+        "apl_field": "buff.holy_bulwark_ally_{target}",
+        "class_zh": "圣骑士",
+        "covered_specs": [
+          "protection"
+        ],
+        "covered_specs_zh": {
+          "protection": "防护"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "target",
+          "availability": "dynamic_actor_names",
+          "coverage_source": "simc_static_source",
+          "dynamic_source_token": "holy_bulwark_ally_",
+          "insert_reason": "源码会把目标名拼入字段，必须使用运行时生成的完整 token",
+          "insertable": false,
+          "intended_specs": [
+            "holy",
+            "protection"
+          ],
+          "source_file": "engine/class_modules/paladin/sc_paladin.hpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "防护",
+        "wowhead_raw_name": "神圣壁垒（动态目标）",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=432496"
+      },
+      "name_en": "holy_bulwark_ally_{target}",
+      "name_zh": "神圣壁垒（动态目标）",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "protection",
+      "spell_id": 432496,
+      "symbol_kind": "buff",
+      "token": "holy_bulwark_ally_{target}",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "paladin",
+      "hero_tree": null,
+      "identity_candidates": [
+        1239002
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.lesser_bulwark_ally_{source}_{target}.duration",
+        "apl_field": "buff.lesser_bulwark_ally_{source}_{target}",
+        "class_zh": "圣骑士",
+        "covered_specs": [
+          "protection"
+        ],
+        "covered_specs_zh": {
+          "protection": "防护"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "target",
+          "availability": "dynamic_actor_names",
+          "coverage_source": "simc_static_source",
+          "dynamic_source_token": "lesser_bulwark_ally_",
+          "insert_reason": "源码会把施法者名和目标名拼入字段，必须使用运行时生成的完整 token",
+          "insertable": false,
+          "intended_specs": [
+            "holy",
+            "protection"
+          ],
+          "source_file": "engine/class_modules/paladin/sc_paladin.hpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "防护",
+        "wowhead_raw_name": "次级壁垒（动态来源与目标）",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1239002"
+      },
+      "name_en": "lesser_bulwark_ally_{source}_{target}",
+      "name_zh": "次级壁垒（动态来源与目标）",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "protection",
+      "spell_id": 1239002,
+      "symbol_kind": "buff",
+      "token": "lesser_bulwark_ally_{source}_{target}",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "paladin",
+      "hero_tree": null,
+      "identity_candidates": [
+        1239091
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.lesser_weapon_{source}_{target}.duration",
+        "apl_field": "buff.lesser_weapon_{source}_{target}",
+        "class_zh": "圣骑士",
+        "covered_specs": [
+          "protection"
+        ],
+        "covered_specs_zh": {
+          "protection": "防护"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "target",
+          "availability": "dynamic_actor_names",
+          "coverage_source": "simc_static_source",
+          "dynamic_source_token": "lesser_weapon_",
+          "insert_reason": "源码会把施法者名和目标名拼入字段，必须使用运行时生成的完整 token",
+          "insertable": false,
+          "intended_specs": [
+            "holy",
+            "protection"
+          ],
+          "source_file": "engine/class_modules/paladin/sc_paladin.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "防护",
+        "wowhead_raw_name": "次级武器（动态来源与目标）",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1239091"
+      },
+      "name_en": "lesser_weapon_{source}_{target}",
+      "name_zh": "次级武器（动态来源与目标）",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "protection",
+      "spell_id": 1239091,
+      "symbol_kind": "buff",
+      "token": "lesser_weapon_{source}_{target}",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "paladin",
+      "hero_tree": null,
+      "identity_candidates": [
         432502
       ],
       "identity_reason": "",
@@ -216052,6 +219254,87 @@
       "spell_id": 432502,
       "symbol_kind": "buff",
       "token": "sacred_weapon_mid1_paladin_protection_mid1_paladin_protection",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "paladin",
+      "hero_tree": null,
+      "identity_candidates": [
+        432502
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.sacred_weapon_{source}_{target}.duration",
+        "apl_field": "buff.sacred_weapon_{source}_{target}",
+        "class_zh": "圣骑士",
+        "covered_specs": [
+          "protection"
+        ],
+        "covered_specs_zh": {
+          "protection": "防护"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "target",
+          "availability": "dynamic_actor_names",
+          "coverage_source": "simc_static_source",
+          "dynamic_source_token": "sacred_weapon_",
+          "insert_reason": "源码会把施法者名和目标名拼入字段，必须使用运行时生成的完整 token",
+          "insertable": false,
+          "intended_specs": [
+            "holy",
+            "protection"
+          ],
+          "source_file": "engine/class_modules/paladin/sc_paladin.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "防护",
+        "wowhead_raw_name": "圣洁武器（动态来源与目标）",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=432502"
+      },
+      "name_en": "sacred_weapon_{source}_{target}",
+      "name_zh": "圣洁武器（动态来源与目标）",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "protection",
+      "spell_id": 432502,
+      "symbol_kind": "buff",
+      "token": "sacred_weapon_{source}_{target}",
       "trait_id": null
     },
     {
@@ -218801,6 +222084,293 @@
       "spell_id": 383346,
       "symbol_kind": "dot",
       "token": "expurgation",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "priest",
+      "hero_tree": null,
+      "identity_candidates": [
+        1253593
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "void_shield",
+        "apl_field": "void_shield",
+        "class_zh": "牧师",
+        "covered_specs": [
+          "shadow"
+        ],
+        "covered_specs_zh": {
+          "shadow": "暗影"
+        },
+        "expression_suffixes": [],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "unsupported_default_apl_spec",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "源码属于戒律专精；当前编辑器没有戒律默认 APL 专精",
+          "insertable": false,
+          "intended_spec": "discipline",
+          "scope_hint": "class",
+          "source_file": "engine/class_modules/priest/sc_priest.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "",
+        "wowhead_raw_name": "虚空护盾",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1253593"
+      },
+      "name_en": "void_shield",
+      "name_zh": "虚空护盾",
+      "options": [],
+      "scope": "class",
+      "source": "simc_manifest",
+      "spec": null,
+      "spell_id": 1253593,
+      "symbol_kind": "action",
+      "token": "void_shield",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "priest",
+      "hero_tree": null,
+      "identity_candidates": [
+        65081
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.body_and_soul.duration",
+        "apl_field": "buff.body_and_soul",
+        "class_zh": "牧师",
+        "covered_specs": [
+          "shadow"
+        ],
+        "covered_specs_zh": {
+          "shadow": "暗影"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "target",
+          "availability": "conditional_target",
+          "coverage_source": "simc_static_source",
+          "insertable": true,
+          "scope_hint": "class",
+          "source_file": "engine/class_modules/priest/sc_priest.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "",
+        "wowhead_raw_name": "身心合一",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=65081"
+      },
+      "name_en": "body_and_soul",
+      "name_zh": "身心合一",
+      "options": [],
+      "scope": "class",
+      "source": "simc_manifest",
+      "spec": null,
+      "spell_id": 65081,
+      "symbol_kind": "buff",
+      "token": "body_and_soul",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "priest",
+      "hero_tree": null,
+      "identity_candidates": [
+        47753
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.divine_aegis.duration",
+        "apl_field": "buff.divine_aegis",
+        "class_zh": "牧师",
+        "covered_specs": [
+          "shadow"
+        ],
+        "covered_specs_zh": {
+          "shadow": "暗影"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "target",
+          "availability": "unsupported_default_apl_spec",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "源码属于戒律专精；当前编辑器没有戒律默认 APL 专精",
+          "insertable": false,
+          "intended_spec": "discipline",
+          "scope_hint": "class",
+          "source_file": "engine/class_modules/priest/sc_priest.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "",
+        "wowhead_raw_name": "神圣庇护",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=47753"
+      },
+      "name_en": "divine_aegis",
+      "name_zh": "神圣庇护",
+      "options": [],
+      "scope": "class",
+      "source": "simc_manifest",
+      "spec": null,
+      "spell_id": 47753,
+      "symbol_kind": "buff",
+      "token": "divine_aegis",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "priest",
+      "hero_tree": null,
+      "identity_candidates": [
+        1253593
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.void_shield.duration",
+        "apl_field": "buff.void_shield",
+        "class_zh": "牧师",
+        "covered_specs": [
+          "shadow"
+        ],
+        "covered_specs_zh": {
+          "shadow": "暗影"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "target",
+          "availability": "unsupported_default_apl_spec",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "源码属于戒律专精；当前编辑器没有戒律默认 APL 专精",
+          "insertable": false,
+          "intended_spec": "discipline",
+          "scope_hint": "class",
+          "source_file": "engine/class_modules/priest/sc_priest.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "",
+        "wowhead_raw_name": "虚空之盾",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1253593"
+      },
+      "name_en": "void_shield",
+      "name_zh": "虚空之盾",
+      "options": [],
+      "scope": "class",
+      "source": "simc_manifest",
+      "spec": null,
+      "spell_id": 1253593,
+      "symbol_kind": "buff",
+      "token": "void_shield",
       "trait_id": null
     },
     {
@@ -222774,6 +226344,82 @@
       "spell_id": 1266686,
       "symbol_kind": "buff",
       "token": "alnsight",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "priest",
+      "hero_tree": null,
+      "identity_candidates": [
+        1304485
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.ancient_madness.duration",
+        "apl_field": "buff.ancient_madness",
+        "class_zh": "牧师",
+        "covered_specs": [
+          "shadow"
+        ],
+        "covered_specs_zh": {
+          "shadow": "暗影"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "ptr",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "仅在 SimC PTR 数据分支中可用",
+          "insertable": false,
+          "source_file": "engine/class_modules/priest/sc_priest_shadow.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "暗影",
+        "wowhead_raw_name": "远古疯狂",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1304485"
+      },
+      "name_en": "ancient_madness",
+      "name_zh": "远古疯狂",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "shadow",
+      "spell_id": 1304485,
+      "symbol_kind": "buff",
+      "token": "ancient_madness",
       "trait_id": null
     },
     {
@@ -244217,6 +247863,162 @@
       "spell_id": null,
       "symbol_kind": "buff",
       "token": "scouring_touch",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "rogue",
+      "hero_tree": null,
+      "identity_candidates": [],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_semantic",
+      "metadata": {
+        "apl_expression_template": "buff.secondary_weapon_mh.duration",
+        "apl_field": "buff.secondary_weapon_mh",
+        "class_zh": "潜行者",
+        "covered_specs": [
+          "assassination",
+          "outlaw",
+          "subtlety"
+        ],
+        "covered_specs_zh": {
+          "assassination": "奇袭",
+          "outlaw": "狂徒",
+          "subtlety": "敏锐"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "未绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "conditional_equipment",
+          "coverage_source": "simc_static_source",
+          "dynamic_source_token": "secondary_weapon",
+          "insertable": true,
+          "source_file": "engine/class_modules/sc_rogue.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "",
+        "wowhead_raw_name": "副武器（主手）",
+        "wowhead_url": ""
+      },
+      "name_en": "secondary_weapon_mh",
+      "name_zh": "副武器（主手）",
+      "options": [],
+      "scope": "class",
+      "source": "simc_manifest",
+      "spec": null,
+      "spell_id": null,
+      "symbol_kind": "buff",
+      "token": "secondary_weapon_mh",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "rogue",
+      "hero_tree": null,
+      "identity_candidates": [],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_semantic",
+      "metadata": {
+        "apl_expression_template": "buff.secondary_weapon_oh.duration",
+        "apl_field": "buff.secondary_weapon_oh",
+        "class_zh": "潜行者",
+        "covered_specs": [
+          "assassination",
+          "outlaw",
+          "subtlety"
+        ],
+        "covered_specs_zh": {
+          "assassination": "奇袭",
+          "outlaw": "狂徒",
+          "subtlety": "敏锐"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "未绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "conditional_equipment",
+          "coverage_source": "simc_static_source",
+          "dynamic_source_token": "secondary_weapon",
+          "insertable": true,
+          "source_file": "engine/class_modules/sc_rogue.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "",
+        "wowhead_raw_name": "副武器（副手）",
+        "wowhead_url": ""
+      },
+      "name_en": "secondary_weapon_oh",
+      "name_zh": "副武器（副手）",
+      "options": [],
+      "scope": "class",
+      "source": "simc_manifest",
+      "spec": null,
+      "spell_id": null,
+      "symbol_kind": "buff",
+      "token": "secondary_weapon_oh",
       "trait_id": null
     },
     {
@@ -284083,6 +287885,80 @@
       "aliases": [],
       "class_name": "shaman",
       "hero_tree": null,
+      "identity_candidates": [],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_semantic",
+      "metadata": {
+        "apl_expression_template": "buff.call_lightning.duration",
+        "apl_field": "buff.call_lightning",
+        "class_zh": "萨满祭司",
+        "covered_specs": [
+          "elemental"
+        ],
+        "covered_specs_zh": {
+          "elemental": "元素"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "未绑定",
+        "source_coverage": {
+          "actor": "pet",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "宠物内部 Buff，需要在对应宠物表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_shaman.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "元素",
+        "wowhead_raw_name": "召唤闪电",
+        "wowhead_url": ""
+      },
+      "name_en": "call_lightning",
+      "name_zh": "召唤闪电",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "elemental",
+      "spell_id": null,
+      "symbol_kind": "buff",
+      "token": "call_lightning",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "shaman",
+      "hero_tree": null,
       "identity_candidates": [
         187878
       ],
@@ -285936,6 +289812,58 @@
       "spell_id": 117014,
       "symbol_kind": "action",
       "token": "elemental_blast",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "shaman",
+      "hero_tree": null,
+      "identity_candidates": [
+        196884
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "feral_lunge",
+        "apl_field": "feral_lunge",
+        "class_zh": "萨满祭司",
+        "covered_specs": [
+          "enhancement"
+        ],
+        "covered_specs_zh": {
+          "enhancement": "增强"
+        },
+        "expression_suffixes": [],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insertable": true,
+          "source_file": "engine/class_modules/sc_shaman.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "增强",
+        "wowhead_raw_name": "野性扑击",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=196884"
+      },
+      "name_en": "feral_lunge",
+      "name_zh": "野性扑击",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "enhancement",
+      "spell_id": 196884,
+      "symbol_kind": "action",
+      "token": "feral_lunge",
       "trait_id": null
     },
     {
@@ -287916,6 +291844,82 @@
       "class_name": "shaman",
       "hero_tree": null,
       "identity_candidates": [
+        1299991
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.short_circuit.duration",
+        "apl_field": "buff.short_circuit",
+        "class_zh": "萨满祭司",
+        "covered_specs": [
+          "enhancement"
+        ],
+        "covered_specs_zh": {
+          "enhancement": "增强"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "ptr_mid2",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "仅在 SimC PTR/MID2 数据分支中可用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_shaman.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "增强",
+        "wowhead_raw_name": "短路",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1299991"
+      },
+      "name_en": "short_circuit",
+      "name_zh": "短路",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "enhancement",
+      "spell_id": 1299991,
+      "symbol_kind": "buff",
+      "token": "short_circuit",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "shaman",
+      "hero_tree": null,
+      "identity_candidates": [
         58875
       ],
       "identity_reason": "",
@@ -288267,6 +292271,82 @@
       "spell_id": 444995,
       "symbol_kind": "cooldown",
       "token": "surging_totem",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "shaman",
+      "hero_tree": null,
+      "identity_candidates": [
+        1299975
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "debuff.burning_core.duration",
+        "apl_field": "debuff.burning_core",
+        "class_zh": "萨满祭司",
+        "covered_specs": [
+          "enhancement"
+        ],
+        "covered_specs_zh": {
+          "enhancement": "增强"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "target",
+          "availability": "ptr_mid2",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "仅在 SimC PTR/MID2 数据分支中可用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_shaman.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "增强",
+        "wowhead_raw_name": "燃烧核心",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1299975"
+      },
+      "name_en": "burning_core",
+      "name_zh": "燃烧核心",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "enhancement",
+      "spell_id": 1299975,
+      "symbol_kind": "debuff",
+      "token": "burning_core",
       "trait_id": null
     },
     {
@@ -299397,6 +303477,87 @@
       "class_name": "warlock",
       "hero_tree": null,
       "identity_candidates": [
+        6360
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "debuff.whiplash.duration",
+        "apl_field": "debuff.whiplash",
+        "class_zh": "术士",
+        "covered_specs": [
+          "affliction",
+          "demonology",
+          "destruction"
+        ],
+        "covered_specs_zh": {
+          "affliction": "痛苦",
+          "demonology": "恶魔学识",
+          "destruction": "毁灭"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "pet_target",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "魅魔宠物施加的目标 Debuff，需要在对应宠物目标表达式上下文中使用",
+          "insertable": false,
+          "scope_hint": "class",
+          "source_file": "engine/class_modules/warlock/sc_warlock_pets.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "",
+        "wowhead_raw_name": "鞭打",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=6360"
+      },
+      "name_en": "whiplash",
+      "name_zh": "鞭打",
+      "options": [],
+      "scope": "class",
+      "source": "simc_manifest",
+      "spec": null,
+      "spell_id": 6360,
+      "symbol_kind": "debuff",
+      "token": "whiplash",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "warlock",
+      "hero_tree": null,
+      "identity_candidates": [
         980
       ],
       "identity_reason": "",
@@ -303120,6 +307281,82 @@
       "aliases": [],
       "class_name": "warlock",
       "hero_tree": null,
+      "identity_candidates": [
+        1305774
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.unstable_empowerment.duration",
+        "apl_field": "buff.unstable_empowerment",
+        "class_zh": "术士",
+        "covered_specs": [
+          "affliction"
+        ],
+        "covered_specs_zh": {
+          "affliction": "痛苦"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "12.1",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "仅在 SimC 12.1 数据分支中可用",
+          "insertable": false,
+          "source_file": "engine/class_modules/warlock/sc_warlock_init.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "痛苦",
+        "wowhead_raw_name": "不稳定强化",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1305774"
+      },
+      "name_en": "unstable_empowerment",
+      "name_zh": "不稳定强化",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "affliction",
+      "spell_id": 1305774,
+      "symbol_kind": "buff",
+      "token": "unstable_empowerment",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "warlock",
+      "hero_tree": null,
       "identity_candidates": [],
       "identity_reason": "unbound_buff_registry_entry",
       "identity_source": "runtime_buff_registry",
@@ -305766,6 +310003,82 @@
       "class_name": "warlock",
       "hero_tree": null,
       "identity_candidates": [
+        1276788
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.demonic_power.duration",
+        "apl_field": "buff.demonic_power",
+        "class_zh": "术士",
+        "covered_specs": [
+          "demonology"
+        ],
+        "covered_specs_zh": {
+          "demonology": "恶魔学识"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "pet",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "宠物内部 Buff，需要在对应宠物表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/warlock/sc_warlock_pets.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "恶魔学识",
+        "wowhead_raw_name": "恶魔之力",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1276788"
+      },
+      "name_en": "demonic_power",
+      "name_zh": "恶魔之力",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "demonology",
+      "spell_id": 1276788,
+      "symbol_kind": "buff",
+      "token": "demonic_power",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "warlock",
+      "hero_tree": null,
+      "identity_candidates": [
         432815
       ],
       "identity_reason": "",
@@ -306025,6 +310338,82 @@
       "aliases": [],
       "class_name": "warlock",
       "hero_tree": null,
+      "identity_candidates": [
+        453704
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.ferocity_of_fharg.duration",
+        "apl_field": "buff.ferocity_of_fharg",
+        "class_zh": "术士",
+        "covered_specs": [
+          "demonology"
+        ],
+        "covered_specs_zh": {
+          "demonology": "恶魔学识"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "pet",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "宠物内部 Buff，需要在对应宠物表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/warlock/sc_warlock_pets.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "恶魔学识",
+        "wowhead_raw_name": "法尔格的凶狂",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=453704"
+      },
+      "name_en": "ferocity_of_fharg",
+      "name_zh": "法尔格的凶狂",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "demonology",
+      "spell_id": 453704,
+      "symbol_kind": "buff",
+      "token": "ferocity_of_fharg",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "warlock",
+      "hero_tree": null,
       "identity_candidates": [],
       "identity_reason": "unbound_buff_registry_entry",
       "identity_source": "runtime_buff_registry",
@@ -306230,6 +310619,82 @@
       "aliases": [],
       "class_name": "warlock",
       "hero_tree": null,
+      "identity_candidates": [
+        216187
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.grimoire_of_service.duration",
+        "apl_field": "buff.grimoire_of_service",
+        "class_zh": "术士",
+        "covered_specs": [
+          "demonology"
+        ],
+        "covered_specs_zh": {
+          "demonology": "恶魔学识"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "pet",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "宠物内部 Buff，需要在对应宠物表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/warlock/sc_warlock_pets.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "恶魔学识",
+        "wowhead_raw_name": "侍从魔典",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=216187"
+      },
+      "name_en": "grimoire_of_service",
+      "name_zh": "侍从魔典",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "demonology",
+      "spell_id": 216187,
+      "symbol_kind": "buff",
+      "token": "grimoire_of_service",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "warlock",
+      "hero_tree": null,
       "identity_candidates": [],
       "identity_reason": "unbound_buff_registry_entry",
       "identity_source": "runtime_buff_registry",
@@ -306366,6 +310831,82 @@
       "class_name": "warlock",
       "hero_tree": null,
       "identity_candidates": [
+        1250772
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.imp_gang_boss.duration",
+        "apl_field": "buff.imp_gang_boss",
+        "class_zh": "术士",
+        "covered_specs": [
+          "demonology"
+        ],
+        "covered_specs_zh": {
+          "demonology": "恶魔学识"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "pet",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "宠物内部 Buff，需要在对应宠物表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/warlock/sc_warlock_pets.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "恶魔学识",
+        "wowhead_raw_name": "小鬼首领",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1250772"
+      },
+      "name_en": "imp_gang_boss",
+      "name_zh": "小鬼首领",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "demonology",
+      "spell_id": 1250772,
+      "symbol_kind": "buff",
+      "token": "imp_gang_boss",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "warlock",
+      "hero_tree": null,
+      "identity_candidates": [
         433891
       ],
       "identity_reason": "",
@@ -306424,6 +310965,158 @@
       "spell_id": 433891,
       "symbol_kind": "buff",
       "token": "infernal_bolt",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "warlock",
+      "hero_tree": null,
+      "identity_candidates": [
+        387552
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.infernal_command.duration",
+        "apl_field": "buff.infernal_command",
+        "class_zh": "术士",
+        "covered_specs": [
+          "demonology"
+        ],
+        "covered_specs_zh": {
+          "demonology": "恶魔学识"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "pet",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "宠物内部 Buff，需要在对应宠物表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/warlock/sc_warlock_pets.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "恶魔学识",
+        "wowhead_raw_name": "狱火统御",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=387552"
+      },
+      "name_en": "infernal_command",
+      "name_zh": "狱火统御",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "demonology",
+      "spell_id": 387552,
+      "symbol_kind": "buff",
+      "token": "infernal_command",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "warlock",
+      "hero_tree": null,
+      "identity_candidates": [
+        428453
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.infernal_presence.duration",
+        "apl_field": "buff.infernal_presence",
+        "class_zh": "术士",
+        "covered_specs": [
+          "demonology"
+        ],
+        "covered_specs_zh": {
+          "demonology": "恶魔学识"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "pet",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "邪犬宠物内部 Buff，需要在对应宠物表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/warlock/sc_warlock_pets.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "恶魔学识",
+        "wowhead_raw_name": "狱火气息",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=428453"
+      },
+      "name_en": "infernal_presence",
+      "name_zh": "狱火气息",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "demonology",
+      "spell_id": 428453,
+      "symbol_kind": "buff",
+      "token": "infernal_presence",
       "trait_id": null
     },
     {
@@ -306559,6 +311252,158 @@
       "spell_id": null,
       "symbol_kind": "buff",
       "token": "manifested_demonic_soul",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "warlock",
+      "hero_tree": null,
+      "identity_candidates": [
+        455450
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.mark_of_fharg.duration",
+        "apl_field": "buff.mark_of_fharg",
+        "class_zh": "术士",
+        "covered_specs": [
+          "demonology"
+        ],
+        "covered_specs_zh": {
+          "demonology": "恶魔学识"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "pet",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "邪犬宠物内部 Buff，需要在对应宠物表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/warlock/sc_warlock_pets.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "恶魔学识",
+        "wowhead_raw_name": "法尔格的印记",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=455450"
+      },
+      "name_en": "mark_of_fharg",
+      "name_zh": "法尔格的印记",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "demonology",
+      "spell_id": 455450,
+      "symbol_kind": "buff",
+      "token": "mark_of_fharg",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "warlock",
+      "hero_tree": null,
+      "identity_candidates": [
+        455449
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.mark_of_shatug.duration",
+        "apl_field": "buff.mark_of_shatug",
+        "class_zh": "术士",
+        "covered_specs": [
+          "demonology"
+        ],
+        "covered_specs_zh": {
+          "demonology": "恶魔学识"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "pet",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "邪犬宠物内部 Buff，需要在对应宠物表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/warlock/sc_warlock_pets.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "恶魔学识",
+        "wowhead_raw_name": "沙图格的印记",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=455449"
+      },
+      "name_en": "mark_of_shatug",
+      "name_zh": "沙图格的印记",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "demonology",
+      "spell_id": 455449,
+      "symbol_kind": "buff",
+      "token": "mark_of_shatug",
       "trait_id": null
     },
     {
@@ -307833,6 +312678,82 @@
       "spell_id": 1276767,
       "symbol_kind": "buff",
       "token": "tyrants_oblation",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "warlock",
+      "hero_tree": null,
+      "identity_candidates": [
+        1281512
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.unstable_soul.duration",
+        "apl_field": "buff.unstable_soul",
+        "class_zh": "术士",
+        "covered_specs": [
+          "demonology"
+        ],
+        "covered_specs_zh": {
+          "demonology": "恶魔学识"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "pet",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "宠物内部 Buff，需要在对应宠物表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/warlock/sc_warlock_pets.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "恶魔学识",
+        "wowhead_raw_name": "动荡的灵魂",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1281512"
+      },
+      "name_en": "unstable_soul",
+      "name_zh": "动荡的灵魂",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "demonology",
+      "spell_id": 1281512,
+      "symbol_kind": "buff",
+      "token": "unstable_soul",
       "trait_id": null
     },
     {
@@ -310559,6 +315480,82 @@
       "class_name": "warlock",
       "hero_tree": null,
       "identity_candidates": [
+        264364
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.embers.duration",
+        "apl_field": "buff.embers",
+        "class_zh": "术士",
+        "covered_specs": [
+          "destruction"
+        ],
+        "covered_specs_zh": {
+          "destruction": "毁灭"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "pet",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "地狱火宠物内部 Buff，需要在对应宠物表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/warlock/sc_warlock_pets.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "毁灭",
+        "wowhead_raw_name": "余烬",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=264364"
+      },
+      "name_en": "embers",
+      "name_zh": "余烬",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "destruction",
+      "spell_id": 264364,
+      "symbol_kind": "buff",
+      "token": "embers",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "warlock",
+      "hero_tree": null,
+      "identity_candidates": [
         1245664
       ],
       "identity_reason": "",
@@ -310887,6 +315884,82 @@
       "spell_id": null,
       "symbol_kind": "buff",
       "token": "hellbent_commander",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "warlock",
+      "hero_tree": null,
+      "identity_candidates": [
+        19483
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "buff.immolation.duration",
+        "apl_field": "buff.immolation",
+        "class_zh": "术士",
+        "covered_specs": [
+          "destruction"
+        ],
+        "covered_specs_zh": {
+          "destruction": "毁灭"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "pet",
+          "availability": "source_supported",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "地狱火宠物内部 Buff，需要在对应宠物表达式上下文中使用",
+          "insertable": false,
+          "source_file": "engine/class_modules/warlock/sc_warlock_pets.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "毁灭",
+        "wowhead_raw_name": "献祭",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=19483"
+      },
+      "name_en": "immolation",
+      "name_zh": "献祭",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "destruction",
+      "spell_id": 19483,
+      "symbol_kind": "buff",
+      "token": "immolation",
       "trait_id": null
     },
     {
@@ -312917,6 +317990,82 @@
       "spell_id": 1122,
       "symbol_kind": "cooldown",
       "token": "summon_infernal",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "warlock",
+      "hero_tree": null,
+      "identity_candidates": [
+        1305711
+      ],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_official",
+      "metadata": {
+        "apl_expression_template": "debuff.dark_titans_mark.duration",
+        "apl_field": "debuff.dark_titans_mark",
+        "class_zh": "术士",
+        "covered_specs": [
+          "destruction"
+        ],
+        "covered_specs_zh": {
+          "destruction": "毁灭"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "已绑定",
+        "source_coverage": {
+          "actor": "target",
+          "availability": "12.1",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "仅在 SimC 12.1 数据分支中可用",
+          "insertable": false,
+          "source_file": "engine/class_modules/warlock/sc_warlock.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "毁灭",
+        "wowhead_raw_name": "黑暗泰坦印记",
+        "wowhead_url": "https://www.wowhead.com/cn/spell=1305711"
+      },
+      "name_en": "dark_titans_mark",
+      "name_zh": "黑暗泰坦印记",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "destruction",
+      "spell_id": 1305711,
+      "symbol_kind": "debuff",
+      "token": "dark_titans_mark",
       "trait_id": null
     },
     {
@@ -334952,6 +340101,80 @@
       "aliases": [],
       "class_name": "warrior",
       "hero_tree": null,
+      "identity_candidates": [],
+      "identity_reason": "源码静态注册补全",
+      "identity_source": "static_source_registration",
+      "localization_source": "static_source_inference",
+      "localization_status": "inferred_semantic",
+      "metadata": {
+        "apl_expression_template": "buff.fury_mid2_4pc_crit.duration",
+        "apl_field": "buff.fury_mid2_4pc_crit",
+        "class_zh": "战士",
+        "covered_specs": [
+          "fury"
+        ],
+        "covered_specs_zh": {
+          "fury": "狂怒"
+        },
+        "expression_suffixes": [
+          "at_max_stacks",
+          "cooldown_react",
+          "cooldown_remains",
+          "default_value",
+          "down",
+          "duration",
+          "elapsed",
+          "expiration_delay_remains",
+          "internal_cooldown_remains",
+          "last_expire",
+          "last_trigger",
+          "max_stack",
+          "react",
+          "react_pct",
+          "remains",
+          "stack",
+          "stack_pct",
+          "stack_value",
+          "tick_time",
+          "tick_time_remains",
+          "up",
+          "value"
+        ],
+        "identity_reasons": [
+          "源码静态注册补全"
+        ],
+        "input_identity_status": "未绑定",
+        "source_coverage": {
+          "actor": "player",
+          "availability": "12.1_mid2",
+          "coverage_source": "simc_static_source",
+          "insert_reason": "仅在 SimC 12.1/MID2 套装条件下可用",
+          "insertable": false,
+          "source_file": "engine/class_modules/sc_warrior.cpp",
+          "source_revision": "800980b758674a0311a68a6ec33fdc0651afe47d"
+        },
+        "source_facts": [
+          "static_source_registration"
+        ],
+        "spec_zh": "狂怒",
+        "wowhead_raw_name": "狂怒第二赛季四件套暴击",
+        "wowhead_url": ""
+      },
+      "name_en": "fury_mid2_4pc_crit",
+      "name_zh": "狂怒第二赛季四件套暴击",
+      "options": [],
+      "scope": "spec",
+      "source": "simc_manifest",
+      "spec": "fury",
+      "spell_id": null,
+      "symbol_kind": "buff",
+      "token": "fury_mid2_4pc_crit",
+      "trait_id": null
+    },
+    {
+      "aliases": [],
+      "class_name": "warrior",
+      "hero_tree": null,
       "identity_candidates": [
         1241759
       ],
@@ -340553,7 +345776,7 @@
         "inferred_semantic": 735
       }
     },
-    "override_sha256": "21e01bf364b67e715d4184a48260c16561e759299fcb45e513849416d5ca3b63",
+    "override_sha256": "d03911d9f5a90f24df0435b998693610470bc1c57a5e8abd6a4a92738036620c",
     "resolver_version": 2
   },
   "official_specs": {
@@ -340627,7 +345850,7 @@
   },
   "simc_revision": "800980b758674a0311a68a6ec33fdc0651afe47d",
   "source_generated_at": "2026-08-10T10:42:48.298989+00:00",
-  "source_payload_sha256": "2de7ab02c2129867d7ee8b9a88f5101b0fc56bc59a16de8e0e63f35974af8108",
+  "source_payload_sha256": "467a0554a4bce7eab2658c9471667405ef928be7035e78a8316f6856f3c3221e",
   "wowhead": {
     "data_env": 1,
     "environment_scope": "current",

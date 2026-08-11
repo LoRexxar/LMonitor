@@ -552,6 +552,25 @@ def _editor_spec(raw):
     return canonical, class_name, canonical[len(class_name) + 1:]
 
 
+def _catalog_runtime_platform():
+    system = str(py_platform.system() or '').lower()
+    machine = str(py_platform.machine() or '').lower()
+    if 'windows' in system:
+        return 'win64'
+    if 'linux' in system:
+        return 'linuxarm64' if machine in ('aarch64', 'arm64') else 'linux64'
+    return None
+
+
+def _usable_catalog_backend_versions(queryset):
+    versions = []
+    for value in queryset.exclude(current_version='').values_list('current_version', flat=True):
+        value = str(value or '').strip()
+        if re.fullmatch(r'[0-9a-f]{40}', value) or re.search(r'(?:^|-)[0-9a-f]{7,39}$', value):
+            versions.append(value)
+    return sorted(set(versions))
+
+
 def _latest_catalog_identity():
     configured = getattr(settings, 'SIMC_APL_CURRENT_IDENTITY', None)
     if configured and len(configured) == 2:
@@ -559,18 +578,22 @@ def _latest_catalog_identity():
         if re.fullmatch(r'[0-9a-f]{40}', revision) and build:
             return revision, build
         return None
-    platform = 'linuxarm64' if 'aarch64' in py_platform.machine().lower() else 'linux64'
     # A seeded/placeholder backend has an empty version and is not a catalog
     # identity.  There can be more than one backend per platform, so selecting
     # the first row would hide a valid running backend behind that placeholder.
-    versions = list(SimcBackendBinary.objects.filter(
-        platform=platform,
-        is_active=True,
-    ).exclude(current_version='').values_list('current_version', flat=True))
+    active_backends = SimcBackendBinary.objects.filter(is_active=True)
+    runtime_platform = _catalog_runtime_platform()
+    versions = _usable_catalog_backend_versions(
+        active_backends.filter(platform=runtime_platform)
+        if runtime_platform else active_backends.none()
+    )
+    # 开发机或迁移后的旧库可能尚无当前平台行；只在首选平台没有可用
+    # revision 时回退到全部活动 Backend，且仍要求最终 revision 唯一。
+    if not versions:
+        versions = _usable_catalog_backend_versions(active_backends)
     # Several backend rows may report the same runtime revision.  This is one
     # catalog identity, not an ambiguity.  Distinct revisions do remain
     # fail-closed because choosing one could expose the wrong symbol catalog.
-    versions = sorted(set(versions))
     if len(versions) != 1:
         return None
     current = versions[0]
@@ -681,6 +704,8 @@ def _catalog_item(item, simc_revision='', game_build=''):
         'name_zh': item.name, 'name_en': item.name_en, 'description_zh': item.description,
         'icon': item.icon, 'insertable': item.insertable, 'reason': item.reason,
         'source': item.source, 'simc_revision': simc_revision, 'game_build': game_build,
+        'availability': item.availability, 'actor': item.actor,
+        'expression_template': item.expression_template,
     }
 
 

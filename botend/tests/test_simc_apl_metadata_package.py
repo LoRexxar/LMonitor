@@ -157,20 +157,20 @@ class SimcAplMetadataImportTests(TestCase):
 
 class SimcAplBuiltInPackageTests(TestCase):
     EXPECTED_COUNTS = {
-        'source_record_count': 8318,
-        'fact_count': 4947,
+        'source_record_count': 8418,
+        'fact_count': 5021,
         'official_spec_count': 34,
-        'scope_counts': {'class': 1948, 'spec': 2999},
+        'scope_counts': {'class': 1966, 'spec': 3055},
         'kind_counts': {
-            'action': 1395,
-            'buff': 3352,
+            'action': 1414,
+            'buff': 3400,
             'cooldown': 135,
-            'debuff': 30,
+            'debuff': 37,
             'dot': 35,
         },
-        'bound_count': 2004,
-        'unbound_count': 2943,
-        'localized_count': 4947,
+        'bound_count': 2067,
+        'unbound_count': 2954,
+        'localized_count': 5021,
         'missing_zh_count': 0,
     }
 
@@ -187,19 +187,73 @@ class SimcAplBuiltInPackageTests(TestCase):
         priest_facts = [fact for fact in payload['facts'] if fact['class_name'] == 'priest']
         self.assertTrue(priest_facts)
         self.assertEqual({(fact['scope'], fact['spec']) for fact in priest_facts},
-                         {('spec', 'shadow')})
+                         {('class', None), ('spec', 'shadow')})
 
         first = import_metadata_package(payload)
         second = import_metadata_package(payload)
-        self.assertEqual(first.created, 4947)
-        self.assertEqual(second.unchanged, 4947)
+        self.assertEqual(first.created, 5021)
+        self.assertEqual(second.unchanged, 5021)
         self.assertEqual(SimcAplSymbol.objects.filter(name_zh='').count(), 0)
-        self.assertEqual(SimcAplSymbol.objects.exclude(name_zh='').count(), 4947)
+        self.assertEqual(SimcAplSymbol.objects.exclude(name_zh='').count(), 5021)
+
+    def test_built_in_package_keeps_all_static_source_supplements_with_metadata(self):
+        payload = load_metadata_package(find_default_metadata_package())
+        supplement_facts = [
+            fact for fact in payload['facts']
+            if fact['metadata'].get('source_coverage')
+        ]
+        self.assertEqual(len(supplement_facts), 74)
+
+        identities = {(fact['symbol_kind'], fact['token']) for fact in supplement_facts}
+        expected_actions = {
+            'abomination_limb', 'antimagic_zone', 'chains_of_ice', 'dark_command',
+            'death_grip', 'dnd_any', 'frostbane', 'gorefiends_grasp',
+            'icebound_fortitude', 'blur', 'chaos_nova', 'consume_magic',
+            'soul_barrier', 'unbound_flame', 'prismatic_bolt', 'holy_shock',
+            'void_shield', 'feral_lunge',
+        }
+        self.assertTrue({('action', token) for token in expected_actions} <= identities)
+        expected_states = {
+            'blighted_arrow_aoe', 'blighted_arrow_st', 'dark_empowerment',
+            'grave_mastery', 'rune_of_unending_thirst', 'transfusion',
+            'unholy_devotion', 'deep_breath', 'bear_summon',
+            'bestial_wrath_apex', 'cobra_fang', 'death_bringer',
+            'grenade_juggler', 'pet_damage', 'solitary_companion',
+            'unstable_trigger', 'cumulative_power', 'icicles', 'prismatic_bolt',
+            'rapid_refreezing', 'ancient_madness', 'body_and_soul',
+            'secondary_weapon_mh', 'secondary_weapon_oh', 'burning_core',
+            'call_lightning', 'short_circuit', 'dark_titans_mark',
+            'unstable_empowerment', 'fury_mid2_4pc_crit',
+            'frostbolt_magus', 'bloodseeker_vines', 'sabertooth',
+            'stellar_amplification', 'sacred_weapon_{source}_{target}',
+            'lesser_weapon_{source}_{target}', 'imp_gang_boss',
+            'infernal_command', 'unstable_soul', 'ferocity_of_fharg',
+            'demonic_power', 'grimoire_of_service', 'embers', 'whiplash',
+            'mark_of_shatug', 'mark_of_fharg', 'infernal_presence',
+            'immolation',
+            'mastery_dreadblade', 'celestial_infusion',
+            'holy_bulwark_ally_{target}',
+            'lesser_bulwark_ally_{source}_{target}', 'void_shield',
+            'divine_aegis',
+        }
+        self.assertTrue(expected_states <= {fact['token'] for fact in supplement_facts})
+        future = next(
+            fact for fact in supplement_facts
+            if fact['token'] == 'fury_mid2_4pc_crit'
+        )
+        self.assertEqual(
+            future['metadata']['source_coverage']['availability'], '12.1_mid2',
+        )
+        self.assertFalse(future['metadata']['source_coverage']['insertable'])
+        self.assertEqual(
+            next(fact for fact in supplement_facts if fact['token'] == 'icicles')['name_zh'],
+            '冰刺',
+        )
 
     def test_management_command_dry_run_uses_validated_package(self):
         output = StringIO()
         call_command('import_simc_apl_metadata', dry_run=True, stdout=output)
         text = output.getvalue()
         self.assertIn('[DRY-RUN]', text)
-        self.assertIn('facts=4947', text)
+        self.assertIn('facts=5021', text)
         self.assertEqual(SimcAplSymbol.objects.count(), 0)

@@ -51,6 +51,30 @@ class SimcAplSymbolCatalogTests(TestCase):
         row = query_symbol_catalog('r1', 'b1', 'warrior', 'fury', search='嗜血')[0]
         self.assertEqual((row.name, row.name_en), ('嗜血', 'Bloodthirst'))
 
+    def test_source_supported_pet_and_future_fields_remain_visible_with_metadata(self):
+        self.symbol(
+            token='future_pet_buff', class_name='warrior', spec='fury',
+            symbol_kind='buff', name_zh='未来宠物增益',
+            metadata={
+                'apl_expression_template': 'buff.future_pet_buff.up',
+                'source_coverage': {
+                    'availability': '12.1_mid2',
+                    'actor': 'pet',
+                    'insertable': False,
+                    'insert_reason': '需要宠物表达式上下文',
+                },
+            },
+        )
+        row = query_symbol_catalog(
+            'r1', 'b1', 'warrior', 'fury', search='future_pet_buff',
+        )[0]
+        self.assertEqual(row.name, '未来宠物增益')
+        self.assertFalse(row.insertable)
+        self.assertEqual(row.reason, '需要宠物表达式上下文')
+        self.assertEqual(row.availability, '12.1_mid2')
+        self.assertEqual(row.actor, 'pet')
+        self.assertEqual(row.expression_template, 'buff.future_pet_buff.up')
+
     def test_unbound_talent_is_visible_but_never_guesses_token(self):
         version = WowTalentVersion.objects.create(
             key='b1', current_build='b1', is_active=True, is_default_simulator=True)

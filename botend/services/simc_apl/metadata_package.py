@@ -35,6 +35,7 @@ IDENTITY_SOURCE_PRIORITY = (
     'runtime_expression_resolver',
     'runtime_buff_registry',
     'runtime_fallback_buff',
+    'static_source_registration',
 )
 DEFAULT_PACKAGE_DIR = Path(__file__).resolve().parents[2] / 'data' / 'simc_apl_metadata'
 
@@ -72,6 +73,7 @@ def _source_record_signature(record):
         tuple(record.get('aliases') or ()),
         tuple(record.get('action_options') or ()),
         tuple(record.get('expression_suffixes') or ()),
+        json.dumps(record.get('source_metadata') or {}, ensure_ascii=False, sort_keys=True),
     )
 
 
@@ -116,10 +118,14 @@ def _normalized_source_record(record, official_specs, index):
         values[field] = sorted({value.strip() for value in field_values if value.strip()})
     for field in ('name_zh', 'wowhead_status', 'wowhead_raw_name', 'wowhead_url',
                   'apl_field', 'apl_expression_template', 'class_zh', 'spec_zh',
-                  'identity_status'):
+                  'identity_status', 'localization_source'):
         if record.get(field) is not None and not isinstance(record.get(field), str):
             raise ValueError(f'records[{index}].{field} 必须为字符串')
         values[field] = str(record.get(field) or '').strip()
+    source_metadata = record.get('source_metadata') or {}
+    if not isinstance(source_metadata, dict):
+        raise ValueError(f'records[{index}].source_metadata 必须为对象')
+    values['source_metadata'] = source_metadata
     return values
 
 
@@ -133,7 +139,9 @@ def _package_fact(rows, scope, official_specs):
     spec = first['spec'] if scope == 'spec' else None
     name_zh = first['name_zh']
     wowhead_status = first['wowhead_status'] or ('not_requested' if first['spell_id'] else 'unbound')
-    localization_source = 'wowhead' if wowhead_status in {'ok', 'unlocalized', 'empty', 'missing'} else ''
+    localization_source = first['localization_source'] or (
+        'wowhead' if wowhead_status in {'ok', 'unlocalized', 'empty', 'missing'} else ''
+    )
     metadata = {
         'apl_field': first['apl_field'],
         'apl_expression_template': first['apl_expression_template'],
@@ -150,6 +158,8 @@ def _package_fact(rows, scope, official_specs):
         'identity_reasons': reasons,
         'input_identity_status': first['identity_status'],
     }
+    if first['source_metadata']:
+        metadata['source_coverage'] = first['source_metadata']
     return {
         'scope': scope,
         'class_name': _canonical_class(class_name),
@@ -224,11 +234,17 @@ def build_metadata_package(source_payload):
     for (class_name, _kind, _token), rows in sorted(groups.items()):
         seen_specs = {row['spec'] for row in rows}
         signatures = {_source_record_signature(row) for row in rows}
+        forced_class_scope = (
+            len(signatures) == 1 and
+            {row.get('source_metadata', {}).get('scope_hint') for row in rows} == {'class'}
+        )
         # 单专精职业无法从当前语料证明这是职业通用字段，保留专精作用域。
         class_scoped = (
-            len(official_specs[class_name]) >= 2 and
-            seen_specs == official_specs[class_name] and
-            len(signatures) == 1
+            forced_class_scope or (
+                len(official_specs[class_name]) >= 2 and
+                seen_specs == official_specs[class_name] and
+                len(signatures) == 1
+            )
         )
         if class_scoped:
             facts.append(_package_fact(rows, 'class', official_specs))

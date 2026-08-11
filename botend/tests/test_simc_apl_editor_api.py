@@ -738,6 +738,110 @@ class SimcAplEditorApiTests(TestCase):
         response = self.client.get("/api/simc-workbench/apl-symbols/?spec=warrior_fury")
         self.assertEqual(response.json()["data"]["items"][0]["simc_revision"], self.REVISION)
 
+    @mock.patch("botend.dashboard.api.py_platform.system", return_value="Windows")
+    @mock.patch("botend.dashboard.api.py_platform.machine", return_value="AMD64")
+    def test_symbols_use_windows_backend_revision(self, _machine, _system):
+        SimcBackendBinary.objects.create(
+            platform="win64", current_version=self.REVISION,
+        )
+        SimcAplSymbol.objects.create(
+            simc_revision=self.REVISION,
+            wow_build="current",
+            class_name="warrior",
+            spec="fury",
+            token="current",
+            symbol_kind="action",
+        )
+
+        response = self.client.get(
+            "/api/simc-workbench/apl-symbols/?spec=warrior_fury",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"]["items"][0]["token"], "current")
+
+    def test_symbols_search_includes_class_scoped_buff_for_specialization(self):
+        SimcBackendBinary.objects.create(
+            platform="linux64", current_version=self.REVISION,
+        )
+        SimcAplSymbol.objects.create(
+            simc_revision=self.REVISION,
+            wow_build="12.0.7.68974",
+            class_name="warrior",
+            spec=None,
+            token="burst_of_power",
+            symbol_kind="buff",
+            spell_id=437121,
+            name_en="burst_of_power",
+            name_zh="能量爆发",
+            source="simc_manifest",
+        )
+
+        response = self.client.get("/api/simc-workbench/apl-symbols/", {
+            "spec": "warrior_fury",
+            "query": "burst_of_power",
+            "kinds": "action,buff,debuff,dot,cooldown",
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"]["items"], [{
+            "token": "burst_of_power",
+            "kind": "buff",
+            "scope": "class",
+            "spell_id": 437121,
+            "name_zh": "能量爆发",
+            "name_en": "burst_of_power",
+            "description_zh": "",
+            "icon": "",
+            "insertable": True,
+            "reason": None,
+            "source": "simc_manifest",
+            "simc_revision": self.REVISION,
+            "game_build": "12.0.7.68974",
+            "availability": "",
+            "actor": "",
+            "expression_template": "",
+        }])
+
+    def test_symbols_keep_future_pet_fields_visible_but_not_insertable(self):
+        SimcBackendBinary.objects.create(
+            platform="linux64", current_version=self.REVISION,
+        )
+        SimcAplSymbol.objects.create(
+            simc_revision=self.REVISION,
+            wow_build="12.0.7.68974",
+            class_name="warlock",
+            spec="demonology",
+            token="demonic_power",
+            symbol_kind="buff",
+            name_en="demonic_power",
+            name_zh="恶魔之力",
+            source="simc_manifest",
+            metadata={
+                "apl_expression_template": "buff.demonic_power.up",
+                "source_coverage": {
+                    "availability": "source_supported",
+                    "actor": "pet",
+                    "insertable": False,
+                    "insert_reason": "宠物内部 Buff，需要宠物上下文",
+                },
+            },
+        )
+
+        response = self.client.get("/api/simc-workbench/apl-symbols/", {
+            "spec": "warlock_demonology",
+            "query": "demonic_power",
+        })
+
+        self.assertEqual(response.status_code, 200)
+        item = response.json()["data"]["items"][0]
+        self.assertEqual((item["token"], item["name_zh"]), ("demonic_power", "恶魔之力"))
+        self.assertFalse(item["insertable"])
+        self.assertEqual(item["reason"], "宠物内部 Buff，需要宠物上下文")
+        self.assertEqual(item["availability"], "source_supported")
+        self.assertEqual(item["actor"], "pet")
+        self.assertEqual(item["expression_template"], "buff.demonic_power.up")
+
     def test_validation_rejects_profile_from_another_user(self):
         other = User.objects.create_user(username="other", password="password")
         profile = SimcProfile.objects.create(user_id=other.id, name="secret", spec="fury")

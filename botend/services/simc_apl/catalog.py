@@ -27,6 +27,9 @@ class CatalogItem:
     class_name: Optional[str]
     spec: Optional[str]
     hero_tree: Optional[str]
+    availability: str = ''
+    actor: str = ''
+    expression_template: str = ''
 
 
 def _fold(value):
@@ -125,13 +128,23 @@ def query_symbol_catalog(simc_revision, wow_build, class_name, spec,
         en = spell.get('en') or (talent.name if talent else '') or symbol.name_en or symbol.token
         zh = spell.get('zh') or (talent.name_zh if talent else '') or symbol.name_zh
         label = zh or en or symbol.token or (f'Spell {sid}' if sid else '')
+        metadata = symbol.metadata if isinstance(symbol.metadata, dict) else {}
+        coverage = metadata.get('source_coverage')
+        coverage = coverage if isinstance(coverage, dict) else {}
+        insertable = coverage.get('insertable') is not False
+        reason = None if insertable else (
+            str(coverage.get('insert_reason') or '').strip() or '该源码字段不适合直接插入当前 APL 上下文'
+        )
         items.append(CatalogItem(
             token=symbol.token, kind=symbol.symbol_kind, spell_id=sid,
             name=label, name_en=en, description=(getattr(talent, 'description_zh', '') or
                 spell.get('description') or getattr(talent, 'description', '')),
-            icon=getattr(talent, 'icon', ''), insertable=True, reason=None,
+            icon=getattr(talent, 'icon', ''), insertable=insertable, reason=reason,
             source=symbol.source, class_name=symbol.class_name, spec=symbol.spec,
             hero_tree=symbol.hero_tree,
+            availability=str(coverage.get('availability') or ''),
+            actor=str(coverage.get('actor') or ''),
+            expression_template=str(metadata.get('apl_expression_template') or ''),
         ))
 
     for talent in talent_rows:
