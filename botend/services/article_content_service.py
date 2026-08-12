@@ -812,10 +812,24 @@ def _clean_html_fragment(html_text: str) -> str:
 
 def normalize_wowhead_html_fragment(html_text: str) -> str:
     if not html_text or not BeautifulSoup:
-        return html_text or ""
+        return _clean_html_fragment(html_text)
     soup = BeautifulSoup(html_text, "html.parser")
+    from botend.services.wowhead_bbcode_renderer import render_wowhead_bbcode
+
+    for token in list(soup.select("span.wh-unsupported-token")):
+        if token.find_parent("span", class_="wh-unsupported-token"):
+            continue
+        raw = token.get_text("", strip=True)
+        if not re.fullmatch(r"\[youtube=[A-Za-z0-9_-]{11}(?:\s+[^\]]*)?\]", raw, re.I):
+            continue
+        rendered = BeautifulSoup(
+            render_wowhead_bbcode(raw, base_url="https://www.wowhead.com/"),
+            "html.parser",
+        )
+        token.replace_with(*list(rendered.contents))
+
     _normalize_wowhead_inline_breaks(soup)
-    return _clean_html_fragment(str(soup))
+    return _clean_html_fragment("".join(str(child) for child in soup.contents))
 
 
 def _node_inline_text(node) -> str:

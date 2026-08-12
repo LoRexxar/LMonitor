@@ -253,6 +253,8 @@ def _render_node(node: BBNode, context: dict, ancestors: List[str]) -> str:
         return _render_safe_html(_plain_children(node), context["base_url"])
     if name == "screenshot":
         return _render_screenshot(node, context)
+    if name == "youtube":
+        return _render_youtube(node)
     if name in {"item", "spell", "npc", "object", "quest", "achievement"}:
         return _render_entity(node, context, ancestors)
     if name == "db":
@@ -301,6 +303,20 @@ def _render_entity(node: BBNode, context: dict, ancestors: List[str]) -> str:
     return '<a class="{cls}" data-wh-entity="{kind}" data-wh-id="{id}" href="{href}">{body}</a>'.format(
         cls=classes, kind=kind, id=entity_id, href=html.escape(href, quote=True), body="".join(parts)
     )
+
+
+def _render_youtube(node: BBNode) -> str:
+    video_id = node.value.strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
+        return '<span class="wh-unsupported-token">{}</span>'.format(html.escape(node.raw, quote=False))
+    src = "https://www.youtube-nocookie.com/embed/{}".format(video_id)
+    return (
+        '<div class="wowhead-youtube">'
+        '<iframe src="{src}" title="YouTube video player" loading="lazy" '
+        'allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" '
+        'referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>'
+        '</div>'
+    ).format(src=src)
 
 
 def _render_screenshot(node: BBNode, context: dict) -> str:

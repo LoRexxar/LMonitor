@@ -1,7 +1,11 @@
 from bs4 import BeautifulSoup
 from django.test import SimpleTestCase
 
-from botend.services.article_content_service import blocks_to_plain_text, extract_structured_article
+from botend.services.article_content_service import (
+    blocks_to_plain_text,
+    extract_structured_article,
+    normalize_wowhead_html_fragment,
+)
 from botend.services.wowhead_bbcode_renderer import extract_wowhead_print_html_calls, render_wowhead_bbcode
 
 
@@ -131,6 +135,29 @@ class WowheadBBCodeRendererTests(SimpleTestCase):
         self.assertLess(rendered.index("Before screenshot."), rendered.index("wowhead-screenshot"))
         self.assertLess(rendered.index("wowhead-screenshot"), rendered.index("After screenshot."))
         self.assertIn("1290351.png", rendered)
+
+    def test_renders_youtube_token_as_privacy_enhanced_embed(self):
+        rendered = render_wowhead_bbcode(
+            "[center][youtube=CMEYax4Yba0 width=800][/center]",
+            base_url="https://www.wowhead.com/news/382422",
+        )
+        soup = BeautifulSoup(rendered, "html.parser")
+        iframe = soup.find("iframe")
+
+        self.assertIsNotNone(iframe)
+        self.assertEqual(iframe["src"], "https://www.youtube-nocookie.com/embed/CMEYax4Yba0")
+        self.assertEqual(iframe["title"], "YouTube video player")
+        self.assertEqual(iframe["loading"], "lazy")
+        self.assertIn("allowfullscreen", iframe.attrs)
+        self.assertNotIn("wh-unsupported-token", rendered)
+
+        repaired = normalize_wowhead_html_fragment(
+            '<span class="wh-unsupported-token"><span class="wh-unsupported-token">'
+            '[youtube=CMEYax4Yba0 width=800]</span></span>'
+        )
+        repaired_iframe = BeautifulSoup(repaired, "html.parser").find("iframe")
+        self.assertEqual(repaired_iframe["src"], "https://www.youtube-nocookie.com/embed/CMEYax4Yba0")
+        self.assertNotIn("wh-unsupported-token", repaired)
 
     def test_article_extraction_uses_short_authoritative_print_html(self):
         source = r'''
