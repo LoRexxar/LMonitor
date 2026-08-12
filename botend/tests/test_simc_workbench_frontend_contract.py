@@ -151,6 +151,13 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn('disambiguatedSpecs', matcher)
         self.assertNotIn('simcProfileSpecFilterValue', MAIN)
 
+    def test_profile_form_lists_devourer_with_class_label(self):
+        """新增配置必须提供噬灭，并在专精名称旁显示对应职业。"""
+        form = HTML[HTML.index('id="simc-wb-profile-form-source"'):HTML.index('id="simc-wb-profile-list"')]
+        self.assertIn('value="devourer">噬灭 · 恶魔猎手', form)
+        self.assertIn('value="fury">狂怒 · 战士', form)
+        self.assertNotIn('value="devourer">噬灭</option>', form)
+
     def test_profile_form_normalizes_legacy_spec_and_leaves_optional_attribute_overrides_blank(self):
         """编辑旧 class_spec 记录必须选中实际专精；未填写属性不得伪造覆盖值。"""
         form = MAIN[MAIN.index('function simcWbToggleProfileForm'):MAIN.index('function simcWbCloseProfileForm')]
