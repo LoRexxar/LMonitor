@@ -1,4 +1,5 @@
 import json
+import re
 import time
 from typing import Any, Callable, Dict, List, Optional, Type
 from urllib.parse import urljoin
@@ -10,6 +11,19 @@ from core.glm import GLMClient
 from botend.services.article_content_service import TEXT_BLOCK_TYPES, article_blocks_match_reference, blocks_to_plain_text, dumps_blocks, html_block_text_nodes, html_block_translate_texts, loads_blocks, translate_blocks
 from botend.services.wow_news_glossary_service import WowNewsGlossary
 from utils.log import logger
+
+
+_LIVE_TITLE_PREFIX_RE = re.compile(r"^\s*\[\s*live\s*\]\s*", re.IGNORECASE)
+_TRANSLATED_LIVE_TITLE_PREFIX_RE = re.compile(r"^\s*\[(?:直播|实时|正式服)\]\s*")
+
+
+def normalize_translated_title(source_title: str, translated_title: str) -> str:
+    """Keep Wowhead's Live channel label distinct from the word "live"."""
+    translated_title = (translated_title or "").strip()
+    if not translated_title or not _LIVE_TITLE_PREFIX_RE.match(source_title or ""):
+        return translated_title
+    translated_title = _TRANSLATED_LIVE_TITLE_PREFIX_RE.sub("", translated_title, count=1)
+    return "[正式服]{}".format(translated_title)
 
 
 class GLMTranslationEngine:
@@ -161,7 +175,8 @@ class ArticleTranslationService:
         title = (title or "").strip()
         if not title or not self.available():
             return ""
-        protected = glossary.protect(title)
+        title_for_translation = _LIVE_TITLE_PREFIX_RE.sub("", title, count=1)
+        protected = glossary.protect(title_for_translation)
         prompt = (
             "请将以下英文标题翻译成自然、完整的中文，只返回翻译结果，不要添加任何解释。"
             "除形如 ⟦WOWTERM_001⟧ 的术语占位符外，不得保留英文普通词或英文说明词；"
@@ -176,7 +191,8 @@ class ArticleTranslationService:
                 result = candidate
                 break
             logger.warning("[ArticleTranslationService] title translation changed protected WoW terminology; retrying")
-        return glossary.restore(result, protected.replacements) if result else ""
+        translated = glossary.restore(result, protected.replacements) if result else ""
+        return normalize_translated_title(title, translated)
 
     def translate_content(self, content: str, *, glossary: Optional[WowNewsGlossary] = None) -> str:
         glossary = glossary or self.glossary
