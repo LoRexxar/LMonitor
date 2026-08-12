@@ -136,6 +136,9 @@ def extract_structured_article(html_text: str, *, base_url: str = "", source: st
     if not root:
         return []
 
+    if source == "wowhead":
+        _normalize_wowhead_inline_breaks(root)
+
     block = _html_block(root, base_url=base_url)
     if block:
         return [block]
@@ -807,6 +810,14 @@ def _clean_html_fragment(html_text: str) -> str:
     return html_text.strip()
 
 
+def normalize_wowhead_html_fragment(html_text: str) -> str:
+    if not html_text or not BeautifulSoup:
+        return html_text or ""
+    soup = BeautifulSoup(html_text, "html.parser")
+    _normalize_wowhead_inline_breaks(soup)
+    return _clean_html_fragment(str(soup))
+
+
 def _node_inline_text(node) -> str:
     text = node.get_text(" ", strip=True) if hasattr(node, "get_text") else str(node)
     return _clean_inline_text(text)
@@ -847,14 +858,6 @@ def _normalize_wowhead_inline_breaks(root):
         for br in list(root.find_all("br")):
             prev_sig = _significant_sibling(br, previous=True)
             next_sig = _significant_sibling(br, previous=False)
-            if (
-                prev_sig is not None
-                and getattr(prev_sig, "name", None) == "br"
-                and getattr(br, "parent", None) is not root
-            ):
-                br.decompose()
-                changed = True
-                continue
             if prev_sig is not None and getattr(prev_sig, "name", None) in noisy_boundary_tags:
                 br.decompose()
                 changed = True

@@ -5,7 +5,13 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from botend.models import MonitorTask, WowArticle
-from botend.services.article_content_service import blocks_to_plain_text, dumps_blocks, extract_structured_article, loads_blocks
+from botend.services.article_content_service import (
+    blocks_to_plain_text,
+    dumps_blocks,
+    extract_structured_article,
+    loads_blocks,
+    normalize_wowhead_html_fragment,
+)
 from botend.services.article_translation_service import build_translation_service
 
 
@@ -203,6 +209,12 @@ class Command(BaseCommand):
                     new_block = dict(block)
                     new_block['text'] = text
                     repaired.append(new_block)
+            elif block.get('type') == 'html':
+                new_block = dict(block)
+                new_block['html'] = normalize_wowhead_html_fragment(block.get('html') or '')
+                if block.get('original_html'):
+                    new_block['original_html'] = normalize_wowhead_html_fragment(block.get('original_html') or '')
+                repaired.append(new_block)
             else:
                 repaired.append(block)
         return repaired

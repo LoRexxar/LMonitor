@@ -10,6 +10,7 @@ from botend.services.article_content_service import (
     dumps_blocks,
     extract_structured_article,
     loads_blocks,
+    normalize_wowhead_html_fragment,
     translate_blocks,
 )
 from botend.services.article_image_service import _fetch_image_response, upload_article_html_images, upload_article_images_in_blocks
@@ -434,8 +435,32 @@ class ArticleContentServiceTests(SimpleTestCase):
 
         self.assertGreaterEqual(html_result.count("<br"), 4)
 
+    def test_extract_wowhead_article_removes_layout_only_breaks(self):
+        html = """
+        <div id="news-post"><div class="text">
+          First paragraph.<br><br>Second paragraph.<br><br>
+          <div class="wh-center" style="text-align: center"><br></div><br><br>
+          <blockquote>Missing trophies:<br><br>
+            <ul><li><br><a href="/item=1">First trophy</a><br></li></ul><br>
+            Follow-up paragraph.<br><br>Thank you.
+          </blockquote>
+        </div></div>
+        """
 
-    def test_extract_wowhead_article_preserves_source_breaks(self):
+        blocks = extract_structured_article(html, base_url="https://www.wowhead.com/news/382425", source="wowhead")
+        html_result = blocks[0]["html"]
+        soup = BeautifulSoup(html_result, "html.parser")
+
+        self.assertEqual(html_result.count("<br"), 4)
+        self.assertIsNone(soup.select_one(".wh-center br"))
+        self.assertIsNone(soup.select_one("li > br"))
+        self.assertIn("First paragraph.<br/><br/>Second paragraph.", html_result)
+        self.assertIn("Follow-up paragraph.<br/><br/>Thank you.", html_result)
+
+        translated_html = html_result.replace("First paragraph.", "第一段。")
+        self.assertEqual(normalize_wowhead_html_fragment(translated_html), translated_html)
+
+    def test_extract_wowhead_article_preserves_semantic_source_breaks(self):
         html = """
         <div id="news-post"><div class="text">
           Intro line.<br><br>
@@ -450,12 +475,12 @@ class ArticleContentServiceTests(SimpleTestCase):
 
         blocks = extract_structured_article(html, base_url="https://www.wowhead.com/news/1", source="wowhead")
         html_result = blocks[0]["html"]
+        soup = BeautifulSoup(html_result, "html.parser")
 
-        self.assertIn("<li><br", html_result)
-        self.assertIn("<br/></li>", html_result)
-        self.assertIn("</ul><br", html_result)
-        self.assertIn("<br/><br/>\n<ul", html_result)
-        self.assertIn("<li><br/><b>July 2nd - July 6th:</b> Midnight Dungeons<br/><br/>The Blinding Vale<br/></li>", html_result)
+        self.assertIsNone(soup.select_one("li > br:first-child"))
+        self.assertNotIn("<br/></li>", html_result)
+        self.assertIn("Midnight Dungeons<br/><br/>The Blinding Vale", html_result)
+        self.assertIn("<b>The Blinding Vale</b><br/><br/>General<br/><br/>Updated spawning.", html_result)
         self.assertIn("<b>Dungeon Update</b>", html_result)
         self.assertIn("Updated spawning.", blocks_to_plain_text(blocks))
 
