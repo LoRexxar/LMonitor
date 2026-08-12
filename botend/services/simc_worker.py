@@ -2,14 +2,16 @@ import signal
 import threading
 import time
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
+from django.core.management import call_command
 from django.db import close_old_connections, transaction
 from django.db.models import Case, IntegerField, Q, Value, When
 from django.utils import timezone
 
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
-from botend.models import SimcAgent, SimcBenchmarkCase, SimcTask, SimulationRun
+from botend.models import SimcAgent, SimcBackendBinary, SimcBenchmarkCase, SimcTask, SimulationRun
 from botend.services import simc_benchmark_scheduler
 from botend.services.task_rerun import create_rerun, TaskRerunError
 from utils.log import logger
@@ -176,6 +178,10 @@ class SimcWorker:
     def _perform_maintenance(self):
         """Run isolated queue maintenance from idle and long-running task paths."""
         try:
+            self.run_scheduled_backend_maintenance()
+        except Exception:
+            logger.exception('[SimC Worker] scheduled backend maintenance failed')
+        try:
             self.recover_stale_tasks()
         except Exception:
             logger.exception('[SimC Worker] stale task recovery failed')
@@ -187,6 +193,45 @@ class SimcWorker:
             simc_benchmark_scheduler.reconcile_pending_executions()
         except Exception:
             logger.exception('[SimC Worker] benchmark reconcile sweep failed')
+
+    def run_scheduled_backend_maintenance(self):
+        """Run the local backend updater once per Shanghai maintenance window."""
+        now = timezone.now()
+        local_now = now.astimezone(ZoneInfo('Asia/Shanghai'))
+        with transaction.atomic():
+            backend = SimcBackendBinary.objects.select_for_update().filter(
+                identifier='production', is_active=True,
+                auto_update=True, maintenance_enabled=True,
+                is_updating=False,
+            ).first()
+            if backend is None:
+                return False
+            try:
+                hour, minute = map(int, str(backend.maintenance_daily_time).split(':', 1))
+            except (TypeError, ValueError):
+                logger.error('[SimC Worker] invalid backend maintenance time: %r', backend.maintenance_daily_time)
+                return False
+            window_start = local_now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if local_now < window_start:
+                window_start -= timedelta(days=1)
+            window_end = window_start + timedelta(minutes=int(backend.maintenance_window_minutes or 0))
+            if not window_start <= local_now < window_end:
+                return False
+            if backend.last_checked_at and backend.last_checked_at.astimezone(
+                ZoneInfo('Asia/Shanghai')
+            ) >= window_start:
+                return False
+            if SimcTask.objects.filter(
+                current_status=1,
+                execution_owner=SimcTask.EXECUTION_OWNER_LOCAL,
+            ).exists():
+                return False
+            backend.last_checked_at = now
+            backend.update_status = '定时维护已触发'
+            backend.save(update_fields=['last_checked_at', 'update_status'])
+
+        call_command('update_simc_binary')
+        return True
 
     def _heartbeat_cycle(self, task_id, claimed_at):
         """Refresh the active lease and keep maintenance alive while SimC blocks."""

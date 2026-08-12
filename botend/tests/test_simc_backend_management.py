@@ -387,3 +387,16 @@ class SimcBackendManagementSecurityTests(unittest.TestCase):
         request.user = self.staff_user
         response = self.view_class().post(request)
         self.assertEqual(response.status_code, 400)
+
+    def test_dispatch_agent_maintenance_rejects_empty_agent_selection(self):
+        request = self.factory.post(
+            '/api/simc-backend-binary/',
+            data=json.dumps({'action': 'dispatch_agent_maintenance', 'backend_id': 999999}),
+            content_type='application/json',
+        )
+        request.user = self.staff_user
+
+        response = self.view_class().post(request)
+
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(json.loads(response.content)['success'])

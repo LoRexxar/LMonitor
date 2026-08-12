@@ -1024,7 +1024,7 @@
             <button data-backend-action="save-maintenance-schedule" ${disabled} class="rounded border border-violet-300 bg-violet-50 px-4 py-2 text-violet-800 disabled:opacity-50">保存维护窗口</button>
             <button data-backend-action="check" ${disabled} class="rounded border bg-white px-4 py-2 text-slate-700 disabled:opacity-50">检查版本</button>
             <button data-backend-action="update" ${disabled} class="rounded bg-blue-600 px-4 py-2 text-white disabled:opacity-50">立即更新并编译（本机）</button>
-            <button data-backend-action="dispatch-agent-maintenance" ${disabled} class="rounded bg-amber-600 px-4 py-2 text-white disabled:opacity-50">下发 Agent 更新任务</button></div>`;
+            <button data-backend-action="dispatch-agent-maintenance" data-backend-id="${idOf(info.id)}" ${disabled} class="rounded bg-amber-600 px-4 py-2 text-white disabled:opacity-50">下发 Agent 更新任务</button></div>`;
     }
     async function loadAgents() {
         const host = document.getElementById('simc-agent-list');
@@ -1161,6 +1161,7 @@
         });
         window.showMessage(result.message || '后端操作已提交', 'success');
         await loadBackend();
+        return result;
     }
     async function lifecycle(resource, id, action) {
         await json(resourceUrl(resource, id), { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() }, body: JSON.stringify({ action }) });
@@ -1534,8 +1535,7 @@
                     runBackendAction({ action: actionName }).catch(notify);
                 } else if (actionName === 'dispatch-agent-maintenance') {
                     if (!window.confirm('将向该 Backend 的全部启用 Agent 下发一次 SimC 更新并编译任务。任务只会在 Agent 无运行租约时由其下次心跳拉取，是否继续？')) return;
-                    runBackendAction({ action: 'dispatch_agent_maintenance', backend_id: Number(info.id) }).then(result => {
-                        window.showMessage(result.message || '已下发 Agent 更新任务', 'success');
+                    runBackendAction({ action: 'dispatch_agent_maintenance', backend_id: idOf(backendAction.dataset.backendId) }).then(() => {
                         loadAgents().catch(notify);
                     }).catch(notify);
                 } else if (actionName === 'save-maintenance-schedule') {

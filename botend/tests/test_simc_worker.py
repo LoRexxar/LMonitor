@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from io import StringIO
 from unittest.mock import MagicMock, patch
 
@@ -51,6 +51,28 @@ class SimcWorkerTests(TestCase):
             is_active=True,
             backend=self.backend,
         )
+
+    def test_daily_backend_maintenance_runs_once_inside_configured_window(self):
+        from botend.services.simc_worker import SimcWorker
+
+        self.backend.auto_update = True
+        self.backend.maintenance_enabled = True
+        self.backend.maintenance_daily_time = '03:00'
+        self.backend.maintenance_window_minutes = 60
+        self.backend.last_checked_at = None
+        self.backend.save(update_fields=[
+            'auto_update', 'maintenance_enabled', 'maintenance_daily_time',
+            'maintenance_window_minutes', 'last_checked_at',
+        ])
+        now = timezone.make_aware(datetime(2026, 8, 13, 3, 15))
+        worker = SimcWorker(monitor=MagicMock(), poll_interval=0)
+
+        with patch('botend.services.simc_worker.timezone.now', return_value=now), \
+             patch('botend.services.simc_worker.call_command') as command:
+            worker.run_scheduled_backend_maintenance()
+            worker.run_scheduled_backend_maintenance()
+
+        command.assert_called_once_with('update_simc_binary')
 
     def test_process_simc_task_claims_pending_task_once_and_records_start_time(self):
         task = self.make_task()

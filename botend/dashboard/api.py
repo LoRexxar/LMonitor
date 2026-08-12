@@ -7725,8 +7725,17 @@ class SimcBackendBinaryAPIView(View):
                 if agent_ids is not None:
                     agents = agents.filter(id__in=set(agent_ids))
                 tasks = [SimcAgentMaintenanceTask(agent=agent) for agent in agents.order_by('id')]
+                if not tasks:
+                    return JsonResponse({
+                        'success': False,
+                        'error': '该 Backend 没有可下发更新任务的启用 Agent',
+                    }, status=404)
                 SimcAgentMaintenanceTask.objects.bulk_create(tasks)
-                return JsonResponse({'success': True, 'data': [self._serialize_maintenance_task(task) for task in tasks]})
+                return JsonResponse({
+                    'success': True,
+                    'message': f'已向 {len(tasks)} 个 Agent 下发更新任务',
+                    'data': [self._serialize_maintenance_task(task) for task in tasks],
+                })
 
             runtime_platform = self._get_runtime_platform()
             row = SimcBackendBinary.objects.filter(identifier='production').first()

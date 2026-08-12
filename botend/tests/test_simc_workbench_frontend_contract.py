@@ -1074,6 +1074,8 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("'/api/simc-backend-binary/'", JS)
         self.assertIn("'X-CSRFToken': window.getCSRFToken()", JS)
         self.assertIn("action: 'set_auto_update'", JS)
+        self.assertIn('data-backend-id="${idOf(info.id)}"', JS)
+        self.assertIn('backend_id: idOf(backendAction.dataset.backendId)', JS)
 
     def test_backend_controls_have_delegated_click_and_change_handlers(self):
         """Rendered backend controls must be connected through delegated safe handlers."""
