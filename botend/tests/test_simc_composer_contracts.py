@@ -240,7 +240,9 @@ class SimcComposerEquipmentSlotResolutionTests(ComposerTestCase):
             player_config_mode='manual_equipment',
             player_equipment=(
                 'ptr=1\ndruid="Validator"\nspec=balance\n'
-                'talents=sSTALE_EXPORT_BUILD\nhead=,id=212048'
+                'talents=sSTALE_EXPORT_BUILD\n'
+                'omnium_talents=136822:1/136819:1\n'
+                'head=,id=212048'
             ),
             talent='CANONICAL_PROFILE_BUILD', battlenet_region='', battlenet_realm='',
             battlenet_character='', gear_crit=None, gear_haste=None,
@@ -252,6 +254,7 @@ class SimcComposerEquipmentSlotResolutionTests(ComposerTestCase):
 
         self.assertEqual(content.splitlines().count('ptr=1'), 1)
         self.assertIn('talents=CANONICAL_PROFILE_BUILD', content)
+        self.assertIn('omnium_talents=136822:1/136819:1', content)
         self.assertNotIn('sSTALE_EXPORT_BUILD', content)
 
     def test_ptr_profile_validation_uses_ptr_database(self):

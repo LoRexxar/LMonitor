@@ -69,6 +69,12 @@ class SimcHomeCreationResourceContractTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username='home-flow', password='pwd')
         self.client.force_login(self.user)
+        identity = patch(
+            'botend.services.simc_task_service.current_validation_identity',
+            return_value=(REVISION, BUILD),
+        )
+        identity.start()
+        self.addCleanup(identity.stop)
         validator = patch('botend.services.simc_task_service.validate_apl_for_profile')
         self.validate_apl = validator.start()
         self.addCleanup(validator.stop)
@@ -167,9 +173,9 @@ class SimcHomeCreationResourceContractTests(TestCase):
         self.assertIn('warrior="Default Fury"', task.profile_version.payload['player_equipment'])
         self.assertEqual(SimcProfile.objects.filter(user_id=self.user.id).count(), 1)
 
-    def test_task_addon_source_ignores_actions_and_freezes_player_block(self):
+    def test_task_addon_source_accepts_standard_profile_source_and_freezes_player_block(self):
         template, apl = self._task_resources()
-        addon = DEFAULT_PLAYER + '\nactions=/malicious_override\n'
+        addon = 'source=default\n' + DEFAULT_PLAYER + '\nactions=/malicious_override\n'
         response = self.client.post('/api/simc-task/', data=json.dumps({
             'name': 'Addon source task', 'spec': 'fury',
             'player_source': {'type': 'simc_addon', 'simc_code': addon},
@@ -179,6 +185,7 @@ class SimcHomeCreationResourceContractTests(TestCase):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertTrue(response.json()['success'], response.json())
         task = SimcTask.objects.select_related('profile_version', 'apl_version').get(id=response.json()['data']['id'])
+        self.assertIn('source=default', task.profile_version.payload['player_equipment'])
         self.assertNotIn('actions=', task.profile_version.payload['player_equipment'])
         self.assertEqual(task.apl_version.payload['content'], 'actions=/bloodthirst')
 

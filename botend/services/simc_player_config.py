@@ -198,6 +198,8 @@ def validate_player_baseline(player_equipment):
             if not item_id:
                 raise ValueError(f'冻结玩家装备基线装备槽位缺少物品ID: {canonical_slot}')
             slots[canonical_slot] = item_id
+        elif key == 'source' and raw_value == 'default':
+            scalar_keys.add(key)
         elif key in allowed_scalars:
             scalar_keys.add(key)
         else:

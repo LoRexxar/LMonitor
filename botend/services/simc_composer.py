@@ -649,8 +649,18 @@ class SimcComposer:
         # Saved profiles persist their canonical build code separately. Prefer it
         # over any stale/exporter-specific talents line retained in the actor block,
         # so every profile mode renders exactly one authoritative talent input.
+        # Omnium selections are a separate SimC directive, however: they are not
+        # encoded in the canonical build code and must survive that replacement.
         if talent:
-            content = f'talents={talent}'
+            lines = [f'talents={talent}']
+            player_equipment = request_data.get('player_equipment', '').strip()
+            if player_equipment:
+                parsed = self._parse_player_export(player_equipment)
+                lines.extend(
+                    line for line in parsed['talents'].splitlines()
+                    if line.split('=', 1)[0].strip() == 'omnium_talents'
+                )
+            content = '\n'.join(lines)
             content_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
             return SlotResolution(
                 slot_name='talents',
