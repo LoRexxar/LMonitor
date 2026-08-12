@@ -639,6 +639,17 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         detail_body = JS[detail_start:detail_end]
         self.assertIn("resourceUrl('apls', id)", detail_body)
 
+    def test_apl_list_detail_supports_cached_chinese_translation(self):
+        detail_start = JS.index('function renderManagedAplDetail')
+        detail_end = JS.index('\n    async function', detail_start)
+        detail_body = JS[detail_start:detail_end]
+        self.assertIn('data-apl-detail-language="apl"', detail_body)
+        self.assertIn('data-apl-detail-language="cn"', detail_body)
+        self.assertIn('data-apl-detail-content', detail_body)
+        self.assertIn('aplDetailTranslationCache', JS)
+        self.assertIn("window.convertText(row.content, 'apl_to_cn', row.spec)", JS)
+        self.assertIn("actionName === 'language'", JS)
+
     def test_apl_resources_share_one_list_with_spec_and_source_markers(self):
         """Personal and default APL resources belong in one searchable list, not side-by-side columns."""
         apl_panel_start = HTML.index('id="simc-workbench-apl-panel"')

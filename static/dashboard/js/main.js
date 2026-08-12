@@ -6192,7 +6192,7 @@ async function previewCurrentConverterContent() {
 /**
  * 文本转换函数
  */
-async function convertText(text, conversionType) {
+async function convertText(text, conversionType, spec = '') {
     try {
         const response = await fetch('/api/convert-text/', {
             method: 'POST',
@@ -6202,7 +6202,8 @@ async function convertText(text, conversionType) {
             },
             body: JSON.stringify({
                 text: text,
-                conversion_type: conversionType
+                conversion_type: conversionType,
+                spec: spec
             })
         });
 

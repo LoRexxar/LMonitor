@@ -17,6 +17,8 @@
         },
         converterMode: 'apl_to_cn', converterRequestSerial: 0,
         defaultAplCopyInFlight: new Set(),
+        aplDetailTranslationCache: new Map(), aplDetailRow: null,
+        aplDetailLanguage: 'apl', aplDetailTranslationSerial: 0,
         specOptions: [],
         aplEditor: null, aplEditorGeneration: 0,
         aplImportGeneration: 0, aplImportAbortController: null,
@@ -893,36 +895,10 @@
         return fetchManagedAplDetail(id);
     }
     async function showMyAplDetail(id) {
-        const host = openDialog('apl-detail');
-        if (!host) return;
-        const detailRequest = beginDetailRequest(`my-apl:${id}`);
-        renderState(host, 'loading', '正在加载APL详情…');
-        let data;
-        try {
-            data = await json(resourceUrl('apls', id), { signal: detailRequest.controller.signal });
-        } catch (error) {
-            if (error.name === 'AbortError') return;
-            throw error;
-        }
-        if (!isCurrentDetailRequest(detailRequest)) return;
-        const row = data.data || {};
-        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2 mb-3"><h4 class="font-bold">我的APL详情</h4><button class="simc-touch-action" data-my-apl-detail-action="close">关闭</button></div><dl class="grid gap-2 text-sm"><div>标题：${esc(row.title)}</div><div>专精：${esc(specLabel(row))}</div><div>状态：${row.is_active !== false ? '启用' : '已停用'}</div></dl><div class="mt-3"><label class="text-sm font-medium text-gray-700">APL内容</label><pre class="mt-1 rounded border bg-slate-50 p-3 text-xs overflow-auto max-h-96">${esc(row.apl_code)}</pre></div>`;
+        return showManagedAplDetail(id);
     }
     async function showDefaultAplDetail(id) {
-        const host = openDialog('default-apl-detail');
-        if (!host) return;
-        const detailRequest = beginDetailRequest(`default-apl:${id}`);
-        renderState(host, 'loading', '正在加载默认APL详情…');
-        let data;
-        try {
-            data = await json(resourceUrl('apls', id), { signal: detailRequest.controller.signal });
-        } catch (error) {
-            if (error.name === 'AbortError') return;
-            throw error;
-        }
-        if (!isCurrentDetailRequest(detailRequest)) return;
-        const row = data.data || {};
-        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2 mb-3"><h4 class="font-bold">默认APL详情</h4><button class="simc-touch-action" data-default-apl-detail-action="close">关闭</button></div><dl class="grid gap-2 text-sm"><div>名称：${esc(row.name)}</div><div>职业：${esc(row.class_name)}</div><div>专精：${esc(specLabel(row))}</div><div>来源：${esc(row.source === 'simc_upstream' ? 'SimC上游' : '其他')}</div></dl><div class="mt-3"><label class="text-sm font-medium text-gray-700">内容（只读）</label><pre readonly class="mt-1 rounded border bg-slate-50 p-3 text-xs overflow-auto max-h-96">${esc(row.content)}</pre></div>`;
+        return showManagedAplDetail(id);
     }
     async function copyDefaultAplToMy(templateId, button) {
         if (state.defaultAplCopyInFlight.has(templateId)) return;
@@ -1208,6 +1184,47 @@
         const row = (await json(resourceUrl('apls', id), options)).data || {};
         return { ...row, title: row.name, apl_code: row.content };
     }
+    function aplDetailTranslationKey(row) {
+        return `${idOf(row.id)}:${String(row.spec || '')}:${String(row.content || '')}`;
+    }
+    function renderManagedAplDetail(row, language = 'apl', status = '') {
+        const host = document.getElementById('simc-dialog-body');
+        if (!host) return;
+        state.aplDetailRow = row;
+        state.aplDetailLanguage = language;
+        const translated = state.aplDetailTranslationCache.get(aplDetailTranslationKey(row));
+        const content = language === 'cn' && translated != null ? translated : row.content;
+        const buttonClass = active => active
+            ? 'bg-blue-600 text-white'
+            : 'bg-white text-slate-600 hover:bg-slate-50';
+        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2 mb-3"><h4 class="font-bold">APL 详情</h4><button class="simc-touch-action" data-apl-action="cancel">关闭</button></div><dl class="grid gap-2 text-sm"><div>名称：${esc(row.name)}</div><div>专精：${esc(specLabel(row))}</div><div>来源：${esc(row.is_system ? '系统默认' : '个人')}</div></dl><div class="mt-3"><div class="flex flex-wrap items-center justify-between gap-2"><label class="text-sm font-medium text-gray-700">APL 内容</label><div class="inline-flex overflow-hidden rounded-lg border border-slate-300" role="group" aria-label="APL 内容语言"><button type="button" data-apl-detail-action="language" data-apl-detail-language="apl" class="px-3 py-1.5 text-sm ${buttonClass(language === 'apl')}">APL</button><button type="button" data-apl-detail-action="language" data-apl-detail-language="cn" class="border-l border-slate-300 px-3 py-1.5 text-sm ${buttonClass(language === 'cn')}">中文</button></div></div><div class="mt-1 min-h-5 text-xs text-slate-500" data-apl-detail-status aria-live="polite">${esc(status)}</div><pre class="mt-1 rounded border bg-slate-50 p-3 text-xs overflow-auto max-h-96"><code data-apl-detail-content>${esc(content)}</code></pre></div>`;
+    }
+    async function setManagedAplDetailLanguage(language) {
+        const row = state.aplDetailRow;
+        if (!row || !['apl', 'cn'].includes(language)) return;
+        if (language === 'apl') {
+            state.aplDetailTranslationSerial += 1;
+            renderManagedAplDetail(row, 'apl');
+            return;
+        }
+        const cacheKey = aplDetailTranslationKey(row);
+        if (state.aplDetailTranslationCache.has(cacheKey)) {
+            renderManagedAplDetail(row, 'cn');
+            return;
+        }
+        const requestSerial = ++state.aplDetailTranslationSerial;
+        renderManagedAplDetail(row, 'apl', '正在翻译…');
+        try {
+            const translated = await window.convertText(row.content, 'apl_to_cn', row.spec);
+            if (requestSerial !== state.aplDetailTranslationSerial || state.aplDetailRow !== row) return;
+            state.aplDetailTranslationCache.set(cacheKey, translated);
+            renderManagedAplDetail(row, 'cn');
+        } catch (error) {
+            if (requestSerial !== state.aplDetailTranslationSerial || state.aplDetailRow !== row) return;
+            renderManagedAplDetail(row, 'apl', '翻译失败，请重试');
+            throw error;
+        }
+    }
     async function showManagedAplDetail(id) {
         const host = openDialog('apl-detail');
         if (!host) return;
@@ -1221,7 +1238,8 @@
             throw error;
         }
         if (!isCurrentDetailRequest(request)) return;
-        host.innerHTML = `<div class="flex flex-wrap justify-between gap-2 mb-3"><h4 class="font-bold">APL 详情</h4><button class="simc-touch-action" data-apl-action="cancel">关闭</button></div><dl class="grid gap-2 text-sm"><div>名称：${esc(row.name)}</div><div>专精：${esc(specLabel(row))}</div><div>来源：${esc(row.is_system ? '系统默认' : '个人')}</div></dl><div class="mt-3"><label class="text-sm font-medium text-gray-700">APL 内容</label><pre class="mt-1 rounded border bg-slate-50 p-3 text-xs overflow-auto max-h-96">${esc(row.content)}</pre></div>`;
+        state.aplDetailTranslationSerial += 1;
+        renderManagedAplDetail(row);
     }
     async function editManagedApl(id) {
         const host = openDialog('apl-form');
@@ -1387,6 +1405,14 @@
                 else if (actionName === 'use' && id) useAplForSimulation(id).catch(notify);
                 else if (actionName === 'edit' && id) fetchAplStorageDetail(id).then(renderAplStorageForm).catch(notify);
                 else if ((actionName === 'archive' || actionName === 'restore') && id) lifecycle('apl-storage', id, actionName).catch(notify);
+            }
+
+            const aplDetailAction = event.target.closest('[data-apl-detail-action]');
+            if (aplDetailAction) {
+                const actionName = aplDetailAction.dataset.aplDetailAction;
+                if (actionName === 'language') {
+                    setManagedAplDetailLanguage(aplDetailAction.dataset.aplDetailLanguage).catch(notify);
+                }
             }
 
             const templateAction = event.target.closest('[data-template-action]');
