@@ -12,7 +12,14 @@ import json
 from unittest.mock import Mock, patch
 from django.test import TestCase, RequestFactory
 from django.contrib.auth.models import User
-from botend.models import SimcTask, SimcProfile, SimcApl, SimcContentTemplate, SimcResourceVersion, SimcBackendBinary
+from botend.models import (
+    SimcTask,
+    SimcProfile,
+    SimcApl,
+    SimcContentTemplate,
+    SimcResourceVersion,
+    SimcBackendBinary,
+)
 from botend.dashboard.api import (
     SimcAplCandidatesAPIView,
     SimcAttributeAnalysisAPIView,
@@ -328,6 +335,50 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
         attribute_data = json.loads(SimcAttributeAnalysisAPIView().get(attribute_request).content)
         self.assertFalse(attribute_data['success'])
         self.assertIn('不是属性模拟', attribute_data['error'])
+
+    def test_simc_report_routes_allow_anonymous_read_access(self):
+        task = SimcTask.objects.create(
+            user_id=self.other_user.id,
+            name='Public report task',
+            simc_profile_id=self.profile.id,
+            backend=self.backend,
+            mode='normal',
+            task_type=1,
+            current_status=2,
+            is_active=True,
+        )
+
+        page_urls = (
+            f'/simc-result/?task_id={task.id}',
+            f'/simc-compare/?task_id={task.id}',
+            f'/simc-attribute-analysis/?task_id={task.id}',
+        )
+        for url in page_urls:
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 200)
+
+        response = self.client.get(f'/api/simc-workbench/tasks/{task.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['success'])
+        self.assertEqual(response.json()['data']['id'], task.id)
+
+        response = self.client.get('/api/simc-task/preview/', {'task_id': task.id})
+        self.assertEqual(response.status_code, 200)
+
+        response = self.client.get('/api/simc-task/comparison/', {'task_id': task.id})
+        self.assertNotEqual(response.status_code, 302)
+
+        response = self.client.post('/api/simc-task/comparison/', data='{}', content_type='application/json')
+        self.assertEqual(response.status_code, 302)
+
+        response = self.client.get('/api/simc-regular-compare/', {'task_ids': str(task.id)})
+        self.assertNotEqual(response.status_code, 302)
+
+        response = self.client.get('/api/simc-result-proxy/', {'file': 'missing.html'})
+        self.assertNotEqual(response.status_code, 302)
+
+        response = self.client.get('/api/simc-workbench/history/')
+        self.assertEqual(response.status_code, 302)
 
     def test_task_api_source_does_not_read_task_type_from_new_requests(self):
         source = inspect.getsource(SimcTaskAPIView)

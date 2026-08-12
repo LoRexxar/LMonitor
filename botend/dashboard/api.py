@@ -2311,7 +2311,6 @@ class SimcTaskAPIView(View):
         return json.dumps(payload, ensure_ascii=False)
 
 
-@method_decorator(login_required, name='dispatch')
 class SimcComparisonTaskAPIView(View):
     """Create one self-describing comparison Task with multiple candidate Runs."""
     MAX_TASKS = 8
@@ -2389,6 +2388,7 @@ class SimcComparisonTaskAPIView(View):
             logger.error(f'获取 SimC comparison 数据失败: {e}\n{traceback.format_exc()}')
             return JsonResponse({'success': False, 'error': '服务器内部错误'}, status=500)
 
+    @method_decorator(login_required)
     def post(self, request):
         try:
             data = json.loads(request.body or '{}')
@@ -4782,7 +4782,7 @@ class OssConfigAPIView(View):
             })
 
 
-@method_decorator([csrf_exempt, login_required], name='dispatch')
+@method_decorator(csrf_exempt, name='dispatch')
 class SimcTaskPreviewAPIView(View):
     """Return a structured, display-safe snapshot of a task manifest only."""
 
@@ -4841,7 +4841,7 @@ class SimcTaskPreviewAPIView(View):
         return JsonResponse({'success': True, 'data': context})
 
 
-@method_decorator([csrf_exempt, login_required], name='dispatch')
+@method_decorator(csrf_exempt, name='dispatch')
 class SimcResultProxyAPIView(View):
     """
     SimC结果文件代理API - 用于从OSS获取文件内容
@@ -4937,7 +4937,7 @@ class SimcResultProxyAPIView(View):
             })
 
 
-@method_decorator([csrf_exempt, login_required], name='dispatch')
+@method_decorator(csrf_exempt, name='dispatch')
 class SimcAttributeAnalysisAPIView(View):
     """
     属性模拟分析API - 解析所有结果文件并提取DPS数据
@@ -5123,7 +5123,7 @@ class SimcAttributeAnalysisAPIView(View):
             return None
 
 
-@method_decorator([csrf_exempt, login_required], name='dispatch')
+@method_decorator(csrf_exempt, name='dispatch')
 class SimcRegularCompareAPIView(View):
     """
     常规模拟对比API - 解析多个任务的结果文件并返回可对比数据
@@ -5981,9 +5981,20 @@ class SimcTemplateAPIView(View):
         return JsonResponse({'success': False, 'error': '系统基础模板不能删除'}, status=405)
 
 
-@method_decorator(login_required, name='dispatch')
 class SimcWorkbenchAPIView(View):
     """安全的 SimC 工作台资源总览、详情与白名单生命周期操作。"""
+
+    def dispatch(self, request, resource=None, object_id=None, *args, **kwargs):
+        is_public_result = (
+            request.method == 'GET'
+            and object_id is not None
+            and resource in {'tasks', 'artifacts'}
+        )
+        if not is_public_result and not request.user.is_authenticated:
+            return login_required(super().dispatch)(
+                request, resource, object_id, *args, **kwargs,
+            )
+        return super().dispatch(request, resource, object_id, *args, **kwargs)
 
     SUMMARY_KEYS = {
         'dps', 'hps', 'dtps', 'mean', 'min', 'max', 'median', 'iterations', 'samples',
@@ -7452,7 +7463,6 @@ class SimcWorkbenchAPIView(View):
         return JsonResponse({'success': False, 'error': '不支持的资源操作'}, status=400)
 
 
-@method_decorator(login_required, name='dispatch')
 class SimcRunInputPreviewAPIView(View):
     """Compose readable SimC input for one Run from its task configuration."""
 
@@ -7476,7 +7486,6 @@ class SimcRunInputPreviewAPIView(View):
         }})
 
 
-@method_decorator(login_required, name='dispatch')
 class SimcTaskReportPreviewAPIView(View):
     """兼容没有 Artifact 记录的旧任务，并隐藏报告文件名与存储路径。"""
 
@@ -7501,7 +7510,6 @@ class SimcTaskReportPreviewAPIView(View):
         return response
 
 
-@method_decorator(login_required, name='dispatch')
 class SimcArtifactPreviewAPIView(View):
     def get(self, request, object_id):
         artifact = SimcTaskArtifact.objects.filter(

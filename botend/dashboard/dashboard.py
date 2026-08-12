@@ -1159,9 +1159,7 @@ class SimcBenchmarkExecutionPageView(DashboardPermissionRequiredMixin, View):
         })
 
 
-@method_decorator(login_required, name='dispatch')
-class SimcResultView(DashboardPermissionRequiredMixin, View):
-    dashboard_permission = 'simc.history'
+class SimcResultView(View):
     """
     处理SimC自定义结果查看页面请求
     """
@@ -1178,9 +1176,7 @@ class SimcResultView(DashboardPermissionRequiredMixin, View):
             return HttpResponse("页面加载失败", status=500)
 
 
-@method_decorator(login_required, name='dispatch')
-class SimcAttributeAnalysisView(DashboardPermissionRequiredMixin, View):
-    dashboard_permission = 'simc.history'
+class SimcAttributeAnalysisView(View):
     """
     处理SimC属性模拟分析页面请求
     """
@@ -1197,9 +1193,7 @@ class SimcAttributeAnalysisView(DashboardPermissionRequiredMixin, View):
             return HttpResponse("页面加载失败", status=500)
 
 
-@method_decorator(login_required, name='dispatch')
-class SimcRegularCompareView(DashboardPermissionRequiredMixin, View):
-    dashboard_permission = 'simc.history'
+class SimcRegularCompareView(View):
     """
     处理SimC常规模拟对比页面请求
     """
@@ -1213,9 +1207,7 @@ class SimcRegularCompareView(DashboardPermissionRequiredMixin, View):
             return HttpResponse("页面加载失败", status=500)
 
 
-@method_decorator(login_required, name='dispatch')
-class SimcAttributeAnalysisSSRView(DashboardPermissionRequiredMixin, View):
-    dashboard_permission = 'simc.history'
+class SimcAttributeAnalysisSSRView(View):
     """
     属性模拟分析SSR页面：后端渲染对比结果，无需前端JS计算
     """
