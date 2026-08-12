@@ -373,12 +373,11 @@ class Command(BaseCommand):
         with transaction.atomic():
             self._sync_default_template(git_hash)
             player_root = os.path.join(self.simc_source_dir, 'profiles')
-            mid2_dir = os.path.join(player_root, 'MID2')
-            profile_dir = mid2_dir if os.path.isdir(mid2_dir) else os.path.join(player_root, 'MID1')
-            profile_set = os.path.basename(profile_dir).upper()
-            profile_version = '12.1' if profile_set == 'MID2' else '12.0'
+            profile_dir = os.path.join(player_root, 'MID2')
+            fallback_profile_dir = os.path.join(player_root, 'MID1')
             call_command('import_simc_player_templates', source_dir=profile_dir,
-                         profile_set=profile_set, profile_version=profile_version,
+                         profile_set='MID2', profile_version='12.1',
+                         fallback_source_dir=fallback_profile_dir, fallback_profile_set='MID1',
                          sync_version=git_hash)
             self._sync_default_apl(git_hash)
             manifest_path = self._export_runtime_manifest(

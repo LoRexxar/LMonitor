@@ -58,6 +58,8 @@ class Command(BaseCommand):
         parser.add_argument('--source-dir', default=DEFAULT_SOURCE_DIR)
         parser.add_argument('--sync-version', default='')
         parser.add_argument('--profile-set', default='', help='上游 Profile 集合，如 MID1/MID2')
+        parser.add_argument('--fallback-source-dir', default='', help='主 Profile 集合缺失专精时的回退目录')
+        parser.add_argument('--fallback-profile-set', default='', help='回退目录的 Profile 集合名称')
         parser.add_argument('--profile-version', default='', help='Profile 游戏版本，如 12.0/12.1')
         parser.add_argument('--use-ptr', action='store_true', help='将本次导入的 Profile 显式标记为 PTR')
         parser.add_argument('--dry-run', action='store_true')
@@ -114,59 +116,62 @@ class Command(BaseCommand):
         profile_set = str(options.get('profile_set') or 'MID1').upper()
         if profile_set not in {'MID1', 'MID2'}:
             raise CommandError(f'不支持的 Profile 集合: {profile_set}')
+        fallback_source_dir = str(options.get('fallback_source_dir') or '').strip()
+        fallback_profile_set = str(options.get('fallback_profile_set') or 'MID1').upper()
+        if fallback_source_dir and not os.path.isdir(fallback_source_dir):
+            raise CommandError(f'回退 Profile 目录不存在: {fallback_source_dir}')
         profile_version = str(options.get('profile_version') or ('12.1' if profile_set == 'MID2' else '12.0'))
-        if not os.path.isdir(source_dir):
-            raise CommandError(f'Profile 目录不存在: {source_dir}')
+        profile_sources = [(source_dir, profile_set, profile_version)]
+        if fallback_source_dir:
+            profile_sources.append((fallback_source_dir, fallback_profile_set, '12.0'))
         imported = skipped = errors = 0
         validated = []
         seen = set()
-        for filename in sorted(os.listdir(source_dir)):
-            parsed = self._parse_filename(filename, profile_set)
-            if not parsed:
-                if filename.lower().endswith('.simc'):
+        for current_source_dir, current_profile_set, current_profile_version in profile_sources:
+            for filename in sorted(os.listdir(current_source_dir)):
+                parsed = self._parse_filename(filename, current_profile_set)
+                if not parsed:
+                    if filename.lower().endswith('.simc'):
+                        skipped += 1
+                    continue
+                class_name, spec = parsed
+                if parsed in seen:
                     skipped += 1
-                continue
-            class_name, spec = parsed
-            if parsed in seen:
-                errors += 1
-                self.stderr.write(self.style.ERROR(f'{filename}: 重复专精基线'))
-                continue
-            seen.add(parsed)
-            try:
-                with open(os.path.join(source_dir, filename), encoding='utf-8') as source:
-                    baseline = self._extract_baseline(source.read())
-                baseline = validate_default_player_baseline(f'{class_name}_{spec}', baseline)
-            except (OSError, ValueError) as exc:
-                errors += 1
-                self.stderr.write(self.style.ERROR(f'{filename}: {exc}'))
-                continue
-            spec_key = f'{class_name}_{spec}'
-            validated.append((spec_key, class_name, baseline))
-            if options['dry_run']:
-                self.stdout.write(f'[DRY] {spec_key}: {len(baseline.splitlines())} 行')
-            imported += 1
-
+                    continue
+                try:
+                    with open(os.path.join(current_source_dir, filename), encoding='utf-8') as source:
+                        baseline = self._extract_baseline(source.read())
+                    baseline = validate_default_player_baseline(f'{class_name}_{spec}', baseline)
+                except (OSError, ValueError) as exc:
+                    errors += 1
+                    self.stderr.write(self.style.ERROR(f'{filename}: {exc}'))
+                    continue
+                seen.add(parsed)
+                spec_key = f'{class_name}_{spec}'
+                validated.append((spec_key, class_name, baseline, current_profile_set, current_profile_version))
+                if options['dry_run']:
+                    self.stdout.write(f'[DRY] {spec_key}: {len(baseline.splitlines())} 行')
+                imported += 1
         missing_specs = REQUIRED_PROFILE_SPECS - seen
         if missing_specs:
             missing = ', '.join(f'{class_name}_{spec}' for class_name, spec in sorted(missing_specs))
             errors += len(missing_specs)
             self.stderr.write(f'缺少专精基线: {missing}')
         if not options['dry_run'] and errors == 0:
-            active_keys = [f'simc_upstream:{row[0]}' for row in validated]
             with transaction.atomic():
                 SimcProfile.objects.filter(
                     user_id__isnull=True,
                     source=SimcProfile.SOURCE_SIMC_UPSTREAM,
                     system_key__startswith='simc_upstream:',
                 ).delete()
-                for spec_key, class_name, baseline in validated:
+                for spec_key, class_name, baseline, current_profile_set, current_profile_version in validated:
                     SimcProfile.objects.update_or_create(
                         system_key=f'simc_upstream:{spec_key}',
                         defaults={
                             'user_id': None,
                             'source': SimcProfile.SOURCE_SIMC_UPSTREAM,
-                            'name': f'{profile_set} 默认玩家 {spec_key}', 'class_name': class_name,
-                            'version': profile_version, 'profile_set': profile_set,
+                            'name': f'{current_profile_set} 默认玩家 {spec_key}', 'class_name': class_name,
+                            'version': current_profile_version, 'profile_set': current_profile_set,
                             'spec': spec_key, 'player_config_mode': 'manual_equipment',
                             'use_ptr': bool(options.get('use_ptr', False)),
                             'player_equipment': baseline, 'talent': '',
