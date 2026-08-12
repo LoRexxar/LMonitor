@@ -531,11 +531,38 @@ class Command(BaseCommand):
                 status='清理已纳入上游的 SimC 生成文件', progress=10,
             )
 
-        result = self._run(
-            ['git', 'rebase', 'refs/remotes/origin/midnight'],
-            cwd=self.simc_source_dir, timeout=300,
-            status='同步 SimC 源码', progress=10,
-        )
+        self._set_status(progress=10, status='同步 SimC 源码', error='', updating=True)
+        self.stdout.write('同步 SimC 源码')
+        rebase_cmd = ['git', 'rebase', 'refs/remotes/origin/midnight']
+        try:
+            result = subprocess.run(
+                rebase_cmd,
+                cwd=self.simc_source_dir,
+                capture_output=True,
+                text=True,
+                timeout=1800,
+            )
+        except subprocess.TimeoutExpired as exc:
+            subprocess.run(
+                ['git', 'rebase', '--abort'],
+                cwd=self.simc_source_dir,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            self._fail('同步 SimC 源码超时', f'同步 SimC 源码超时: {exc}', progress=10)
+        except Exception as exc:
+            self._fail('同步 SimC 源码失败', f'同步 SimC 源码失败: {exc}', progress=10)
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or '').strip()[-1000:]
+            subprocess.run(
+                ['git', 'rebase', '--abort'],
+                cwd=self.simc_source_dir,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            self._fail('同步 SimC 源码失败', detail or 'git rebase 失败', progress=10)
         return result
 
     def _apply_local_patches(self):

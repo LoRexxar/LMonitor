@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
+from django.core.management.base import CommandError
 from django.test import Client, RequestFactory, TestCase, override_settings
 from django.utils import timezone
 
@@ -1297,17 +1298,18 @@ class SimcBackendUpdateSafetyTests(TestCase):
                 stdout=b'profiles/MID2/new.simc\0build-cli/cache.txt\0',
                 stderr=b'',
             ),
+            SimpleNamespace(returncode=0, stdout='', stderr=''),
         ]
         with patch(
             'botend.management.commands.update_simc_binary.subprocess.run',
             side_effect=responses,
-        ):
+        ) as run:
             command._pull_rebase()
 
         self.assertEqual(command._run.call_args_list[0].args[0], [
             'git', 'clean', '-f', '--', 'profiles/MID2/new.simc',
         ])
-        self.assertEqual(command._run.call_args_list[1].args[0], [
+        self.assertEqual(run.call_args_list[3].args[0], [
             'git', 'rebase', 'refs/remotes/origin/midnight',
         ])
 
@@ -1337,6 +1339,7 @@ class SimcBackendUpdateSafetyTests(TestCase):
             SimpleNamespace(returncode=0, stdout='', stderr=''),
             SimpleNamespace(returncode=0, stdout=b'', stderr=b''),
             SimpleNamespace(returncode=0, stdout=b'', stderr=b''),
+            SimpleNamespace(returncode=0, stdout='', stderr=''),
         ]
         with patch(
             'botend.management.commands.update_simc_binary.subprocess.run',
@@ -1346,9 +1349,31 @@ class SimcBackendUpdateSafetyTests(TestCase):
         self.assertEqual(run.call_args_list[0].args[0], [
             'git', 'fetch', '--prune', 'origin', 'midnight',
         ])
-        self.assertEqual(command._run.call_args.args[0], [
+        self.assertEqual(run.call_args_list[3].args[0], [
             'git', 'rebase', 'refs/remotes/origin/midnight',
         ])
+
+    def test_binary_update_aborts_rebase_after_timeout(self):
+        command = UpdateSimcBinaryCommand()
+        command.simc_source_dir = '/srv/simc'
+        command._set_status = __import__('unittest').mock.Mock()
+        command.stdout = SimpleNamespace(write=lambda *args, **kwargs: None)
+        command._fail = __import__('unittest').mock.Mock(side_effect=CommandError('timeout'))
+        responses = [
+            SimpleNamespace(returncode=0, stdout='', stderr=''),
+            SimpleNamespace(returncode=0, stdout=b'', stderr=b''),
+            SimpleNamespace(returncode=0, stdout=b'', stderr=b''),
+            __import__('subprocess').TimeoutExpired(['git', 'rebase'], 1800),
+            SimpleNamespace(returncode=0, stdout='', stderr=''),
+        ]
+        with patch(
+            'botend.management.commands.update_simc_binary.subprocess.run',
+            side_effect=responses,
+        ) as run:
+            with self.assertRaises(CommandError):
+                command._pull_rebase()
+
+        self.assertEqual(run.call_args_list[-1].args[0], ['git', 'rebase', '--abort'])
 
     def test_tracked_source_changes_are_autocommitted_before_rebase_pull(self):
         command = UpdateSimcBinaryCommand()
