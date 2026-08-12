@@ -108,7 +108,23 @@
         function sanitizeArticleHtml(html) {
             const template = document.createElement('template');
             template.innerHTML = String(html || '');
-            template.content.querySelectorAll('script, style, iframe, form').forEach(el => el.remove());
+            template.content.querySelectorAll('script, style, form').forEach(el => el.remove());
+            template.content.querySelectorAll('iframe').forEach(iframe => {
+                const match = iframe.getAttribute('src')?.match(
+                    /^https:\/\/www\.youtube-nocookie\.com\/embed\/([A-Za-z0-9_-]{11})$/
+                );
+                if (!match) {
+                    iframe.remove();
+                    return;
+                }
+                [...iframe.attributes].forEach(attr => iframe.removeAttribute(attr.name));
+                iframe.setAttribute('src', `https://www.youtube-nocookie.com/embed/${match[1]}`);
+                iframe.setAttribute('title', 'YouTube video player');
+                iframe.setAttribute('loading', 'lazy');
+                iframe.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+                iframe.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share');
+                iframe.setAttribute('allowfullscreen', '');
+            });
             template.content.querySelectorAll('noscript').forEach(el => el.replaceWith(...el.childNodes));
             template.content.querySelectorAll('*').forEach(el => {
                 [...el.attributes].forEach(attr => {
