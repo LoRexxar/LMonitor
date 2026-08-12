@@ -2467,9 +2467,15 @@ DPS=208365 DPS-Error=200/0.1%
             tasks.append(task)
 
         report_html = (
-            '<div class="player"><table class="sc sort"><tbody>'
-            '<tr class="toprow"><td>{ability}</td><td>({ability_dps})</td><td>({percent}%)</td></tr>'
-            '</tbody></table></div>'
+            '<div class="player"><div class="toggle-content">'
+            '<script type="text/x-deferred-html">'
+            '<table class="sc sort"><thead><tr>'
+            '<th>Damage Stats</th><th>DPS</th><th>DPS%</th>'
+            '</tr></thead><tbody>'
+            '<tr class="toprow"><td>{ability}</td>'
+            '<td>({ability_dps})</td><td>({percent}%)</td></tr>'
+            '</tbody></table>'
+            '</script></div></div>'
         )
         with patch.object(
             SimcRegularCompareAPIView,

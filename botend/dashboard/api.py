@@ -5607,7 +5607,14 @@ class SimcRegularCompareAPIView(View):
                 'character': parsed.get('character') or frozen_baseline.get('character') or {},
                 'simulation': parsed.get('simulation') or frozen_baseline.get('simulation_params') or {},
                 'talents': parsed.get('talents') or {'string': frozen_baseline.get('_talent') or ''},
-                'abilities': parsed.get('abilities', parsed.get('top_abilities', [])),
+                'abilities': [
+                    {
+                        'name': ability.get('name', ''),
+                        'dps': ability.get('dps', ''),
+                        'dps_percent': ability.get('dps_percent', ''),
+                    }
+                    for ability in parsed.get('abilities', parsed.get('top_abilities', []))
+                ],
                 'top_abilities': parsed.get('top_abilities', []),
                 'apl_name': apl_name, 'profile_name': profile_name,
                 'battle_scenario': battle_scenario,
@@ -5818,127 +5825,9 @@ class SimcRegularCompareAPIView(View):
             return None
     
     def _parse_regular_result(self, html_content):
-        result = {
-            'dps': None,
-            'character': {},
-            'simulation': {},
-            'talents': {},
-            'abilities': [],
-            'top_abilities': []
-        }
-        
-        try:
-            dps_pattern = r':\s*([\d,]+)\s*dps'
-            match = re.search(dps_pattern, html_content, re.IGNORECASE)
-            if match:
-                dps_str = match.group(1).replace(',', '')
-                try:
-                    result['dps'] = int(dps_str)
-                except ValueError:
-                    result['dps'] = None
-        except Exception:
-            result['dps'] = None
-        
-        try:
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(html_content, 'html.parser')
-            
-            player = soup.find(class_='player')
-            if player:
-                h2_tag = player.find('h2')
-                if h2_tag and not result['dps']:
-                    text = h2_tag.get_text(' ', strip=True)
-                    match = re.search(r':\s*([\d,]+)\s*dps', text, re.IGNORECASE)
-                    if match:
-                        try:
-                            result['dps'] = int(match.group(1).replace(',', ''))
-                        except ValueError:
-                            pass
-                
-                params = player.select('.params li')
-                for li in params:
-                    text = li.get_text(' ', strip=True)
-                    if 'Race:' in text:
-                        result['character']['race'] = text.split(':', 1)[1].strip()
-                    elif 'Class:' in text:
-                        result['character']['class'] = text.split(':', 1)[1].strip()
-                    elif 'Spec:' in text:
-                        result['character']['spec'] = text.split(':', 1)[1].strip()
-                    elif 'Level:' in text:
-                        result['character']['level'] = text.split(':', 1)[1].strip()
-                
-                talent_row = player.select_one('tr.left td')
-                if talent_row:
-                    talent_string = talent_row.get_text(' ', strip=True)
-                    if talent_string:
-                        result['talents']['string'] = talent_string
-                
-                set_bonus_items = player.select('tr.left.nowrap td li')
-                if set_bonus_items:
-                    result['talents']['set_bonuses'] = [li.get_text(' ', strip=True) for li in set_bonus_items if li.get_text(strip=True)]
-                
-                abilities_table = soup.select_one('.player table.sc.sort') or soup.select_one('table.sc.sort')
-                if abilities_table:
-                    abilities = []
-                    rows = abilities_table.select('tbody tr.toprow:not(.childrow)')
-                    for row in rows:
-                        cells = row.find_all('td', recursive=False)
-                        if len(cells) < 3:
-                            cells = row.find_all('td')
-                        if len(cells) < 3:
-                            continue
-                        
-                        name = cells[0].get_text(' ', strip=True)
-                        dps_text = cells[1].get_text(' ', strip=True)
-                        dps_match = re.search(r'\(([\d,]+)\)', dps_text)
-                        dps_value_text = (dps_match.group(1) if dps_match else dps_text).replace(',', '').strip()
-                        
-                        dps_percent_text = cells[2].get_text(' ', strip=True)
-                        dps_percent_match = re.search(r'\(([\d.]+%)\)', dps_percent_text)
-                        dps_percent_value_text = (dps_percent_match.group(1) if dps_percent_match else dps_percent_text).strip()
-                        
-                        dps_percent_number = None
-                        percent_match = re.search(r'([\d.]+)', dps_percent_value_text)
-                        if percent_match:
-                            try:
-                                dps_percent_number = float(percent_match.group(1))
-                            except ValueError:
-                                dps_percent_number = None
-                        
-                        if name:
-                            abilities.append({
-                                'name': name,
-                                'dps': dps_value_text,
-                                'dps_percent': dps_percent_value_text,
-                                'dps_percent_number': dps_percent_number
-                            })
-                    
-                    abilities.sort(key=lambda x: x.get('dps_percent_number') if x.get('dps_percent_number') is not None else -1, reverse=True)
-                    result['abilities'] = [{
-                        'name': a.get('name', ''),
-                        'dps': a.get('dps', ''),
-                        'dps_percent': a.get('dps_percent', '')
-                    } for a in abilities]
-                    result['top_abilities'] = result['abilities'][:12]
-            
-            masthead = soup.find(id='masthead')
-            if masthead:
-                params = masthead.select('.params li')
-                for li in params:
-                    text = li.get_text(' ', strip=True)
-                    if 'Timestamp:' in text:
-                        result['simulation']['timestamp'] = text.split(':', 1)[1].strip()
-                    elif 'Iterations:' in text:
-                        result['simulation']['iterations'] = text.split(':', 1)[1].strip()
-                    elif 'Fight Length:' in text:
-                        result['simulation']['fight_length'] = text.split(':', 1)[1].strip()
-                    elif 'Fight Style:' in text:
-                        result['simulation']['fight_style'] = text.split(':', 1)[1].strip()
-        
-        except Exception:
-            pass
-        
-        return result
+        from botend.services.simc_result_analysis import parse_simc_html_report
+
+        return parse_simc_html_report(html_content)
 
 
 @method_decorator(login_required, name='dispatch')
