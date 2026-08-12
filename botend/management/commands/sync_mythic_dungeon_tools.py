@@ -77,10 +77,32 @@ def load_payload_seed(path):
                 current = dict(snapshots.get(spell_id) or {})
                 label = str(poi.get('label') or '')
                 icon_url = normalize_asset_source_url(poi.get('icon_url'))
+                tooltip = (
+                    (poi.get('metadata') or {}).get('tooltip')
+                    if isinstance(poi.get('metadata'), dict)
+                    else {}
+                )
+                tooltip = tooltip if isinstance(tooltip, dict) else {}
                 if label and not current.get('name_zh'):
                     current['name_zh'] = label
                 if icon_url and not current.get('icon_url'):
                     current['icon_url'] = icon_url
+                for field in (
+                    'name',
+                    'name_zh',
+                    'description',
+                    'description_zh',
+                    'icon_name',
+                    'source',
+                    'data_env',
+                    'difficulty_id',
+                    'locales',
+                ):
+                    candidate = tooltip.get(field)
+                    if isinstance(candidate, str):
+                        candidate = candidate.strip()
+                    if candidate not in (None, '', []) and not current.get(field):
+                        current[field] = candidate
                 snapshots[spell_id] = current
         for enemy in dungeon.get('enemies') or []:
             if not isinstance(enemy, dict):
@@ -377,8 +399,8 @@ class Command(BaseCommand):
                 ):
                     spell_id = int(row['spell_id'])
                     current = dict(snapshots.get(spell_id) or {})
-                    preferred = {
-                        'spell_id': spell_id,
+                    preferred = dict(current)
+                    preferred.update({
                         'name': str(row.get('name') or current.get('name') or ''),
                         'name_zh': str(
                             row.get('name_zh')
@@ -395,7 +417,7 @@ class Command(BaseCommand):
                             or current.get('icon_url')
                             or ''
                         ),
-                    }
+                    })
                     if any(
                         preferred[field]
                         for field in ('name', 'name_zh', 'description', 'icon_url')

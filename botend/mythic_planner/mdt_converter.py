@@ -403,6 +403,38 @@ def _convert_pois(source_table, locale_zh, spell_snapshots=None):
                 or POI_LABELS.get(poi_type, '')
             )
         )
+        metadata = {
+            'source_index': source_index,
+            'source_x': poi.get('x'),
+            'source_y': poi.get('y'),
+            'source': _json_safe(poi),
+        }
+        if spell_id and any(snapshot.get(field) for field in (
+            'name',
+            'name_zh',
+            'description',
+            'description_zh',
+            'icon_name',
+            'source',
+            'data_env',
+            'difficulty_id',
+            'locales',
+        )):
+            metadata['tooltip'] = {
+                field: _json_safe(snapshot.get(field))
+                for field in (
+                    'name',
+                    'name_zh',
+                    'description',
+                    'description_zh',
+                    'icon_name',
+                    'source',
+                    'data_env',
+                    'difficulty_id',
+                    'locales',
+                )
+                if snapshot.get(field) not in (None, '', [])
+            }
         result.append({
             'key': f'poi-{source_index}',
             'type': poi_type,
@@ -415,12 +447,7 @@ def _convert_pois(source_table, locale_zh, spell_snapshots=None):
                 if poi.get('sublevel') not in (None, '')
                 else ''
             ),
-            'metadata': {
-                'source_index': source_index,
-                'source_x': poi.get('x'),
-                'source_y': poi.get('y'),
-                'source': _json_safe(poi),
-            },
+            'metadata': metadata,
         })
     return result
 

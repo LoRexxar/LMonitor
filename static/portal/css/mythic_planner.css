@@ -409,7 +409,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
     gap: 2px;
     width: max-content;
     min-width: 112px;
-    max-width: 210px;
+    max-width: 280px;
     padding: 6px 8px;
     transform: translate(-50%, 4px);
     border: 1px solid #6f6548;
@@ -441,6 +441,13 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 }
 .mdt-poi-tooltip strong { color: #fff4bd; font-size: 11px; }
 .mdt-poi-tooltip small { color: #aeb8c4; font-size: 9px; }
+.mdt-poi-tooltip-description {
+    margin-top: 3px;
+    color: #f3f4f6;
+    font-size: 10px;
+    line-height: 1.45;
+    white-space: pre-line;
+}
 .mdt-poi-tooltip.is-below {
     top: calc(100% + 7px);
     bottom: auto;

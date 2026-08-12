@@ -64,6 +64,7 @@ from botend.mythic_planner.spell_tooltips import (
     build_manifest_core,
     manifest_hash,
 )
+from botend.mythic_planner.wowhead_tooltips import description_from_tooltip_html
 from botend.management.commands.sync_mythic_dungeon_spells import (
     Command as SyncMythicDungeonSpellsCommand,
 )
@@ -606,6 +607,17 @@ class MythicPlannerImportTests(TestCase):
 
 
 class MythicDungeonToolsConverterTests(SimpleTestCase):
+    def test_wowhead_tooltip_parser_preserves_rendered_description(self):
+        tooltip = (
+            '<div class="q"><a>使用：造成<!--value-->30<!---->%伤害。'
+            '<br /><br />可使用3次。</a></div>'
+        )
+
+        self.assertEqual(
+            description_from_tooltip_html(tooltip),
+            '使用：造成30%伤害。\n\n可使用3次。',
+        )
+
     @staticmethod
     def source_root():
         return (
@@ -815,6 +827,13 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
                             'source': {
                                 'info': {'spellId': 456, 'texture': 789},
                             },
+                            'tooltip': {
+                                'name': 'Seed Item',
+                                'name_zh': '种子交互物品',
+                                'description': 'Existing English details.',
+                                'description_zh': '保留已有交互物品说明。',
+                                'icon_name': 'inv_seed_item',
+                            },
                         },
                     }],
                 }],
@@ -843,6 +862,11 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
 
         self.assertEqual(snapshots[123]['name_zh'], '种子技能')
         self.assertEqual(snapshots[456]['name_zh'], '种子交互物品')
+        self.assertEqual(snapshots[456]['name'], 'Seed Item')
+        self.assertEqual(
+            snapshots[456]['description_zh'],
+            '保留已有交互物品说明。',
+        )
         self.assertEqual(
             snapshots[456]['icon_url'],
             'https://oss.example/pois/item.jpg',
@@ -884,6 +908,11 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
         self.assertEqual(len(items), 19)
         self.assertEqual(len(assignable), 28)
         self.assertTrue(all(poi['label'] and poi['icon_url'] for poi in items))
+        self.assertTrue(all(
+            poi['metadata']['tooltip']['description_zh']
+            and poi['metadata']['tooltip']['description']
+            for poi in items
+        ))
         self.assertTrue(all(
             poi['metadata']['source']['info']['atlas'] == 'QuestSkull'
             for poi in assignable
@@ -2577,6 +2606,10 @@ class MythicPlannerPublicApiTests(TestCase):
                         'size': 15,
                     },
                 },
+                'tooltip': {
+                    'description': 'Summons a fel-infused mana wyrm.',
+                    'description_zh': '召唤一只邪能灌注的法力浮龙。',
+                },
             },
         )
 
@@ -2590,6 +2623,8 @@ class MythicPlannerPublicApiTests(TestCase):
         self.assertEqual(poi['spell_id'], 1223570)
         self.assertEqual(poi['size'], 15.0)
         self.assertEqual(poi['assignment_index'], 7)
+        self.assertEqual(poi['description'], '召唤一只邪能灌注的法力浮龙。')
+        self.assertEqual(poi['description_en'], 'Summons a fel-infused mana wyrm.')
 
     def test_share_code_api_round_trip_and_rejects_unknown_spawn(self):
         dungeon = get_active_dungeon('gloamvault')
@@ -3760,6 +3795,8 @@ class MythicPlannerPageContractTests(SimpleTestCase):
             'mdt-poi-tooltip',
             'aria-describedby',
             'role="tooltip"',
+            'poi.description',
+            'mdt-poi-tooltip-description',
         ):
             self.assertIn(token, portal_js)
         self.assertNotIn('!LMDT1!', portal_js)
@@ -3848,6 +3885,7 @@ class MythicPlannerPageContractTests(SimpleTestCase):
         self.assertIn('.mdt-poi.is-dungeon-entrance', planner_css)
         self.assertIn('.mdt-poi:hover .mdt-poi-tooltip', planner_css)
         self.assertIn('.mdt-poi:focus-visible .mdt-poi-tooltip', planner_css)
+        self.assertIn('.mdt-poi-tooltip-description', planner_css)
         self.assertIn('pointer-events: auto', planner_css)
         toggle_spawn = portal_js[
             portal_js.index('function toggleSpawn'):

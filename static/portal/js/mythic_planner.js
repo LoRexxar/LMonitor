@@ -852,6 +852,7 @@
             const image = poi.icon_url
                 ? `<img class="mdt-poi-image" src="${escapeHtml(poi.icon_url)}" alt="" loading="lazy" onerror="this.hidden=true">`
                 : '';
+            const description = String(poi.description || '').trim();
             return `
                 <div
                     class="mdt-poi is-${escapeHtml(typeClass)}"
@@ -868,6 +869,7 @@
                     <span class="${tooltipClasses}" id="${escapeHtml(tooltipId)}" role="tooltip">
                         <strong>${escapeHtml(poi.label || typeLabel)}</strong>
                         <small>${escapeHtml(typeLabel)}${poi.spell_id ? ` · Spell ${Number(poi.spell_id)}` : ''}</small>
+                        ${description ? `<span class="mdt-poi-tooltip-description">${escapeHtml(description)}</span>` : ''}
                     </span>
                 </div>
             `;

@@ -247,6 +247,8 @@ def _serialize_poi(poi):
     source = metadata.get('source') if isinstance(metadata, dict) else {}
     source = source if isinstance(source, dict) else {}
     info = source.get('info') if isinstance(source.get('info'), dict) else {}
+    tooltip = metadata.get('tooltip') if isinstance(metadata, dict) else {}
+    tooltip = tooltip if isinstance(tooltip, dict) else {}
 
     def optional_number(value, cast):
         try:
@@ -265,6 +267,13 @@ def _serialize_poi(poi):
         'target_floor_key': poi.target_floor_key,
         'texture_id': optional_number(info.get('texture'), int),
         'spell_id': optional_number(info.get('spellId'), int),
+        'description': str(
+            tooltip.get('description_zh')
+            or tooltip.get('description')
+            or ''
+        ),
+        'description_zh': str(tooltip.get('description_zh') or ''),
+        'description_en': str(tooltip.get('description') or ''),
         'atlas': str(info.get('atlas') or ''),
         'size': optional_number(info.get('size') or source.get('sizeMult'), float),
         'font_size': optional_number(info.get('fontSize'), float),

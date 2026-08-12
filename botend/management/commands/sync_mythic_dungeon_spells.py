@@ -43,6 +43,7 @@ from botend.mythic_planner.spell_tooltips import (
     preserve_description_provenance,
     should_preserve_description_for_snapshot,
 )
+from botend.mythic_planner.wowhead_tooltips import description_from_tooltip_html
 from botend.services.article_image_service import _get_configured_proxies
 from botend.wow.spell_text import SpellTextResolver
 
@@ -1067,22 +1068,7 @@ class Command(BaseCommand):
 
     @staticmethod
     def _description_from_tooltip_html(tooltip_html):
-        description_match = re.search(
-            r'<div\s+class="q">(.*?)</div>',
-            str(tooltip_html or ''),
-            re.IGNORECASE | re.DOTALL,
-        )
-        if not description_match:
-            return ''
-        text = re.sub(
-            r'<br\s*/?>',
-            '\n',
-            description_match.group(1),
-            flags=re.IGNORECASE,
-        )
-        text = re.sub(r'<[^>]+>', '', text)
-        text = html.unescape(text).strip()
-        return re.sub(r'(?<=\d)\$', '%', text)
+        return description_from_tooltip_html(tooltip_html)
 
     @staticmethod
     def _referenced_spell_ids_from_tooltip(tooltip_html, source_spell_id):
