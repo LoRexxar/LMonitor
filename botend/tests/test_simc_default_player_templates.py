@@ -134,7 +134,10 @@ class ImportSimcPlayerTemplatesTests(TestCase):
         self.assertEqual(profile.profile_set, 'MID2')
         self.assertEqual(profile.version, '12.1')
         self.assertEqual(profile.sync_version, 'b' * 40)
-        self.assertFalse(SimcProfile.objects.filter(pk=old.pk).exists())
+        old.refresh_from_db()
+        self.assertFalse(old.is_active)
+        self.assertIsNone(old.system_key)
+        self.assertNotEqual(profile.id, old.id)
 
     def test_required_mid1_profiles_match_the_supported_32_spec_execution_scope(self):
         from botend.management.commands.import_simc_player_templates import REQUIRED_PROFILE_SPECS

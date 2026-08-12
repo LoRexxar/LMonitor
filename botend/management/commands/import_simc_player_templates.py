@@ -163,23 +163,29 @@ class Command(BaseCommand):
                     user_id__isnull=True,
                     source=SimcProfile.SOURCE_SIMC_UPSTREAM,
                     system_key__startswith='simc_upstream:',
-                ).delete()
+                    is_active=True,
+                ).update(is_active=False, system_key=None)
                 for spec_key, class_name, baseline, current_profile_set, current_profile_version in validated:
-                    SimcProfile.objects.update_or_create(
+                    SimcProfile.objects.create(
                         system_key=f'simc_upstream:{spec_key}',
-                        defaults={
-                            'user_id': None,
-                            'source': SimcProfile.SOURCE_SIMC_UPSTREAM,
-                            'name': f'{current_profile_set} 默认玩家 {spec_key}', 'class_name': class_name,
-                            'version': current_profile_version, 'profile_set': current_profile_set,
-                            'spec': spec_key, 'player_config_mode': 'manual_equipment',
-                            'use_ptr': bool(options.get('use_ptr', False)),
-                            'player_equipment': baseline, 'talent': '',
-                            'gear_strength': None, 'gear_crit': None,
-                            'gear_haste': None, 'gear_mastery': None,
-                            'gear_versatility': None,
-                            'sync_version': options['sync_version'], 'is_active': True,
-                        },
+                        user_id=None,
+                        source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+                        name=f'{current_profile_set} 默认玩家 {spec_key}',
+                        class_name=class_name,
+                        version=current_profile_version,
+                        profile_set=current_profile_set,
+                        spec=spec_key,
+                        player_config_mode='manual_equipment',
+                        use_ptr=bool(options.get('use_ptr', False)),
+                        player_equipment=baseline,
+                        talent='',
+                        gear_strength=None,
+                        gear_crit=None,
+                        gear_haste=None,
+                        gear_mastery=None,
+                        gear_versatility=None,
+                        sync_version=options['sync_version'],
+                        is_active=True,
                     )
         action = '预览' if options['dry_run'] else '导入'
         if errors:
