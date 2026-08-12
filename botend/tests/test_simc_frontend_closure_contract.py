@@ -70,16 +70,24 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertIn('row.profile_version_id', reference_card)
         self.assertIn('row.apl_version_id', reference_card)
 
-    def test_home_creation_success_returns_to_unified_history(self):
+    def test_home_creation_success_stays_on_simulation_form(self):
         creation = SIM[SIM.index("async function startSelectedSimcCandidateComparisons"):SIM.index("function bindSimcWorkbenchSimulationControls")]
         history_navigation = "showDashboardSection(SIMC_DASHBOARD_SECTIONS.history)"
-        self.assertGreaterEqual(creation.count(history_navigation), 4)
+        self.assertNotIn(history_navigation, creation)
         self.assertNotIn("switchSimcWorkbenchL1Tab('history')", creation)
         self.assertNotIn("window.location.assign(`/dashboard/simc/tasks/", creation)
         self.assertNotIn("window.simcWorkbenchShowTaskDetail('tasks',", creation)
         self.assertGreaterEqual(creation.count("/api/simc-task/comparison/"), 2)
         self.assertNotIn("switchSimcWorkbenchTab('artifacts')", creation)
         self.assertNotIn("loadArtifacts", creation)
+
+    def test_resource_simulation_matches_canonical_spec_to_existing_option(self):
+        resource_start = SIM.index("async function startSimcSimulationFromResource")
+        resource_end = SIM.index("window.startSimcSimulationFromResource", resource_start)
+        resource = SIM[resource_start:resource_end]
+        self.assertIn("Array.from(specSelect.options).find", resource)
+        self.assertIn("normalizeSimcSpecKey(option.value) === canonicalSpec", resource)
+        self.assertIn("specSelect.value = matchingSpecOption.value", resource)
 
     def test_candidate_and_attribute_requests_use_their_current_reference_contracts(self):
         candidate = SIM[SIM.index("async function startSelectedSimcCandidateComparisons"):SIM.index("function stopSimcCandidateComparisonPolling")]
