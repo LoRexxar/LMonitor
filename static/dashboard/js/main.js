@@ -1516,6 +1516,48 @@ function closeSimcWorkbenchDialog() {
 }
 window.closeSimcWorkbenchDialog = closeSimcWorkbenchDialog;
 
+function showSimcTaskCreatedDialog() {
+    return new Promise(resolve => {
+        const dialog = document.getElementById('simc-workbench-dialog');
+        const body = document.getElementById('simc-dialog-body');
+        if (!dialog || !body) {
+            resolve();
+            return;
+        }
+
+        let settled = false;
+        let dismissTimer = null;
+        const finish = () => {
+            if (settled) return;
+            settled = true;
+            if (dismissTimer) window.clearTimeout(dismissTimer);
+            document.removeEventListener('simc-dialog-closing', onDialogClosing);
+            resolve();
+        };
+        const onDialogClosing = () => finish();
+        const close = () => {
+            closeSimcWorkbenchDialog();
+            finish();
+        };
+
+        openSimcWorkbenchDialog('task-created');
+        body.innerHTML = `
+            <div class="py-8 text-center">
+                <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-2xl text-emerald-600" aria-hidden="true"><i class="fas fa-check"></i></div>
+                <p class="text-lg font-semibold text-gray-900">任务已新建</p>
+                <p class="mt-2 text-sm text-gray-500">任务已进入队列，可在任务列表查看进度。</p>
+                <button type="button" data-simc-task-created-history class="mt-6 rounded-xl bg-blue-600 px-5 py-2.5 font-semibold text-white transition-colors hover:bg-blue-700">前往任务列表</button>
+                <p class="mt-3 text-xs text-gray-400">此窗口将在 1 秒后自动关闭</p>
+            </div>`;
+        document.addEventListener('simc-dialog-closing', onDialogClosing, { once: true });
+        body.querySelector('[data-simc-task-created-history]')?.addEventListener('click', () => {
+            showDashboardSection(SIMC_DASHBOARD_SECTIONS.history);
+            close();
+        });
+        dismissTimer = window.setTimeout(close, 1000);
+    });
+}
+
 function getTitleForDialogContent(contentType) {
     const titles = {
         'profile-detail': '玩家配置详情',
@@ -1525,7 +1567,8 @@ function getTitleForDialogContent(contentType) {
         'apl-form': 'APL 管理',
 
         'task-detail': '任务详情',
-        'task-comparison': '任务对比'
+        'task-comparison': '任务对比',
+        'task-created': '模拟任务已创建',
     };
     return titles[contentType] || '详情';
 }
@@ -3734,7 +3777,7 @@ async function startSelectedSimcCandidateComparisons() {
         const payload = await response.json();
         if (!response.ok || !payload.success) throw new Error(payload.error || '创建比较任务失败');
         if (!isCurrentSimcCandidateControl(control)) return;
-        showMessage('比较任务已创建', 'success');
+        await showSimcTaskCreatedDialog();
     } catch (error) {
         if (error.name !== 'AbortError') showMessage(String(error.message || error), 'error');
     } finally {
@@ -3785,7 +3828,7 @@ async function startSimcAttributeSearch() {
     try {
         const data = await submitSimcAttributeSearch(simcAttributeSearchRequestBody(), control.controller.signal);
         if (simcAttributeSearchControl !== control) return;
-        showMessage('属性寻优任务已创建', 'success');
+        await showSimcTaskCreatedDialog();
     } catch (error) {
         if (error.name !== 'AbortError') showMessage(String(error.message || error), 'error');
     } finally {
@@ -3823,25 +3866,19 @@ async function createSimcSimulationTask() {
         ...references,
         ...scenario,
     };
-    const button = document.getElementById('simc-sim-submit-btn');
-    if (button) button.disabled = true;
-    try {
-        const response = await fetch('/api/simc-task/', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
-            body: JSON.stringify(requestBody),
-        });
-        const payload = await response.json();
-        if (!response.ok || !payload.success) throw new Error(payload.error || '创建任务失败');
-        showMessage('模拟任务已创建', 'success');
-    } catch (error) {
-        showMessage(String(error.message || error), 'error');
-    } finally {
-        if (button) button.disabled = false;
-    }
+    const response = await fetch('/api/simc-task/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+        body: JSON.stringify(requestBody),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.success) throw new Error(payload.error || '创建任务失败');
+    await showSimcTaskCreatedDialog();
 }
 
 async function submitSimcHomeCreation() {
+    const button = document.getElementById('simc-sim-submit-btn');
+    if (button) button.disabled = true;
     const mode = document.getElementById('simc-sim-mode')?.value || 'normal';
     try {
         requireSimcRunReferences();
@@ -3856,6 +3893,8 @@ async function submitSimcHomeCreation() {
         }
     } catch (error) {
         showMessage(String(error.message || error), 'warning');
+    } finally {
+        if (button) button.disabled = false;
     }
 }
 

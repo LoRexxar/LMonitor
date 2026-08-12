@@ -895,11 +895,27 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
     def test_workbench_data_loader_has_no_duplicate_model_navigation_handler(self):
         self.assertNotIn("const tab = event.target.closest('[data-simc-tab]')", JS)
 
-    def test_navigation_task_creation_switches_to_history(self):
-        """After task creation, navigation must switch to history L1 panel."""
-        self.assertIn("switchSimcWorkbenchL1Tab('history')", MAIN)
-        submit_lines = [line for line in MAIN.split("\n") if "simc-sim-submit-btn" in line or "submitSimcSimulation" in line]
-        self.assertTrue(len(submit_lines) > 0, "Submit button handler must exist")
+    def test_task_creation_success_dialog_navigates_or_auto_closes_before_unlocking_submit(self):
+        """A created task stays acknowledged in a modal before the unified submit button unlocks."""
+        create_start = MAIN.index('async function createSimcSimulationTask()')
+        create_end = MAIN.index('async function submitSimcHomeCreation()', create_start)
+        create_body = MAIN[create_start:create_end]
+        submit_start = MAIN.index('async function submitSimcHomeCreation()')
+        submit_end = MAIN.index('async function loadSimcRaidBuffOptions()', submit_start)
+        submit_body = MAIN[submit_start:submit_end]
+        dialog_start = MAIN.index('function showSimcTaskCreatedDialog()')
+        dialog_end = MAIN.index('function getTitleForDialogContent(', dialog_start)
+        dialog_body = MAIN[dialog_start:dialog_end]
+
+        self.assertIn('await showSimcTaskCreatedDialog()', create_body)
+        self.assertNotIn("if (button) button.disabled = false", create_body)
+        self.assertIn('button.disabled = true', submit_body)
+        self.assertIn('button.disabled = false', submit_body)
+        self.assertIn('任务已新建', dialog_body)
+        self.assertIn('前往任务列表', dialog_body)
+        self.assertIn('showDashboardSection(SIMC_DASHBOARD_SECTIONS.history)', dialog_body)
+        self.assertIn('setTimeout', dialog_body)
+        self.assertIn('1000', dialog_body)
 
     def test_navigation_profile_load_switches_to_workflow(self):
         """Profile load must return to workflow L1 panel."""
