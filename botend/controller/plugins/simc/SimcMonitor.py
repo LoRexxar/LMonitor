@@ -373,6 +373,13 @@ class SimcMonitor(BaseScan):
         logger.info("[SimC Monitor] Start SimC simulation check.")
         
         try:
+            local_backend = SimcBackendBinary.objects.filter(identifier='production').only(
+                'local_worker_enabled'
+            ).first()
+            if local_backend is not None and not local_backend.local_worker_enabled:
+                logger.info("[SimC Monitor] Local Worker task dispatch is disabled.")
+                return True
+
             if not self.ensure_local_simc_backend_current():
                 logger.error("[SimC Monitor] Local SimC backend is not ready")
                 self.fail_pending_tasks("SimC本地编译产物不可用，请先完成后端编译更新")

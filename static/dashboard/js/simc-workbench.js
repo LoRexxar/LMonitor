@@ -1017,7 +1017,7 @@
             return;
         }
         const disabled = info.is_updating ? 'disabled aria-disabled="true"' : '';
-        actions.innerHTML = `<div class="flex flex-wrap items-center gap-3"><label class="flex items-center gap-2 text-sm"><input type="checkbox" data-backend-auto-update ${info.auto_update ? 'checked' : ''} ${disabled}>自动更新</label>
+        actions.innerHTML = `<div class="flex flex-wrap items-center gap-3"><label class="flex items-center gap-2 text-sm"><input type="checkbox" data-local-worker-enabled ${info.local_worker_enabled !== false ? 'checked' : ''}>本地 Worker 接收任务</label><label class="flex items-center gap-2 text-sm"><input type="checkbox" data-backend-auto-update ${info.auto_update ? 'checked' : ''} ${disabled}>自动更新</label>
             <label class="flex items-center gap-2 text-sm"><input type="checkbox" data-backend-maintenance-enabled ${policy.enabled === false ? '' : 'checked'} ${disabled}>每日维护</label>
             <label class="text-sm">开始 <input type="time" data-backend-maintenance-time value="${esc(policy.daily_time || '03:00')}" ${disabled} class="rounded border px-2 py-1"></label>
             <label class="text-sm">窗口 <input type="number" min="1" max="180" data-backend-maintenance-window value="${esc(policy.window_minutes || 60)}" ${disabled} class="w-20 rounded border px-2 py-1"> 分钟</label>
@@ -1057,14 +1057,14 @@
             unregistered: ['未注册', 'bg-slate-100 text-slate-600'],
         };
         host.innerHTML = `<div class="overflow-x-auto"><table class="simc-responsive-table w-full min-w-[980px] text-sm">
-            <thead><tr class="border-b text-left text-slate-500"><th class="p-2">Agent</th><th class="p-2">Backend</th><th class="p-2">连接</th><th class="p-2">运行状态</th><th class="p-2">SimC</th><th class="p-2">当前任务</th><th class="p-2">最后心跳</th></tr></thead>
+            <thead><tr class="border-b text-left text-slate-500"><th class="p-2">Agent</th><th class="p-2">Backend</th><th class="p-2">接收任务</th><th class="p-2">连接</th><th class="p-2">运行状态</th><th class="p-2">SimC</th><th class="p-2">当前任务</th><th class="p-2">最后心跳</th></tr></thead>
             <tbody>${rows.map(row => {
                 const status = statusMeta[row.status] || [row.status || '未知', 'bg-slate-100 text-slate-600'];
                 const leases = Array.isArray(row.leases) ? row.leases : (row.lease ? [row.lease] : []);
                 const leaseText = leases.length
                     ? leases.map(lease => `<div>Task #${idOf(lease.task_id)} · Run #${idOf(lease.run_id)}<span class="ml-1 text-xs text-slate-500">租约至 ${esc(timeText(lease.expires_at))}</span></div>`).join('')
                     : '—';
-                return `<tr class="border-b last:border-0"><td data-label="Agent" class="p-2"><div class="font-medium text-slate-900">${esc(row.name || `Agent #${idOf(row.id)}`)}</div><div class="text-xs text-slate-500">${esc(row.platform || '—')} · Agent ${esc(row.agent_version || '—')}</div></td><td data-label="Backend" class="p-2"><div class="font-medium">${esc(row.backend?.name || row.backend?.identifier || '—')}</div><div class="text-xs text-slate-500">${esc(row.backend?.identifier || '')}</div></td><td data-label="连接" class="p-2"><span class="rounded-full px-2 py-1 text-xs font-medium ${row.online ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}">${row.online ? '在线' : '离线'}</span>${row.is_active ? '' : '<span class="ml-1 rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">已停用</span>'}</td><td data-label="运行状态" class="p-2"><span class="rounded-full px-2 py-1 text-xs font-medium ${status[1]}">${esc(status[0])}</span></td><td data-label="SimC" class="p-2"><div>${esc(row.current_version || '—')}</div><div class="text-xs ${row.binary_available ? 'text-emerald-700' : 'text-red-700'}">${row.binary_available ? '二进制可用' : '二进制不可用'}</div></td><td data-label="当前任务" class="p-2">${leaseText}</td><td data-label="最后心跳" class="p-2">${esc(timeText(row.last_seen_at))}</td></tr>`;
+                return `<tr class="border-b last:border-0"><td data-label="Agent" class="p-2"><div class="font-medium text-slate-900">${esc(row.name || `Agent #${idOf(row.id)}`)}</div><div class="text-xs text-slate-500">${esc(row.platform || '—')} · Agent ${esc(row.agent_version || '—')}</div></td><td data-label="Backend" class="p-2"><div class="font-medium">${esc(row.backend?.name || row.backend?.identifier || '—')}</div><div class="text-xs text-slate-500">${esc(row.backend?.identifier || '')}</div></td><td data-label="接收任务" class="p-2"><label class="inline-flex items-center gap-2"><input type="checkbox" data-agent-accepting-toggle data-agent-id="${idOf(row.id)}" ${row.is_active ? 'checked' : ''}><span>${row.is_active ? '开启' : '关闭'}</span></label></td><td data-label="连接" class="p-2"><span class="rounded-full px-2 py-1 text-xs font-medium ${row.online ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}">${row.online ? '在线' : '离线'}</span></td><td data-label="运行状态" class="p-2"><span class="rounded-full px-2 py-1 text-xs font-medium ${status[1]}">${esc(status[0])}</span></td><td data-label="SimC" class="p-2"><div>${esc(row.current_version || '—')}</div><div class="text-xs ${row.binary_available ? 'text-emerald-700' : 'text-red-700'}">${row.binary_available ? '二进制可用' : '二进制不可用'}</div></td><td data-label="当前任务" class="p-2">${leaseText}</td><td data-label="最后心跳" class="p-2">${esc(timeText(row.last_seen_at))}</td></tr>`;
             }).join('')}</tbody>
         </table></div>`;
     }
@@ -1162,6 +1162,15 @@
         window.showMessage(result.message || '后端操作已提交', 'success');
         await loadBackend();
         return result;
+    }
+    async function setAgentAcceptingTasks(agentId, enabled) {
+        await json(`${resourceUrl('agents', idOf(agentId))}active/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
+            body: JSON.stringify({ is_active: enabled }),
+        });
+        window.showMessage(`Agent 接收任务已${enabled ? '开启' : '关闭'}`, 'success');
+        await loadAgents();
     }
     async function lifecycle(resource, id, action) {
         await json(resourceUrl(resource, id), { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() }, body: JSON.stringify({ action }) });
@@ -1547,6 +1556,18 @@
                     if (!Number.isSafeInteger(windowMinutes) || windowMinutes < 1 || windowMinutes > 180) return notify(new Error('维护窗口必须是 1 到 180 分钟'));
                     runBackendAction({ action: 'set_maintenance_schedule', enabled, daily_time: dailyTime, window_minutes: windowMinutes }).catch(notify);
                 }
+            }
+            const localWorkerToggle = event.target.closest('[data-local-worker-enabled]');
+            if (localWorkerToggle) {
+                localWorkerToggle.disabled = true;
+                runBackendAction({ action: 'set_local_worker_enabled', enabled: localWorkerToggle.checked })
+                    .catch(error => { loadBackend().catch(notify); notify(error); });
+            }
+            const agentAcceptingToggle = event.target.closest('[data-agent-accepting-toggle]');
+            if (agentAcceptingToggle) {
+                agentAcceptingToggle.disabled = true;
+                setAgentAcceptingTasks(agentAcceptingToggle.dataset.agentId, agentAcceptingToggle.checked)
+                    .catch(error => { loadAgents().catch(notify); notify(error); });
             }
             const agentAction = event.target.closest('[data-agent-action]');
             if (agentAction && agentAction.dataset.agentAction === 'refresh') loadAgents().catch(notify);

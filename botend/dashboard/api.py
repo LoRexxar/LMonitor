@@ -7625,6 +7625,7 @@ class SimcBackendBinaryAPIView(View):
             'latest_version': latest_version,
             'game_version': self._get_game_version(row),
             'need_update': bool(latest_version) and (latest_version != current_version),
+            'local_worker_enabled': row.local_worker_enabled,
             'auto_update': row.auto_update,
             'maintenance_policy': {
                 'enabled': (getattr(row, 'maintenance_enabled', True)
@@ -7662,6 +7663,7 @@ class SimcBackendBinaryAPIView(View):
                         'latest_version': '',
                         'game_version': '',
                         'need_update': False,
+                        'local_worker_enabled': True,
                         'auto_update': True,
                         'maintenance_policy': {
                             'enabled': True, 'policy_revision': 1, 'timezone': 'Asia/Shanghai',
@@ -7711,7 +7713,7 @@ class SimcBackendBinaryAPIView(View):
 
             data = json.loads(request.body or '{}')
             action = (data.get('action') or '').strip()
-            if action not in ('set_auto_update', 'set_maintenance_schedule', 'check', 'update', 'dispatch_agent_maintenance'):
+            if action not in ('set_auto_update', 'set_local_worker_enabled', 'set_maintenance_schedule', 'check', 'update', 'dispatch_agent_maintenance'):
                 return JsonResponse({'success': False, 'error': '不支持的后端操作'}, status=400)
 
             if action == 'dispatch_agent_maintenance':
@@ -7745,6 +7747,7 @@ class SimcBackendBinaryAPIView(View):
                 row.current_version = ''
                 row.latest_version = ''
                 row.auto_update = True
+                row.local_worker_enabled = True
                 row.maintenance_enabled = True
                 row.maintenance_daily_time = '03:00'
                 row.maintenance_window_minutes = 60
@@ -7756,6 +7759,17 @@ class SimcBackendBinaryAPIView(View):
                 row.last_error = ''
                 row.is_updating = False
                 row.save()
+
+            if action == 'set_local_worker_enabled':
+                enabled = self._json_bool(data.get('enabled'), True)
+                row.local_worker_enabled = enabled
+                row.save(update_fields=['local_worker_enabled'])
+                source_dir, build_dir, binary_path = self._resolve_local_build_paths()
+                return JsonResponse({
+                    'success': True,
+                    'message': f'本地 Worker 接收任务已{"开启" if enabled else "关闭"}',
+                    'data': self._serialize_backend_row(row, source_dir, build_dir, binary_path),
+                })
 
             if action == 'set_maintenance_schedule':
                 enabled = self._json_bool(data.get('enabled'), True)

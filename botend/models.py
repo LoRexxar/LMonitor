@@ -1503,6 +1503,7 @@ class SimcBackendBinary(models.Model):
     platform = models.CharField(max_length=32, default="linux64", help_text="平台标识，如 linux64/linuxarm64")
     simc_path = models.CharField(max_length=500, default="", help_text="SimC本地编译产物路径")
     is_active = models.BooleanField(default=True, help_text="是否允许新任务选择")
+    local_worker_enabled = models.BooleanField(default=True, help_text="本地Worker是否接收新任务")
     current_version = models.CharField(max_length=128, default="", help_text="当前SimC版本号/构建标识")
     game_build = models.CharField(
         max_length=64, default="", blank=True,

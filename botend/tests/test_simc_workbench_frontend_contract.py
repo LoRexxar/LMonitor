@@ -25,6 +25,12 @@ SIMC_MAIN = MAIN[
 
 
 class SimcWorkbenchFrontendContractTests(unittest.TestCase):
+    def test_local_worker_and_each_agent_have_independent_dispatch_switches(self):
+        self.assertIn('data-local-worker-enabled', JS)
+        self.assertIn("action: 'set_local_worker_enabled'", JS)
+        self.assertIn('data-agent-accepting-toggle', JS)
+        self.assertIn("JSON.stringify({ is_active: enabled })", JS)
+
     def test_apl_assistant_follows_dialog_scroll_and_fills_visible_height(self):
         desktop_css = APL_EDITOR_CSS[:APL_EDITOR_CSS.index("@media (max-width: 900px)")]
         apl_form = JS[JS.index('<form data-apl-storage-form'):JS.index('setAplDialogLayout(true);')]
