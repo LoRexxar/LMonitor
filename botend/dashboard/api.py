@@ -1589,6 +1589,9 @@ class SimcTaskAPIView(View):
             gear_versatility = data.get('gear_versatility')
             talent = data.get('talent', '').strip()
             spec = data.get('spec', '').strip()
+            use_ptr = data.get('use_ptr', False)
+            if type(use_ptr) is not bool:
+                return JsonResponse({'success': False, 'error': 'use_ptr 必须是布尔值'}, status=400)
 
             if not name:
                 return JsonResponse({
@@ -1730,6 +1733,7 @@ class SimcTaskAPIView(View):
             # Transient profiles inherit their equipment/player snapshot by default.
             # Only request-authored fields become final SimC overrides.
             if profile_fields is not None:
+                profile_fields['use_ptr'] = use_ptr
                 if talent:
                     profile_fields['talent'] = talent
                 for field, value in (

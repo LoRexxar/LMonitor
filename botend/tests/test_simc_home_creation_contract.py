@@ -180,11 +180,13 @@ class SimcHomeCreationResourceContractTests(TestCase):
             'name': 'Addon source task', 'spec': 'fury',
             'player_source': {'type': 'simc_addon', 'simc_code': addon},
             'base_template_id': template.id, 'selected_apl_id': apl.id,
+            'use_ptr': True,
         }), content_type='application/json')
 
         self.assertEqual(response.status_code, 200, response.content)
         self.assertTrue(response.json()['success'], response.json())
         task = SimcTask.objects.select_related('profile_version', 'apl_version').get(id=response.json()['data']['id'])
+        self.assertIs(task.profile_version.payload['use_ptr'], True)
         self.assertIn('source=default', task.profile_version.payload['player_equipment'])
         self.assertNotIn('actions=', task.profile_version.payload['player_equipment'])
         self.assertEqual(task.apl_version.payload['content'], 'actions=/bloodthirst')
