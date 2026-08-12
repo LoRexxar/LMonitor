@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from bs4 import BeautifulSoup
 from django.contrib.auth.models import User
 from django.test import Client, TestCase
 
@@ -92,6 +93,15 @@ class SimcSourceResolutionApiTests(TestCase):
 
 
 class SimcSourceResolutionFrontendContractTests(unittest.TestCase):
+    def test_additional_simc_input_is_inside_combat_advanced_options(self):
+        soup = BeautifulSoup(WORKFLOW, 'html.parser')
+        advanced = soup.select_one('#simc-sim-combat-advanced')
+        additional_input = soup.select_one('#simc-sim-additional-input')
+
+        self.assertIsNotNone(advanced)
+        self.assertIsNotNone(additional_input)
+        self.assertIn(additional_input, advanced.descendants)
+
     def test_saved_profile_talent_is_labeled_as_persisted_execution_value(self):
         profile_form = HTML[
             HTML.index('id="simc-wb-profile-form-source"'):
