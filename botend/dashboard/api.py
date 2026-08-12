@@ -5617,6 +5617,7 @@ class SimcRegularCompareAPIView(View):
                 ],
                 'top_abilities': parsed.get('top_abilities', []),
                 'apl_name': apl_name, 'profile_name': profile_name,
+                'spec': str(profile_payload.get('spec') or getattr(task.profile, 'spec', '') or ''),
                 'battle_scenario': battle_scenario,
                 'apl_list': str(apl_payload.get('content') or getattr(task.apl, 'content', '') or params.get('override_action_list') or ''),
                 'run_id': run.id,

@@ -2527,6 +2527,10 @@ DPS=208365 DPS-Error=200/0.1%
         self.assertIn('APL内容对比（相对基准）', compare_template)
         self.assertIn('apl_differences', compare_template)
         self.assertIn('技能DPS占比对比', compare_template)
+        self.assertIn('data-apl-language="cn"', compare_template)
+        self.assertIn("fetch('/api/convert-text/'", compare_template)
+        self.assertIn("conversion_type: 'apl_to_cn'", compare_template)
+        self.assertIn('spec: aplModalState.spec', compare_template)
         self.assertIn('input_differences', compare_template)
 
     def test_selected_comparison_can_read_other_users_task_results(self):

@@ -147,10 +147,17 @@
                     </button>
                 </div>
                 <div class="p-5">
+                    <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+                        <div class="inline-flex border border-gray-300 rounded overflow-hidden" role="group" aria-label="APL显示语言">
+                            <button type="button" data-apl-language="apl" class="apl-language-button px-3 py-1.5 text-sm bg-teal-600 text-white">APL</button>
+                            <button type="button" data-apl-language="cn" class="apl-language-button px-3 py-1.5 text-sm bg-white text-gray-700 hover:bg-gray-50">中文</button>
+                        </div>
+                        <span id="apl-modal-status" class="text-sm text-gray-500"></span>
+                    </div>
                     <textarea id="apl-modal-content" class="w-full h-[60vh] p-3 border border-gray-300 rounded-md font-mono text-xs bg-gray-50" readonly></textarea>
                     <div class="mt-3 flex justify-end">
                         <button id="apl-modal-copy" class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700">
-                            <i class="fas fa-copy mr-1"></i>复制APL
+                            <i class="fas fa-copy mr-1"></i>复制当前内容
                         </button>
                     </div>
                 </div>
@@ -163,6 +170,13 @@
         let keywordTranslationsLoaded = false;
         let regularCompareTasks = [];
         let regularCompareTaskId = '';
+        const aplModalState = {
+            original: '',
+            translated: '',
+            spec: '',
+            language: 'apl',
+            loading: false,
+        };
 
         function escapeHtml(text) {
             if (text === null || text === undefined) return '';
@@ -343,7 +357,7 @@
                         <td class="px-4 py-3 text-sm text-gray-700">${classSpec || '-'}</td>
                         <td class="px-4 py-3 text-sm text-gray-700 break-all">${talents || '-'}</td>
                         <td class="px-4 py-3 text-sm text-gray-700">
-                            <button onclick="openAplModal('${escapeHtml(t.name || '')}', '${encodeURIComponent(t.apl_list || '')}')" class="px-3 py-1 bg-teal-600 text-white rounded hover:bg-teal-700 transition-colors duration-200 text-sm">
+                            <button onclick="openAplModal('${escapeHtml(t.name || '')}', '${encodeURIComponent(t.apl_list || '')}', '${escapeHtml(t.spec || '')}')" class="px-3 py-1 bg-teal-600 text-white rounded hover:bg-teal-700 transition-colors duration-200 text-sm">
                                 <i class="fas fa-code mr-1"></i>查看APL
                             </button>
                         </td>
@@ -357,10 +371,74 @@
             }).join('');
         }
 
-        function openAplModal(taskName, encodedApl) {
+        function renderAplModalLanguage() {
+            const content = document.getElementById('apl-modal-content');
+            const status = document.getElementById('apl-modal-status');
+            content.value = aplModalState.language === 'cn'
+                ? aplModalState.translated
+                : aplModalState.original;
+            document.querySelectorAll('.apl-language-button').forEach(button => {
+                const active = button.dataset.aplLanguage === aplModalState.language;
+                button.classList.toggle('bg-teal-600', active);
+                button.classList.toggle('text-white', active);
+                button.classList.toggle('bg-white', !active);
+                button.classList.toggle('text-gray-700', !active);
+                button.disabled = aplModalState.loading;
+            });
+            status.textContent = aplModalState.loading
+                ? '翻译中...'
+                : (aplModalState.language === 'cn' ? '中文翻译' : '原始 APL');
+        }
+
+        async function switchAplModalLanguage(language) {
+            if (language === 'apl') {
+                aplModalState.language = 'apl';
+                renderAplModalLanguage();
+                return;
+            }
+            if (aplModalState.translated) {
+                aplModalState.language = 'cn';
+                renderAplModalLanguage();
+                return;
+            }
+            if (aplModalState.loading || !aplModalState.original.trim()) return;
+            aplModalState.loading = true;
+            renderAplModalLanguage();
+            try {
+                const response = await fetch('/api/convert-text/', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        text: aplModalState.original,
+                        conversion_type: 'apl_to_cn',
+                        spec: aplModalState.spec,
+                    }),
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    throw new Error((data && data.error) || '翻译失败');
+                }
+                aplModalState.translated = data.result || '';
+                aplModalState.language = 'cn';
+                aplModalState.loading = false;
+                renderAplModalLanguage();
+            } catch (error) {
+                aplModalState.loading = false;
+                renderAplModalLanguage();
+                document.getElementById('apl-modal-status').textContent = error.message || '翻译失败';
+            }
+        }
+
+        function openAplModal(taskName, encodedApl, spec) {
             const modal = document.getElementById('apl-modal');
             document.getElementById('apl-modal-title').textContent = taskName || '';
-            document.getElementById('apl-modal-content').value = decodeURIComponent(encodedApl || '');
+            aplModalState.original = decodeURIComponent(encodedApl || '');
+            aplModalState.translated = '';
+            aplModalState.spec = spec || '';
+            aplModalState.language = 'apl';
+            aplModalState.loading = false;
+            renderAplModalLanguage();
             modal.classList.remove('hidden');
         }
 
@@ -568,6 +646,9 @@
                 try {
                     await navigator.clipboard.writeText(text);
                 } catch (e) {}
+            });
+            document.querySelectorAll('.apl-language-button').forEach(button => {
+                button.addEventListener('click', () => switchAplModalLanguage(button.dataset.aplLanguage));
             });
             const abilitySearch = document.getElementById('ability-compare-search');
             if (abilitySearch) {
