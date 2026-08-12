@@ -852,6 +852,12 @@ def _normalize_wowhead_inline_breaks(root):
             continue
         _trim_edge_breaks(tag)
 
+    for centered in list(root.select(".wh-center")):
+        has_content = bool(_clean_inline_text(centered.get_text(" ", strip=True)))
+        has_structure = bool(centered.find(["img", "picture", "video", "table", "a"]))
+        if not has_content and not has_structure:
+            centered.decompose()
+
     changed = True
     while changed:
         changed = False

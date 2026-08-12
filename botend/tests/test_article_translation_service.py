@@ -452,7 +452,7 @@ class ArticleContentServiceTests(SimpleTestCase):
         soup = BeautifulSoup(html_result, "html.parser")
 
         self.assertEqual(html_result.count("<br"), 4)
-        self.assertIsNone(soup.select_one(".wh-center br"))
+        self.assertIsNone(soup.select_one(".wh-center"))
         self.assertIsNone(soup.select_one("li > br"))
         self.assertIn("First paragraph.<br/><br/>Second paragraph.", html_result)
         self.assertIn("Follow-up paragraph.<br/><br/>Thank you.", html_result)
