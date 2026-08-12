@@ -443,6 +443,23 @@ class SimcBenchmarkExecutionTests(TestCase):
         ])
         self.assertEqual(coordinates['failed-coordinate']['candidates'], [])
 
+    def test_case_rerun_copies_one_successful_case_as_independent_execution(self):
+        execution = self._published_success()
+        source_case = execution.cases.get()
+        source_task = source_case.task
+
+        rerun = rerun_failed_cases(execution, requested_by=self.user_id, case_id=source_case.id)
+
+        self.assertNotEqual(rerun.id, execution.id)
+        self.assertEqual(rerun.cases.count(), 1)
+        rerun_case = rerun.cases.get()
+        self.assertEqual(rerun_case.spec_key, source_case.spec_key)
+        self.assertEqual(rerun_case.scenario_key, source_case.scenario_key)
+        self.assertEqual(rerun_case.task.source_task_id, source_task.id)
+        self.assertEqual(rerun_case.task.simulation_runs.count(), source_task.simulation_runs.count())
+        self.assertTrue(all(run.status == 'pending' for run in rerun_case.task.simulation_runs.all()))
+        self.assertEqual(source_case.task_id, source_task.id)
+
     def test_failed_rerun_with_invalid_dps_stays_failed(self):
         execution = self._create()
         failed_case = execution.cases.select_related('task').get()

@@ -743,7 +743,7 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
         return execution
 
 
-def _copy_failed_runs_for_retry(source_task, rerun_task):
+def _copy_failed_runs_for_retry(source_task, rerun_task, include_completed=False):
     """Freeze only non-completed Runs into a retry Task.
 
     Completed Run results remain on ``source_task`` and are deliberately not copied:
@@ -757,7 +757,7 @@ def _copy_failed_runs_for_retry(source_task, rerun_task):
     retry_candidates, retry_runs = [], []
     for candidate_key in expected:
         run = by_key.get(candidate_key)
-        if run is not None and run.status == 'completed':
+        if run is not None and run.status == 'completed' and not include_completed:
             continue
         candidate = {
             'candidate_key': candidate_key,
@@ -871,7 +871,7 @@ def cancel_execution(execution, requested_by=None):
         return locked
 
 
-def rerun_failed_cases(execution, requested_by=None):
+def rerun_failed_cases(execution, requested_by=None, case_id=None):
     """Create a retry Execution and materialize validation failures per Case.
 
     Cases with a frozen source Task keep the immutable Task-rerun path.  A Case
@@ -887,13 +887,20 @@ def rerun_failed_cases(execution, requested_by=None):
         raise PermissionDenied('Only the Panel owner may rerun failed benchmark cases')
     if preliminary_source.completed_at is None:
         raise BenchmarkExecutionConflict('Only a completed Execution can be rerun')
-    preliminary_failed_cases = list(SimcBenchmarkCase.objects.filter(
-        execution=preliminary_source, status__in=(
+    case_filter = {'execution': preliminary_source}
+    if case_id is None:
+        case_filter['status__in'] = (
             SimcBenchmarkExecution.STATUS_FAILED,
             SimcBenchmarkExecution.STATUS_PARTIAL,
             SimcBenchmarkExecution.STATUS_CANCELLED,
-        ),
+        )
+    else:
+        case_filter['pk'] = case_id
+    preliminary_failed_cases = list(SimcBenchmarkCase.objects.filter(
+        **case_filter,
     ).select_related('task').order_by('id'))
+    if case_id is not None and not preliminary_failed_cases:
+        _validation_error('指定的 Benchmark 子任务不存在', 'case_id')
     if not preliminary_failed_cases:
         _validation_error('没有可重跑的失败子任务', 'execution')
 
@@ -942,12 +949,17 @@ def rerun_failed_cases(execution, requested_by=None):
             raise PermissionDenied('Only the Panel owner may rerun failed benchmark cases')
         if source.completed_at is None:
             raise BenchmarkExecutionConflict('Only a completed Execution can be rerun')
-        failed_cases = list(SimcBenchmarkCase.objects.filter(
-            execution=source, status__in=(
+        case_filter = {'execution': source}
+        if case_id is None:
+            case_filter['status__in'] = (
                 SimcBenchmarkExecution.STATUS_FAILED,
                 SimcBenchmarkExecution.STATUS_PARTIAL,
                 SimcBenchmarkExecution.STATUS_CANCELLED,
-            ),
+            )
+        else:
+            case_filter['pk'] = case_id
+        failed_cases = list(SimcBenchmarkCase.objects.filter(
+            **case_filter,
         ).select_related('task').order_by('id'))
         if not failed_cases:
             _validation_error('没有可重跑的失败子任务', 'execution')
@@ -1088,7 +1100,10 @@ def rerun_failed_cases(execution, requested_by=None):
             # candidates remain immutable provenance on the source Task/Case.
             task.name = _task_name(panel.pk, new_execution.pk, case_data)
             task.save(update_fields=['name'])
-            _copy_failed_runs_for_retry(source_case.task, task)
+            _copy_failed_runs_for_retry(
+                source_case.task, task,
+                include_completed=case_id is not None,
+            )
             SimcBenchmarkCase.objects.create(
                 execution=new_execution, task=task,
                 spec_key=source_case.spec_key, scenario_key=source_case.scenario_key,
@@ -1103,6 +1118,11 @@ def rerun_failed_cases(execution, requested_by=None):
             panel.active_execution = None
             panel.save(update_fields=['active_execution'])
         return new_execution
+
+
+def rerun_case(execution, case_id, requested_by=None):
+    """Rerun exactly one frozen Benchmark Case as an independent Execution."""
+    return rerun_failed_cases(execution, requested_by=requested_by, case_id=case_id)
 
 
 def summarize_panel_coverage_counts(panels):

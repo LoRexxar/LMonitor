@@ -92,7 +92,7 @@ from botend.services.simc_benchmark_config import (
 )
 from botend.services.simc_benchmark_execution import (
     BenchmarkExecutionConflict, cancel_execution, create_execution, reconcile_execution,
-    rerun_failed_cases, serialize_incremental_panel_results,
+    rerun_failed_cases, rerun_case, serialize_incremental_panel_results,
     summarize_execution, summarize_incremental_panel_coverage,
     summarize_panel_coverage_counts, task_progress, _canonical_hash,
 )
@@ -9909,6 +9909,25 @@ class SimcBenchmarkExecutionRerunFailedAPIView(_BenchmarkAdminAPIView):
         if execution is None:
             return _benchmark_error('not_found', 404)
         rerun = rerun_failed_cases(execution, requested_by=request.user)
+        cases = list(_benchmark_progress_case_queryset().filter(execution=rerun))
+        return JsonResponse({
+            'success': True,
+            'data': _benchmark_execution_summary(
+                rerun, published_id=rerun.panel.published_execution_id,
+                case_count=rerun.cases.count(), cases=cases,
+            ),
+        }, status=202)
+
+
+class SimcBenchmarkCaseRerunAPIView(_BenchmarkAdminAPIView):
+    def post(self, request, execution_id, case_id):
+        _benchmark_json_object(request, empty=True)
+        execution = SimcBenchmarkExecution.objects.select_related('panel').filter(
+            pk=execution_id,
+        ).first()
+        if execution is None:
+            return _benchmark_error('not_found', 404)
+        rerun = rerun_case(execution, case_id, requested_by=request.user)
         cases = list(_benchmark_progress_case_queryset().filter(execution=rerun))
         return JsonResponse({
             'success': True,
