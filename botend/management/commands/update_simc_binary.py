@@ -500,6 +500,29 @@ class Command(BaseCommand):
         )
         return True
 
+    def _discard_managed_local_commits(self):
+        """Drop only commits previously created by this updater before a large upstream jump."""
+        result = subprocess.run(
+            ['git', 'log', 'origin/midnight..HEAD', '--format=%s'],
+            cwd=self.simc_source_dir, capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode != 0:
+            return False
+        messages = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        managed = all(
+            message.startswith('auto-save local changes before upstream sync (')
+            or message.startswith('sync upstream midnight ')
+            for message in messages
+        )
+        if not messages or not managed:
+            return False
+        self._run(
+            ['git', 'reset', '--hard', 'origin/midnight'],
+            cwd=self.simc_source_dir, timeout=120,
+            status='清理旧的 SimC 自动同步提交', progress=10,
+        )
+        return True
+
     def _pull_rebase(self):
         self._set_status(progress=10, status='拉取 SimC 源码', error='', updating=True)
         self.stdout.write('拉取 SimC 源码')
@@ -541,6 +564,8 @@ class Command(BaseCommand):
 
         self._set_status(progress=10, status='同步 SimC 源码', error='', updating=True)
         self.stdout.write('同步 SimC 源码')
+        if self._discard_managed_local_commits():
+            return subprocess.CompletedProcess([], 0, stdout='已对齐远端 SimC 源码', stderr='')
         rebase_cmd = ['git', 'rebase', 'refs/remotes/origin/midnight']
         try:
             result = subprocess.run(
