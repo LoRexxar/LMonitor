@@ -2340,7 +2340,7 @@ class SimcComparisonTaskAPIView(View):
     def _run_result_file(run):
         artifact = run.artifacts.filter(artifact_type='html_report').order_by('-created_at').first()
         if artifact:
-            return os.path.basename(artifact.file_path)
+            return str(artifact.file_path or '').strip()
         params = run.candidate_params if isinstance(run.candidate_params, dict) else {}
         value = str(params.get('legacy_result_file') or '').strip()
         return value if value and '/' not in value and '\\' not in value and '\n' not in value else ''

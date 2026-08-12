@@ -2462,7 +2462,11 @@ DPS=208365 DPS-Error=200/0.1%
             )
             SimcTaskArtifact.objects.create(
                 task=task, run=run, artifact_type='html_report',
-                file_path=f'simc_results/compare-{index}.html',
+                file_path=f'simc_agent_results/compare-{index}.html',
+            )
+            self.assertEqual(
+                SimcComparisonTaskAPIView._run_result_file(run),
+                f'simc_agent_results/compare-{index}.html',
             )
             tasks.append(task)
 
