@@ -556,9 +556,18 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(profile['equipment'][0]['display_name'], '测试头盔')
         self.assertNotIn('player_equipment', profile)
 
-    def test_spec_icons_cover_underscore_and_new_specialization_keys(self):
-        self.assertIn('bestialdiscipline', _spec_icon_url('hunter_beast_mastery'))
-        self.assertIn('classicon_demonhunter_void', _spec_icon_url('demonhunter_devourer'))
+    def test_spec_icons_use_oss_for_underscore_and_new_specialization_keys(self):
+        urls = [
+            _spec_icon_url('hunter_beast_mastery'),
+            _spec_icon_url('demonhunter_devourer'),
+        ]
+
+        self.assertIn('bestialdiscipline', urls[0])
+        self.assertIn('classicon_demonhunter_void', urls[1])
+        for url in urls:
+            self.assertTrue(url.startswith('https://oss.wowdaily.cn/'), f'Expected OSS URL, got: {url}')
+            self.assertNotIn('wow.zamimg.com', url)
+            self.assertNotIn('render.worldofwarcraft.com', url)
 
     def test_incremental_projection_uses_profile_frozen_by_result_source_task(self):
         self.profile.player_equipment = (
