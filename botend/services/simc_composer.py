@@ -290,6 +290,17 @@ class SimcComposer:
         stat_overrides_result = self._resolve_stat_overrides(request_data)
         self.slots['stat_overrides'] = stat_overrides_result
 
+        additional_input = str(request_data.get('additional_simc_input') or '').strip()
+        self.slots['additional_simc_input'] = SlotResolution(
+            slot_name='additional_simc_input',
+            value=SlotValue(
+                content=additional_input,
+                source='task_request',
+                content_hash=hashlib.sha256(additional_input.encode('utf-8')).hexdigest(),
+            ),
+            status='resolved' if additional_input else 'missing',
+        )
+
         # Step 7: Resolve output_options slot
         output_options_result = self._resolve_output_options(request_data)
         self.slots['output_options'] = output_options_result
@@ -1057,6 +1068,7 @@ class SimcComposer:
             '{equipment}': self._get_slot_content('equipment'),
             '{talents}': self._get_slot_content('talents'),
             '{stat_overrides}': self._get_slot_content('stat_overrides'),
+            '{additional_simc_input}': self._get_slot_content('additional_simc_input'),
             '{action_list}': self._get_slot_content('action_list'),
             '{output_options}': self._get_slot_content('output_options'),
 
@@ -1079,6 +1091,25 @@ class SimcComposer:
 
         for placeholder, value in placeholders.items():
             result = result.replace(placeholder, str(value))
+
+        additional_content = self._get_slot_content('additional_simc_input')
+        if '{additional_simc_input}' not in template_content and additional_content:
+            player_markers = [
+                self._get_slot_content('equipment'),
+                self._get_slot_content('talents'),
+                self._get_slot_content('player_identity'),
+            ]
+            insertion_at = -1
+            for marker in player_markers:
+                if marker and marker in result:
+                    insertion_at = max(insertion_at, result.index(marker) + len(marker))
+            if insertion_at >= 0:
+                result = (
+                    result[:insertion_at].rstrip() + '\n' + additional_content + '\n'
+                    + result[insertion_at:].lstrip()
+                )
+            else:
+                result = result.rstrip() + '\n' + additional_content
 
         # A selected/overridden APL is an authoritative semantic slot, not an
         # optional decoration of the base template. Older templates commonly

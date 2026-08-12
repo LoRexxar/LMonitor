@@ -76,6 +76,42 @@ class SimcCoreClosureTests(TestCase):
         self.assertEqual((task.profile_id, task.template_id, task.apl_id), (self.profile.id, self.template.id, self.apl.id))
         self.assertTrue(task.profile_version_id and task.template_version_id and task.apl_version_id)
 
+    @patch('botend.services.simc_task_service.current_validation_identity', return_value=TEST_VALIDATION_IDENTITY)
+    def test_task_additional_simc_input_is_frozen_and_appended_after_player_profile(self, _identity):
+        additional_input = 'set_bonus=midnight_season_2_2pc=1\ncustom_option=enabled'
+        response = SimcTaskAPIView.as_view()(self.request('/api/simc-tasks/', {
+            'name': 'task with additional input',
+            'simc_profile_id': self.profile.id,
+            'base_template_id': self.template.id,
+            'selected_apl_id': self.apl.id,
+            'additional_simc_input': additional_input,
+        }))
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(json.loads(response.content)['success'])
+
+        task = SimcTask.objects.get(name='task with additional input')
+        self.assertEqual(task.simulation_params['additional_simc_input'], additional_input)
+
+        captured = {}
+        def capture_simc_input(simc_file_path, *_args, **_kwargs):
+            with open(simc_file_path, encoding='utf-8') as simc_file:
+                captured['content'] = simc_file.read()
+            return True
+
+        with (
+            patch.object(SimcMonitor, 'execute_simc_command', side_effect=capture_simc_input),
+            patch('botend.controller.plugins.simc.SimcMonitor.os.path.isfile', return_value=True),
+        ):
+            monitor = SimcMonitor(None, task)
+            monitor.result_path = '/tmp'
+            processed = monitor.process_simc_task(task)
+            run = task.simulation_runs.order_by('-id').first()
+            self.assertTrue(processed, run.error_detail if run else 'no simulation run created')
+
+        content = captured['content']
+        self.assertIn(additional_input, content)
+        self.assertGreater(content.index(additional_input), content.index('spec=fury'))
+
     def test_task_post_requires_existing_owner_profile(self):
         count = SimcProfile.objects.count()
         response = SimcTaskAPIView.as_view()(self.request('/api/simc-tasks/', {

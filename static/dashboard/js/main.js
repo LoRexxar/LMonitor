@@ -3211,6 +3211,7 @@ function currentSimcScenario() {
         fight_style: document.getElementById('simc-sim-fight-style')?.value || 'Patchwerk',
         time: Math.max(1, Number.parseInt(document.getElementById('simc-sim-time')?.value || '300', 10) || 300),
         target_count: Math.max(1, Number.parseInt(document.getElementById('simc-sim-target-count')?.value || '1', 10) || 1),
+        additional_simc_input: document.getElementById('simc-sim-additional-input')?.value || '',
     };
     const control = document.getElementById('simc-sim-raid-buff-control');
     scenario.use_class_raid_buff = document.getElementById('simc-sim-use-class-raid-buff')?.checked !== false;

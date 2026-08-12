@@ -1758,6 +1758,8 @@ class SimcTaskAPIView(View):
                 simulation_params['raid_buffs'] = data['raid_buffs']
             if 'use_class_raid_buff' in data:
                 simulation_params['use_class_raid_buff'] = data['use_class_raid_buff']
+            if 'additional_simc_input' in data:
+                simulation_params['additional_simc_input'] = str(data['additional_simc_input'] or '').strip()
             option_error = validate_simulation_options(simulation_params)
             if option_error:
                 return JsonResponse({'success': False, 'error': option_error}, status=400)
@@ -2757,6 +2759,8 @@ class SimcComparisonTaskAPIView(View):
                 simulation_params['raid_buffs'] = data['raid_buffs']
             if 'use_class_raid_buff' in data:
                 simulation_params['use_class_raid_buff'] = data['use_class_raid_buff']
+            if 'additional_simc_input' in data:
+                simulation_params['additional_simc_input'] = str(data['additional_simc_input'] or '').strip()
             option_error = validate_simulation_options(simulation_params)
             if option_error:
                 raise ValueError(option_error)

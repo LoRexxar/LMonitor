@@ -600,6 +600,7 @@ class SimcMonitor(BaseScan):
                 'gear_versatility': profile_payload.get('gear_versatility'),
                 'base_template_content': resolved.template_content or '',
                 'override_action_list': resolved.apl_content or '',
+                'additional_simc_input': resolved.simulation_params.get('additional_simc_input', ''),
                 '_result_file_path': simc_task.result_file or f'{simc_task.id}.html',
             }
             if 'raid_buffs' in resolved.simulation_params:
