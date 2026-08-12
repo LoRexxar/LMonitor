@@ -1944,35 +1944,51 @@ async function simcWbCopyProfile(id) {
     }
 }
 
-async function loadSimcProfileSpecFilterOptions(specSel) {
-    if (!specSel || specSel.dataset.loaded === '1' || specSel.dataset.loading === '1') return;
-    specSel.dataset.loading = '1';
-    try {
-        const response = await fetch('/api/simc-spec-options/', {
+let simcSpecOptionsPromise = null;
+
+async function loadSimcSpecOptions() {
+    if (!simcSpecOptionsPromise) {
+        simcSpecOptionsPromise = fetch('/api/simc-spec-options/', {
             headers: { 'X-CSRFToken': getCSRFToken() },
+        }).then(async response => {
+            const payload = await response.json();
+            if (!response.ok || !payload.success) throw new Error(payload.error || '加载专精选项失败');
+            return Array.isArray(payload.data) ? payload.data : [];
+        }).catch(error => {
+            simcSpecOptionsPromise = null;
+            throw error;
         });
-        const payload = await response.json();
-        if (!response.ok || !payload.success) throw new Error(payload.error || '加载专精选项失败');
-        const rows = Array.isArray(payload.data) ? payload.data : [];
-        specSel.replaceChildren();
-        const allOption = document.createElement('option');
-        allOption.value = '';
-        allOption.textContent = '全部专精';
-        specSel.appendChild(allOption);
+    }
+    const rows = await simcSpecOptionsPromise;
+    const targets = [
+        { select: document.getElementById('simc-sim-spec'), placeholder: '-- 请选择目标专精 --' },
+        { select: document.getElementById('simc-sim-bnet-spec'), placeholder: '-- 选择专精加载当前赛季 Top10 --' },
+        { select: document.getElementById('simc-wb-profile-spec-filter'), placeholder: '全部专精' },
+        { select: document.getElementById('simc-profile-spec-filter'), placeholder: '全部专精' },
+        { select: document.querySelector('#simc-wb-profile-form-source select[name="spec"]'), placeholder: '请选择专精' },
+        { select: document.querySelector('#simc-wb-mastery-form select[name="spec"]'), placeholder: '请选择专精' },
+    ];
+    targets.forEach(({ select, placeholder }) => {
+        if (!select || select.dataset.specCatalogLoaded === '1') return;
+        const current = select.value;
+        select.replaceChildren();
+        const placeholderOption = document.createElement('option');
+        placeholderOption.value = '';
+        placeholderOption.textContent = placeholder;
+        select.appendChild(placeholderOption);
         rows.forEach(row => {
             const option = document.createElement('option');
             option.value = row.value;
-            option.textContent = row.label || row.spec_label || '未知专精';
-            specSel.appendChild(option);
+            option.textContent = row.label || `${row.spec_label} · ${row.class_label}`;
+            select.appendChild(option);
         });
-        specSel.value = simcWbProfileSpecFilter;
-        specSel.dataset.loaded = '1';
-    } catch (error) {
-        console.warn('加载配置管理专精筛选失败:', error);
-    } finally {
-        delete specSel.dataset.loading;
-    }
+        if (current && rows.some(row => row.value === current)) select.value = current;
+        select.dataset.specCatalogLoaded = '1';
+    });
+    return rows;
 }
+
+window.loadSimcSpecOptions = loadSimcSpecOptions;
 
 function bindSimcWorkbenchProfilesControls() {
     const profilePanel = document.getElementById('simc-workbench-profiles-panel');
@@ -2019,7 +2035,9 @@ function bindSimcWorkbenchProfilesControls() {
     }
     /* 专精筛选选项由后端统一资源提供，显示中文职业与专精名。 */
     const specSel = document.getElementById('simc-wb-profile-spec-filter');
-    if (specSel) loadSimcProfileSpecFilterOptions(specSel);
+    if (specSel) loadSimcSpecOptions().then(() => {
+        specSel.value = simcWbProfileSpecFilter;
+    }).catch(error => console.warn('加载配置管理专精筛选失败:', error));
     if (specSel && specSel.dataset.bound !== '1') {
         specSel.dataset.bound = '1';
         specSel.addEventListener('change', function() {
@@ -2368,7 +2386,13 @@ function updateSimcProfileTalentSimulatorLink(formWrap = document.getElementById
     link.classList.add('text-violet-700', 'hover:border-violet-400', 'hover:bg-violet-100');
 }
 
-function simcWbToggleProfileForm(mode, profileData) {
+async function simcWbToggleProfileForm(mode, profileData) {
+    try {
+        await loadSimcSpecOptions();
+    } catch (error) {
+        showMessage(String(error.message || error), 'error');
+        return;
+    }
     openSimcWorkbenchDialog('profile-form', { mode, profileData });
     const body = document.getElementById('simc-dialog-body');
     if (!body) return;
@@ -2381,7 +2405,7 @@ function simcWbToggleProfileForm(mode, profileData) {
         simcWbProfileFormEditId = null;
         formWrap.querySelector('.simc-wb-form-title').textContent = '新增配置';
         formWrap.querySelector('input[name="name"]').value = '';
-        formWrap.querySelector('select[name="spec"]').value = 'fury';
+        formWrap.querySelector('select[name="spec"]').value = '';
         formWrap.querySelector('select[name="player_config_mode"]').value = 'battlenet';
         formWrap.querySelector('input[name="use_ptr"]').checked = false;
         formWrap.querySelector('input[name="battlenet_region"]').value = 'eu';
@@ -2399,7 +2423,7 @@ function simcWbToggleProfileForm(mode, profileData) {
         formWrap.querySelector('.simc-wb-form-title').textContent = '编辑配置 #' + profileData.id;
         formWrap.querySelector('input[name="name"]').value = profileData.name || '';
         const specSel = formWrap.querySelector('select[name="spec"]');
-        const profileSpec = normalizeSimcSpecKey(profileData.spec || '');
+        const profileSpec = String(profileData.canonical_spec || simcProfileFormCanonicalSpec(profileData.spec || '')).trim().toLowerCase();
         specSel.value = profileSpec;
         if (profileSpec && specSel.value !== profileSpec) {
             const option = document.createElement('option');
@@ -2731,19 +2755,27 @@ async function simcWbEditRule(id) {
 }
 
 
-function simcWbToggleMasteryForm(mode, data) {
+async function simcWbToggleMasteryForm(mode, data) {
     const formWrap = document.getElementById('simc-wb-mastery-form');
     if (!formWrap) return;
+    let specOptions;
+    try {
+        specOptions = await loadSimcSpecOptions();
+    } catch (error) {
+        showMessage(String(error.message || error), 'error');
+        return;
+    }
     simcWbMasteryFormMode = mode;
+    const specSelect = formWrap.querySelector('select[name="spec"]');
     if (mode === 'create') {
         simcWbMasteryFormEditId = null;
         formWrap.querySelector('.simc-wb-form-title').textContent = '新增精通系数';
-        formWrap.querySelector('input[name="spec"]').value = '';
+        specSelect.value = '';
         formWrap.querySelector('input[name="mastery_coefficient"]').value = '';
     } else {
         simcWbMasteryFormEditId = data.id;
         formWrap.querySelector('.simc-wb-form-title').textContent = '编辑精通系数 #' + data.id;
-        formWrap.querySelector('input[name="spec"]').value = data.spec || '';
+        specSelect.value = specOptions.some(row => row.value === data.spec) ? data.spec : '';
         formWrap.querySelector('input[name="mastery_coefficient"]').value = data.mastery_coefficient != null ? data.mastery_coefficient : '';
     }
     formWrap.classList.remove('hidden');
@@ -2757,7 +2789,7 @@ function simcWbCloseMasteryForm() {
 async function simcWbSaveMastery() {
     const formWrap = document.getElementById('simc-wb-mastery-form');
     if (!formWrap) return;
-    const spec = formWrap.querySelector('input[name="spec"]').value.trim();
+    const spec = formWrap.querySelector('select[name="spec"]').value.trim();
     const mastery = parseFloat(formWrap.querySelector('input[name="mastery_coefficient"]').value.trim());
     if (!spec) { showMessage('请输入专精', 'error'); return; }
     if (!Number.isFinite(mastery)) { showMessage('请输入合法精通系数', 'error'); return; }
@@ -3919,6 +3951,7 @@ async function loadSimcBackendOptions() {
 }
 
 function bindSimcWorkbenchSimulationControls() {
+    loadSimcSpecOptions().catch(error => showMessage(String(error.message || error), 'error'));
     const spec = document.getElementById('simc-sim-spec');
     if (spec && spec.dataset.bound !== '1') {
         spec.dataset.bound = '1';
@@ -7173,6 +7206,8 @@ function initSimcProfileFilters() {
     const fightStyleInput = document.getElementById('simc-profile-fight-style-filter');
     const applyBtn = document.getElementById('simc-profile-filter-apply');
     const resetBtn = document.getElementById('simc-profile-filter-reset');
+
+    if (specInput) loadSimcSpecOptions().catch(error => console.warn('加载 SimC Profile 专精筛选失败:', error));
 
     if (applyBtn) {
         applyBtn.addEventListener('click', function() {

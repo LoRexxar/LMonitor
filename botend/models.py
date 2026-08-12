@@ -1426,7 +1426,7 @@ class SimcMasteryCoefficient(models.Model):
     SimC精通系数（按专精）
     mastery_coefficient 是专精级数据，同一职业不同专精不同。
     """
-    spec = models.CharField(max_length=50, unique=True, help_text="专精标识，如 fury/arms/fire")
+    spec = models.CharField(max_length=50, unique=True, help_text="规范专精标识，如 warrior_fury/mage_fire")
     mastery_coefficient = models.FloatField(default=1.4, help_text="精通系数（最终结果乘以该值）")
 
     class Meta:

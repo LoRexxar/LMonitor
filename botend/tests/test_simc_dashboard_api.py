@@ -1248,10 +1248,13 @@ class SimcAplCanonicalSpecPermissionTests(TestCase):
     def test_spec_options_are_canonical_and_include_midnight_devourer(self):
         response = self.client.get('/api/simc-spec-options/')
         self.assertEqual(response.status_code, 200)
-        values = {row['value'] for row in response.json()['data']}
+        rows = response.json()['data']
+        values = {row['value'] for row in rows}
         self.assertIn('warrior_fury', values)
         self.assertIn('demonhunter_devourer', values)
         self.assertNotIn('demon_hunter_devourer', values)
+        devourer = next(row for row in rows if row['value'] == 'demonhunter_devourer')
+        self.assertEqual(devourer['label'], '噬灭 · 恶魔猎手')
 
     def test_apl_update_rejects_unknown_spec(self):
         self.client.force_login(self.admin)
@@ -1829,7 +1832,7 @@ main_hand=,id=222222
             },
         )
         SimcMasteryCoefficient.objects.update_or_create(
-            spec='devourer', defaults={'mastery_coefficient': 1.0},
+            spec='demonhunter_devourer', defaults={'mastery_coefficient': 1.0},
         )
 
         detail = build_player_config_detail(

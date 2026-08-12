@@ -125,7 +125,7 @@ def _simc_spec_options():
                 'class_name': class_key,
                 'class_label': CLASS_CN.get(class_name, class_name),
                 'spec_label': SPEC_CN.get(spec_name, spec_name),
-                'label': f'{CLASS_CN.get(class_name, class_name)} · {SPEC_CN.get(spec_name, spec_name)}',
+                'label': f'{SPEC_CN.get(spec_name, spec_name)} · {CLASS_CN.get(class_name, class_name)}',
             })
     return rows
 
@@ -7296,9 +7296,9 @@ class SimcWorkbenchAPIView(View):
                             versatility_per_percent=versa,
                         )
                     else:
-                        spec = str(data.get('spec') or '').strip()
+                        spec = _canonical_simc_spec(data.get('spec'))
                         if not spec:
-                            return JsonResponse({'success': False, 'error': '专精标识不能为空'}, status=400)
+                            return JsonResponse({'success': False, 'error': '专精标识无效'}, status=400)
                         if model.objects.filter(spec=spec).exists():
                             return JsonResponse({'success': False, 'error': f'专精 {spec} 的规则已存在'}, status=409)
                         try:

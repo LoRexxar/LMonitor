@@ -33,7 +33,7 @@ class SimcRulesApiTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 403)
-        self.assertFalse(SimcMasteryCoefficient.objects.filter(spec="fury").exists())
+        self.assertFalse(SimcMasteryCoefficient.objects.filter(spec="warrior_fury").exists())
 
     def test_regular_user_can_read_secondary_rules(self):
         SimcSecondaryStatRule.objects.create(
@@ -118,7 +118,7 @@ class SimcRulesApiTests(TestCase):
         self.assertFalse(SimcSecondaryStatRule.objects.filter(id=rule.id).exists())
 
     def test_regular_user_can_read_mastery_rules(self):
-        SimcMasteryCoefficient.objects.create(spec="fury", mastery_coefficient=1.4)
+        SimcMasteryCoefficient.objects.create(spec="warrior_fury", mastery_coefficient=1.4)
         self.client.force_login(self.regular_user)
         response = self.client.get("/api/simc-workbench/mastery-rules/")
         self.assertEqual(response.status_code, 200)
@@ -136,7 +136,7 @@ class SimcRulesApiTests(TestCase):
         self.assertFalse(SimcMasteryCoefficient.objects.filter(spec="arms").exists())
 
     def test_regular_user_cannot_edit_mastery_rules(self):
-        rule = SimcMasteryCoefficient.objects.create(spec="fury", mastery_coefficient=1.4)
+        rule = SimcMasteryCoefficient.objects.create(spec="warrior_fury", mastery_coefficient=1.4)
         self.client.force_login(self.regular_user)
         response = self.client.put(
             f"/api/simc-workbench/mastery-rules/{rule.id}/",
@@ -148,7 +148,7 @@ class SimcRulesApiTests(TestCase):
         self.assertEqual(rule.mastery_coefficient, 1.4)
 
     def test_regular_user_cannot_delete_mastery_rules(self):
-        rule = SimcMasteryCoefficient.objects.create(spec="fury", mastery_coefficient=1.4)
+        rule = SimcMasteryCoefficient.objects.create(spec="warrior_fury", mastery_coefficient=1.4)
         self.client.force_login(self.regular_user)
         response = self.client.delete(f"/api/simc-workbench/mastery-rules/{rule.id}/")
         self.assertEqual(response.status_code, 403)
@@ -158,16 +158,26 @@ class SimcRulesApiTests(TestCase):
         self.client.force_login(self.staff_user)
         response = self.client.post(
             "/api/simc-workbench/mastery-rules/",
-            data=json.dumps({"spec": "arms", "mastery_coefficient": 1.5}),
+            data=json.dumps({"spec": "warrior_arms", "mastery_coefficient": 1.5}),
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["success"])
-        rule = SimcMasteryCoefficient.objects.get(spec="arms")
+        rule = SimcMasteryCoefficient.objects.get(spec="warrior_arms")
         self.assertEqual(rule.mastery_coefficient, 1.5)
 
+    def test_staff_cannot_create_mastery_rule_with_legacy_short_spec(self):
+        self.client.force_login(self.staff_user)
+        response = self.client.post(
+            "/api/simc-workbench/mastery-rules/",
+            data=json.dumps({"spec": "arms", "mastery_coefficient": 1.5}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(SimcMasteryCoefficient.objects.filter(spec="arms").exists())
+
     def test_staff_can_edit_mastery_rules(self):
-        rule = SimcMasteryCoefficient.objects.create(spec="fury", mastery_coefficient=1.4)
+        rule = SimcMasteryCoefficient.objects.create(spec="warrior_fury", mastery_coefficient=1.4)
         self.client.force_login(self.staff_user)
         response = self.client.put(
             f"/api/simc-workbench/mastery-rules/{rule.id}/",
@@ -180,7 +190,7 @@ class SimcRulesApiTests(TestCase):
         self.assertEqual(rule.mastery_coefficient, 1.6)
 
     def test_staff_can_delete_mastery_rules(self):
-        rule = SimcMasteryCoefficient.objects.create(spec="fury", mastery_coefficient=1.4)
+        rule = SimcMasteryCoefficient.objects.create(spec="warrior_fury", mastery_coefficient=1.4)
         self.client.force_login(self.staff_user)
         response = self.client.delete(f"/api/simc-workbench/mastery-rules/{rule.id}/")
         self.assertEqual(response.status_code, 200)
@@ -203,12 +213,12 @@ class SimcRulesApiTests(TestCase):
         self.assertEqual(data["crit_per_percent"], 46)
 
     def test_get_single_mastery_rule_detail(self):
-        rule = SimcMasteryCoefficient.objects.create(spec="fury", mastery_coefficient=1.4)
+        rule = SimcMasteryCoefficient.objects.create(spec="warrior_fury", mastery_coefficient=1.4)
         self.client.force_login(self.regular_user)
         response = self.client.get(f"/api/simc-workbench/mastery-rules/{rule.id}/")
         self.assertEqual(response.status_code, 200)
         data = response.json()["data"]
-        self.assertEqual(data["spec"], "fury")
+        self.assertEqual(data["spec"], "warrior_fury")
         self.assertEqual(data["mastery_coefficient"], 1.4)
 
     def test_secondary_rules_reject_non_numeric_crit(self):
@@ -236,18 +246,18 @@ class SimcRulesApiTests(TestCase):
         self.client.force_login(self.staff_user)
         response = self.client.post(
             "/api/simc-workbench/mastery-rules/",
-            data=json.dumps({"spec": "fury", "mastery_coefficient": "invalid"}),
+            data=json.dumps({"spec": "warrior_fury", "mastery_coefficient": "invalid"}),
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("error", response.json())
 
     def test_mastery_rules_reject_duplicate_spec(self):
-        SimcMasteryCoefficient.objects.create(spec="fury", mastery_coefficient=1.4)
+        SimcMasteryCoefficient.objects.create(spec="warrior_fury", mastery_coefficient=1.4)
         self.client.force_login(self.staff_user)
         response = self.client.post(
             "/api/simc-workbench/mastery-rules/",
-            data=json.dumps({"spec": "fury", "mastery_coefficient": 1.6}),
+            data=json.dumps({"spec": "warrior_fury", "mastery_coefficient": 1.6}),
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 409)

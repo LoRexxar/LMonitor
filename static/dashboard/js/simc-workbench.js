@@ -1271,8 +1271,8 @@
         window.showMessage('APL 已删除', 'success');
     }
     async function loadSpecOptions() {
-        const data = await json('/api/simc-spec-options/');
-        state.specOptions = data.data || [];
+        if (typeof window.loadSimcSpecOptions !== 'function') throw new Error('专精目录加载器不可用');
+        state.specOptions = await window.loadSimcSpecOptions();
     }
     function activate(tab) {
         state.activePanel = tab || '';

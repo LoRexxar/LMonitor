@@ -569,7 +569,11 @@ def build_player_config_detail(mode, spec, player_equipment='', battlenet_region
         rule = SimcSecondaryStatRule.objects.filter(
             class_name=secondary_rule_class_key(class_name),
         ).first()
-        mastery = SimcMasteryCoefficient.objects.filter(spec=detail['identity']['spec'] or spec).first()
+        mastery_spec = canonical_simc_profile_key(
+            detail['identity']['spec'] or spec,
+            class_name,
+        )
+        mastery = SimcMasteryCoefficient.objects.filter(spec=mastery_spec).first()
         conversion = {
             'crit': getattr(rule, 'crit_per_percent', None),
             'haste': getattr(rule, 'haste_per_percent', None),
@@ -610,7 +614,11 @@ def build_player_config_detail(mode, spec, player_equipment='', battlenet_region
     rule = SimcSecondaryStatRule.objects.filter(
         class_name=secondary_rule_class_key(class_name),
     ).first()
-    mastery = SimcMasteryCoefficient.objects.filter(spec=detail['identity']['spec'] or spec).first()
+    mastery_spec = canonical_simc_profile_key(
+        detail['identity']['spec'] or spec,
+        class_name,
+    )
+    mastery = SimcMasteryCoefficient.objects.filter(spec=mastery_spec).first()
     conversion = {
         'crit': getattr(rule, 'crit_per_percent', None),
         'haste': getattr(rule, 'haste_per_percent', None),

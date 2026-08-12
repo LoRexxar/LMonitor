@@ -143,7 +143,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
             MAIN.index('function loadSimcWorkbenchProfiles')
         ]
         options = MAIN[
-            MAIN.index('async function loadSimcProfileSpecFilterOptions'):
+            MAIN.index('async function loadSimcSpecOptions'):
             MAIN.index('function bindSimcWorkbenchProfilesControls')
         ]
         self.assertIn('row.canonical_spec', matcher)
@@ -151,18 +151,53 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn('disambiguatedSpecs', matcher)
         self.assertNotIn('simcProfileSpecFilterValue', MAIN)
 
-    def test_profile_form_lists_devourer_with_class_label(self):
-        """新增配置必须提供噬灭，并在专精名称旁显示对应职业。"""
-        form = HTML[HTML.index('id="simc-wb-profile-form-source"'):HTML.index('id="simc-wb-profile-list"')]
-        self.assertIn('value="devourer">噬灭 · 恶魔猎手', form)
-        self.assertIn('value="fury">狂怒 · 战士', form)
-        self.assertNotIn('value="devourer">噬灭</option>', form)
+    def test_all_profile_spec_selects_use_the_authoritative_catalog(self):
+        """发起模拟、Top10、配置表单和筛选器必须共享后端职业专精目录。"""
+        source_panel = HTML[
+            HTML.index('id="simc-sim-player-sources"'):
+            HTML.index('id="simc-sim-apl-list"')
+        ]
+        profile_form = HTML[
+            HTML.index('id="simc-wb-profile-form-source"'):
+            HTML.index('id="simc-wb-profile-list"')
+        ]
+        loader = MAIN[
+            MAIN.index('async function loadSimcSpecOptions'):
+            MAIN.index('function bindSimcWorkbenchProfilesControls')
+        ]
+
+        self.assertNotIn('value="demonhunter_devourer"', source_panel)
+        self.assertNotIn('value="devourer"', profile_form)
+        self.assertEqual(loader.count("fetch('/api/simc-spec-options/'"), 1)
+        for selector_id in (
+            'simc-sim-spec',
+            'simc-sim-bnet-spec',
+            'simc-wb-profile-spec-filter',
+            'simc-profile-spec-filter',
+        ):
+            self.assertIn(selector_id, loader)
+        self.assertIn("select[name=\"spec\"]", loader)
+        self.assertIn("#simc-wb-mastery-form select[name=\"spec\"]", loader)
+        self.assertIn('option.value = row.value', loader)
+        self.assertIn("row.label || `${row.spec_label} · ${row.class_label}`", loader)
+        mastery_form = HTML[HTML.index('id="simc-wb-mastery-form"'):HTML.index('id="simc-wb-mastery-list"')]
+        self.assertIn('<select name="spec"', mastery_form)
+        self.assertNotIn('<input name="spec"', mastery_form)
+        mastery_editor = MAIN[
+            MAIN.index('async function simcWbToggleMasteryForm'):
+            MAIN.index('async function simcWbDeleteMastery')
+        ]
+        self.assertIn("specSelect.value = specOptions.some(row => row.value === data.spec) ? data.spec : '';", mastery_editor)
+        self.assertIn("const spec = formWrap.querySelector('select[name=\"spec\"]')", mastery_editor)
+        self.assertNotIn('row.spec === data.spec', mastery_editor)
+        self.assertNotIn('selectedSpec.spec', mastery_editor)
 
     def test_profile_form_normalizes_legacy_spec_and_leaves_optional_attribute_overrides_blank(self):
         """编辑旧 class_spec 记录必须选中实际专精；未填写属性不得伪造覆盖值。"""
         form = MAIN[MAIN.index('function simcWbToggleProfileForm'):MAIN.index('function simcWbCloseProfileForm')]
         save = MAIN[MAIN.index('async function simcWbSaveProfile()'):MAIN.index('async function simcWbDeleteProfile')]
-        self.assertIn("const profileSpec = normalizeSimcSpecKey(profileData.spec || '');", form)
+        self.assertIn('profileData.canonical_spec || simcProfileFormCanonicalSpec', form)
+        self.assertIn('await loadSimcSpecOptions()', form)
         self.assertIn('specSel.value = profileSpec;', form)
         self.assertIn("profileData.gear_strength ?? ''", form)
         self.assertIn("profileData.gear_crit ?? ''", form)
@@ -1176,16 +1211,17 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
     def test_simc_management_uses_chinese_spec_labels(self):
         self.assertIn("row.spec_label || row.spec", MAIN)
         self.assertIn("specLabel(row", JS)
-        self.assertIn('<option value="fury">狂怒</option>', HTML)
+        self.assertIn("row.label || `${row.spec_label} · ${row.class_label}`", MAIN)
+        self.assertNotIn('<option value="fury">狂怒</option>', HTML)
         self.assertNotIn('<option value="fury">fury</option>', HTML)
 
     def test_profile_filter_uses_authoritative_chinese_spec_labels(self):
-        filter_start = MAIN.index('function loadSimcProfileSpecFilterOptions(')
+        filter_start = MAIN.index('async function loadSimcSpecOptions()')
         filter_end = MAIN.index('\nfunction ', filter_start + 20)
         filter_body = MAIN[filter_start:filter_end]
         self.assertIn("fetch('/api/simc-spec-options/'", filter_body)
         self.assertIn('row.spec_label', filter_body)
-        self.assertNotIn('opt.textContent = s', filter_body)
+        self.assertIn('option.value = row.value', filter_body)
 
     def test_profile_table_headers_sort_the_complete_filtered_result_before_pagination(self):
         profile_table = HTML[
