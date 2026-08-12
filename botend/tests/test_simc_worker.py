@@ -67,8 +67,14 @@ class SimcWorkerTests(TestCase):
         now = timezone.make_aware(datetime(2026, 8, 13, 3, 15))
         worker = SimcWorker(monitor=MagicMock(), poll_interval=0)
 
+        def mark_checked(*_args, **_kwargs):
+            SimcBackendBinary.objects.filter(pk=self.backend.pk).update(last_checked_at=now)
+
         with patch('botend.services.simc_worker.timezone.now', return_value=now), \
-             patch('botend.services.simc_worker.call_command') as command:
+             patch(
+                 'botend.services.simc_worker.call_command',
+                 side_effect=mark_checked,
+             ) as command:
             worker.run_scheduled_backend_maintenance()
             worker.run_scheduled_backend_maintenance()
 

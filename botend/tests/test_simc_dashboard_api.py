@@ -1281,6 +1281,36 @@ class SimcAplCanonicalSpecPermissionTests(TestCase):
 
 
 class SimcBackendUpdateSafetyTests(TestCase):
+    def test_binary_update_removes_only_untracked_paths_now_tracked_upstream(self):
+        command = UpdateSimcBinaryCommand()
+        command.simc_source_dir = '/srv/simc'
+        command._set_status = __import__('unittest').mock.Mock()
+        command.stdout = SimpleNamespace(write=lambda *args, **kwargs: None)
+        command._run = __import__('unittest').mock.Mock(return_value=SimpleNamespace(
+            returncode=0, stdout='', stderr='',
+        ))
+        responses = [
+            SimpleNamespace(returncode=0, stdout='', stderr=''),
+            SimpleNamespace(returncode=0, stdout=b'profiles/MID2/new.simc\0', stderr=b''),
+            SimpleNamespace(
+                returncode=0,
+                stdout=b'profiles/MID2/new.simc\0build-cli/cache.txt\0',
+                stderr=b'',
+            ),
+        ]
+        with patch(
+            'botend.management.commands.update_simc_binary.subprocess.run',
+            side_effect=responses,
+        ):
+            command._pull_rebase()
+
+        self.assertEqual(command._run.call_args_list[0].args[0], [
+            'git', 'clean', '-f', '--', 'profiles/MID2/new.simc',
+        ])
+        self.assertEqual(command._run.call_args_list[1].args[0], [
+            'git', 'rebase', 'refs/remotes/origin/midnight',
+        ])
+
     def test_upstream_check_fetches_explicit_midnight_branch(self):
         # Exercise the monitor helper because it owns the periodic
         # upstream check and must not resolve the checkout's implicit upstream.
@@ -1295,16 +1325,29 @@ class SimcBackendUpdateSafetyTests(TestCase):
             'rev-parse', 'refs/remotes/origin/midnight',
         ])
 
-    def test_binary_update_pulls_explicit_midnight_branch(self):
+    def test_binary_update_fetches_and_rebases_explicit_midnight_branch(self):
         command = UpdateSimcBinaryCommand()
         command.simc_source_dir = '/srv/simc'
         command._set_status = __import__('unittest').mock.Mock()
         command.stdout = SimpleNamespace(write=lambda *args, **kwargs: None)
-        result = SimpleNamespace(returncode=0, stdout='', stderr='')
-        with patch('botend.management.commands.update_simc_binary.subprocess.run', return_value=result) as run:
+        command._run = __import__('unittest').mock.Mock(return_value=SimpleNamespace(
+            returncode=0, stdout='', stderr='',
+        ))
+        responses = [
+            SimpleNamespace(returncode=0, stdout='', stderr=''),
+            SimpleNamespace(returncode=0, stdout=b'', stderr=b''),
+            SimpleNamespace(returncode=0, stdout=b'', stderr=b''),
+        ]
+        with patch(
+            'botend.management.commands.update_simc_binary.subprocess.run',
+            side_effect=responses,
+        ) as run:
             command._pull_rebase()
-        self.assertEqual(run.call_args.args[0], [
-            'git', 'pull', '--rebase', 'origin', 'midnight',
+        self.assertEqual(run.call_args_list[0].args[0], [
+            'git', 'fetch', '--prune', 'origin', 'midnight',
+        ])
+        self.assertEqual(command._run.call_args.args[0], [
+            'git', 'rebase', 'refs/remotes/origin/midnight',
         ])
 
     def test_tracked_source_changes_are_autocommitted_before_rebase_pull(self):

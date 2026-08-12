@@ -226,9 +226,8 @@ class SimcWorker:
                 execution_owner=SimcTask.EXECUTION_OWNER_LOCAL,
             ).exists():
                 return False
-            backend.last_checked_at = now
             backend.update_status = '定时维护已触发'
-            backend.save(update_fields=['last_checked_at', 'update_status'])
+            backend.save(update_fields=['update_status'])
 
         call_command('update_simc_binary')
         return True

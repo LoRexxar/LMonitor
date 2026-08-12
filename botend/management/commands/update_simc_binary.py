@@ -496,21 +496,46 @@ class Command(BaseCommand):
         self._set_status(progress=10, status='拉取 SimC 源码', error='', updating=True)
         self.stdout.write('拉取 SimC 源码')
         try:
-            result = subprocess.run(
-                # Never pull the checkout's implicit upstream. The production
-                # SimC source of truth is the upstream midnight branch.
-                ['git', 'pull', '--rebase', 'origin', 'midnight'], cwd=self.simc_source_dir,
-                capture_output=True, text=True, timeout=300,
+            fetch = subprocess.run(
+                ['git', 'fetch', '--prune', 'origin', 'midnight'],
+                cwd=self.simc_source_dir, capture_output=True, text=True, timeout=300,
             )
         except subprocess.TimeoutExpired as exc:
             self._fail('拉取 SimC 源码超时', f'拉取 SimC 源码超时: {exc}', progress=10)
         except Exception as exc:
             self._fail('拉取 SimC 源码失败', f'拉取 SimC 源码失败: {exc}', progress=10)
-        if result.returncode != 0:
-            detail = (result.stderr or result.stdout or '').strip()[-1000:]
-            if 'CONFLICT' in detail or 'could not apply' in detail:
-                detail = f'{detail}\n本地自动保存提交未丢失；请在 {self.simc_source_dir} 解决冲突后执行 git rebase --continue，或执行 git rebase --abort。'
-            self._fail('拉取 SimC 源码失败', detail or 'git pull --rebase 失败', progress=10)
+        if fetch.returncode != 0:
+            detail = (fetch.stderr or fetch.stdout or '').strip()[-1000:]
+            self._fail('拉取 SimC 源码失败', detail or 'git fetch 失败', progress=10)
+
+        tracked = subprocess.run(
+            ['git', 'ls-tree', '-r', '--name-only', '-z', 'refs/remotes/origin/midnight'],
+            cwd=self.simc_source_dir, capture_output=True, timeout=60,
+        )
+        untracked = subprocess.run(
+            ['git', 'ls-files', '--others', '--exclude-standard', '-z'],
+            cwd=self.simc_source_dir, capture_output=True, timeout=60,
+        )
+        if tracked.returncode != 0 or untracked.returncode != 0:
+            detail = (tracked.stderr or untracked.stderr or b'').decode('utf-8', errors='replace').strip()[-1000:]
+            self._fail('检查 SimC 未跟踪文件失败', detail or 'git 路径检查失败', progress=10)
+        tracked_paths = set(filter(None, tracked.stdout.decode('utf-8').split('\0')))
+        untracked_paths = set(filter(None, untracked.stdout.decode('utf-8').split('\0')))
+        conflicts = sorted(tracked_paths & untracked_paths)
+        if conflicts:
+            if any(os.path.isabs(path) or '..' in path.split('/') for path in conflicts):
+                self._fail('清理 SimC 未跟踪文件失败', '检测到越界路径', progress=10)
+            self._run(
+                ['git', 'clean', '-f', '--', *conflicts],
+                cwd=self.simc_source_dir, timeout=60,
+                status='清理已纳入上游的 SimC 生成文件', progress=10,
+            )
+
+        result = self._run(
+            ['git', 'rebase', 'refs/remotes/origin/midnight'],
+            cwd=self.simc_source_dir, timeout=300,
+            status='同步 SimC 源码', progress=10,
+        )
         return result
 
     def _apply_local_patches(self):
