@@ -203,7 +203,7 @@ class Command(BaseCommand):
         self.stdout.write(f'二进制版本: {display_version}')
         self.stdout.write(f'路径: {self.simc_binary_path}')
 
-    def _sync_default_template(self):
+    def _sync_default_template(self, git_hash=''):
         cfg = getattr(settings, 'SIMC_CONFIG', {}) or {}
         template_path = str(cfg.get('simc_template') or 'LMonitor/simc_template.txt')
         if not os.path.isabs(template_path):
@@ -227,6 +227,7 @@ class Command(BaseCommand):
                 'content': content,
                 'is_active': True,
                 'is_selectable': True,
+                'sync_version': git_hash or '',
             }
         )
         SimcContentTemplate.objects.filter(
@@ -370,9 +371,14 @@ class Command(BaseCommand):
         if hasattr(self, 'row'):
             self._set_status(progress=95, status='同步默认模板和 APL', error='', updating=True)
         with transaction.atomic():
-            self._sync_default_template()
-            player_source_dir = os.path.join(self.simc_source_dir, 'profiles', 'MID1')
-            call_command('import_simc_player_templates', source_dir=player_source_dir,
+            self._sync_default_template(git_hash)
+            player_root = os.path.join(self.simc_source_dir, 'profiles')
+            mid2_dir = os.path.join(player_root, 'MID2')
+            profile_dir = mid2_dir if os.path.isdir(mid2_dir) else os.path.join(player_root, 'MID1')
+            profile_set = os.path.basename(profile_dir).upper()
+            profile_version = '12.1' if profile_set == 'MID2' else '12.0'
+            call_command('import_simc_player_templates', source_dir=profile_dir,
+                         profile_set=profile_set, profile_version=profile_version,
                          sync_version=git_hash)
             self._sync_default_apl(git_hash)
             manifest_path = self._export_runtime_manifest(
@@ -400,7 +406,9 @@ class Command(BaseCommand):
         handle.close()
         generated_profiles = []
         try:
-            profile_dir = os.path.join(self.simc_source_dir, 'profiles', 'MID1')
+            profile_dir = os.path.join(self.simc_source_dir, 'profiles', 'MID2')
+            if not os.path.isdir(profile_dir):
+                profile_dir = os.path.join(self.simc_source_dir, 'profiles', 'MID1')
             profiles = sorted(
                 os.path.join(profile_dir, name)
                 for name in os.listdir(profile_dir)

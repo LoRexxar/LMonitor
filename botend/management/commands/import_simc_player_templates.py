@@ -1,4 +1,4 @@
-"""Import sanitized per-spec player baselines from SimC profiles/MID1."""
+"""Import sanitized per-spec player baselines from a SimC profile set."""
 import os
 import re
 
@@ -57,20 +57,23 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('--source-dir', default=DEFAULT_SOURCE_DIR)
         parser.add_argument('--sync-version', default='')
+        parser.add_argument('--profile-set', default='', help='上游 Profile 集合，如 MID1/MID2')
+        parser.add_argument('--profile-version', default='', help='Profile 游戏版本，如 12.0/12.1')
         parser.add_argument('--use-ptr', action='store_true', help='将本次导入的 Profile 显式标记为 PTR')
         parser.add_argument('--dry-run', action='store_true')
 
     @staticmethod
-    def _parse_filename(filename):
-        """Accept exactly MID1_Class_Spec.simc; hero suffixes cannot alias base specs."""
+    def _parse_filename(filename, profile_set='MID1'):
+        """Accept exactly <profile_set>_Class_Spec.simc; hero suffixes cannot alias base specs."""
         normalized = filename.lower()
+        prefix = str(profile_set or 'MID1').lower()
         class_tokens = {
             'deathknight': 'death_knight', 'demonhunter': 'demon_hunter',
         }
         for class_name, specs in KNOWN_SPECS.items():
             class_token = class_tokens.get(class_name, class_name)
             for spec in sorted(specs, key=len, reverse=True):
-                if normalized == f'mid1_{class_token}_{spec}.simc':
+                if normalized == f'{prefix}_{class_token}_{spec}.simc':
                     return class_name, spec
         return None
 
@@ -108,13 +111,17 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         source_dir = options['source_dir']
+        profile_set = str(options.get('profile_set') or 'MID1').upper()
+        if profile_set not in {'MID1', 'MID2'}:
+            raise CommandError(f'不支持的 Profile 集合: {profile_set}')
+        profile_version = str(options.get('profile_version') or ('12.1' if profile_set == 'MID2' else '12.0'))
         if not os.path.isdir(source_dir):
-            raise CommandError(f'MID1 目录不存在: {source_dir}')
+            raise CommandError(f'Profile 目录不存在: {source_dir}')
         imported = skipped = errors = 0
         validated = []
         seen = set()
         for filename in sorted(os.listdir(source_dir)):
-            parsed = self._parse_filename(filename)
+            parsed = self._parse_filename(filename, profile_set)
             if not parsed:
                 if filename.lower().endswith('.simc'):
                     skipped += 1
@@ -151,14 +158,15 @@ class Command(BaseCommand):
                     user_id__isnull=True,
                     source=SimcProfile.SOURCE_SIMC_UPSTREAM,
                     system_key__startswith='simc_upstream:',
-                ).exclude(system_key__in=active_keys).update(is_active=False)
+                ).delete()
                 for spec_key, class_name, baseline in validated:
                     SimcProfile.objects.update_or_create(
                         system_key=f'simc_upstream:{spec_key}',
                         defaults={
                             'user_id': None,
                             'source': SimcProfile.SOURCE_SIMC_UPSTREAM,
-                            'name': f'MID1 默认玩家 {spec_key}', 'class_name': class_name,
+                            'name': f'{profile_set} 默认玩家 {spec_key}', 'class_name': class_name,
+                            'version': profile_version, 'profile_set': profile_set,
                             'spec': spec_key, 'player_config_mode': 'manual_equipment',
                             'use_ptr': bool(options.get('use_ptr', False)),
                             'player_equipment': baseline, 'talent': '',

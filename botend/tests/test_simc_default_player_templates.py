@@ -112,6 +112,30 @@ class ImportSimcPlayerTemplatesTests(TestCase):
         for field in ('gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility'):
             self.assertIsNone(getattr(profile, field), field)
 
+    @patch(
+        'botend.management.commands.import_simc_player_templates.REQUIRED_PROFILE_SPECS',
+        {('warrior', 'fury')},
+    )
+    def test_mid2_import_replaces_old_mid1_profile_and_marks_version(self):
+        old = SimcProfile.objects.create(
+            user_id=None, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            system_key='simc_upstream:warrior_fury', name='MID1 默认玩家 warrior_fury',
+            class_name='warrior', spec='warrior_fury', profile_set='MID1', version='12.0',
+            player_config_mode='manual_equipment', player_equipment='old', is_active=True,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, 'MID2_Warrior_Fury.simc').write_text(DEFAULT_PLAYER, encoding='utf-8')
+            call_command(
+                'import_simc_player_templates', source_dir=tmp, profile_set='MID2',
+                profile_version='12.1', sync_version='b' * 40,
+            )
+        profile = SimcProfile.objects.get(system_key='simc_upstream:warrior_fury')
+        self.assertNotEqual(profile.id, old.id)
+        self.assertEqual(profile.profile_set, 'MID2')
+        self.assertEqual(profile.version, '12.1')
+        self.assertEqual(profile.sync_version, 'b' * 40)
+        self.assertFalse(SimcProfile.objects.filter(pk=old.pk).exists())
+
     def test_required_mid1_profiles_match_the_supported_32_spec_execution_scope(self):
         from botend.management.commands.import_simc_player_templates import REQUIRED_PROFILE_SPECS
 
