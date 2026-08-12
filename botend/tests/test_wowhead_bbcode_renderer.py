@@ -152,11 +152,14 @@ class WowheadBBCodeRendererTests(SimpleTestCase):
         self.assertNotIn("wh-unsupported-token", rendered)
 
         repaired = normalize_wowhead_html_fragment(
-            '<span class="wh-unsupported-token"><span class="wh-unsupported-token">'
-            '[youtube=CMEYax4Yba0 width=800]</span></span>'
+            '<div class="wh-center"><span class="wh-unsupported-token">'
+            '<span class="wh-unsupported-token">[youtube=CMEYax4Yba0 width=800]</span>'
+            '</span></div>'
         )
-        repaired_iframe = BeautifulSoup(repaired, "html.parser").find("iframe")
+        repaired_soup = BeautifulSoup(repaired, "html.parser")
+        repaired_iframe = repaired_soup.find("iframe")
         self.assertEqual(repaired_iframe["src"], "https://www.youtube-nocookie.com/embed/CMEYax4Yba0")
+        self.assertIsNotNone(repaired_soup.select_one(".wh-center .wowhead-youtube"))
         self.assertNotIn("wh-unsupported-token", repaired)
 
     def test_article_extraction_uses_short_authoritative_print_html(self):
