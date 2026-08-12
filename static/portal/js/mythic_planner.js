@@ -7,7 +7,6 @@
     const nowIso = () => new Date().toISOString();
     const STORAGE_KEY = 'lmonitor.mythicPlanner.routes.v1';
     const SELECTED_KEY = 'lmonitor.mythicPlanner.selectedRoute.v1';
-    const SHARE_PREFIX = '!LMDT1!';
     const PULL_AREA_PADDING_PX = 1;
     const PULL_AREA_SELECTED_RING_PX = 2;
     const PULL_AREA_CIRCLE_SEGMENTS = 16;
@@ -1547,32 +1546,6 @@
         toast('本地路线已删除。');
     }
 
-    function bytesToBase64Url(bytes) {
-        let binary = '';
-        const chunk = 0x8000;
-        for (let index = 0; index < bytes.length; index += chunk) {
-            binary += String.fromCharCode(...bytes.subarray(index, index + chunk));
-        }
-        return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
-    }
-
-    function base64UrlToBytes(value) {
-        const normalized = value.replaceAll('-', '+').replaceAll('_', '/');
-        const binary = atob(normalized + '='.repeat((4 - normalized.length % 4) % 4));
-        return Uint8Array.from(binary, (char) => char.charCodeAt(0));
-    }
-
-    function encodeShareLocal(payload) {
-        const bytes = new TextEncoder().encode(JSON.stringify(payload));
-        return `${SHARE_PREFIX}${bytesToBase64Url(bytes)}`;
-    }
-
-    function decodeShareLocal(code) {
-        const value = String(code || '').trim();
-        if (!value.startsWith(SHARE_PREFIX)) throw new Error('分享字符串格式不正确。');
-        return JSON.parse(new TextDecoder().decode(base64UrlToBytes(value.slice(SHARE_PREFIX.length))));
-    }
-
     async function copyText(value, fallbackSelector) {
         try {
             await navigator.clipboard.writeText(value);
@@ -1583,17 +1556,25 @@
         }
     }
 
-    function showExportModal(mode = 'export', {shortUrl = '', shortError = ''} = {}) {
-        const code = encodeShareLocal(routePayload());
+    async function encodeCurrentRoute() {
+        const data = await fetchJson('/portal/api/mythic-planner/share-code/', {
+            method: 'POST',
+            body: JSON.stringify({action: 'encode', route_data: routePayload()}),
+        });
+        return data.share_code;
+    }
+
+    async function showExportModal(mode = 'export', {shortUrl = '', shortError = '', code = ''} = {}) {
+        const shareCode = code || await encodeCurrentRoute();
         const sharing = mode === 'share';
         openModal({
             title: sharing ? '分享路线' : '导出路线',
-            subtitle: sharing ? '路线字符串与站内短链接' : 'LMonitor 路线字符串 v1',
+            subtitle: sharing ? 'MDT 路线字符串与站内短链接' : 'MythicDungeonTools 6.2.1 路线字符串',
             content: `
                 <label>路线分享字符串
-                    <textarea id="route-code" readonly>${escapeHtml(code)}</textarea>
+                    <textarea id="route-code" readonly>${escapeHtml(shareCode)}</textarea>
                 </label>
-                <p>分享字符串包含拉怪组、路线顺序和地图标注，不包含第三方地图素材。</p>
+                <p>使用暴雪 CBOR、Deflate 和 Base64 编码，可直接导入 MythicDungeonTools 6.2.1。</p>
                 ${shortUrl ? `
                     <label>站内短链接
                         <input id="public-route-link" readonly value="${escapeHtml(shortUrl)}">
@@ -1608,7 +1589,7 @@
                     label: '复制字符串',
                     primary: !shortUrl,
                     handler: async () => {
-                        await copyText(code, '#route-code');
+                        await copyText(shareCode, '#route-code');
                         toast('路线字符串已复制。');
                     },
                 },
@@ -1627,8 +1608,8 @@
     function showImportModal() {
         openModal({
             title: '导入路线',
-            subtitle: '粘贴 !LMDT1! 开头的分享字符串',
-            content: `<label>路线分享字符串<textarea id="route-import-code" placeholder="!LMDT1!…"></textarea></label>`,
+            subtitle: '粘贴 !~MDT2~ 开头的 MythicDungeonTools 字符串',
+            content: `<label>路线分享字符串<textarea id="route-import-code" placeholder="!~MDT2~…"></textarea></label>`,
             actions: [
                 {label: '取消', handler: closeModal},
                 {
@@ -1638,18 +1619,11 @@
                         const code = $('#route-import-code')?.value.trim();
                         if (!code) return toast('请先粘贴路线分享字符串。', true);
                         try {
-                            let payload;
-                            try {
-                                const data = await fetchJson('/portal/api/mythic-planner/share-code/', {
-                                    method: 'POST',
-                                    body: JSON.stringify({action: 'decode', share_code: code}),
-                                });
-                                payload = data.route_data;
-                            } catch (serverError) {
-                                payload = decodeShareLocal(code);
-                                if (!payload?.dungeon_key) throw serverError;
-                            }
-                            await applyImportedPayload(payload);
+                            const data = await fetchJson('/portal/api/mythic-planner/share-code/', {
+                                method: 'POST',
+                                body: JSON.stringify({action: 'decode', share_code: code}),
+                            });
+                            await applyImportedPayload(data.route_data);
                             closeModal();
                             toast('路线导入成功。');
                         } catch (error) {
@@ -1776,10 +1750,10 @@
                     <div><strong>拉怪组：</strong>右侧点击某一波设为当前组，可新增、改名、删除和调整顺序。</div>
                     <div><strong>地图操作：</strong>鼠标滚轮缩放；选择手掌工具拖动画布；框选工具可一次加入多个怪物。</div>
                     <div><strong>路线标注：</strong>支持自由笔、直线、箭头、文字与擦除；标注按楼层保存。</div>
-                    <div><strong>分享：</strong>可复制 <kbd>!LMDT1!</kbd> 路线字符串，也可生成无需登录的站内短链接；两者都包含拉怪组和地图标注。</div>
+                    <div><strong>分享：</strong>可复制 MDT 6.2.1 使用的 <kbd>!~MDT2~</kbd> 暴雪编码路线字符串，也可生成无需登录的站内短链接；两者都包含拉怪组和地图标注。</div>
                     <div><strong>实时协作：</strong>开启后，同一浏览器的多个标签页会通过 BroadcastChannel 同步当前路线。</div>
                     <div><strong>快捷键：</strong><kbd>V</kbd> 选择、<kbd>H</kbd> 拖动、<kbd>B</kbd> 框选、<kbd>P</kbd> 画笔、<kbd>L</kbd> 直线、<kbd>A</kbd> 箭头、<kbd>N</kbd> 文字、<kbd>E</kbd> 擦除、<kbd>Ctrl+Z</kbd> 撤销。</div>
-                    <div><strong>数据来源：</strong>副本地图、怪物、刷新点、编队、进度、技能 ID、特性和 POI 直接转换自 <a href="https://github.com/Nnoggie/MythicDungeonTools/tree/6.2.0-alpha6" target="_blank" rel="noopener noreferrer">MythicDungeonTools 6.2.0-alpha6</a>，按 GPLv2 保留来源。</div>
+                    <div><strong>数据来源：</strong>副本地图、怪物、刷新点、编队、进度、技能 ID、特性和 POI 直接转换自 <a href="https://github.com/Nnoggie/MythicDungeonTools/tree/6.2.1" target="_blank" rel="noopener noreferrer">MythicDungeonTools 6.2.1</a>，按 GPLv2 保留来源。</div>
                     <div><strong>技能资料：</strong>技能名称、基础说明和图标来自固定客户端 build 的 <a href="https://wago.tools/" target="_blank" rel="noopener noreferrer">Wago DB2</a> 快照；完整中文数值说明由 <a href="https://www.wowhead.com/cn" target="_blank" rel="noopener noreferrer">Wowhead</a> 已渲染 Tooltip 补全，并记录来源 build。</div>
                 </div>
             `,
@@ -1798,11 +1772,15 @@
                 body: JSON.stringify({route_data: routePayload()}),
             });
             const shortUrl = `${location.origin}${data.short_path}`;
-            showExportModal('share', {shortUrl});
+            await showExportModal('share', {shortUrl, code: data.share_code});
         } catch (error) {
-            showExportModal('share', {
-                shortError: error.message || '服务器暂时不可用',
-            });
+            try {
+                await showExportModal('share', {
+                    shortError: error.message || '服务器暂时不可用',
+                });
+            } catch (encodeError) {
+                toast(encodeError.message || '路线字符串生成失败。', true);
+            }
         } finally {
             button.disabled = false;
             button.textContent = originalLabel;
@@ -2022,7 +2000,13 @@
         $('#rename-route').addEventListener('click', renameCurrentRoute);
         els.routeNameButton.addEventListener('click', renameCurrentRoute);
         $('#delete-route').addEventListener('click', deleteRoute);
-        $('#export-route').addEventListener('click', () => showExportModal('export'));
+        $('#export-route').addEventListener('click', async () => {
+            try {
+                await showExportModal('export');
+            } catch (error) {
+                toast(error.message || '路线字符串生成失败。', true);
+            }
+        });
         $('#share-route').addEventListener('click', shareRoute);
         $('#import-route').addEventListener('click', showImportModal);
         $('#open-route-library').addEventListener('click', showRouteLibrary);

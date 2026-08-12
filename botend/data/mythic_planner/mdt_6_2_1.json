@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "data_version": {
-    "key": "mdt-6-2-0-alpha6",
-    "label": "MythicDungeonTools 6.2.0-alpha6 午夜版本数据",
+    "key": "mdt-6-2-1",
+    "label": "MythicDungeonTools 6.2.1 午夜版本数据",
     "game_version": "Midnight",
-    "season": "MythicDungeonTools 6.2.0-alpha6",
+    "season": "MythicDungeonTools 6.2.1",
     "source_name": "MythicDungeonTools",
-    "source_reference": "https://github.com/Nnoggie/MythicDungeonTools/tree/6.2.0-alpha6",
+    "source_reference": "https://github.com/Nnoggie/MythicDungeonTools/tree/6.2.1",
     "notes": "由固定上游快照的 Lua 副本数据离线转换生成；地图由原始 15×10 PNG 切片无损拼接。三个上游暂缺技能表的旧副本使用版本化补充关系；技能名称未匹配到本地法术快照时保留技能 ID。",
     "metadata": {
       "locale": [
@@ -15,10 +15,10 @@
       ],
       "license": "GPL-2.0-only",
       "generated": true,
-      "source_tag": "6.2.0-alpha6",
-      "source_url": "https://github.com/Nnoggie/MythicDungeonTools/tree/6.2.0-alpha6",
-      "source_commit": "b594e9047949e84cc1822ab6cba37c0d5dc96b4a",
-      "source_digest": "502ef939a39ec8d4306169e9b2819a8256126beb88f0593584096b7012024429",
+      "source_tag": "6.2.1",
+      "source_url": "https://github.com/Nnoggie/MythicDungeonTools/tree/6.2.1",
+      "source_commit": "33a9cfba027887d4d60425334dd26e1bff841b9b",
+      "source_digest": "2d175d5ea58b71cb142b8318e9686af47939384f411848d6966e56510b11dc32",
       "spell_snapshot": {
         "source": "wago.tools DB2",
         "coverage": {
@@ -50,8 +50,8 @@
       "ability_supplement": {
         "relative_path": "LMonitor/ability_overrides.json",
         "target": {
-          "source_tag": "6.2.0-alpha6",
-          "source_commit": "b594e9047949e84cc1822ab6cba37c0d5dc96b4a",
+          "source_tag": "6.2.1",
+          "source_commit": "33a9cfba027887d4d60425334dd26e1bff841b9b",
           "branch": "wowt",
           "game_build": "12.1.0.68914",
           "captured_at": "2026-07-28"
@@ -124,8 +124,8 @@
       "metadata": {
         "source_file": "Midnight/MurderRow.lua",
         "teleport_id": 1286809,
-        "source_tag": "6.2.0-alpha6",
-        "source_commit": "b594e9047949e84cc1822ab6cba37c0d5dc96b4a",
+        "source_tag": "6.2.1",
+        "source_commit": "33a9cfba027887d4d60425334dd26e1bff841b9b",
         "selection_groups": [
           {
             "key": "midnight-season-2",
@@ -142,7 +142,7 @@
           "floor_index": 1,
           "name": "Murder Row",
           "name_zh": "密谋小径",
-          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.0-alpha6/maps/murder-row/floor-1.webp",
+          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/murder-row/floor-1.webp",
           "background_color": "#171512",
           "map_width": 1200,
           "map_height": 800,
@@ -7557,8 +7557,8 @@
       "metadata": {
         "source_file": "Midnight/DenOfNalorakk.lua",
         "teleport_id": 1286807,
-        "source_tag": "6.2.0-alpha6",
-        "source_commit": "b594e9047949e84cc1822ab6cba37c0d5dc96b4a",
+        "source_tag": "6.2.1",
+        "source_commit": "33a9cfba027887d4d60425334dd26e1bff841b9b",
         "selection_groups": [
           {
             "key": "midnight-season-2",
@@ -7575,7 +7575,7 @@
           "floor_index": 1,
           "name": "Den of Nalorakk",
           "name_zh": "纳洛拉克的洞穴",
-          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.0-alpha6/maps/den-of-nalorakk/floor-1.webp",
+          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/den-of-nalorakk/floor-1.webp",
           "background_color": "#171512",
           "map_width": 1200,
           "map_height": 800,
@@ -13168,8 +13168,8 @@
       "metadata": {
         "source_file": "Midnight/TheBlindingVale.lua",
         "teleport_id": 1286801,
-        "source_tag": "6.2.0-alpha6",
-        "source_commit": "b594e9047949e84cc1822ab6cba37c0d5dc96b4a",
+        "source_tag": "6.2.1",
+        "source_commit": "33a9cfba027887d4d60425334dd26e1bff841b9b",
         "selection_groups": [
           {
             "key": "midnight-season-2",
@@ -13186,7 +13186,7 @@
           "floor_index": 1,
           "name": "The Blinding Vale",
           "name_zh": "夺目谷",
-          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.0-alpha6/maps/the-blinding-vale/floor-1.webp",
+          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/the-blinding-vale/floor-1.webp",
           "background_color": "#171512",
           "map_width": 1200,
           "map_height": 800,
@@ -18790,8 +18790,8 @@
       "metadata": {
         "source_file": "Midnight/VoidscarArena.lua",
         "teleport_id": 1286804,
-        "source_tag": "6.2.0-alpha6",
-        "source_commit": "b594e9047949e84cc1822ab6cba37c0d5dc96b4a",
+        "source_tag": "6.2.1",
+        "source_commit": "33a9cfba027887d4d60425334dd26e1bff841b9b",
         "selection_groups": [
           {
             "key": "midnight-season-2",
@@ -18808,7 +18808,7 @@
           "floor_index": 1,
           "name": "Voidscar Arena",
           "name_zh": "虚空之痕竞技场",
-          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.0-alpha6/maps/voidscar-arena/floor-1.webp",
+          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/voidscar-arena/floor-1.webp",
           "background_color": "#171512",
           "map_width": 1200,
           "map_height": 800,
@@ -24955,8 +24955,8 @@
       "metadata": {
         "source_file": "Midnight/AltarOfFangs.lua",
         "teleport_id": 1286812,
-        "source_tag": "6.2.0-alpha6",
-        "source_commit": "b594e9047949e84cc1822ab6cba37c0d5dc96b4a",
+        "source_tag": "6.2.1",
+        "source_commit": "33a9cfba027887d4d60425334dd26e1bff841b9b",
         "selection_groups": [
           {
             "key": "midnight-season-2",
@@ -24973,7 +24973,7 @@
           "floor_index": 1,
           "name": "Altar of Fangs",
           "name_zh": "毒牙祭坛",
-          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.0-alpha6/maps/altar-of-fangs/floor-1.webp",
+          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/altar-of-fangs/floor-1.webp",
           "background_color": "#171512",
           "map_width": 1200,
           "map_height": 800,
@@ -30153,8 +30153,8 @@
       "metadata": {
         "source_file": "Midnight/RubyLifePools.lua",
         "teleport_id": 393256,
-        "source_tag": "6.2.0-alpha6",
-        "source_commit": "b594e9047949e84cc1822ab6cba37c0d5dc96b4a",
+        "source_tag": "6.2.1",
+        "source_commit": "33a9cfba027887d4d60425334dd26e1bff841b9b",
         "selection_groups": [
           {
             "key": "midnight-season-2",
@@ -30171,7 +30171,7 @@
           "floor_index": 1,
           "name": "Ruby Life Pools",
           "name_zh": "红玉新生法池",
-          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.0-alpha6/maps/ruby-life-pools/floor-1.webp",
+          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/ruby-life-pools/floor-1.webp",
           "background_color": "#171512",
           "map_width": 1200,
           "map_height": 800,
@@ -34963,8 +34963,8 @@
       "metadata": {
         "source_file": "Midnight/TempleOfSethraliss.lua",
         "teleport_id": 1286828,
-        "source_tag": "6.2.0-alpha6",
-        "source_commit": "b594e9047949e84cc1822ab6cba37c0d5dc96b4a",
+        "source_tag": "6.2.1",
+        "source_commit": "33a9cfba027887d4d60425334dd26e1bff841b9b",
         "selection_groups": [
           {
             "key": "midnight-season-2",
@@ -34981,7 +34981,7 @@
           "floor_index": 1,
           "name": "Temple of Sethraliss",
           "name_zh": "塞塔里斯神庙",
-          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.0-alpha6/maps/temple-of-sethraliss/floor-1.webp",
+          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/temple-of-sethraliss/floor-1.webp",
           "background_color": "#171512",
           "map_width": 1200,
           "map_height": 800,
@@ -40198,8 +40198,8 @@
       "metadata": {
         "source_file": "Midnight/KingsRest.lua",
         "teleport_id": 1286831,
-        "source_tag": "6.2.0-alpha6",
-        "source_commit": "b594e9047949e84cc1822ab6cba37c0d5dc96b4a",
+        "source_tag": "6.2.1",
+        "source_commit": "33a9cfba027887d4d60425334dd26e1bff841b9b",
         "selection_groups": [
           {
             "key": "midnight-season-2",
@@ -40216,7 +40216,7 @@
           "floor_index": 1,
           "name": "Kings' Rest",
           "name_zh": "诸王之眠",
-          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.0-alpha6/maps/kings-rest/floor-1.webp",
+          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/kings-rest/floor-1.webp",
           "background_color": "#171512",
           "map_width": 1200,
           "map_height": 800,
@@ -44164,8 +44164,8 @@
       "metadata": {
         "source_file": "Midnight/AlgetharAcademy.lua",
         "teleport_id": 393273,
-        "source_tag": "6.2.0-alpha6",
-        "source_commit": "b594e9047949e84cc1822ab6cba37c0d5dc96b4a",
+        "source_tag": "6.2.1",
+        "source_commit": "33a9cfba027887d4d60425334dd26e1bff841b9b",
         "selection_groups": [
           {
             "key": "midnight-season-1",
@@ -44182,7 +44182,7 @@
           "floor_index": 1,
           "name": "Algeth'ar Academy",
           "name_zh": "艾杰斯亚学院",
-          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.0-alpha6/maps/algethar-academy/floor-1.webp",
+          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/algethar-academy/floor-1.webp",
           "background_color": "#171512",
           "map_width": 1200,
           "map_height": 800,
@@ -48444,8 +48444,8 @@
       "metadata": {
         "source_file": "Midnight/MagistersTerrace.lua",
         "teleport_id": 1254572,
-        "source_tag": "6.2.0-alpha6",
-        "source_commit": "b594e9047949e84cc1822ab6cba37c0d5dc96b4a",
+        "source_tag": "6.2.1",
+        "source_commit": "33a9cfba027887d4d60425334dd26e1bff841b9b",
         "selection_groups": [
           {
             "key": "midnight-season-1",
@@ -48462,7 +48462,7 @@
           "floor_index": 1,
           "name": "Magister's Terrace",
           "name_zh": "魔导师平台",
-          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.0-alpha6/maps/magisters-terrace/floor-1.webp",
+          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/magisters-terrace/floor-1.webp",
           "background_color": "#171512",
           "map_width": 1200,
           "map_height": 800,
@@ -54941,8 +54941,8 @@
       "metadata": {
         "source_file": "Midnight/MaisaraCaverns.lua",
         "teleport_id": 1254559,
-        "source_tag": "6.2.0-alpha6",
-        "source_commit": "b594e9047949e84cc1822ab6cba37c0d5dc96b4a",
+        "source_tag": "6.2.1",
+        "source_commit": "33a9cfba027887d4d60425334dd26e1bff841b9b",
         "selection_groups": [
           {
             "key": "midnight-season-1",
@@ -54959,7 +54959,7 @@
           "floor_index": 1,
           "name": "Maisara Caverns",
           "name_zh": "迈萨拉洞窟",
-          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.0-alpha6/maps/maisara-caverns/floor-1.webp",
+          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/maisara-caverns/floor-1.webp",
           "background_color": "#171512",
           "map_width": 1200,
           "map_height": 800,
@@ -63587,8 +63587,8 @@
       "metadata": {
         "source_file": "Midnight/NexusPointXenas.lua",
         "teleport_id": 1254563,
-        "source_tag": "6.2.0-alpha6",
-        "source_commit": "b594e9047949e84cc1822ab6cba37c0d5dc96b4a",
+        "source_tag": "6.2.1",
+        "source_commit": "33a9cfba027887d4d60425334dd26e1bff841b9b",
         "selection_groups": [
           {
             "key": "midnight-season-1",
@@ -63605,7 +63605,7 @@
           "floor_index": 1,
           "name": "Nexus Point Xenas",
           "name_zh": "节点希纳斯",
-          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.0-alpha6/maps/nexus-point-xenas/floor-1.webp",
+          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/nexus-point-xenas/floor-1.webp",
           "background_color": "#171512",
           "map_width": 1200,
           "map_height": 800,
@@ -68636,8 +68636,8 @@
       "metadata": {
         "source_file": "Midnight/PitOfSaron.lua",
         "teleport_id": 1254555,
-        "source_tag": "6.2.0-alpha6",
-        "source_commit": "b594e9047949e84cc1822ab6cba37c0d5dc96b4a",
+        "source_tag": "6.2.1",
+        "source_commit": "33a9cfba027887d4d60425334dd26e1bff841b9b",
         "selection_groups": [
           {
             "key": "midnight-season-1",
@@ -68654,7 +68654,7 @@
           "floor_index": 1,
           "name": "Pit of Saron",
           "name_zh": "萨隆矿坑",
-          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.0-alpha6/maps/pit-of-saron/floor-1.webp",
+          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/pit-of-saron/floor-1.webp",
           "background_color": "#171512",
           "map_width": 1200,
           "map_height": 800,
@@ -74273,8 +74273,8 @@
       "metadata": {
         "source_file": "Midnight/SeatoftheTriumvirate.lua",
         "teleport_id": 1254551,
-        "source_tag": "6.2.0-alpha6",
-        "source_commit": "b594e9047949e84cc1822ab6cba37c0d5dc96b4a",
+        "source_tag": "6.2.1",
+        "source_commit": "33a9cfba027887d4d60425334dd26e1bff841b9b",
         "selection_groups": [
           {
             "key": "midnight-season-1",
@@ -74291,7 +74291,7 @@
           "floor_index": 1,
           "name": "Seat of the Triumvirate",
           "name_zh": "执政团之座",
-          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.0-alpha6/maps/seat-of-the-triumvirate/floor-1.webp",
+          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/seat-of-the-triumvirate/floor-1.webp",
           "background_color": "#171512",
           "map_width": 1200,
           "map_height": 800,
@@ -79374,8 +79374,8 @@
       "metadata": {
         "source_file": "Midnight/Skyreach.lua",
         "teleport_id": 1254557,
-        "source_tag": "6.2.0-alpha6",
-        "source_commit": "b594e9047949e84cc1822ab6cba37c0d5dc96b4a",
+        "source_tag": "6.2.1",
+        "source_commit": "33a9cfba027887d4d60425334dd26e1bff841b9b",
         "selection_groups": [
           {
             "key": "midnight-season-1",
@@ -79392,7 +79392,7 @@
           "floor_index": 1,
           "name": "Skyreach",
           "name_zh": "通天峰",
-          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.0-alpha6/maps/skyreach/floor-1.webp",
+          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/skyreach/floor-1.webp",
           "background_color": "#171512",
           "map_width": 1200,
           "map_height": 800,
@@ -82644,8 +82644,8 @@
       "metadata": {
         "source_file": "Midnight/WindrunnerSpire.lua",
         "teleport_id": 1254400,
-        "source_tag": "6.2.0-alpha6",
-        "source_commit": "b594e9047949e84cc1822ab6cba37c0d5dc96b4a",
+        "source_tag": "6.2.1",
+        "source_commit": "33a9cfba027887d4d60425334dd26e1bff841b9b",
         "selection_groups": [
           {
             "key": "midnight-season-1",
@@ -82662,7 +82662,7 @@
           "floor_index": 1,
           "name": "Windrunner Spire",
           "name_zh": "风行者之塔",
-          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.0-alpha6/maps/windrunner-spire/floor-1.webp",
+          "background_url": "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/windrunner-spire/floor-1.webp",
           "background_color": "#171512",
           "map_width": 1200,
           "map_height": 800,

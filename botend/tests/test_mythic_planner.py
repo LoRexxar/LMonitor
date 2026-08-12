@@ -1,6 +1,8 @@
+import base64
 import copy
 import json
 import re
+import zlib
 import tempfile
 from pathlib import Path
 from unittest import mock
@@ -72,7 +74,20 @@ from botend.management.commands.sync_mythic_dungeon_tools import (
     load_payload_seed,
 )
 from botend.wow.spell_text import SpellTextResolver
-from scripts.import_mdt_alpha6 import validate_package as validate_alpha6_package
+from scripts.import_mdt_6_2_1 import (
+    SOURCE_VERSION_KEY as MDT_621_SOURCE_VERSION_KEY,
+    TARGET_VERSION_KEY as MDT_621_TARGET_VERSION_KEY,
+    validate_package as validate_621_package,
+)
+from botend.mythic_planner.mdt_route_codec import (
+    MDT2_PREFIX,
+    decode_blizzard_cbor,
+    decode_mdt2_table,
+    encode_blizzard_cbor,
+    encode_mdt2_table,
+    preset_to_route_payload,
+    route_payload_to_preset,
+)
 
 
 def demo_payload():
@@ -86,8 +101,38 @@ def demo_payload():
     return json.loads(path.read_text(encoding='utf-8'))
 
 
+def assign_demo_mdt_indexes():
+    """为手写演示夹具补充真实 MDT 数据包才具有的源索引。"""
+
+    for dungeon_index, dungeon in enumerate(
+        MythicDungeon.objects.order_by('id'),
+        start=901,
+    ):
+        dungeon.external_index = dungeon_index
+        dungeon.save(update_fields=['external_index'])
+        for enemy_index, enemy in enumerate(
+            dungeon.enemies.order_by('id'),
+            start=1,
+        ):
+            enemy.metadata = {
+                **(enemy.metadata or {}),
+                'source_enemy_index': enemy_index,
+            }
+            enemy.save(update_fields=['metadata'])
+            for clone_index, spawn in enumerate(enemy.spawns.order_by('id'), start=1):
+                spawn.metadata = {
+                    **(spawn.metadata or {}),
+                    'source_clone_index': clone_index,
+                }
+                spawn.save(update_fields=['metadata'])
+
+
 class MythicPlannerImportTests(TestCase):
-    def test_builtin_alpha6_package_imports_complete_dataset(self):
+    def test_builtin_621_upgrade_contract_starts_from_alpha6(self):
+        self.assertEqual(MDT_621_SOURCE_VERSION_KEY, 'mdt-6-2-0-alpha6')
+        self.assertEqual(MDT_621_TARGET_VERSION_KEY, 'mdt-6-2-1')
+
+    def test_builtin_621_package_imports_complete_dataset(self):
         call_command(
             'import_mythic_dungeon_data',
             activate=True,
@@ -96,10 +141,10 @@ class MythicPlannerImportTests(TestCase):
         )
 
         version = MythicDungeonDataVersion.objects.get(
-            key='mdt-6-2-0-alpha6',
+            key='mdt-6-2-1',
             is_active=True,
         )
-        self.assertEqual(version.metadata['source_tag'], '6.2.0-alpha6')
+        self.assertEqual(version.metadata['source_tag'], '6.2.1')
         self.assertEqual(version.dungeons.filter(is_active=True).count(), 16)
         self.assertEqual(
             MythicDungeonEnemy.objects.filter(
@@ -128,8 +173,36 @@ class MythicPlannerImportTests(TestCase):
                 name__regex=r'^Spell #[0-9]+$',
             ).exists()
         )
+        dungeon = version.dungeons.filter(is_active=True).order_by('order').first()
+        spawn = (
+            MythicDungeonSpawn.objects.filter(
+                enemy__dungeon=dungeon,
+                enemy__is_active=True,
+                is_active=True,
+            )
+            .select_related('enemy', 'floor')
+            .first()
+        )
+        route_data = {
+            'version': 1,
+            'dungeon_key': dungeon.key,
+            'data_version_key': version.key,
+            'name': '正式数据 MDT2 验证',
+            'dungeon_level': 10,
+            'current_floor_key': spawn.floor.key,
+            'pulls': [{
+                'id': 'official-pull-1',
+                'name': '第一波',
+                'color': '#e879f9',
+                'spawn_uids': [f'{spawn.enemy.key}:{spawn.key}'],
+            }],
+            'annotations': [],
+        }
+        share_code = encode_share_code(route_data)
+        self.assertTrue(share_code.startswith(MDT2_PREFIX))
+        self.assertEqual(decode_share_code(share_code), route_data)
 
-    def test_builtin_alpha6_assets_resolve_to_current_short_oss_keys(self):
+    def test_builtin_621_assets_resolve_to_current_short_oss_keys(self):
         call_command(
             'import_mythic_dungeon_data',
             activate=True,
@@ -137,12 +210,12 @@ class MythicPlannerImportTests(TestCase):
             verbosity=0,
         )
         version = MythicDungeonDataVersion.objects.get(
-            key='mdt-6-2-0-alpha6',
+            key='mdt-6-2-1',
         )
         jobs, stats = SyncMythicDungeonAssetsCommand()._build_jobs(
             version=version,
             base_prefix='mythic-planner',
-            version_prefix='mythic-planner/versions/mdt-6-2-0-alpha6',
+            version_prefix='mythic-planner/versions/mdt-6-2-1',
             oss_base_url='https://oss.wowdaily.cn/',
             force=False,
         )
@@ -540,16 +613,16 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             / 'data'
             / 'mythic_planner'
             / 'vendor'
-            / 'mythic-dungeon-tools-6.2.0-alpha6'
+            / 'mythic-dungeon-tools-6.2.1'
         )
 
     def test_fixed_upstream_snapshot_converts_real_dungeons_and_assets(self):
         payload = build_payload(self.source_root())
 
-        self.assertEqual(payload['data_version']['key'], 'mdt-6-2-0-alpha6')
+        self.assertEqual(payload['data_version']['key'], 'mdt-6-2-1')
         self.assertEqual(
             payload['data_version']['metadata']['source_commit'],
-            'b594e9047949e84cc1822ab6cba37c0d5dc96b4a',
+            '33a9cfba027887d4d60425334dd26e1bff841b9b',
         )
         self.assertEqual(payload['data_version']['metadata']['license'], 'GPL-2.0-only')
         self.assertEqual(len(payload['dungeons']), 16)
@@ -589,7 +662,7 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             'midnight-season-2',
         )
         self.assertIn(
-            '/static/portal/mythic_planner/vendor/mdt-6.2.0-alpha6/maps/',
+            '/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/',
             murder_row['floors'][0]['background_url'],
         )
         self.assertTrue(all(
@@ -687,9 +760,9 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             1674,
         )
 
-    def test_builtin_alpha6_package_passes_release_contract(self):
+    def test_builtin_621_package_passes_release_contract(self):
         self.assertEqual(
-            validate_alpha6_package(),
+            validate_621_package(),
             {
                 'dungeons': 16,
                 'enemies': 468,
@@ -2172,10 +2245,10 @@ class MythicPlannerAssetPersistenceTests(TestCase):
 
     def test_asset_sync_migrates_legacy_floor_from_current_static_map(self):
         version = MythicDungeonDataVersion.objects.create(
-            key='mdt-6-2-0-alpha6',
+            key='mdt-6-2-1',
             label='地图路径测试',
             is_active=True,
-            metadata={'source_tag': '6.2.0-alpha6'},
+            metadata={'source_tag': '6.2.1'},
         )
         dungeon = MythicDungeon.objects.create(
             data_version=version,
@@ -2195,7 +2268,7 @@ class MythicPlannerAssetPersistenceTests(TestCase):
         jobs, stats = SyncMythicDungeonAssetsCommand()._build_jobs(
             version=version,
             base_prefix='mythic-planner',
-            version_prefix='mythic-planner/versions/mdt-6-2-0-alpha6',
+            version_prefix='mythic-planner/versions/mdt-6-2-1',
             oss_base_url='https://oss.wowdaily.cn/',
             force=False,
         )
@@ -2208,13 +2281,13 @@ class MythicPlannerAssetPersistenceTests(TestCase):
             jobs[0]['source_url'],
             (
                 '/static/portal/mythic_planner/vendor/'
-                'mdt-6.2.0-alpha6/maps/kings-rest/floor-1.webp'
+                'mdt-6.2.1/maps/kings-rest/floor-1.webp'
             ),
         )
         self.assertEqual(
             jobs[0]['object_key'],
             (
-                'mythic-planner/versions/mdt-6-2-0-alpha6/'
+                'mythic-planner/versions/mdt-6-2-1/'
                 'maps/kings-rest/floor-1.webp'
             ),
         )
@@ -2277,10 +2350,41 @@ class MythicPlannerAssetPersistenceTests(TestCase):
         self.assertNotIn('asset_unavailable_reason', spell.metadata)
 
 
+class MythicPlannerMdt2CodecTests(SimpleTestCase):
+    def test_blizzard_cbor_uses_byte_strings_and_round_trips_supported_types(self):
+        value = {
+            'text': '测试',
+            'value': {'currentDungeonIdx': 160, 'pulls': [{1: [2, 3]}]},
+            'enabled': True,
+            'ratio': 1.5,
+        }
+        encoded = encode_blizzard_cbor(value)
+
+        self.assertEqual(encoded[0] >> 5, 5)
+        self.assertIn(b'\x44text', encoded)
+        self.assertNotIn(b'\x64text', encoded)
+        self.assertEqual(decode_blizzard_cbor(encoded), value)
+
+    def test_mdt2_envelope_uses_raw_deflate_and_rejects_old_prefix(self):
+        value = {'text': '路线', 'value': {'currentDungeonIdx': 160}}
+        code = encode_mdt2_table(value)
+
+        self.assertTrue(code.startswith(MDT2_PREFIX))
+        self.assertEqual(decode_mdt2_table(code), value)
+        with self.assertRaisesRegex(ValueError, '仅支持'):
+            decode_mdt2_table('!LMDT1!legacy')
+
+        compressed = base64.b64decode(code[len(MDT2_PREFIX):])
+        zlib.decompress(compressed, wbits=-15)
+        with self.assertRaises(zlib.error):
+            zlib.decompress(compressed, wbits=15)
+
+
 class MythicPlannerPublicApiTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         import_mythic_dungeon_payload(demo_payload(), activate=True)
+        assign_demo_mdt_indexes()
 
     @staticmethod
     def share_payload(*, name='测试路线', level=12):
@@ -2327,11 +2431,59 @@ class MythicPlannerPublicApiTests(TestCase):
                 'color': '#ff00ff',
                 'spawn_uids': ['vault-guardian:guardian-01'],
             }],
-            'annotations': [],
+            'current_floor_key': 'outer-halls',
+            'annotations': [
+                {
+                    'id': 'line-1',
+                    'type': 'line',
+                    'floor_key': 'outer-halls',
+                    'points': [{'x': 10, 'y': 20}, {'x': 30, 'y': 40}],
+                    'color': '#112233',
+                },
+                {
+                    'id': 'note-1',
+                    'type': 'note',
+                    'floor_key': 'outer-halls',
+                    'x': 50,
+                    'y': 60,
+                    'text': '跳怪',
+                    'color': '#abcdef',
+                },
+                {
+                    'id': 'arrow-1',
+                    'type': 'arrow',
+                    'floor_key': 'outer-halls',
+                    'points': [{'x': 25, 'y': 25}, {'x': 75, 'y': 75}],
+                    'color': '#445566',
+                },
+                {
+                    'id': 'pencil-1',
+                    'type': 'pencil',
+                    'floor_key': 'outer-halls',
+                    'points': [
+                        {'x': 25, 'y': 25},
+                        {'x': 50, 'y': 50},
+                        {'x': 75, 'y': 25},
+                    ],
+                    'color': '#778899',
+                },
+            ],
         }
         validated = validate_route_payload(payload, dungeon)
         code = encode_share_code(validated.payload)
-        self.assertEqual(decode_share_code(code)['dungeon_key'], 'gloamvault')
+        decoded = decode_share_code(code)
+        self.assertTrue(code.startswith(MDT2_PREFIX))
+        self.assertEqual(decoded['dungeon_key'], 'gloamvault')
+        self.assertEqual(decoded['pulls'], validated.payload['pulls'])
+        self.assertEqual(decoded['annotations'], validated.payload['annotations'])
+
+        preset = route_payload_to_preset(validated.payload)
+        self.assertEqual(preset['value']['currentDungeonIdx'], 901)
+        self.assertEqual(preset['value']['pulls'][0][1], [1])
+        self.assertEqual(
+            preset_to_route_payload(preset)['pulls'][0]['spawn_uids'],
+            ['vault-guardian:guardian-01'],
+        )
 
         response = self.client.post(
             '/portal/api/mythic-planner/share-code/',
@@ -2340,16 +2492,64 @@ class MythicPlannerPublicApiTests(TestCase):
         )
         self.assertEqual(response.status_code, 200, response.content)
 
+        encoded_response = self.client.post(
+            '/portal/api/mythic-planner/share-code/',
+            data=json.dumps({'action': 'encode', 'route_data': validated.payload}),
+            content_type='application/json',
+        )
+        self.assertEqual(encoded_response.status_code, 200, encoded_response.content)
+        self.assertTrue(
+            encoded_response.json()['data']['share_code'].startswith(MDT2_PREFIX),
+        )
+
         invalid = copy.deepcopy(payload)
         invalid['pulls'][0]['spawn_uids'] = ['vault-guardian:not-found']
-        invalid_code = encode_share_code(invalid)
+        with self.assertRaisesRegex(ValueError, '缺少 MDT source index'):
+            encode_share_code(invalid)
+
+        invalid_preset = route_payload_to_preset(validated.payload)
+        invalid_preset['value']['pulls'][0][1] = [999]
+        invalid_code = encode_mdt2_table(invalid_preset)
         response = self.client.post(
             '/portal/api/mythic-planner/share-code/',
             data=json.dumps({'action': 'decode', 'share_code': invalid_code}),
             content_type='application/json',
         )
         self.assertEqual(response.status_code, 400)
-        self.assertIn('不存在的怪物刷新点', response.json()['message'])
+        self.assertIn('不存在的怪物点位：1:999', response.json()['message'])
+
+    def test_import_accepts_lua_integer_maps_and_empty_pull_tables(self):
+        preset = {
+            'text': '外部 MDT 路线',
+            'value': {
+                'currentDungeonIdx': 901,
+                'currentPull': 1,
+                'currentSublevel': 1,
+                'pulls': {
+                    1: {1: [1], 'color': '112233'},
+                    2: [],
+                },
+            },
+            'objects': {
+                1: {
+                    'd': {1: 420, 2: -280, 3: 1, 4: True, 5: '外部文字'},
+                    'n': True,
+                },
+                2: {
+                    'd': {1: 3, 2: 1.1, 3: 1, 4: False, 5: 'ffffff', 7: True},
+                    'l': [84, -56, 168, -112],
+                },
+            },
+        }
+
+        payload = decode_share_code(encode_mdt2_table(preset))
+
+        self.assertEqual(payload['name'], '外部 MDT 路线')
+        self.assertEqual(payload['pulls'][0]['spawn_uids'], ['vault-guardian:guardian-01'])
+        self.assertEqual(payload['pulls'][1]['spawn_uids'], [])
+        self.assertEqual(len(payload['annotations']), 1)
+        self.assertEqual(payload['annotations'][0]['type'], 'note')
+        self.assertEqual(payload['annotations'][0]['text'], '外部文字')
 
     def test_anonymous_short_link_can_be_created_opened_and_loaded(self):
         cache.clear()
@@ -2362,7 +2562,7 @@ class MythicPlannerPublicApiTests(TestCase):
         data = created.json()['data']
         self.assertRegex(data['token'], r'^[A-Za-z0-9_-]{10,16}$')
         self.assertEqual(data['short_path'], f"/m/{data['token']}")
-        self.assertTrue(data['share_code'].startswith('!LMDT1!'))
+        self.assertTrue(data['share_code'].startswith(MDT2_PREFIX))
         self.assertEqual(MythicDungeonRouteShare.objects.count(), 1)
 
         page = self.client.get(data['short_path'])
@@ -2435,7 +2635,6 @@ class MythicPlannerPublicApiTests(TestCase):
             name='旧公开路线',
             dungeon_level=12,
             route_data=payload,
-            share_code=encode_share_code(payload),
             is_public=True,
         )
         self.client.force_login(user)
@@ -2469,6 +2668,7 @@ class MythicPlannerDashboardTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         import_mythic_dungeon_payload(demo_payload(), activate=True)
+        assign_demo_mdt_indexes()
         cls.user = User.objects.create_user(username='normal-user', password='pwd')
         cls.staff = User.objects.create_user(username='staff-user', password='pwd', is_staff=True)
         cls.management_group = DashboardUserGroup.objects.create(
@@ -2687,7 +2887,16 @@ class MythicPlannerDashboardTests(TestCase):
                     'spawn_uids': [],
                 },
             ],
-            'annotations': [{'id': 'note-1', 'text': '跳怪'}],
+            'current_floor_key': 'outer-halls',
+            'annotations': [{
+                'id': 'note-1',
+                'type': 'note',
+                'floor_key': 'outer-halls',
+                'x': 50,
+                'y': 50,
+                'text': '跳怪',
+                'color': '#facc15',
+            }],
         }
         route = MythicDungeonRoute.objects.create(
             owner_user_id=owner.id,
@@ -2695,7 +2904,6 @@ class MythicPlannerDashboardTests(TestCase):
             name='后台管理测试路线',
             dungeon_level=17,
             route_data=route_data,
-            share_code=encode_share_code(route_data),
             is_public=True,
         )
 
@@ -3353,7 +3561,7 @@ class MythicPlannerPageContractTests(SimpleTestCase):
             'toggleSpawn',
             'selectBox',
             'renderProgress',
-            'encodeShareLocal',
+            'encodeCurrentRoute',
             'BroadcastChannel',
             'shareRoute',
             '/portal/api/mythic-planner/share-links/',
@@ -3376,6 +3584,10 @@ class MythicPlannerPageContractTests(SimpleTestCase):
             "addEventListener('contextmenu'",
         ):
             self.assertIn(token, portal_js)
+        self.assertNotIn('!LMDT1!', portal_js)
+        self.assertNotIn('encodeShareLocal', portal_js)
+        self.assertNotIn('decodeShareLocal', portal_js)
+        self.assertIn('!~MDT2~', portal_js)
         sync_url = portal_js[
             portal_js.index('function syncDungeonUrl'):
             portal_js.index('function normalizeRoute')

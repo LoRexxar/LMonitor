@@ -2742,7 +2742,6 @@ class MythicDungeonRoute(models.Model):
     name = models.CharField(max_length=160)
     dungeon_level = models.PositiveIntegerField(default=10)
     route_data = models.JSONField(default=dict, blank=True)
-    share_code = models.TextField(default='', blank=True)
     revision = models.PositiveIntegerField(default=1)
     is_public = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)

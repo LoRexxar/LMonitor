@@ -1,4 +1,3 @@
-import base64
 import json
 from dataclasses import dataclass
 
@@ -18,10 +17,13 @@ from botend.models import (
     MythicPlannerConfig,
 )
 from botend.mythic_planner.spell_tooltips import spell_snapshot_provenance
+from botend.mythic_planner.mdt_route_codec import (
+    MAX_ROUTE_BYTES,
+    decode_route_payload,
+    encode_route_payload,
+)
 
 
-SHARE_PREFIX = '!LMDT1!'
-MAX_ROUTE_BYTES = 2 * 1024 * 1024
 MAX_PULLS = 100
 MAX_ANNOTATIONS = 500
 
@@ -417,31 +419,11 @@ def _route_json(payload):
 
 
 def encode_share_code(payload):
-    raw = _route_json(payload).encode('utf-8')
-    if len(raw) > MAX_ROUTE_BYTES:
-        raise ValueError('路线数据超过 2 MB，无法导出。')
-    encoded = base64.urlsafe_b64encode(raw).decode('ascii').rstrip('=')
-    return f'{SHARE_PREFIX}{encoded}'
+    return encode_route_payload(payload)
 
 
 def decode_share_code(code):
-    text = str(code or '').strip()
-    if not text.startswith(SHARE_PREFIX):
-        raise ValueError('分享字符串格式不正确。')
-    encoded = text[len(SHARE_PREFIX):]
-    try:
-        padding = '=' * (-len(encoded) % 4)
-        raw = base64.urlsafe_b64decode((encoded + padding).encode('ascii'))
-        if len(raw) > MAX_ROUTE_BYTES:
-            raise ValueError('路线数据超过 2 MB，无法导入。')
-        payload = json.loads(raw.decode('utf-8'))
-    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        if isinstance(exc, ValueError) and str(exc).startswith('路线数据超过'):
-            raise
-        raise ValueError('分享字符串无法解码。') from exc
-    except Exception as exc:
-        raise ValueError('分享字符串无法解码。') from exc
-    return payload
+    return decode_route_payload(code)
 
 
 def validate_route_payload(payload, dungeon, *, check_spawns=True):
@@ -509,7 +491,7 @@ def serialize_route(route):
         'dungeon_name': display_name(route.dungeon),
         'dungeon_level': route.dungeon_level,
         'route_data': route.route_data or {},
-        'share_code': route.share_code or encode_share_code(route.route_data or {}),
+        'share_code': encode_share_code(route.route_data or {}),
         'revision': route.revision,
         'is_public': route.is_public,
         'created_at': route.created_at.isoformat() if route.created_at else None,

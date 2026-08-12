@@ -17,7 +17,7 @@ class Command(BaseCommand):
             '--file',
             dest='file_path',
             default='',
-            help='JSON 数据包路径；不传时使用项目内置 MDT 6.2.0-alpha6 数据。',
+            help='JSON 数据包路径；不传时使用项目内置 MDT 6.2.1 数据。',
         )
         parser.add_argument(
             '--demo',
@@ -69,7 +69,7 @@ class Command(BaseCommand):
                 / 'botend'
                 / 'data'
                 / 'mythic_planner'
-                / 'mdt_6_2_0_alpha6.json'
+                / 'mdt_6_2_1.json'
             )
         file_path = file_path.resolve()
         if not file_path.is_file():
@@ -164,6 +164,6 @@ class Command(BaseCommand):
             self.stdout.write('已显式使用项目内置原创演示数据。')
         elif not options['file_path']:
             self.stdout.write(
-                '已使用项目内置 MythicDungeonTools 6.2.0-alpha6 转换数据；'
+                '已使用项目内置 MythicDungeonTools 6.2.1 转换数据；'
                 '可在 Dashboard 中修改，或运行 sync_mythic_dungeon_tools 更新。'
             )

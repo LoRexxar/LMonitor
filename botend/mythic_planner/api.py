@@ -174,6 +174,7 @@ class MythicPlannerRouteShareAPIView(View):
                 raise ValueError('地下城层数必须在 2–99 之间。')
             name = str(validated.payload.get('name') or '未命名路线').strip()[:160]
             name = name or '未命名路线'
+            encode_share_code(validated.payload)
             canonical = json.dumps(
                 validated.payload,
                 ensure_ascii=False,
@@ -264,7 +265,6 @@ class MythicPlannerRouteAPIView(View):
                         name=name,
                         dungeon_level=level,
                         route_data=validated.payload,
-                        share_code=encode_share_code(validated.payload),
                         is_public=is_public,
                     )
                 else:
@@ -275,7 +275,6 @@ class MythicPlannerRouteAPIView(View):
                     route.name = name
                     route.dungeon_level = level
                     route.route_data = validated.payload
-                    route.share_code = encode_share_code(validated.payload)
                     route.is_public = is_public
                     route.revision += 1
                     route.save()
@@ -386,7 +385,7 @@ def _management_route(row, owner=None, include_payload=False):
     if include_payload:
         result.update({
             'route_data': route_data,
-            'share_code': row.share_code or encode_share_code(route_data),
+            'share_code': encode_share_code(route_data),
         })
     return result
 
