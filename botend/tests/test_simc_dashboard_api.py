@@ -2456,16 +2456,33 @@ DPS=208365 DPS-Error=200/0.1%
                     'max_time': 300, 'iterations': 10000,
                 },
             )
-            SimulationRun.objects.create(
+            run = SimulationRun.objects.create(
                 task=task, sequence=1, candidate_key=f'result-{index}',
                 status='completed', result_summary={'dps': dps},
             )
+            SimcTaskArtifact.objects.create(
+                task=task, run=run, artifact_type='html_report',
+                file_path=f'simc_results/compare-{index}.html',
+            )
             tasks.append(task)
 
-        payload = self.client.get(
-            '/api/simc-regular-compare/',
-            {'task_ids': ','.join(str(task.id) for task in tasks)},
-        ).json()
+        report_html = (
+            '<div class="player"><table class="sc sort"><tbody>'
+            '<tr class="toprow"><td>{ability}</td><td>({ability_dps})</td><td>({percent}%)</td></tr>'
+            '</tbody></table></div>'
+        )
+        with patch.object(
+            SimcRegularCompareAPIView,
+            '_get_result_file_content',
+            side_effect=(
+                report_html.format(ability='Bloodthirst', ability_dps=600, percent=60),
+                report_html.format(ability='Whirlwind', ability_dps=770, percent=70),
+            ),
+        ):
+            payload = self.client.get(
+                '/api/simc-regular-compare/',
+                {'task_ids': ','.join(str(task.id) for task in tasks)},
+            ).json()
 
         self.assertTrue(payload['success'], payload)
         baseline, candidate = payload['data']['runs']
@@ -2482,8 +2499,24 @@ DPS=208365 DPS-Error=200/0.1%
         self.assertEqual(differences['talent']['after'], 'ALT_TALENT')
         self.assertIn('ID 111', differences['equipment.head']['before'])
         self.assertIn('ID 222', differences['equipment.head']['after'])
+        self.assertEqual(baseline['abilities'], [
+            {'name': 'Bloodthirst', 'dps': '600', 'dps_percent': '60%'},
+        ])
+        self.assertEqual(candidate['abilities'], [
+            {'name': 'Whirlwind', 'dps': '770', 'dps_percent': '70%'},
+        ])
+        self.assertEqual(baseline['apl_difference_summary'], '对比基准')
+        self.assertEqual(baseline['apl_differences'], [])
+        self.assertEqual(candidate['apl_difference_summary'], '1 行新增，1 行删除')
+        self.assertEqual(candidate['apl_differences'], [
+            {'type': 'removed', 'line': 'actions=/bloodthirst'},
+            {'type': 'added', 'line': 'actions=/whirlwind'},
+        ])
         compare_template = (Path(__file__).resolve().parents[2] / 'templates/simc_regular_compare.html').read_text()
         self.assertIn('实际输入差异（相对基准）', compare_template)
+        self.assertIn('APL内容对比（相对基准）', compare_template)
+        self.assertIn('apl_differences', compare_template)
+        self.assertIn('技能DPS占比对比', compare_template)
         self.assertIn('input_differences', compare_template)
 
     def test_selected_comparison_can_read_other_users_task_results(self):

@@ -112,8 +112,16 @@
 
             <div class="bg-white rounded-lg shadow-md p-6">
                 <h2 class="text-xl font-semibold text-gray-900 mb-4">
+                    <i class="fas fa-code-compare text-teal-600 mr-2"></i>
+                    APL内容对比（相对基准）
+                </h2>
+                <div id="apl-compare-list" class="space-y-4"></div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-xl font-semibold text-gray-900 mb-4">
                     <i class="fas fa-bolt text-purple-500 mr-2"></i>
-                    技能占比对比（完整）
+                    技能DPS占比对比
                 </h2>
                 <div class="mb-3 flex items-center justify-between gap-3">
                     <input id="ability-compare-search" type="text" class="px-3 py-2 border border-gray-300 rounded-md text-sm w-full max-w-sm" placeholder="搜索技能（中英文）">
@@ -360,6 +368,32 @@
             document.getElementById('apl-modal').classList.add('hidden');
         }
 
+        function renderAplCompare(tasks) {
+            const host = document.getElementById('apl-compare-list');
+            const baselineTask = tasks.find(t => t.is_base) || tasks[0];
+            const comparisonTasks = tasks.filter(t => !baselineTask || t.id !== baselineTask.id);
+            if (!comparisonTasks.length) {
+                host.innerHTML = '<div class="text-sm text-gray-500">没有可对比的 APL 内容</div>';
+                return;
+            }
+            host.innerHTML = comparisonTasks.map(task => {
+                const differences = Array.isArray(task.apl_differences) ? task.apl_differences : [];
+                const lines = differences.length ? differences.map(item => {
+                    const added = item.type === 'added';
+                    const lineClass = added ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800';
+                    return `<div class="${lineClass} px-3 py-1 font-mono text-xs whitespace-pre-wrap break-all"><span class="inline-block w-4 select-none">${added ? '+' : '-'}</span>${escapeHtml(item.line || '')}</div>`;
+                }).join('') : '<div class="px-3 py-3 text-sm text-gray-500">与基准 APL 内容一致</div>';
+                return `
+                    <section class="border border-gray-200 rounded overflow-hidden">
+                        <div class="flex flex-wrap items-center justify-between gap-2 bg-gray-50 px-4 py-3 border-b border-gray-200">
+                            <div class="font-semibold text-gray-900">${escapeHtml(task.name || '')}(#${task.id})</div>
+                            <div class="text-xs text-gray-600">${escapeHtml(task.apl_difference_summary || '')}</div>
+                        </div>
+                        <div>${lines}</div>
+                    </section>`;
+            }).join('');
+        }
+
         function renderAbilityCompare(tasks) {
             const thead = document.getElementById('abilities-compare-thead');
             const tbody = document.getElementById('abilities-compare-tbody');
@@ -404,7 +438,10 @@
                 const m = new Map();
                 (t.abilities || t.top_abilities || []).forEach(a => {
                     if (!a || !a.name) return;
-                    m.set(translateSkillName(a.name), a.dps_percent || '');
+                    m.set(translateSkillName(a.name), {
+                        dps: a.dps || '',
+                        percent: a.dps_percent || '',
+                    });
                 });
                 abilityMap.set(t.id, m);
             });
@@ -414,26 +451,28 @@
             const filteredAbilityNames = abilityNames
                 .filter(name => !keyword || String(name || '').toLowerCase().includes(keyword))
                 .sort((a, b) => {
-                    const av = parsePercent(baselineMap ? (baselineMap.get(a) || '') : '') || -1;
-                    const bv = parsePercent(baselineMap ? (baselineMap.get(b) || '') : '') || -1;
+                    const av = parsePercent(baselineMap ? (baselineMap.get(a)?.percent || '') : '') || -1;
+                    const bv = parsePercent(baselineMap ? (baselineMap.get(b)?.percent || '') : '') || -1;
                     return bv - av;
                 });
 
             if (countEl) countEl.textContent = `${filteredAbilityNames.length} 项`;
 
             tbody.innerHTML = filteredAbilityNames.map(name => {
-                const baselineText = baselineMap ? (baselineMap.get(name) || '') : '';
+                const baselineAbility = baselineMap ? baselineMap.get(name) : null;
+                const baselineText = baselineAbility?.percent || '';
                 const baselineValue = parsePercent(baselineText);
                 const cols = tasks.map(t => {
                     const m = abilityMap.get(t.id);
-                    const v = m ? m.get(name) : '';
-                    const valueText = v || '';
+                    const ability = m ? m.get(name) : null;
+                    const valueText = ability?.percent || '';
                     const valueNumber = parsePercent(valueText);
                     if (!valueText) {
                         return `<td class="px-4 py-3 text-sm text-gray-700">-</td>`;
                     }
+                    const dpsText = ability?.dps ? `${Number(ability.dps).toLocaleString()} DPS` : '';
                     if (!baselineTaskId || baselineTaskId === t.id || baselineValue === null || valueNumber === null) {
-                        return `<td class="px-4 py-3 text-sm text-gray-700">${escapeHtml(valueText)}</td>`;
+                        return `<td class="px-4 py-3 text-sm text-gray-700"><div>${escapeHtml(valueText)}</div><div class="text-xs text-gray-500">${escapeHtml(dpsText)}</div></td>`;
                     }
 
                     const delta = valueNumber - baselineValue;
@@ -441,7 +480,8 @@
                     const deltaClass = delta >= 0 ? 'text-green-700' : 'text-red-700';
                     return `<td class="px-4 py-3 text-sm text-gray-700">
                         <div>${escapeHtml(valueText)}</div>
-                        <div class="text-xs ${deltaClass}">${deltaSign}${delta.toFixed(1)}%</div>
+                        <div class="text-xs text-gray-500">${escapeHtml(dpsText)}</div>
+                        <div class="text-xs ${deltaClass}">${deltaSign}${delta.toFixed(1)} 个百分点</div>
                     </td>`;
                 }).join('');
                 return `
@@ -505,6 +545,7 @@
                 renderInvalid(invalid);
                 renderDpsChart(tasks);
                 renderTaskTable(tasks);
+                renderAplCompare(tasks);
                 renderAbilityCompare(tasks);
 
                 document.getElementById('loading-section').classList.add('hidden');

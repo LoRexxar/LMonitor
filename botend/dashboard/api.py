@@ -5542,6 +5542,27 @@ class SimcRegularCompareAPIView(View):
             })
         return differences
 
+    @staticmethod
+    def _apl_content_differences(baseline_content, current_content):
+        from difflib import SequenceMatcher
+
+        baseline_lines = str(baseline_content or '').splitlines()
+        current_lines = str(current_content or '').splitlines()
+        differences = []
+        matcher = SequenceMatcher(None, baseline_lines, current_lines, autojunk=False)
+        for tag, baseline_start, baseline_end, current_start, current_end in matcher.get_opcodes():
+            if tag in ('replace', 'delete'):
+                differences.extend(
+                    {'type': 'removed', 'line': line}
+                    for line in baseline_lines[baseline_start:baseline_end]
+                )
+            if tag in ('replace', 'insert'):
+                differences.extend(
+                    {'type': 'added', 'line': line}
+                    for line in current_lines[current_start:current_end]
+                )
+        return differences
+
     def _get_multi_task_payload(self, request, task_ids):
         """Build a safe comparison report from selected ordinary simulation tasks."""
         tasks = list(SimcTask.objects.filter(
@@ -5572,7 +5593,7 @@ class SimcRegularCompareAPIView(View):
             battle_scenario = f'{fight_style} · {target_count}目标' if target_count not in (None, '') else fight_style
             result_file = SimcComparisonTaskAPIView._run_result_file(run)
             parsed = {}
-            if not summary.get('dps') and result_file:
+            if result_file:
                 content = self._get_result_file_content(result_file)
                 parsed = self._parse_regular_result(content) if content else {}
             dps = summary.get('dps') or parsed.get('dps')
@@ -5599,6 +5620,7 @@ class SimcRegularCompareAPIView(View):
         baseline = rows[0]
         baseline_dps = baseline['dps']
         baseline_input_facts = baseline.get('_input_facts') or {}
+        baseline_apl_content = baseline.get('apl_list') or ''
         for row in rows:
             current_input_facts = row.pop('_input_facts', {})
             if row is baseline:
@@ -5611,6 +5633,20 @@ class SimcRegularCompareAPIView(View):
                 row['input_differences'] = differences
                 row['input_difference_summary'] = (
                     f'{len(differences)} 项输入不同' if differences else '与基准输入一致'
+                )
+            if row is baseline:
+                row['apl_differences'] = []
+                row['apl_difference_summary'] = '对比基准'
+            else:
+                apl_differences = self._apl_content_differences(
+                    baseline_apl_content, row.get('apl_list') or '',
+                )
+                added_count = sum(item['type'] == 'added' for item in apl_differences)
+                removed_count = sum(item['type'] == 'removed' for item in apl_differences)
+                row['apl_differences'] = apl_differences
+                row['apl_difference_summary'] = (
+                    f'{added_count} 行新增，{removed_count} 行删除'
+                    if apl_differences else '与基准 APL 内容一致'
                 )
         ranked = sorted(rows, key=lambda row: (-row['dps'], row['id']))
         for rank, row in enumerate(ranked, start=1):
