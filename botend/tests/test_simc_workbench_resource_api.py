@@ -220,10 +220,11 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
         run = SimulationRun.objects.create(
             task=task, sequence=1, candidate_key='normal', status='failed',
             error_detail=(
-                "SimC执行失败\n返回码: 30\n错误输出: Error: Initialization error: "
-                "Actor 'MID1_Warrior_Fury': Invalid expression "
-                "'buff.fury_mid2_4pc_crit.stack<2': Buff 'fury_mid2_4pc_crit' not found.\n"
-                "command=/private/simc stderr=/private/input.simc"
+                "Trivial: Buff 'fury_mid2_4pc_crit' (0) initialized with max_stack < 1 (0). "
+                "Setting max_stack to 1.\r\n"
+                "Error: Initialization error: Actor 'MID2_Warrior_Arms': Action 'cleave' (845): "
+                "Invalid 'if' expression: Invalid expression 'ot.rend_dot.remains<=6': "
+                "No expression found.\r\ncommand=/private/simc stderr=/private/input.simc"
             ),
         )
 
@@ -234,7 +235,7 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
         self.assertEqual(payload['artifacts'], [])
         self.assertIsNone(payload['report_artifact_id'])
         self.assertEqual(payload['runs'][0]['id'], run.id)
-        self.assertIn("Buff 'fury_mid2_4pc_crit' not found", payload['runs'][0]['error_summary'])
+        self.assertIn("Invalid expression 'ot.rend_dot.remains<=6'", payload['runs'][0]['error_summary'])
         self.assertNotIn('/private/', payload['runs'][0]['error_summary'])
         self.assertNotIn('command=', payload['runs'][0]['error_summary'])
 

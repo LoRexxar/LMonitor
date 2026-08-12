@@ -6365,6 +6365,8 @@ class SimcWorkbenchAPIView(View):
         text = str(error_detail or '')
         match = re.search(r'错误输出\s*:\s*([^\r\n]+)', text, flags=re.IGNORECASE)
         if not match:
+            match = re.search(r'^\s*Error\s*:\s*([^\r\n]+)', text, flags=re.IGNORECASE | re.MULTILINE)
+        if not match:
             return '任务执行失败'
         diagnostic = match.group(1).strip()
         diagnostic = re.sub(r'^Error\s*:\s*', '', diagnostic, flags=re.IGNORECASE)
