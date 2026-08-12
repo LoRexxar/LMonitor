@@ -48,6 +48,7 @@ from botend.mythic_planner.services import (
     get_active_dungeon,
     serialize_ability,
     serialize_catalog,
+    serialize_dungeon,
     validate_route_payload,
 )
 from botend.mythic_planner.spell_tooltips import (
@@ -665,6 +666,29 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             '/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/',
             murder_row['floors'][0]['background_url'],
         )
+        all_pois = [
+            poi
+            for dungeon in payload['dungeons']
+            for floor in dungeon['floors']
+            for poi in floor['pois']
+        ]
+        self.assertEqual(len(all_pois), 58)
+        self.assertEqual(
+            {poi['type'] for poi in all_pois},
+            {
+                'dungeonEntrance',
+                'genericAssignablePOI',
+                'genericItem',
+                'mapLink',
+            },
+        )
+        felwyrm_egg = next(
+            poi
+            for poi in murder_row['floors'][0]['pois']
+            if poi['metadata']['source'].get('info', {}).get('spellId') == 1223570
+        )
+        self.assertEqual(felwyrm_egg['type'], 'genericItem')
+        self.assertEqual(felwyrm_egg['metadata']['source']['info']['texture'], 236999)
         self.assertTrue(all(
             0 <= spawn['x'] <= 100 and 0 <= spawn['y'] <= 100
             for enemy in murder_row['enemies']
@@ -782,6 +806,17 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
                 'floors': [{
                     'key': 'floor-1',
                     'background_url': 'https://oss.example/maps/floor.webp',
+                    'pois': [{
+                        'key': 'poi-1',
+                        'type': 'genericItem',
+                        'label': '种子交互物品',
+                        'icon_url': 'https://oss.example/pois/item.jpg',
+                        'metadata': {
+                            'source': {
+                                'info': {'spellId': 456, 'texture': 789},
+                            },
+                        },
+                    }],
                 }],
                 'enemies': [{
                     'key': 'npc-1',
@@ -807,6 +842,11 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             )
 
         self.assertEqual(snapshots[123]['name_zh'], '种子技能')
+        self.assertEqual(snapshots[456]['name_zh'], '种子交互物品')
+        self.assertEqual(
+            snapshots[456]['icon_url'],
+            'https://oss.example/pois/item.jpg',
+        )
         self.assertEqual(
             snapshots[123]['description'],
             '保留已有完整说明。',
@@ -820,6 +860,34 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             'https://oss.example/enemies/1.jpg',
         )
         self.assertEqual(metadata['spell_snapshot']['source_branch'], 'wowt')
+
+    def test_builtin_621_package_preserves_interactive_poi_assets(self):
+        package_path = (
+            Path(settings.BASE_DIR)
+            / 'botend'
+            / 'data'
+            / 'mythic_planner'
+            / 'mdt_6_2_1.json'
+        )
+        payload = json.loads(package_path.read_text(encoding='utf-8'))
+        pois = [
+            poi
+            for dungeon in payload['dungeons']
+            for floor in dungeon['floors']
+            for poi in floor['pois']
+        ]
+        items = [poi for poi in pois if poi['type'] == 'genericItem']
+        assignable = [
+            poi for poi in pois if poi['type'] == 'genericAssignablePOI'
+        ]
+        self.assertEqual(len(pois), 58)
+        self.assertEqual(len(items), 19)
+        self.assertEqual(len(assignable), 28)
+        self.assertTrue(all(poi['label'] and poi['icon_url'] for poi in items))
+        self.assertTrue(all(
+            poi['metadata']['source']['info']['atlas'] == 'QuestSkull'
+            for poi in assignable
+        ))
 
     def test_existing_payload_rejects_stale_maps_and_unwraps_icons(self):
         legacy_icon = (
@@ -936,6 +1004,32 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             phantom_hex_priest['icon_url'],
             'http://oss.example/enemies/kings-rest/npc-135204.jpg',
         )
+
+    def test_converter_applies_spell_snapshot_to_interactive_item_poi(self):
+        payload = build_payload(
+            self.source_root(),
+            spell_snapshots={
+                1223570: {
+                    'name': 'Felwyrm Egg',
+                    'name_zh': '邪能浮龙蛋',
+                    'icon_url': (
+                        'https://wow.zamimg.com/images/wow/icons/large/'
+                        'inv_egg_08.jpg'
+                    ),
+                },
+            },
+        )
+        murder_row = next(
+            dungeon for dungeon in payload['dungeons']
+            if dungeon['key'] == 'murder-row'
+        )
+        poi = next(
+            row for row in murder_row['floors'][0]['pois']
+            if row['metadata']['source'].get('info', {}).get('spellId') == 1223570
+        )
+        self.assertEqual(poi['type'], 'genericItem')
+        self.assertEqual(poi['label'], '邪能浮龙蛋')
+        self.assertTrue(poi['icon_url'].endswith('/inv_egg_08.jpg'))
 
     def test_asset_sync_deduplicates_shared_spell_icon_uploads(self):
         first = object()
@@ -2190,6 +2284,47 @@ class MythicPlannerClientTooltipCommandTests(TestCase):
 
 
 class MythicPlannerAssetPersistenceTests(TestCase):
+    def test_asset_sync_archives_interactive_poi_icon_to_short_key(self):
+        version = MythicDungeonDataVersion.objects.create(
+            key='poi-asset-test',
+            label='兴趣点资源测试',
+            is_active=True,
+        )
+        dungeon = MythicDungeon.objects.create(
+            data_version=version,
+            key='demo-dungeon',
+            name='Demo Dungeon',
+        )
+        floor = MythicDungeonFloor.objects.create(
+            dungeon=dungeon,
+            key='floor-1',
+            name='Demo Floor',
+        )
+        MythicDungeonPoi.objects.create(
+            floor=floor,
+            key='item-1',
+            poi_type='genericItem',
+            icon_url=(
+                'https://wow.zamimg.com/images/wow/icons/large/'
+                'inv_egg_08.jpg'
+            ),
+        )
+
+        jobs, stats = SyncMythicDungeonAssetsCommand()._build_jobs(
+            version=version,
+            base_prefix='mythic-planner',
+            version_prefix='mythic-planner/versions/poi-asset-test',
+            oss_base_url='https://oss.wowdaily.cn/',
+            force=False,
+        )
+
+        poi_job = next(job for job in jobs if job['kind'] == 'poi')
+        self.assertEqual(stats['pois'], 1)
+        self.assertEqual(
+            poi_job['object_key'],
+            'mythic-planner/images/wow/icons/large/inv_egg_08.jpg',
+        )
+
     def test_asset_sync_migrates_nested_icon_to_short_canonical_key(self):
         version = MythicDungeonDataVersion.objects.create(
             key='asset-path-test',
@@ -2419,6 +2554,42 @@ class MythicPlannerPublicApiTests(TestCase):
         self.assertEqual(guardian['enemy_forces'], 5)
         self.assertTrue(guardian['abilities'])
         self.assertTrue(guardian['spawns'][0]['uid'].startswith('vault-guardian:'))
+
+    def test_dungeon_payload_preserves_mdt_poi_type_and_render_metadata(self):
+        floor = MythicDungeonFloor.objects.get(
+            dungeon__key='gloamvault',
+            key='outer-halls',
+        )
+        MythicDungeonPoi.objects.create(
+            floor=floor,
+            key='interactive-item',
+            poi_type='genericItem',
+            x=42,
+            y=36,
+            label='邪能浮龙蛋',
+            icon_url='https://oss.wowdaily.cn/mythic-planner/images/item.jpg',
+            metadata={
+                'source': {
+                    'index': 7,
+                    'info': {
+                        'texture': 236999,
+                        'spellId': 1223570,
+                        'size': 15,
+                    },
+                },
+            },
+        )
+
+        dungeon = serialize_dungeon(get_active_dungeon('gloamvault'))
+        poi = next(
+            row for row in dungeon['floors'][0]['pois']
+            if row['key'] == 'interactive-item'
+        )
+        self.assertEqual(poi['type'], 'genericItem')
+        self.assertEqual(poi['texture_id'], 236999)
+        self.assertEqual(poi['spell_id'], 1223570)
+        self.assertEqual(poi['size'], 15.0)
+        self.assertEqual(poi['assignment_index'], 7)
 
     def test_share_code_api_round_trip_and_rejects_unknown_spawn(self):
         dungeon = get_active_dungeon('gloamvault')
@@ -3582,6 +3753,10 @@ class MythicPlannerPageContractTests(SimpleTestCase):
             'closeEnemyDetail',
             'nextPullColor',
             "addEventListener('contextmenu'",
+            'POI_TYPE_LABELS',
+            'genericAssignablePOI',
+            'data-poi-type',
+            "['genericItem', 'genericAssignablePOI'].includes(poiType)",
         ):
             self.assertIn(token, portal_js)
         self.assertNotIn('!LMDT1!', portal_js)
@@ -3665,6 +3840,9 @@ class MythicPlannerPageContractTests(SimpleTestCase):
         )
         self.assertIn('mdt-pull-area-shape', planner_css)
         self.assertIn('mdt-pull-area-label', planner_css)
+        self.assertIn('.mdt-poi.is-generic-item', planner_css)
+        self.assertIn('.mdt-poi.is-generic-assignable-poi', planner_css)
+        self.assertIn('.mdt-poi.is-dungeon-entrance', planner_css)
         toggle_spawn = portal_js[
             portal_js.index('function toggleSpawn'):
             portal_js.index('function selectBox')

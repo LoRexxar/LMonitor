@@ -58,9 +58,16 @@
         note: 'i',
         dungeonEntrance: '↪',
         dungeonExit: '↩',
-        genericItem: '◆',
-        genericAssignablePOI: '◇',
+        genericItem: '✦',
+        genericAssignablePOI: '☠',
         mapLink: '↕',
+    };
+    const POI_TYPE_LABELS = {
+        dungeonEntrance: '地下城入口',
+        dungeonExit: '地下城出口',
+        genericItem: '可交互物品',
+        genericAssignablePOI: '可分配交互目标',
+        mapLink: '楼层通道',
     };
     const state = {
         catalog: null,
@@ -823,16 +830,33 @@
 
     function renderPois() {
         const floor = currentFloor();
-        els.poiLayer.innerHTML = (floor?.pois || []).map((poi) => `
-            <div
-                class="mdt-poi"
-                style="left:${Number(poi.x)}%;top:${Number(poi.y)}%"
-                title="${escapeHtml(poi.label || poi.type)}"
-            >
-                <span>${POI_ICONS[poi.type] || '◆'}</span>
-                ${poi.label ? `<span class="mdt-poi-label">${escapeHtml(poi.label)}</span>` : ''}
-            </div>
-        `).join('');
+        els.poiLayer.innerHTML = (floor?.pois || []).map((poi) => {
+            const poiType = String(poi.type || 'note');
+            const typeClass = poiType.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
+            const rawSize = Number(poi.size);
+            const size = Number.isFinite(rawSize) ? clamp(rawSize, 12, 30) : 20;
+            const typeLabel = POI_TYPE_LABELS[poiType] || poiType;
+            const title = [poi.label || typeLabel, poi.spell_id ? `Spell ${poi.spell_id}` : '']
+                .filter(Boolean)
+                .join(' · ');
+            const showLabel = Boolean(poi.label)
+                && !['genericItem', 'genericAssignablePOI'].includes(poiType);
+            const image = poi.icon_url
+                ? `<img class="mdt-poi-image" src="${escapeHtml(poi.icon_url)}" alt="" loading="lazy" onerror="this.hidden=true">`
+                : '';
+            return `
+                <div
+                    class="mdt-poi is-${escapeHtml(typeClass)}"
+                    style="left:${Number(poi.x)}%;top:${Number(poi.y)}%;--poi-size:${size}px"
+                    title="${escapeHtml(title)}"
+                    data-poi-type="${escapeHtml(poiType)}"
+                >
+                    <span class="mdt-poi-glyph" aria-hidden="true">${POI_ICONS[poiType] || '◆'}</span>
+                    ${image}
+                    ${showLabel ? `<span class="mdt-poi-label">${escapeHtml(poi.label)}</span>` : ''}
+                </div>
+            `;
+        }).join('');
     }
 
     function pullForUid(uid) {

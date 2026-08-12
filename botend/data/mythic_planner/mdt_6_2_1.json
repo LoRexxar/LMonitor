@@ -162,6 +162,7 @@
               "x": 92.829917,
               "y": 90.999221,
               "label": "地下城入口",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 1,
@@ -180,7 +181,8 @@
               "type": "genericItem",
               "x": 80.880524,
               "y": 75.869677,
-              "label": "",
+              "label": "邪能浮龙蛋",
+              "icon_url": "https://wow.zamimg.com/images/wow/icons/large/inv_egg_08.jpg",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 2,
@@ -203,7 +205,8 @@
               "type": "genericItem",
               "x": 60.192495,
               "y": 69.148833,
-              "label": "",
+              "label": "琢面的邪能结晶",
+              "icon_url": "https://wow.zamimg.com/images/wow/icons/large/inv_enchanting_wod_crystal.jpg",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 3,
@@ -226,7 +229,8 @@
               "type": "genericItem",
               "x": 76.565901,
               "y": 92.2984,
-              "label": "",
+              "label": "琢面的邪能结晶",
+              "icon_url": "https://wow.zamimg.com/images/wow/icons/large/inv_enchanting_wod_crystal.jpg",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 4,
@@ -249,7 +253,8 @@
               "type": "genericItem",
               "x": 83.369712,
               "y": 51.973358,
-              "label": "",
+              "label": "装弹手枪",
+              "icon_url": "https://wow.zamimg.com/images/wow/icons/large/inv_weapon_rifle_40.jpg",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 5,
@@ -272,7 +277,8 @@
               "type": "genericItem",
               "x": 66.830361,
               "y": 79.105643,
-              "label": "",
+              "label": "琢面的邪能结晶",
+              "icon_url": "https://wow.zamimg.com/images/wow/icons/large/inv_enchanting_wod_crystal.jpg",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 6,
@@ -295,7 +301,8 @@
               "type": "genericItem",
               "x": 83.369712,
               "y": 44.090893,
-              "label": "",
+              "label": "邪能石",
+              "icon_url": "https://wow.zamimg.com/images/wow/icons/large/inv_infernalbrimstone.jpg",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 7,
@@ -318,7 +325,8 @@
               "type": "genericItem",
               "x": 32.085323,
               "y": 67.294113,
-              "label": "",
+              "label": "过载的傀儡",
+              "icon_url": "https://wow.zamimg.com/images/wow/icons/large/ui_profession_engineering.jpg",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 8,
@@ -341,7 +349,8 @@
               "type": "genericItem",
               "x": 39.249228,
               "y": 71.405376,
-              "label": "",
+              "label": "过载的傀儡",
+              "icon_url": "https://wow.zamimg.com/images/wow/icons/large/ui_profession_engineering.jpg",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 9,
@@ -364,7 +373,8 @@
               "type": "genericItem",
               "x": 35.178221,
               "y": 59.6171,
-              "label": "",
+              "label": "过载的傀儡",
+              "icon_url": "https://wow.zamimg.com/images/wow/icons/large/ui_profession_engineering.jpg",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 10,
@@ -387,7 +397,8 @@
               "type": "genericItem",
               "x": 89.675695,
               "y": 74.791024,
-              "label": "",
+              "label": "断心药膏",
+              "icon_url": "https://wow.zamimg.com/images/wow/icons/large/ability_boss_kilrogg_heartseeker.jpg",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 11,
@@ -13206,6 +13217,7 @@
               "x": 2.151457,
               "y": 61.515344,
               "label": "地下城入口",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 1,
@@ -13224,7 +13236,8 @@
               "type": "genericItem",
               "x": 39.005084,
               "y": 37.693292,
-              "label": "",
+              "label": "繁盛步伐",
+              "icon_url": "https://wow.zamimg.com/images/wow/icons/large/spell_lifegivingspeed.jpg",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 2,
@@ -44202,6 +44215,7 @@
               "x": 43.970967,
               "y": 94.827363,
               "label": "地下城入口",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 1,
@@ -44220,7 +44234,8 @@
               "type": "genericItem",
               "x": 49.299793,
               "y": 90.325152,
-              "label": "",
+              "label": "黑龙军团誓约胸针",
+              "icon_url": "https://wow.zamimg.com/images/wow/icons/large/inv_bijou_silver.jpg",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 2,
@@ -44243,7 +44258,8 @@
               "type": "genericItem",
               "x": 52.261141,
               "y": 76.910267,
-              "label": "",
+              "label": "红龙军团誓约胸针",
+              "icon_url": "https://wow.zamimg.com/images/wow/icons/large/inv_bijou_red.jpg",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 3,
@@ -44266,7 +44282,8 @@
               "type": "genericItem",
               "x": 49.359023,
               "y": 73.178978,
-              "label": "",
+              "label": "绿龙军团誓约胸针",
+              "icon_url": "https://wow.zamimg.com/images/wow/icons/large/inv_bijou_green.jpg",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 4,
@@ -44289,7 +44306,8 @@
               "type": "genericItem",
               "x": 44.502425,
               "y": 78.509393,
-              "label": "",
+              "label": "蓝龙军团誓约胸针",
+              "icon_url": "https://wow.zamimg.com/images/wow/icons/large/inv_bijou_blue.jpg",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 5,
@@ -44312,7 +44330,8 @@
               "type": "genericItem",
               "x": 44.857784,
               "y": 86.860381,
-              "label": "",
+              "label": "青铜龙军团誓约胸针",
+              "icon_url": "https://wow.zamimg.com/images/wow/icons/large/inv_bijou_orange.jpg",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 6,
@@ -48482,6 +48501,7 @@
               "x": 8.079493,
               "y": 41.167834,
               "label": "地下城入口",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 1,
@@ -48500,7 +48520,8 @@
               "type": "genericItem",
               "x": 20.752453,
               "y": 28.581176,
-              "label": "",
+              "label": "奥术增效",
+              "icon_url": "https://wow.zamimg.com/images/wow/icons/large/spell_arcane_mindmastery.jpg",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 2,
@@ -48524,6 +48545,7 @@
               "x": 46.338453,
               "y": 24.849883,
               "label": "楼层通道",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 3,
@@ -54979,6 +55001,7 @@
               "x": 28.808888,
               "y": 23.222092,
               "label": "地下城入口",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 1,
@@ -54997,7 +55020,8 @@
               "type": "genericItem",
               "x": 18.546656,
               "y": 55.609487,
-              "label": "",
+              "label": "丰盛的邪枝炖汤",
+              "icon_url": "https://wow.zamimg.com/images/wow/icons/large/inv_cooking_10_heartystew.jpg",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 2,
@@ -55021,6 +55045,7 @@
               "x": 33.176444,
               "y": 35.30603,
               "label": "躁乱的狂战士",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 3,
@@ -55050,6 +55075,7 @@
               "x": 34.121725,
               "y": 34.844504,
               "label": "躁乱的狂战士",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 4,
@@ -55079,6 +55105,7 @@
               "x": 39.443209,
               "y": 39.000199,
               "label": "躁乱的狂战士",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 5,
@@ -55108,6 +55135,7 @@
               "x": 39.827234,
               "y": 37.189799,
               "label": "躁乱的狂战士",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 6,
@@ -55137,6 +55165,7 @@
               "x": 42.487976,
               "y": 38.506453,
               "label": "躁乱的狂战士",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 7,
@@ -55166,6 +55195,7 @@
               "x": 45.72475,
               "y": 36.243453,
               "label": "躁乱的狂战士",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 8,
@@ -55195,6 +55225,7 @@
               "x": 48.467785,
               "y": 36.737198,
               "label": "躁乱的狂战士",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 9,
@@ -55224,6 +55255,7 @@
               "x": 41.272877,
               "y": 44.618269,
               "label": "躁乱的狂战士",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 10,
@@ -55253,6 +55285,7 @@
               "x": 42.241871,
               "y": 44.736921,
               "label": "躁乱的狂战士",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 11,
@@ -55282,6 +55315,7 @@
               "x": 48.604937,
               "y": 45.29546,
               "label": "躁乱的狂战士",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 12,
@@ -55311,6 +55345,7 @@
               "x": 47.864317,
               "y": 46.365243,
               "label": "躁乱的狂战士",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 13,
@@ -55340,6 +55375,7 @@
               "x": 33.708328,
               "y": 49.645713,
               "label": "躁乱的狂战士",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 14,
@@ -55369,6 +55405,7 @@
               "x": 32.789959,
               "y": 49.798775,
               "label": "躁乱的狂战士",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 15,
@@ -55398,6 +55435,7 @@
               "x": 32.211728,
               "y": 50.768162,
               "label": "躁乱的狂战士",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 16,
@@ -55427,6 +55465,7 @@
               "x": 26.990262,
               "y": 50.461341,
               "label": "躁乱的狂战士",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 17,
@@ -55456,6 +55495,7 @@
               "x": 26.109881,
               "y": 51.121429,
               "label": "躁乱的狂战士",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 18,
@@ -55485,6 +55525,7 @@
               "x": 22.492852,
               "y": 54.333586,
               "label": "躁乱的狂战士",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 19,
@@ -55514,6 +55555,7 @@
               "x": 25.777704,
               "y": 66.369229,
               "label": "躁乱的狂战士",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 20,
@@ -55543,6 +55585,7 @@
               "x": 26.9049,
               "y": 66.487878,
               "label": "躁乱的狂战士",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 21,
@@ -55572,6 +55615,7 @@
               "x": 29.788745,
               "y": 65.765816,
               "label": "躁乱的狂战士",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 22,
@@ -55601,6 +55645,7 @@
               "x": 37.033079,
               "y": 70.848372,
               "label": "躁乱的狂战士",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 23,
@@ -55630,6 +55675,7 @@
               "x": 35.280428,
               "y": 58.42421,
               "label": "躁乱的狂战士",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 24,
@@ -63625,6 +63671,7 @@
               "x": 51.315093,
               "y": 92.339832,
               "label": "地下城入口",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 1,
@@ -68674,6 +68721,7 @@
               "x": 32.046897,
               "y": 91.848063,
               "label": "地下城入口",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 1,
@@ -68693,6 +68741,7 @@
               "x": 31.044638,
               "y": 86.620581,
               "label": "亡语者侍僧",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 2,
@@ -68722,6 +68771,7 @@
               "x": 28.549837,
               "y": 66.901826,
               "label": "亡语者侍僧",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 3,
@@ -68751,6 +68801,7 @@
               "x": 38.577466,
               "y": 58.953716,
               "label": "亡语者侍僧",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 4,
@@ -68779,6 +68830,7 @@
               "x": 50.530829,
               "y": 77.463845,
               "label": "亡语者侍僧",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 5,
@@ -68807,6 +68859,7 @@
               "x": 54.160581,
               "y": 53.180866,
               "label": "亡语者侍僧",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 6,
@@ -68835,6 +68888,7 @@
               "x": 50.863451,
               "y": 43.322379,
               "label": "亡语者侍僧",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 7,
@@ -74311,6 +74365,7 @@
               "x": 18.97723,
               "y": 92.428672,
               "label": "地下城入口",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 1,
@@ -74329,7 +74384,8 @@
               "type": "genericItem",
               "x": 45.096269,
               "y": 54.671554,
-              "label": "",
+              "label": "虚空灌输",
+              "icon_url": "https://wow.zamimg.com/images/wow/icons/large/inv_enchant_voidsphere.jpg",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 2,
@@ -79412,6 +79468,7 @@
               "x": 36.626834,
               "y": 21.53413,
               "label": "地下城入口",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 1,
@@ -82682,6 +82739,7 @@
               "x": 27.861257,
               "y": 30.062804,
               "label": "地下城入口",
+              "icon_url": "",
               "target_floor_key": "",
               "metadata": {
                 "source_index": 1,

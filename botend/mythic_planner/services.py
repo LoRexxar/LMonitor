@@ -242,6 +242,37 @@ def get_active_dungeon(dungeon_key):
     )
 
 
+def _serialize_poi(poi):
+    metadata = poi.metadata or {}
+    source = metadata.get('source') if isinstance(metadata, dict) else {}
+    source = source if isinstance(source, dict) else {}
+    info = source.get('info') if isinstance(source.get('info'), dict) else {}
+
+    def optional_number(value, cast):
+        try:
+            return cast(value) if value not in (None, '') else None
+        except (TypeError, ValueError):
+            return None
+
+    return {
+        'id': poi.id,
+        'key': poi.key,
+        'type': poi.poi_type,
+        'x': poi.x,
+        'y': poi.y,
+        'label': poi.label,
+        'icon_url': poi.icon_url,
+        'target_floor_key': poi.target_floor_key,
+        'texture_id': optional_number(info.get('texture'), int),
+        'spell_id': optional_number(info.get('spellId'), int),
+        'atlas': str(info.get('atlas') or ''),
+        'size': optional_number(info.get('size') or source.get('sizeMult'), float),
+        'font_size': optional_number(info.get('fontSize'), float),
+        'assignment_index': optional_number(source.get('index'), int),
+        'metadata': metadata,
+    }
+
+
 def serialize_dungeon(dungeon):
     floors = list(dungeon.floors.all())
     enemies = list(dungeon.enemies.all())
@@ -274,20 +305,7 @@ def serialize_dungeon(dungeon):
                 'map_width': floor.map_width,
                 'map_height': floor.map_height,
                 'metadata': floor.metadata or {},
-                'pois': [
-                    {
-                        'id': poi.id,
-                        'key': poi.key,
-                        'type': poi.poi_type,
-                        'x': poi.x,
-                        'y': poi.y,
-                        'label': poi.label,
-                        'icon_url': poi.icon_url,
-                        'target_floor_key': poi.target_floor_key,
-                        'metadata': poi.metadata or {},
-                    }
-                    for poi in floor.pois.all()
-                ],
+                'pois': [_serialize_poi(poi) for poi in floor.pois.all()],
             }
             for floor in floors
         ],

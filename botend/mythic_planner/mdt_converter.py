@@ -381,7 +381,7 @@ def _spell_names(spell_id, snapshots):
     return f'Spell #{spell_id}', f'技能 #{spell_id}', '', ''
 
 
-def _convert_pois(source_table, locale_zh):
+def _convert_pois(source_table, locale_zh, spell_snapshots=None):
     result = []
     for source_index, poi in enumerate(_ordered_values(source_table), start=1):
         if not isinstance(poi, dict):
@@ -389,10 +389,19 @@ def _convert_pois(source_table, locale_zh):
         info = poi.get('info') if isinstance(poi.get('info'), dict) else {}
         poi_type = str(poi.get('type') or 'note')
         source_name = str(info.get('name') or '')
+        try:
+            spell_id = int(info.get('spellId') or 0)
+        except (TypeError, ValueError):
+            spell_id = 0
+        snapshot = (spell_snapshots or {}).get(spell_id) or {}
         label = (
             locale_zh.get(source_name, source_name)
             if source_name
-            else POI_LABELS.get(poi_type, '')
+            else str(
+                snapshot.get('name_zh')
+                or snapshot.get('name')
+                or POI_LABELS.get(poi_type, '')
+            )
         )
         result.append({
             'key': f'poi-{source_index}',
@@ -400,6 +409,7 @@ def _convert_pois(source_table, locale_zh):
             'x': _percent_x(poi.get('x')),
             'y': _percent_y(poi.get('y')),
             'label': label,
+            'icon_url': str(snapshot.get('icon_url') or ''),
             'target_floor_key': (
                 f"floor-{int(poi['sublevel'])}"
                 if poi.get('sublevel') not in (None, '')
@@ -810,7 +820,11 @@ def build_payload(
                     'tile_rows': MAP_TILE_ROWS,
                     'tile_size': MAP_TILE_SIZE,
                 },
-                'pois': _convert_pois(floor_pois, locale_zh),
+                'pois': _convert_pois(
+                    floor_pois,
+                    locale_zh,
+                    effective_spell_snapshots,
+                ),
             })
 
         short_name_ref = map_info.get('shortName')

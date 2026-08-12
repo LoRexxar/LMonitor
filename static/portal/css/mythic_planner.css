@@ -200,10 +200,10 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .mdt-map-svg { overflow: visible; pointer-events: none; }
 .mdt-patrol-layer { z-index: 2; }
 .mdt-pull-area-layer { z-index: 3; }
-.mdt-poi-layer { z-index: 4; pointer-events: none; }
+.mdt-poi-layer { z-index: 6; pointer-events: none; }
 .mdt-spawn-layer { z-index: 5; }
-.mdt-annotation-layer { z-index: 6; }
-.mdt-note-layer { z-index: 7; pointer-events: none; }
+.mdt-annotation-layer { z-index: 7; }
+.mdt-note-layer { z-index: 8; pointer-events: none; }
 
 .mdt-patrol-line { fill: none; stroke: #fff6; stroke-width: .35; stroke-dasharray: 1 1; vector-effect: non-scaling-stroke; }
 .mdt-pull-area { opacity: .72; }
@@ -340,15 +340,57 @@ button:disabled { cursor: not-allowed; opacity: .45; }
     position: absolute;
     display: grid;
     place-items: center;
-    width: 24px;
-    height: 24px;
+    width: var(--poi-size, 20px);
+    height: var(--poi-size, 20px);
     transform: translate(-50%, -50%);
-    border: 2px solid #e8d27b;
+    color: #fff;
+    font-size: calc(var(--poi-size, 20px) * .58);
+    filter: drop-shadow(0 1px 1px #000) drop-shadow(0 0 2px #000);
+}
+.mdt-poi-glyph,
+.mdt-poi-image {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+.mdt-poi-glyph {
+    display: grid;
+    place-items: center;
+    border: 1px solid #d8c36a;
+    border-radius: 4px;
+    background: #322710ee;
+    line-height: 1;
+}
+.mdt-poi-image {
+    border: 1px solid #f8df83;
+    border-radius: 4px;
+    background: #17120c;
+    object-fit: cover;
+}
+.mdt-poi.is-generic-item .mdt-poi-glyph,
+.mdt-poi.is-generic-item .mdt-poi-image {
+    border-color: #f8df83;
+    box-shadow: 0 0 0 1px #211906cc;
+}
+.mdt-poi.is-generic-assignable-poi .mdt-poi-glyph {
+    border-color: #f2d45c;
     border-radius: 50%;
-    background: #17202ddd;
-    color: #fef3c7;
-    font-size: 12px;
-    box-shadow: 0 0 0 2px #0008;
+    background: #332509ee;
+    color: #fff2a8;
+}
+.mdt-poi.is-dungeon-entrance .mdt-poi-glyph,
+.mdt-poi.is-dungeon-exit .mdt-poi-glyph {
+    border-color: #72e6a1;
+    border-radius: 50%;
+    background: #123723ee;
+    color: #d1fae5;
+}
+.mdt-poi.is-map-link .mdt-poi-glyph {
+    border-color: #67d7ef;
+    border-radius: 50%;
+    background: #103040ee;
+    color: #cffafe;
 }
 .mdt-poi-label {
     position: absolute;

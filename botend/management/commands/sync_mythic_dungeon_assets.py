@@ -15,6 +15,7 @@ from botend.models import (
     MythicDungeonDataVersion,
     MythicDungeonEnemy,
     MythicDungeonFloor,
+    MythicDungeonPoi,
     MythicDungeonSpell,
 )
 from botend.mythic_planner.asset_urls import (
@@ -121,7 +122,7 @@ class Command(BaseCommand):
             )
         )
         self.stdout.write(
-            '待归档: 地图 {floors}、公共技能 {spells}、怪物 {enemies}、'
+            '待归档: 地图 {floors}、兴趣点 {pois}、公共技能 {spells}、怪物 {enemies}、'
             '关系技能 {abilities}；已在 OSS {already_oss}、无图片 {empty}、'
             '本地源缺失 {missing_local}'.format(**stats)
         )
@@ -173,7 +174,7 @@ class Command(BaseCommand):
             oss_base_url,
         )
         self.stdout.write(self.style.SUCCESS(
-            '资源归档完成: 地图 {floors}、公共技能 {spells}、怪物 {enemies}、'
+            '资源归档完成: 地图 {floors}、兴趣点 {pois}、公共技能 {spells}、怪物 {enemies}、'
             '关系技能 {abilities}、上游无图 {unavailable}。'.format(**updated)
         ))
         if failed:
@@ -199,6 +200,7 @@ class Command(BaseCommand):
         }
         stats = {
             'floors': 0,
+            'pois': 0,
             'spells': 0,
             'enemies': 0,
             'abilities': 0,
@@ -262,6 +264,65 @@ class Command(BaseCommand):
                 'object_key': object_key,
             })
             stats['floors'] += 1
+
+        pois = (
+            MythicDungeonPoi.objects.none()
+            if target_spell_ids
+            else MythicDungeonPoi.objects.filter(
+                floor__dungeon__data_version=version,
+                floor__is_active=True,
+                is_active=True,
+            ).exclude(icon_url='').select_related(
+                'floor__dungeon',
+            ).order_by('floor__dungeon__key', 'floor__key', 'key')
+        )
+        for poi in pois:
+            current_url = str(poi.icon_url or '').strip()
+            source_url = self._resolve_remote_source(
+                current_url,
+                poi.metadata,
+                oss_base_url,
+            )
+            if not self._is_remote_url(source_url):
+                if self._is_oss_url(current_url, oss_base_url):
+                    stats['already_oss'] += 1
+                    continue
+                stats['empty'] += 1
+                continue
+            extension = self._image_extension(source_url, '.jpg')
+            object_key = self._remote_object_key(
+                base_prefix,
+                source_url,
+                fallback=(
+                    f'pois/{self._safe_segment(poi.floor.dungeon.key)}/'
+                    f'{self._safe_segment(poi.floor.key)}-'
+                    f'{self._safe_segment(poi.key)}{extension}'
+                ),
+            )
+            if (
+                not force
+                and self._is_oss_object_url(
+                    current_url,
+                    oss_base_url,
+                    object_key,
+                )
+            ):
+                stats['already_oss'] += 1
+                continue
+            jobs.append({
+                'kind': 'poi',
+                'instance': poi,
+                'source': source_url,
+                'source_url': source_url,
+                'cache_path': (
+                    Path('pois')
+                    / self._safe_segment(poi.floor.dungeon.key)
+                    / f'{self._safe_segment(poi.key)}{extension}'
+                ),
+                'refresh_download': force,
+                'object_key': object_key,
+            })
+            stats['pois'] += 1
 
         spells = MythicDungeonSpell.objects.filter(
             data_version=version,
@@ -524,6 +585,7 @@ class Command(BaseCommand):
     ):
         grouped = {
             'floor': [],
+            'poi': [],
             'spell': [],
             'enemy': [],
             'ability': [],
@@ -575,6 +637,7 @@ class Command(BaseCommand):
                 batch_size=200,
             )
         for kind, model in (
+            ('poi', MythicDungeonPoi),
             ('spell', MythicDungeonSpell),
             ('enemy', MythicDungeonEnemy),
             ('ability', MythicDungeonAbility),
@@ -631,6 +694,7 @@ class Command(BaseCommand):
             'synced_at': now.isoformat(),
             'updated': {
                 'floors': len(grouped['floor']),
+                'pois': len(grouped['poi']),
                 'spells': len(grouped['spell']),
                 'enemies': len(grouped['enemy']),
                 'abilities': len(grouped['ability']) + len(inherited_abilities),
@@ -641,6 +705,7 @@ class Command(BaseCommand):
         version.save(update_fields=['metadata', 'updated_at'])
         return {
             'floors': len(grouped['floor']),
+            'pois': len(grouped['poi']),
             'spells': len(grouped['spell']),
             'enemies': len(grouped['enemy']),
             'abilities': len(grouped['ability']) + len(inherited_abilities),

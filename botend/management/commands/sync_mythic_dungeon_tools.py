@@ -57,6 +57,31 @@ def load_payload_seed(path):
             )
             if floor_key and background_url:
                 floor_background_urls[(dungeon_key, floor_key)] = background_url
+            for poi in floor.get('pois') or []:
+                if not isinstance(poi, dict):
+                    continue
+                source = (
+                    (poi.get('metadata') or {}).get('source')
+                    if isinstance(poi.get('metadata'), dict)
+                    else {}
+                )
+                info = source.get('info') if isinstance(source, dict) else {}
+                if not isinstance(info, dict):
+                    continue
+                try:
+                    spell_id = int(info.get('spellId') or 0)
+                except (TypeError, ValueError):
+                    continue
+                if spell_id <= 0:
+                    continue
+                current = dict(snapshots.get(spell_id) or {})
+                label = str(poi.get('label') or '')
+                icon_url = normalize_asset_source_url(poi.get('icon_url'))
+                if label and not current.get('name_zh'):
+                    current['name_zh'] = label
+                if icon_url and not current.get('icon_url'):
+                    current['icon_url'] = icon_url
+                snapshots[spell_id] = current
         for enemy in dungeon.get('enemies') or []:
             if not isinstance(enemy, dict):
                 continue
@@ -232,6 +257,19 @@ class Command(BaseCommand):
                 for enemy in dungeon['enemies']
                 for ability in enemy['abilities']
             }
+            spell_ids.update({
+                int(info['spellId'])
+                for dungeon in payload['dungeons']
+                for floor in dungeon['floors']
+                for poi in floor['pois']
+                if isinstance(poi.get('metadata'), dict)
+                and isinstance(poi['metadata'].get('source'), dict)
+                and isinstance(poi['metadata']['source'].get('info'), dict)
+                and str(
+                    poi['metadata']['source']['info'].get('spellId') or ''
+                ).isdigit()
+                for info in [poi['metadata']['source']['info']]
+            })
             existing_version = None
             if not options['no_database_metadata']:
                 existing_version = MythicDungeonDataVersion.objects.filter(
