@@ -346,6 +346,9 @@ button:disabled { cursor: not-allowed; opacity: .45; }
     color: #fff;
     font-size: calc(var(--poi-size, 20px) * .58);
     filter: drop-shadow(0 1px 1px #000) drop-shadow(0 0 2px #000);
+    pointer-events: auto;
+    cursor: help;
+    outline: none;
 }
 .mdt-poi-glyph,
 .mdt-poi-image {
@@ -392,6 +395,76 @@ button:disabled { cursor: not-allowed; opacity: .45; }
     background: #103040ee;
     color: #cffafe;
 }
+.mdt-poi:focus-visible .mdt-poi-glyph,
+.mdt-poi:focus-visible .mdt-poi-image {
+    outline: 2px solid #fff4a3;
+    outline-offset: 2px;
+}
+.mdt-poi-tooltip {
+    position: absolute;
+    z-index: 20;
+    left: 50%;
+    bottom: calc(100% + 7px);
+    display: grid;
+    gap: 2px;
+    width: max-content;
+    min-width: 112px;
+    max-width: 210px;
+    padding: 6px 8px;
+    transform: translate(-50%, 4px);
+    border: 1px solid #6f6548;
+    border-radius: 3px;
+    background: #0b0e12f5;
+    color: #f8fafc;
+    box-shadow: 0 6px 18px #000c;
+    font-size: 10px;
+    line-height: 1.35;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity .12s ease, transform .12s ease, visibility .12s;
+}
+.mdt-poi-tooltip::after {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    width: 7px;
+    height: 7px;
+    transform: translate(-50%, -4px) rotate(45deg);
+    border-right: 1px solid #6f6548;
+    border-bottom: 1px solid #6f6548;
+    background: #0b0e12;
+    content: '';
+}
+.mdt-poi-tooltip strong { color: #fff4bd; font-size: 11px; }
+.mdt-poi-tooltip small { color: #aeb8c4; font-size: 9px; }
+.mdt-poi-tooltip.is-below {
+    top: calc(100% + 7px);
+    bottom: auto;
+    transform: translate(-50%, -4px);
+}
+.mdt-poi-tooltip.is-below::after {
+    top: auto;
+    bottom: 100%;
+    transform: translate(-50%, 4px) rotate(225deg);
+}
+.mdt-poi-tooltip.is-right-aligned { left: 0; transform: translate(0, 4px); }
+.mdt-poi-tooltip.is-left-aligned { right: 0; left: auto; transform: translate(0, 4px); }
+.mdt-poi-tooltip.is-below.is-right-aligned,
+.mdt-poi-tooltip.is-below.is-left-aligned { transform: translate(0, -4px); }
+.mdt-poi:hover .mdt-poi-tooltip,
+.mdt-poi:focus-visible .mdt-poi-tooltip {
+    transform: translate(-50%, 0);
+    opacity: 1;
+    visibility: visible;
+}
+.mdt-poi:hover .mdt-poi-tooltip.is-right-aligned,
+.mdt-poi:hover .mdt-poi-tooltip.is-left-aligned,
+.mdt-poi:focus-visible .mdt-poi-tooltip.is-right-aligned,
+.mdt-poi:focus-visible .mdt-poi-tooltip.is-left-aligned { transform: translate(0, 0); }
 .mdt-poi-label {
     position: absolute;
     left: 50%;

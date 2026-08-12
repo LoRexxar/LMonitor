@@ -3757,6 +3757,9 @@ class MythicPlannerPageContractTests(SimpleTestCase):
             'genericAssignablePOI',
             'data-poi-type',
             "['genericItem', 'genericAssignablePOI'].includes(poiType)",
+            'mdt-poi-tooltip',
+            'aria-describedby',
+            'role="tooltip"',
         ):
             self.assertIn(token, portal_js)
         self.assertNotIn('!LMDT1!', portal_js)
@@ -3843,6 +3846,9 @@ class MythicPlannerPageContractTests(SimpleTestCase):
         self.assertIn('.mdt-poi.is-generic-item', planner_css)
         self.assertIn('.mdt-poi.is-generic-assignable-poi', planner_css)
         self.assertIn('.mdt-poi.is-dungeon-entrance', planner_css)
+        self.assertIn('.mdt-poi:hover .mdt-poi-tooltip', planner_css)
+        self.assertIn('.mdt-poi:focus-visible .mdt-poi-tooltip', planner_css)
+        self.assertIn('pointer-events: auto', planner_css)
         toggle_spawn = portal_js[
             portal_js.index('function toggleSpawn'):
             portal_js.index('function selectBox')

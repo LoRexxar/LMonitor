@@ -839,6 +839,14 @@
             const title = [poi.label || typeLabel, poi.spell_id ? `Spell ${poi.spell_id}` : '']
                 .filter(Boolean)
                 .join(' · ');
+            const tooltipId = `poi-tooltip-${String(poi.id || poi.key || 'node')}`
+                .replace(/[^a-zA-Z0-9_-]/g, '-');
+            const tooltipClasses = [
+                'mdt-poi-tooltip',
+                Number(poi.y) < 15 ? 'is-below' : '',
+                Number(poi.x) < 18 ? 'is-right-aligned' : '',
+                Number(poi.x) > 82 ? 'is-left-aligned' : '',
+            ].filter(Boolean).join(' ');
             const showLabel = Boolean(poi.label)
                 && !['genericItem', 'genericAssignablePOI'].includes(poiType);
             const image = poi.icon_url
@@ -848,12 +856,19 @@
                 <div
                     class="mdt-poi is-${escapeHtml(typeClass)}"
                     style="left:${Number(poi.x)}%;top:${Number(poi.y)}%;--poi-size:${size}px"
-                    title="${escapeHtml(title)}"
                     data-poi-type="${escapeHtml(poiType)}"
+                    tabindex="0"
+                    role="img"
+                    aria-label="${escapeHtml(title)}"
+                    aria-describedby="${escapeHtml(tooltipId)}"
                 >
                     <span class="mdt-poi-glyph" aria-hidden="true">${POI_ICONS[poiType] || '◆'}</span>
                     ${image}
                     ${showLabel ? `<span class="mdt-poi-label">${escapeHtml(poi.label)}</span>` : ''}
+                    <span class="${tooltipClasses}" id="${escapeHtml(tooltipId)}" role="tooltip">
+                        <strong>${escapeHtml(poi.label || typeLabel)}</strong>
+                        <small>${escapeHtml(typeLabel)}${poi.spell_id ? ` · Spell ${Number(poi.spell_id)}` : ''}</small>
+                    </span>
                 </div>
             `;
         }).join('');
