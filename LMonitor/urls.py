@@ -38,7 +38,7 @@ from botend.dashboard.api import (
     SimcBenchmarkCaseRerunAPIView,
     SimcBenchmarkExecutionCancelAPIView, SimcBenchmarkExecutionReconcileAPIView,
     SimcBenchmarkOptionsAPIView, SimcBenchmarkPanelOptionsAPIView, SimcBenchmarkItemLookupAPIView,
-    SimcRaidBuffOptionsAPIView, SimcConsumableOptionsAPIView,
+    SimcRaidBuffOptionsAPIView, SimcExtraOptionsAPIView, SimcConsumableOptionsAPIView,
 )
 from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, ChangePasswordView
 from botend.dashboard.user_management import (
@@ -212,6 +212,7 @@ urlpatterns = [
     path('api/simc-profile/<int:profile_id>/', SimcProfileAPIView.as_view(), name="simc_profile_detail"),
     path('api/simc-apl-candidates/', SimcAplCandidatesAPIView.as_view(), name="simc_apl_candidates"),
     path('api/simc-spec-options/', SimcSpecOptionsAPIView.as_view(), name="simc_spec_options"),
+    path('api/simc-extra-options/options/', SimcExtraOptionsAPIView.as_view(), name="simc_extra_options"),
     path('api/simc-template/', SimcTemplateAPIView.as_view(), name="simc_template"),
     path('api/simc-backend-binary/', SimcBackendBinaryAPIView.as_view(), name="simc_backend_binary"),
     path('api/simc-workbench/apl-validation/', SimcAplValidationAPIView.as_view(), name="simc_apl_validation"),

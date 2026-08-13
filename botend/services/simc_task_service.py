@@ -144,6 +144,7 @@ SIMULATION_PARAMS_WHITELIST = {
     'desired_targets',
     'raid_buffs',
     'use_class_raid_buff',
+    'extra_options',
     'additional_simc_input',
     'profile_overrides',
 }

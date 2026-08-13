@@ -3282,6 +3282,8 @@ function currentSimcScenario() {
     } else {
         delete scenario.raid_buffs;
     }
+    scenario.extra_options = Array.from(document.querySelectorAll('#simc-sim-extra-options input[type="checkbox"]:checked'))
+        .map(input => input.value);
     return scenario;
 }
 
@@ -3969,6 +3971,21 @@ async function loadSimcRaidBuffOptions() {
     renderSimcRaidBuffOptions(payload.data);
 }
 
+async function loadSimcExtraOptions() {
+    const response = await fetch('/api/simc-extra-options/options/');
+    const payload = await response.json();
+    if (!response.ok || !payload.success || !Array.isArray(payload.data)) {
+        throw new Error(payload.error || '加载额外选项失败');
+    }
+    const host = document.getElementById('simc-sim-extra-options');
+    if (!host) return;
+    host.innerHTML = payload.data.map(option => `
+        <label class="flex items-start gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+            <input type="checkbox" value="${escapeHtml(option.value)}" class="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300">
+            <span><b>${escapeHtml(option.label)}</b><small class="block text-xs text-slate-500">${escapeHtml(option.description || '')}</small></span>
+        </label>`).join('');
+}
+
 async function loadSimcConsumableOptions() {
     const response = await fetch('/api/simc-profile/consumable-options/');
     const payload = await response.json();
@@ -4128,6 +4145,10 @@ function bindSimcWorkbenchSimulationControls() {
     bindSimcRaidBuffControls();
     loadSimcRaidBuffOptions().catch(error => {
         const host = document.getElementById('simc-sim-raid-buffs');
+        if (host) host.textContent = String(error.message || error);
+    });
+    loadSimcExtraOptions().catch(error => {
+        const host = document.getElementById('simc-sim-extra-options');
         if (host) host.textContent = String(error.message || error);
     });
     loadSimcConsumableOptions().catch(error => showMessage(String(error.message || error), 'error'));

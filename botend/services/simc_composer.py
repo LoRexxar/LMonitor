@@ -49,6 +49,19 @@ SIMC_RAID_BUFF_VALUES = (
     'bloodlust',
 )
 
+SIMC_EXTRA_OPTIONS = (
+    {
+        'value': 'power_infusion',
+        'label': '牧师能量灌注',
+        'description': '允许 APL 在最佳时机调用能量灌注（120 秒冷却）。',
+        'simc_lines': ('external_buffs.pool=power_infusion:120',),
+    },
+)
+SIMC_EXTRA_OPTION_VALUES = frozenset(option['value'] for option in SIMC_EXTRA_OPTIONS)
+SIMC_EXTRA_OPTION_LINES = {
+    option['value']: option['simc_lines'] for option in SIMC_EXTRA_OPTIONS
+}
+
 # Implicit defaults are limited to raid effects supplied by the actor's own
 # class. ``use_class_raid_buff`` allows those defaults to be unioned with the
 # explicitly selected extra ``raid_buffs``. Historical requests without the
@@ -125,6 +138,16 @@ def validate_simulation_options(params: Dict[str, Any]) -> str:
             errors.append('raid_buffs 不允许重复值')
         elif any(item not in SIMC_RAID_BUFF_VALUES for item in raid_buffs):
             errors.append('raid_buffs 包含不支持的 Raid Buff')
+    if 'extra_options' in params:
+        extra_options = params['extra_options']
+        if not isinstance(extra_options, list):
+            errors.append('extra_options 必须是列表')
+        elif any(not isinstance(item, str) for item in extra_options):
+            errors.append('extra_options 只能包含字符串')
+        elif len(set(extra_options)) != len(extra_options):
+            errors.append('extra_options 不允许重复值')
+        elif any(item not in SIMC_EXTRA_OPTION_VALUES for item in extra_options):
+            errors.append('extra_options 包含不支持的额外选项')
     if 'profile_overrides' in params:
         overrides = params['profile_overrides']
         allowed = {
@@ -893,6 +916,8 @@ class SimcComposer:
             options.append(f"vary_combat_length={request_data['vary_combat_length']}")
         if request_data.get('enemy_type'):
             options.append(f"enemy={request_data['enemy_type']}")
+        for extra_option in request_data.get('extra_options') or ():
+            options.extend(SIMC_EXTRA_OPTION_LINES[extra_option])
         candidate_options = request_data.get('_candidate_simc_options')
         if candidate_options is not None:
             from botend.services.simc_candidate_options import normalize_controlled_simc_options

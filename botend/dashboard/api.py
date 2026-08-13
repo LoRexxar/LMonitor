@@ -73,7 +73,7 @@ from botend.services.simc_apl.catalog import query_symbol_catalog, query_visible
 from botend.services.simc_apl.validation import validate_payload
 from botend.services.simc_apl.authoritative_validator import RestrictedSimcValidator
 from botend.services.simc_apl.publish import validate_apl_for_profile, content_hash, current_validation_identity
-from botend.services.simc_composer import SimcComposer
+from botend.services.simc_composer import SimcComposer, SIMC_EXTRA_OPTIONS
 from botend.services.simc_apl.completion import complete_document
 from botend.services.simc_apl.translation import (
     extract_translation_demands, resolve_demand_mappings, translate_apl_ranges,
@@ -1758,6 +1758,8 @@ class SimcTaskAPIView(View):
                 simulation_params['raid_buffs'] = data['raid_buffs']
             if 'use_class_raid_buff' in data:
                 simulation_params['use_class_raid_buff'] = data['use_class_raid_buff']
+            if 'extra_options' in data:
+                simulation_params['extra_options'] = data['extra_options']
             if 'additional_simc_input' in data:
                 simulation_params['additional_simc_input'] = str(data['additional_simc_input'] or '').strip()
             if 'profile_overrides' in data:
@@ -2773,6 +2775,8 @@ class SimcComparisonTaskAPIView(View):
                 simulation_params['raid_buffs'] = data['raid_buffs']
             if 'use_class_raid_buff' in data:
                 simulation_params['use_class_raid_buff'] = data['use_class_raid_buff']
+            if 'extra_options' in data:
+                simulation_params['extra_options'] = data['extra_options']
             if 'additional_simc_input' in data:
                 simulation_params['additional_simc_input'] = str(data['additional_simc_input'] or '').strip()
             if 'profile_overrides' in data:
@@ -9798,6 +9802,21 @@ class SimcRaidBuffOptionsAPIView(View):
                 ],
             }
             for value, label in SIMC_RAID_BUFFS
+        ]})
+
+
+@method_decorator(login_required, name='dispatch')
+class SimcExtraOptionsAPIView(View):
+    """Authoritative catalog for structured, extensible SimC options."""
+
+    def get(self, request):
+        return JsonResponse({'success': True, 'data': [
+            {
+                'value': option['value'],
+                'label': option['label'],
+                'description': option['description'],
+            }
+            for option in SIMC_EXTRA_OPTIONS
         ]})
 
 

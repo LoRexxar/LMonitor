@@ -182,6 +182,39 @@ class SimcTaskReferenceContracts(TestCase):
         self.assertIs(task.simulation_params['use_class_raid_buff'], True)
         self.assertEqual(task.simulation_params['raid_buffs'], ['bloodlust'])
 
+    def test_power_infusion_extra_option_catalog_freezes_and_composes(self):
+        catalog = self.client.get('/api/simc-extra-options/options/')
+        self.assertEqual(catalog.status_code, 200)
+        self.assertEqual(catalog.json()['data'][0]['value'], 'power_infusion')
+
+        root = Path(__file__).resolve().parents[2]
+        workflow = (root / 'templates/dashboard/index.html').read_text(encoding='utf-8')
+        frontend = (root / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
+        self.assertIn('id="simc-sim-extra-options"', workflow)
+        self.assertIn("fetch('/api/simc-extra-options/options/')", frontend)
+        self.assertIn('scenario.extra_options', frontend)
+
+        task = self.create_task(extra_options=['power_infusion'])
+        self.assertEqual(task.simulation_params['extra_options'], ['power_infusion'])
+        run = initialize_task_runs(task)[0]
+        captured = {}
+
+        from botend.services.simc_composer import SimcComposer
+        original_compose = SimcComposer.compose
+
+        def compose(request):
+            captured['extra_options'] = request.get('extra_options')
+            content, manifest, error = original_compose(SimcComposer(task.user_id), request)
+            captured['content'] = content
+            return None, manifest, error or 'stop after capturing composed input'
+
+        monitor = SimcMonitor(None, None)
+        with patch('botend.controller.plugins.simc.SimcMonitor.SimcComposer.compose', side_effect=compose):
+            self.assertFalse(monitor.process_reference_run(task, run))
+
+        self.assertEqual(captured['extra_options'], ['power_infusion'])
+        self.assertIn('external_buffs.pool=power_infusion:120', captured['content'])
+
     def test_local_worker_passes_frozen_raid_buffs_to_composer(self):
         task = self.create_task(
             use_class_raid_buff=True,
