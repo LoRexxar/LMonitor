@@ -648,6 +648,7 @@ def build_player_config_detail(mode, spec, player_equipment='', battlenet_region
     semantic_profile = parse_simc_player_profile(player_equipment)
     detail = semantic_profile['profile']
     detail['identity']['spec'] = detail['identity']['spec'] or spec
+    detail['talents']['build_code'] = talent or detail['talents']['build_code']
     detail['source'] = {'type': 'manual_equipment', 'label': '手动 SimC 玩家配置'}
     detail['comparison_candidates'] = {
         'gear': semantic_profile['candidates']['gear'],

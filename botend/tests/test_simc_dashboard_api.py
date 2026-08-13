@@ -1610,10 +1610,11 @@ finger1=,id=299002,ilevel=655
                 'temporary_enchant=main_hand:oil_a/off_hand:oil_b\n'
                 'head=,id=212048'
             ),
+            talent='MODEL_BUILD',
         )
-
         self.assertEqual(detail['consumables']['potion'], 'potion_of_testing')
         self.assertEqual(detail['consumables']['temporary_enchant']['main_hand'], 'oil_a')
+        self.assertEqual(detail['talent_strings']['talents']['value'], 'MODEL_BUILD')
         self.assertEqual(detail['talent_strings']['class_talents']['value'], 's207104:1/s444040:2')
         self.assertEqual(detail['talent_strings']['class_talents']['entries'][1], {'spell_id': 444040, 'rank': 2})
         self.assertEqual(detail['talent_strings']['hero_talents']['entries'][0]['spell_id'], 555555)
