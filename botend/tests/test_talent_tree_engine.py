@@ -292,14 +292,15 @@ class PtrTalentDescriptionRepairTests(SimpleTestCase):
         self.assertEqual(result['description'], '')
 
     def test_bundled_ptr_db2_asset_manifest_is_valid(self):
-        asset = Path('botend/data/ptr_talent_db2_12.1.0.68914.tar.gz')
+        asset = Path('botend/data/ptr_talent_db2_12.1.0.69283.tar.gz')
         self.assertTrue(asset.is_file())
+        self.assertFalse(Path('botend/data/ptr_talent_db2_12.1.0.68914.tar.gz').exists())
         with tarfile.open(asset, 'r:gz') as archive:
             manifest_member = archive.extractfile('manifest.json')
             self.assertIsNotNone(manifest_member)
             assert manifest_member is not None
             manifest = json.loads(manifest_member.read().decode('utf-8'))
-            self.assertEqual(manifest['build'], '12.1.0.68914')
+            self.assertEqual(manifest['build'], '12.1.0.69283')
             self.assertIn('spell_effect_index.csv', manifest['files'])
             for relative_path, expected in manifest['files'].items():
                 member = archive.extractfile(relative_path)

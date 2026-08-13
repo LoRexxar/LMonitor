@@ -33,25 +33,37 @@ echo "=== 2. Migrate ==="
 echo "=== 3. Collectstatic ==="
 "$PYTHON_BIN" manage.py collectstatic --no-input --ignore='simc_results/*'
 
-echo "=== 4. 重启 lmweb ==="
+echo "=== 4. 更新天赋模拟器数据 ==="
+TALENT_BUILD="12.1.0.69283"
+TALENT_DUMP_DIR=".cache/wago_db2_dumps/${TALENT_BUILD}"
+rm -rf "$TALENT_DUMP_DIR"
+mkdir -p "$TALENT_DUMP_DIR"
+tar -xzf "botend/data/ptr_talent_db2_${TALENT_BUILD}.tar.gz" -C "$TALENT_DUMP_DIR"
+"$PYTHON_BIN" manage.py repair_ptr_talent_metadata \
+    --version-key ptr-12.1.0 \
+    --dump-dir "$TALENT_DUMP_DIR" \
+    --backup-dir .cache/backups \
+    --skip-wowhead
+
+echo "=== 5. 重启 lmweb ==="
 screen -S lmweb -X quit 2>/dev/null || true
 kill_processes 'manage.py runserver 0.0.0.0:18000'
 sleep 2
 screen -dmS lmweb bash -lc "cd ~/LMonitor && $PYTHON_BIN manage.py runserver 0.0.0.0:18000 --noreload"
 
-echo "=== 5. 重启 lmback ==="
+echo "=== 6. 重启 lmback ==="
 screen -S lmback -X quit 2>/dev/null || true
 kill_processes 'LMonitorCoreBackend'
 sleep 2
 screen -dmS lmback bash -lc 'cd ~/LMonitor && ./start.sh'
 
-echo "=== 6. 重启 lmsimc ==="
+echo "=== 7. 重启 lmsimc ==="
 screen -S lmsimc -X quit 2>/dev/null || true
 kill_processes 'manage.py simc_worker'
 sleep 2
 screen -dmS lmsimc bash -lc "cd ~/LMonitor && $PYTHON_BIN manage.py simc_worker"
 
-echo "=== 7. 检查服务状态 ==="
+echo "=== 8. 检查服务状态 ==="
 for session in lmweb lmback lmsimc; do
     screen -list | grep -q "\.${session}" || {
         echo "screen 会话 ${session} 启动失败"
