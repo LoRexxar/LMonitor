@@ -1593,6 +1593,31 @@ finger1=,id=299002,ilevel=655
         self.assertEqual(candidates['talent_candidates'][0]['talent'], 'CLEAVE_BUILD')
         self.assertEqual(parse_manual_player_config('head=,id=212048\n### Gear from Bags\nhead=,id=299001', 'fury')['equipment'][0]['id'], 212048)
 
+    def test_profile_detail_parses_consumables_and_talent_strings(self):
+        detail = build_player_config_detail(
+            'manual_equipment', 'deathknight_frost',
+            player_equipment=(
+                'deathknight="Tester"\n'
+                'spec=frost\n'
+                'talents=BUILDCODE\n'
+                'class_talents=s207104:1/s444040:2\n'
+                'spec_talents=s194912:1\n'
+                'hero_talents=s555555:1\n'
+                'potion=potion_of_testing\n'
+                'flask=flask_of_testing\n'
+                'food=food_of_testing\n'
+                'augmentation=void_touched\n'
+                'temporary_enchant=main_hand:oil_a/off_hand:oil_b\n'
+                'head=,id=212048'
+            ),
+        )
+
+        self.assertEqual(detail['consumables']['potion'], 'potion_of_testing')
+        self.assertEqual(detail['consumables']['temporary_enchant']['main_hand'], 'oil_a')
+        self.assertEqual(detail['talent_strings']['class_talents']['value'], 's207104:1/s444040:2')
+        self.assertEqual(detail['talent_strings']['class_talents']['entries'][1], {'spell_id': 444040, 'rank': 2})
+        self.assertEqual(detail['talent_strings']['hero_talents']['entries'][0]['spell_id'], 555555)
+
     def test_parse_manual_candidates_splits_real_addon_profile_from_commented_extras(self):
         parsed = parse_simc_player_profile('''
 # SimC Addon 12.0.7-01

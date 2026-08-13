@@ -365,6 +365,47 @@ def _parse_professions(raw_value):
     return result
 
 
+def _parse_talent_string_entries(raw_value):
+    entries = []
+    for token in str(raw_value or '').split('/'):
+        match = re.fullmatch(r's?(\d+):(\d+)', token.strip(), re.IGNORECASE)
+        if match:
+            entries.append({'spell_id': int(match.group(1)), 'rank': int(match.group(2))})
+    return entries
+
+
+def _parse_temporary_enchants(raw_value):
+    result = {}
+    for token in str(raw_value or '').split('/'):
+        slot, separator, enchant = token.strip().partition(':')
+        if separator and slot and enchant:
+            result[slot] = enchant
+    return result
+
+
+def _enrich_player_detail(detail):
+    raw_fields = detail.get('raw_fields') or {}
+    talents = detail.get('talents') or {}
+    detail['consumables'] = {
+        'flask': raw_fields.get('flask', ''),
+        'potion': raw_fields.get('potion', ''),
+        'food': raw_fields.get('food', ''),
+        'augmentation': raw_fields.get('augmentation', ''),
+        'temporary_enchant': _parse_temporary_enchants(raw_fields.get('temporary_enchant', '')),
+    }
+    values = {
+        'talents': talents.get('build_code', ''),
+        'class_talents': raw_fields.get('class_talents', ''),
+        'spec_talents': raw_fields.get('spec_talents', ''),
+        'hero_talents': raw_fields.get('hero_talents', ''),
+    }
+    detail['talent_strings'] = {
+        key: {'value': value, 'entries': _parse_talent_string_entries(value)}
+        for key, value in values.items() if value
+    }
+    return detail
+
+
 def parse_manual_player_config(player_equipment, spec):
     """Parse an exported SimC player block without fetching external data.
 
@@ -452,7 +493,7 @@ def parse_manual_player_config(player_equipment, spec):
     for stat in PRIMARY:
         value = _number(parsed['raw_fields'].get(stat))
         if value is not None: parsed['stats']['primary'][stat] = value
-    return parsed
+    return _enrich_player_detail(parsed)
 
 
 def parse_manual_simc_candidates(player_equipment):
@@ -556,14 +597,14 @@ def build_player_config_detail(mode, spec, player_equipment='', battlenet_region
             detail['missing_fields'] = []
             if not detail['equipment']:
                 detail['missing_fields'].append('Battle.net 冻结快照未解析到装备槽位。')
-            return detail
-        return {
+            return _enrich_player_detail(detail)
+        return _enrich_player_detail({
             'source': {'type': 'battlenet', 'label': 'Battle.net 历史角色标识（无快照）'},
             'identity': {'name': battlenet_character, 'class_name': SPEC_CLASS.get(spec, ''), 'spec': spec, 'race': '', 'level': None,
                          'region': battlenet_region, 'realm': battlenet_realm},
             'talents': {'build_code': talent or ''}, 'equipment': [], 'stats': {'primary': {}, 'secondary': {}}, 'raw_fields': {},
             'missing_fields': ['历史配置未保存角色装备快照；预览不会访问 Battle.net。请重新导入后使用。'],
-        }
+        })
 
     if mode == 'attribute_only':
         detail = parse_manual_player_config(player_equipment, spec)
@@ -602,7 +643,7 @@ def build_player_config_detail(mode, spec, player_equipment='', battlenet_region
             detail['missing_fields'].append('历史配置未保存冻结玩家装备基线；不能发起新的属性模拟。')
         elif not detail['equipment']:
             detail['missing_fields'].append('冻结玩家基线未解析到装备槽位。')
-        return detail
+        return _enrich_player_detail(detail)
 
     semantic_profile = parse_simc_player_profile(player_equipment)
     detail = semantic_profile['profile']
@@ -639,4 +680,4 @@ def build_player_config_detail(mode, spec, player_equipment='', battlenet_region
         detail['missing_fields'].append('玩家块未提供 talents= 天赋构筑码。')
     if not detail['equipment']:
         detail['missing_fields'].append('玩家块未解析到装备槽位。')
-    return detail
+    return _enrich_player_detail(detail)

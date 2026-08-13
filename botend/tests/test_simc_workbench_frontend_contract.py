@@ -140,6 +140,10 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         detail_end = MAIN.index('async function simcWbViewProfile', detail_start)
         detail_renderer = MAIN[detail_start:detail_end]
         self.assertIn('renderSimcProfileEquipmentCards', detail_renderer)
+        self.assertIn('detail.consumables', detail_renderer)
+        self.assertIn('detail.talent_strings', detail_renderer)
+        self.assertIn('消耗品与临时附魔', detail_renderer)
+        self.assertIn('天赋字符串拆解', detail_renderer)
         self.assertNotIn('data-profile-equipment-slot', detail_renderer)
         self.assertNotIn('simcWbSaveProfileEquipment', detail_renderer)
         self.assertNotIn('保存装备修改', detail_renderer)

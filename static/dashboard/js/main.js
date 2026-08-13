@@ -1958,6 +1958,27 @@ function renderSimcProfileDetailDialog(detail) {
         ? `<a data-profile-detail-talent-link href="${escapeHtml(talentUrl)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center rounded-lg border border-violet-200 bg-white px-3 py-1.5 text-sm font-medium text-violet-700 transition hover:border-violet-400 hover:bg-violet-50"><i class="fas fa-project-diagram mr-1.5"></i>打开天赋模拟器</a>`
         : '<span class="text-xs text-slate-400">当前配置没有可查看的天赋码</span>';
     const equipment = renderSimcProfileEquipmentCards(detail.equipment);
+    const consumables = detail.consumables || {};
+    const consumableLabels = {
+        flask: '合剂', potion: '药水', food: '食物', augmentation: '增幅符文',
+    };
+    const consumableRows = Object.entries(consumableLabels)
+        .filter(([key]) => consumables[key])
+        .map(([key, label]) => `<div class="rounded-lg bg-slate-50 px-3 py-2"><div class="text-[11px] text-slate-400">${label}</div><div class="mt-0.5 break-all font-mono text-xs font-semibold text-slate-700">${esc(consumables[key])}</div></div>`);
+    const temporaryEnchantLabels = { main_hand: '主手临时附魔', off_hand: '副手临时附魔' };
+    Object.entries(consumables.temporary_enchant || {}).forEach(([slot, value]) => {
+        consumableRows.push(`<div class="rounded-lg bg-slate-50 px-3 py-2"><div class="text-[11px] text-slate-400">${esc(temporaryEnchantLabels[slot] || slot)}</div><div class="mt-0.5 break-all font-mono text-xs font-semibold text-slate-700">${esc(value)}</div></div>`);
+    });
+    const talentStringLabels = {
+        talents: '导入字符串', class_talents: '职业天赋', spec_talents: '专精天赋', hero_talents: '英雄天赋',
+    };
+    const talentStringRows = Object.entries(detail.talent_strings || {}).map(([key, row]) => {
+        const entries = Array.isArray(row.entries) ? row.entries : [];
+        const parsed = entries.length
+            ? `<div class="mt-2 flex flex-wrap gap-1.5">${entries.map(entry => `<span class="rounded bg-violet-50 px-2 py-1 font-mono text-[11px] text-violet-700">spell ${esc(entry.spell_id)} · ${esc(entry.rank)} 级</span>`).join('')}</div>`
+            : '';
+        return `<div class="border-b border-slate-100 py-2 last:border-b-0"><div class="text-xs font-semibold text-slate-600">${esc(talentStringLabels[key] || key)}</div><div class="mt-1 break-all font-mono text-xs text-slate-500">${esc(row.value)}</div>${parsed}</div>`;
+    }).join('');
     const source = detail.source || {};
     const stats = detail.stats || {};
     const sourceLabel = source.label || profile.player_config_mode || '-';
@@ -1972,7 +1993,7 @@ function renderSimcProfileDetailDialog(detail) {
     const body = document.getElementById('simc-dialog-body');
     if (!body) return;
     const syncNotice = profile.is_system ? '<p class="mt-2 text-xs text-amber-700">这是由上游同步维护的系统配置。</p>' : '';
-    body.innerHTML = `<div class="space-y-5"><header class="border-b border-slate-200 pb-4"><div class="flex flex-wrap items-start justify-between gap-3"><div><h3 class="text-lg font-bold text-slate-900">${esc(profile.name)}</h3><p class="mt-1 text-sm text-slate-500">${esc(profile.spec_label || profile.spec)} · ${esc(sourceLabel)}</p></div><span class="rounded-full px-2.5 py-1 text-xs font-medium ${profile.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}">${profile.is_active ? '生效中' : '未生效'}</span></div>${syncNotice}</header><section class="grid grid-cols-2 gap-2 sm:grid-cols-5">${statRows}</section><section class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-violet-100 bg-violet-50/60 p-3"><div class="min-w-0"><h4 class="font-semibold text-slate-900">天赋配置</h4><p class="mt-1 max-w-xl break-all font-mono text-xs text-slate-500">${esc(profile.talent)}</p></div>${talentLink}</section><section><h4 class="mb-3 font-semibold text-slate-900">装备、附魔与宝石</h4><div class="grid gap-2 sm:grid-cols-2">${equipment}</div></section><details class="rounded-lg border border-slate-200 bg-slate-50"><summary class="cursor-pointer px-3 py-2 text-sm font-semibold text-slate-700">原始玩家配置</summary><pre class="max-h-[28rem] overflow-auto border-t border-slate-200 bg-slate-950 p-3 text-xs leading-5 text-slate-100 whitespace-pre-wrap">${esc(profile.raw_player_equipment)}</pre></details></div>`;
+    body.innerHTML = `<div class="space-y-5"><header class="border-b border-slate-200 pb-4"><div class="flex flex-wrap items-start justify-between gap-3"><div><h3 class="text-lg font-bold text-slate-900">${esc(profile.name)}</h3><p class="mt-1 text-sm text-slate-500">${esc(profile.spec_label || profile.spec)} · ${esc(sourceLabel)}</p></div><span class="rounded-full px-2.5 py-1 text-xs font-medium ${profile.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}">${profile.is_active ? '生效中' : '未生效'}</span></div>${syncNotice}</header><section class="grid grid-cols-2 gap-2 sm:grid-cols-5">${statRows}</section><section class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-violet-100 bg-violet-50/60 p-3"><div class="min-w-0"><h4 class="font-semibold text-slate-900">天赋配置</h4><p class="mt-1 max-w-xl break-all font-mono text-xs text-slate-500">${esc(profile.talent)}</p></div>${talentLink}</section>${talentStringRows ? `<section><h4 class="mb-2 font-semibold text-slate-900">天赋字符串拆解</h4><div class="rounded-lg border border-slate-200 px-3">${talentStringRows}</div></section>` : ''}${consumableRows.length ? `<section><h4 class="mb-3 font-semibold text-slate-900">消耗品与临时附魔</h4><div class="grid grid-cols-2 gap-2 sm:grid-cols-3">${consumableRows.join('')}</div></section>` : ''}<section><h4 class="mb-3 font-semibold text-slate-900">装备、附魔与宝石</h4><div class="grid gap-2 sm:grid-cols-2">${equipment}</div></section><details class="rounded-lg border border-slate-200 bg-slate-50"><summary class="cursor-pointer px-3 py-2 text-sm font-semibold text-slate-700">原始玩家配置</summary><pre class="max-h-[28rem] overflow-auto border-t border-slate-200 bg-slate-950 p-3 text-xs leading-5 text-slate-100 whitespace-pre-wrap">${esc(profile.raw_player_equipment)}</pre></details></div>`;
 }
 async function simcWbViewProfile(id) {
     try {
