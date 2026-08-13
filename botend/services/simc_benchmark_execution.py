@@ -1332,7 +1332,14 @@ def _profile_detail_from_payload(payload, spec_key):
         detail['talents']['build_code'] = payload.get('talent') or ''
     is_ptr = payload.get('use_ptr') is True
     detail['is_ptr'] = is_ptr
-    detail['talent_version'] = _TALENT_VERSION_BY_BRANCH['ptr' if is_ptr else 'retail']
+    requested_branch = 'ptr' if is_ptr else 'retail'
+    # Historical snapshots may refer to a branch that is no longer configured.
+    # Keep the frozen input facts above, but always return a valid current version
+    # for the read model so one legacy Profile cannot break the whole result page.
+    detail['talent_version'] = _TALENT_VERSION_BY_BRANCH.get(
+        requested_branch,
+        _TALENT_VERSION_BY_BRANCH.get('retail', ''),
+    )
     return detail
 
 
@@ -1529,7 +1536,11 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
             'labels': {
                 'spec': _spec_display_name(coordinate['spec_label'], coordinate['spec_key']),
                 'scenario': coordinate['scenario_label'],
-                'profile': coordinate['profile_label'],
+                'profile': (
+                    profiles[profile_id].name
+                    if profiles.get(profile_id) is not None
+                    else coordinate['profile_label']
+                ),
             },
             'profile_detail': profile_details[detail_key],
             'simulation_detail': _simulation_detail_from_task(

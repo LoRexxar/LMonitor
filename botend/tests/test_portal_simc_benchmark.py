@@ -328,6 +328,36 @@ class PortalSimcRankingTests(TestCase):
         self.assertEqual(payload['rankings'][0]['resource_versions']['profile'], frozen_profile.content_hash)
         self.assertEqual(payload['rankings'][0]['simulation_params'], self.scenario.simulation_params)
 
+    def test_detail_survives_legacy_ptr_snapshot_and_uses_current_profile_name(self):
+        panel_spec, panel_profile = self.specs['warrior_fury']
+        profile = panel_profile.profile
+        frozen_profile = SimcResourceVersion.objects.create(
+            resource_type='profile', resource_id=profile.id,
+            content_hash='legacy-ptr-profile',
+            payload={
+                'name': 'Old profile name',
+                'player_equipment': 'warrior="Tester"\nspec=fury\ntalents=OLD_BUILD',
+                'spec': 'warrior_fury',
+                'talent': 'OLD_BUILD',
+                'use_ptr': True,
+            },
+        )
+        self._baseline('warrior_fury', 200, profile_version=frozen_profile)
+        profile.name = 'Renamed current profile'
+        profile.save(update_fields=['name'])
+
+        response = self.client.get(
+            f'/portal/api/simc-benchmarks/panels/{self.panel.id}/',
+            {'selected': '1', 'scenario': self.scenario.key},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        coordinate = response.json()['results']['coordinates'][0]
+        self.assertEqual(coordinate['profile_key'], str(profile.id))
+        self.assertEqual(coordinate['labels']['profile'], 'Renamed current profile')
+        self.assertEqual(coordinate['profile_detail']['talent_version'], 'ptr-12.1.0')
+        self.assertEqual(coordinate['candidates'][0]['dps'], 200.0)
+
     def test_spec_ranking_uses_each_enabled_specs_standard_profile_and_apl_only(self):
         _, fury_task, _ = self._baseline('warrior_fury', 200)
         _, fire_task, _ = self._baseline('mage_fire', 200)
