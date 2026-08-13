@@ -989,7 +989,7 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
                     'spec_key': spec.spec_key, 'spec_label': spec.label,
                     'class_name': spec.class_name,
                     'scenario_key': scenario.key, 'scenario_label': scenario.name,
-                    'profile_key': str(selected.profile_id), 'profile_label': selected.label,
+                    'profile_key': str(selected.profile_id), 'profile_label': selected.profile.name,
                     'profile_id': selected.profile_id, 'apl_id': spec.apl_id,
                     'template_id': spec.template_id, 'backend_id': spec.backend_id,
                     'simulation_params': deepcopy(scenario.simulation_params),

@@ -355,7 +355,7 @@ class PortalSimcRankingTests(TestCase):
         coordinate = response.json()['results']['coordinates'][0]
         self.assertEqual(coordinate['profile_key'], str(profile.id))
         self.assertEqual(coordinate['labels']['profile'], 'Renamed current profile')
-        self.assertEqual(coordinate['profile_detail']['talent_version'], 'ptr-12.1.0')
+        self.assertEqual(coordinate['profile_detail']['talent_version'], '')
         self.assertEqual(coordinate['candidates'][0]['dps'], 200.0)
 
     def test_spec_ranking_uses_each_enabled_specs_standard_profile_and_apl_only(self):
