@@ -71,6 +71,15 @@ def _build_wow_icon_oss_url(base_url, size, icon_name):
     return f'{base_url}/{encoded_size}/{encoded_icon}.jpg'
 
 
+def wow_icon_oss_url(icon_name, size='small'):
+    """返回供 API/JSON 使用的 WoW 图标 OSS 绝对 URL。"""
+    icon_name = _normalize_icon_name(icon_name)
+    if not icon_name:
+        return ''
+    base_url = _wow_icon_oss_base_url() or 'https://oss.wowdaily.cn/wow_icons_oss'
+    return _build_wow_icon_oss_url(base_url, size, icon_name)
+
+
 @register.filter
 def wow_item_description_lines(description):
     """Split a WoW item tooltip description into display-friendly lines."""

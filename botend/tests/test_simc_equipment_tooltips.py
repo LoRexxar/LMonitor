@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from botend.models import WowItemSnapshot
 from botend.services.simc_player_config import parse_manual_player_config
@@ -11,6 +11,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class SimcEquipmentTooltipContractTests(TestCase):
+    @override_settings(OSS_CONFIG={
+        'base_url': 'https://oss.wowdaily.cn/',
+        'wow_icon_prefix': 'wow_icons_oss',
+    })
     def test_profile_result_and_benchmark_equipment_share_item_description_tooltips(self):
         WowItemSnapshot.objects.create(
             item_id=249952,
@@ -18,6 +22,7 @@ class SimcEquipmentTooltipContractTests(TestCase):
             name_zh='夜幕终结者的獠牙',
             description='Equip: English effect.',
             description_zh='装备：中文装备属性与特效。',
+            icon='inv_test_equipment_icon',
         )
         profile = parse_manual_player_config(
             '\n'.join([
@@ -30,6 +35,8 @@ class SimcEquipmentTooltipContractTests(TestCase):
             'warrior_fury',
         )
         self.assertEqual(profile['equipment'][0]['display_description'], '装备：中文装备属性与特效。')
+        expected_icon_url = 'https://oss.wowdaily.cn/wow_icons_oss/small/inv_test_equipment_icon.jpg'
+        self.assertEqual(profile['equipment'][0]['icon_url'], expected_icon_url)
 
         report = parse_simc_html_report('''
             <div class="player">
@@ -46,6 +53,7 @@ class SimcEquipmentTooltipContractTests(TestCase):
         gear = next(section for section in report['sections'] if section['key'] == 'gear')
         item_cell = gear['tables'][0]['rows'][1][1]
         self.assertEqual(item_cell['item']['display_description'], '装备：中文装备属性与特效。')
+        self.assertEqual(item_cell['item']['icon_url'], expected_icon_url)
 
         shared_js = (ROOT / 'static/shared/js/wow-item-tooltip.js').read_text(encoding='utf-8')
         shared_css = (ROOT / 'static/shared/css/wow-item-tooltip.css').read_text(encoding='utf-8')
@@ -63,6 +71,8 @@ class SimcEquipmentTooltipContractTests(TestCase):
         for source in (profile_js, result_js, benchmark_js):
             self.assertIn('data-wow-item-tooltip', source)
             self.assertIn('display_description', source)
+            self.assertIn('icon_url', source)
+            self.assertIn('wow-item-icon', source)
         for token in ('pointerover', 'focusin', 'click', 'role="tooltip"'):
             self.assertIn(token, shared_js)
         self.assertIn('.wow-item-tooltip', shared_css)

@@ -442,8 +442,17 @@
           .filter(Boolean).join(" · ");
         row.append(node("span", "simc-benchmark-profile-equipment-slot", item?.slot_label || item?.slot || "装备"));
         const copy = node("span", "simc-benchmark-profile-equipment-copy");
-        copy.append(node("strong", "", name));
-        if (meta) copy.appendChild(node("small", "", meta));
+        const iconUrl = safeIconUrl(item?.icon_url);
+        if (iconUrl) {
+          const icon = node("img", "wow-item-icon");
+          icon.src = iconUrl; icon.alt = ""; icon.loading = "lazy";
+          icon.addEventListener("error", () => icon.remove(), { once: true });
+          copy.appendChild(icon);
+        }
+        const text = node("span", "simc-benchmark-profile-equipment-text");
+        text.append(node("strong", "", name));
+        if (meta) text.appendChild(node("small", "", meta));
+        copy.appendChild(text);
         list.appendChild(row); row.appendChild(copy);
       });
       section.append(node("h4", "", `装备 (${equipment.length})`), list); body.appendChild(section);

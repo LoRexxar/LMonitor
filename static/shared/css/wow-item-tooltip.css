@@ -2,6 +2,19 @@
   cursor: help;
 }
 
+.wow-item-icon {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  margin-right: 7px;
+  border: 1px solid rgba(148, 163, 184, .55);
+  border-radius: 5px;
+  background: #e2e8f0;
+  object-fit: cover;
+  vertical-align: middle;
+}
+
 [data-wow-item-tooltip]:focus-visible {
   outline: 2px solid #60a5fa;
   outline-offset: 3px;

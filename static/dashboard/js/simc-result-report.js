@@ -329,9 +329,14 @@
       : esc(text);
     const description = String(cell?.item?.display_description || '').trim();
     const itemName = String(cell?.item?.display_name || text || '装备');
+    const iconUrl = String(cell?.item?.icon_url || '').trim();
+    const itemIcon = iconUrl
+      ? `<img class="wow-item-icon" src="${esc(iconUrl)}" alt="" loading="lazy">`
+      : '';
+    const itemContent = itemIcon ? `${itemIcon}${baseContent}` : baseContent;
     const content = description
-      ? `<span class="simc-report-item-tooltip-trigger" tabindex="0" data-wow-item-tooltip="${esc(description)}" data-wow-item-tooltip-name="${esc(itemName)}">${baseContent}</span>`
-      : baseContent;
+      ? `<span class="simc-report-item-tooltip-trigger" tabindex="0" data-wow-item-tooltip="${esc(description)}" data-wow-item-tooltip-name="${esc(itemName)}">${itemContent}</span>`
+      : itemContent;
     return `<${tag}${classes ? ` class="${classes}"` : ''}${sourceTitle} colspan="${colspan}" rowspan="${rowspan}">${content}</${tag}>`;
   }
 

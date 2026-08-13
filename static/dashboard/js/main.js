@@ -1939,10 +1939,14 @@ function renderSimcProfileEquipmentCards(items, { compact = false } = {}) {
         const enchant = item.enchant ? `<div class="mt-1 text-xs text-violet-700"><i class="fas fa-magic mr-1"></i>${esc(item.enchant.display_name)}</div>` : '';
         const gems = (item.gems || []).length ? `<div class="mt-1 text-xs text-cyan-700"><i class="fas fa-gem mr-1"></i>${item.gems.map(gem => esc(gem.display_name)).join('、')}</div>` : '';
         const tooltipDescription = String(item.display_description || '').trim();
+        const iconUrl = String(item.icon_url || '').trim();
+        const itemIcon = iconUrl
+            ? `<img class="wow-item-icon" src="${escapeHtml(iconUrl)}" alt="" loading="lazy">`
+            : '';
         const tooltipAttrs = tooltipDescription
             ? ` data-wow-item-tooltip="${escapeHtml(tooltipDescription)}" data-wow-item-tooltip-name="${escapeHtml(String(item.display_name || itemId || '装备'))}" tabindex="0"`
             : '';
-        return `<article${tooltipAttrs} class="min-w-0 rounded-lg border border-slate-200 bg-white ${compact ? 'p-2.5' : 'p-3'} shadow-sm"><div class="flex items-start justify-between gap-3"><div class="min-w-0"><div class="text-[11px] font-semibold text-slate-400">${esc(item.slot_label || item.slot)}</div><div class="mt-0.5 truncate text-sm font-semibold text-slate-800" title="${esc(item.display_name)}">${esc(item.display_name)}</div></div><span class="shrink-0 rounded bg-slate-100 px-1.5 py-1 text-[11px] font-medium text-slate-500">${itemMeta || '-'}</span></div>${enchant}${gems}</article>`;
+        return `<article${tooltipAttrs} class="min-w-0 rounded-lg border border-slate-200 bg-white ${compact ? 'p-2.5' : 'p-3'} shadow-sm"><div class="flex items-start justify-between gap-3"><div class="flex min-w-0 items-center gap-2">${itemIcon}<div class="min-w-0"><div class="text-[11px] font-semibold text-slate-400">${esc(item.slot_label || item.slot)}</div><div class="mt-0.5 truncate text-sm font-semibold text-slate-800" title="${esc(item.display_name)}">${esc(item.display_name)}</div></div></div><span class="shrink-0 rounded bg-slate-100 px-1.5 py-1 text-[11px] font-medium text-slate-500">${itemMeta || '-'}</span></div>${enchant}${gems}</article>`;
     }).join('');
 }
 
