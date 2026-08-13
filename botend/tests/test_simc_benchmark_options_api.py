@@ -76,6 +76,27 @@ class SimcBenchmarkOptionsApiTests(TestCase):
             'default_classes': ['mage'],
         })
 
+    def test_regular_simulation_consumable_catalog_comes_from_system_profiles(self):
+        self.default_profile.player_equipment = (
+            'flask=tempered_flask\n'
+            'potion=tempered_potion\n'
+            'food=feast_of_the_midnight\n'
+            'augmentation=draconic_augmentation\n'
+            'temporary_enchant=main_hand:algari_mana_oil/off_hand:algari_mana_oil\n'
+            'flask=tempered_flask\n'
+        )
+        self.default_profile.save(update_fields=['player_equipment'])
+        response = self.client.get('/api/simc-profile/consumable-options/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['data'], {
+            'flask': ['tempered_flask'],
+            'potion': ['tempered_potion'],
+            'food': ['feast_of_the_midnight'],
+            'augmentation': ['draconic_augmentation'],
+            'temporary_enchant_main_hand': ['algari_mana_oil'],
+            'temporary_enchant_off_hand': ['algari_mana_oil'],
+        })
+
     def test_specs_are_exact_supported_catalog_and_devourer_is_localized(self):
         response = self.client.get('/api/simc-benchmarks/options/')
         self.assertEqual(response.status_code, 200)

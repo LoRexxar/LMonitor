@@ -3474,6 +3474,42 @@ class SimcSpecOptionsAPIView(View):
 
 
 @method_decorator(login_required, name='dispatch')
+class SimcConsumableOptionsAPIView(View):
+    """Expose consumable tokens present in active upstream SimC Profiles."""
+
+    OPTION_KEYS = ('flask', 'potion', 'food', 'augmentation')
+
+    def get(self, request):
+        values = {key: set() for key in self.OPTION_KEYS}
+        values.update(temporary_enchant_main_hand=set(), temporary_enchant_off_hand=set())
+        profiles = SimcProfile.objects.filter(
+            user_id__isnull=True,
+            source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+            is_active=True,
+        ).only('player_equipment')
+        for profile in profiles:
+            for raw_line in str(profile.player_equipment or '').splitlines():
+                key, separator, raw_value = raw_line.partition('=')
+                key = key.strip().lower()
+                value = raw_value.strip()
+                if not separator or not value:
+                    continue
+                if key in self.OPTION_KEYS:
+                    values[key].add(value)
+                elif key == 'temporary_enchant':
+                    for entry in value.split('/'):
+                        hand, hand_separator, enchant = entry.partition(':')
+                        if not hand_separator or not enchant.strip():
+                            continue
+                        target = f'temporary_enchant_{hand.strip().lower()}'
+                        if target in values:
+                            values[target].add(enchant.strip())
+        return JsonResponse({'success': True, 'data': {
+            key: sorted(items) for key, items in values.items()
+        }})
+
+
+@method_decorator(login_required, name='dispatch')
 class SimcBattlenetPreflightAPIView(View):
     """Fetch and validate Battle.net character data before it is saved or simulated."""
 

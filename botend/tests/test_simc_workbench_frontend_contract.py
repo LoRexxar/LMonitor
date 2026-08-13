@@ -107,6 +107,20 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('indeterminate', SIMC_MAIN)
         self.assertNotIn('const SIMC_RAID_BUFF', SIMC_MAIN)
 
+    def test_profile_overrides_use_selects_for_consumables_but_keep_talents_as_text(self):
+        workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
+        for key in ('flask', 'potion', 'food', 'augmentation'):
+            self.assertIn(f'data-simc-profile-override="{key}"', workflow)
+            self.assertIn(f'<select data-simc-profile-override="{key}"', workflow)
+        self.assertIn('data-simc-profile-override="temporary_enchant_main_hand"', workflow)
+        self.assertIn('data-simc-profile-override="temporary_enchant_off_hand"', workflow)
+        self.assertIn('loadSimcConsumableOptions', SIMC_MAIN)
+        self.assertIn("/api/simc-profile/consumable-options/", SIMC_MAIN)
+        self.assertIn('temporary_enchant_main_hand', SIMC_MAIN)
+        self.assertIn('temporary_enchant_off_hand', SIMC_MAIN)
+        self.assertIn('temporary_enchant', SIMC_MAIN)
+        self.assertIn('<input data-simc-profile-override="talents"', workflow)
+
     def test_combat_raid_buffs_offer_class_buff_toggle_plus_extra_selection(self):
         workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
         self.assertIn('id="simc-sim-use-class-raid-buff"', workflow)

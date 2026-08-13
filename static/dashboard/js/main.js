@@ -3255,6 +3255,16 @@ function currentSimcScenario() {
         const value = String(input.value || '').trim();
         if (value) profileOverrides[input.dataset.simcProfileOverride] = value;
     });
+    const mainHandEnchant = profileOverrides.temporary_enchant_main_hand;
+    const offHandEnchant = profileOverrides.temporary_enchant_off_hand;
+    delete profileOverrides.temporary_enchant_main_hand;
+    delete profileOverrides.temporary_enchant_off_hand;
+    if (mainHandEnchant || offHandEnchant) {
+        profileOverrides.temporary_enchant = [
+            mainHandEnchant ? `main_hand:${mainHandEnchant}` : '',
+            offHandEnchant ? `off_hand:${offHandEnchant}` : '',
+        ].filter(Boolean).join('/');
+    }
     if (Object.keys(profileOverrides).length) scenario.profile_overrides = profileOverrides;
     const control = document.getElementById('simc-sim-raid-buff-control');
     scenario.use_class_raid_buff = document.getElementById('simc-sim-use-class-raid-buff')?.checked !== false;
@@ -3951,6 +3961,24 @@ async function loadSimcRaidBuffOptions() {
     renderSimcRaidBuffOptions(payload.data);
 }
 
+async function loadSimcConsumableOptions() {
+    const response = await fetch('/api/simc-profile/consumable-options/');
+    const payload = await response.json();
+    if (!response.ok || !payload.success || !payload.data) {
+        throw new Error(payload.error || '加载消耗品选项失败');
+    }
+    document.querySelectorAll('[data-simc-profile-override]').forEach(select => {
+        if (select.tagName !== 'SELECT') return;
+        const key = select.dataset.simcProfileOverride;
+        const current = select.value;
+        const options = Array.isArray(payload.data[key]) ? payload.data[key] : [];
+        select.innerHTML = '<option value="">不覆盖</option>' + options.map(value =>
+            `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`
+        ).join('');
+        if (options.includes(current)) select.value = current;
+    });
+}
+
 function simcResolvedClassName() {
     return String(simcResolvedCanonicalSpec || '').trim().toLowerCase().split('_', 1)[0];
 }
@@ -4094,6 +4122,7 @@ function bindSimcWorkbenchSimulationControls() {
         const host = document.getElementById('simc-sim-raid-buffs');
         if (host) host.textContent = String(error.message || error);
     });
+    loadSimcConsumableOptions().catch(error => showMessage(String(error.message || error), 'error'));
     loadSimcBackendOptions().catch(error => showMessage(String(error.message || error), 'error'));
     updateSimcHomeMode();
     switchSimcPlayerImportMode({ resolve: false });
