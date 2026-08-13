@@ -1040,6 +1040,25 @@ class SimcBenchmarkExecutionTests(TestCase):
         )
         self.assertEqual(supplement_case.task.simulation_runs.count(), 0)
 
+    def test_apl_content_change_supplements_the_complete_coordinate(self):
+        original = self._published_success()
+        original_apl_hash = original.cases.get().task.apl_version.content_hash
+        self.apl.content = 'actions=/auto_attack\nactions+=/bloodthirst'
+        self.apl.validated_content_hash = hashlib.sha256(self.apl.content.encode()).hexdigest()
+        self.apl.save(update_fields=['content', 'validated_content_hash'])
+        self.validation['content_hash'] = self.apl.validated_content_hash
+
+        supplement = self._create(execution_mode='supplement')
+
+        self.assertEqual(supplement.cases.count(), 1)
+        task = supplement.cases.get().task
+        self.assertNotEqual(task.apl_version.content_hash, original_apl_hash)
+        self.assertEqual(
+            [row['candidate_key'] for row in task.mode_params['initial_candidates']],
+            ['baseline', 'trinket'],
+        )
+        self.assertIsNone(task.source_task_id)
+
     def test_adding_another_item_level_supplements_only_the_new_level(self):
         candidate = self.panel.candidates.get()
         original = self._published_success()

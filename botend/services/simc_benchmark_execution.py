@@ -35,7 +35,7 @@ from botend.services.simc_composer import SIMC_CLASS_RAID_BUFFS
 from botend.services.simc_player_config import parse_manual_player_config
 from botend.services.simc_task_service import (
     TaskCreationError, TaskPreparedResourceChanged, TaskValidationUnavailable,
-    create_task, prepare_task_creation,
+    _compute_content_hash, create_task, prepare_task_creation,
 )
 from botend.services.task_rerun import create_rerun, TaskRerunError
 from botend.wow.talents.default_versions import DEFAULT_TALENT_VERSIONS
@@ -368,8 +368,8 @@ def _normalized_simulation_params_for_identity(params):
     return normalized
 
 
-def _coordinate_input_identity(coordinate):
-    return _canonical_hash({
+def _coordinate_input_identity(coordinate, *, include_resource_versions=False):
+    identity = {
         'spec_key': coordinate['spec_key'], 'scenario_key': coordinate['scenario_key'],
         'profile_key': coordinate['profile_key'], 'profile_id': coordinate['profile_id'],
         'apl_id': coordinate['apl_id'], 'template_id': coordinate['template_id'],
@@ -377,7 +377,19 @@ def _coordinate_input_identity(coordinate):
         'simulation_params': _normalized_simulation_params_for_identity(
             coordinate['simulation_params'],
         ),
-    })
+    }
+    if include_resource_versions:
+        identity['resource_versions'] = coordinate.get('resource_version_hashes') or {}
+    return _canonical_hash(identity)
+
+
+def _task_resource_version_hashes(task):
+    """Return the immutable executable resource versions frozen on one Task."""
+    return {
+        'profile': task.profile_version.content_hash if task.profile_version_id else None,
+        'apl': task.apl_version.content_hash if task.apl_version_id else None,
+        'template': task.template_version.content_hash if task.template_version_id else None,
+    }
 
 
 def _execution_contributes_to_projection(execution):
@@ -420,7 +432,8 @@ def _latest_source_tasks_by_coordinate(panel, coordinate_filter=None):
     return source_tasks
 
 
-def _reusable_candidate_tasks_by_coordinate(panel, coordinate_filter=None):
+def _reusable_candidate_tasks_by_coordinate(
+        panel, coordinate_filter=None, *, include_resource_versions=False):
     """Load the newest successful provenance for each coordinate/candidate identity.
 
     A full rerun is an asynchronous replacement. Its successful candidates must
@@ -441,7 +454,8 @@ def _reusable_candidate_tasks_by_coordinate(panel, coordinate_filter=None):
                 case_filters[key] = str(value)
     cases = SimcBenchmarkCase.objects.filter(**case_filters)
     cases = cases.select_related(
-        'task', 'task__profile_version', 'execution',
+        'task', 'task__profile_version', 'task__apl_version',
+        'task__template_version', 'execution',
     ).prefetch_related('results').order_by(
         '-execution_id', '-id',
     ).distinct()
@@ -451,12 +465,17 @@ def _reusable_candidate_tasks_by_coordinate(panel, coordinate_filter=None):
         task = case.task
         if task is None:
             continue
-        coordinate = _coordinate_input_identity({
+        coordinate_payload = {
             'spec_key': case.spec_key, 'scenario_key': case.scenario_key,
             'profile_key': case.profile_key, 'profile_id': task.profile_id,
             'apl_id': task.apl_id, 'template_id': task.template_id,
             'backend_id': task.backend_id, 'simulation_params': task.simulation_params or {},
-        })
+        }
+        if include_resource_versions:
+            coordinate_payload['resource_version_hashes'] = _task_resource_version_hashes(task)
+        coordinate = _coordinate_input_identity(
+            coordinate_payload, include_resource_versions=include_resource_versions,
+        )
         candidates = coordinates.setdefault(coordinate, {})
         identities = _task_candidate_identities_through_source_chain(task)
         for result in case.results.all():
@@ -510,19 +529,29 @@ def _candidate_source_run(task, candidate_key):
     return None
 
 
-def _reusable_candidate_tasks(panel, coordinate, reusable_by_coordinate=None):
+def _reusable_candidate_tasks(
+        panel, coordinate, reusable_by_coordinate=None, *, include_resource_versions=False):
     """Return finalized Task provenance by full frozen coordinate/candidate input identity."""
     if reusable_by_coordinate is None:
-        reusable_by_coordinate = _reusable_candidate_tasks_by_coordinate(panel)
-    return reusable_by_coordinate.get(_coordinate_input_identity(coordinate), {})
+        reusable_by_coordinate = _reusable_candidate_tasks_by_coordinate(
+            panel, include_resource_versions=include_resource_versions,
+        )
+    identity = _coordinate_input_identity(
+        coordinate, include_resource_versions=include_resource_versions,
+    )
+    return reusable_by_coordinate.get(identity, {})
 
 
 def _incremental_coordinates(panel, plan):
     """Schedule only candidate input identities absent from immutable successful results."""
     rows = []
-    reusable_by_coordinate = _reusable_candidate_tasks_by_coordinate(panel)
+    reusable_by_coordinate = _reusable_candidate_tasks_by_coordinate(
+        panel, include_resource_versions=True,
+    )
     for coordinate in plan['cases']:
-        reusable = _reusable_candidate_tasks(panel, coordinate, reusable_by_coordinate)
+        reusable = _reusable_candidate_tasks(
+            panel, coordinate, reusable_by_coordinate, include_resource_versions=True,
+        )
         missing = [candidate for candidate in coordinate['candidates']
                    if _candidate_input_identity(candidate) not in reusable]
         if missing:
@@ -639,6 +668,17 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
             raise BenchmarkExecutionConflict(
                 'Panel configuration changed during execution preflight'
             )
+        for coordinate in locked_plan['cases']:
+            key = (coordinate['backend_id'], coordinate['profile_id'],
+                   coordinate['apl_id'], coordinate['template_id'])
+            prepared = prepared_by_resources.get(key)
+            if prepared is None:
+                continue
+            coordinate['resource_version_hashes'] = {
+                'profile': _compute_content_hash(json.loads(prepared.profile_payload_json)),
+                'apl': _compute_content_hash(json.loads(prepared.apl_payload_json)),
+                'template': _compute_content_hash(json.loads(prepared.template_payload_json)),
+            }
         incremental_coordinates = _incremental_coordinates(locked_panel, locked_plan)
         # Full rerun schedules the entire frozen surface. Results remain readable
         # from the previous execution until each replacement candidate succeeds.
