@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{{ detail_title }} · SimC</title>
   <link rel="stylesheet" href="{% static 'dashboard/css/simc-result-report.css' %}?v=20260811_result_architecture_zh">
+  <link rel="stylesheet" href="{% static 'shared/css/wow-item-tooltip.css' %}?v=20260813_simc_equipment_tooltip">
   <style>
     :root{color-scheme:light;--ink:#172033;--muted:#687386;--line:#dfe5ee;--blue:#2563eb;--purple:#6d5bd0;--wash:#f4f5fa;--card:#fff;--success:#16a085}
     *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 88% 0,#e9e4ff 0,transparent 29%),radial-gradient(circle at 8% 14%,#dbeafe 0,transparent 25%),var(--wash);color:var(--ink);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
@@ -30,7 +31,8 @@
   </div>
 </main>
 <dialog id="simc-input-dialog" class="simc-input-dialog"><div class="simc-input-dialog__body"><div class="simc-input-dialog__head"><h2 data-run-input-status>SimC 输入</h2><button type="button" class="simc-input-dialog__close" data-run-input-close aria-label="关闭">×</button></div><pre><code data-run-input-content></code></pre></div></dialog>
-<script src="{% static 'dashboard/js/simc-result-report.js' %}?v=20260811_result_architecture_zh"></script>
+<script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260813_simc_equipment_tooltip"></script>
+<script src="{% static 'dashboard/js/simc-result-report.js' %}?v=20260813_simc_equipment_tooltip"></script>
 <script src="{% static 'dashboard/js/simc-detail.js' %}?v=20260812_attribute_unbuffed_stats"></script>
 </body>
 </html>

@@ -8,6 +8,7 @@ import re
 
 from botend.constants.wow import CLASS_SPEC_MAP
 from botend.models import SimcMasteryCoefficient, SimcSecondaryStatRule, WowItemSnapshot
+from botend.services.wow_item_display import item_display_metadata
 
 
 SPEC_CLASS = {
@@ -330,11 +331,13 @@ def resolve_attribute_player_baseline(spec, player_equipment=''):
 def _item_meta(item_id, snapshots):
     item_id = _number(item_id)
     snapshot = snapshots.get(item_id) if item_id else None
+    display = item_display_metadata(item_id, snapshot)
     return {
         'id': item_id,
         'name': (snapshot.name if snapshot else '') or '',
         'name_zh': (snapshot.name_zh if snapshot else '') or '',
         'display_name': ((snapshot.name_zh or snapshot.name) if snapshot else '') or (f'#{item_id}' if item_id else '未知物品'),
+        'display_description': display['display_description'],
         'icon': (snapshot.icon if snapshot else '') or '',
         'quality': (snapshot.quality if snapshot else 0) or 0,
         'wowhead_url': f'https://www.wowhead.com/cn/item={item_id}' if item_id else '',

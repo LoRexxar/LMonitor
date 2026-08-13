@@ -324,9 +324,14 @@
     const longToken = text.length > 60 && !/\s/.test(text);
     const classes = [numeric ? 'simc-report-cell-number' : '', longToken ? 'simc-report-cell-token' : ''].filter(Boolean).join(' ');
     const sourceTitle = text !== sourceText.trim() ? ` title="原文：${esc(sourceText)}"` : '';
-    const content = longToken
+    const baseContent = longToken
       ? `<code title="${esc(text)}">${esc(text)}</code><button type="button" data-simc-report-copy="${esc(sourceText)}">复制</button>`
       : esc(text);
+    const description = String(cell?.item?.display_description || '').trim();
+    const itemName = String(cell?.item?.display_name || text || '装备');
+    const content = description
+      ? `<span class="simc-report-item-tooltip-trigger" tabindex="0" data-wow-item-tooltip="${esc(description)}" data-wow-item-tooltip-name="${esc(itemName)}">${baseContent}</span>`
+      : baseContent;
     return `<${tag}${classes ? ` class="${classes}"` : ''}${sourceTitle} colspan="${colspan}" rowspan="${rowspan}">${content}</${tag}>`;
   }
 

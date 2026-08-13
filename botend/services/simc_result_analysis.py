@@ -8,6 +8,7 @@ import copy
 import re
 
 from botend.services import simc_agent_oss, simc_artifacts
+from botend.services.wow_item_display import load_item_display_metadata
 
 
 _CLASS_NAMES_ZH = {
@@ -90,6 +91,7 @@ def _report_token(value):
 def _project_report_sections(player_detail):
     """Project SimC sections to bounded, plain-text-only table data."""
     projected = []
+    item_ids = set()
 
     def hidden_by_report(node, boundary):
         current = node
@@ -158,12 +160,21 @@ def _project_report_sections(player_detail):
                         rowspan = max(1, min(_REPORT_TABLE_MAX_ROWS, int(cell.get("rowspan") or 1)))
                     except (TypeError, ValueError):
                         rowspan = 1
-                    cells.append({
+                    projected_cell = {
                         "text": cell_text(cell, table),
                         "header": cell.name == "th",
                         "colspan": colspan,
                         "rowspan": rowspan,
-                    })
+                    }
+                    item_link = next((
+                        match for anchor in cell.find_all("a", href=True)
+                        if (match := re.search(r"(?:item=|/item/)(\d+)", anchor.get("href") or ""))
+                    ), None)
+                    if item_link:
+                        item_id = int(item_link.group(1))
+                        projected_cell["item_id"] = item_id
+                        item_ids.add(item_id)
+                    cells.append(projected_cell)
                 if cells and any(cell["text"] for cell in cells):
                     rows.append(cells)
             if not rows:
@@ -195,6 +206,15 @@ def _project_report_sections(player_detail):
                 "tables": tables,
                 "text_blocks": text_blocks,
             })
+    item_metadata = load_item_display_metadata(item_ids)
+    if item_metadata:
+        for section in projected:
+            for table in section.get("tables") or []:
+                for row in table.get("rows") or []:
+                    for cell in row:
+                        item_id = cell.get("item_id")
+                        if item_id in item_metadata:
+                            cell["item"] = item_metadata[item_id]
     return projected
 
 

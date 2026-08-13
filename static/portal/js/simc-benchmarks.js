@@ -432,6 +432,12 @@
       equipment.forEach((item) => {
         const row = node("div", "simc-benchmark-profile-equipment-row");
         const name = item?.display_name || item?.name_zh || item?.name || `#${item?.item_id || "—"}`;
+        const description = String(item?.display_description || "").trim();
+        if (description) {
+          row.setAttribute("data-wow-item-tooltip", description);
+          row.setAttribute("data-wow-item-tooltip-name", name);
+          row.tabIndex = 0;
+        }
         const meta = [item?.item_level ? `装等 ${item.item_level}` : "", item?.enchant?.display_name ? `附魔：${item.enchant.display_name}` : ""]
           .filter(Boolean).join(" · ");
         row.append(node("span", "simc-benchmark-profile-equipment-slot", item?.slot_label || item?.slot || "装备"));
