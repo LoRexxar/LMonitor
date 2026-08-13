@@ -1,7 +1,7 @@
 """Public, read-only SimC benchmark endpoints for the Portal."""
 import json
 
-from django.db.models import Count, Exists, Max, OuterRef
+from django.db.models import Exists, Max, OuterRef
 from django.http import JsonResponse
 from django.views import View
 
@@ -11,6 +11,7 @@ from botend.models import (
 )
 from botend.services.simc_benchmark_execution import (
     serialize_incremental_panel_results, serialize_panel_apl_ranking_results,
+    summarize_panel_coverage_counts,
 )
 
 
@@ -298,9 +299,10 @@ class PortalSimcBenchmarkPanelListAPIView(View):
                     is_enabled=True,
                 )
             ),
-            result_count=Count('executions__cases__results', distinct=True),
             result_updated_at=Max('executions__cases__results__created_at'),
         ).order_by('name', 'id')
+        queryset = list(queryset)
+        coverage_by_panel = summarize_panel_coverage_counts(queryset)
         for panel in queryset:
             is_ready = (
                 panel.has_enabled_scenario
@@ -312,7 +314,7 @@ class PortalSimcBenchmarkPanelListAPIView(View):
                 'name': panel.name,
                 'description': panel.description,
                 'status': 'ready' if is_ready else 'not_ready',
-                'result_count': panel.result_count,
+                'result_count': coverage_by_panel[panel.pk]['available_results'],
                 'result_updated_at': (
                     panel.result_updated_at.isoformat()
                     if panel.result_updated_at else None

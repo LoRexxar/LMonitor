@@ -14,8 +14,7 @@ from datetime import timezone as datetime_timezone
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import CharField, Count, Prefetch, Q, Value
-from django.db.models.functions import Concat
+from django.db.models import Count, Prefetch
 from django.utils import timezone
 
 from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON
@@ -1165,15 +1164,107 @@ def rerun_case(execution, case_id, requested_by=None):
     return rerun_failed_cases(execution, requested_by=requested_by, case_id=case_id)
 
 
-def summarize_panel_coverage_counts(panels):
-    """Return list-safe full-surface coverage with grouped database aggregates.
+def _reusable_result_counts_for_plans(panels, plans):
+    """Count current-plan Result identities without materializing result details."""
+    panel_ids = [panel.pk for panel in panels if panel.pk in plans]
+    counts = {panel_id: {'available': 0, 'sources': {}} for panel_id in panel_ids}
+    if not panel_ids:
+        return counts
 
-    A supplement Execution owns only missing candidate Runs, so it must never
-    replace the Panel's full-surface denominator or hide immutable Results from
-    earlier Executions.  The list selects the aggregate baseline (or, for legacy
-    Panels, the largest frozen full-surface snapshot), then counts distinct
-    coordinate/candidate Result identities at and after that boundary in SQL.
-    It deliberately does not build a plan or load Result rows into Python.
+    results = list(SimcBenchmarkResult.objects.filter(
+        case__execution__panel_id__in=panel_ids,
+        case__task__isnull=False,
+    ).values(
+        'candidate_key', 'case__execution_id', 'case__execution__panel_id',
+        'case__spec_key', 'case__scenario_key', 'case__profile_key',
+        'case__task_id', 'case__task__profile_id', 'case__task__apl_id',
+        'case__task__template_id', 'case__task__backend_id',
+        'case__task__simulation_params',
+    ).order_by('-case__execution_id', '-case_id', '-id'))
+    task_ids = {row['case__task_id'] for row in results}
+    tasks = {
+        task.pk: task
+        for task in SimcTask.objects.filter(pk__in=task_ids).only(
+            'id', 'source_task_id', 'mode_params',
+        )
+    }
+    missing_source_ids = {
+        task.source_task_id for task in tasks.values()
+        if task.source_task_id and task.source_task_id not in tasks
+    }
+    while missing_source_ids:
+        loaded = list(SimcTask.objects.filter(pk__in=missing_source_ids).only(
+            'id', 'source_task_id', 'mode_params',
+        ))
+        if not loaded:
+            break
+        tasks.update((task.pk, task) for task in loaded)
+        missing_source_ids = {
+            task.source_task_id for task in loaded
+            if task.source_task_id and task.source_task_id not in tasks
+        }
+
+    identity_cache = {}
+
+    def candidate_identities(task_id):
+        if task_id in identity_cache:
+            return identity_cache[task_id]
+        chain = []
+        current_id = task_id
+        seen = set()
+        while current_id and current_id not in seen:
+            seen.add(current_id)
+            task = tasks.get(current_id)
+            if task is None:
+                break
+            chain.append(task)
+            current_id = task.source_task_id
+        identities = {}
+        for task in reversed(chain):
+            identities.update(_task_candidate_identities(task))
+        identity_cache[task_id] = identities
+        return identities
+
+    reusable = {panel_id: {} for panel_id in panel_ids}
+    for row in results:
+        panel_id = row['case__execution__panel_id']
+        coordinate = _coordinate_input_identity({
+            'spec_key': row['case__spec_key'],
+            'scenario_key': row['case__scenario_key'],
+            'profile_key': row['case__profile_key'],
+            'profile_id': row['case__task__profile_id'],
+            'apl_id': row['case__task__apl_id'],
+            'template_id': row['case__task__template_id'],
+            'backend_id': row['case__task__backend_id'],
+            'simulation_params': row['case__task__simulation_params'] or {},
+        })
+        candidate = candidate_identities(row['case__task_id']).get(row['candidate_key'])
+        if candidate:
+            reusable[panel_id].setdefault((coordinate, candidate), row['case__execution_id'])
+
+    for panel_id, plan in plans.items():
+        available = 0
+        source_counts = {}
+        for coordinate in plan['cases']:
+            coordinate_identity = _coordinate_input_identity(coordinate)
+            for candidate in coordinate['candidates']:
+                source_execution_id = reusable[panel_id].get((
+                    coordinate_identity, _candidate_input_identity(candidate),
+                ))
+                if source_execution_id is None:
+                    continue
+                available += 1
+                source_counts[source_execution_id] = source_counts.get(source_execution_id, 0) + 1
+        counts[panel_id] = {'available': available, 'sources': source_counts}
+    return counts
+
+
+def summarize_panel_coverage_counts(panels):
+    """Return list-safe coverage projected against each Panel's current plan.
+
+    The baseline snapshot remains display metadata, while result availability uses
+    the same coordinate/candidate identities as the detail projection. Historical
+    Result rows for removed or changed candidates therefore do not inflate counts.
     """
     panels = list(panels)
     coverage = {
@@ -1192,52 +1283,29 @@ def summarize_panel_coverage_counts(panels):
     if not panels:
         return coverage
 
-    panel_ids = [panel.pk for panel in panels]
-    scenario_counts = {
-        row['panel_id']: row['count']
-        for row in SimcBenchmarkScenario.objects.filter(
-            panel_id__in=panel_ids, is_enabled=True,
-        ).values('panel_id').annotate(count=Count('id'))
-    }
-    profile_counts = list(SimcBenchmarkProfile.objects.filter(
-        panel_spec__panel_id__in=panel_ids,
-        panel_spec__is_enabled=True,
-        is_enabled=True,
-    ).values(
-        'panel_spec__panel_id', 'panel_spec__spec_key',
-    ).annotate(count=Count('id')))
-    candidates_by_panel = {}
-    for row in SimcBenchmarkCandidate.objects.filter(
-        panel_id__in=panel_ids, is_enabled=True,
-    ).values('panel_id', 'spec_keys'):
-        candidates_by_panel.setdefault(row['panel_id'], []).append(row['spec_keys'])
+    plans = {}
+    for panel in panels:
+        try:
+            plans[panel.pk] = build_execution_plan(
+                panel, validate_for_execution=False, lock=False,
+            )
+        except ValidationError:
+            continue
+        coverage[panel.pk]['current_plan_runs'] = plans[panel.pk]['run_count']
 
-    for row in profile_counts:
-        panel_id = row['panel_spec__panel_id']
-        spec_key = row['panel_spec__spec_key']
-        applicable_candidates = sum(
-            1
-            for spec_keys in candidates_by_panel.get(panel_id, [])
-            if not spec_keys or spec_key in spec_keys
-        )
-        coverage[panel_id]['current_plan_runs'] += (
-            row['count']
-            * scenario_counts.get(panel_id, 0)
-            * (1 + applicable_candidates)
-        )
-
-    # Old Panels predate aggregate_baseline_execution.  Their largest frozen
-    # snapshot is the complete surface; a later supplement is only its delta.
+    # Old Panels predate aggregate_baseline_execution. Their largest frozen
+    # snapshot remains the baseline denominator shown on the Dashboard.
     executions_by_panel = {}
     for row in SimcBenchmarkExecution.objects.filter(panel__in=panels).values(
         'id', 'panel_id', 'config_snapshot',
     ):
         executions_by_panel.setdefault(row['panel_id'], []).append(row)
 
-    boundaries = {}
     for panel in panels:
         rows = executions_by_panel.get(panel.pk, [])
-        selected = next((row for row in rows if row['id'] == panel.aggregate_baseline_execution_id), None)
+        selected = next(
+            (row for row in rows if row['id'] == panel.aggregate_baseline_execution_id), None,
+        )
         if selected is None:
             selected = max(
                 rows,
@@ -1256,28 +1324,18 @@ def summarize_panel_coverage_counts(panels):
         item['coordinates'] = int(snapshot.get('case_count') or 0)
         item['candidate_runs'] = int(snapshot.get('run_count') or 0)
         item['plan_delta_runs'] = item['current_plan_runs'] - item['candidate_runs']
-        item['missing_results'] = item['candidate_runs']
-        boundaries[panel.pk] = selected['id']
 
-    # Count the latest available logical result surface across all immutable
-    # executions. A replacement Execution is asynchronous, so its missing or
-    # failed candidates must not hide an older successful row.
-    identity_expression = Concat(
-        'case__coordinate_hash', Value(':'), 'candidate_key',
-        output_field=CharField(),
-    )
-    boundary_filter = Q()
-    for panel_id in boundaries:
-        boundary_filter |= Q(case__execution__panel_id=panel_id)
-    grouped_results = SimcBenchmarkResult.objects.filter(boundary_filter).values(
-        'case__execution__panel_id',
-    ).annotate(available=Count(identity_expression, distinct=True))
-    for row in grouped_results:
-        panel_id = row['case__execution__panel_id']
+    result_counts = _reusable_result_counts_for_plans(panels, plans)
+    for panel_id, result_count in result_counts.items():
         item = coverage[panel_id]
-        result_count = row['available'] or 0
-        item['available_results'] = result_count
-        item['missing_results'] = max(0, item['candidate_runs'] - result_count)
+        available = result_count['available']
+        item['available_results'] = available
+        denominator = item['current_plan_runs']
+        item['missing_results'] = max(0, denominator - available)
+        item['source_executions'] = [
+            {'execution_id': execution_id, 'results': count}
+            for execution_id, count in sorted(result_count['sources'].items())
+        ]
 
     return coverage
 

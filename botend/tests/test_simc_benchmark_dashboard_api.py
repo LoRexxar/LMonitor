@@ -14,6 +14,7 @@ from botend.models import (
     SimcBenchmarkPanel, SimcBenchmarkResult, SimcContentTemplate, SimcProfile, SimcTask,
     SimcTaskArtifact, SimulationRun,
 )
+from botend.services.simc_benchmark_config import build_execution_plan
 from botend.services.simc_benchmark_execution import BenchmarkExecutionConflict
 
 
@@ -315,6 +316,69 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         row = response.json()['data'][0]
         self.assertNotIn('aggregated_results', row)
         serialize.assert_not_called()
+
+    def test_panel_lists_count_only_results_reusable_by_current_config(self):
+        panel = self._create_panel()
+        panel.is_public = True
+        panel.save(update_fields=['is_public'])
+        coordinate = build_execution_plan(
+            panel, validate_for_execution=False, lock=False,
+        )['cases'][0]
+        stale_candidate = {
+            'candidate_key': 'removed-candidate',
+            'candidate_label': 'Removed candidate',
+            'candidate_type': 'gear_swap',
+            'candidate_params': {
+                'candidate_type': 'gear_swap',
+                'gear_swap': {
+                    'slot': 'trinket1', 'item_id': 999999,
+                    'raw_value': 'id=999999,ilevel=289',
+                },
+            },
+        }
+        task = SimcTask.objects.create(
+            user_id=self.staff.id, name='historical-result-count',
+            simc_profile_id=self.profile.id, profile=self.profile,
+            apl=self.apl, template=self.template, backend=self.backend,
+            mode='comparison', current_status=2,
+            simulation_params=coordinate['simulation_params'],
+            mode_params={'request_manifest': {
+                'candidates': coordinate['candidates'] + [stale_candidate],
+            }},
+            ext='{}',
+        )
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, status='success',
+            config_snapshot={'version': 2, 'case_count': 1, 'run_count': 1},
+            config_hash='f' * 64, completed_at=timezone.now(),
+        )
+        case = SimcBenchmarkCase.objects.create(
+            execution=execution, task=task, status='success',
+            spec_key=coordinate['spec_key'], scenario_key=coordinate['scenario_key'],
+            profile_key=coordinate['profile_key'], spec_label=coordinate['spec_label'],
+            scenario_label=coordinate['scenario_label'],
+            profile_label=coordinate['profile_label'], coordinate_hash='f' * 64,
+        )
+        SimcBenchmarkResult.objects.create(
+            case=case, candidate_key='baseline', dps=1000,
+        )
+        SimcBenchmarkResult.objects.create(
+            case=case, candidate_key='removed-candidate', dps=1100,
+        )
+        panel.aggregate_baseline_execution = execution
+        panel.save(update_fields=['aggregate_baseline_execution'])
+
+        dashboard_response = self.client.get('/api/simc-benchmarks/panels/')
+        portal_response = self.client.get('/portal/api/simc-benchmarks/panels/')
+
+        self.assertEqual(dashboard_response.status_code, 200, dashboard_response.content)
+        self.assertEqual(portal_response.status_code, 200, portal_response.content)
+        dashboard_panel = dashboard_response.json()['data'][0]
+        portal_panel = next(
+            row for row in portal_response.json()['panels'] if row['id'] == panel.id
+        )
+        self.assertEqual(dashboard_panel['panel_coverage']['available_results'], 1)
+        self.assertEqual(portal_panel['result_count'], 1)
 
     def test_panel_list_exposes_current_plan_growth_separately_from_aggregate_baseline(self):
         panel = self._create_panel()
