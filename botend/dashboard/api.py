@@ -3931,17 +3931,6 @@ class SimcProfileAPIView(View):
                     'error': '配置名称不能为空'
                 })
             
-            # 检查名称是否重复
-            if SimcProfile.objects.filter(
-                user_id=request.user.id,
-                name=name,
-                is_active=True
-            ).exists():
-                return JsonResponse({
-                    'success': False,
-                    'error': '配置名称已存在'
-                })
-            
             # 新建 Profile 并立即模拟必须走统一原子服务；资源校验失败时不保留 Profile。
             if simulate_now and not copy_from_id:
                 try:
@@ -4302,18 +4291,6 @@ class SimcProfileAPIView(View):
                 return JsonResponse({
                     'success': False,
                     'error': '配置名称不能为空'
-                })
-            
-            # 仅改名时检查名称是否重复；历史数据可能已有合法同名记录，
-            # 编辑正文等其他字段不应被既有重复名称阻断。
-            if name != profile.name and SimcProfile.objects.filter(
-                user_id=profile.user_id,
-                name=name,
-                is_active=True
-            ).exclude(id=profile_id).exists():
-                return JsonResponse({
-                    'success': False,
-                    'error': '配置名称已存在'
                 })
             
             # 更新配置：与创建使用同一套模式校验，并允许 partial update 保留未提交字段。

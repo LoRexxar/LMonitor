@@ -562,41 +562,58 @@ class SimcProfileResourceListTests(TestCase):
         self.assertEqual(profile.gear_mastery, 21785)
         self.assertEqual(profile.gear_versatility, 6757)
 
-    def test_profile_update_allows_unchanged_historical_duplicate_name(self):
-        profile = SimcProfile.objects.create(
-            user_id=self.user.id,
-            name='历史同名 Profile',
-            class_name='warrior',
-            spec='warrior_fury',
-            player_config_mode='manual_equipment',
-            player_equipment='warrior="Before"\nspec=fury\nhead=,id=1',
-        )
+    def test_profile_names_do_not_need_to_be_unique(self):
+        duplicate_name = '允许重名 Profile'
         SimcProfile.objects.create(
             user_id=self.user.id,
-            name=profile.name,
+            name=duplicate_name,
             class_name='mage',
             spec='mage_frost',
             player_config_mode='manual_equipment',
-            player_equipment='mage="Other"\nspec=frost\nhead=,id=2',
+            player_equipment='mage="Existing"\nspec=frost\nhead=,id=1',
+        )
+        profile = SimcProfile.objects.create(
+            user_id=self.user.id,
+            name='待改名 Profile',
+            class_name='warrior',
+            spec='warrior_fury',
+            player_config_mode='manual_equipment',
+            player_equipment='warrior="Before"\nspec=fury\nhead=,id=2',
         )
 
-        response = self.client.put(
+        update_response = self.client.put(
             '/api/simc-profile/',
             data=json.dumps({
                 'id': profile.id,
-                'name': profile.name,
+                'name': duplicate_name,
                 'spec': profile.spec,
                 'player_config_mode': profile.player_config_mode,
                 'player_equipment': 'warrior="After"\nspec=fury\nhead=,id=3',
             }),
             content_type='application/json',
         )
+        create_response = self.client.post(
+            '/api/simc-profile/',
+            data=json.dumps({
+                'name': duplicate_name,
+                'spec': 'warrior_fury',
+                'player_config_mode': 'manual_equipment',
+                'player_equipment': 'warrior="Created"\nspec=fury\nhead=,id=4',
+            }),
+            content_type='application/json',
+        )
 
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertTrue(response.json()['success'], response.content)
+        self.assertEqual(update_response.status_code, 200, update_response.content)
+        self.assertTrue(update_response.json()['success'], update_response.content)
+        self.assertEqual(create_response.status_code, 200, create_response.content)
+        self.assertTrue(create_response.json()['success'], create_response.content)
         profile.refresh_from_db()
+        self.assertEqual(profile.name, duplicate_name)
         self.assertIn('warrior="After"', profile.player_equipment)
-        self.assertIn('head=,id=3', profile.player_equipment)
+        self.assertEqual(
+            SimcProfile.objects.filter(user_id=self.user.id, name=duplicate_name).count(),
+            3,
+        )
 
     def test_switching_profile_source_preserves_omitted_overrides(self):
         profile = SimcProfile.objects.create(
