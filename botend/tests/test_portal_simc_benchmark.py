@@ -748,7 +748,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         ):
             self.assertIn(contract, self.JS + self.CSS)
         self.assertNotIn('const effect = group.effect', self.JS)
-        self.assertIn('?v=20260809_benchmark_item_tooltip_v3', self.RESULTS_TEMPLATE)
+        self.assertIn('?v=20260813_benchmark_apl_detail', self.RESULTS_TEMPLATE)
 
     def test_result_renderer_uses_frozen_target_count_and_duration_for_scenarios(self):
         for contract in (
@@ -765,6 +765,16 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             'fight_style', 'class_raid_buffs', 'raid_buffs',
         ):
             self.assertIn(contract, self.JS)
+
+    def test_expanded_result_details_show_the_apl_used_by_the_result_task(self):
+        renderer_start = self.JS.index('function renderProfileDetails')
+        renderer_end = self.JS.index('\n  function renderCoordinate', renderer_start)
+        renderer = self.JS[renderer_start:renderer_end]
+
+        self.assertIn('audit', renderer)
+        self.assertIn('["使用 APL", audit?.apl_label]', renderer)
+        self.assertGreaterEqual(self.JS.count('coordinate?.audit'), 2)
+        self.assertIn('nextCoordinate?.audit', self.JS)
 
     def test_profile_talent_code_is_read_only_with_separate_ptr_simulator_button(self):
         for contract in (

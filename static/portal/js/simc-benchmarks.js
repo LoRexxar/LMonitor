@@ -343,7 +343,7 @@
     body.appendChild(section);
   }
 
-  function renderProfileDetails(profileDetail, simulationDetail, summaryText = "展开 Profile 配置", reportUrl = "") {
+  function renderProfileDetails(profileDetail, simulationDetail, audit, summaryText = "展开 Profile 配置", reportUrl = "") {
     const details = node("details", "simc-benchmark-profile-details");
     const summary = node("summary", "profile-details-toggle", summaryText);
     if (!summaryText) summary.hidden = true;
@@ -361,6 +361,7 @@
     [
       ["角色", identity.name], ["职业", identity.class_name], ["专精", identity.spec],
       ["种族", identity.race], ["等级", identity.level], ["服务器", identity.realm],
+      ["使用 APL", audit?.apl_label],
     ].forEach(([label, value]) => {
       if (value === null || value === undefined || value === "") return;
       basics.append(node("dt", "", label), node("dd", "", value));
@@ -461,7 +462,7 @@
       info.appendChild(item);
     });
     caseNode.append(info, renderProfileDetails(
-      coordinate?.profile_detail, coordinate?.simulation_detail,
+      coordinate?.profile_detail, coordinate?.simulation_detail, coordinate?.audit,
       "展开 Profile 配置", rawReportUrlForCoordinate(coordinate),
     ));
     if (!candidates.length) { caseNode.appendChild(state("当前坐标暂无已完成候选结果", "empty")); return caseNode; }
@@ -556,7 +557,7 @@
         metrics.appendChild(node("strong", "simc-benchmark-spec-dps", entry.dps === null ? "暂无结果" : `${numberFormat.format(entry.dps)} DPS`));
         metrics.appendChild(node("small", "simc-benchmark-spec-relative", entry.dps === null || highest <= 0 ? "该场景未完成" : `相对最高 ${(entry.dps * 100 / highest).toFixed(1)}%`));
         let profileDetails = renderProfileDetails(
-          coordinate?.profile_detail, coordinate?.simulation_detail,
+          coordinate?.profile_detail, coordinate?.simulation_detail, coordinate?.audit,
           "", rawReportUrlForCoordinate(coordinate),
         );
         const detailId = `simc-benchmark-spec-profile-${index}`;
@@ -599,7 +600,7 @@
             coordinate.simulation_detail = nextCoordinate.simulation_detail;
             coordinate.candidates = nextCoordinate.candidates;
             const loadedDetails = renderProfileDetails(
-              nextCoordinate?.profile_detail, nextCoordinate?.simulation_detail,
+              nextCoordinate?.profile_detail, nextCoordinate?.simulation_detail, nextCoordinate?.audit,
               "", rawReportUrlForCoordinate(nextCoordinate),
             );
             loadedDetails.id = detailId;
