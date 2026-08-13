@@ -278,6 +278,53 @@ class SimcHistoryBackendPaginationTests(TestCase):
         self.assertIn('data-task-history-scope="favorites"', HTML)
         self.assertIn("resourceUrl('task-favorites'", JS)
 
+    def test_terminal_owned_task_can_be_deleted_from_history_safely(self):
+        """仅本人已结束的普通任务可软删除，前端确认后刷新当前历史页。"""
+        other_user = User.objects.create_user(username='delete-other', password='testpass')
+        completed = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            name='可删除任务', current_status=2, is_active=True,
+        )
+        running = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            name='执行中任务', current_status=1, is_active=True,
+        )
+        other_task = SimcTask.objects.create(
+            user_id=other_user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            name='其他账号任务', current_status=2, is_active=True,
+        )
+
+        delete_request = self.factory.delete(f'/api/simc-workbench/tasks/{completed.id}/')
+        delete_request.user = self.user
+        response = self.view.delete(delete_request, resource='tasks', object_id=completed.id)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(json.loads(response.content)['success'])
+        completed.refresh_from_db()
+        self.assertFalse(completed.is_active)
+
+        history_request = self.factory.get('/api/simc-workbench/history/')
+        history_request.user = self.user
+        history = json.loads(self.view.get(history_request, resource='history').content)
+        self.assertNotIn(completed.id, [row.get('id') for row in history['data']])
+
+        for task in (running, other_task):
+            blocked_request = self.factory.delete(f'/api/simc-workbench/tasks/{task.id}/')
+            blocked_request.user = self.user
+            blocked = self.view.delete(blocked_request, resource='tasks', object_id=task.id)
+            self.assertEqual(blocked.status_code, 409 if task == running else 404)
+            task.refresh_from_db()
+            self.assertTrue(task.is_active)
+
+        history_js = JS[
+            JS.index('async function loadTasks('):
+            JS.index('function scheduleTaskRefresh(', JS.index('async function loadTasks('))
+        ]
+        self.assertIn('data-task-delete=', history_js)
+        self.assertIn('[2, 3, 5].includes(status)', history_js)
+        self.assertIn("window.confirm('删除后该任务将不再显示，是否继续？')", JS)
+        self.assertIn("method: 'DELETE'", JS)
+        self.assertIn('await loadTasks(state.taskPage)', JS)
+
     def test_history_exposes_frozen_resource_names_and_battle_scenario(self):
         from botend.models import SimcApl, SimcResourceVersion
         apl = SimcApl.objects.create(

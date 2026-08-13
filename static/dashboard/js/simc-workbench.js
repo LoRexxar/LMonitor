@@ -160,6 +160,22 @@
             button.disabled = false;
         }
     }
+    async function deleteTask(button) {
+        const taskId = idOf(button.dataset.taskDelete);
+        if (!taskId || !window.confirm('删除后该任务将不再显示，是否继续？')) return;
+        button.disabled = true;
+        try {
+            await json(resourceUrl('tasks', taskId), {
+                method: 'DELETE',
+                headers: { 'X-CSRFToken': window.getCSRFToken() },
+            });
+            state.taskResponseSignature = '';
+            await loadTasks(state.taskPage);
+            window.showMessage('任务已删除', 'success');
+        } finally {
+            button.disabled = false;
+        }
+    }
     async function loadTasks(page = 1, { background = false } = {}) {
         state.taskPage = Number.isSafeInteger(Number(page)) && Number(page) > 0 ? Number(page) : 1;
         state.taskScope = state.taskScope === 'favorites' ? 'favorites' : 'all';
@@ -269,6 +285,7 @@
             const favoriteLabel = row.is_favorite === true ? '取消收藏' : '收藏';
             const favoriteButton = `<button type="button" data-task-favorite-id="${idOf(row.id)}" data-task-favorite-action="${favoriteAction}" aria-pressed="${row.is_favorite === true}" title="${favoriteLabel}" class="simc-touch-action simc-task-secondary-action"><i class="${row.is_favorite === true ? 'fas' : 'far'} fa-star text-amber-500" aria-hidden="true"></i><span>${favoriteLabel}</span></button>`;
             const pendingActions = status === 0 ? `<button type="button" data-task-status="5" data-task-id="${idOf(row.id)}" title="取消任务" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-ban" aria-hidden="true"></i><span>取消</span></button><button type="button" data-task-status="3" data-task-id="${idOf(row.id)}" title="标记失败" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-exclamation-circle" aria-hidden="true"></i><span>失败</span></button>` : '';
+            const deleteButton = [2, 3, 5].includes(status) ? `<button type="button" data-task-delete="${idOf(row.id)}" title="删除任务" class="simc-touch-action simc-task-secondary-action text-red-700"><i class="fas fa-trash-alt" aria-hidden="true"></i><span>删除</span></button>` : '';
             const resourceMeta = `<div class="simc-task-card__resources" aria-label="任务资源"><span title="APL：${esc(row.apl_name || '—')}"><b>APL</b><em>${esc(row.apl_name || '—')}</em></span><span title="Profile：${esc(row.profile_name || '—')}"><b>Profile</b><em>${esc(row.profile_name || '—')}</em></span></div>`;
             const cardAction = status === 2 && row.can_compare === true ? 'compare' : status === 3 ? 'error' : '';
             return `<article class="simc-task-card simc-responsive-row${cardAction ? ' is-status-actionable' : ''}"${cardAction ? ` data-task-card-action="${cardAction}" data-task-card-id="${idOf(row.id)}"` : ''}>
@@ -282,7 +299,7 @@
                     <div class="simc-task-card__meta"><span class="simc-task-card__context"><span class="simc-task-card__scenario" title="战斗场景：${esc(row.battle_scenario || '—')}"><b>场景</b><em>${esc(row.battle_scenario || '—')}</em></span><time><i class="far fa-calendar-alt" aria-hidden="true"></i>${esc(row.created_at)}</time></span><span class="simc-task-status ${statusClass}"><i class="fas ${statusIcon}" aria-hidden="true"></i>${esc(row.status_label)}</span></div>
                     ${progressBar}
                 </div>
-                <div class="simc-task-card__actions"><a href="/dashboard/simc/${resource}/${idOf(row.id)}/" target="_blank" rel="noopener noreferrer" class="simc-touch-action simc-task-primary-action"><i class="fas fa-list-alt" aria-hidden="true"></i><span>查看详情</span></a>${favoriteButton}${pendingActions}${rerunButton}</div>
+                <div class="simc-task-card__actions"><a href="/dashboard/simc/${resource}/${idOf(row.id)}/" target="_blank" rel="noopener noreferrer" class="simc-touch-action simc-task-primary-action"><i class="fas fa-list-alt" aria-hidden="true"></i><span>查看详情</span></a>${favoriteButton}${pendingActions}${rerunButton}${deleteButton}</div>
             </article>`;
         }).join('')}</div>` : empty(state.taskScope === 'favorites' ? '暂无收藏任务' : '暂无记录');
 
@@ -1445,6 +1462,11 @@
             const taskFavoriteButton = event.target.closest('[data-task-favorite-id]');
             if (taskFavoriteButton) {
                 toggleTaskFavorite(taskFavoriteButton).catch(notify);
+                return;
+            }
+            const taskDeleteButton = event.target.closest('[data-task-delete]');
+            if (taskDeleteButton) {
+                deleteTask(taskDeleteButton).catch(notify);
                 return;
             }
             const paginationBtn = event.target.closest('[data-pagination-page]');

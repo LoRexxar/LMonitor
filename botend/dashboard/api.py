@@ -6638,6 +6638,7 @@ class SimcWorkbenchAPIView(View):
                     for task_id, favorited_at in SimcTaskFavorite.objects.filter(
                         user_id=request.user.id,
                         task__user_id=request.user.id,
+                        task__is_active=True,
                         task__benchmark_case__isnull=True,
                     ).exclude(
                         task_id__in=benchmark_ancestor_ids,
@@ -6649,6 +6650,7 @@ class SimcWorkbenchAPIView(View):
                     ('task', task_id, modified_time)
                     for task_id, modified_time in SimcTask.objects.filter(
                         user_id=request.user.id,
+                        is_active=True,
                         benchmark_case__isnull=True,
                     ).exclude(
                         pk__in=benchmark_ancestor_ids,
@@ -7498,6 +7500,22 @@ class SimcWorkbenchAPIView(View):
         return JsonResponse({'success': False, 'error': '不支持的资源操作'}, status=400)
 
     def delete(self, request, resource, object_id=None):
+        if resource == 'tasks':
+            if not object_id:
+                return JsonResponse({'success': False, 'error': '缺少任务 ID'}, status=400)
+            task = SimcTask.objects.filter(
+                id=object_id,
+                user_id=request.user.id,
+                is_active=True,
+                benchmark_case__isnull=True,
+            ).first()
+            if not task:
+                return JsonResponse({'success': False, 'error': '任务不存在'}, status=404)
+            if task.current_status not in (2, 3, 5):
+                return JsonResponse({'success': False, 'error': '待执行或执行中的任务不能删除'}, status=409)
+            task.is_active = False
+            task.save(update_fields=['is_active', 'modified_time'])
+            return JsonResponse({'success': True})
         if resource == 'apls':
             if not object_id:
                 return JsonResponse({'success': False, 'error': '缺少 APL ID'}, status=400)
