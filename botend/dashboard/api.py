@@ -4304,8 +4304,9 @@ class SimcProfileAPIView(View):
                     'error': '配置名称不能为空'
                 })
             
-            # 检查名称是否重复（排除当前记录）
-            if SimcProfile.objects.filter(
+            # 仅改名时检查名称是否重复；历史数据可能已有合法同名记录，
+            # 编辑正文等其他字段不应被既有重复名称阻断。
+            if name != profile.name and SimcProfile.objects.filter(
                 user_id=profile.user_id,
                 name=name,
                 is_active=True
