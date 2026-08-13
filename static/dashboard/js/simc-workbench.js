@@ -176,6 +176,24 @@
             button.disabled = false;
         }
     }
+    async function rerunBenchmarkCase(button) {
+        const [executionId, caseId] = String(button.dataset.benchmarkCaseRerun || '').split(':').map(idOf);
+        if (!executionId || !caseId || !window.confirm('只重跑这个专精子任务？历史任务和结果不会被修改。')) return;
+        button.disabled = true;
+        try {
+            await json(`/api/simc-benchmarks/executions/${executionId}/cases/${caseId}/rerun/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
+                body: '{}',
+            });
+            window.showMessage('专精子任务已作为独立执行重新创建', 'success');
+            state.taskResponseSignature = '';
+            await loadTasks(state.taskPage);
+        } finally {
+            if (button.isConnected) button.disabled = false;
+        }
+    }
+
     async function loadTasks(page = 1, { background = false } = {}) {
         state.taskPage = Number.isSafeInteger(Number(page)) && Number(page) > 0 ? Number(page) : 1;
         state.taskScope = state.taskScope === 'favorites' ? 'favorites' : 'all';
@@ -260,11 +278,14 @@
                     const specLabel = esc(item.labels?.spec || item.coordinate?.spec_key || '—');
                     const scenarioLabel = esc(item.labels?.scenario || item.coordinate?.scenario_key || '—');
                     const profileLabel = esc(item.labels?.profile || item.coordinate?.profile_key || '—');
+                    const rerun = !executionActive && idOf(item.case_id)
+                        ? `<button type="button" data-benchmark-case-rerun="${executionId}:${idOf(item.case_id)}" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-redo-alt" aria-hidden="true"></i><span>重跑</span></button>`
+                        : '';
                     const error = item.error ? `<div class="simc-benchmark-task-case__error"><strong>错误：</strong>${esc(item.error)}</div>` : '';
                     const progress = itemProgress == null
                         ? '<div class="simc-benchmark-task-case__progress is-unknown"><span>待上报</span></div>'
                         : `<div class="simc-benchmark-task-case__progress"><div class="simc-task-progress__track"><div class="simc-task-progress__fill" style="width:${itemProgress}%"></div></div><strong>${itemProgress}%</strong></div>`;
-                    return `<div class="simc-benchmark-task-case" data-status="${itemStatus}"><div class="simc-benchmark-task-case__identity"><span class="simc-benchmark-task-case__fact"><small>专精</small><strong>${specLabel}</strong></span><span class="simc-benchmark-task-case__fact"><small>场景</small><strong>${scenarioLabel}</strong></span><span class="simc-benchmark-task-case__fact"><small>Profile</small><strong>${profileLabel}</strong></span></div>${progress}<span class="simc-task-status is-${itemStatus}">${esc(item.status_label || '未知')}</span>${error}</div>`;
+                    return `<div class="simc-benchmark-task-case" data-status="${itemStatus}"><div class="simc-benchmark-task-case__identity"><span class="simc-benchmark-task-case__fact"><small>专精</small><strong>${specLabel}</strong></span><span class="simc-benchmark-task-case__fact"><small>场景</small><strong>${scenarioLabel}</strong></span><span class="simc-benchmark-task-case__fact"><small>Profile</small><strong>${profileLabel}</strong></span></div>${progress}<div class="simc-benchmark-task-case__actions"><span class="simc-task-status is-${itemStatus}">${esc(item.status_label || '未知')}</span>${rerun}</div>${error}</div>`;
                 }).join('');
                 const summaryProgress = executionProgress == null
                     ? `<div class="simc-benchmark-task-summary__progress is-unknown"><span class="simc-benchmark-task-summary__label">${executionProgressLabel}</span><span>待上报</span></div>`
@@ -1522,6 +1543,11 @@
             }
             if (event.target.closest('[data-task-rerun-cancel]')) {
                 if (!restoreDialogState()) closeDialog();
+                return;
+            }
+            const benchmarkCaseRerun = event.target.closest('[data-benchmark-case-rerun]');
+            if (benchmarkCaseRerun) {
+                rerunBenchmarkCase(benchmarkCaseRerun).catch(notify);
                 return;
             }
             const benchmarkToggle = event.target.closest('[data-benchmark-task-toggle]');

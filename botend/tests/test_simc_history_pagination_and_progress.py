@@ -88,6 +88,14 @@ class SimcHistoryPaginationContractTests(unittest.TestCase):
         self.assertIn('item.error', JS)
         self.assertIn('simc-benchmark-task-case__error', JS)
 
+    def test_benchmark_history_case_rerun_button_posts_case_rerun_api(self):
+        """历史任务展开后的 Case 重跑必须接到已有的独立 Case 重跑 API。"""
+        history = JS[JS.index('async function loadTasks('):JS.index('function scheduleTaskRefresh(', JS.index('async function loadTasks('))]
+        self.assertIn('data-benchmark-case-rerun="${executionId}:${idOf(item.case_id)}"', history)
+        self.assertIn('async function rerunBenchmarkCase(', JS)
+        self.assertIn('executions/${executionId}/cases/${caseId}/rerun/', JS)
+        self.assertIn("event.target.closest('[data-benchmark-case-rerun]')", JS)
+
     def test_expanded_benchmark_case_omits_low_value_task_id(self):
         """展开项保留坐标、状态和进度，不重复展示内部 Task 编号。"""
         self.assertNotIn('<span class="simc-task-id">Task #${idOf(item.task_id)}</span>${title}', JS)
