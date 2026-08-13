@@ -135,6 +135,27 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('renderSimcProfileDetailDialog', MAIN)
         self.assertIn('raw_player_equipment', MAIN)
 
+    def test_profile_view_is_read_only_and_edit_form_shows_structured_equipment(self):
+        detail_start = MAIN.index('function renderSimcProfileDetailDialog')
+        detail_end = MAIN.index('async function simcWbViewProfile', detail_start)
+        detail_renderer = MAIN[detail_start:detail_end]
+        self.assertIn('renderSimcProfileEquipmentCards', detail_renderer)
+        self.assertNotIn('data-profile-equipment-slot', detail_renderer)
+        self.assertNotIn('simcWbSaveProfileEquipment', detail_renderer)
+        self.assertNotIn('保存装备修改', detail_renderer)
+
+        profile_form = HTML[
+            HTML.index('id="simc-wb-profile-form-source"'):
+            HTML.index('id="simc-wb-profile-list"')
+        ]
+        self.assertIn('data-profile-equipment-preview', profile_form)
+
+        edit_start = MAIN.index('async function simcWbEditProfile')
+        edit_end = MAIN.index('async function simcWbSaveCurrentSimulatorProfile', edit_start)
+        edit_flow = MAIN[edit_start:edit_end]
+        self.assertIn('/api/simc-player-config-detail/?profile_id=', edit_flow)
+        self.assertIn('renderSimcProfileFormEquipmentPreview', edit_flow)
+
     def test_profile_list_renders_spec_icon_with_authoritative_class_color(self):
         badge = MAIN[MAIN.index('function renderSpecBadgeHtml'):MAIN.index('function syncSimcTaskInputMode')]
         loader = MAIN[MAIN.index('function loadSimcWorkbenchProfiles'):MAIN.index('function bindSimcWorkbenchProfilesControls')]

@@ -1929,6 +1929,26 @@ function loadSimcWorkbenchProfiles(page) {
     });
 }
 
+function renderSimcProfileEquipmentCards(items, { compact = false } = {}) {
+    const equipment = Array.isArray(items) ? items : [];
+    if (!equipment.length) return '<div class="rounded-lg border border-dashed border-slate-300 px-3 py-5 text-center text-sm text-slate-400">未解析到装备槽位</div>';
+    return equipment.map(item => {
+        const esc = value => escapeHtml(String(value == null || value === '' ? '-' : value));
+        const itemId = item.item_id || item.id || '';
+        const itemMeta = [item.item_level ? `装等 ${esc(item.item_level)}` : '', itemId ? `#${esc(itemId)}` : ''].filter(Boolean).join(' · ');
+        const enchant = item.enchant ? `<div class="mt-1 text-xs text-violet-700"><i class="fas fa-magic mr-1"></i>${esc(item.enchant.display_name)}</div>` : '';
+        const gems = (item.gems || []).length ? `<div class="mt-1 text-xs text-cyan-700"><i class="fas fa-gem mr-1"></i>${item.gems.map(gem => esc(gem.display_name)).join('、')}</div>` : '';
+        return `<article class="min-w-0 rounded-lg border border-slate-200 bg-white ${compact ? 'p-2.5' : 'p-3'} shadow-sm"><div class="flex items-start justify-between gap-3"><div class="min-w-0"><div class="text-[11px] font-semibold text-slate-400">${esc(item.slot_label || item.slot)}</div><div class="mt-0.5 truncate text-sm font-semibold text-slate-800" title="${esc(item.display_name)}">${esc(item.display_name)}</div></div><span class="shrink-0 rounded bg-slate-100 px-1.5 py-1 text-[11px] font-medium text-slate-500">${itemMeta || '-'}</span></div>${enchant}${gems}</article>`;
+    }).join('');
+}
+
+function renderSimcProfileFormEquipmentPreview(detail, formWrap = document.getElementById('simc-wb-profile-form')) {
+    const target = formWrap?.querySelector('[data-profile-equipment-preview-content]');
+    if (!target) return;
+    target.className = 'mt-3 grid gap-2 sm:grid-cols-2';
+    target.innerHTML = renderSimcProfileEquipmentCards(detail?.equipment, { compact: true });
+}
+
 function renderSimcProfileDetailDialog(detail) {
     const profile = detail.profile || {};
     const esc = value => escapeHtml(String(value == null || value === '' ? '-' : value));
@@ -1937,30 +1957,22 @@ function renderSimcProfileDetailDialog(detail) {
     const talentLink = talentUrl
         ? `<a data-profile-detail-talent-link href="${escapeHtml(talentUrl)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center rounded-lg border border-violet-200 bg-white px-3 py-1.5 text-sm font-medium text-violet-700 transition hover:border-violet-400 hover:bg-violet-50"><i class="fas fa-project-diagram mr-1.5"></i>打开天赋模拟器</a>`
         : '<span class="text-xs text-slate-400">当前配置没有可查看的天赋码</span>';
-    const equipment = (detail.equipment || []).map(item => {
-        const itemId = item.item_id || item.id || '';
-        const editor = profile.can_edit ? `<div class="mt-2 grid grid-cols-2 gap-2" data-profile-equipment-slot="${esc(item.slot)}"><label class="text-xs text-slate-500">装备 ID<input type="number" min="1" name="item_id" value="${escapeHtml(String(itemId))}" class="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1 text-sm text-slate-900"></label><label class="text-xs text-slate-500">装等<input type="number" min="1" name="item_level" value="${escapeHtml(String(item.item_level || ''))}" class="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1 text-sm text-slate-900"></label></div>` : '';
-        return `<div class="rounded-lg border border-slate-200 bg-slate-50 p-3"><div class="text-xs text-slate-500">${esc(item.slot_label || item.slot)}</div><div class="font-medium">${esc(item.display_name)} <span class="text-xs text-slate-400">${item.item_level ? 'ilvl ' + esc(item.item_level) : '#' + esc(itemId)}</span></div>${item.enchant ? `<div class="text-xs text-violet-700">附魔：${esc(item.enchant.display_name)}</div>` : ''}${(item.gems || []).length ? `<div class="text-xs text-cyan-700">宝石：${item.gems.map(g => esc(g.display_name)).join('、')}</div>` : ''}${editor}</div>`;
-    }).join('') || '<div class="text-sm text-slate-400">未解析到装备槽位</div>';
+    const equipment = renderSimcProfileEquipmentCards(detail.equipment);
+    const source = detail.source || {};
+    const stats = detail.stats || {};
+    const sourceLabel = source.label || profile.player_config_mode || '-';
+    const statRows = [
+        ['力量', stats.strength ?? profile.gear_strength],
+        ['暴击', stats.crit ?? profile.gear_crit],
+        ['急速', stats.haste ?? profile.gear_haste],
+        ['精通', stats.mastery ?? profile.gear_mastery],
+        ['全能', stats.versatility ?? profile.gear_versatility],
+    ].map(([label, value]) => `<div class="rounded-lg bg-slate-50 px-3 py-2"><div class="text-[11px] text-slate-400">${label}</div><div class="mt-0.5 text-sm font-semibold text-slate-700">${esc(value)}</div></div>`).join('');
     openSimcWorkbenchDialog('profile-detail');
     const body = document.getElementById('simc-dialog-body');
     if (!body) return;
-    const syncNotice = profile.is_system && profile.can_edit ? '<p class="mt-2 text-xs text-amber-700">这是自动同步的默认配置；允许编辑，但下次同步可能覆盖本次修改。</p>' : '';
-    body.innerHTML = `<div class="space-y-4" data-profile-detail-id="${esc(profile.id)}"><div class="flex flex-wrap gap-3 text-sm"><span>配置：<b>${esc(profile.name)}</b></span><span>专精：<b>${esc(profile.spec_label || profile.spec)}</b></span><span>状态：<b>${profile.is_active ? '生效中' : '未生效'}</b></span></div>${syncNotice}<section class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-violet-100 bg-violet-50/50 p-3"><div><h4 class="font-semibold text-slate-900">天赋配置</h4><p class="mt-1 max-w-xl break-all font-mono text-xs text-slate-500">${esc(profile.talent)}</p></div>${talentLink}</section><section><div class="mb-2 flex items-center justify-between gap-3"><h4 class="font-semibold">装备、附魔与宝石</h4>${profile.can_edit ? '<button type="button" onclick="simcWbSaveProfileEquipment()" class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700">保存装备修改</button>' : ''}</div><p class="mb-2 text-xs text-slate-500">只需修改装备 ID 和装等；名称、附魔、宝石等信息保存后由后端重新解析。</p><div class="grid gap-2 sm:grid-cols-2">${equipment}</div></section><section><h4 class="mb-2 font-semibold">原始玩家配置字符串</h4><pre class="max-h-[28rem] overflow-auto rounded-xl bg-slate-950 p-3 text-xs leading-5 text-slate-100 whitespace-pre-wrap">${esc(profile.raw_player_equipment)}</pre></section></div>`;
-}
-
-async function simcWbSaveProfileEquipment() {
-    const root = document.querySelector('[data-profile-detail-id]');
-    if (!root) return;
-    const equipment = Array.from(root.querySelectorAll('[data-profile-equipment-slot]')).map(row => ({ slot: row.dataset.profileEquipmentSlot, item_id: Number(row.querySelector('[name="item_id"]')?.value || 0), item_level: Number(row.querySelector('[name="item_level"]')?.value || 0) }));
-    try {
-        const response = await fetch('/api/simc-profile/', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() }, body: JSON.stringify({ id: Number(root.dataset.profileDetailId), equipment }) });
-        const payload = await response.json();
-        if (!response.ok || !payload.success) throw new Error(payload.error || '保存装备失败');
-        showMessage('装备配置已更新', 'success');
-        await simcWbViewProfile(root.dataset.profileDetailId);
-        loadSimcWorkbenchProfiles(simcWbProfilePage);
-    } catch (error) { showMessage(String(error.message || error), 'error'); }
+    const syncNotice = profile.is_system ? '<p class="mt-2 text-xs text-amber-700">这是由上游同步维护的系统配置。</p>' : '';
+    body.innerHTML = `<div class="space-y-5"><header class="border-b border-slate-200 pb-4"><div class="flex flex-wrap items-start justify-between gap-3"><div><h3 class="text-lg font-bold text-slate-900">${esc(profile.name)}</h3><p class="mt-1 text-sm text-slate-500">${esc(profile.spec_label || profile.spec)} · ${esc(sourceLabel)}</p></div><span class="rounded-full px-2.5 py-1 text-xs font-medium ${profile.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}">${profile.is_active ? '生效中' : '未生效'}</span></div>${syncNotice}</header><section class="grid grid-cols-2 gap-2 sm:grid-cols-5">${statRows}</section><section class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-violet-100 bg-violet-50/60 p-3"><div class="min-w-0"><h4 class="font-semibold text-slate-900">天赋配置</h4><p class="mt-1 max-w-xl break-all font-mono text-xs text-slate-500">${esc(profile.talent)}</p></div>${talentLink}</section><section><h4 class="mb-3 font-semibold text-slate-900">装备、附魔与宝石</h4><div class="grid gap-2 sm:grid-cols-2">${equipment}</div></section><details class="rounded-lg border border-slate-200 bg-slate-50"><summary class="cursor-pointer px-3 py-2 text-sm font-semibold text-slate-700">原始玩家配置</summary><pre class="max-h-[28rem] overflow-auto border-t border-slate-200 bg-slate-950 p-3 text-xs leading-5 text-slate-100 whitespace-pre-wrap">${esc(profile.raw_player_equipment)}</pre></details></div>`;
 }
 async function simcWbViewProfile(id) {
     try {
@@ -2614,17 +2626,21 @@ async function simcWbDeleteProfile(id, trigger) {
 }
 async function simcWbEditProfile(id) {
     try {
-        const resp = await fetch(`/api/simc-profile/${id}/`, {
-            method: 'GET',
-            headers: { 'X-CSRFToken': getCSRFToken() }
-        });
-        const data = await resp.json();
-        if (data.success) {
+        const headers = { 'X-CSRFToken': getCSRFToken() };
+        const [resp, detailResp] = await Promise.all([
+            fetch(`/api/simc-profile/${id}/`, { method: 'GET', headers }),
+            fetch(`/api/simc-player-config-detail/?profile_id=${encodeURIComponent(id)}`, { headers }),
+        ]);
+        const [data, detailPayload] = await Promise.all([resp.json(), detailResp.json()]);
+        if (resp.ok && data.success) {
             simcProfileTalentVersions = {
                 retail: String(data.talent_versions?.retail || simcProfileTalentVersions.retail || ''),
                 ptr: String(data.talent_versions?.ptr || simcProfileTalentVersions.ptr || ''),
             };
-            simcWbToggleProfileForm('edit', data);
+            await simcWbToggleProfileForm('edit', data);
+            if (detailResp.ok && detailPayload.success) {
+                renderSimcProfileFormEquipmentPreview(detailPayload.data || {});
+            }
         } else {
             showMessage('未找到配置', 'error');
         }

@@ -459,7 +459,7 @@
     {{ dashboard_permissions|json_script:"dashboard-permissions-data" }}
     {{ dashboard_permission_catalog|json_script:"dashboard-permission-catalog-data" }}
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260812_simc_task_created_dialog"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260813_profile_view_edit"></script>
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806c" defer></script>
     <script src="{% static 'dashboard/js/simc-result-report.js' %}?v=20260811_result_architecture_zh"></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260812_task_favorites"></script>
@@ -1410,6 +1410,13 @@
                                     <section class="simc-profile-section" data-profile-mode-section="manual_equipment">
                                         <h5 class="simc-profile-section-title"><i class="fas fa-code mr-2 text-indigo-600"></i>玩家装备块</h5>
                                         <label class="block"><span class="text-xs text-gray-500">粘贴 SimC 导出的玩家装备与天赋行；保留原始换行。</span><textarea name="player_equipment" rows="12" class="simc-code-editor mt-3 rounded-xl border border-slate-700" placeholder="talents=...&#10;head=...&#10;neck=..."></textarea></label>
+                                        <div class="mt-4 border-t border-slate-200 pt-4" data-profile-equipment-preview>
+                                            <div class="flex items-center justify-between gap-3">
+                                                <h6 class="text-sm font-semibold text-slate-800">当前装备详情</h6>
+                                                <span class="text-xs text-slate-400">保存前展示当前已落库内容</span>
+                                            </div>
+                                            <div class="mt-3 text-sm text-slate-400" data-profile-equipment-preview-content>新建配置暂无装备详情</div>
+                                        </div>
                                     </section>
                                     <section class="simc-profile-section">
                                     <h5 class="simc-profile-section-title"><i class="fas fa-sliders mr-2 text-emerald-600"></i>天赋与属性</h5>
