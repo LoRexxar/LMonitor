@@ -125,6 +125,22 @@ def validate_simulation_options(params: Dict[str, Any]) -> str:
             errors.append('raid_buffs 不允许重复值')
         elif any(item not in SIMC_RAID_BUFF_VALUES for item in raid_buffs):
             errors.append('raid_buffs 包含不支持的 Raid Buff')
+    if 'profile_overrides' in params:
+        overrides = params['profile_overrides']
+        allowed = {
+            'flask', 'potion', 'food', 'augmentation', 'temporary_enchant',
+            'talents', 'class_talents', 'spec_talents', 'hero_talents',
+        }
+        if not isinstance(overrides, dict):
+            errors.append('profile_overrides 必须是对象')
+        elif any(key not in allowed for key in overrides):
+            errors.append('profile_overrides 包含不支持的字段')
+        elif any(
+            not isinstance(item, str) or not item.strip()
+            or '\n' in item or '\r' in item or '=' in item
+            for item in overrides.values()
+        ):
+            errors.append('profile_overrides 覆盖值格式无效')
     for error in errors:
         if error:
             return error
@@ -1126,7 +1142,31 @@ class SimcComposer:
         if not html_lines and output_content:
             result = result.rstrip() + '\n' + output_content
 
+        # Task-scoped Profile overrides are applied after all source/template
+        # arbitration, so they work consistently for imported and armory actors.
+        result = self._apply_profile_overrides(result, request_data.get('profile_overrides') or {})
         return result
+
+    def _apply_profile_overrides(self, content: str, overrides: Dict[str, Any]) -> str:
+        """Replace only explicitly supplied actor-scoped Profile fields."""
+        allowed = {
+            'flask', 'potion', 'food', 'augmentation', 'temporary_enchant',
+            'talents', 'class_talents', 'spec_talents', 'hero_talents',
+        }
+        for key, raw_value in overrides.items():
+            if key not in allowed or not isinstance(raw_value, str):
+                continue
+            value = raw_value.strip()
+            if not value or '\n' in value or '\r' in value:
+                continue
+            line = f'{key}={value}'
+            content, count = re.subn(
+                rf'(?mi)^\s*{re.escape(key)}\s*=.*(?:\n|$)',
+                line + '\n', content,
+            )
+            if count == 0:
+                content = content.rstrip() + '\n' + line
+        return content.rstrip() + '\n'
 
     def _get_slot_content(self, slot_name: str) -> str:
         """Get content from resolved slot."""

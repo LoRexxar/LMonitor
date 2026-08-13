@@ -1760,6 +1760,20 @@ class SimcTaskAPIView(View):
                 simulation_params['use_class_raid_buff'] = data['use_class_raid_buff']
             if 'additional_simc_input' in data:
                 simulation_params['additional_simc_input'] = str(data['additional_simc_input'] or '').strip()
+            if 'profile_overrides' in data:
+                raw_overrides = data['profile_overrides']
+                if not isinstance(raw_overrides, dict):
+                    return JsonResponse({'success': False, 'error': 'profile_overrides 必须是对象'}, status=400)
+                allowed_overrides = {'flask', 'potion', 'food', 'augmentation', 'temporary_enchant', 'talents', 'class_talents', 'spec_talents', 'hero_talents'}
+                profile_overrides = {}
+                for key, value in raw_overrides.items():
+                    if key in allowed_overrides and str(value or '').strip():
+                        value = str(value).strip()
+                        if '\n' in value or '\r' in value or '=' in value:
+                            return JsonResponse({'success': False, 'error': f'{key} 覆盖值格式无效'}, status=400)
+                        profile_overrides[key] = value
+                if profile_overrides:
+                    simulation_params['profile_overrides'] = profile_overrides
             option_error = validate_simulation_options(simulation_params)
             if option_error:
                 return JsonResponse({'success': False, 'error': option_error}, status=400)
@@ -2761,6 +2775,20 @@ class SimcComparisonTaskAPIView(View):
                 simulation_params['use_class_raid_buff'] = data['use_class_raid_buff']
             if 'additional_simc_input' in data:
                 simulation_params['additional_simc_input'] = str(data['additional_simc_input'] or '').strip()
+            if 'profile_overrides' in data:
+                raw_overrides = data['profile_overrides']
+                if not isinstance(raw_overrides, dict):
+                    raise ValueError('profile_overrides 必须是对象')
+                allowed_overrides = {'flask', 'potion', 'food', 'augmentation', 'temporary_enchant', 'talents', 'class_talents', 'spec_talents', 'hero_talents'}
+                profile_overrides = {}
+                for key, value in raw_overrides.items():
+                    if key in allowed_overrides and str(value or '').strip():
+                        value = str(value).strip()
+                        if '\n' in value or '\r' in value or '=' in value:
+                            raise ValueError(f'{key} 覆盖值格式无效')
+                        profile_overrides[key] = value
+                if profile_overrides:
+                    simulation_params['profile_overrides'] = profile_overrides
             option_error = validate_simulation_options(simulation_params)
             if option_error:
                 raise ValueError(option_error)

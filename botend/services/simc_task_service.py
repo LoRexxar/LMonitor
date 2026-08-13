@@ -145,6 +145,7 @@ SIMULATION_PARAMS_WHITELIST = {
     'raid_buffs',
     'use_class_raid_buff',
     'additional_simc_input',
+    'profile_overrides',
 }
 
 # Candidate differences for comparison / attribute-sweep tasks.  Values remain

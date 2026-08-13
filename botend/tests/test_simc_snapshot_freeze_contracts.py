@@ -204,6 +204,54 @@ class SimcTaskReferenceContracts(TestCase):
         )
         self.assertIs(captured.get('use_class_raid_buff'), True)
 
+    def test_profile_overrides_are_frozen_and_replace_only_matching_player_fields(self):
+        from botend.services.simc_composer import SimcComposer
+
+        self.profile.player_equipment = '\n'.join([
+            PLAYER_CONTENT,
+            'flask=old_flask',
+            'potion=old_potion',
+            'food=keep_food',
+            'temporary_enchant=main_hand:old_enchant/off_hand:keep_enchant',
+            'class_talents=100:1/200:1',
+            'spec_talents=300:1',
+        ])
+        self.profile.talent = ''
+        self.profile.save(update_fields=['player_equipment', 'talent'])
+        overrides = {
+            'flask': 'new_flask',
+            'potion': 'new_potion',
+            'temporary_enchant': 'main_hand:new_enchant',
+            'class_talents': '100:2/400:1',
+        }
+        task = self.create_task(profile_overrides=overrides)
+        self.assertEqual(task.simulation_params['profile_overrides'], overrides)
+
+        run = initialize_task_runs(task)[0]
+        captured = {}
+
+        original_compose = SimcComposer.compose
+
+        def compose(request):
+            content, manifest, error = original_compose(SimcComposer(task.user_id), request)
+            captured['content'] = content
+            return None, manifest, error or 'stop after capturing composed input'
+
+        monitor = SimcMonitor(None, None)
+        with patch('botend.controller.plugins.simc.SimcMonitor.SimcComposer.compose', side_effect=compose):
+            self.assertFalse(monitor.process_reference_run(task, run))
+
+        content = captured['content']
+        self.assertIn('flask=new_flask', content)
+        self.assertIn('potion=new_potion', content)
+        self.assertIn('food=keep_food', content)
+        self.assertIn('temporary_enchant=main_hand:new_enchant', content)
+        self.assertIn('class_talents=100:2/400:1', content)
+        self.assertIn('spec_talents=300:1', content)
+        self.assertNotIn('old_flask', content)
+        self.assertNotIn('old_potion', content)
+        self.assertNotIn('old_enchant', content)
+
     def test_normal_task_rejects_raid_buff_option_injection(self):
         response = self.client.post(
             '/api/simc-task/',

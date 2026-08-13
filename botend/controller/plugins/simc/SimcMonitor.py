@@ -608,6 +608,7 @@ class SimcMonitor(BaseScan):
                 'base_template_content': resolved.template_content or '',
                 'override_action_list': resolved.apl_content or '',
                 'additional_simc_input': resolved.simulation_params.get('additional_simc_input', ''),
+                'profile_overrides': resolved.simulation_params.get('profile_overrides') or {},
                 '_result_file_path': simc_task.result_file or f'{simc_task.id}.html',
             }
             if 'raid_buffs' in resolved.simulation_params:

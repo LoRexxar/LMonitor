@@ -3250,6 +3250,12 @@ function currentSimcScenario() {
         target_count: Math.max(1, Number.parseInt(document.getElementById('simc-sim-target-count')?.value || '1', 10) || 1),
         additional_simc_input: document.getElementById('simc-sim-additional-input')?.value || '',
     };
+    const profileOverrides = {};
+    document.querySelectorAll('[data-simc-profile-override]').forEach(input => {
+        const value = String(input.value || '').trim();
+        if (value) profileOverrides[input.dataset.simcProfileOverride] = value;
+    });
+    if (Object.keys(profileOverrides).length) scenario.profile_overrides = profileOverrides;
     const control = document.getElementById('simc-sim-raid-buff-control');
     scenario.use_class_raid_buff = document.getElementById('simc-sim-use-class-raid-buff')?.checked !== false;
     if (control?.dataset.raidBuffExplicit === '1') {
