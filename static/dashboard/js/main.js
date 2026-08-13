@@ -3997,10 +3997,10 @@ async function loadSimcConsumableOptions() {
         const key = select.dataset.simcProfileOverride;
         const current = select.value;
         const options = Array.isArray(payload.data[key]) ? payload.data[key] : [];
-        select.innerHTML = '<option value="">不覆盖</option>' + options.map(value =>
-            `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`
+        select.innerHTML = '<option value="">不覆盖</option>' + options.map(option =>
+            `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`
         ).join('');
-        if (options.includes(current)) select.value = current;
+        if (options.some(option => option.value === current)) select.value = current;
     });
 }
 

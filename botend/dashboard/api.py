@@ -55,6 +55,7 @@ from botend.services.simc_player_config import (
     SUPPORTED_SIMC_SPEC_IDENTITIES,
 )
 from botend.services.simc_composer import SimcComposer, validate_simulation_options
+from botend.services.simc_consumables import simc_consumable_option
 from botend.services.simc_benchmark_config import SIMC_RAID_BUFFS
 from botend.services.spec_stats_service import SpecStatsService
 from botend.services.simc_task_service import create_task, create_task_from_request, TaskCreationError
@@ -3509,7 +3510,8 @@ class SimcConsumableOptionsAPIView(View):
                         if target in values:
                             values[target].add(enchant.strip())
         return JsonResponse({'success': True, 'data': {
-            key: sorted(items) for key, items in values.items()
+            key: [simc_consumable_option(value) for value in sorted(items)]
+            for key, items in values.items()
         }})
 
 

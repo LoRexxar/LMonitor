@@ -77,24 +77,37 @@ class SimcBenchmarkOptionsApiTests(TestCase):
         })
 
     def test_regular_simulation_consumable_catalog_comes_from_system_profiles(self):
+        conditional_oil = 'thalassian_phoenix_oil_2,if=!talent.flametongue_weapon'
         self.default_profile.player_equipment = (
-            'flask=tempered_flask\n'
-            'potion=tempered_potion\n'
-            'food=feast_of_the_midnight\n'
-            'augmentation=draconic_augmentation\n'
-            'temporary_enchant=main_hand:algari_mana_oil/off_hand:algari_mana_oil\n'
-            'flask=tempered_flask\n'
+            'flask=flask_of_the_magisters_2\n'
+            'potion=lights_potential_2\n'
+            'food=harandar_celebration\n'
+            'augmentation=void_touched_augment_rune\n'
+            f'temporary_enchant=main_hand:{conditional_oil}/off_hand:thalassian_phoenix_oil_2\n'
+            'flask=flask_of_the_magisters_2\n'
         )
         self.default_profile.save(update_fields=['player_equipment'])
         response = self.client.get('/api/simc-profile/consumable-options/')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['data'], {
-            'flask': ['tempered_flask'],
-            'potion': ['tempered_potion'],
-            'food': ['feast_of_the_midnight'],
-            'augmentation': ['draconic_augmentation'],
-            'temporary_enchant_main_hand': ['algari_mana_oil'],
-            'temporary_enchant_off_hand': ['algari_mana_oil'],
+            'flask': [
+                {'value': 'flask_of_the_magisters_2', 'label': '魔导师合剂'},
+            ],
+            'potion': [
+                {'value': 'lights_potential_2', 'label': '圣光潜力'},
+            ],
+            'food': [
+                {'value': 'harandar_celebration', 'label': '哈籁恩达尔庆典大餐'},
+            ],
+            'augmentation': [
+                {'value': 'void_touched_augment_rune', 'label': '虚触强化符文'},
+            ],
+            'temporary_enchant_main_hand': [
+                {'value': conditional_oil, 'label': '萨拉斯凤凰之油（未选择火舌武器天赋时）'},
+            ],
+            'temporary_enchant_off_hand': [
+                {'value': 'thalassian_phoenix_oil_2', 'label': '萨拉斯凤凰之油'},
+            ],
         })
 
     def test_specs_are_exact_supported_catalog_and_devourer_is_localized(self):
