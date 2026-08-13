@@ -3,6 +3,7 @@ from copy import deepcopy
 from datetime import timedelta
 import hashlib
 import json
+from pathlib import Path
 from unittest.mock import patch
 
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -610,6 +611,15 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(profile['equipment'][0]['item_id'], 100)
 
     def test_profile_expansion_projects_result_task_combat_and_buff_configuration(self):
+        self.profile.player_equipment = (
+            'warrior="Frozen Player"\nlevel=80\nspec=fury\n'
+            'flask=flask_of_the_blood_knights_2\n'
+            'potion=lights_potential_2\n'
+            'food=royal_roast\n'
+            'augmentation=void_touched\n'
+            'temporary_enchant=off_hand:thalassian_phoenix_oil_2\n'
+        )
+        self.profile.save(update_fields=['player_equipment'])
         scenario = self.panel.scenarios.get(key='patchwerk')
         scenario.simulation_params = {
             'iterations': 20000,
@@ -621,6 +631,11 @@ class SimcBenchmarkExecutionTests(TestCase):
             'desired_targets': 4,
             'use_class_raid_buff': True,
             'raid_buffs': ['arcane_intellect', 'bloodlust'],
+            'extra_options': ['power_infusion'],
+            'profile_overrides': {
+                'flask': 'flask_of_the_magisters_2',
+                'temporary_enchant': 'main_hand:thalassian_phoenix_oil_2',
+            },
         }
         scenario.save(update_fields=['simulation_params'])
         execution = self._published_success()
@@ -647,8 +662,30 @@ class SimcBenchmarkExecutionTests(TestCase):
                 {'value': 'arcane_intellect', 'label': '奥术智慧'},
                 {'value': 'bloodlust', 'label': '嗜血 / 英勇'},
             ],
+            'consumables': {
+                'flask': {'value': 'flask_of_the_magisters_2', 'label': '魔导师合剂'},
+                'potion': {'value': 'lights_potential_2', 'label': '圣光潜力'},
+                'food': {'value': 'royal_roast', 'label': '皇家烤肉'},
+                'augmentation': {'value': 'void_touched', 'label': '虚触强化符文'},
+                'temporary_enchant': {
+                    'main_hand': {
+                        'value': 'thalassian_phoenix_oil_2',
+                        'label': '萨拉斯凤凰之油',
+                    },
+                },
+            },
+            'extra_options': [{
+                'value': 'power_infusion',
+                'label': '牧师能量灌注',
+                'description': '允许 APL 在最佳时机调用能量灌注（120 秒冷却）。',
+            }],
             'source_task_id': source_task.id,
         })
+        frontend = (
+            Path(__file__).resolve().parents[2] / 'static/portal/js/simc-benchmarks.js'
+        ).read_text(encoding='utf-8')
+        self.assertIn('"消耗品与临时附魔"', frontend)
+        self.assertIn('"APL 额外选项"', frontend)
 
     def test_incremental_projection_uses_profile_frozen_by_failed_source_task(self):
         self.profile.player_equipment = (

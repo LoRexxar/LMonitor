@@ -30,7 +30,10 @@ from botend.services.simc_benchmark_config import (
     MAX_PANEL_CONFIG_BYTES, SIMC_FIGHT_STYLES, SIMC_RAID_BUFFS,
     build_execution_plan,
 )
-from botend.services.simc_composer import SIMC_CLASS_RAID_BUFFS
+from botend.services.simc_composer import (
+    SIMC_CLASS_RAID_BUFFS, SIMC_EXTRA_OPTIONS,
+)
+from botend.services.simc_consumables import simc_consumable_option
 from botend.services.simc_player_config import parse_manual_player_config
 from botend.services.simc_task_service import (
     TaskCreationError, TaskPreparedResourceChanged, TaskValidationUnavailable,
@@ -1461,6 +1464,41 @@ def _simulation_detail_from_task(task, fallback_params, profile_detail):
     class_name = str(identity.get('class_name') or '').strip().lower()
     class_raid_buffs = SIMC_CLASS_RAID_BUFFS.get(class_name, ()) if use_class_raid_buff else ()
     raid_buffs = params.get('raid_buffs') or ()
+
+    profile_consumables = (profile_detail or {}).get('consumables') or {}
+    profile_overrides = params.get('profile_overrides') or {}
+    profile_overrides = profile_overrides if isinstance(profile_overrides, dict) else {}
+    consumables = {}
+    for key in ('flask', 'potion', 'food', 'augmentation'):
+        value = (
+            profile_overrides[key]
+            if key in profile_overrides else profile_consumables.get(key, '')
+        )
+        if value:
+            consumables[key] = simc_consumable_option(value)
+
+    if 'temporary_enchant' in profile_overrides:
+        temporary_enchants = {}
+        for token in str(profile_overrides['temporary_enchant'] or '').split('/'):
+            slot, separator, value = token.strip().partition(':')
+            if separator and slot and value:
+                temporary_enchants[slot] = value
+    else:
+        temporary_enchants = profile_consumables.get('temporary_enchant') or {}
+    consumables['temporary_enchant'] = {
+        slot: simc_consumable_option(value)
+        for slot, value in temporary_enchants.items() if value
+    }
+
+    extra_option_catalog = {row['value']: row for row in SIMC_EXTRA_OPTIONS}
+    extra_options = []
+    for value in params.get('extra_options') or ():
+        option = extra_option_catalog.get(value) or {}
+        extra_options.append({
+            'value': value,
+            'label': option.get('label', value),
+            'description': option.get('description', ''),
+        })
     return {
         'fight_style': {
             'value': fight_style,
@@ -1475,6 +1513,8 @@ def _simulation_detail_from_task(task, fallback_params, profile_detail):
         'use_class_raid_buff': use_class_raid_buff,
         'class_raid_buffs': labeled_buffs(class_raid_buffs),
         'raid_buffs': labeled_buffs(raid_buffs),
+        'consumables': consumables,
+        'extra_options': extra_options,
         'source_task_id': task.pk if task is not None else None,
     }
 

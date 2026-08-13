@@ -408,6 +408,24 @@
         : "未启用"],
       ["额外团队增益", raidBuffs.length ? raidBuffs.join("、") : "未启用额外团队增益"],
     ], "simc-benchmark-simulation-facts");
+    const consumables = simulationDetail?.consumables || {};
+    const consumableLabel = (entry) => entry?.label || entry?.value || null;
+    appendProfileFactSection(body, "消耗品与临时附魔", [
+      ["合剂", consumableLabel(consumables.flask)],
+      ["药水", consumableLabel(consumables.potion)],
+      ["食物", consumableLabel(consumables.food)],
+      ["增幅符文", consumableLabel(consumables.augmentation)],
+      ["主手临时附魔", consumableLabel(consumables.temporary_enchant?.main_hand)],
+      ["副手临时附魔", consumableLabel(consumables.temporary_enchant?.off_hand)],
+    ], "simc-benchmark-simulation-facts");
+    const extraOptions = Array.isArray(simulationDetail?.extra_options)
+      ? simulationDetail.extra_options.map((option) => {
+        const label = option?.label || option?.value;
+        return option?.description ? `${label} · ${option.description}` : label;
+      }).filter(Boolean) : [];
+    appendProfileFactSection(body, "APL 额外选项", [
+      ["使用选项", extraOptions.length ? extraOptions.join("、") : "未启用"],
+    ], "simc-benchmark-simulation-facts");
     const talentCode = profileDetail?.talents?.build_code;
     if (talentCode) {
       const section = node("section", "simc-benchmark-profile-section");

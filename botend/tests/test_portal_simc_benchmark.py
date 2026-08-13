@@ -748,7 +748,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         ):
             self.assertIn(contract, self.JS + self.CSS)
         self.assertNotIn('const effect = group.effect', self.JS)
-        self.assertIn('?v=20260813_benchmark_apl_detail', self.RESULTS_TEMPLATE)
+        self.assertIn('?v=20260814_simc_apl_options', self.RESULTS_TEMPLATE)
 
     def test_result_renderer_uses_frozen_target_count_and_duration_for_scenarios(self):
         for contract in (
