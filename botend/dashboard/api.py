@@ -10022,6 +10022,7 @@ class SimcBenchmarkExecutionDetailAPIView(_BenchmarkReadAPIView):
                 'comparison_label': aggregate.get('comparison_label', ''),
                 'comparison_option_label': aggregate.get('comparison_option_label', ''),
                 'option_gain_rows': aggregate.get('option_gain_rows', []),
+                'option_gain_coordinates': aggregate.get('coordinates', []),
             })
         return JsonResponse({'success': True, 'data': data})
 

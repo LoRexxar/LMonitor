@@ -676,10 +676,11 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         dashboard_start = dashboard_js.index('function renderOptionGainRows')
         dashboard_end = dashboard_js.index('\nfunction renderExecution', dashboard_start)
 
-        for renderer in (
+        renderers = (
             self.JS[portal_start:portal_end],
             dashboard_js[dashboard_start:dashboard_end],
-        ):
+        )
+        for renderer in renderers:
             self.assertIn('spec_icon_url', renderer)
             self.assertIn('gain_percent', renderer)
             self.assertIn('simc-benchmark-spec-chart', renderer)
@@ -687,8 +688,22 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             self.assertIn('simc-benchmark-spec-name', renderer)
             self.assertIn('simc-benchmark-spec-track', renderer)
             self.assertIn('simc-benchmark-spec-bar', renderer)
+            self.assertIn('profile_label', renderer)
+            self.assertIn('aria-expanded', renderer)
+            self.assertIn('profile_detail', renderer)
+            self.assertIn('simulation_detail', renderer)
             self.assertNotIn('table', renderer)
             self.assertNotIn('thead', renderer)
+        self.assertIn('renderProfileDetails(', renderers[0])
+        self.assertIn('option_gain_coordinates', renderers[1])
+        self.assertNotIn(
+            'entry?.scenario_label || entry?.scenario_key,\n        entry?.profile_label',
+            renderers[0],
+        )
+        self.assertNotIn(
+            'row.scenario_label||row.scenario_key,row.profile_label',
+            renderers[1],
+        )
 
     def test_baseline_only_rows_expand_the_corresponding_frozen_profile(self):
         spec_start = self.JS.index('function renderSpecComparison')

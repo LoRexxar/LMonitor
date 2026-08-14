@@ -684,7 +684,14 @@
   function renderOptionGain(shell, payload) {
     const sourceRows = Array.isArray(payload?.results?.option_gain_rows)
       ? payload.results.option_gain_rows : [];
+    const coordinates = Array.isArray(payload?.results?.coordinates)
+      ? payload.results.coordinates : [];
     const rows = sourceRows.slice().sort((left, right) => Number(right?.gain_percent || 0) - Number(left?.gain_percent || 0));
+    const coordinateFor = (entry) => coordinates.find((coordinate) => (
+      String(coordinate?.spec_key || "") === String(entry?.spec_key || "")
+      && String(coordinate?.profile_key || "") === String(entry?.profile_key || "")
+      && String(coordinate?.scenario_key || "") === String(entry?.scenario_key || "")
+    ));
     if (!rows.length) {
       shell.body.replaceChildren(state("暂无已完成的场景收益对比结果", "not-ready"));
       return;
@@ -709,7 +716,11 @@
       const hasGain = Number.isFinite(gainPercent);
       const isNegative = hasGain && gainPercent < 0;
       const row = node("div", "simc-benchmark-spec-row simc-benchmark-gain-row");
-      const content = node("div", "simc-benchmark-spec-row-toggle simc-benchmark-gain-row-content");
+      const content = node("button", "simc-benchmark-spec-row-toggle simc-benchmark-gain-row-content");
+      content.type = "button";
+      const detailId = `simc-benchmark-gain-detail-${index}`;
+      content.setAttribute("aria-expanded", "false");
+      content.setAttribute("aria-controls", detailId);
       const identity = node("div", "simc-benchmark-spec-identity");
       identity.appendChild(node("span", "simc-benchmark-spec-rank", hasGain ? String(index + 1) : "—"));
       const iconUrl = safeIconUrl(entry?.spec_icon_url);
@@ -721,11 +732,8 @@
       }
       const copy = node("div", "simc-benchmark-spec-copy");
       copy.appendChild(node("strong", "simc-benchmark-spec-name", entry?.spec_label || entry?.spec_key || "未知专精"));
-      const context = [
-        entry?.scenario_label || entry?.scenario_key,
-        entry?.profile_label || entry?.profile_key,
-      ].filter(Boolean).join(" · ");
-      if (context) copy.appendChild(node("small", "simc-benchmark-spec-profile", context));
+      const profileLabel = entry?.profile_label || entry?.profile_key;
+      if (profileLabel) copy.appendChild(node("small", "simc-benchmark-spec-profile", profileLabel));
       identity.appendChild(copy);
       const track = node("div", "simc-benchmark-spec-track");
       const bar = node("div", `simc-benchmark-spec-bar simc-benchmark-gain-bar${isNegative ? " simc-benchmark-gain-bar--negative" : ""}`);
@@ -742,7 +750,23 @@
         `${numberFormat.format(baselineDps)} → ${numberFormat.format(comparisonDps)} DPS · ${gainDps >= 0 ? "+" : ""}${numberFormat.format(Number.isFinite(gainDps) ? gainDps : 0)} DPS`,
       ));
       content.append(identity, track, metrics);
-      row.appendChild(content); chart.appendChild(row);
+      const coordinate = coordinateFor(entry) || {};
+      const profileDetails = renderProfileDetails(
+        coordinate.profile_detail || {},
+        coordinate.simulation_detail || {},
+        coordinate.audit || {},
+        "",
+        rawReportUrlForCoordinate(coordinate),
+      );
+      profileDetails.id = detailId;
+      profileDetails.classList.add("simc-benchmark-spec-profile-details");
+      content.addEventListener("click", () => {
+        const expanded = !profileDetails.open;
+        profileDetails.open = expanded;
+        row.classList.toggle("is-expanded", expanded);
+        content.setAttribute("aria-expanded", String(expanded));
+      });
+      row.append(content, profileDetails); chart.appendChild(row);
     });
     shell.body.replaceChildren(intro, chart);
   }

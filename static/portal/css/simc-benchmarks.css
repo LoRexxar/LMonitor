@@ -363,7 +363,7 @@
 .simc-benchmark-gain-intro strong { color: #0f172a; font-size: 0.9rem; }
 .simc-benchmark-gain-intro p { color: #64748b; font-size: 0.72rem; margin: 0.25rem 0 0; }
 .simc-benchmark-gain-intro .simc-benchmark-spec-axis-note { margin-top: 0.45rem; text-align: left; }
-.simc-benchmark-gain-row-content { cursor: default; }
+.simc-benchmark-gain-row-content { cursor: pointer; }
 .simc-benchmark-gain-bar { background: linear-gradient(90deg, #16a34a, #22c55e); }
 .simc-benchmark-gain-bar--negative { background: linear-gradient(90deg, #dc2626, #fb7185); }
 .simc-benchmark-gain-value { color: #15803d; }

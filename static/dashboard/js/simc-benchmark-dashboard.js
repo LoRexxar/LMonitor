@@ -500,22 +500,47 @@ function renderBenchmarkTaskTotal(coverage){
 }
 function metric(label,value,tone=''){const node=el('div',{class:`benchmark-task-total-metric ${tone}`});node.append(el('span',{},label),el('strong',{},String(value)));return node;}
 function renderPanelCoverage(coverage){return renderBenchmarkTaskTotal(coverage);}
+function appendOptionGainDetailSection(body,title,entries){ const facts=el('dl',{class:'benchmark-option-detail-facts'}); entries.forEach(([label,value])=>{ if(value===null||value===undefined||value==='') return; facts.append(el('dt',{},label),el('dd',{},value)); }); if(!facts.childElementCount) return; const section=el('section',{class:'benchmark-option-detail-section'}); section.append(el('h5',{},title),facts); body.append(section); }
+function renderOptionGainDetails(profileDetail,simulationDetail,audit){
+  profileDetail=profileDetail&&typeof profileDetail==='object'?profileDetail:{}; simulationDetail=simulationDetail&&typeof simulationDetail==='object'?simulationDetail:{}; audit=audit&&typeof audit==='object'?audit:{};
+  const body=el('div',{class:'benchmark-option-detail'}), identity=profileDetail.identity||{};
+  appendOptionGainDetailSection(body,'基础信息',[["角色",identity.name],["职业",identity.class_name],["专精",identity.spec],["种族",identity.race],["等级",identity.level],["服务器",identity.realm],["使用 APL",audit.apl_label]]);
+  const style=simulationDetail.fight_style?.label||simulationDetail.fight_style?.value;
+  appendOptionGainDetailSection(body,'战斗场景',[["战斗类型",style],["目标数量",simulationDetail.desired_targets],["模拟时长",simulationDetail.max_time?`${simulationDetail.max_time} 秒`:null],["时长浮动",simulationDetail.vary_combat_length!==undefined?`${Number(simulationDetail.vary_combat_length)*100}%`:null],["敌人类型",simulationDetail.enemy_type],["迭代次数",simulationDetail.iterations],["目标误差",simulationDetail.target_error!==undefined?`${Number(simulationDetail.target_error)*100}%`:null]]);
+  const classBuffs=Array.isArray(simulationDetail.class_raid_buffs)?simulationDetail.class_raid_buffs.map(buff=>buff?.label||buff?.value).filter(Boolean):[];
+  const raidBuffs=Array.isArray(simulationDetail.raid_buffs)?simulationDetail.raid_buffs.map(buff=>buff?.label||buff?.value).filter(Boolean):[];
+  appendOptionGainDetailSection(body,'团队 Buff',[["职业自身团队增益",simulationDetail.use_class_raid_buff?`已启用${classBuffs.length?` · ${classBuffs.join('、')}`:''}`:'未启用'],["额外团队增益",raidBuffs.length?raidBuffs.join('、'):'未启用额外团队增益']]);
+  const consumables=simulationDetail.consumables||{}, consumable=entry=>entry?.label||entry?.value||null;
+  appendOptionGainDetailSection(body,'消耗品与临时附魔',[["合剂",consumable(consumables.flask)],["药水",consumable(consumables.potion)],["食物",consumable(consumables.food)],["增幅符文",consumable(consumables.augmentation)],["主手临时附魔",consumable(consumables.temporary_enchant?.main_hand)],["副手临时附魔",consumable(consumables.temporary_enchant?.off_hand)]]);
+  const extraOptions=Array.isArray(simulationDetail.extra_options)?simulationDetail.extra_options.map(option=>option?.description?`${option?.label||option?.value} · ${option.description}`:(option?.label||option?.value)).filter(Boolean):[];
+  appendOptionGainDetailSection(body,'APL 额外选项',[["使用选项",extraOptions.length?extraOptions.join('、'):'未启用']]);
+  const talentCode=profileDetail.talents?.build_code;
+  appendOptionGainDetailSection(body,'天赋',[["Build Code",talentCode]]);
+  const equipment=Array.isArray(profileDetail.equipment)?profileDetail.equipment:[];
+  if(equipment.length){ const section=el('section',{class:'benchmark-option-detail-section'}), list=el('div',{class:'benchmark-option-detail-equipment'}); equipment.forEach(item=>{ const name=item?.display_name||item?.name_zh||item?.name||`#${item?.item_id||'—'}`, meta=[item?.item_level?`装等 ${item.item_level}`:'',item?.enchant?.display_name?`附魔：${item.enchant.display_name}`:''].filter(Boolean).join(' · '), row=el('div',{class:'benchmark-option-detail-equipment-row'}); row.append(el('span',{class:'benchmark-option-detail-slot'},item?.slot_label||item?.slot||'装备'),el('strong',{},name)); if(meta) row.append(el('small',{},meta)); list.append(row); }); section.append(el('h5',{},`装备 (${equipment.length})`),list); body.append(section); }
+  if(!body.childElementCount) body.append(el('p',{class:'benchmark-empty'},'该 Profile 没有可展示的配置内容'));
+  return body;
+}
 function renderOptionGainRows(data){
-  const section=el('section',{class:'benchmark-option-gain'}),label=data.comparison_label||data.comparison_option_label||'对比场景',rows=Array.isArray(data.option_gain_rows)?data.option_gain_rows.slice():[];
+  const section=el('section',{class:'benchmark-option-gain'}),label=data.comparison_label||data.comparison_option_label||'对比场景',rows=Array.isArray(data.option_gain_rows)?data.option_gain_rows.slice():[],coordinates=Array.isArray(data.option_gain_coordinates)?data.option_gain_coordinates:[];
+  const coordinateFor=row=>coordinates.find(coordinate=>String(coordinate?.spec_key||'')===String(row?.spec_key||'')&&String(coordinate?.profile_key||'')===String(row?.profile_key||'')&&String(coordinate?.scenario_key||'')===String(row?.scenario_key||''));
   section.append(el('div',{class:'section-title'},el('h3',{},`${label}收益对比`)),el('p',{},'同一 Profile 与 APL，以原战斗场景为基准应用结构化场景覆盖；按提升百分比降序排列。'),el('p',{class:'simc-benchmark-spec-axis-note'},'左侧：职业专精 · 横向条：提升比例（按本组最大绝对幅度缩放）'));
   if(!rows.length){section.append(el('div',{class:'benchmark-no-execution'},'暂无已完成的场景收益对比结果'));return section;}
   rows.sort((left,right)=>(Number(right.gain_percent)||0)-(Number(left.gain_percent)||0));
   const maximumMagnitude=rows.reduce((value,row)=>{const percent=Number(row.gain_percent);return Math.max(value,Number.isFinite(percent)?Math.abs(percent):0);},0),chart=el('div',{class:'simc-benchmark-spec-chart simc-benchmark-gain-chart'});
   rows.forEach((row,index)=>{
     const gain=Number(row.gain_dps),percent=Number(row.gain_percent),baseline=Number(row.baseline_dps)||0,comparison=Number(row.comparison_dps??row.enabled_dps)||0,hasGain=Number.isFinite(percent),isNegative=hasGain&&percent<0;
-    const item=el('div',{class:'simc-benchmark-spec-row simc-benchmark-gain-row'}),content=el('div',{class:'simc-benchmark-spec-row-toggle simc-benchmark-gain-row-content'}),identity=el('div',{class:'simc-benchmark-spec-identity'});
+    const detailId=`benchmark-option-gain-detail-${index}`,item=el('div',{class:'simc-benchmark-spec-row simc-benchmark-gain-row'}),content=el('button',{type:'button',class:'simc-benchmark-spec-row-toggle simc-benchmark-gain-row-content','aria-expanded':'false','aria-controls':detailId}),identity=el('div',{class:'simc-benchmark-spec-identity'});
     identity.append(el('span',{class:'simc-benchmark-spec-rank'},hasGain?String(index+1):'—'));
     if(row.spec_icon_url){const icon=el('img',{class:'simc-benchmark-spec-icon',src:row.spec_icon_url,alt:'',loading:'lazy'});icon.addEventListener('error',()=>icon.remove(),{once:true});identity.append(icon);}
     const copy=el('div',{class:'simc-benchmark-spec-copy'});copy.append(el('strong',{class:'simc-benchmark-spec-name'},row.spec_label||row.spec_key||'未知专精'));
-    const context=[row.scenario_label||row.scenario_key,row.profile_label||row.profile_key].filter(Boolean).join(' · ');if(context)copy.append(el('small',{class:'simc-benchmark-spec-profile'},context));identity.append(copy);
+    const profileLabel=row.profile_label||row.profile_key;if(profileLabel)copy.append(el('small',{class:'simc-benchmark-spec-profile'},profileLabel));identity.append(copy);
     const track=el('div',{class:'simc-benchmark-spec-track'}),bar=el('div',{class:`simc-benchmark-spec-bar simc-benchmark-gain-bar${isNegative?' simc-benchmark-gain-bar--negative':''}`});bar.style.width=`${hasGain&&maximumMagnitude>0?Math.max(.8,Math.abs(percent)*100/maximumMagnitude):0}%`;track.append(bar);
     const metrics=el('div',{class:'simc-benchmark-spec-metrics'});metrics.append(el('strong',{class:`simc-benchmark-spec-dps simc-benchmark-gain-value${isNegative?' simc-benchmark-gain-value--negative':''}`},hasGain?`${percent>=0?'+':''}${percent.toFixed(2)}%`:'暂无结果'),el('small',{class:'simc-benchmark-spec-relative'},`${numberFormat.format(baseline)} → ${numberFormat.format(comparison)} DPS · ${gain>=0?'+':''}${numberFormat.format(Number.isFinite(gain)?gain:0)} DPS`));
-    content.append(identity,track,metrics);item.append(content);chart.append(item);
+    content.append(identity,track,metrics);
+    const coordinate=coordinateFor(row)||{},details=renderOptionGainDetails(coordinate.profile_detail,coordinate.simulation_detail,coordinate.audit);details.id=detailId;details.hidden=true;
+    content.addEventListener('click',()=>{const expanded=details.hidden;details.hidden=!expanded;item.classList.toggle('is-expanded',expanded);content.setAttribute('aria-expanded',String(expanded));});
+    item.append(content,details);chart.append(item);
   });
   section.append(chart);return section;
 }
