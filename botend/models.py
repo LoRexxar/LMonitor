@@ -1643,9 +1643,20 @@ class SimcAgentEnrollmentCode(models.Model):
 class SimcBenchmarkPanel(models.Model):
     """A reusable benchmark definition; execution remains owned by SimcTask/SimulationRun."""
 
+    BENCHMARK_TYPE_STANDARD = 'standard'
+    BENCHMARK_TYPE_OPTION_GAIN = 'option_gain'
+    BENCHMARK_TYPE_CHOICES = (
+        (BENCHMARK_TYPE_STANDARD, '普通模拟'),
+        (BENCHMARK_TYPE_OPTION_GAIN, '对比模拟'),
+    )
+
     name = models.CharField(max_length=200)
     slug = models.SlugField(max_length=200, unique=True)
     description = models.TextField(default='', blank=True)
+    benchmark_type = models.CharField(
+        max_length=24, choices=BENCHMARK_TYPE_CHOICES, default=BENCHMARK_TYPE_STANDARD,
+    )
+    comparison_option = models.CharField(max_length=50, default='', blank=True)
     created_by_id = models.BigIntegerField()
     is_active = models.BooleanField(default=True)
     is_public = models.BooleanField(default=False)

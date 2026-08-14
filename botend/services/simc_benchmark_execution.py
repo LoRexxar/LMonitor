@@ -123,6 +123,15 @@ def _spec_display_name(value, spec_key=None):
     return f'{direct}-{class_name}' if class_name else direct
 
 
+def _option_gain_spec_display_name(value, spec_key=None):
+    """Use the canonical ``专精 · 职业`` label only on the gain table."""
+    label = _spec_display_name(value, spec_key)
+    if '-' not in label:
+        return label
+    spec_label, class_label = label.rsplit('-', 1)
+    return f'{spec_label} · {class_label}'
+
+
 def _normalize_trigger_slot(trigger, scheduled_slot):
     choices = {value for value, _label in SimcBenchmarkExecution.TRIGGER_CHOICES}
     if trigger not in choices:
@@ -1533,6 +1542,10 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                                         include_coordinate_options=False):
     """Aggregate reusable Results for all, one spec, coordinate, or scenario."""
     plan = build_execution_plan(panel, lock=False)
+    is_option_gain = (
+        plan['panel'].get('benchmark_type')
+        == SimcBenchmarkPanel.BENCHMARK_TYPE_OPTION_GAIN
+    )
     plan_cases = plan['cases']
     if spec_filter is not None:
         plan_cases = [row for row in plan_cases if row['spec_key'] == str(spec_filter)]
@@ -1572,6 +1585,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
     }
     profile_details = {}
     coordinates = []
+    option_gain_rows = []
     for coordinate in projected_cases:
         profile_id = coordinate['profile_id']
         reusable = _reusable_candidate_tasks(panel, coordinate, reusable_by_coordinate)
@@ -1658,6 +1672,28 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                         'backend_version': manifest.get('backend_version'),
                         'simulation_params': result_task.simulation_params or {},
                     }
+        if is_option_gain:
+            result_by_key = {row['key']: row for row in rows}
+            baseline = result_by_key.get('baseline')
+            enabled = result_by_key.get('option_enabled')
+            if baseline is not None and enabled is not None and baseline['dps'] != 0:
+                baseline_dps = float(baseline['dps'])
+                enabled_dps = float(enabled['dps'])
+                gain_dps = enabled_dps - baseline_dps
+                option_gain_rows.append({
+                    'spec_key': coordinate['spec_key'],
+                    'spec_label': _option_gain_spec_display_name(
+                        coordinate['spec_label'], coordinate['spec_key'],
+                    ),
+                    'profile_key': coordinate['profile_key'],
+                    'profile_label': coordinate['profile_label'],
+                    'scenario_key': coordinate['scenario_key'],
+                    'scenario_label': coordinate['scenario_label'],
+                    'baseline_dps': baseline_dps,
+                    'enabled_dps': enabled_dps,
+                    'gain_dps': round(gain_dps, 4),
+                    'gain_percent': round(gain_dps / baseline_dps * 100, 4),
+                })
         coordinate_payload = {
             'spec_key': coordinate['spec_key'], 'scenario_key': coordinate['scenario_key'],
             'profile_key': coordinate['profile_key'],
@@ -1675,12 +1711,20 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                 'desired_targets': scenario_params.get('desired_targets', 1),
                 'max_time': scenario_params.get('max_time', 300),
             },
-            'candidates': rows,
+            'candidates': [] if is_option_gain else rows,
         }
         if coordinate_audit is not None:
             coordinate_payload['audit'] = coordinate_audit
         coordinates.append(coordinate_payload)
     payload = {'panel_id': panel.pk, 'coordinates': coordinates}
+    if is_option_gain:
+        payload['option_gain_rows'] = sorted(
+            option_gain_rows,
+            key=lambda row: (
+                -row['gain_percent'], row['spec_key'], row['profile_key'],
+                row['scenario_key'],
+            ),
+        )
     if include_coordinate_options:
         payload['coordinate_options'] = [_coordinate_option(row) for row in plan_cases]
     return payload

@@ -681,7 +681,54 @@
     shell.body.replaceChildren(controls, result);
   }
 
+  function renderOptionGain(shell, payload) {
+    const sourceRows = Array.isArray(payload?.results?.option_gain_rows)
+      ? payload.results.option_gain_rows : [];
+    const rows = sourceRows.slice().sort((left, right) => Number(right?.gain_percent || 0) - Number(left?.gain_percent || 0));
+    if (!rows.length) {
+      shell.body.replaceChildren(state("暂无已完成的选项收益对比结果", "not-ready"));
+      return;
+    }
+    const optionLabel = payload?.results?.comparison_option_label || "对比选项";
+    const intro = node("div", "simc-benchmark-gain-intro");
+    intro.append(
+      node("strong", "", `${optionLabel}收益对比`),
+      node("p", "", "同一 Profile、APL 与模拟场景，仅切换该选项；按收益百分比降序排列。"),
+    );
+    const wrap = node("div", "simc-benchmark-gain-table-wrap");
+    const table = node("table", "simc-benchmark-gain-table");
+    const thead = node("thead");
+    const head = node("tr");
+    ["排名", "职业专精", "场景", "Profile", "关闭 DPS", "开启后 DPS", "DPS 增量", "收益"].forEach((label) => {
+      const cell = node("th", "", label); cell.scope = "col"; head.appendChild(cell);
+    });
+    thead.appendChild(head);
+    const tbody = node("tbody");
+    rows.forEach((entry, index) => {
+      const row = node("tr");
+      const gainDps = Number(entry?.gain_dps);
+      const gainPercent = Number(entry?.gain_percent);
+      [
+        String(index + 1),
+        entry?.spec_label || entry?.spec_key || "—",
+        entry?.scenario_label || entry?.scenario_key || "—",
+        entry?.profile_label || entry?.profile_key || "—",
+        `${numberFormat.format(validDps(entry?.baseline_dps) ?? 0)} DPS`,
+        `${numberFormat.format(validDps(entry?.enabled_dps) ?? 0)} DPS`,
+        `${gainDps >= 0 ? "+" : ""}${numberFormat.format(Number.isFinite(gainDps) ? gainDps : 0)}`,
+        `${gainPercent >= 0 ? "+" : ""}${Number.isFinite(gainPercent) ? gainPercent.toFixed(2) : "0.00"}%`,
+      ].forEach((value, cellIndex) => row.appendChild(node("td", cellIndex === 7 ? "simc-benchmark-gain-value" : "", value)));
+      tbody.appendChild(row);
+    });
+    table.append(thead, tbody); wrap.appendChild(table);
+    shell.body.replaceChildren(intro, wrap);
+  }
+
   function renderResults(shell, payload, { syncLocation = false, detailUrl = "" } = {}) {
+    if (payload?.result_view === "option_gain") {
+      renderOptionGain(shell, payload);
+      return;
+    }
     if (payload?.result_view === "spec_comparison") {
       renderSpecComparison(shell, payload, { syncLocation, detailUrl });
       return;

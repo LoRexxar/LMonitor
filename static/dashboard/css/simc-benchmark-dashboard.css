@@ -208,6 +208,13 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
 .raid-buff-choice:has(input:checked) { border-color:#93c5fd; background:#eff6ff; color:#1d4ed8; }
 .raid-buff-choice span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .simc-benchmark-btn.compact { min-height:34px; padding:.35rem .58rem; font-size:.76rem; }
+.benchmark-option-gain { margin-top:1rem; }
+.benchmark-option-gain > p { color:#64748b; font-size:.76rem; }
+.benchmark-option-gain-table-wrap { overflow-x:auto; border:1px solid #e2e8f0; border-radius:.65rem; }
+.benchmark-option-gain-table { min-width:760px; margin:0; }
+.benchmark-option-gain-table th { background:#f8fafc; color:#64748b; font-size:.7rem; text-align:left; }
+.benchmark-option-gain-table th:nth-last-child(-n+4),.benchmark-option-gain-table td:nth-last-child(-n+4) { text-align:right; font-variant-numeric:tabular-nums; }
+.benchmark-option-gain-value { color:#15803d; font-weight:800; }
 
 @media (max-width: 640px) {
   .main-content:has(#simc-benchmarks.active) { padding: .75rem !important; overflow-x: hidden; }

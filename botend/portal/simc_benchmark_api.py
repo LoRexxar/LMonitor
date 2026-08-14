@@ -268,12 +268,20 @@ def _public_result_payload(panel, *, coordinate_filter=None, scenario_filter=Non
             'slug': panel.slug,
             'name': panel.name,
             'description': panel.description,
+            'benchmark_type': panel.benchmark_type,
+            'comparison_option': panel.comparison_option,
         },
-        'results': {'coordinates': coordinates},
+        'results': {
+            'coordinates': coordinates,
+            'comparison_option_label': results.get('comparison_option_label', ''),
+            'option_gain_rows': results.get('option_gain_rows', []),
+        },
     }
     if isinstance(results.get('coordinate_options'), list):
         payload['results']['coordinate_options'] = results['coordinate_options']
-    if scenario_filter is not None:
+    if panel.benchmark_type == SimcBenchmarkPanel.BENCHMARK_TYPE_OPTION_GAIN:
+        payload['result_view'] = 'option_gain'
+    elif scenario_filter is not None:
         payload['result_view'] = 'spec_comparison'
     return payload
 

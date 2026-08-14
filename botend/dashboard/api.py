@@ -9978,6 +9978,14 @@ class SimcBenchmarkExecutionDetailAPIView(_BenchmarkReadAPIView):
                 'available_results': 0, 'missing_results': 0,
                 'source_executions': [],
             }
+        if execution.panel.benchmark_type == SimcBenchmarkPanel.BENCHMARK_TYPE_OPTION_GAIN:
+            aggregate = serialize_incremental_panel_results(execution.panel)
+            data.update({
+                'benchmark_type': execution.panel.benchmark_type,
+                'comparison_option': execution.panel.comparison_option,
+                'comparison_option_label': aggregate.get('comparison_option_label', ''),
+                'option_gain_rows': aggregate.get('option_gain_rows', []),
+            })
         return JsonResponse({'success': True, 'data': data})
 
 

@@ -182,6 +182,147 @@ class SimcBenchmarkExecutionTests(TestCase):
             frozen['raid_buffs'],
         )
 
+    def test_option_gain_panel_synthesizes_power_infusion_pair_and_ranks_spec_gain(self):
+        from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
+        from botend.services.simc_benchmark_config import (
+            build_execution_plan, serialize_panel_config,
+        )
+        from botend.services.simc_composer import SimcComposer
+
+        self.panel.candidates.all().delete()
+        self.panel.benchmark_type = 'option_gain'
+        self.panel.comparison_option = 'power_infusion'
+        self.panel.save(update_fields=['benchmark_type', 'comparison_option'])
+        scenario = self.panel.scenarios.get(key='patchwerk')
+        scenario.simulation_params = {
+            'iterations': 1000,
+            # The planner owns the compared switch even when the base scenario has it.
+            'extra_options': ['power_infusion'],
+        }
+        scenario.save(update_fields=['simulation_params'])
+
+        priest_apl = SimcApl.objects.create(
+            name='Shadow APL', spec='priest_shadow', content=self.apl.content,
+            owner_user_id=self.user_id, is_active=True, is_selectable=True,
+            validation_status=SimcApl.VALIDATION_VALID,
+            validated_content_hash=self.apl.validated_content_hash,
+            validation_revision='a' * 40, validation_game_build='12.0.1',
+        )
+        priest_template = SimcContentTemplate.objects.create(
+            name='Shadow Template', spec='priest_shadow', content=self.template.content,
+            owner_user_id=self.user_id,
+        )
+        priest_profile = SimcProfile.objects.create(
+            user_id=self.user_id, name='Shadow Profile', class_name='priest',
+            spec='priest_shadow', is_active=True,
+        )
+        priest_spec = SimcBenchmarkSpec.objects.create(
+            panel=self.panel, class_name='priest', spec_key='priest_shadow',
+            label='Shadow', apl=priest_apl, template=priest_template,
+            backend=self.backend, display_order=1,
+        )
+        SimcBenchmarkProfile.objects.create(
+            panel_spec=priest_spec, profile=priest_profile, label='Shadow raid profile',
+        )
+
+        config = serialize_panel_config(self.panel)
+        self.assertEqual(config['benchmark_type'], 'option_gain')
+        self.assertEqual(config['comparison_option'], 'power_infusion')
+        self.assertEqual(config['candidates'], [])
+
+        plan = build_execution_plan(self.panel, validate_for_execution=False, lock=False)
+        self.assertEqual(plan['panel']['benchmark_type'], 'option_gain')
+        self.assertEqual(plan['panel']['comparison_option'], 'power_infusion')
+        self.assertEqual(plan['run_count'], 4)
+        self.assertEqual({row['spec_key'] for row in plan['cases']}, {
+            'warrior_fury', 'priest_shadow',
+        })
+        expected_candidates = [
+            {
+                'candidate_key': 'baseline',
+                'candidate_label': '不开启牧师能量灌注',
+                'candidate_type': 'option_toggle',
+                'candidate_params': {
+                    'candidate_type': 'option_toggle',
+                    'option_value': 'power_infusion', 'enabled': False,
+                },
+                'icon_url': '', 'effect': '', 'source_label': '',
+            },
+            {
+                'candidate_key': 'option_enabled',
+                'candidate_label': '开启牧师能量灌注',
+                'candidate_type': 'option_toggle',
+                'candidate_params': {
+                    'candidate_type': 'option_toggle',
+                    'option_value': 'power_infusion', 'enabled': True,
+                },
+                'icon_url': '', 'effect': '', 'source_label': '',
+            },
+        ]
+        for case in plan['cases']:
+            self.assertEqual(case['candidates'], expected_candidates)
+
+        base_request = {
+            'spec': 'warrior_fury', '_trusted_class_name': 'warrior',
+            'player_import_mode': 'manual_equipment',
+            'player_equipment': (
+                'warrior="Tester"\nlevel=90\nspec=fury\n'
+                'head=,id=212048\nmain_hand=,id=222222'
+            ),
+            'base_template_content': (
+                '{simulation_options}\n{player_identity}\n{equipment}\n{talents}\n'
+                '{stat_overrides}\n{action_list}\n{output_options}'
+            ),
+            'override_action_list': 'actions=/auto_attack',
+            'extra_options': ['power_infusion'],
+            '_result_file_path': 'option-gain.html',
+        }
+        composed = []
+        for candidate in expected_candidates:
+            request = SimcMonitor.apply_candidate_overrides(
+                base_request, candidate['candidate_params'],
+            )
+            content, _manifest, error = SimcComposer(self.user_id).compose(request)
+            self.assertIsNone(error)
+            composed.append((request, content))
+        self.assertEqual(composed[0][0]['extra_options'], [])
+        self.assertNotIn('external_buffs.pool=power_infusion:120', composed[0][1])
+        self.assertEqual(composed[1][0]['extra_options'], ['power_infusion'])
+        self.assertIn('external_buffs.pool=power_infusion:120', composed[1][1])
+
+        execution = self._create()
+        dps_by_spec = {
+            'warrior_fury': (1000, 1100),
+            'priest_shadow': (2000, 2100),
+        }
+        for case in execution.cases.select_related('task'):
+            task = case.task
+            task.current_status = 2
+            task.save(update_fields=['current_status'])
+            baseline_dps, enabled_dps = dps_by_spec[case.spec_key]
+            self._run(task, 1, 'completed', 'baseline', dps=baseline_dps)
+            self._run(task, 2, 'completed', 'option_enabled', dps=enabled_dps)
+        reconcile_execution(execution)
+
+        payload = serialize_incremental_panel_results(self.panel)
+        self.assertEqual(payload['option_gain_rows'], [
+            {
+                'spec_key': 'warrior_fury', 'spec_label': '狂怒 · 战士',
+                'profile_key': str(self.profile.pk), 'profile_label': 'Profile',
+                'scenario_key': 'patchwerk', 'scenario_label': 'Patchwerk',
+                'baseline_dps': 1000.0, 'enabled_dps': 1100.0,
+                'gain_dps': 100.0, 'gain_percent': 10.0,
+            },
+            {
+                'spec_key': 'priest_shadow', 'spec_label': '暗影 · 牧师',
+                'profile_key': str(priest_profile.pk),
+                'profile_label': 'Shadow Profile',
+                'scenario_key': 'patchwerk', 'scenario_label': 'Patchwerk',
+                'baseline_dps': 2000.0, 'enabled_dps': 2100.0,
+                'gain_dps': 100.0, 'gain_percent': 5.0,
+            },
+        ])
+
     def test_trinket_benchmark_replaces_both_profile_slots_with_frozen_reference_pair(self):
         candidate = self.panel.candidates.get(key='trinket')
         candidate.params = {

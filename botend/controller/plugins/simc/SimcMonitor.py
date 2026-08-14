@@ -32,7 +32,7 @@ from botend.services.simc_player_config import (
     normalize_gear_candidate_value,
     validate_player_baseline,
 )
-from botend.services.simc_composer import SimcComposer
+from botend.services.simc_composer import SIMC_EXTRA_OPTION_VALUES, SimcComposer
 from botend.services.task_resolver import resolve_task, is_reference_task, TaskResolutionError
 from botend.models import SimulationRun
 from botend.services.simc_attribute_search import advance_attribute_search
@@ -529,6 +529,19 @@ class SimcMonitor(BaseScan):
                 if stat not in ratings:
                     raise ValueError(f'属性候选缺少 {stat}')
                 request_data[f'gear_{stat}'] = int(ratings[stat])
+
+        elif candidate_type == 'option_toggle':
+            option_value = params.get('option_value')
+            enabled = params.get('enabled')
+            if option_value not in SIMC_EXTRA_OPTION_VALUES or type(enabled) is not bool:
+                raise ValueError('额外选项候选缺少合法 option_value 或 enabled')
+            extra_options = request_data.get('extra_options', [])
+            if not isinstance(extra_options, list):
+                raise ValueError('extra_options 必须是列表')
+            extra_options = [value for value in extra_options if value != option_value]
+            if enabled:
+                extra_options.append(option_value)
+            request_data['extra_options'] = extra_options
 
         elif candidate_type not in ('base', 'attribute_baseline_probe'):
             raise ValueError(f'不支持的候选类型: {candidate_type}')

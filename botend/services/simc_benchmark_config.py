@@ -35,7 +35,9 @@ from botend.services.simc_player_config import (
 from botend.services.simc_task_service import (
     SIMULATION_PARAMS_WHITELIST, TaskCreationError,
 )
-from botend.services.simc_composer import SIMC_RAID_BUFF_VALUES, validate_simulation_options
+from botend.services.simc_composer import (
+    SIMC_EXTRA_OPTIONS, SIMC_RAID_BUFF_VALUES, validate_simulation_options,
+)
 from botend.services.simc_candidate_options import normalize_controlled_simc_options
 
 MAX_SPECS = len(SUPPORTED_SIMC_SPEC_IDENTITIES)
@@ -78,9 +80,10 @@ MAX_CANDIDATE_PARAMS_BYTES = 16 * 1024
 MAX_PANEL_CONFIG_BYTES = 2 * 1024 * 1024
 
 _PANEL_FIELDS = {
-    'name', 'slug', 'description', 'is_active', 'is_public', 'schedule_enabled',
-    'interval_seconds', 'next_run_at',
+    'name', 'slug', 'description', 'benchmark_type', 'comparison_option',
+    'is_active', 'is_public', 'schedule_enabled', 'interval_seconds', 'next_run_at',
 }
+_EXTRA_OPTION_BY_VALUE = {option['value']: option for option in SIMC_EXTRA_OPTIONS}
 _ITEM_OPTION_KEYS = {
     'id', 'ilevel', 'item_level', 'bonus_id', 'bonus_ids', 'gem_id', 'gems',
     'enchant_id', 'crafted_stats', 'crafting_quality', 'drop_level',
@@ -513,11 +516,34 @@ def normalize_panel_payload(payload, user_id, panel=None):
         panel_slug = _generated_panel_slug(name)
     else:
         panel_slug = _key(requested_slug, 'slug')
+    benchmark_type = _text(
+        payload.get('benchmark_type', SimcBenchmarkPanel.BENCHMARK_TYPE_STANDARD),
+        'benchmark_type', max_length=24,
+    )
+    if benchmark_type not in {
+        SimcBenchmarkPanel.BENCHMARK_TYPE_STANDARD,
+        SimcBenchmarkPanel.BENCHMARK_TYPE_OPTION_GAIN,
+    }:
+        _error('benchmark_type 必须是 standard 或 option_gain', 'benchmark_type')
+    comparison_option = _text(
+        payload.get('comparison_option', ''), 'comparison_option',
+        required=False, max_length=50,
+    )
+    if benchmark_type == SimcBenchmarkPanel.BENCHMARK_TYPE_OPTION_GAIN:
+        if comparison_option not in _EXTRA_OPTION_BY_VALUE:
+            _error('comparison_option 不是支持的额外选项', 'comparison_option')
+        # 对比模式的候选由执行计划权威合成，不持久化普通装备候选。
+        candidates = []
+    else:
+        comparison_option = ''
+
     normalized = {
         'name': name,
         'slug': panel_slug,
         'description': _text(payload.get('description', ''), 'description', required=False,
                              max_length=10000),
+        'benchmark_type': benchmark_type,
+        'comparison_option': comparison_option,
         'is_active': _strict_bool(payload.get('is_active'), 'is_active', True),
         'is_public': _strict_bool(payload.get('is_public'), 'is_public', False),
         'schedule_enabled': _strict_bool(payload.get('schedule_enabled'), 'schedule_enabled', False),
@@ -861,6 +887,37 @@ def _freeze_case_candidates(spec_key, applicable):
     return [baseline] + candidates
 
 
+def _freeze_option_gain_candidates(option_value):
+    option = _EXTRA_OPTION_BY_VALUE.get(option_value)
+    if option is None:
+        _error('Panel 的 comparison_option 不是支持的额外选项')
+    label = option['label']
+    return [
+        {
+            'candidate_key': 'baseline',
+            'candidate_label': f'不开启{label}',
+            'candidate_type': 'option_toggle',
+            'candidate_params': {
+                'candidate_type': 'option_toggle',
+                'option_value': option_value,
+                'enabled': False,
+            },
+            'icon_url': '', 'effect': '', 'source_label': '',
+        },
+        {
+            'candidate_key': 'option_enabled',
+            'candidate_label': f'开启{label}',
+            'candidate_type': 'option_toggle',
+            'candidate_params': {
+                'candidate_type': 'option_toggle',
+                'option_value': option_value,
+                'enabled': True,
+            },
+            'icon_url': '', 'effect': '', 'source_label': '',
+        },
+    ]
+
+
 def _resource_display_snapshot(spec, selected):
     """Freeze display/version identities, deliberately excluding bodies and paths."""
     return {
@@ -970,7 +1027,13 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
             row.profile = profiles[row.profile_id]
     if not specs: _error('没有 enabled 专精，无法执行')
     if not scenarios: _error('没有 enabled 场景，无法执行')
-    if any(item.candidate_type != 'gear_swap' for item in candidates):
+    is_option_gain = panel.benchmark_type == SimcBenchmarkPanel.BENCHMARK_TYPE_OPTION_GAIN
+    if is_option_gain:
+        case_candidates = _freeze_option_gain_candidates(panel.comparison_option)
+        candidates = []
+    elif panel.benchmark_type != SimcBenchmarkPanel.BENCHMARK_TYPE_STANDARD:
+        _error('Panel 的 benchmark_type 无效')
+    elif any(item.candidate_type != 'gear_swap' for item in candidates):
         _error('持久化候选只允许 gear_swap；baseline 由系统注入')
 
     cases = []
@@ -982,9 +1045,16 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
             item for item in candidates
             if not item.spec_keys or spec.spec_key in item.spec_keys
         ]
-        case_candidates = _freeze_case_candidates(spec.spec_key, applicable)
+        if not is_option_gain:
+            case_candidates = _freeze_case_candidates(spec.spec_key, applicable)
         for scenario in scenarios:
             for selected in profiles:
+                simulation_params = deepcopy(scenario.simulation_params)
+                if is_option_gain:
+                    simulation_params['extra_options'] = [
+                        value for value in simulation_params.get('extra_options', [])
+                        if value != panel.comparison_option
+                    ]
                 cases.append({
                     'spec_key': spec.spec_key, 'spec_label': spec.label,
                     'class_name': spec.class_name,
@@ -992,7 +1062,7 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
                     'profile_key': str(selected.profile_id), 'profile_label': selected.profile.name,
                     'profile_id': selected.profile_id, 'apl_id': spec.apl_id,
                     'template_id': spec.template_id, 'backend_id': spec.backend_id,
-                    'simulation_params': deepcopy(scenario.simulation_params),
+                    'simulation_params': simulation_params,
                     'candidates': deepcopy(case_candidates),
                     'resources': _resource_display_snapshot(spec, selected),
                 })
@@ -1002,6 +1072,8 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
         'panel': {
             'id': panel.pk, 'name': panel.name, 'slug': panel.slug,
             'description': panel.description,
+            'benchmark_type': panel.benchmark_type,
+            'comparison_option': panel.comparison_option,
         },
         'specs': [{
             'id': row.pk, 'class_name': row.class_name, 'spec_key': row.spec_key,
@@ -1028,7 +1100,8 @@ def serialize_panel_config(panel):
         _error('Panel 不存在', 'panel')
     result = {
         'id': panel.pk, 'name': panel.name, 'slug': panel.slug,
-        'description': panel.description, 'is_active': panel.is_active,
+        'description': panel.description, 'benchmark_type': panel.benchmark_type,
+        'comparison_option': panel.comparison_option, 'is_active': panel.is_active,
         'is_public': panel.is_public, 'schedule_enabled': panel.schedule_enabled,
         'interval_seconds': panel.interval_seconds, 'next_run_at': panel.next_run_at,
         'specs': [], 'scenarios': [], 'candidates': [],
@@ -1051,11 +1124,15 @@ def serialize_panel_config(panel):
         'simulation_params': deepcopy(row.simulation_params),
         'is_enabled': row.is_enabled, 'display_order': row.display_order,
     } for row in panel._snapshot_scenarios]
-    result['candidates'] = [{
-        'id': row.pk, 'key': row.key, 'label': row.label,
-        'candidate_type': row.candidate_type, 'params': deepcopy(row.params),
-        'spec_keys': deepcopy(row.spec_keys), 'icon_url': row.icon_url,
-        'effect': row.effect, 'source_label': row.source_label, 'is_enabled': row.is_enabled,
-        'display_order': row.display_order,
-    } for row in panel._snapshot_candidates]
+    result['candidates'] = (
+        []
+        if panel.benchmark_type == SimcBenchmarkPanel.BENCHMARK_TYPE_OPTION_GAIN
+        else [{
+            'id': row.pk, 'key': row.key, 'label': row.label,
+            'candidate_type': row.candidate_type, 'params': deepcopy(row.params),
+            'spec_keys': deepcopy(row.spec_keys), 'icon_url': row.icon_url,
+            'effect': row.effect, 'source_label': row.source_label, 'is_enabled': row.is_enabled,
+            'display_order': row.display_order,
+        } for row in panel._snapshot_candidates]
+    )
     return deepcopy(result)

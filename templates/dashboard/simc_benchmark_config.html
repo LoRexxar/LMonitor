@@ -28,10 +28,17 @@
         <div id="simc-benchmark-editor-errors" class="simc-benchmark-errors" data-editor-errors role="alert" tabindex="-1" hidden></div>
         <aside class="simc-benchmark-summary" data-editor-summary aria-live="polite"></aside>
         <form data-benchmark-form novalidate>
+          <section class="simc-benchmark-form-section simc-benchmark-primary-section benchmark-mode-section">
+            <div class="section-heading-copy"><span class="section-kicker">00 · MODE</span><h2>Benchmark 模式</h2><p>普通模拟比较候选装备；对比模拟在相同 Profile、APL 与场景下比较选项关闭和开启后的 DPS 收益。</p></div>
+            <div class="simc-benchmark-fields base-fields">
+              <label>模式<select data-editor-benchmark-type><option value="standard">普通模拟</option><option value="option_gain">对比模拟</option></select></label>
+              <label data-editor-comparison-option>对比选项<select disabled><option value="power_infusion">牧师能量灌注</option></select></label>
+            </div>
+          </section>
 
           <section class="simc-benchmark-form-section"><div class="section-title"><div class="section-heading-copy"><span class="section-kicker">01 · MATRIX</span><h2>专精配置</h2><p>直接勾选参与计算的 Profile；APL、Template、Backend 和 Profile 详细设置按需展开。</p></div></div><div class="spec-config-table"><div class="spec-config-table-head" aria-hidden="true"><span>专精</span><span>状态</span><span>Profiles</span><span>其他设置</span></div><div data-editor-specs class="config-stack spec-config-list"></div></div></section>
           <section class="simc-benchmark-form-section"><div class="section-title"><div class="section-heading-copy"><span class="section-kicker">02 · SCENARIOS</span><h2>场景</h2><p>只在首层维护场景身份，SimC 详细参数默认折叠。</p></div><button type="button" class="simc-benchmark-btn secondary" data-editor-add="scenario">＋ 添加场景</button></div><div data-editor-scenarios class="config-stack"></div></section>
-          <section class="simc-benchmark-form-section"><div class="section-title"><div class="section-heading-copy"><span class="section-kicker">03 · CANDIDATES</span><h2>候选装备</h2><p>装备行保持可见，来源、图标和适用专精收进高级配置；baseline 由系统生成。</p></div><button type="button" class="simc-benchmark-btn secondary" data-editor-add="candidate">＋ 添加候选</button></div><div data-editor-candidates class="config-stack"></div></section>
+          <section class="simc-benchmark-form-section" data-editor-candidate-section><div class="section-title"><div class="section-heading-copy"><span class="section-kicker">03 · CANDIDATES</span><h2>候选装备</h2><p>装备行保持可见，来源、图标和适用专精收进高级配置；baseline 由系统生成。</p></div><button type="button" class="simc-benchmark-btn secondary" data-editor-add="candidate">＋ 添加候选</button></div><div data-editor-candidates class="config-stack"></div></section>
         </form>
       </div>
     </div>
