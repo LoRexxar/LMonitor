@@ -42,8 +42,8 @@ from botend.services.simc_benchmark_cleanup import (
 )
 
 
-BACKUP_SCHEMA = 2
-PLAN_SCHEMA = 2
+BACKUP_SCHEMA = 3
+PLAN_SCHEMA = 3
 QUARANTINE_PREFIX = 'simc_cleanup_quarantine/'
 BATCH_ID_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{7,95}$')
 OBJECT_STATE_FIELDS = (
@@ -68,26 +68,22 @@ OBJECT_STATE_FIELDS = (
 OBJECT_IDENTITY_FIELDS = tuple(
     name for name in OBJECT_STATE_FIELDS if name not in {'last_modified', 'version_id'}
 )
-RECORD_MODELS = {
-    'executions': SimcBenchmarkExecution,
-    'tasks': SimcTask,
-    'runs': SimulationRun,
-    'artifacts': SimcTaskArtifact,
-    'cases': SimcBenchmarkCase,
-    'results': SimcBenchmarkResult,
-    'favorites': SimcTaskFavorite,
-}
+RECORD_MODELS = {'artifacts': SimcTaskArtifact}
 RECORD_ORDER = tuple(RECORD_MODELS)
 
 
 class Command(BaseCommand):
     help = (
-        '清理已被当前 Benchmark 投影覆盖的历史 Task/Run/Result/Artifact 与 OSS 报告。'
+        '清理已被当前 Benchmark 投影覆盖的历史 OSS 报告及其 Artifact 索引；'
+        'Execution/Case/Task/Run/Result 全部保留。'
         '默认只读 dry-run；apply 前必须用本次 fingerprint 显式确认。'
     )
 
     def add_arguments(self, parser):
-        parser.add_argument('--apply', action='store_true', help='执行隔离、数据库删除及 OSS 原键删除。')
+        parser.add_argument(
+            '--apply', action='store_true',
+            help='执行隔离、Artifact 索引删除及 OSS 原键删除；不删除运行历史。',
+        )
         parser.add_argument('--confirm-fingerprint', default='', help='必须与本次 dry-run fingerprint 完全一致。')
         parser.add_argument('--minimum-age-days', type=int, default=7, help='纯 OSS 孤儿的最小年龄，默认 7 天。')
         parser.add_argument('--skip-oss-orphans', action='store_true', help='不枚举或清理纯 OSS 孤儿。')
@@ -152,7 +148,7 @@ class Command(BaseCommand):
                 # commits, so an old pure-OSS orphan cannot gain a new DB owner
                 # between this check and deletion.
                 self._delete_objects(quarantine_map)
-                self._delete_database_rows(locked_plan)
+                self._delete_artifact_rows(locked_plan)
         except Exception:
             # A normal Python/DB failure must not leave registered report keys
             # missing while the DB transaction rolls back. Process death is
@@ -169,7 +165,8 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(
             f'cleanup complete fingerprint={document["fingerprint"]} '
-            f'db_tasks={len(plan.deletable_task_ids)} oss_objects={len(quarantine_map)} '
+            f'db_artifacts={len(plan.artifact_ids)} oss_objects={len(quarantine_map)} '
+            'history_records_retained=true '
             f'backup={backup_path.resolve()}'
         ))
 
@@ -191,13 +188,22 @@ class Command(BaseCommand):
         }
         fingerprint = hashlib.sha256(self._canonical_json(fingerprint_payload)).hexdigest()
         batch_id = 'cleanup-' + fingerprint[:32]
-        summary = plan.summary()
-        summary.update({
+        planner_summary = plan.summary()
+        summary = {
+            'protected_tasks': planner_summary['protected_tasks'],
+            'historical_tasks': planner_summary['deletable_tasks'],
+            'retained_cases': planner_summary['deletable_cases'],
+            'retained_executions': planner_summary['deletable_executions'],
+            'retained_runs': planner_summary['deletable_runs'],
+            'delete_artifacts': planner_summary['deletable_artifacts'],
+            'retained_results': planner_summary['deletable_results'],
+            'registered_report_bytes': planner_summary['report_bytes'],
+            'warnings': planner_summary['warnings'],
             'oss_orphans': len(orphans),
             'oss_orphan_bytes': sum(row.size for row in orphans),
             'oss_total_objects': len(object_keys),
             'oss_total_bytes_upper_bound': plan.report_bytes + sum(row.size for row in orphans),
-        })
+        }
         document = {
             'schema': PLAN_SCHEMA,
             'created_at': timezone.now().isoformat(),
@@ -208,12 +214,16 @@ class Command(BaseCommand):
             'include_oss_orphans': include_orphans,
             'summary': summary,
             'ids': {
-                'tasks': sorted(plan.deletable_task_ids),
-                'cases': sorted(plan.deletable_case_ids),
-                'executions': sorted(plan.deletable_execution_ids),
-                'runs': sorted(plan.run_ids),
-                'artifacts': sorted(plan.artifact_ids),
-                'results': sorted(plan.result_ids),
+                'retained_history': {
+                    'tasks': sorted(plan.deletable_task_ids),
+                    'cases': sorted(plan.deletable_case_ids),
+                    'executions': sorted(plan.deletable_execution_ids),
+                    'runs': sorted(plan.run_ids),
+                    'results': sorted(plan.result_ids),
+                },
+                'delete': {
+                    'artifacts': sorted(plan.artifact_ids),
+                },
             },
             'database_state': plan.state_manifest(),
             'object_keys': list(object_keys),
@@ -233,13 +243,15 @@ class Command(BaseCommand):
         self.stdout.write(
             f'{mode} fingerprint={document["fingerprint"]} '
             f'protected_tasks={summary["protected_tasks"]} '
-            f'deletable_tasks={summary["deletable_tasks"]} '
-            f'cases={summary["deletable_cases"]} executions={summary["deletable_executions"]} '
-            f'runs={summary["deletable_runs"]} artifacts={summary["deletable_artifacts"]} '
-            f'results={summary["deletable_results"]}'
+            f'historical_tasks={summary["historical_tasks"]} '
+            f'retained_cases={summary["retained_cases"]} '
+            f'retained_executions={summary["retained_executions"]} '
+            f'retained_runs={summary["retained_runs"]} '
+            f'delete_artifacts={summary["delete_artifacts"]} '
+            f'retained_results={summary["retained_results"]}'
         )
         self.stdout.write(
-            f'OSS registered_bytes={summary["report_bytes"]} '
+            f'OSS registered_bytes={summary["registered_report_bytes"]} '
             f'orphan_objects={summary["oss_orphans"]} orphan_bytes={summary["oss_orphan_bytes"]} '
             f'total_objects={summary["oss_total_objects"]} '
             f'upper_bound_bytes={summary["oss_total_bytes_upper_bound"]}'
@@ -256,7 +268,7 @@ class Command(BaseCommand):
     @staticmethod
     def _default_backup_path(document):
         return Path(settings.BASE_DIR) / 'var' / 'backups' / (
-            f'simc_benchmark_cleanup_{document["batch_id"]}.json.gz'
+            f'simc_benchmark_report_cleanup_{document["batch_id"]}.json.gz'
         )
 
     @staticmethod
@@ -278,26 +290,8 @@ class Command(BaseCommand):
             'quarantine_map': {},
             'object_keys': list(object_keys),
             'records': {
-                'executions': self._serialize(
-                    SimcBenchmarkExecution.objects.filter(id__in=plan.deletable_execution_ids).order_by('id')
-                ),
-                'tasks': self._serialize(
-                    SimcTask.objects.filter(id__in=plan.deletable_task_ids).order_by('id')
-                ),
-                'runs': self._serialize(
-                    SimulationRun.objects.filter(id__in=plan.run_ids).order_by('id')
-                ),
                 'artifacts': self._serialize(
                     SimcTaskArtifact.objects.filter(id__in=plan.artifact_ids).order_by('id')
-                ),
-                'cases': self._serialize(
-                    SimcBenchmarkCase.objects.filter(id__in=plan.deletable_case_ids).order_by('id')
-                ),
-                'results': self._serialize(
-                    SimcBenchmarkResult.objects.filter(id__in=plan.result_ids).order_by('id')
-                ),
-                'favorites': self._serialize(
-                    SimcTaskFavorite.objects.filter(task_id__in=plan.deletable_task_ids).order_by('id')
                 ),
             },
         }
@@ -681,26 +675,25 @@ class Command(BaseCommand):
             raise CommandError(f'纯 OSS 孤儿已获得 Artifact 引用，拒绝删除: {raced[:5]}')
 
     @staticmethod
-    def _delete_database_rows(plan):
-        SimcBenchmarkResult.objects.filter(id__in=plan.result_ids).delete()
-        SimcBenchmarkCase.objects.filter(id__in=plan.deletable_case_ids).delete()
+    def _delete_artifact_rows(plan):
+        """Drop only report indexes; every execution-history row is immutable here."""
         SimcTaskArtifact.objects.filter(id__in=plan.artifact_ids).delete()
-        SimulationRun.objects.filter(id__in=plan.run_ids).delete()
-        SimcTask.objects.filter(id__in=plan.deletable_task_ids).delete()
-        SimcBenchmarkExecution.objects.filter(id__in=plan.deletable_execution_ids).delete()
-        remaining = {
-            'results': SimcBenchmarkResult.objects.filter(id__in=plan.result_ids).exists(),
-            'cases': SimcBenchmarkCase.objects.filter(id__in=plan.deletable_case_ids).exists(),
-            'artifacts': SimcTaskArtifact.objects.filter(id__in=plan.artifact_ids).exists(),
-            'runs': SimulationRun.objects.filter(id__in=plan.run_ids).exists(),
-            'tasks': SimcTask.objects.filter(id__in=plan.deletable_task_ids).exists(),
-            'executions': SimcBenchmarkExecution.objects.filter(
-                id__in=plan.deletable_execution_ids,
-            ).exists(),
+        if SimcTaskArtifact.objects.filter(id__in=plan.artifact_ids).exists():
+            raise CommandError('Artifact 索引删除后仍有残留记录')
+
+        retained_checks = {
+            'results': (SimcBenchmarkResult, plan.result_ids),
+            'cases': (SimcBenchmarkCase, plan.deletable_case_ids),
+            'runs': (SimulationRun, plan.run_ids),
+            'tasks': (SimcTask, plan.deletable_task_ids),
+            'executions': (SimcBenchmarkExecution, plan.deletable_execution_ids),
         }
-        failed = sorted(name for name, exists in remaining.items() if exists)
-        if failed:
-            raise CommandError(f'数据库删除后仍有残留记录: {failed}')
+        missing = sorted(
+            name for name, (model, ids) in retained_checks.items()
+            if set(model.objects.filter(id__in=ids).values_list('id', flat=True)) != set(ids)
+        )
+        if missing:
+            raise CommandError(f'运行历史记录意外变化，事务回滚: {missing}')
 
     def _validate_backup(self, backup):
         if backup.get('backup_schema') != BACKUP_SCHEMA:
@@ -770,26 +763,17 @@ class Command(BaseCommand):
             for row in records[group]:
                 self._assert_existing_matches(model, row)
 
-        task_sources = {}
         for group in RECORD_ORDER:
             model = RECORD_MODELS[group]
             for row in records[group]:
                 if model._default_manager.filter(pk=row['pk']).exists():
                     continue
-                encoded_row = deepcopy(row)
-                if group == 'tasks':
-                    task_sources[row['pk']] = encoded_row['fields'].pop('source_task', None)
-                encoded = json.dumps([encoded_row], ensure_ascii=False, separators=(',', ':'))
+                encoded = json.dumps([row], ensure_ascii=False, separators=(',', ':'))
                 try:
                     item = next(serializers.deserialize('json', encoded))
                     item.save()
                 except Exception as exc:
                     raise CommandError(f'数据库记录恢复失败: {group}/{row["pk"]}') from exc
-            if group == 'tasks':
-                for task_id, source_id in task_sources.items():
-                    if source_id is not None and not SimcTask.objects.filter(pk=source_id).exists():
-                        raise CommandError(f'回滚 source_task 不存在: {task_id}->{source_id}')
-                    SimcTask.objects.filter(pk=task_id).update(source_task_id=source_id)
 
         for group, model in RECORD_MODELS.items():
             for row in records[group]:

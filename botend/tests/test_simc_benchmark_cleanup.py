@@ -9,7 +9,16 @@ from django.core.management.base import CommandError
 from django.test import TestCase
 
 from botend.management.commands.cleanup_simc_benchmark_history import BACKUP_SCHEMA, Command
-from botend.models import SimcBackendBinary, SimcTask
+from botend.models import (
+    SimcBackendBinary,
+    SimcBenchmarkCase,
+    SimcBenchmarkExecution,
+    SimcBenchmarkPanel,
+    SimcBenchmarkResult,
+    SimcTask,
+    SimcTaskArtifact,
+    SimulationRun,
+)
 
 
 class _Request:
@@ -195,34 +204,82 @@ class SimcBenchmarkCleanupCommandTests(TestCase):
                 warnings=(), deletable_task_ids=frozenset(),
             ))
 
-    def test_signed_backup_restores_self_reference_idempotently_and_rejects_conflicts(self):
+    def test_database_cleanup_removes_only_artifact_index_and_keeps_all_history_records(self):
+        backend = SimcBackendBinary.objects.create(
+            identifier='cleanup-oss-only', name='Cleanup', current_version='c' * 40,
+        )
+        panel = SimcBenchmarkPanel.objects.create(
+            name='Cleanup', slug='cleanup-oss-only', created_by_id=1,
+        )
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, config_hash='d' * 64,
+            status=SimcBenchmarkExecution.STATUS_SUCCESS,
+        )
+        task = SimcTask.objects.create(
+            user_id=1, name='historical benchmark', simc_profile_id=1,
+            backend=backend, mode='comparison', current_status=2,
+        )
+        run = SimulationRun.objects.create(
+            task=task, sequence=1, status='completed', result_summary={'dps': 100},
+        )
+        artifact = SimcTaskArtifact.objects.create(
+            task=task, run=run, artifact_type='html_report',
+            file_path='simc_agent_results/simc_task_1_run_1.html', file_size=5,
+        )
+        case = SimcBenchmarkCase.objects.create(
+            execution=execution, task=task, status=SimcBenchmarkExecution.STATUS_SUCCESS,
+            spec_key='mage_frost', scenario_key='single', profile_key='default',
+            spec_label='冰法', scenario_label='单体', profile_label='默认',
+            coordinate_hash='e' * 64,
+        )
+        result = SimcBenchmarkResult.objects.create(
+            case=case, candidate_key='baseline', dps=100,
+        )
+        plan = SimpleNamespace(
+            result_ids=frozenset({result.id}),
+            deletable_case_ids=frozenset({case.id}),
+            artifact_ids=frozenset({artifact.id}),
+            run_ids=frozenset({run.id}),
+            deletable_task_ids=frozenset({task.id}),
+            deletable_execution_ids=frozenset({execution.id}),
+        )
+
+        Command()._delete_artifact_rows(plan)
+
+        self.assertFalse(SimcTaskArtifact.objects.filter(pk=artifact.id).exists())
+        self.assertTrue(SimcBenchmarkExecution.objects.filter(pk=execution.id).exists())
+        self.assertTrue(SimcBenchmarkCase.objects.filter(pk=case.id).exists())
+        self.assertTrue(SimcTask.objects.filter(pk=task.id).exists())
+        self.assertTrue(SimulationRun.objects.filter(pk=run.id).exists())
+        self.assertTrue(SimcBenchmarkResult.objects.filter(pk=result.id).exists())
+
+    def test_signed_backup_restores_artifact_idempotently_and_rejects_conflicts(self):
         backend = SimcBackendBinary.objects.create(
             identifier='cleanup-backup', name='Cleanup', current_version='a' * 40,
         )
-        source = SimcTask.objects.create(
-            user_id=1, name='source', simc_profile_id=1, backend=backend,
+        task = SimcTask.objects.create(
+            user_id=1, name='historical', simc_profile_id=1, backend=backend,
             mode='comparison', current_status=2,
         )
-        child = SimcTask.objects.create(
-            user_id=1, name='child', simc_profile_id=1, backend=backend,
-            mode='comparison', current_status=2, source_task=source,
+        run = SimulationRun.objects.create(
+            task=task, sequence=1, status='completed', result_summary={'dps': 100},
         )
+        artifact = SimcTaskArtifact.objects.create(
+            task=task, run=run, artifact_type='html_report',
+            file_path='simc_agent_results/simc_task_1_run_1.html', file_size=5,
+        )
+        artifact_id = artifact.id
         command = Command()
-        records = {
-            'executions': [],
-            'tasks': command._serialize(SimcTask.objects.filter(id__in=(source.id, child.id)).order_by('id')),
-            'runs': [],
-            'artifacts': [],
-            'cases': [],
-            'results': [],
-            'favorites': [],
-        }
         backup = {
             'backup_schema': BACKUP_SCHEMA,
             'plan': {'fingerprint': 'fingerprint', 'batch_id': '20260814T010203Z-abcdef123456'},
             'quarantine_map': {},
             'object_keys': [],
-            'records': records,
+            'records': {
+                'artifacts': command._serialize(
+                    SimcTaskArtifact.objects.filter(pk=artifact.id)
+                ),
+            },
         }
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -230,14 +287,17 @@ class SimcBenchmarkCleanupCommandTests(TestCase):
             with patch.object(command, '_read_backup', wraps=command._read_backup) as verify:
                 command._write_backup(backup_path, backup)
             verify.assert_called_once_with(backup_path)
-            SimcTask.objects.filter(id__in=(source.id, child.id)).delete()
+            artifact.delete()
 
             command._rollback(backup_path)
-            restored = SimcTask.objects.get(pk=child.id)
-            self.assertEqual(restored.source_task_id, source.id)
+            restored = SimcTaskArtifact.objects.get(pk=artifact_id)
+            self.assertEqual(restored.task_id, task.id)
+            self.assertEqual(restored.run_id, run.id)
+            self.assertTrue(SimcTask.objects.filter(pk=task.id).exists())
+            self.assertTrue(SimulationRun.objects.filter(pk=run.id).exists())
 
             command._rollback(backup_path)
-            SimcTask.objects.filter(pk=child.id).update(name='conflicting row')
+            SimcTaskArtifact.objects.filter(pk=artifact_id).update(file_size=6)
             with self.assertRaises(CommandError):
                 command._rollback(backup_path)
 
