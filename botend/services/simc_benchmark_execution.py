@@ -1546,6 +1546,13 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
         plan['panel'].get('benchmark_type')
         == SimcBenchmarkPanel.BENCHMARK_TYPE_OPTION_GAIN
     )
+    comparison_config = plan['panel'].get('comparison_config') or {}
+    comparison_label = str(comparison_config.get('label') or '').strip()
+    if is_option_gain and not comparison_label:
+        option_catalog = {row['value']: row['label'] for row in SIMC_EXTRA_OPTIONS}
+        comparison_label = option_catalog.get(
+            plan['panel'].get('comparison_option'), '对比配置',
+        )
     plan_cases = plan['cases']
     if spec_filter is not None:
         plan_cases = [row for row in plan_cases if row['spec_key'] == str(spec_filter)]
@@ -1675,11 +1682,19 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
         if is_option_gain:
             result_by_key = {row['key']: row for row in rows}
             baseline = result_by_key.get('baseline')
-            enabled = result_by_key.get('option_enabled')
-            if baseline is not None and enabled is not None and baseline['dps'] != 0:
+            comparison_candidate = next(
+                (candidate for candidate in coordinate['candidates']
+                 if candidate['candidate_key'] != 'baseline'),
+                None,
+            )
+            comparison = (
+                result_by_key.get(comparison_candidate['candidate_key'])
+                if comparison_candidate is not None else None
+            )
+            if baseline is not None and comparison is not None and baseline['dps'] != 0:
                 baseline_dps = float(baseline['dps'])
-                enabled_dps = float(enabled['dps'])
-                gain_dps = enabled_dps - baseline_dps
+                comparison_dps = float(comparison['dps'])
+                gain_dps = comparison_dps - baseline_dps
                 option_gain_rows.append({
                     'spec_key': coordinate['spec_key'],
                     'spec_label': _option_gain_spec_display_name(
@@ -1690,7 +1705,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                     'scenario_key': coordinate['scenario_key'],
                     'scenario_label': coordinate['scenario_label'],
                     'baseline_dps': baseline_dps,
-                    'enabled_dps': enabled_dps,
+                    'comparison_dps': comparison_dps,
                     'gain_dps': round(gain_dps, 4),
                     'gain_percent': round(gain_dps / baseline_dps * 100, 4),
                 })
@@ -1718,13 +1733,21 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
         coordinates.append(coordinate_payload)
     payload = {'panel_id': panel.pk, 'coordinates': coordinates}
     if is_option_gain:
-        payload['option_gain_rows'] = sorted(
+        payload['comparison_option_label'] = comparison_label
+        payload['comparison_label'] = comparison_label
+        comparison_rows = sorted(
             option_gain_rows,
             key=lambda row: (
                 -row['gain_percent'], row['spec_key'], row['profile_key'],
                 row['scenario_key'],
             ),
         )
+        payload['comparison_rows'] = comparison_rows
+        # Compatibility alias for existing Portal/Dashboard clients.
+        payload['option_gain_rows'] = [
+            {**row, 'enabled_dps': row['comparison_dps']}
+            for row in comparison_rows
+        ]
     if include_coordinate_options:
         payload['coordinate_options'] = [_coordinate_option(row) for row in plan_cases]
     return payload

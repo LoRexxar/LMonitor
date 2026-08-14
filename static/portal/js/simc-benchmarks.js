@@ -689,17 +689,17 @@
       shell.body.replaceChildren(state("暂无已完成的选项收益对比结果", "not-ready"));
       return;
     }
-    const optionLabel = payload?.results?.comparison_option_label || "对比选项";
+    const optionLabel = payload?.results?.comparison_label || payload?.results?.comparison_option_label || "对比场景";
     const intro = node("div", "simc-benchmark-gain-intro");
     intro.append(
       node("strong", "", `${optionLabel}收益对比`),
-      node("p", "", "同一 Profile、APL 与模拟场景，仅切换该选项；按收益百分比降序排列。"),
+      node("p", "", "同一 Profile 与 APL，以原战斗场景为基准应用结构化场景覆盖；按收益百分比降序排列。"),
     );
     const wrap = node("div", "simc-benchmark-gain-table-wrap");
     const table = node("table", "simc-benchmark-gain-table");
     const thead = node("thead");
     const head = node("tr");
-    ["排名", "职业专精", "场景", "Profile", "关闭 DPS", "开启后 DPS", "DPS 增量", "收益"].forEach((label) => {
+    ["排名", "职业专精", "场景", "Profile", "基准 DPS", `${optionLabel} DPS`, "DPS 增量", "收益"].forEach((label) => {
       const cell = node("th", "", label); cell.scope = "col"; head.appendChild(cell);
     });
     thead.appendChild(head);
@@ -714,7 +714,7 @@
         entry?.scenario_label || entry?.scenario_key || "—",
         entry?.profile_label || entry?.profile_key || "—",
         `${numberFormat.format(validDps(entry?.baseline_dps) ?? 0)} DPS`,
-        `${numberFormat.format(validDps(entry?.enabled_dps) ?? 0)} DPS`,
+        `${numberFormat.format(validDps(entry?.comparison_dps ?? entry?.enabled_dps) ?? 0)} DPS`,
         `${gainDps >= 0 ? "+" : ""}${numberFormat.format(Number.isFinite(gainDps) ? gainDps : 0)}`,
         `${gainPercent >= 0 ? "+" : ""}${Number.isFinite(gainPercent) ? gainPercent.toFixed(2) : "0.00"}%`,
       ].forEach((value, cellIndex) => row.appendChild(node("td", cellIndex === 7 ? "simc-benchmark-gain-value" : "", value)));

@@ -1657,6 +1657,7 @@ class SimcBenchmarkPanel(models.Model):
         max_length=24, choices=BENCHMARK_TYPE_CHOICES, default=BENCHMARK_TYPE_STANDARD,
     )
     comparison_option = models.CharField(max_length=50, default='', blank=True)
+    comparison_config = models.JSONField(default=dict, blank=True)
     created_by_id = models.BigIntegerField()
     is_active = models.BooleanField(default=True)
     is_public = models.BooleanField(default=False)

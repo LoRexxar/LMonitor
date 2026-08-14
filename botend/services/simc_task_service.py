@@ -160,6 +160,7 @@ CANDIDATE_PARAMS_WHITELIST = {
     'candidate_type', 'is_base', 'gear_swap', 'talent_override',
     'talent_candidate', 'apl_override', 'attribute_ratings', 'search',
     'simc_options', 'equipment_preset', 'option_value', 'enabled',
+    'simulation_params',
 }
 
 

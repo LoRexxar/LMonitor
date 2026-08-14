@@ -29,11 +29,11 @@
         <aside class="simc-benchmark-summary" data-editor-summary aria-live="polite"></aside>
         <form data-benchmark-form novalidate>
           <section class="simc-benchmark-form-section simc-benchmark-primary-section benchmark-mode-section">
-            <div class="section-heading-copy"><span class="section-kicker">00 · MODE</span><h2>Benchmark 模式</h2><p>普通模拟比较候选装备；对比模拟在相同 Profile、APL 与场景下比较选项关闭和开启后的 DPS 收益。</p></div>
+            <div class="section-heading-copy"><span class="section-kicker">00 · MODE</span><h2>Benchmark 模式</h2><p>普通模拟比较候选装备；对比模拟以每个战斗场景为基准，再应用一组结构化场景覆盖并计算 DPS 收益。</p></div>
             <div class="simc-benchmark-fields base-fields">
               <label>模式<select data-editor-benchmark-type><option value="standard">普通模拟</option><option value="option_gain">对比模拟</option></select></label>
-              <label data-editor-comparison-option>对比选项<select disabled><option value="power_infusion">牧师能量灌注</option></select></label>
             </div>
+            <div data-editor-comparison-config hidden></div>
           </section>
 
           <section class="simc-benchmark-form-section"><div class="section-title"><div class="section-heading-copy"><span class="section-kicker">01 · MATRIX</span><h2>专精配置</h2><p>直接勾选参与计算的 Profile；APL、Template、Backend 和 Profile 详细设置按需展开。</p></div></div><div class="spec-config-table"><div class="spec-config-table-head" aria-hidden="true"><span>专精</span><span>状态</span><span>Profiles</span><span>其他设置</span></div><div data-editor-specs class="config-stack spec-config-list"></div></div></section>
@@ -44,6 +44,6 @@
     </div>
   </div>
 </main>
-<script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260808_candidate_profile"></script>
+<script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260814_comparison_config"></script>
 </body>
 </html>

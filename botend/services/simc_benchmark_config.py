@@ -81,6 +81,7 @@ MAX_PANEL_CONFIG_BYTES = 2 * 1024 * 1024
 
 _PANEL_FIELDS = {
     'name', 'slug', 'description', 'benchmark_type', 'comparison_option',
+    'comparison_config',
     'is_active', 'is_public', 'schedule_enabled', 'interval_seconds', 'next_run_at',
 }
 _EXTRA_OPTION_BY_VALUE = {option['value']: option for option in SIMC_EXTRA_OPTIONS}
@@ -288,9 +289,10 @@ def _normalize_simulation_params(value):
     unknown = sorted(set(value) - SIMULATION_PARAMS_WHITELIST)
     if unknown:
         _error(f'simulation_params 包含未知字段: {", ".join(unknown)}', 'simulation_params')
-    # JSON scalars only except for the server-owned raid-buff key list.
+    # Composer owns the structured lists/dict. Keep this layer strict for every
+    # other persisted value, then defer value policy to its public validator.
     for key, item in value.items():
-        if key == 'raid_buffs':
+        if key in {'raid_buffs', 'extra_options', 'profile_overrides'}:
             continue
         if item is not None and not isinstance(item, (str, int, float, bool)):
             _error(f'simulation_params.{key} 类型无效', 'simulation_params')
@@ -307,6 +309,24 @@ def _normalize_simulation_params(value):
     if fight_style is not None and fight_style not in SIMC_FIGHT_STYLE_VALUES:
         _error('simulation_params.fight_style 不是当前 SimC 支持的战斗类型', 'simulation_params')
     return normalized
+
+
+def _normalize_comparison_config(value, benchmark_type):
+    """Validate comparison overrides with the canonical Composer option schema."""
+    if benchmark_type != SimcBenchmarkPanel.BENCHMARK_TYPE_OPTION_GAIN:
+        return {}
+    value = _require_dict(value or {}, 'comparison_config')
+    unknown = sorted(set(value) - {'label', 'simulation_params'})
+    if unknown:
+        _error(f'comparison_config 包含未知字段: {", ".join(unknown)}', 'comparison_config')
+    if not value:
+        # Compatibility for option_gain panels created before structured comparisons.
+        return {}
+    label = _text(value.get('label'), 'comparison_config.label', max_length=120)
+    simulation_params = _normalize_simulation_params(value.get('simulation_params'))
+    if not simulation_params:
+        _error('comparison_config.simulation_params 不能为空', 'comparison_config')
+    return {'label': label, 'simulation_params': simulation_params}
 
 
 def _normalize_item_options(raw_value):
@@ -529,8 +549,13 @@ def normalize_panel_payload(payload, user_id, panel=None):
         payload.get('comparison_option', ''), 'comparison_option',
         required=False, max_length=50,
     )
+    comparison_config = _normalize_comparison_config(
+        payload.get('comparison_config', {}), benchmark_type,
+    )
     if benchmark_type == SimcBenchmarkPanel.BENCHMARK_TYPE_OPTION_GAIN:
-        if comparison_option not in _EXTRA_OPTION_BY_VALUE:
+        if not comparison_config:
+            comparison_option = comparison_option or 'power_infusion'
+        if comparison_option and comparison_option not in _EXTRA_OPTION_BY_VALUE:
             _error('comparison_option 不是支持的额外选项', 'comparison_option')
         # 对比模式的候选由执行计划权威合成，不持久化普通装备候选。
         candidates = []
@@ -544,6 +569,7 @@ def normalize_panel_payload(payload, user_id, panel=None):
                              max_length=10000),
         'benchmark_type': benchmark_type,
         'comparison_option': comparison_option,
+        'comparison_config': comparison_config,
         'is_active': _strict_bool(payload.get('is_active'), 'is_active', True),
         'is_public': _strict_bool(payload.get('is_public'), 'is_public', False),
         'schedule_enabled': _strict_bool(payload.get('schedule_enabled'), 'schedule_enabled', False),
@@ -918,6 +944,30 @@ def _freeze_option_gain_candidates(option_value):
     ]
 
 
+def _freeze_comparison_candidates(comparison_config):
+    """Freeze a base run and one structured Composer override run."""
+    return [
+        {
+            'candidate_key': 'baseline', 'candidate_label': '基准配置',
+            'candidate_type': 'scenario_override',
+            'candidate_params': {
+                'candidate_type': 'scenario_override', 'simulation_params': {},
+            },
+            'icon_url': '', 'effect': '', 'source_label': '',
+        },
+        {
+            'candidate_key': 'comparison',
+            'candidate_label': comparison_config['label'],
+            'candidate_type': 'scenario_override',
+            'candidate_params': {
+                'candidate_type': 'scenario_override',
+                'simulation_params': deepcopy(comparison_config['simulation_params']),
+            },
+            'icon_url': '', 'effect': '', 'source_label': '',
+        },
+    ]
+
+
 def _resource_display_snapshot(spec, selected):
     """Freeze display/version identities, deliberately excluding bodies and paths."""
     return {
@@ -1028,8 +1078,12 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
     if not specs: _error('没有 enabled 专精，无法执行')
     if not scenarios: _error('没有 enabled 场景，无法执行')
     is_option_gain = panel.benchmark_type == SimcBenchmarkPanel.BENCHMARK_TYPE_OPTION_GAIN
+    comparison_config = deepcopy(panel.comparison_config or {}) if is_option_gain else {}
     if is_option_gain:
-        case_candidates = _freeze_option_gain_candidates(panel.comparison_option)
+        case_candidates = (
+            _freeze_comparison_candidates(comparison_config)
+            if comparison_config else _freeze_option_gain_candidates(panel.comparison_option)
+        )
         candidates = []
     elif panel.benchmark_type != SimcBenchmarkPanel.BENCHMARK_TYPE_STANDARD:
         _error('Panel 的 benchmark_type 无效')
@@ -1050,7 +1104,7 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
         for scenario in scenarios:
             for selected in profiles:
                 simulation_params = deepcopy(scenario.simulation_params)
-                if is_option_gain:
+                if is_option_gain and not comparison_config:
                     simulation_params['extra_options'] = [
                         value for value in simulation_params.get('extra_options', [])
                         if value != panel.comparison_option
@@ -1074,6 +1128,7 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
             'description': panel.description,
             'benchmark_type': panel.benchmark_type,
             'comparison_option': panel.comparison_option,
+            'comparison_config': deepcopy(panel.comparison_config or {}),
         },
         'specs': [{
             'id': row.pk, 'class_name': row.class_name, 'spec_key': row.spec_key,
@@ -1101,7 +1156,9 @@ def serialize_panel_config(panel):
     result = {
         'id': panel.pk, 'name': panel.name, 'slug': panel.slug,
         'description': panel.description, 'benchmark_type': panel.benchmark_type,
-        'comparison_option': panel.comparison_option, 'is_active': panel.is_active,
+        'comparison_option': panel.comparison_option,
+        'comparison_config': deepcopy(panel.comparison_config or {}),
+        'is_active': panel.is_active,
         'is_public': panel.is_public, 'schedule_enabled': panel.schedule_enabled,
         'interval_seconds': panel.interval_seconds, 'next_run_at': panel.next_run_at,
         'specs': [], 'scenarios': [], 'candidates': [],

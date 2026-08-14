@@ -530,6 +530,27 @@ class SimcMonitor(BaseScan):
                     raise ValueError(f'属性候选缺少 {stat}')
                 request_data[f'gear_{stat}'] = int(ratings[stat])
 
+        elif candidate_type == 'scenario_override':
+            from copy import deepcopy
+            from botend.services.simc_composer import validate_simulation_options
+            from botend.services.simc_task_service import SIMULATION_PARAMS_WHITELIST
+
+            overrides = params.get('simulation_params')
+            if not isinstance(overrides, dict):
+                raise ValueError('场景对比候选缺少 simulation_params 对象')
+            unknown = sorted(set(overrides) - SIMULATION_PARAMS_WHITELIST)
+            if unknown:
+                raise ValueError(f'场景对比包含未知模拟字段: {", ".join(unknown)}')
+            options_error = validate_simulation_options(overrides)
+            if options_error:
+                raise ValueError(options_error)
+            request_overrides = deepcopy(overrides)
+            if 'desired_targets' in request_overrides:
+                request_overrides['target_count'] = request_overrides.pop('desired_targets')
+            if 'max_time' in request_overrides:
+                request_overrides['time'] = request_overrides.pop('max_time')
+            request_data.update(request_overrides)
+
         elif candidate_type == 'option_toggle':
             option_value = params.get('option_value')
             enabled = params.get('enabled')

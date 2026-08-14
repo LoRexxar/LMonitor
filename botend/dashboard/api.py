@@ -9725,6 +9725,26 @@ def _benchmark_options_payload(owner_id=None, ownership_context=None):
     resources = {name: list(queryset) for name, queryset in querysets.items()}
     specs = _benchmark_spec_options()
     backend_game_versions = _benchmark_backend_game_versions(resources['backends'])
+    consumable_values = {
+        key: {'none'} for key in (
+            'flask', 'potion', 'food', 'augmentation',
+            'temporary_enchant_main_hand', 'temporary_enchant_off_hand',
+        )
+    }
+    for profile in resources['profiles']:
+        for raw_line in str(profile.player_equipment or '').splitlines():
+            key, separator, raw_value = raw_line.strip().partition('=')
+            value = raw_value.strip()
+            if not separator or not value:
+                continue
+            if key in consumable_values:
+                consumable_values[key].add(value)
+            elif key == 'temporary_enchant':
+                for entry in value.split('/'):
+                    hand, hand_separator, enchant = entry.partition(':')
+                    target = f'temporary_enchant_{hand.strip().lower()}'
+                    if hand_separator and target in consumable_values and enchant.strip():
+                        consumable_values[target].add(enchant.strip())
     return {
         'specs': specs,
         'fight_styles': [
@@ -9738,6 +9758,21 @@ def _benchmark_options_payload(owner_id=None, ownership_context=None):
             }
             for value, label in SIMC_RAID_BUFFS
         ],
+        'extra_options': [
+            {
+                'value': option['value'], 'label': option['label'],
+                'description': option['description'],
+            }
+            for option in SIMC_EXTRA_OPTIONS
+        ],
+        'consumables': {
+            key: [
+                ({'value': value, 'label': '无'} if value == 'none'
+                 else simc_consumable_option(value))
+                for value in sorted(values, key=lambda item: (item != 'none', item))
+            ]
+            for key, values in consumable_values.items()
+        },
         'create_defaults': _benchmark_create_defaults(resources, specs),
         'resources': {
             'backends': [{
@@ -9983,6 +10018,8 @@ class SimcBenchmarkExecutionDetailAPIView(_BenchmarkReadAPIView):
             data.update({
                 'benchmark_type': execution.panel.benchmark_type,
                 'comparison_option': execution.panel.comparison_option,
+                'comparison_config': execution.panel.comparison_config or {},
+                'comparison_label': aggregate.get('comparison_label', ''),
                 'comparison_option_label': aggregate.get('comparison_option_label', ''),
                 'option_gain_rows': aggregate.get('option_gain_rows', []),
             })

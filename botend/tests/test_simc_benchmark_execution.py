@@ -331,6 +331,105 @@ class SimcBenchmarkExecutionTests(TestCase):
             },
         ])
 
+    def test_comparison_panel_applies_structured_scenario_overrides_and_projects_gain(self):
+        from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
+        from botend.services.simc_benchmark_config import build_execution_plan
+
+        self.panel.candidates.all().delete()
+        self.panel.benchmark_type = 'option_gain'
+        self.panel.comparison_option = ''
+        self.panel.comparison_config = {
+            'label': '五目标短时全增益',
+            'simulation_params': {
+                'desired_targets': 5,
+                'max_time': 40,
+                'fight_style': 'CastingPatchwerk',
+                'raid_buffs': ['arcane_intellect'],
+                'use_class_raid_buff': True,
+                'extra_options': ['power_infusion'],
+                'profile_overrides': {'flask': 'disabled'},
+            },
+        }
+        self.panel.save(update_fields=[
+            'benchmark_type', 'comparison_option', 'comparison_config',
+        ])
+        scenario = self.panel.scenarios.get(key='patchwerk')
+        scenario.simulation_params = {
+            'iterations': 1000,
+            'desired_targets': 1,
+            'max_time': 300,
+            'fight_style': 'Patchwerk',
+            'raid_buffs': ['battle_shout'],
+            'use_class_raid_buff': False,
+            'extra_options': [],
+            'profile_overrides': {},
+        }
+        scenario.save(update_fields=['simulation_params'])
+
+        plan = build_execution_plan(self.panel, validate_for_execution=False, lock=False)
+        self.assertEqual(plan['panel']['comparison_config'], self.panel.comparison_config)
+        self.assertEqual(plan['run_count'], 2)
+        candidates = plan['cases'][0]['candidates']
+        self.assertEqual([row['candidate_key'] for row in candidates], [
+            'baseline', 'comparison',
+        ])
+        self.assertEqual([row['candidate_label'] for row in candidates], [
+            '基准配置', '五目标短时全增益',
+        ])
+        self.assertEqual(candidates[0]['candidate_params'], {
+            'candidate_type': 'scenario_override', 'simulation_params': {},
+        })
+        self.assertEqual(candidates[1]['candidate_params'], {
+            'candidate_type': 'scenario_override',
+            'simulation_params': self.panel.comparison_config['simulation_params'],
+        })
+
+        compared_request = SimcMonitor.apply_candidate_overrides({
+            'target_count': 1,
+            'time': 300,
+            'fight_style': 'Patchwerk',
+            'raid_buffs': ['battle_shout'],
+            'use_class_raid_buff': False,
+            'extra_options': [],
+            'profile_overrides': {},
+        }, candidates[1]['candidate_params'])
+        self.assertEqual(compared_request, {
+            'target_count': 5,
+            'time': 40,
+            'fight_style': 'CastingPatchwerk',
+            'raid_buffs': ['arcane_intellect'],
+            'use_class_raid_buff': True,
+            'extra_options': ['power_infusion'],
+            'profile_overrides': {'flask': 'disabled'},
+        })
+
+        execution = self._create()
+        task = execution.cases.get().task
+        initial_candidates = task.mode_params['initial_candidates']
+        self.assertEqual(
+            [row['candidate_key'] for row in initial_candidates],
+            ['baseline', 'comparison'],
+        )
+        self.assertEqual(
+            [row['candidate_params'] for row in initial_candidates],
+            [row['candidate_params'] for row in candidates],
+        )
+        task.current_status = 2
+        task.save(update_fields=['current_status'])
+        self._run(task, 1, 'completed', 'baseline', dps=1000)
+        self._run(task, 2, 'completed', 'comparison', dps=1150)
+        reconcile_execution(execution)
+
+        payload = serialize_incremental_panel_results(self.panel)
+        self.assertEqual(payload['comparison_label'], '五目标短时全增益')
+        self.assertEqual(payload['comparison_rows'], [{
+            'spec_key': 'warrior_fury', 'spec_label': '狂怒 · 战士',
+            'profile_key': str(self.profile.pk), 'profile_label': 'Profile',
+            'scenario_key': 'patchwerk', 'scenario_label': 'Patchwerk',
+            'baseline_dps': 1000.0, 'comparison_dps': 1150.0,
+            'gain_dps': 150.0, 'gain_percent': 15.0,
+        }])
+
     def test_trinket_benchmark_replaces_both_profile_slots_with_frozen_reference_pair(self):
         candidate = self.panel.candidates.get(key='trinket')
         candidate.params = {

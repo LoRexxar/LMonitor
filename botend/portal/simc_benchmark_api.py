@@ -270,10 +270,13 @@ def _public_result_payload(panel, *, coordinate_filter=None, scenario_filter=Non
             'description': panel.description,
             'benchmark_type': panel.benchmark_type,
             'comparison_option': panel.comparison_option,
+            'comparison_config': panel.comparison_config or {},
+            'counts': counts,
         },
         'results': {
             'coordinates': coordinates,
             'comparison_option_label': results.get('comparison_option_label', ''),
+            'comparison_label': results.get('comparison_label', ''),
             'option_gain_rows': results.get('option_gain_rows', []),
         },
     }
