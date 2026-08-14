@@ -291,6 +291,14 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertIn('external_buffs.pool=power_infusion:120', composed[1][1])
 
         execution = self._create()
+        for case in execution.cases.select_related('task'):
+            self.assertEqual(
+                [
+                    candidate['candidate_params']
+                    for candidate in case.task.mode_params['initial_candidates']
+                ],
+                [candidate['candidate_params'] for candidate in expected_candidates],
+            )
         dps_by_spec = {
             'warrior_fury': (1000, 1100),
             'priest_shadow': (2000, 2100),
