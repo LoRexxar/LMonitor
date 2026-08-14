@@ -349,10 +349,17 @@ class Command(BaseCommand):
 
     @staticmethod
     def _is_not_found(exc):
-        return (
-            getattr(exc, 'status_code', None) == 404
-            or str(getattr(exc, 'code', '') or getattr(exc, 'error_code', ''))
-            in {'NoSuchKey', 'NotFound', 'NoSuchObject'}
+        errors = [exc]
+        unwrap = getattr(exc, 'unwrap', None)
+        if callable(unwrap):
+            errors.append(unwrap())
+        return any(
+            error is not None and (
+                getattr(error, 'status_code', None) == 404
+                or str(getattr(error, 'code', '') or getattr(error, 'error_code', ''))
+                in {'NoSuchKey', 'NotFound', 'NoSuchObject'}
+            )
+            for error in errors
         )
 
     def _head_object(self, oss, client, bucket, key):

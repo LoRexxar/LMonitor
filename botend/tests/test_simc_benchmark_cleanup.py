@@ -40,6 +40,15 @@ class _NotFound(Exception):
     code = 'NoSuchKey'
 
 
+class _OperationError(Exception):
+    def __init__(self, error):
+        super().__init__(f'operation error: {error}')
+        self._error = error
+
+    def unwrap(self):
+        return self._error
+
+
 class _FakeOssClient:
     def __init__(self, objects, *, corrupt_copy=False):
         self.objects = objects
@@ -108,6 +117,20 @@ class SimcBenchmarkCleanupCommandTests(TestCase):
             'version_id': None,
             'acl': 'public-read',
         }
+
+    def test_head_object_treats_sdk_wrapped_no_such_key_as_missing(self):
+        client = _FakeOssClient({})
+        direct_head = client.head_object
+
+        def wrapped_head(request):
+            try:
+                return direct_head(request)
+            except _NotFound as exc:
+                raise _OperationError(exc) from exc
+
+        client.head_object = wrapped_head
+
+        self.assertIsNone(Command()._head_object(_FakeOss, client, 'bucket', 'missing.html'))
 
     def test_oss_quarantine_preserves_full_identity_and_delete_verifies_original_is_gone(self):
         source_key = 'simc_agent_results/simc_task_1_run_1.html'
