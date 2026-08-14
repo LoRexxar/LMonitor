@@ -213,7 +213,10 @@ class SimcTaskReferenceContracts(TestCase):
             self.assertFalse(monitor.process_reference_run(task, run))
 
         self.assertEqual(captured['extra_options'], ['power_infusion'])
-        self.assertIn('external_buffs.pool=power_infusion:120', captured['content'])
+        self.assertIn(
+            'external_buffs.power_infusion=0/120/240', captured['content'],
+        )
+        self.assertNotIn('external_buffs.pool', captured['content'])
 
     def test_local_worker_passes_frozen_raid_buffs_to_composer(self):
         task = self.create_task(

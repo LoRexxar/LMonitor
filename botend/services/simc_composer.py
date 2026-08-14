@@ -53,14 +53,28 @@ SIMC_EXTRA_OPTIONS = (
     {
         'value': 'power_infusion',
         'label': '牧师能量灌注',
-        'description': '允许 APL 在最佳时机调用能量灌注（120 秒冷却）。',
-        'simc_lines': ('external_buffs.pool=power_infusion:120',),
+        'description': '从开战起按 120 秒间隔定时施加能量灌注。',
+        'simc_external_buff': 'power_infusion',
+        'cooldown_seconds': 120,
     },
 )
 SIMC_EXTRA_OPTION_VALUES = frozenset(option['value'] for option in SIMC_EXTRA_OPTIONS)
-SIMC_EXTRA_OPTION_LINES = {
-    option['value']: option['simc_lines'] for option in SIMC_EXTRA_OPTIONS
+SIMC_EXTRA_OPTION_BY_VALUE = {
+    option['value']: option for option in SIMC_EXTRA_OPTIONS
 }
+
+
+def render_simc_extra_option_lines(
+        value: str, request_data: Dict[str, Any]) -> tuple[str, ...]:
+    """Render version-stable SimC input for a validated extra option."""
+    option = SIMC_EXTRA_OPTION_BY_VALUE[value]
+    buff_name = option['simc_external_buff']
+    cooldown = option['cooldown_seconds']
+    max_time = float(request_data.get('time', request_data.get('max_time', 300)))
+    timings = '/'.join(
+        str(second) for second in range(0, max(1, math.ceil(max_time)), cooldown)
+    )
+    return (f'external_buffs.{buff_name}={timings}',)
 
 # Implicit defaults are limited to raid effects supplied by the actor's own
 # class. ``use_class_raid_buff`` allows those defaults to be unioned with the
@@ -917,7 +931,7 @@ class SimcComposer:
         if request_data.get('enemy_type'):
             options.append(f"enemy={request_data['enemy_type']}")
         for extra_option in request_data.get('extra_options') or ():
-            options.extend(SIMC_EXTRA_OPTION_LINES[extra_option])
+            options.extend(render_simc_extra_option_lines(extra_option, request_data))
         candidate_options = request_data.get('_candidate_simc_options')
         if candidate_options is not None:
             from botend.services.simc_candidate_options import normalize_controlled_simc_options

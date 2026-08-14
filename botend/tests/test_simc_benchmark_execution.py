@@ -286,9 +286,12 @@ class SimcBenchmarkExecutionTests(TestCase):
             self.assertIsNone(error)
             composed.append((request, content))
         self.assertEqual(composed[0][0]['extra_options'], [])
-        self.assertNotIn('external_buffs.pool=power_infusion:120', composed[0][1])
+        self.assertNotIn('external_buffs.power_infusion=', composed[0][1])
         self.assertEqual(composed[1][0]['extra_options'], ['power_infusion'])
-        self.assertIn('external_buffs.pool=power_infusion:120', composed[1][1])
+        self.assertIn(
+            'external_buffs.power_infusion=0/120/240', composed[1][1],
+        )
+        self.assertNotIn('external_buffs.pool', composed[1][1])
 
         execution = self._create()
         for case in execution.cases.select_related('task'):
@@ -404,6 +407,12 @@ class SimcBenchmarkExecutionTests(TestCase):
             'extra_options': ['power_infusion'],
             'profile_overrides': {'flask': 'disabled'},
         })
+        from botend.services.simc_composer import SimcComposer
+        compared_options = SimcComposer(self.user_id)._resolve_simulation_options(
+            compared_request,
+        ).value.content
+        self.assertIn('external_buffs.power_infusion=0', compared_options)
+        self.assertNotIn('external_buffs.pool', compared_options)
 
         execution = self._create()
         task = execution.cases.get().task
@@ -426,6 +435,7 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(payload['comparison_label'], '五目标短时全增益')
         self.assertEqual(payload['comparison_rows'], [{
             'spec_key': 'warrior_fury', 'spec_label': '狂怒 · 战士',
+            'spec_icon_url': _spec_icon_url('warrior_fury'),
             'profile_key': str(self.profile.pk), 'profile_label': 'Profile',
             'scenario_key': 'patchwerk', 'scenario_label': 'Patchwerk',
             'baseline_dps': 1000.0, 'comparison_dps': 1150.0,
