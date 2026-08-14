@@ -98,6 +98,7 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
 .simc-benchmark-config-page [data-benchmark-form] { display:grid; gap:.85rem; }
 .simc-benchmark-config-page .simc-benchmark-form-section { margin:0; border-color:var(--config-border); border-radius:1rem; padding:1.2rem; box-shadow:0 1px 2px rgba(16,24,40,.025); }
 .simc-benchmark-primary-section { display:grid; grid-template-columns:minmax(13rem,.65fr) minmax(0,1.35fr); align-items:center; gap:1.5rem; border-color:#cbd9ee !important; background:linear-gradient(135deg,#f8fbff 0%,#fff 55%) !important; }
+.benchmark-mode-section > [data-editor-comparison-config] { min-width:0; grid-column:1/-1; }
 .section-heading-copy { min-width:0; }
 .section-heading-copy h2 { margin:.15rem 0 .18rem; color:var(--config-ink); font-size:1rem; line-height:1.35; }
 .section-heading-copy p { max-width:44rem; margin:0; color:var(--config-muted); font-size:.72rem; line-height:1.55; }
