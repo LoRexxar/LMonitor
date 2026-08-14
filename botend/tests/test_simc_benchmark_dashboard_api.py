@@ -133,6 +133,74 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         self.assertRegex(second_slug, r'^[a-z0-9][a-z0-9_-]*$')
         self.assertNotEqual(first_slug, second_slug)
 
+    def test_duplicate_copies_configuration_without_creating_execution_or_simc_tasks(self):
+        payload = json.loads(json.dumps(self.payload))
+        payload.update({
+            'description': '完整复制配置',
+            'is_public': True,
+            'schedule_enabled': True,
+            'next_run_at': timezone.now().isoformat(),
+        })
+        payload['scenarios'][0]['simulation_params'] = {
+            'iterations': 2000,
+            'desired_targets': 2,
+            'fight_style': 'Patchwerk',
+        }
+        payload['candidates'] = [{
+            'key': 'trinket-1', 'label': 'Trinket 1',
+            'candidate_type': 'gear_swap',
+            'params': {'slot': 'trinket1', 'raw_value': 'trinket1=id=123,ilevel=700'},
+            'spec_keys': ['warrior_fury'],
+        }]
+        created = self._json(
+            self.client, 'post', '/api/simc-benchmarks/panels/', payload,
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        source = SimcBenchmarkPanel.objects.get(pk=created.json()['data']['id'])
+        SimcBenchmarkExecution.objects.create(
+            panel=source,
+            config_snapshot={'source': True},
+            config_hash='a' * 64,
+            status=SimcBenchmarkExecution.STATUS_SUCCESS,
+            completed_at=timezone.now(),
+        )
+        counts_before = {
+            'executions': SimcBenchmarkExecution.objects.count(),
+            'tasks': SimcTask.objects.count(),
+            'runs': SimulationRun.objects.count(),
+        }
+
+        response = self._json(
+            self.client, 'post',
+            f'/api/simc-benchmarks/panels/{source.pk}/duplicate/', {},
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        copied_data = response.json()['data']
+        copied = SimcBenchmarkPanel.objects.get(pk=copied_data['id'])
+        self.assertNotEqual(copied.pk, source.pk)
+        self.assertNotEqual(copied.slug, source.slug)
+        self.assertEqual(copied.name, f'{source.name}（副本）')
+        self.assertEqual(copied.created_by_id, self.staff.id)
+        self.assertFalse(copied.is_public)
+        self.assertFalse(copied.schedule_enabled)
+        self.assertIsNone(copied.next_run_at)
+        self.assertEqual(copied.description, source.description)
+        self.assertEqual(copied.interval_seconds, source.interval_seconds)
+        self.assertEqual(copied.specs.count(), source.specs.count())
+        self.assertEqual(copied.specs.get().profiles.count(), source.specs.get().profiles.count())
+        self.assertEqual(
+            copied.scenarios.get().simulation_params,
+            source.scenarios.get().simulation_params,
+        )
+        self.assertEqual(copied.candidates.get().params, source.candidates.get().params)
+        self.assertEqual(copied.executions.count(), 0)
+        self.assertEqual({
+            'executions': SimcBenchmarkExecution.objects.count(),
+            'tasks': SimcTask.objects.count(),
+            'runs': SimulationRun.objects.count(),
+        }, counts_before)
+
     def test_metadata_patch_renames_panel_without_changing_generated_slug(self):
         payload = dict(self.payload)
         payload.pop('slug')

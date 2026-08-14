@@ -1193,3 +1193,36 @@ def serialize_panel_config(panel):
         } for row in panel._snapshot_candidates]
     )
     return deepcopy(result)
+
+
+@transaction.atomic
+def duplicate_panel_config(panel, user_id):
+    """Copy reusable Panel configuration without creating execution records."""
+    try:
+        source = SimcBenchmarkPanel.objects.select_for_update().get(pk=panel.pk)
+    except SimcBenchmarkPanel.DoesNotExist:
+        _error('Panel 不存在', 'panel')
+
+    payload = serialize_panel_config(source)
+    payload.pop('id', None)
+    payload.pop('slug', None)
+    payload['name'] = f'{source.name[:196]}（副本）'
+    payload['is_public'] = False
+    payload['schedule_enabled'] = False
+    payload['next_run_at'] = None
+
+    for spec in payload['specs']:
+        spec.pop('id', None)
+        spec['apl_id'] = spec.pop('apl')['id']
+        spec['template_id'] = spec.pop('template')['id']
+        spec['backend_id'] = spec.pop('backend')['id']
+        for profile in spec['profiles']:
+            profile.pop('id', None)
+            profile.pop('profile_name', None)
+    for scenario in payload['scenarios']:
+        scenario.pop('id', None)
+    for candidate in payload['candidates']:
+        candidate.pop('id', None)
+        candidate.pop('effect', None)
+
+    return replace_panel_config(payload, user_id)

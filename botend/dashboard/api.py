@@ -89,7 +89,7 @@ from botend.constants.wow import SPEC_CN
 from botend.services.simc_benchmark_config import (
     MAX_PROFILES_PER_SPEC, MAX_SCENARIOS, MAX_SPECS, SIMC_FIGHT_STYLES,
     SIMC_RAID_BUFFS, benchmark_resource_querysets,
-    replace_panel_config, serialize_panel_config,
+    duplicate_panel_config, replace_panel_config, serialize_panel_config,
 )
 from botend.services.simc_benchmark_execution import (
     BenchmarkExecutionConflict, cancel_execution, create_execution, reconcile_execution,
@@ -9931,6 +9931,18 @@ class SimcBenchmarkPanelDetailAPIView(_BenchmarkAdminAPIView):
                 return _benchmark_error('not_found', 404)
             panel.delete()
         return HttpResponse(status=204)
+
+
+class SimcBenchmarkPanelDuplicateAPIView(_BenchmarkAdminAPIView):
+    def post(self, request, panel_id):
+        _benchmark_json_object(request, allowed_fields=set())
+        panel, error = self.panel_or_404(panel_id)
+        if error:
+            return error
+        copied, _plan = duplicate_panel_config(panel, request.user.id)
+        data = serialize_panel_config(copied)
+        data['next_run_at'] = _benchmark_iso(data['next_run_at'])
+        return JsonResponse({'success': True, 'data': data}, status=201)
 
 
 class SimcBenchmarkPanelRunAPIView(_BenchmarkAdminAPIView):
