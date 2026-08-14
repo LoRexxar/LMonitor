@@ -389,6 +389,20 @@ function collectComparisonConfig(){
   const additional=card.querySelector('[name="comparison_additional_simc_input"]')?.value.trim();if(additional)simulation_params.additional_simc_input=additional;
   return {label:card.querySelector('[name="comparison_label"]')?.value.trim()||'',simulation_params};
 }
+function comparisonSummaryData(config={},catalogs={}){
+  const params=config?.simulation_params&&typeof config.simulation_params==='object'?config.simulation_params:{},rows=[],has=(object,key)=>Object.prototype.hasOwnProperty.call(object||{},key),catalogLabel=(items,value)=>{const match=(Array.isArray(items)?items:[]).find(item=>String(item?.value)===String(value));return String(match?.label||value);},add=(label,value)=>{if(value===null||value===undefined||value==='')return;rows.push({label,value:String(value)});};
+  const percent=value=>{const number=Number(value);return Number.isFinite(number)?`${Number((number*100).toFixed(4))}%`:String(value);};
+  [['desired_targets','目标数'],['max_time','战斗时间'],['iterations','迭代次数'],['fight_style','战斗类型'],['target_error','目标误差'],['vary_combat_length','战斗时长浮动'],['enemy_type','敌人类型']].forEach(([key,label])=>{if(!has(params,key))return;let value=params[key];if(key==='max_time')value=`${value} 秒`;else if(key==='fight_style')value=catalogLabel(catalogs.fight_styles,value);else if(['target_error','vary_combat_length'].includes(key))value=percent(value);add(label,value);});
+  if(has(params,'use_class_raid_buff'))add('职业自身团队增益',params.use_class_raid_buff===true?'启用':'关闭');
+  if(has(params,'raid_buffs'))add('额外 Raid Buffs',(Array.isArray(params.raid_buffs)&&params.raid_buffs.length)?params.raid_buffs.map(value=>catalogLabel(catalogs.raid_buffs,value)).join('、'):'清空');
+  if(has(params,'extra_options'))add('额外选项',(Array.isArray(params.extra_options)&&params.extra_options.length)?params.extra_options.map(value=>catalogLabel(catalogs.extra_options,value)).join('、'):'清空');
+  const overrides=params.profile_overrides&&typeof params.profile_overrides==='object'?params.profile_overrides:{};
+  [['flask','合剂'],['potion','药水'],['food','食物'],['augmentation','增幅符文']].forEach(([key,label])=>{if(has(overrides,key))add(label,catalogLabel(catalogs.consumables?.[key],overrides[key]));});
+  if(has(overrides,'temporary_enchant')){const hands=splitTemporaryEnchant(overrides.temporary_enchant);if(hands.main_hand)add('主手临时附魔',catalogLabel(catalogs.consumables?.temporary_enchant_main_hand,hands.main_hand));if(hands.off_hand)add('副手临时附魔',catalogLabel(catalogs.consumables?.temporary_enchant_off_hand,hands.off_hand));}
+  [['talents','Talents'],['class_talents','Class talents'],['spec_talents','Spec talents'],['hero_talents','Hero talents']].forEach(([key,label])=>{if(has(overrides,key))add(label,overrides[key]);});
+  if(has(params,'additional_simc_input')){const count=String(params.additional_simc_input||'').split(/\r?\n/).filter(line=>line.trim()).length;add('附加 SimC 输入',`已设置 ${count} 行`);}
+  return {label:String(config?.label||'未命名对比'),rows,inheritance:'其余配置继承各基准场景'};
+}
 function addCandidate(data={}){
   if(data.params===undefined)data={...data,params:inheritedCandidateParams()};
   const parts=gearParts(data),card=el('div',{class:'config-card candidate-config-row',dataset:{config:'candidate'}}),head=el('div',{class:'config-card-head'});head.append(el('div',{class:'config-card-title'},'装备候选'),removeButton('candidate'));
@@ -429,7 +443,7 @@ function updateSummary(saved=false){
   const fingerprint=JSON.stringify(payload);if(saved&&configPage)savedPayloadFingerprint=fingerprint;const dirty=!configPage||savedPayloadFingerprint!==fingerprint;
   const errors=configErrors(payload),summary=$('[data-editor-summary]',root);clear(summary);
   if(editingId===null){summary.append(el('strong',{},'默认配置'),el('div',{},`${payload.specs.length} 个已选专精`),el('div',{},'每个专精使用系统默认资源'),el('div',{},'1 个 Patchwerk 场景'),el('div',{},'候选装备保存后配置'));}
-  else{const m=metricsFor(payload),comparisonLabel=payload.comparison_config?.label||'未命名对比',modeLabel=payload.benchmark_type==='option_gain'?`对比模拟 · ${comparisonLabel}`:'普通模拟';summary.append(el('strong',{},modeLabel),el('div',{},`${m.enabledSpecs} 个启用专精 × ${m.scenarios} 个启用场景`),el('div',{},`${m.cases} cases`),el('div',{},payload.benchmark_type==='option_gain'?`每坐标固定 ${m.maxRuns} runs（基准 / ${comparisonLabel}）`:`每坐标最多 ${m.maxRuns} runs（候选 + baseline）`));}
+  else{const m=metricsFor(payload);if(payload.benchmark_type==='option_gain'){const comparison=comparisonSummaryData(payload.comparison_config,resources);summary.append(el('strong',{},`当前对比 · ${comparison.label}`));comparison.rows.forEach(row=>summary.append(el('div',{class:'benchmark-comparison-summary-item',title:`${row.label}：${row.value}`},`${row.label}：${row.value}`)));summary.append(el('div',{class:'benchmark-comparison-summary-inheritance'},comparison.inheritance),el('div',{class:'benchmark-comparison-summary-matrix'},`${m.enabledSpecs} 专精 × ${m.scenarios} 场景 · ${m.cases} cases · 每坐标 ${m.maxRuns} runs`));}else summary.append(el('strong',{},'普通模拟'),el('div',{},`${m.enabledSpecs} 个启用专精 × ${m.scenarios} 个启用场景`),el('div',{},`${m.cases} cases`),el('div',{},`每坐标最多 ${m.maxRuns} runs（候选 + baseline）`));}
   if(errors.length){const box=el('div',{class:'summary-error'});errors.forEach(x=>box.append(el('div',{},`• ${x}`)));summary.append(box);}
   saveButton.disabled=!editorReady||saving||errors.length>0||(configPage&&!dirty);
   if(saveStatus)saveStatus.textContent=saving?'正在保存…':errors.length?`还有 ${errors.length} 项需要完善`:dirty?'有未保存的修改':'配置已保存';
@@ -563,5 +577,6 @@ function bind(){
 function benchmarkSectionVisible(){const section=$('[data-simc-benchmark-root]',root);return !configPage&&document.visibilityState==='visible'&&!!section&&(section.classList.contains('active')||section.style.display==='block');}
 function pollActiveExecutions(){const discovering=Date.now()<forceDiscoveryUntil;if(benchmarkSectionVisible()&&(discovering||panels.some(panel=>panel.execution?.is_active)))loadPanels(true,{background:true});}
 function init(){if(initialized)return;const execution=$('[data-benchmark-execution-page]');if(execution){root=execution;executionPage=true;initialized=true;bind();loadExecutionPage();return;}const page=$('[data-benchmark-config-page]');if(page){root=page;configPage=true;initialized=true;bind();openEditor(page.dataset.benchmarkPanelId);return;}const section=$('[data-simc-benchmark-root]');root=section?.parentElement || section;if(!root)return;initialized=true;bind();window.setInterval(pollActiveExecutions,BENCHMARK_POLL_MS);if(section.classList.contains('active')||section.style.display==='block')loadPanels();}
+if(typeof module==='object'&&module.exports){module.exports={comparisonSummaryData};return;}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
 })();
