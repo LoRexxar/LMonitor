@@ -216,6 +216,10 @@ class SimcTaskReferenceContracts(TestCase):
         self.assertIn(
             'external_buffs.power_infusion=0/120/240', captured['content'],
         )
+        self.assertLess(
+            captured['content'].index('warrior="Player"'),
+            captured['content'].index('external_buffs.power_infusion=0/120/240'),
+        )
         self.assertNotIn('external_buffs.pool', captured['content'])
 
     def test_local_worker_passes_frozen_raid_buffs_to_composer(self):

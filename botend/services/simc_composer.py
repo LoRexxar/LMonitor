@@ -930,8 +930,6 @@ class SimcComposer:
             options.append(f"vary_combat_length={request_data['vary_combat_length']}")
         if request_data.get('enemy_type'):
             options.append(f"enemy={request_data['enemy_type']}")
-        for extra_option in request_data.get('extra_options') or ():
-            options.extend(render_simc_extra_option_lines(extra_option, request_data))
         candidate_options = request_data.get('_candidate_simc_options')
         if candidate_options is not None:
             from botend.services.simc_candidate_options import normalize_controlled_simc_options
@@ -955,13 +953,15 @@ class SimcComposer:
         return validate_simulation_options(request_data)
 
     def _resolve_stat_overrides(self, request_data: Dict[str, Any]) -> SlotResolution:
-        """Resolve explicitly saved final stat overrides for every player source."""
+        """Resolve actor-scoped options for every player source."""
         overrides = []
         for field in ('strength', 'crit', 'haste', 'mastery', 'versatility'):
             value = request_data.get(f'gear_{field}')
             if value is not None:
                 suffix = '' if field == 'strength' else '_rating'
                 overrides.append(f'gear_{field}{suffix}={value}')
+        for extra_option in request_data.get('extra_options') or ():
+            overrides.extend(render_simc_extra_option_lines(extra_option, request_data))
 
         if overrides:
             content = '\n'.join(overrides)
