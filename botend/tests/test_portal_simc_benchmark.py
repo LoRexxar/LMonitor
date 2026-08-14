@@ -667,6 +667,29 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIn('params.set("scenario"', self.JS)
         self.assertIn('纵轴：职业专精', self.JS)
 
+    def test_option_gain_results_use_spec_identity_and_gain_percent_bars(self):
+        portal_start = self.JS.index('function renderOptionGain')
+        portal_end = self.JS.index('\n  function renderResults', portal_start)
+        dashboard_js = (
+            self.ROOT / 'static/dashboard/js/simc-benchmark-dashboard.js'
+        ).read_text(encoding='utf-8')
+        dashboard_start = dashboard_js.index('function renderOptionGainRows')
+        dashboard_end = dashboard_js.index('\nfunction renderExecution', dashboard_start)
+
+        for renderer in (
+            self.JS[portal_start:portal_end],
+            dashboard_js[dashboard_start:dashboard_end],
+        ):
+            self.assertIn('spec_icon_url', renderer)
+            self.assertIn('gain_percent', renderer)
+            self.assertIn('simc-benchmark-spec-chart', renderer)
+            self.assertIn('simc-benchmark-spec-icon', renderer)
+            self.assertIn('simc-benchmark-spec-name', renderer)
+            self.assertIn('simc-benchmark-spec-track', renderer)
+            self.assertIn('simc-benchmark-spec-bar', renderer)
+            self.assertNotIn('table', renderer)
+            self.assertNotIn('thead', renderer)
+
     def test_baseline_only_rows_expand_the_corresponding_frozen_profile(self):
         spec_start = self.JS.index('function renderSpecComparison')
         spec_end = self.JS.index('\n  function renderResults', spec_start)

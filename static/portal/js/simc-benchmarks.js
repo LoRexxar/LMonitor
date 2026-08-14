@@ -686,42 +686,65 @@
       ? payload.results.option_gain_rows : [];
     const rows = sourceRows.slice().sort((left, right) => Number(right?.gain_percent || 0) - Number(left?.gain_percent || 0));
     if (!rows.length) {
-      shell.body.replaceChildren(state("暂无已完成的选项收益对比结果", "not-ready"));
+      shell.body.replaceChildren(state("暂无已完成的场景收益对比结果", "not-ready"));
       return;
     }
     const optionLabel = payload?.results?.comparison_label || payload?.results?.comparison_option_label || "对比场景";
     const intro = node("div", "simc-benchmark-gain-intro");
     intro.append(
       node("strong", "", `${optionLabel}收益对比`),
-      node("p", "", "同一 Profile 与 APL，以原战斗场景为基准应用结构化场景覆盖；按收益百分比降序排列。"),
+      node("p", "", "同一 Profile 与 APL，以原战斗场景为基准应用结构化场景覆盖；按提升百分比降序排列。"),
+      node("p", "simc-benchmark-spec-axis-note", "左侧：职业专精 · 横向条：提升比例（按本组最大绝对幅度缩放）"),
     );
-    const wrap = node("div", "simc-benchmark-gain-table-wrap");
-    const table = node("table", "simc-benchmark-gain-table");
-    const thead = node("thead");
-    const head = node("tr");
-    ["排名", "职业专精", "场景", "Profile", "基准 DPS", `${optionLabel} DPS`, "DPS 增量", "收益"].forEach((label) => {
-      const cell = node("th", "", label); cell.scope = "col"; head.appendChild(cell);
-    });
-    thead.appendChild(head);
-    const tbody = node("tbody");
+    const maximumMagnitude = rows.reduce((value, entry) => {
+      const gainPercent = Number(entry?.gain_percent);
+      return Math.max(value, Number.isFinite(gainPercent) ? Math.abs(gainPercent) : 0);
+    }, 0);
+    const chart = node("div", "simc-benchmark-spec-chart simc-benchmark-gain-chart");
     rows.forEach((entry, index) => {
-      const row = node("tr");
       const gainDps = Number(entry?.gain_dps);
       const gainPercent = Number(entry?.gain_percent);
-      [
-        String(index + 1),
-        entry?.spec_label || entry?.spec_key || "—",
-        entry?.scenario_label || entry?.scenario_key || "—",
-        entry?.profile_label || entry?.profile_key || "—",
-        `${numberFormat.format(validDps(entry?.baseline_dps) ?? 0)} DPS`,
-        `${numberFormat.format(validDps(entry?.comparison_dps ?? entry?.enabled_dps) ?? 0)} DPS`,
-        `${gainDps >= 0 ? "+" : ""}${numberFormat.format(Number.isFinite(gainDps) ? gainDps : 0)}`,
-        `${gainPercent >= 0 ? "+" : ""}${Number.isFinite(gainPercent) ? gainPercent.toFixed(2) : "0.00"}%`,
-      ].forEach((value, cellIndex) => row.appendChild(node("td", cellIndex === 7 ? "simc-benchmark-gain-value" : "", value)));
-      tbody.appendChild(row);
+      const baselineDps = validDps(entry?.baseline_dps) ?? 0;
+      const comparisonDps = validDps(entry?.comparison_dps ?? entry?.enabled_dps) ?? 0;
+      const hasGain = Number.isFinite(gainPercent);
+      const isNegative = hasGain && gainPercent < 0;
+      const row = node("div", "simc-benchmark-spec-row simc-benchmark-gain-row");
+      const content = node("div", "simc-benchmark-spec-row-toggle simc-benchmark-gain-row-content");
+      const identity = node("div", "simc-benchmark-spec-identity");
+      identity.appendChild(node("span", "simc-benchmark-spec-rank", hasGain ? String(index + 1) : "—"));
+      const iconUrl = safeIconUrl(entry?.spec_icon_url);
+      if (iconUrl) {
+        const icon = node("img", "simc-benchmark-spec-icon");
+        icon.src = iconUrl; icon.alt = ""; icon.loading = "lazy";
+        icon.addEventListener("error", () => icon.remove(), { once: true });
+        identity.appendChild(icon);
+      }
+      const copy = node("div", "simc-benchmark-spec-copy");
+      copy.appendChild(node("strong", "simc-benchmark-spec-name", entry?.spec_label || entry?.spec_key || "未知专精"));
+      const context = [
+        entry?.scenario_label || entry?.scenario_key,
+        entry?.profile_label || entry?.profile_key,
+      ].filter(Boolean).join(" · ");
+      if (context) copy.appendChild(node("small", "simc-benchmark-spec-profile", context));
+      identity.appendChild(copy);
+      const track = node("div", "simc-benchmark-spec-track");
+      const bar = node("div", `simc-benchmark-spec-bar simc-benchmark-gain-bar${isNegative ? " simc-benchmark-gain-bar--negative" : ""}`);
+      bar.style.width = `${hasGain && maximumMagnitude > 0 ? Math.max(0.8, Math.abs(gainPercent) * 100 / maximumMagnitude) : 0}%`;
+      track.appendChild(bar);
+      const metrics = node("div", "simc-benchmark-spec-metrics");
+      metrics.appendChild(node(
+        "strong",
+        `simc-benchmark-spec-dps simc-benchmark-gain-value${isNegative ? " simc-benchmark-gain-value--negative" : ""}`,
+        hasGain ? `${gainPercent >= 0 ? "+" : ""}${gainPercent.toFixed(2)}%` : "暂无结果",
+      ));
+      metrics.appendChild(node(
+        "small", "simc-benchmark-spec-relative",
+        `${numberFormat.format(baselineDps)} → ${numberFormat.format(comparisonDps)} DPS · ${gainDps >= 0 ? "+" : ""}${numberFormat.format(Number.isFinite(gainDps) ? gainDps : 0)} DPS`,
+      ));
+      content.append(identity, track, metrics);
+      row.appendChild(content); chart.appendChild(row);
     });
-    table.append(thead, tbody); wrap.appendChild(table);
-    shell.body.replaceChildren(intro, wrap);
+    shell.body.replaceChildren(intro, chart);
   }
 
   function renderResults(shell, payload, { syncLocation = false, detailUrl = "" } = {}) {

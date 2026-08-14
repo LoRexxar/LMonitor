@@ -362,16 +362,12 @@
 .simc-benchmark-gain-intro { margin-bottom: 0.75rem; }
 .simc-benchmark-gain-intro strong { color: #0f172a; font-size: 0.9rem; }
 .simc-benchmark-gain-intro p { color: #64748b; font-size: 0.72rem; margin: 0.25rem 0 0; }
-.simc-benchmark-gain-table-wrap { border: 1px solid #e2e8f0; border-radius: 0.55rem; overflow-x: auto; }
-.simc-benchmark-gain-table { border-collapse: collapse; font-size: 0.72rem; min-width: 760px; width: 100%; }
-.simc-benchmark-gain-table th,
-.simc-benchmark-gain-table td { border-bottom: 1px solid #e2e8f0; padding: 0.65rem 0.75rem; text-align: left; white-space: nowrap; }
-.simc-benchmark-gain-table th { background: #f8fafc; color: #64748b; font-size: 0.65rem; font-weight: 700; }
-.simc-benchmark-gain-table tbody tr:last-child td { border-bottom: 0; }
-.simc-benchmark-gain-table tbody tr:hover { background: #f8fafc; }
-.simc-benchmark-gain-table td:nth-last-child(-n+4) { font-variant-numeric: tabular-nums; text-align: right; }
-.simc-benchmark-gain-table th:nth-last-child(-n+4) { text-align: right; }
-.simc-benchmark-gain-value { color: #15803d; font-weight: 750; }
+.simc-benchmark-gain-intro .simc-benchmark-spec-axis-note { margin-top: 0.45rem; text-align: left; }
+.simc-benchmark-gain-row-content { cursor: default; }
+.simc-benchmark-gain-bar { background: linear-gradient(90deg, #16a34a, #22c55e); }
+.simc-benchmark-gain-bar--negative { background: linear-gradient(90deg, #dc2626, #fb7185); }
+.simc-benchmark-gain-value { color: #15803d; }
+.simc-benchmark-gain-value--negative { color: #b91c1c; }
 
 @media (max-width: 640px) {
     .simc-benchmark-list-header { display: none; }

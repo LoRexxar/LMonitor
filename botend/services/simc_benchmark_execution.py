@@ -1697,6 +1697,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                 gain_dps = comparison_dps - baseline_dps
                 option_gain_rows.append({
                     'spec_key': coordinate['spec_key'],
+                    'spec_icon_url': _spec_icon_url(coordinate['spec_key']),
                     'spec_label': _option_gain_spec_display_name(
                         coordinate['spec_label'], coordinate['spec_key'],
                     ),

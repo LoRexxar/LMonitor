@@ -211,11 +211,23 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
 .simc-benchmark-btn.compact { min-height:34px; padding:.35rem .58rem; font-size:.76rem; }
 .benchmark-option-gain { margin-top:1rem; }
 .benchmark-option-gain > p { color:#64748b; font-size:.76rem; }
-.benchmark-option-gain-table-wrap { overflow-x:auto; border:1px solid #e2e8f0; border-radius:.65rem; }
-.benchmark-option-gain-table { min-width:760px; margin:0; }
-.benchmark-option-gain-table th { background:#f8fafc; color:#64748b; font-size:.7rem; text-align:left; }
-.benchmark-option-gain-table th:nth-last-child(-n+4),.benchmark-option-gain-table td:nth-last-child(-n+4) { text-align:right; font-variant-numeric:tabular-nums; }
-.benchmark-option-gain-value { color:#15803d; font-weight:800; }
+.benchmark-option-gain > .simc-benchmark-spec-axis-note { margin:.25rem 0 .75rem; font-size:.7rem; text-align:left; }
+.benchmark-option-gain .simc-benchmark-spec-chart { display:grid; gap:.5rem; }
+.benchmark-option-gain .simc-benchmark-spec-row { overflow:hidden; border:1px solid #e2e8f0; border-radius:.65rem; background:#fff; }
+.benchmark-option-gain .simc-benchmark-spec-row-toggle { display:grid; grid-template-columns:minmax(220px,.78fr) minmax(180px,1.4fr) minmax(155px,.55fr); gap:1rem; align-items:center; width:100%; padding:.75rem .85rem; }
+.benchmark-option-gain .simc-benchmark-spec-identity { display:flex; min-width:0; align-items:center; gap:.65rem; }
+.benchmark-option-gain .simc-benchmark-spec-rank { flex:0 0 1.35rem; color:#94a3b8; font-size:.68rem; font-weight:800; text-align:center; }
+.benchmark-option-gain .simc-benchmark-spec-icon { width:34px; height:34px; flex:0 0 34px; border-radius:.45rem; object-fit:cover; }
+.benchmark-option-gain .simc-benchmark-spec-copy { display:grid; min-width:0; gap:.18rem; }
+.benchmark-option-gain .simc-benchmark-spec-name { overflow:hidden; color:#0f172a; font-size:.8rem; text-overflow:ellipsis; white-space:nowrap; }
+.benchmark-option-gain .simc-benchmark-spec-profile { overflow:hidden; color:#64748b; font-size:.66rem; text-overflow:ellipsis; white-space:nowrap; }
+.benchmark-option-gain .simc-benchmark-spec-track { height:16px; overflow:hidden; border-radius:999px; background:#e2e8f0; }
+.benchmark-option-gain .simc-benchmark-spec-bar { min-width:0; height:100%; border-radius:999px; background:linear-gradient(90deg,#16a34a,#22c55e); }
+.benchmark-option-gain .simc-benchmark-gain-bar--negative { background:linear-gradient(90deg,#dc2626,#fb7185); }
+.benchmark-option-gain .simc-benchmark-spec-metrics { display:grid; min-width:0; gap:.15rem; font-variant-numeric:tabular-nums; text-align:right; }
+.benchmark-option-gain .simc-benchmark-spec-dps { color:#15803d; font-size:.86rem; }
+.benchmark-option-gain .simc-benchmark-gain-value--negative { color:#b91c1c; }
+.benchmark-option-gain .simc-benchmark-spec-relative { overflow:hidden; color:#64748b; font-size:.64rem; text-overflow:ellipsis; white-space:nowrap; }
 
 @media (max-width: 640px) {
   .main-content:has(#simc-benchmarks.active) { padding: .75rem !important; overflow-x: hidden; }
@@ -226,6 +238,7 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
   .simc-benchmark-editor { padding: 0; }.simc-benchmark-editor-panel { width: 100vw; height: 100dvh; border-radius: 0; }.simc-benchmark-editor-body { padding: .7rem; }.simc-benchmark-editor-grid { display: flex; flex-direction: column; }.simc-benchmark-summary { position: sticky; top: -.7rem; z-index: 3; order: -1; width: 100%; }.simc-benchmark-fields, .config-card-grid, .structured-params, .scenario-essential-params { grid-template-columns: minmax(0,1fr); }.config-card-grid .span-2, .config-card-grid .span-all { grid-column: auto; }.simc-benchmark-editor-footer { padding-bottom: max(.85rem,env(safe-area-inset-bottom)); }.simc-benchmark-editor-footer .simc-benchmark-btn { flex: 1; }
   .profile-choice { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }.profile-choice > span,.profile-choice > input[type=text] { grid-column:1/-1; }
   .simc-benchmark-history-panel { width: 100vw; }.history-row-head { grid-template-columns: auto 1fr auto; }.history-row-head .history-secondary { display: none; }.benchmark-execution-progress.compact { min-width: 0; }.benchmark-aggregate-row { grid-template-columns:minmax(0,1fr) auto; }.benchmark-aggregate-candidate { grid-column:1; }.benchmark-aggregate-result { grid-column:2; grid-row:1 / span 2; }.benchmark-aggregate-coordinate { white-space:normal; overflow-wrap:anywhere; }.benchmark-gear-row { grid-template-columns:minmax(0,1fr) auto; gap:.42rem; }.benchmark-gear-identity { min-width:0; }.benchmark-gear-plot { grid-column:1/-1; grid-row:2; }.benchmark-gear-row .benchmark-aggregate-result { grid-column:2; grid-row:1; min-width:auto; }.benchmark-gear-level-legend { justify-content:flex-start; }.benchmark-gear-tooltip { max-width:10rem; }
+  .benchmark-option-gain .simc-benchmark-spec-row-toggle { grid-template-columns:minmax(0,1fr) auto; gap:.6rem; padding:.7rem; }.benchmark-option-gain .simc-benchmark-spec-track { grid-column:1/-1; grid-row:2; }.benchmark-option-gain .simc-benchmark-spec-metrics { min-width:7rem; }.benchmark-option-gain .simc-benchmark-spec-relative { white-space:normal; }
   .simc-benchmark-config-page { padding:.5rem .5rem 2rem; }
   .simc-benchmark-config-toolbar { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:.6rem; border-radius:.75rem; padding:.65rem; }
   .simc-benchmark-config-identity { display:grid; gap:.28rem; }.simc-benchmark-back-link { display:flex; width:max-content; min-height:44px; align-items:center; border:0; padding:0 .25rem; font-size:.72rem; }.simc-benchmark-config-identity h1 { max-width:13rem; font-size:.94rem; }.simc-benchmark-config-identity p,.simc-benchmark-save-status { display:none; }

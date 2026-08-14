@@ -316,6 +316,7 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(payload['option_gain_rows'], [
             {
                 'spec_key': 'warrior_fury', 'spec_label': '狂怒 · 战士',
+                'spec_icon_url': _spec_icon_url('warrior_fury'),
                 'profile_key': str(self.profile.pk), 'profile_label': 'Profile',
                 'scenario_key': 'patchwerk', 'scenario_label': 'Patchwerk',
                 'baseline_dps': 1000.0, 'enabled_dps': 1100.0,
@@ -323,6 +324,7 @@ class SimcBenchmarkExecutionTests(TestCase):
             },
             {
                 'spec_key': 'priest_shadow', 'spec_label': '暗影 · 牧师',
+                'spec_icon_url': _spec_icon_url('priest_shadow'),
                 'profile_key': str(priest_profile.pk),
                 'profile_label': 'Shadow Profile',
                 'scenario_key': 'patchwerk', 'scenario_label': 'Patchwerk',
