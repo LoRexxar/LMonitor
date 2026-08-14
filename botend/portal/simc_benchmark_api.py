@@ -271,7 +271,6 @@ def _public_result_payload(panel, *, coordinate_filter=None, scenario_filter=Non
             'benchmark_type': panel.benchmark_type,
             'comparison_option': panel.comparison_option,
             'comparison_config': panel.comparison_config or {},
-            'counts': counts,
         },
         'results': {
             'coordinates': coordinates,

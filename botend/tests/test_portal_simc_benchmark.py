@@ -139,8 +139,16 @@ class PortalSimcBenchmarkAPITests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload, {
             'status': 'ready',
-            'panel': {'id': self.public.id, 'slug': 'public-panel', 'name': 'Public panel', 'description': 'Public description'},
-            'results': {'coordinates': projection['coordinates']},
+            'panel': {
+                'id': self.public.id, 'slug': 'public-panel', 'name': 'Public panel',
+                'description': 'Public description', 'benchmark_type': 'standard',
+                'comparison_option': '', 'comparison_config': {},
+            },
+            'results': {
+                'coordinates': projection['coordinates'],
+                'comparison_option_label': '', 'comparison_label': '',
+                'option_gain_rows': [],
+            },
         })
         serializer.assert_called_once_with(self.public)
         self.assertNotIn('execution', payload)
