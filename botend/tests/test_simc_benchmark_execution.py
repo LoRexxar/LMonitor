@@ -2561,3 +2561,82 @@ class SimcBenchmarkExecutionTests(TestCase):
                 execution = self._published_success()
                 self._replace_snapshot(execution, mutate)
                 self.assertEqual(serialize_public_execution(execution)['status'], 'not_ready')
+
+    def test_history_cleanup_plan_deletes_superseded_tasks_but_preserves_current_fallback_and_explicit_roots(self):
+        from botend.services.simc_benchmark_cleanup import build_cleanup_plan
+
+        original = self._published_success()
+        original_task = original.cases.get().task
+
+        # The newer execution only replaces baseline. The live projection must
+        # still fall back to the original trinket result without a Panel FK root.
+        partial = self._create(execution_mode='full')
+        partial_task = partial.cases.get().task
+        partial_task.current_status = 2
+        partial_task.save(update_fields=['current_status'])
+        self._run(partial_task, 1, 'completed', 'baseline', dps=1400)
+        self._run(partial_task, 2, 'failed', 'trinket')
+        reconcile_execution(partial)
+        self.panel.active_execution = None
+        self.panel.published_execution = partial
+        self.panel.aggregate_baseline_execution = partial
+        self.panel.save(update_fields=[
+            'active_execution', 'published_execution', 'aggregate_baseline_execution',
+        ])
+
+        fallback_plan = build_cleanup_plan()
+        self.assertNotIn(original_task.id, fallback_plan.deletable_task_ids)
+        self.assertIn(original_task.id, fallback_plan.protected_task_ids)
+
+        replacement = self._create(execution_mode='full')
+        replacement_task = replacement.cases.get().task
+        replacement_task.current_status = 2
+        replacement_task.save(update_fields=['current_status'])
+        self._run(replacement_task, 1, 'completed', 'baseline', dps=1500)
+        self._run(replacement_task, 2, 'completed', 'trinket', dps=1600)
+        reconcile_execution(replacement)
+        self.panel.refresh_from_db()
+        self.panel.active_execution = None
+        self.panel.published_execution = replacement
+        self.panel.aggregate_baseline_execution = replacement
+        self.panel.save(update_fields=[
+            'active_execution', 'published_execution', 'aggregate_baseline_execution',
+        ])
+
+        shared_key = 'simc_results/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa_run_1.html'
+        SimcTaskArtifact.objects.create(
+            task=original_task,
+            run=original_task.simulation_runs.order_by('id').first(),
+            artifact_type='html_report',
+            file_path=shared_key,
+            file_size=123,
+            content_hash='a' * 64,
+        )
+        SimcTaskArtifact.objects.create(
+            task=replacement_task,
+            run=replacement_task.simulation_runs.order_by('id').first(),
+            artifact_type='html_report',
+            file_path=shared_key,
+            file_size=123,
+            content_hash='a' * 64,
+        )
+
+        superseded_plan = build_cleanup_plan()
+        self.assertIn(original_task.id, superseded_plan.deletable_task_ids)
+        self.assertNotIn(replacement_task.id, superseded_plan.deletable_task_ids)
+        self.assertNotIn(
+            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa_run_1.html',
+            superseded_plan.object_keys,
+        )
+
+        old_fingerprint = superseded_plan.fingerprint
+        original_result = original.cases.get().results.order_by('id').first()
+        original_result.dps += 1
+        original_result.save(update_fields=['dps'])
+        self.assertNotEqual(old_fingerprint, build_cleanup_plan().fingerprint)
+
+        self.panel.published_execution = original
+        self.panel.save(update_fields=['published_execution'])
+        explicitly_rooted_plan = build_cleanup_plan()
+        self.assertNotIn(original_task.id, explicitly_rooted_plan.deletable_task_ids)
+        self.assertIn(original_task.id, explicitly_rooted_plan.protected_task_ids)
