@@ -271,6 +271,10 @@ def claim_run(payload, authorization):
             # Stale recovery owns retry semantics for the entire Task.
             return None
 
+        from botend.services.simc_benchmark_purge import task_has_active_panel_purge
+        if task_has_active_panel_purge(task.pk):
+            return None
+
         if task.current_status == 0:
             task.current_status = 1
             task.execution_owner = SimcTask.EXECUTION_OWNER_AGENT
@@ -413,6 +417,9 @@ def request_report_upload(run_id, payload, authorization):
     with transaction.atomic():
         task = SimcTask.objects.select_for_update().get(pk=task_id)
         run = SimulationRun.objects.select_for_update().select_related('task').get(pk=run_id, task=task)
+        from botend.services.simc_benchmark_purge import task_has_active_panel_purge
+        if task_has_active_panel_purge(task.pk):
+            raise AgentAPIError('Panel purge is in progress', 409)
         agent = authenticate_bearer(authorization, lock=True)
         if agent.pk != discovered_agent.pk:
             raise AgentAPIError('Agent identity changed during report upload request', 409)
@@ -612,6 +619,18 @@ def complete_run(run_id, metadata, authorization):
             run = SimulationRun.objects.select_for_update().get(pk=run_id, task=task)
         except (SimcTask.DoesNotExist, SimulationRun.DoesNotExist):
             raise AgentAPIError('Run not found', 404)
+        from botend.services.simc_benchmark_purge import (
+            artifact_key_has_active_panel_purge,
+            task_has_active_panel_purge,
+        )
+        if (
+            task_has_active_panel_purge(task.pk)
+            or (
+                report is not None
+                and artifact_key_has_active_panel_purge(report.get('object_key'))
+            )
+        ):
+            raise AgentAPIError('Panel purge is in progress', 409)
         agent = authenticate_bearer(authorization, lock=True)
         if agent.pk != discovered_agent.pk:
             raise AgentAPIError('Agent identity changed during completion', 409)

@@ -1701,6 +1701,54 @@ class SimcBenchmarkPanel(models.Model):
         ]
 
 
+class SimcBenchmarkPurgeTask(models.Model):
+    """Durable, auditable background purge for one Benchmark panel graph."""
+
+    STATUS_PENDING = 'pending'
+    STATUS_RUNNING = 'running'
+    STATUS_CLEANUP_PENDING = 'cleanup_pending'
+    STATUS_CLEANING = 'cleaning'
+    STATUS_RESTORE_PENDING = 'restore_pending'
+    STATUS_RESTORING = 'restoring'
+    STATUS_SUCCEEDED = 'succeeded'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = tuple((value, value.replace('_', ' ').title()) for value in (
+        STATUS_PENDING, STATUS_RUNNING, STATUS_CLEANUP_PENDING, STATUS_CLEANING,
+        STATUS_RESTORE_PENDING, STATUS_RESTORING,
+        STATUS_SUCCEEDED, STATUS_FAILED,
+    ))
+
+    panel = models.ForeignKey(
+        SimcBenchmarkPanel, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='purge_tasks',
+    )
+    panel_id_snapshot = models.BigIntegerField()
+    panel_name = models.CharField(max_length=200)
+    requested_by_id = models.BigIntegerField()
+    status = models.CharField(
+        max_length=24, choices=STATUS_CHOICES, default=STATUS_PENDING,
+    )
+    fingerprint = models.CharField(max_length=64)
+    batch_id = models.CharField(max_length=40, unique=True)
+    plan = models.JSONField(default=dict)
+    quarantine_map = models.JSONField(default=dict, blank=True)
+    attempts = models.PositiveIntegerField(default=0)
+    claim_token = models.CharField(max_length=64, default='', blank=True)
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    error_detail = models.TextField(default='', blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'simc_benchmark_purge_task'
+        ordering = ['-created_at', '-id']
+        indexes = [
+            models.Index(fields=['status', 'created_at'], name='simc_bench_purge_q_idx'),
+        ]
+
+
 class SimcBenchmarkSpec(models.Model):
     """Specialization and immutable-resource selection within a benchmark panel."""
 

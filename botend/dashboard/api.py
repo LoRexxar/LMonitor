@@ -84,8 +84,16 @@ from django.core.exceptions import PermissionDenied, SuspiciousOperation, Valida
 from django.db.models.deletion import ProtectedError
 from collections import defaultdict, deque
 
-from botend.models import SimcBenchmarkCase, SimcBenchmarkExecution, SimcBenchmarkPanel
+from botend.models import SimcBenchmarkCase, SimcBenchmarkExecution, SimcBenchmarkPanel, SimcBenchmarkPurgeTask
 from botend.constants.wow import SPEC_CN
+from botend.services.simc_benchmark_purge import (
+    PurgeBlocked,
+    PurgeConflict,
+    PurgeValidation,
+    build_panel_purge_plan,
+    panel_has_active_purge,
+    queue_panel_purge,
+)
 from botend.services.simc_benchmark_config import (
     MAX_PROFILES_PER_SPEC, MAX_SCENARIOS, MAX_SPECS, SIMC_FIGHT_STYLES,
     SIMC_RAID_BUFFS, benchmark_resource_querysets,
@@ -9156,6 +9164,8 @@ class _BenchmarkAdminAPIView(View):
         panel = SimcBenchmarkPanel.objects.filter(pk=panel_id).first()
         if panel is None:
             return None, _benchmark_error('not_found', 404)
+        if panel_has_active_purge(panel.id):
+            return None, _benchmark_error('panel_purge_in_progress', 409)
         return panel, None
 
 
@@ -9899,6 +9909,8 @@ class SimcBenchmarkPanelDetailAPIView(_BenchmarkAdminAPIView):
         panel, error = self.panel_or_404(panel_id)
         if error:
             return error
+        if panel_has_active_purge(panel_id):
+            return _benchmark_error('panel_purge_in_progress', 409)
         # The creator is immutable and remains the task owner even when another
         # administrator maintains the globally sourced resource configuration.
         panel, _plan = replace_panel_config(payload, panel.created_by_id, panel=panel)
@@ -9911,26 +9923,110 @@ class SimcBenchmarkPanelDetailAPIView(_BenchmarkAdminAPIView):
             'name', 'description', 'is_active', 'is_public',
             'schedule_enabled', 'interval_seconds', 'next_run_at',
         })
-        panel, error = self.panel_or_404(panel_id)
-        if error:
-            return error
-        for field in ('name', 'description', 'is_active', 'is_public',
-                      'schedule_enabled', 'interval_seconds', 'next_run_at'):
-            if field in payload:
-                setattr(panel, field, payload[field])
-        panel.full_clean()
-        panel.save()
+        with transaction.atomic():
+            panel = SimcBenchmarkPanel.objects.select_for_update().filter(pk=panel_id).first()
+            if panel is None:
+                return _benchmark_error('not_found', 404)
+            if panel_has_active_purge(panel_id):
+                return _benchmark_error('panel_purge_in_progress', 409)
+            for field in ('name', 'description', 'is_active', 'is_public',
+                          'schedule_enabled', 'interval_seconds', 'next_run_at'):
+                if field in payload:
+                    setattr(panel, field, payload[field])
+            panel.full_clean()
+            panel.save()
         data = serialize_panel_config(panel)
         data['next_run_at'] = _benchmark_iso(data['next_run_at'])
         return JsonResponse({'success': True, 'data': data})
 
     def delete(self, request, panel_id):
-        with transaction.atomic():
-            panel = SimcBenchmarkPanel.objects.select_for_update().filter(pk=panel_id).first()
-            if panel is None:
-                return _benchmark_error('not_found', 404)
-            panel.delete()
-        return HttpResponse(status=204)
+        return _benchmark_error('use_panel_purge', 405)
+
+
+class SimcBenchmarkPanelPurgeAPIView(_BenchmarkAdminAPIView):
+    def get(self, request, panel_id):
+        if not _is_simc_admin(request.user):
+            return _benchmark_error('forbidden', 403)
+        try:
+            plan = build_panel_purge_plan(panel_id)
+        except SimcBenchmarkPanel.DoesNotExist:
+            return _benchmark_error('not_found', 404)
+        except PurgeBlocked as exc:
+            return JsonResponse({
+                'success': False,
+                'error': 'purge_blocked',
+                'message': str(exc),
+                'data': exc.data,
+            }, status=409)
+        return JsonResponse({'success': True, 'data': plan.public_data()})
+
+    def post(self, request, panel_id):
+        if not _is_simc_admin(request.user):
+            return _benchmark_error('forbidden', 403)
+        payload = _benchmark_json_object(request, allowed_fields={'fingerprint'})
+        try:
+            job = queue_panel_purge(
+                panel_id,
+                payload.get('fingerprint'),
+                request.user.id,
+            )
+        except SimcBenchmarkPanel.DoesNotExist:
+            return _benchmark_error('not_found', 404)
+        except PurgeBlocked as exc:
+            return JsonResponse({
+                'success': False,
+                'error': 'purge_blocked',
+                'message': str(exc),
+                'data': exc.data,
+            }, status=409)
+        except PurgeValidation as exc:
+            return JsonResponse({
+                'success': False,
+                'error': 'invalid_fingerprint',
+                'message': str(exc),
+            }, status=400)
+        except PurgeConflict as exc:
+            return JsonResponse({
+                'success': False,
+                'error': 'panel_purge_conflict',
+                'message': str(exc),
+            }, status=409)
+        return JsonResponse({'success': True, 'data': {
+            'id': job.id,
+            'panel_id': job.panel_id_snapshot,
+            'panel_name': job.panel_name,
+            'status': job.status,
+            'fingerprint': job.fingerprint,
+            'counts': job.plan.get('counts') or {},
+        }}, status=202)
+
+
+class SimcBenchmarkPurgeTaskDetailAPIView(_BenchmarkAdminAPIView):
+    def get(self, request, purge_id):
+        if not _is_simc_admin(request.user):
+            return _benchmark_error('forbidden', 403)
+        job = SimcBenchmarkPurgeTask.objects.filter(pk=purge_id).first()
+        if job is None:
+            return _benchmark_error('not_found', 404)
+        messages = {
+            SimcBenchmarkPurgeTask.STATUS_CLEANUP_PENDING: '数据库清理已完成，OSS 隔离副本等待重试清理',
+            SimcBenchmarkPurgeTask.STATUS_CLEANING: '正在清理 OSS 隔离副本',
+            SimcBenchmarkPurgeTask.STATUS_RESTORE_PENDING: '清理未提交，正在等待恢复 OSS 与 Panel',
+            SimcBenchmarkPurgeTask.STATUS_RESTORING: '正在恢复 OSS 与 Panel',
+            SimcBenchmarkPurgeTask.STATUS_FAILED: '清理失败，Panel 和 OSS 已恢复',
+        }
+        return JsonResponse({'success': True, 'data': {
+            'id': job.id,
+            'panel_id': job.panel_id_snapshot,
+            'panel_name': job.panel_name,
+            'status': job.status,
+            'fingerprint': job.fingerprint,
+            'counts': job.plan.get('counts') or {},
+            'message': messages.get(job.status, ''),
+            'created_at': _benchmark_iso(job.created_at),
+            'started_at': _benchmark_iso(job.started_at),
+            'completed_at': _benchmark_iso(job.completed_at),
+        }})
 
 
 class SimcBenchmarkPanelDuplicateAPIView(_BenchmarkAdminAPIView):
@@ -9954,6 +10050,8 @@ class SimcBenchmarkPanelRunAPIView(_BenchmarkAdminAPIView):
         panel, error = self.panel_or_404(panel_id)
         if error:
             return error
+        if panel_has_active_purge(panel_id):
+            return _benchmark_error('panel_purge_in_progress', 409)
         if not panel.is_active:
             raise ValidationError({'panel': ['Panel 未启用，无法执行']})
         execution = create_execution(

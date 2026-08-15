@@ -442,6 +442,29 @@ class Command(BaseCommand):
         self._validate_report_key(source_key)
         return f'{QUARANTINE_PREFIX}{batch_id}/{source_key}'
 
+    def _recover_quarantine_objects(self, object_keys, batch_id):
+        """Rebuild descriptors after a worker crash between OSS copy/delete and DB persistence."""
+        if not object_keys:
+            return {}
+        self._validate_batch_id(batch_id)
+        oss, client, bucket = _client()
+        recovered = {}
+        for source_key in object_keys:
+            self._validate_report_key(source_key)
+            target_key = self._quarantine_key(batch_id, source_key)
+            target = self._object_snapshot(oss, client, bucket, target_key)
+            if target is None:
+                continue
+            source = self._object_snapshot(oss, client, bucket, source_key)
+            if source is not None and not self._same_object(source, target):
+                raise CommandError(f'OSS 原对象与已有隔离副本内容不一致: {source_key}')
+            recovered[source_key] = {
+                'quarantine_key': target_key,
+                'source': source or dict(target),
+                'quarantine': target,
+            }
+        return recovered
+
     def _quarantine_objects(self, object_keys, batch_id, *, expected_states=None):
         oss, client, bucket = _client()
         expected_states = expected_states or {}
@@ -555,14 +578,16 @@ class Command(BaseCommand):
         batch_id = self._batch_id_from_quarantine_map(quarantine_map)
         for index, (original, descriptor) in enumerate(sorted(quarantine_map.items()), 1):
             self._validate_quarantine_descriptor(original, descriptor, batch_id)
-            target = self._object_snapshot(oss, client, bucket, descriptor['quarantine_key'])
-            if target is None or not self._same_object_state(target, descriptor['quarantine']):
-                raise CommandError(f'隔离对象不存在或内容变化，无法恢复: {descriptor["quarantine_key"]}')
             current = self._object_snapshot(oss, client, bucket, original)
+            # Recovery is idempotent: a prior attempt may already have restored the
+            # original and then partially purged quarantine copies before failing.
             if current is not None:
                 if not self._same_object(current, descriptor['source']):
                     raise CommandError(f'OSS 原 key 已被不同内容占用: {original}')
                 continue
+            target = self._object_snapshot(oss, client, bucket, descriptor['quarantine_key'])
+            if target is None or not self._same_object_state(target, descriptor['quarantine']):
+                raise CommandError(f'隔离对象不存在或内容变化，无法恢复: {descriptor["quarantine_key"]}')
             client.copy_object(oss.CopyObjectRequest(
                 bucket=bucket,
                 key=original,
@@ -582,6 +607,43 @@ class Command(BaseCommand):
                 raise CommandError(f'OSS 恢复完整性校验失败: {original}')
             if index % 500 == 0:
                 self.stdout.write(f'restored_oss={index}/{len(quarantine_map)}')
+
+    def _purge_quarantine_objects(self, quarantine_map):
+        """Delete only verified copies under this operation's quarantine prefix."""
+        if not quarantine_map:
+            return
+        oss, client, bucket = _client()
+        batch_id = self._batch_id_from_quarantine_map(quarantine_map)
+        keys = []
+        for original, descriptor in sorted(quarantine_map.items()):
+            self._validate_quarantine_descriptor(original, descriptor, batch_id)
+            quarantine_key = descriptor['quarantine_key']
+            target = self._object_snapshot(oss, client, bucket, quarantine_key)
+            if target is None:
+                continue
+            if not self._same_object_state(target, descriptor['quarantine']):
+                raise CommandError(f'隔离副本清理前发生变化: {quarantine_key}')
+            keys.append(quarantine_key)
+
+        for start in range(0, len(keys), 1000):
+            batch = keys[start:start + 1000]
+            result = client.delete_multiple_objects(oss.DeleteMultipleObjectsRequest(
+                bucket=bucket,
+                objects=[oss.DeleteObject(key=key) for key in batch],
+                quiet=False,
+            ))
+            deleted = {
+                str(item.key) for item in (getattr(result, 'deleted_objects', None) or ())
+            }
+            if deleted != set(batch):
+                missing = sorted(set(batch) - deleted)
+                raise CommandError(f'OSS 隔离副本批量删除未确认全部对象: {missing[:5]}')
+            remaining = [
+                key for key in batch
+                if self._head_object(oss, client, bucket, key) is not None
+            ]
+            if remaining:
+                raise CommandError(f'OSS 隔离副本删除后仍存在: {remaining[:5]}')
 
     def _batch_id_from_quarantine_map(self, quarantine_map):
         batch_ids = set()

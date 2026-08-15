@@ -13,6 +13,7 @@ from django.utils import timezone
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.models import SimcAgent, SimcBackendBinary, SimcBenchmarkCase, SimcTask, SimulationRun
 from botend.services import simc_benchmark_scheduler
+from botend.services.simc_benchmark_purge import process_next_purge
 from botend.services.task_rerun import create_rerun, TaskRerunError
 from utils.log import logger
 
@@ -327,11 +328,18 @@ class SimcWorker:
 
     def run(self):
         next_maintenance = time.monotonic()
+        next_purge = time.monotonic()
         while not self._stop.is_set():
             current = time.monotonic()
             if current >= next_maintenance:
                 self._perform_maintenance()
                 next_maintenance = current + max(self.maintenance_interval, 0)
+            if current >= next_purge:
+                try:
+                    process_next_purge()
+                except Exception:
+                    logger.exception('[SimC Worker] benchmark panel purge failed')
+                next_purge = time.monotonic() + max(self.maintenance_interval, 1)
             try:
                 if not self.consume_once():
                     self._stop.wait(self.poll_interval)

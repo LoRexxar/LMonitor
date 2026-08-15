@@ -785,6 +785,9 @@ def replace_panel_config(payload, user_id, panel=None):
             panel = SimcBenchmarkPanel.objects.select_for_update().get(pk=panel.pk)
         except SimcBenchmarkPanel.DoesNotExist:
             _error('Panel 不存在', 'panel')
+        from botend.services.simc_benchmark_purge import panel_has_active_purge
+        if panel_has_active_purge(panel.pk):
+            _error('Panel 正在执行彻底删除，不能修改配置', 'panel')
         # Match execution-plan lock order before destructive replacement. The Panel
         # lock serializes normal writers; explicit child locks also make the contract
         # safe against maintenance code that addresses child rows directly.

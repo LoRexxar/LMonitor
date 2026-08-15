@@ -118,6 +118,15 @@ def upsert_task_html_artifact(task, result_file, run=None):
         locked_task = SimcTask.objects.select_for_update().filter(pk=task.pk, user_id=task.user_id).first()
         if not locked_task:
             return None
+        from botend.services.simc_benchmark_purge import (
+            artifact_key_has_active_panel_purge,
+            task_has_active_panel_purge,
+        )
+        if (
+            task_has_active_panel_purge(locked_task.pk)
+            or artifact_key_has_active_panel_purge(relative_path)
+        ):
+            return None
         artifact_query = SimcTaskArtifact.objects.filter(
             task=locked_task, artifact_type="html_report", file_path=relative_path,
         )

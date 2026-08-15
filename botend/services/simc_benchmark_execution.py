@@ -82,6 +82,12 @@ class BenchmarkExecutionConflict(RuntimeError):
     """Retryable preflight unavailability or resource drift during creation."""
 
 
+def _ensure_panel_not_purging(panel_id):
+    from botend.services.simc_benchmark_purge import panel_has_active_purge
+    if panel_has_active_purge(panel_id):
+        raise BenchmarkExecutionConflict('Panel purge is in progress')
+
+
 def _validation_error(message, field=None):
     raise ValidationError({field: message} if field else message)
 
@@ -650,6 +656,7 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
             locked_panel = SimcBenchmarkPanel.objects.select_for_update().get(pk=panel.pk)
         except SimcBenchmarkPanel.DoesNotExist:
             _validation_error('Panel 不存在', 'panel')
+        _ensure_panel_not_purging(locked_panel.pk)
         if not locked_panel.is_active:
             _validation_error('Panel 未启用，无法执行', 'panel')
         if requester_id is not None and requester_id != locked_panel.created_by_id:
@@ -846,10 +853,16 @@ def cancel_execution(execution, requested_by=None):
     """
     requester_id = getattr(requested_by, 'id', requested_by)
     with transaction.atomic():
+        panel_id = SimcBenchmarkExecution.objects.values_list('panel_id', flat=True).get(
+            pk=execution.pk,
+        )
+        panel = SimcBenchmarkPanel.objects.select_for_update().get(pk=panel_id)
+        _ensure_panel_not_purging(panel.pk)
         locked = SimcBenchmarkExecution.objects.select_for_update().select_related(
             'panel',
         ).get(pk=execution.pk)
-        panel = SimcBenchmarkPanel.objects.select_for_update().get(pk=locked.panel_id)
+        if locked.panel_id != panel.pk:
+            raise BenchmarkExecutionConflict('Execution Panel changed during cancellation')
         if requester_id != panel.created_by_id:
             raise PermissionDenied('Only the Panel owner may cancel this Execution')
         if locked.completed_at is not None:
@@ -994,8 +1007,14 @@ def rerun_failed_cases(execution, requested_by=None, case_id=None):
                 preflight_errors[resource_key] = exc
 
     with transaction.atomic():
+        panel_id = SimcBenchmarkExecution.objects.values_list('panel_id', flat=True).get(
+            pk=execution.pk,
+        )
+        panel = SimcBenchmarkPanel.objects.select_for_update().get(pk=panel_id)
+        _ensure_panel_not_purging(panel.pk)
         source = SimcBenchmarkExecution.objects.select_for_update().get(pk=execution.pk)
-        panel = SimcBenchmarkPanel.objects.select_for_update().get(pk=source.panel_id)
+        if source.panel_id != panel.pk:
+            raise BenchmarkExecutionConflict('Execution Panel changed during rerun')
         if requester_id != panel.created_by_id:
             raise PermissionDenied('Only the Panel owner may rerun failed benchmark cases')
         if source.completed_at is None:
@@ -2434,10 +2453,16 @@ def reconcile_execution(execution):
     """Finalize exactly once under Execution/Panel locks and publish monotonically."""
     with transaction.atomic():
         try:
-            locked = SimcBenchmarkExecution.objects.select_for_update().get(pk=execution.pk)
+            panel_id = SimcBenchmarkExecution.objects.values_list('panel_id', flat=True).get(
+                pk=execution.pk,
+            )
         except SimcBenchmarkExecution.DoesNotExist:
             _validation_error('Execution 不存在', 'execution')
-        panel = SimcBenchmarkPanel.objects.select_for_update().get(pk=locked.panel_id)
+        panel = SimcBenchmarkPanel.objects.select_for_update().get(pk=panel_id)
+        _ensure_panel_not_purging(panel.pk)
+        locked = SimcBenchmarkExecution.objects.select_for_update().get(pk=execution.pk)
+        if locked.panel_id != panel.pk:
+            raise BenchmarkExecutionConflict('Execution Panel changed during reconciliation')
         if panel.published_execution_id:
             published = SimcBenchmarkExecution.objects.filter(
                 pk=panel.published_execution_id,
