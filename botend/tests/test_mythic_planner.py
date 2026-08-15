@@ -1379,6 +1379,25 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             '造成的伤害提高20%',
         )
 
+    def test_spell_sync_localizes_wowhead_mechanic_only_description(self):
+        result = SyncMythicDungeonSpellsCommand._composite_description_zh(
+            spell_id=1299145,
+            raw_description_zh='',
+            raw_aura_description_zh='',
+            wowhead_tooltips={
+                1299145: (
+                    'Inflicts 387930 Physical damage to enemies within 15 yards.'
+                ),
+            },
+            resolver=mock.Mock(),
+        )
+
+        self.assertEqual(
+            result['description'],
+            '对15码范围内的敌人造成387930点物理伤害。',
+        )
+        self.assertEqual(result['quality'], QUALITY_RENDERED_EXTERNAL)
+
     def test_wowhead_tooltip_parser_discovers_linked_effect_spell(self):
         tooltip = (
             '<div class="q"><a href="/cn/spell=1236709/唤棘者咆哮" '

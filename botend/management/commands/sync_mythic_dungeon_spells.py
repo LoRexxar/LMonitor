@@ -1023,6 +1023,110 @@ class Command(BaseCommand):
         return db2_description or tooltip
 
     @staticmethod
+    def _translate_wowhead_mechanic_description(description):
+        """把 Wowhead 对缺失 zhCN 文本生成的固定英文机制句式转成中文。"""
+        school_names = {
+            'Physical': '物理',
+            'Holy': '神圣',
+            'Fire': '火焰',
+            'Nature': '自然',
+            'Frost': '冰霜',
+            'Shadow': '暗影',
+            'Arcane': '奥术',
+        }
+        translated = []
+        patterns = (
+            (
+                re.compile(
+                    r'^Inflicts (?P<damage>[\d,.]+) (?P<school>\w+) damage '
+                    r'to an enemy[.]$',
+                ),
+                lambda match: (
+                    f"对一名敌人造成{match.group('damage')}点"
+                    f"{school_names.get(match.group('school'), '')}伤害。"
+                ),
+            ),
+            (
+                re.compile(
+                    r'^Inflicts (?P<damage>[\d,.]+) (?P<school>\w+) damage '
+                    r'to all enemies in front of the caster[.]$',
+                ),
+                lambda match: (
+                    f"对施法者面前的所有敌人造成{match.group('damage')}点"
+                    f"{school_names.get(match.group('school'), '')}伤害。"
+                ),
+            ),
+            (
+                re.compile(
+                    r'^Inflicts (?P<damage>[\d,.]+) (?P<school>\w+) damage '
+                    r'to enemies within (?P<yards>[\d.]+) yards[.]$',
+                ),
+                lambda match: (
+                    f"对{match.group('yards')}码范围内的敌人造成"
+                    f"{match.group('damage')}点"
+                    f"{school_names.get(match.group('school'), '')}伤害。"
+                ),
+            ),
+            (
+                re.compile(
+                    r'^Inflicts (?P<damage>[\d,.]+) (?P<school>\w+) damage '
+                    r'to enemies within (?P<yards>[\d.]+) yards of the impact[.]$',
+                ),
+                lambda match: (
+                    f"对冲击点{match.group('yards')}码范围内的敌人造成"
+                    f"{match.group('damage')}点"
+                    f"{school_names.get(match.group('school'), '')}伤害。"
+                ),
+            ),
+            (
+                re.compile(r'^Knocks all enemies in front of the caster back[.]$'),
+                lambda _match: '击退施法者面前的所有敌人。',
+            ),
+            (
+                re.compile(
+                    r'^Knocks all enemies within (?P<yards>[\d.]+) yards '
+                    r'of the caster back[.]$',
+                ),
+                lambda match: (
+                    f"击退施法者{match.group('yards')}码范围内的所有敌人。"
+                ),
+            ),
+            (
+                re.compile(r'^Knocks an enemy back[.]$'),
+                lambda _match: '击退一名敌人。',
+            ),
+            (
+                re.compile(
+                    r'^Causes the caster to inflict (?P<percent>[\d.]+)% increased '
+                    r'(?P<school>\w+) damage[.]$',
+                ),
+                lambda match: (
+                    f"使施法者造成的{school_names.get(match.group('school'), '')}伤害"
+                    f"提高{match.group('percent')}%。"
+                ),
+            ),
+            (
+                re.compile(r'^An encounter event has occurred[.]$'),
+                lambda _match: '触发了一次首领战事件。',
+            ),
+        )
+        for line in str(description or '').splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            for pattern, formatter in patterns:
+                match = pattern.fullmatch(line)
+                if match and (
+                    'school' not in match.groupdict()
+                    or match.group('school') in school_names
+                ):
+                    translated.append(formatter(match))
+                    break
+            else:
+                return ''
+        return '\n'.join(translated)
+
+    @staticmethod
     def _composite_description_zh(
         *,
         spell_id,
@@ -1035,6 +1139,14 @@ class Command(BaseCommand):
         if CJK_RE.search(direct) and '$' not in direct:
             return {
                 'description': direct,
+                'source': SOURCE_WOWHEAD_TOOLTIP,
+                'quality': QUALITY_RENDERED_EXTERNAL,
+                'reference_spell_ids': [],
+            }
+        translated_direct = Command._translate_wowhead_mechanic_description(direct)
+        if translated_direct:
+            return {
+                'description': translated_direct,
                 'source': SOURCE_WOWHEAD_TOOLTIP,
                 'quality': QUALITY_RENDERED_EXTERNAL,
                 'reference_spell_ids': [],
