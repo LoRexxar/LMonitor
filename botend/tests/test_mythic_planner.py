@@ -1398,6 +1398,28 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
         )
         self.assertEqual(result['quality'], QUALITY_RENDERED_EXTERNAL)
 
+        periodic_result = (
+            SyncMythicDungeonSpellsCommand._translate_wowhead_mechanic_description(
+                'Inflicts 58189 Shadow damage to an enemy.\n'
+                'Inflicts 15517 Shadow damage to an enemy every 1 sec for 8秒.'
+            )
+        )
+        self.assertEqual(
+            periodic_result,
+            '对一名敌人造成58189点暗影伤害。\n'
+            '每1秒对一名敌人造成15517点暗影伤害，持续8秒。',
+        )
+        increased_damage_result = (
+            SyncMythicDungeonSpellsCommand._translate_wowhead_mechanic_description(
+                'Causes all enemies within 60 yards to take 10% increased '
+                'Shadow damage for 15秒.'
+            )
+        )
+        self.assertEqual(
+            increased_damage_result,
+            '使60码范围内的所有敌人受到的暗影伤害提高10%，持续15秒。',
+        )
+
     def test_wowhead_tooltip_parser_discovers_linked_effect_spell(self):
         tooltip = (
             '<div class="q"><a href="/cn/spell=1236709/唤棘者咆哮" '

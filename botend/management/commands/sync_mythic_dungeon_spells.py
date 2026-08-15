@@ -1079,6 +1079,59 @@ class Command(BaseCommand):
                 ),
             ),
             (
+                re.compile(
+                    r'^Inflicts (?P<damage>[\d,.]+) (?P<school>\w+) damage '
+                    r'to an enemy every (?P<interval>[\d.]+) secs? for '
+                    r'(?P<duration>[\d.]+)秒[.]$',
+                ),
+                lambda match: (
+                    f"每{match.group('interval')}秒对一名敌人造成"
+                    f"{match.group('damage')}点"
+                    f"{school_names.get(match.group('school'), '')}伤害，"
+                    f"持续{match.group('duration')}秒。"
+                ),
+            ),
+            (
+                re.compile(
+                    r'^Inflicts (?P<damage>[\d,.]+) (?P<school>\w+) damage '
+                    r'to all enemies within (?P<yards>[\d.]+) yards of the impact '
+                    r'every (?P<interval>[\d.]+) secs? for '
+                    r'(?P<duration>[\d.]+)秒[.]$',
+                ),
+                lambda match: (
+                    f"每{match.group('interval')}秒对冲击点"
+                    f"{match.group('yards')}码范围内的所有敌人造成"
+                    f"{match.group('damage')}点"
+                    f"{school_names.get(match.group('school'), '')}伤害，"
+                    f"持续{match.group('duration')}秒。"
+                ),
+            ),
+            (
+                re.compile(
+                    r'^Causes an enemy to take (?P<percent>[\d.]+)% increased '
+                    r'(?P<school>\w+) damage for (?P<duration>[\d.]+)秒[.]$',
+                ),
+                lambda match: (
+                    f"使一名敌人受到的"
+                    f"{school_names.get(match.group('school'), '')}伤害"
+                    f"提高{match.group('percent')}%，"
+                    f"持续{match.group('duration')}秒。"
+                ),
+            ),
+            (
+                re.compile(
+                    r'^Causes all enemies within (?P<yards>[\d.]+) yards to take '
+                    r'(?P<percent>[\d.]+)% increased (?P<school>\w+) damage for '
+                    r'(?P<duration>[\d.]+)秒[.]$',
+                ),
+                lambda match: (
+                    f"使{match.group('yards')}码范围内的所有敌人受到的"
+                    f"{school_names.get(match.group('school'), '')}伤害"
+                    f"提高{match.group('percent')}%，"
+                    f"持续{match.group('duration')}秒。"
+                ),
+            ),
+            (
                 re.compile(r'^Knocks all enemies in front of the caster back[.]$'),
                 lambda _match: '击退施法者面前的所有敌人。',
             ),
