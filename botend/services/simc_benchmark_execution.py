@@ -1554,8 +1554,11 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
             plan['panel'].get('comparison_option'), '对比配置',
         )
     plan_cases = plan['cases']
+    historical_filter = {}
     if spec_filter is not None:
-        plan_cases = [row for row in plan_cases if row['spec_key'] == str(spec_filter)]
+        spec_key = str(spec_filter)
+        plan_cases = [row for row in plan_cases if row['spec_key'] == spec_key]
+        historical_filter['spec_key'] = spec_key
     selected = (
         _selected_plan_coordinate(plan_cases, coordinate_filter)
         if coordinate_filter is not None else None
@@ -1577,10 +1580,12 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
         projected_cases = [
             row for row in plan_cases if row['scenario_key'] == selected_scenario
         ]
-        selected_filter = {'scenario_key': selected_scenario}
+        selected_filter = {
+            **historical_filter, 'scenario_key': selected_scenario,
+        }
     else:
         projected_cases = [] if coordinate_filter is not None else plan_cases
-        selected_filter = None
+        selected_filter = historical_filter or None
     reusable_by_coordinate = _reusable_candidate_tasks_by_coordinate(panel, selected_filter)
     report_urls = _candidate_raw_report_urls(reusable_by_coordinate)
     source_tasks_by_coordinate = _latest_source_tasks_by_coordinate(panel, selected_filter)

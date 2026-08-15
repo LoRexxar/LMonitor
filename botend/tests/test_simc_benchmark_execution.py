@@ -753,6 +753,23 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(retry_case.results.count(), 0)
         self.assertEqual(summarize_execution(retry)['status'], 'failed')
 
+    @patch.object(
+        benchmark_execution_service, '_latest_source_tasks_by_coordinate', return_value={},
+    )
+    @patch.object(
+        benchmark_execution_service, '_reusable_candidate_tasks_by_coordinate', return_value={},
+    )
+    def test_spec_filtered_projection_scopes_historical_queries(
+        self, reusable_tasks, source_tasks,
+    ):
+        serialize_incremental_panel_results(
+            self.panel, spec_filter='warrior_fury',
+        )
+
+        coordinate_filter = {'spec_key': 'warrior_fury'}
+        reusable_tasks.assert_called_once_with(self.panel, coordinate_filter)
+        source_tasks.assert_called_once_with(self.panel, coordinate_filter)
+
     def test_incremental_projection_reuses_results_from_older_larger_execution(self):
         """A smaller later Execution must not hide results on older panel coordinates."""
         original = self._published_success()
