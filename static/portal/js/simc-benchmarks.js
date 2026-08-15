@@ -771,9 +771,81 @@
     shell.body.replaceChildren(intro, chart);
   }
 
+  function renderOptionGainByScenario(shell, payload, { syncLocation = false, detailUrl = "" } = {}) {
+    const coordinateOptions = Array.isArray(payload?.results?.coordinate_options)
+      ? payload.results.coordinate_options : [];
+    const initialRows = Array.isArray(payload?.results?.option_gain_rows)
+      ? payload.results.option_gain_rows : [];
+    const scenarios = new Map();
+    coordinateOptions.forEach((coordinate) => {
+      const key = String(coordinate?.scenario_key || "");
+      if (key && !scenarios.has(key)) scenarios.set(key, scenarioLabel(coordinate));
+    });
+    initialRows.forEach((entry) => {
+      const key = String(entry?.scenario_key || "");
+      if (key && !scenarios.has(key)) scenarios.set(key, entry?.scenario_label || key);
+    });
+
+    const result = node("div", "simc-benchmark-gain-results");
+    const resultShell = { body: result };
+    renderOptionGain(resultShell, payload);
+    if (scenarios.size < 2) {
+      shell.body.replaceChildren(result);
+      return;
+    }
+
+    const params = new URLSearchParams(syncLocation ? window.location.search : "");
+    const currentScenario = String(initialRows[0]?.scenario_key || "");
+    const requestedScenario = params.get("scenario") || currentScenario;
+    const selectedScenario = scenarios.has(requestedScenario)
+      ? requestedScenario : scenarios.keys().next().value;
+    const controls = node("div", "simc-benchmark-spec-controls");
+    const label = node("label", "simc-benchmark-filter");
+    label.appendChild(node("span", "simc-benchmark-filter-label", "场景"));
+    const select = node("select", "simc-benchmark-filter-select");
+    scenarios.forEach((text, value) => {
+      const option = node("option", "", text); option.value = value; select.appendChild(option);
+    });
+    select.value = selectedScenario;
+    label.appendChild(select);
+    controls.appendChild(label);
+
+    const syncUrl = () => {
+      if (!syncLocation) return;
+      const next = new URLSearchParams(window.location.search);
+      next.set("scenario", select.value);
+      next.delete("spec"); next.delete("profile"); next.delete("selected");
+      window.history.replaceState(null, "", `${window.location.pathname}?${next.toString()}`);
+    };
+    syncUrl();
+
+    let requestController = null;
+    select.addEventListener("change", async () => {
+      syncUrl();
+      if (!detailUrl) return;
+      if (requestController) requestController.abort();
+      requestController = new AbortController();
+      const current = requestController;
+      const query = new URLSearchParams();
+      query.set("selected", "1");
+      query.set("scenario", select.value);
+      result.replaceChildren(state("正在加载场景收益对比…", "loading"));
+      try {
+        const nextPayload = await requestJson(`${detailUrl}?${query.toString()}`, { signal: current.signal });
+        if (current !== requestController) return;
+        renderOptionGain(resultShell, nextPayload);
+      } catch (error) {
+        if (error?.name !== "AbortError" && current === requestController) {
+          result.replaceChildren(state("场景收益对比加载失败，请稍后重试", "error"));
+        }
+      }
+    });
+    shell.body.replaceChildren(controls, result);
+  }
+
   function renderResults(shell, payload, { syncLocation = false, detailUrl = "" } = {}) {
     if (payload?.result_view === "option_gain") {
-      renderOptionGain(shell, payload);
+      renderOptionGainByScenario(shell, payload, { syncLocation, detailUrl });
       return;
     }
     if (payload?.result_view === "spec_comparison") {

@@ -667,6 +667,24 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIn('params.set("scenario"', self.JS)
         self.assertIn('纵轴：职业专精', self.JS)
 
+    def test_option_gain_renderer_switches_between_configured_scenarios(self):
+        portal_start = self.JS.index('function renderOptionGainByScenario')
+        portal_end = self.JS.index('\n  function renderResults', portal_start)
+        renderer = self.JS[portal_start:portal_end]
+
+        for contract in (
+            'payload?.results?.coordinate_options',
+            'simc-benchmark-filter-label", "场景"',
+            'query.set("selected", "1")',
+            'query.set("scenario", select.value)',
+            'await requestJson(`${detailUrl}?${query.toString()}`',
+        ):
+            self.assertIn(contract, renderer)
+        self.assertIn(
+            'renderOptionGainByScenario(shell, payload, { syncLocation, detailUrl })',
+            self.JS,
+        )
+
     def test_option_gain_results_use_spec_identity_and_gain_percent_bars(self):
         portal_start = self.JS.index('function renderOptionGain')
         portal_end = self.JS.index('\n  function renderResults', portal_start)
