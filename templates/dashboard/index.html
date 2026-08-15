@@ -1146,6 +1146,7 @@
                             <nav class="mb-4 flex flex-wrap gap-2" aria-label="模拟工作流资源">
                                 <button type="button" data-simc-workflow-entry="import" class="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">模拟配置</button>
                                 <button type="button" data-simc-workflow-entry="profiles" class="rounded-lg border bg-white px-3 py-2 text-sm text-gray-700">玩家配置</button>
+                                <button type="button" data-simc-workflow-entry="talent-strings" class="rounded-lg border bg-white px-3 py-2 text-sm text-gray-700">天赋字符串</button>
                                 <button type="button" data-simc-workflow-entry="templates" class="rounded-lg border bg-white px-3 py-2 text-sm text-gray-700">内容模板</button>
                                 <button type="button" data-simc-workflow-entry="apl" class="rounded-lg border bg-white px-3 py-2 text-sm text-gray-700">我的 APL</button>
                                 <button type="button" data-simc-workflow-entry="apl-converter" class="rounded-lg border bg-white px-3 py-2 text-sm text-gray-700">APL 转换器</button>
@@ -1484,6 +1485,20 @@
                                 </div>
                                 <div id="simc-wb-profile-pagination" class="simc-pagination mt-4 flex items-center justify-between text-sm text-gray-500"></div>
                             </div>
+                        </div>
+                        <div class="simc-workbench-panel hidden" id="simc-workbench-talent-strings-panel" data-simc-panel="talent-strings">
+                            <section class="rounded-2xl border bg-white p-5">
+                                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                    <div><h3 class="text-xl font-bold text-slate-900">天赋字符串</h3><p class="mt-1 text-sm text-slate-500">按专精维护可独立选择的天赋字符串；系统资源只读，个人资源可编辑。</p></div>
+                                    <div class="flex gap-2"><button type="button" id="simc-talent-string-add" class="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white"><i class="fas fa-plus mr-1"></i>新增</button><select id="simc-talent-string-spec-filter" class="rounded-lg border px-3 py-2 text-sm"><option value="">全部专精</option></select><button type="button" id="simc-talent-string-refresh" class="rounded-lg bg-slate-100 px-3 py-2 text-sm">刷新</button></div>
+                                </div>
+                                <div id="simc-talent-string-editor" class="mt-4 hidden rounded-xl border border-slate-200 bg-slate-50 p-4">
+                                    <div class="grid gap-3 sm:grid-cols-2"><label class="text-sm">名称<input id="simc-talent-string-name" class="mt-1 w-full rounded-lg border px-3 py-2"></label><label class="text-sm">专精<select id="simc-talent-string-spec" class="mt-1 w-full rounded-lg border px-3 py-2"><option value="">选择专精</option></select></label></div>
+                                    <label class="mt-3 block text-sm">天赋字符串<textarea id="simc-talent-string-talent" rows="4" class="mt-1 w-full rounded-lg border px-3 py-2 font-mono text-xs"></textarea></label>
+                                    <div class="mt-3 flex justify-end gap-2"><button type="button" id="simc-talent-string-cancel" class="rounded-lg border bg-white px-3 py-2 text-sm">取消</button><button type="button" id="simc-talent-string-save" class="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">保存</button></div>
+                                </div>
+                                <div id="simc-talent-string-list" class="mt-4 overflow-x-auto"></div>
+                            </section>
                         </div>
                         <div class="simc-workbench-panel hidden" id="simc-workbench-templates-panel" data-simc-panel="templates">
                             <div class="rounded-2xl border bg-white p-5">

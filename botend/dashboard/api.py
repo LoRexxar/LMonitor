@@ -4817,6 +4817,91 @@ class SimcAplCandidatesAPIView(View):
 
 
 @method_decorator(login_required, name='dispatch')
+class SimcTalentStringAPIView(View):
+    """SimC 独立天赋字符串资源管理。"""
+
+    @staticmethod
+    def _row(row, request):
+        is_system = bool(row.is_system)
+        return {
+            'id': row.id, 'name': row.name, 'spec': row.spec, 'canonical_spec': row.spec,
+            'spec_label': _simc_spec_label(row.spec, ''), 'talent': row.talent,
+            'is_system': is_system, 'is_active': bool(row.is_active),
+            'is_selectable': bool(row.is_selectable), 'owner_user_id': row.owner_user_id,
+            'created_at': row.created_at.isoformat() if row.created_at else '',
+            'modified_at': row.modified_at.isoformat() if row.modified_at else '',
+            'can_edit': _is_simc_admin(request.user) or (not is_system and row.owner_user_id == request.user.id),
+            'can_delete': not is_system and row.owner_user_id == request.user.id,
+        }
+
+    @staticmethod
+    def _visible(request, include_inactive=False):
+        rows = SimcTalentString.objects.filter(models.Q(is_system=True) | models.Q(owner_user_id=request.user.id))
+        if not include_inactive:
+            rows = rows.filter(is_active=True)
+        return rows
+
+    def get(self, request, talent_string_id=None):
+        rows = self._visible(request, include_inactive=_is_simc_admin(request.user))
+        if talent_string_id:
+            row = rows.filter(id=talent_string_id).first()
+            if row is None:
+                return JsonResponse({'success': False, 'error': '天赋字符串不存在或无权限访问'}, status=404)
+            return JsonResponse({'success': True, 'data': self._row(row, request)})
+        spec = str(request.GET.get('spec') or '').strip().lower()
+        if spec:
+            rows = rows.filter(spec=spec)
+        return JsonResponse({'success': True, 'data': [self._row(row, request) for row in rows.order_by('spec', 'name', 'id')]})
+
+    def post(self, request):
+        try:
+            data = json.loads(request.body or '{}')
+            source = self._visible(request).filter(id=data.get('copy_from_id')).first() if data.get('copy_from_id') else None
+            if data.get('copy_from_id') and source is None:
+                return JsonResponse({'success': False, 'error': '源天赋字符串不存在或无权复制'}, status=404)
+            name = str(data.get('name') or (f'{source.name} 副本' if source else '')).strip()
+            spec = str(data.get('spec') or (source.spec if source else '')).strip().lower()
+            talent = str(data.get('talent') if 'talent' in data else (source.talent if source else '') or '').strip()
+            if not name or not spec or not talent:
+                return JsonResponse({'success': False, 'error': '名称、专精和天赋字符串不能为空'}, status=400)
+            if spec not in SIMC_SPEC_VALUES:
+                return JsonResponse({'success': False, 'error': '必须选择有效的专精'}, status=400)
+            row = SimcTalentString.objects.create(name=name[:200], spec=spec, talent=talent[:2000], owner_user_id=request.user.id, is_active=True, is_selectable=True)
+            return JsonResponse({'success': True, 'message': '天赋字符串已创建', 'data': self._row(row, request)})
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'error': '无效的JSON数据'}, status=400)
+
+    def put(self, request):
+        try:
+            data = json.loads(request.body or '{}')
+            row = SimcTalentString.objects.filter(id=data.get('id')).first()
+            if row is None or not (_is_simc_admin(request.user) or (not row.is_system and row.owner_user_id == request.user.id)):
+                return JsonResponse({'success': False, 'error': '天赋字符串不存在或无权编辑'}, status=404)
+            name = str(data.get('name', row.name) or '').strip()
+            spec = str(data.get('spec', row.spec) or '').strip().lower()
+            talent = str(data.get('talent', row.talent) or '').strip()
+            if not name or not spec or not talent or spec not in SIMC_SPEC_VALUES:
+                return JsonResponse({'success': False, 'error': '名称、有效专精和天赋字符串不能为空'}, status=400)
+            row.name, row.spec, row.talent = name[:200], spec, talent[:2000]
+            if 'is_active' in data: row.is_active = bool(data['is_active'])
+            if 'is_selectable' in data: row.is_selectable = bool(data['is_selectable'])
+            row.save()
+            return JsonResponse({'success': True, 'message': '天赋字符串已更新', 'data': self._row(row, request)})
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return JsonResponse({'success': False, 'error': '请求数据无效'}, status=400)
+
+    def delete(self, request):
+        try:
+            data = json.loads(request.body or '{}')
+            row = SimcTalentString.objects.filter(id=data.get('id'), owner_user_id=request.user.id, is_system=False).first()
+            if row is None:
+                return JsonResponse({'success': False, 'error': '天赋字符串不存在或无权删除'}, status=404)
+            row.delete()
+            return JsonResponse({'success': True, 'message': '天赋字符串已删除'})
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return JsonResponse({'success': False, 'error': '请求数据无效'}, status=400)
+
+
 class SimcTalentStringCandidatesAPIView(View):
     def get(self, request):
         spec = str(request.GET.get('spec') or '').strip()

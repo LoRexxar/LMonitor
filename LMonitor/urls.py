@@ -25,7 +25,7 @@ from botend.dashboard.dashboard import DashboardView, SimcWorkbenchDetailPageVie
 from botend.dashboard.api import (
     ConvertTextAPIView, AplStorageAPIView, AplDetailAPIView,
     SimcTaskAPIView, SimcComparisonTaskAPIView, SimcProfileAPIView, SimcPlayerConfigDetailAPIView,
-    SimcTemplateAPIView, SimcAplCandidatesAPIView, SimcTalentStringCandidatesAPIView, SimcSpecOptionsAPIView,
+    SimcTemplateAPIView, SimcAplCandidatesAPIView, SimcTalentStringAPIView, SimcTalentStringCandidatesAPIView, SimcSpecOptionsAPIView,
     OssConfigAPIView, SimcResultProxyAPIView, SimcTaskPreviewAPIView, SimcAttributeAnalysisAPIView, SimcRegularCompareAPIView,
     SimcBattlenetPreflightAPIView, SimcBattlenetTopPlayersAPIView,
     SimcBackendBinaryAPIView, SimcWorkbenchAPIView, SimcArtifactPreviewAPIView, SimcRunInputPreviewAPIView, SimcTaskReportPreviewAPIView, WclAnalysisTaskAPIView, SystemAlertAPIView, PortalPeakSpecRankRefreshAPIView,
@@ -213,6 +213,8 @@ urlpatterns = [
     path('api/simc-battlenet-top-players/', SimcBattlenetTopPlayersAPIView.as_view(), name="simc_battlenet_top_players"),
     path('api/simc-profile/<int:profile_id>/', SimcProfileAPIView.as_view(), name="simc_profile_detail"),
     path('api/simc-apl-candidates/', SimcAplCandidatesAPIView.as_view(), name="simc_apl_candidates"),
+    path('api/simc-talent-string/', SimcTalentStringAPIView.as_view(), name="simc_talent_string"),
+    path('api/simc-talent-string/<int:talent_string_id>/', SimcTalentStringAPIView.as_view(), name="simc_talent_string_detail"),
     path('api/simc-talent-string-candidates/', SimcTalentStringCandidatesAPIView.as_view(), name="simc_talent_string_candidates"),
     path('api/simc-spec-options/', SimcSpecOptionsAPIView.as_view(), name="simc_spec_options"),
     path('api/simc-extra-options/options/', SimcExtraOptionsAPIView.as_view(), name="simc_extra_options"),
