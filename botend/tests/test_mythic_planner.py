@@ -942,6 +942,12 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
         self.assertEqual(len(assignable), 28)
         self.assertTrue(all(poi['label'] and poi['icon_url'] for poi in items))
         self.assertTrue(all(
+            poi['icon_url'].startswith(
+                'https://oss.wowdaily.cn/wow_icons_oss/small/'
+            )
+            for poi in items
+        ))
+        self.assertTrue(all(
             poi['metadata']['tooltip']['description_zh']
             and poi['metadata']['tooltip']['description']
             for poi in items
