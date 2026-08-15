@@ -340,6 +340,12 @@ class MythicPlannerImportTests(TestCase):
         updated['dungeons'][0]['name_zh'] = '暮影宝库（更新）'
         updated['dungeons'][0]['enemies'][0]['enemy_forces'] = 6
         removed_spawn_key = updated['dungeons'][0]['enemies'][0]['spawns'].pop()['key']
+        removed_enemy_data = updated['dungeons'][0]['enemies'].pop()
+        removed_enemy_key = removed_enemy_data['key']
+        removed_spell_ids = [
+            ability['spell_id']
+            for ability in removed_enemy_data['abilities']
+        ]
 
         result = import_mythic_dungeon_payload(updated, activate=True, replace=True)
 
@@ -349,10 +355,20 @@ class MythicPlannerImportTests(TestCase):
         )
         enemy = dungeon.enemies.get(key='vault-guardian')
         removed = enemy.spawns.get(key=removed_spawn_key)
+        removed_enemy = dungeon.enemies.get(key=removed_enemy_key)
         self.assertEqual(result['version_key'], 'lmonitor-demo-1')
         self.assertEqual(dungeon.name_zh, '暮影宝库（更新）')
         self.assertEqual(enemy.enemy_forces, 6)
         self.assertFalse(removed.is_active)
+        self.assertFalse(removed_enemy.is_active)
+        self.assertFalse(removed_enemy.spawns.filter(is_active=True).exists())
+        self.assertFalse(removed_enemy.abilities.filter(is_active=True).exists())
+        self.assertFalse(
+            dungeon.data_version.spells.filter(
+                spell_id__in=removed_spell_ids,
+                is_active=True,
+            ).exists()
+        )
 
     def test_upgrade_from_version_reuses_relations_and_preserves_manual_edits(self):
         payload = demo_payload()

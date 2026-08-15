@@ -628,7 +628,20 @@ def import_mythic_dungeon_payload(payload, *, activate=False, replace=False, sou
 
         if replace:
             MythicDungeonFloor.objects.filter(dungeon=dungeon).exclude(key__in=seen_floors).update(is_active=False)
-            MythicDungeonEnemy.objects.filter(dungeon=dungeon).exclude(key__in=seen_enemies).update(is_active=False)
+            stale_enemies = MythicDungeonEnemy.objects.filter(
+                dungeon=dungeon,
+            ).exclude(key__in=seen_enemies)
+            stale_enemy_ids = list(
+                stale_enemies.values_list('id', flat=True)
+            )
+            if stale_enemy_ids:
+                MythicDungeonAbility.objects.filter(
+                    enemy_id__in=stale_enemy_ids,
+                ).update(is_active=False)
+                MythicDungeonSpawn.objects.filter(
+                    enemy_id__in=stale_enemy_ids,
+                ).update(is_active=False)
+            stale_enemies.update(is_active=False)
             for floor_id, poi_keys in seen_pois_by_floor.items():
                 MythicDungeonPoi.objects.filter(floor_id=floor_id).exclude(key__in=poi_keys).update(is_active=False)
 
@@ -645,6 +658,7 @@ def import_mythic_dungeon_payload(payload, *, activate=False, replace=False, sou
         MythicDungeon.objects.filter(data_version=version).exclude(key__in=seen_dungeons).update(is_active=False)
         active_spell_ids = MythicDungeonAbility.objects.filter(
             enemy__dungeon__data_version=version,
+            enemy__is_active=True,
             is_active=True,
         ).values_list('spell_id', flat=True)
         MythicDungeonSpell.objects.filter(data_version=version).exclude(
