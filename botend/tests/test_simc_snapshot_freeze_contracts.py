@@ -16,7 +16,7 @@ from django.test import Client, TestCase, override_settings
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.management.commands.import_simc_apl import Command as ImportSimcAplCommand
 from botend.management.commands.update_simc_binary import Command as UpdateSimcBinaryCommand
-from botend.models import SimcApl, SimcContentTemplate, SimcProfile, SimcTask
+from botend.models import SimcApl, SimcContentTemplate, SimcProfile, SimcTalentString, SimcTask
 from botend.services.simc_task_service import initialize_task_runs
 
 
@@ -160,6 +160,44 @@ class SimcTaskReferenceContracts(TestCase):
         self.assertNotIn('base_template_content', ext)
         self.assertNotIn('override_action_list', ext)
         self.assertNotIn('player_equipment', ext)
+
+    def test_selected_talent_string_is_filtered_frozen_and_composed(self):
+        talent = SimcTalentString.objects.create(
+            name='Fury raid build', spec='warrior_fury', talent='SELECTED_BUILD',
+            owner_user_id=self.user.id,
+        )
+        SimcTalentString.objects.create(
+            name='Arms build', spec='warrior_arms', talent='OTHER_BUILD',
+            owner_user_id=self.user.id,
+        )
+
+        candidates = self.client.get(
+            '/api/simc-talent-string-candidates/', {'spec': 'warrior_fury'},
+        )
+        self.assertEqual(candidates.status_code, 200)
+        self.assertEqual(
+            [row['id'] for row in candidates.json()['data']], [talent.id],
+        )
+
+        task = self.create_task(talent_string_id=talent.id)
+        self.assertEqual(task.talent_string_id, talent.id)
+        self.assertEqual(task.talent_version.resource_type, 'talent')
+        self.assertEqual(task.talent_version.payload['talent'], 'SELECTED_BUILD')
+
+        talent.talent = 'CHANGED_BUILD'
+        talent.save(update_fields=['talent', 'modified_at'])
+        run = initialize_task_runs(task)[0]
+        captured = {}
+
+        def compose(request):
+            captured.update(request)
+            return None, None, 'stop after capturing composer request'
+
+        monitor = SimcMonitor(None, None)
+        with patch('botend.controller.plugins.simc.SimcMonitor.SimcComposer.compose', side_effect=compose):
+            self.assertFalse(monitor.process_reference_run(task, run))
+
+        self.assertEqual(captured['talent'], 'SELECTED_BUILD')
 
     def test_normal_task_freezes_explicit_raid_buffs_and_preserves_missing_state(self):
         selected = self.create_task(raid_buffs=['arcane_intellect', 'battle_shout'])

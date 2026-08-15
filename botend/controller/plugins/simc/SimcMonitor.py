@@ -632,7 +632,7 @@ class SimcMonitor(BaseScan):
                 'battlenet_region': profile_payload.get('battlenet_region', ''),
                 'battlenet_realm': profile_payload.get('battlenet_realm', ''),
                 'battlenet_character': profile_payload.get('battlenet_character', ''),
-                'talent': profile_payload.get('talent', ''),
+                'talent': (resolved.talent_payload.get('talent') or profile_payload.get('talent', '')),
                 'use_ptr': profile_payload.get('use_ptr') is True,
                 'gear_strength': profile_payload.get('gear_strength'),
                 'gear_crit': profile_payload.get('gear_crit'),

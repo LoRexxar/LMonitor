@@ -3207,6 +3207,8 @@ function clearSimcResolvedResources() {
     simcResolvedBaseTemplateId = 0;
     const apl = document.getElementById('simc-sim-apl-list');
     if (apl) apl.innerHTML = '请先完成来源预检以加载 APL。';
+    const talent = document.getElementById('simc-sim-talent-string');
+    if (talent) talent.innerHTML = '<option value="">沿用玩家配置中的天赋</option>';
     const detail = document.getElementById('simc-sim-player-detail');
     if (detail) detail.innerHTML = '';
     simcComparisonDefaultTalent = null;
@@ -3247,8 +3249,21 @@ function requireSimcRunReferences() {
     const backend_id = selectedSimcReferenceValue('#simc-sim-backend');
     if (!backend_id) throw new Error('请选择 SimC 后端');
     const references = { base_template_id, selected_apl_id, backend_id, player_source, spec: simcResolvedCanonicalSpec };
+    const talent_string_id = document.getElementById('simc-sim-talent-string')?.value || '';
+    if (talent_string_id) references.talent_string_id = talent_string_id;
     if (player_source.type === 'saved_profile') references.simc_profile_id = player_source.profile_id;
     return references;
+}
+
+async function loadSimcTalentStringCandidates(spec) {
+    const select = document.getElementById('simc-sim-talent-string');
+    if (!select || !spec) return;
+    const response = await fetch(`/api/simc-talent-string-candidates/?spec=${encodeURIComponent(spec)}`);
+    const payload = await response.json();
+    if (!response.ok || !payload.success) return;
+    select.innerHTML = '<option value="">沿用玩家配置中的天赋</option>' + payload.data.map(item =>
+        `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}</option>`
+    ).join('');
 }
 
 function currentSimcScenario() {
@@ -3358,6 +3373,7 @@ async function loadSimcAplCandidates(spec, control = null) {
         if (!isCurrentSimcResourceControl(control)) return;
         const rows = Array.isArray(payload.data) ? payload.data : [];
         simcResolvedBaseTemplateId = Number(payload.default_template_id) || 0;
+        loadSimcTalentStringCandidates(spec).catch(() => {});
         const defaults = rows.filter(row => row.is_default === true);
         if (defaults.length !== 1 || !simcResolvedBaseTemplateId) throw new Error('后端未返回唯一默认 APL 和基础模板');
         const selectedAplId = rows.some(row => String(row.id) === simcPendingAplId)

@@ -703,7 +703,7 @@ class SimcResourceVersion(models.Model):
     版本行创建后禁止修改，确保历史任务可重现。
     """
     id = models.BigAutoField(primary_key=True)
-    resource_type = models.CharField(max_length=20, help_text="资源类型: profile/template/apl")
+    resource_type = models.CharField(max_length=20, help_text="资源类型: profile/template/apl/talent")
     resource_id = models.BigIntegerField(help_text="资源ID（对应 SimcProfile.id/SimcContentTemplate.id/SimcApl.id）")
     content_hash = models.CharField(max_length=64, help_text="内容SHA256，用于版本去重")
     payload = models.JSONField(help_text="冻结的资源内容和元数据")
@@ -1181,6 +1181,8 @@ class SimcTask(models.Model):
     profile_version = models.ForeignKey('SimcResourceVersion', null=True, blank=True, on_delete=models.PROTECT, related_name='profile_tasks', help_text="Profile版本快照")
     template_version = models.ForeignKey('SimcResourceVersion', null=True, blank=True, on_delete=models.PROTECT, related_name='template_tasks', help_text="Template版本快照")
     apl_version = models.ForeignKey('SimcResourceVersion', null=True, blank=True, on_delete=models.PROTECT, related_name='apl_tasks', help_text="APL版本快照")
+    talent_string = models.ForeignKey('SimcTalentString', null=True, blank=True, on_delete=models.SET_NULL, related_name='tasks', help_text="选择的天赋字符串")
+    talent_version = models.ForeignKey('SimcResourceVersion', null=True, blank=True, on_delete=models.PROTECT, related_name='talent_tasks', help_text="天赋字符串版本快照")
 
     mode = models.CharField(max_length=50, default='normal', blank=True, help_text="任务模式：normal/comparison/attribute_sweep")
     simulation_params = models.JSONField(null=True, blank=True, help_text="模拟参数：iterations, fight_style等")
@@ -1403,6 +1405,24 @@ class SimcProfile(models.Model):
             if kwargs.get('update_fields') is not None:
                 kwargs['update_fields'] = set(kwargs['update_fields']) | {'system_key'}
         super().save(*args, **kwargs)
+
+
+class SimcTalentString(models.Model):
+    """可独立选择、按专精归属的 SimC 天赋字符串资源。"""
+    name = models.CharField(max_length=200)
+    spec = models.CharField(max_length=100, default='fury')
+    talent = models.CharField(max_length=2000)
+    owner_user_id = models.IntegerField(null=True, blank=True)
+    is_system = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    is_selectable = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    modified_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'simc_talent_string'
+        ordering = ['name', 'id']
+        indexes = [models.Index(fields=['spec', 'is_active', 'is_selectable'])]
 
 
 class SimcSecondaryStatRule(models.Model):

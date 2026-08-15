@@ -32,6 +32,7 @@ class ResolvedTaskContext:
     profile_payload: Dict[str, Any]
     template_payload: Dict[str, Any]
     apl_payload: Dict[str, Any]
+    talent_payload: Dict[str, Any]
 
 
 def resolve_task(task: SimcTask) -> ResolvedTaskContext:
@@ -54,6 +55,7 @@ def resolve_task(task: SimcTask) -> ResolvedTaskContext:
     profile_payload = {}
     template_payload = {}
     apl_payload = {}
+    talent_payload = {}
 
     # Resolve profile version
     if task.profile_version_id:
@@ -150,6 +152,25 @@ def resolve_task(task: SimcTask) -> ResolvedTaskContext:
             'is_system': payload.get('is_system'),
         }
 
+    if task.talent_version_id:
+        try:
+            version = SimcResourceVersion.objects.get(pk=task.talent_version_id)
+        except SimcResourceVersion.DoesNotExist:
+            raise TaskResolutionError(f"Talent version {task.talent_version_id} does not exist")
+        if version.resource_type != 'talent':
+            raise TaskResolutionError(f"Version {version.id} type is {version.resource_type}, expected talent")
+        if task.talent_string_id and version.resource_id != task.talent_string_id:
+            raise TaskResolutionError(
+                f"Talent version resource_id {version.resource_id} does not match task.talent_string_id {task.talent_string_id}"
+            )
+        talent_payload = dict(version.payload or {})
+        resource_metadata['talent'] = {
+            'version_id': version.id,
+            'resource_id': version.resource_id,
+            'name': talent_payload.get('name'),
+            'spec': talent_payload.get('spec'),
+        }
+
     return ResolvedTaskContext(
         profile_content=profile_content,
         template_content=template_content,
@@ -160,6 +181,7 @@ def resolve_task(task: SimcTask) -> ResolvedTaskContext:
         profile_payload=profile_payload,
         template_payload=template_payload,
         apl_payload=apl_payload,
+        talent_payload=talent_payload,
     )
 
 

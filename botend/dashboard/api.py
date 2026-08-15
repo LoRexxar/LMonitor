@@ -32,7 +32,7 @@ from django.template.loader import render_to_string
 
 from django.conf import settings
 from utils.log import logger
-from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcApl, SimcAplSymbol, SimcAplSymbolScope, SimcTask, SimcTaskFavorite, SimulationRun, SimcTaskArtifact, SimcProfile, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, SimcAgent, SimcAgentMaintenanceTask, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState, WowSpellSnapshot, WowTalentNodeMetadata, WowTalentVersion, WowItemSnapshot, SimcResourceVersion
+from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcApl, SimcAplSymbol, SimcAplSymbolScope, SimcTask, SimcTaskFavorite, SimulationRun, SimcTaskArtifact, SimcProfile, SimcTalentString, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, SimcAgent, SimcAgentMaintenanceTask, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState, WowSpellSnapshot, WowTalentNodeMetadata, WowTalentVersion, WowItemSnapshot, SimcResourceVersion
 from botend.alerting import upsert_system_alert
 from botend.dashboard.permissions import DashboardPermissionRequiredMixin, has_dashboard_permission
 from django.db import IntegrityError, models, transaction
@@ -1575,6 +1575,7 @@ class SimcTaskAPIView(View):
             simc_profile_id = data.get('simc_profile_id')
             raw_simc_code = str(data.get('raw_simc_code') or '')
             selected_apl_id = data.get('selected_apl_id') or data.get('apl_template_id')
+            talent_string_id = data.get('talent_string_id')
             base_template_id = data.get('base_template_id')
             base_template_content = data.get('base_template_content') if 'base_template_content' in data else None
             override_action_list = data.get('override_action_list') if 'override_action_list' in data else None
@@ -1797,6 +1798,7 @@ class SimcTaskAPIView(View):
                         profile_fields=profile_fields,
                         base_template_id=base_template_id,
                         selected_apl_id=selected_apl_id,
+                        talent_string_id=talent_string_id,
                         simulation_params=simulation_params if simulation_params else None,
                         name=name,
                         backend_id=data.get('backend_id'),
@@ -1808,6 +1810,7 @@ class SimcTaskAPIView(View):
                         profile_id=profile.id,
                         template_id=base_template_id,
                         apl_id=selected_apl_id,
+                        talent_string_id=talent_string_id,
                         simulation_params=simulation_params if simulation_params else None,
                         name=name,
                         backend_id=data.get('backend_id'),
@@ -4540,6 +4543,7 @@ class SimcAplCandidatesAPIView(View):
                 template_id=base_template_id,
                 apl_id=apl_template.id,
                 backend_id=data.get('backend_id'),
+                talent_string_id=data.get('talent_string_id'),
             )
             run_ids = []
             return JsonResponse({
@@ -4736,7 +4740,7 @@ class SimcAplCandidatesAPIView(View):
 
     def _create_compare_preprocessing_task(
             self, user_id, profile, include_base, candidate_count,
-            template_id, apl_id, backend_id=None):
+            template_id, apl_id, backend_id=None, talent_string_id=None):
         total_count = int(candidate_count) + (1 if include_base else 0)
         if total_count <= 0:
             raise Exception('候选数量无效')
@@ -4805,10 +4809,26 @@ class SimcAplCandidatesAPIView(View):
             mode_params={'candidate_type': 'apl_override'},
             candidates=candidates,
             backend_id=backend_id,
+            talent_string_id=talent_string_id,
         )
         for item in created:
             item['task_id'] = task.id
         return task, created
+
+
+@method_decorator(login_required, name='dispatch')
+class SimcTalentStringCandidatesAPIView(View):
+    def get(self, request):
+        spec = str(request.GET.get('spec') or '').strip()
+        queryset = SimcTalentString.objects.filter(
+            models.Q(is_system=True) | models.Q(owner_user_id=request.user.id),
+            is_active=True, is_selectable=True,
+        )
+        if spec:
+            queryset = queryset.filter(spec=spec)
+        return JsonResponse({'success': True, 'data': list(queryset.values(
+            'id', 'name', 'spec', 'talent', 'is_system',
+        ))})
 
 
 class OssConfigAPIView(View):
