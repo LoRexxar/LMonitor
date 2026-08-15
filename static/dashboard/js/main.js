@@ -1773,18 +1773,31 @@ function loadSimcTalentStrings() {
     fetch('/api/simc-talent-string/?spec=' + encodeURIComponent(spec), { headers: { 'X-CSRFToken': getCSRFToken() } })
         .then(response => response.json()).then(payload => {
             if (!payload.success) throw new Error(payload.error || '加载失败');
-            const rows = payload.data || [];
-            list.innerHTML = rows.length ? `<table class="min-w-full text-sm"><thead><tr class="border-b text-left text-xs text-slate-500"><th class="px-3 py-2">名称</th><th class="px-3 py-2">专精</th><th class="px-3 py-2">来源</th><th class="px-3 py-2 text-right">操作</th></tr></thead><tbody>${rows.map(row => `<tr class="border-b"><td class="px-3 py-3 font-medium">${escapeHtml(row.name)}</td><td class="px-3 py-3">${escapeHtml(row.spec_label || row.spec)}</td><td class="px-3 py-3 text-xs text-slate-500">${row.is_system ? '系统资源' : '个人资源'}</td><td class="px-3 py-3 text-right whitespace-nowrap"><button type="button" data-talent-string-action="view" data-talent-string-id="${row.id}" class="mr-2 text-slate-600">查看</button><button type="button" data-talent-string-action="copy" data-talent-string-id="${row.id}" class="mr-2 text-blue-600">复制</button>${row.can_edit ? `<button type="button" data-talent-string-action="edit" data-talent-string-id="${row.id}" class="mr-2 text-blue-600">编辑</button>` : ''}${row.can_delete ? `<button type="button" data-talent-string-action="delete" data-talent-string-id="${row.id}" class="text-red-600">删除</button>` : ''}</td></tr>`).join('')}</tbody></table>` : '<p class="py-6 text-center text-sm text-slate-400">暂无天赋字符串</p>';
+        const rows = payload.data || [];
+        list.innerHTML = rows.length ? `<table class="min-w-full text-sm"><thead><tr class="border-b text-left text-xs text-slate-500"><th class="px-3 py-2">名称</th><th class="px-3 py-2">专精</th><th class="px-3 py-2">英雄天赋树</th><th class="px-3 py-2">来源</th><th class="px-3 py-2 text-right">操作</th></tr></thead><tbody>${rows.map(row => { const heroNames = (row.hero_talent_names || []).join('、') || '未解析'; const simulator = row.talent_simulator_url ? `<a href="${escapeHtml(row.talent_simulator_url)}" target="_blank" rel="noopener noreferrer" class="mr-2 text-violet-600">天赋模拟器</a>` : ''; return `<tr class="border-b"><td class="px-3 py-3 font-medium">${escapeHtml(row.name)}</td><td class="px-3 py-3">${escapeHtml(row.spec_label || row.spec)}</td><td class="px-3 py-3 text-slate-600">${escapeHtml(heroNames)}</td><td class="px-3 py-3 text-xs text-slate-500">${row.is_system ? '系统资源' : '个人资源'}</td><td class="px-3 py-3 text-right whitespace-nowrap">${simulator}<button type="button" data-talent-string-action="view" data-talent-string-id="${row.id}" class="mr-2 text-slate-600">查看</button><button type="button" data-talent-string-action="copy" data-talent-string-id="${row.id}" class="mr-2 text-blue-600">复制</button>${row.can_edit ? `<button type="button" data-talent-string-action="edit" data-talent-string-id="${row.id}" class="mr-2 text-blue-600">编辑</button>` : ''}${row.can_delete ? `<button type="button" data-talent-string-action="delete" data-talent-string-id="${row.id}" class="text-red-600">删除</button>` : ''}</td></tr>`; }).join('')}</tbody></table>` : '<p class="py-6 text-center text-sm text-slate-400">暂无天赋字符串</p>';
             rows.forEach(row => { if (!window.simcTalentStringRows) window.simcTalentStringRows = {}; window.simcTalentStringRows[row.id] = row; });
         }).catch(error => { list.innerHTML = `<p class="py-6 text-center text-sm text-red-500">${escapeHtml(error.message)}</p>`; });
 }
 function simcTalentStringOpenEditor(row = null) {
     simcTalentStringEditId = row?.id || null;
-    const editor = document.getElementById('simc-talent-string-editor');
-    editor?.classList.remove('hidden');
-    document.getElementById('simc-talent-string-name').value = row?.name || '';
-    document.getElementById('simc-talent-string-spec').value = row?.spec || '';
-    document.getElementById('simc-talent-string-talent').value = row?.talent || '';
+    openSimcWorkbenchDialog('talent-string-editor', row || {});
+    const title = document.getElementById('simc-dialog-title');
+    const body = document.getElementById('simc-dialog-body');
+    if (!title || !body) return;
+    title.textContent = row ? '编辑天赋字符串' : '新增天赋字符串';
+    body.innerHTML = `<div class="space-y-4"><div class="grid gap-3 sm:grid-cols-2"><label class="text-sm">名称<input id="simc-talent-string-name" class="mt-1 w-full rounded-lg border px-3 py-2" value="${escapeHtml(row?.name || '')}"></label><label class="text-sm">专精<select id="simc-talent-string-spec" class="mt-1 w-full rounded-lg border px-3 py-2"></select></label></div><label class="block text-sm">天赋字符串<textarea id="simc-talent-string-talent" rows="5" class="mt-1 w-full rounded-lg border px-3 py-2 font-mono text-xs">${escapeHtml(row?.talent || '')}</textarea></label><div class="flex justify-end gap-2"><button type="button" id="simc-talent-string-cancel" class="rounded-lg border bg-white px-3 py-2 text-sm">取消</button><button type="button" id="simc-talent-string-save" class="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">保存</button></div></div>`;
+    loadSimcSpecOptions().then(rows => { document.getElementById('simc-talent-string-spec').innerHTML = '<option value="">选择专精</option>' + rows.map(item => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.spec_label)}</option>`).join(''); document.getElementById('simc-talent-string-spec').value = row?.spec || ''; });
+    document.getElementById('simc-talent-string-cancel').addEventListener('click', closeSimcWorkbenchDialog);
+    document.getElementById('simc-talent-string-save').addEventListener('click', saveSimcTalentString);
+}
+async function saveSimcTalentString() {
+    const payload = { name: document.getElementById('simc-talent-string-name').value.trim(), spec: document.getElementById('simc-talent-string-spec').value, talent: document.getElementById('simc-talent-string-talent').value.trim() };
+    if (!payload.name || !payload.spec || !payload.talent) return showMessage('请填写名称、专精和天赋字符串', 'error');
+    if (simcTalentStringEditId) payload.id = simcTalentStringEditId;
+    const response = await fetch('/api/simc-talent-string/', { method: simcTalentStringEditId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() }, body: JSON.stringify(payload) });
+    const result = await response.json();
+    if (!result.success) return showMessage(result.error || '保存失败', 'error');
+    closeSimcWorkbenchDialog(); showMessage(result.message || '已保存', 'success'); loadSimcTalentStrings();
 }
 function bindSimcTalentStringControls() {
     const specFilter = document.getElementById('simc-talent-string-spec-filter');
@@ -1798,21 +1811,11 @@ function bindSimcTalentStringControls() {
     }).catch(error => showMessage(error.message, 'error'));
     document.getElementById('simc-talent-string-refresh')?.addEventListener('click', loadSimcTalentStrings);
     document.getElementById('simc-talent-string-add')?.addEventListener('click', () => simcTalentStringOpenEditor());
-    document.getElementById('simc-talent-string-cancel')?.addEventListener('click', () => document.getElementById('simc-talent-string-editor')?.classList.add('hidden'));
     specFilter.addEventListener('change', loadSimcTalentStrings);
-    document.getElementById('simc-talent-string-save')?.addEventListener('click', async () => {
-        const payload = { name: document.getElementById('simc-talent-string-name').value.trim(), spec: document.getElementById('simc-talent-string-spec').value, talent: document.getElementById('simc-talent-string-talent').value.trim() };
-        if (!payload.name || !payload.spec || !payload.talent) return showMessage('请填写名称、专精和天赋字符串', 'error');
-        if (simcTalentStringEditId) payload.id = simcTalentStringEditId;
-        const response = await fetch('/api/simc-talent-string/', { method: simcTalentStringEditId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() }, body: JSON.stringify(payload) });
-        const result = await response.json();
-        if (!result.success) return showMessage(result.error || '保存失败', 'error');
-        showMessage(result.message || '已保存', 'success'); document.getElementById('simc-talent-string-editor').classList.add('hidden'); loadSimcTalentStrings();
-    });
     document.addEventListener('click', async event => {
         const button = event.target.closest('[data-talent-string-action]'); if (!button) return;
         const id = Number(button.dataset.talentStringId); const row = window.simcTalentStringRows?.[id]; const action = button.dataset.talentStringAction;
-        if (action === 'view') return showMessage(row?.talent || '暂无字符串内容', 'success');
+        if (action === 'view') { openSimcWorkbenchDialog('talent-string-view', row || {}); document.getElementById('simc-dialog-title').textContent = row?.name || '天赋字符串'; document.getElementById('simc-dialog-body').innerHTML = `<div class="space-y-4"><div class="text-sm text-slate-600">${escapeHtml(row?.spec_label || row?.spec || '')} · 英雄天赋树：${escapeHtml((row?.hero_talent_names || []).join('、') || '未解析')}</div><pre class="max-h-[55vh] overflow-auto rounded-lg bg-slate-900 p-4 text-xs text-slate-100 whitespace-pre-wrap break-all">${escapeHtml(row?.talent || '')}</pre>${row?.talent_simulator_url ? `<a href="${escapeHtml(row.talent_simulator_url)}" target="_blank" rel="noopener noreferrer" class="inline-flex rounded-lg bg-violet-600 px-3 py-2 text-sm text-white">在天赋模拟器中打开</a>` : ''}</div>`; return; }
         if (action === 'edit') return simcTalentStringOpenEditor(row);
         if (action === 'copy') { const response = await fetch('/api/simc-talent-string/', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() }, body: JSON.stringify({ copy_from_id: id }) }); const result = await response.json(); showMessage(result.message || result.error, result.success ? 'success' : 'error'); if (result.success) loadSimcTalentStrings(); }
         if (action === 'delete' && confirm('确认删除此天赋字符串？')) { const response = await fetch('/api/simc-talent-string/', { method: 'DELETE', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() }, body: JSON.stringify({ id }) }); const result = await response.json(); showMessage(result.message || result.error, result.success ? 'success' : 'error'); if (result.success) loadSimcTalentStrings(); }

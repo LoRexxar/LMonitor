@@ -26,7 +26,7 @@ import threading
 import uuid
 import platform as py_platform
 from pathlib import Path
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, urlencode
 from django.utils import timezone
 from django.template.loader import render_to_string
 
@@ -55,6 +55,7 @@ from botend.services.simc_player_config import (
     SUPPORTED_SIMC_SPEC_IDENTITIES,
 )
 from botend.services.simc_composer import SimcComposer, validate_simulation_options
+from botend.wow.talents.service import TalentBuildCodeService
 from botend.services.simc_consumables import simc_consumable_option
 from botend.services.simc_benchmark_config import SIMC_RAID_BUFFS
 from botend.services.spec_stats_service import SpecStatsService
@@ -191,6 +192,30 @@ def _simc_class_label(spec, class_name=''):
         if canonical_class in (key.replace('_', ''), db_name.lower()):
             return CLASS_CN.get(db_name, db_name)
     return str(class_name or '').strip() or '通用职业'
+
+
+def _simc_talent_string_details(row):
+    """Resolve hero-tree titles through the authoritative talent parser."""
+    identity = SIMC_SPEC_DB_IDENTITIES.get(str(row.spec or '').strip().lower())
+    if not identity:
+        return []
+    class_name, spec_name = identity
+    try:
+        payload = TalentBuildCodeService.build_api_view(
+            talent_build_code=row.talent,
+            class_name=class_name,
+            spec_name=spec_name,
+            usage='simulator',
+        )
+        render_model = payload.get('talent_render_model') or {}
+        return [
+            str(tree.get('title') or '').strip()
+            for tree in render_model.get('trees') or []
+            if tree.get('tree_type') == 'hero' and str(tree.get('title') or '').strip()
+        ]
+    except Exception:
+        logger.exception('解析独立天赋字符串英雄天赋树失败: id=%s', row.id)
+        return []
 
 
 def _simc_spec_visual(spec, class_name=''):
@@ -4826,6 +4851,8 @@ class SimcTalentStringAPIView(View):
         return {
             'id': row.id, 'name': row.name, 'spec': row.spec, 'canonical_spec': row.spec,
             'spec_label': _simc_spec_label(row.spec, ''), 'talent': row.talent,
+            'hero_talent_names': _simc_talent_string_details(row),
+            'talent_simulator_url': '/portal/talents/?' + urlencode({'class': SIMC_SPEC_DB_IDENTITIES.get(row.spec, ('', ''))[0], 'spec': SIMC_SPEC_DB_IDENTITIES.get(row.spec, ('', ''))[1], 'code': row.talent}),
             'is_system': is_system, 'is_active': bool(row.is_active),
             'is_selectable': bool(row.is_selectable), 'owner_user_id': row.owner_user_id,
             'created_at': row.created_at.isoformat() if row.created_at else '',
