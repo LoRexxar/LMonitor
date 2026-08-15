@@ -902,7 +902,10 @@ class Command(BaseCommand):
         if not path.is_file():
             return result
         with path.open(encoding='utf-8-sig', newline='') as source:
-            for row in csv.DictReader(source):
+            reader = csv.DictReader(source)
+            if 'IconName' not in (reader.fieldnames or []):
+                return result
+            for row in reader:
                 spell_id = _to_int(row.get('SpellID'))
                 icon_name = normalize_wowhead_icon_slug(row.get('IconName'))
                 if spell_id:

@@ -1507,7 +1507,7 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
     @mock.patch(
         'botend.management.commands.sync_mythic_dungeon_spells.requests.get',
     )
-    def test_wowhead_tooltip_refresh_captures_icon_for_spellmisc_gap(
+    def test_old_tooltip_cache_without_icon_column_triggers_icon_refresh(
         self,
         request_get,
     ):
@@ -1518,19 +1518,29 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             'icon': 'spell_shaman_thunderstorm',
         }
         request_get.return_value = response
-        wowhead_icon_names = {}
+        command = SyncMythicDungeonSpellsCommand()
 
-        descriptions = SyncMythicDungeonSpellsCommand()._resolve_wowhead_tooltips(
-            {1299270},
-            {},
-            workers=1,
-            delay=0,
-            locale=4,
-            data_env=1,
-            difficulty_id=8,
-            wowhead_icon_names=wowhead_icon_names,
-        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_path = Path(temp_dir) / 'wowhead_tooltips.csv'
+            cache_path.write_text(
+                'SpellID,DescriptionZh\n1299270,缓存中的旧说明\n',
+                encoding='utf-8',
+            )
+            descriptions = command._load_tooltip_cache(cache_path)
+            wowhead_icon_names = command._load_tooltip_icon_cache(cache_path)
 
+            descriptions = command._resolve_wowhead_tooltips(
+                {1299270},
+                descriptions,
+                workers=1,
+                delay=0,
+                locale=4,
+                data_env=1,
+                difficulty_id=8,
+                wowhead_icon_names=wowhead_icon_names,
+            )
+
+        request_get.assert_called_once()
         self.assertEqual(descriptions[1299270], '对所有玩家造成自然伤害。')
         self.assertEqual(
             wowhead_icon_names[1299270],
