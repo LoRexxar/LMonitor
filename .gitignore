@@ -154,3 +154,4 @@ media/aggregated/
 # 仅发布经过固定计数校验的最终导入包，vendor、缓存和中间产物继续忽略。
 /botend/data/mythic_planner/*
 !/botend/data/mythic_planner/mdt_6_2_1.json
+!/botend/data/mythic_planner/mdt_6_2_2.json

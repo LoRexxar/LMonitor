@@ -76,10 +76,10 @@ from botend.management.commands.sync_mythic_dungeon_tools import (
     load_payload_seed,
 )
 from botend.wow.spell_text import SpellTextResolver
-from scripts.import_mdt_6_2_1 import (
-    SOURCE_VERSION_KEY as MDT_621_SOURCE_VERSION_KEY,
-    TARGET_VERSION_KEY as MDT_621_TARGET_VERSION_KEY,
-    validate_package as validate_621_package,
+from scripts.import_mdt_6_2_2 import (
+    SOURCE_VERSION_KEY as MDT_622_SOURCE_VERSION_KEY,
+    TARGET_VERSION_KEY as MDT_622_TARGET_VERSION_KEY,
+    validate_package as validate_622_package,
 )
 from botend.mythic_planner.mdt_route_codec import (
     MDT2_PREFIX,
@@ -130,11 +130,11 @@ def assign_demo_mdt_indexes():
 
 
 class MythicPlannerImportTests(TestCase):
-    def test_builtin_621_upgrade_contract_starts_from_alpha6(self):
-        self.assertEqual(MDT_621_SOURCE_VERSION_KEY, 'mdt-6-2-0-alpha6')
-        self.assertEqual(MDT_621_TARGET_VERSION_KEY, 'mdt-6-2-1')
+    def test_builtin_622_upgrade_contract_starts_from_621(self):
+        self.assertEqual(MDT_622_SOURCE_VERSION_KEY, 'mdt-6-2-1')
+        self.assertEqual(MDT_622_TARGET_VERSION_KEY, 'mdt-6-2-2')
 
-    def test_builtin_621_package_imports_complete_dataset(self):
+    def test_builtin_622_package_imports_complete_live_dataset(self):
         call_command(
             'import_mythic_dungeon_data',
             activate=True,
@@ -143,37 +143,46 @@ class MythicPlannerImportTests(TestCase):
         )
 
         version = MythicDungeonDataVersion.objects.get(
-            key='mdt-6-2-1',
+            key='mdt-6-2-2',
             is_active=True,
         )
-        self.assertEqual(version.metadata['source_tag'], '6.2.1')
+        self.assertEqual(version.metadata['source_tag'], '6.2.2')
+        self.assertEqual(version.metadata['spell_snapshot']['source_branch'], 'wow')
+        self.assertEqual(version.metadata['spell_snapshot']['snapshot_build'], '12.1.0.69299')
         self.assertEqual(version.dungeons.filter(is_active=True).count(), 16)
         self.assertEqual(
             MythicDungeonEnemy.objects.filter(
                 dungeon__data_version=version,
                 is_active=True,
             ).count(),
-            468,
+            462,
         )
         self.assertEqual(
             MythicDungeonSpawn.objects.filter(
                 enemy__dungeon__data_version=version,
                 is_active=True,
             ).count(),
-            2932,
+            3056,
         )
         self.assertEqual(
             MythicDungeonAbility.objects.filter(
                 enemy__dungeon__data_version=version,
                 is_active=True,
             ).count(),
-            1674,
+            1665,
         )
         self.assertFalse(
             MythicDungeonAbility.objects.filter(
                 enemy__dungeon__data_version=version,
                 name__regex=r'^Spell #[0-9]+$',
             ).exists()
+        )
+        blinding_vale = version.dungeons.get(key='the-blinding-vale')
+        self.assertTrue(
+            blinding_vale.enemies.filter(npc_id=243028, is_active=True).exists()
+        )
+        self.assertFalse(
+            blinding_vale.enemies.filter(npc_id=241808, is_active=True).exists()
         )
         dungeon = version.dungeons.filter(is_active=True).order_by('order').first()
         spawn = (
@@ -626,16 +635,16 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             / 'data'
             / 'mythic_planner'
             / 'vendor'
-            / 'mythic-dungeon-tools-6.2.1'
+            / 'mythic-dungeon-tools-6.2.2'
         )
 
     def test_fixed_upstream_snapshot_converts_real_dungeons_and_assets(self):
         payload = build_payload(self.source_root())
 
-        self.assertEqual(payload['data_version']['key'], 'mdt-6-2-1')
+        self.assertEqual(payload['data_version']['key'], 'mdt-6-2-2')
         self.assertEqual(
             payload['data_version']['metadata']['source_commit'],
-            '33a9cfba027887d4d60425334dd26e1bff841b9b',
+            '7160e4fec6bff9993f5b8f92afbfcc2087a40ea7',
         )
         self.assertEqual(payload['data_version']['metadata']['license'], 'GPL-2.0-only')
         self.assertEqual(len(payload['dungeons']), 16)
@@ -655,7 +664,7 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
         )
         self.assertEqual(
             sum(len(dungeon['enemies']) for dungeon in payload['dungeons']),
-            468,
+            462,
         )
         self.assertEqual(
             sum(
@@ -663,8 +672,16 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
                 for dungeon in payload['dungeons']
                 for enemy in dungeon['enemies']
             ),
-            2932,
+            3056,
         )
+        blinding_vale = next(
+            dungeon
+            for dungeon in payload['dungeons']
+            if dungeon['key'] == 'the-blinding-vale'
+        )
+        blinding_vale_npcs = {enemy['npc_id'] for enemy in blinding_vale['enemies']}
+        self.assertIn(243028, blinding_vale_npcs)
+        self.assertNotIn(241808, blinding_vale_npcs)
         murder_row = next(
             dungeon for dungeon in payload['dungeons'] if dungeon['key'] == 'murder-row'
         )
@@ -675,7 +692,7 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             'midnight-season-2',
         )
         self.assertIn(
-            '/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/',
+            '/static/portal/mythic_planner/vendor/mdt-6.2.2/maps/',
             murder_row['floors'][0]['background_url'],
         )
         all_pois = [
@@ -707,8 +724,8 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             for spawn in enemy['spawns']
         ))
         ability_supplement = payload['data_version']['metadata']['ability_supplement']
-        self.assertEqual(ability_supplement['target']['branch'], 'wowt')
-        self.assertEqual(ability_supplement['target']['game_build'], '12.1.0.68914')
+        self.assertEqual(ability_supplement['target']['branch'], 'wow')
+        self.assertEqual(ability_supplement['target']['game_build'], '12.1.0.69299')
         self.assertEqual(
             ability_supplement['relative_path'],
             'LMonitor/ability_overrides.json',
@@ -885,13 +902,13 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
         )
         self.assertEqual(metadata['spell_snapshot']['source_branch'], 'wowt')
 
-    def test_builtin_621_package_preserves_interactive_poi_assets(self):
+    def test_builtin_622_package_preserves_interactive_poi_assets(self):
         package_path = (
             Path(settings.BASE_DIR)
             / 'botend'
             / 'data'
             / 'mythic_planner'
-            / 'mdt_6_2_1.json'
+            / 'mdt_6_2_2.json'
         )
         payload = json.loads(package_path.read_text(encoding='utf-8'))
         pois = [
@@ -1484,6 +1501,40 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
                 'http': 'socks5://127.0.0.1:10809',
                 'https': 'socks5://127.0.0.1:10809',
             },
+        )
+
+    @override_settings(PROXY_CONFIG={}, REQUEST_CONFIG={})
+    @mock.patch(
+        'botend.management.commands.sync_mythic_dungeon_spells.requests.get',
+    )
+    def test_wowhead_tooltip_refresh_captures_icon_for_spellmisc_gap(
+        self,
+        request_get,
+    ):
+        response = mock.Mock()
+        response.status_code = 200
+        response.json.return_value = {
+            'tooltip': '<div class="q">对所有玩家造成自然伤害。</div>',
+            'icon': 'spell_shaman_thunderstorm',
+        }
+        request_get.return_value = response
+        wowhead_icon_names = {}
+
+        descriptions = SyncMythicDungeonSpellsCommand()._resolve_wowhead_tooltips(
+            {1299270},
+            {},
+            workers=1,
+            delay=0,
+            locale=4,
+            data_env=1,
+            difficulty_id=8,
+            wowhead_icon_names=wowhead_icon_names,
+        )
+
+        self.assertEqual(descriptions[1299270], '对所有玩家造成自然伤害。')
+        self.assertEqual(
+            wowhead_icon_names[1299270],
+            'spell_shaman_thunderstorm',
         )
 
     @override_settings(PROXY_CONFIG={}, REQUEST_CONFIG={})

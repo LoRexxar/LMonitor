@@ -159,6 +159,12 @@ class Command(BaseCommand):
             default=0.8,
             help='名称最低覆盖率，低于该值拒绝写库',
         )
+        parser.add_argument(
+            '--min-icon-coverage',
+            type=float,
+            default=0.8,
+            help='有效图标最低覆盖率，低于该值拒绝写库',
+        )
         parser.add_argument('--dry-run', action='store_true', help='下载并统计，但不写数据库')
 
     def handle(self, *args, **options):
@@ -281,6 +287,11 @@ class Command(BaseCommand):
                 if options.get('refresh')
                 else self._load_tooltip_cache(tooltip_cache_path)
             )
+            wowhead_icon_names = (
+                {}
+                if options.get('refresh')
+                else self._load_tooltip_icon_cache(tooltip_cache_path)
+            )
             wowhead_tooltips = self._resolve_wowhead_tooltips(
                 tooltip_spell_ids,
                 wowhead_tooltips,
@@ -290,8 +301,13 @@ class Command(BaseCommand):
                 data_env=tooltip_data_env,
                 difficulty_id=tooltip_difficulty_id,
                 cache_path=tooltip_cache_path,
+                wowhead_icon_names=wowhead_icon_names,
             )
-            self._write_tooltip_cache(tooltip_cache_path, wowhead_tooltips)
+            self._write_tooltip_cache(
+                tooltip_cache_path,
+                wowhead_tooltips,
+                wowhead_icon_names,
+            )
             usable_tooltips = self._usable_tooltip_count(
                 spell_ids,
                 wowhead_tooltips,
@@ -389,6 +405,11 @@ class Command(BaseCommand):
             if options.get('refresh')
             else self._load_tooltip_cache(tooltip_cache_path)
         )
+        wowhead_icon_names = (
+            {}
+            if options.get('refresh')
+            else self._load_tooltip_icon_cache(tooltip_cache_path)
+        )
         if options.get('wowhead_tooltips'):
             description_reference_ids = self._collect_description_references(
                 rows,
@@ -402,8 +423,20 @@ class Command(BaseCommand):
                 data_env=tooltip_data_env,
                 difficulty_id=tooltip_difficulty_id,
                 cache_path=tooltip_cache_path,
+                wowhead_icon_names=wowhead_icon_names,
             )
-            self._write_tooltip_cache(tooltip_cache_path, wowhead_tooltips)
+            self._write_tooltip_cache(
+                tooltip_cache_path,
+                wowhead_tooltips,
+                wowhead_icon_names,
+            )
+
+        existing_icon_urls = dict(
+            MythicDungeonSpell.objects.filter(
+                data_version=version,
+                spell_id__in=spell_ids,
+            ).values_list('spell_id', 'icon_url')
+        )
 
         coverage = self._coverage(
             spell_ids,
@@ -411,6 +444,8 @@ class Command(BaseCommand):
             misc,
             icon_names,
             wowhead_tooltips,
+            wowhead_icon_names=wowhead_icon_names,
+            existing_icon_urls=existing_icon_urls,
         )
         self.stdout.write(
             '覆盖率: '
@@ -427,6 +462,16 @@ class Command(BaseCommand):
             raise CommandError(
                 f'中文名称覆盖率 {ratio:.1%} 低于最低要求 {minimum:.1%}，拒绝写库'
             )
+        icon_ratio = coverage['icon_name'] / max(1, coverage['total'])
+        minimum_icon = max(
+            0.0,
+            min(1.0, float(options.get('min_icon_coverage') or 0)),
+        )
+        if icon_ratio < minimum_icon:
+            raise CommandError(
+                f'有效图标覆盖率 {icon_ratio:.1%} 低于最低要求 '
+                f'{minimum_icon:.1%}，拒绝写库'
+            )
         if options.get('dry_run'):
             self.stdout.write(self.style.SUCCESS('dry-run 完成，未写数据库'))
             return
@@ -441,6 +486,7 @@ class Command(BaseCommand):
             misc=misc,
             effects=effects,
             icon_names=icon_names,
+            wowhead_icon_names=wowhead_icon_names,
             coverage=coverage,
             listfile_url=listfile_url,
             wowhead_tooltips=wowhead_tooltips,
@@ -851,17 +897,32 @@ class Command(BaseCommand):
         return result
 
     @staticmethod
-    def _write_tooltip_cache(path, cache):
+    def _load_tooltip_icon_cache(path):
+        result = {}
+        if not path.is_file():
+            return result
+        with path.open(encoding='utf-8-sig', newline='') as source:
+            for row in csv.DictReader(source):
+                spell_id = _to_int(row.get('SpellID'))
+                icon_name = normalize_wowhead_icon_slug(row.get('IconName'))
+                if spell_id:
+                    result[spell_id] = icon_name
+        return result
+
+    @staticmethod
+    def _write_tooltip_cache(path, cache, wowhead_icon_names=None):
+        wowhead_icon_names = wowhead_icon_names or {}
         with path.open('w', encoding='utf-8', newline='') as output:
             writer = csv.DictWriter(
                 output,
-                fieldnames=['SpellID', 'DescriptionZh'],
+                fieldnames=['SpellID', 'DescriptionZh', 'IconName'],
             )
             writer.writeheader()
             for spell_id, description in sorted(cache.items()):
                 writer.writerow({
                     'SpellID': spell_id,
                     'DescriptionZh': description,
+                    'IconName': wowhead_icon_names.get(spell_id, ''),
                 })
 
     def _resolve_wowhead_tooltips(
@@ -875,12 +936,17 @@ class Command(BaseCommand):
         data_env,
         difficulty_id,
         cache_path=None,
+        wowhead_icon_names=None,
     ):
         missing = sorted(
             spell_id
             for spell_id in spell_ids
             if spell_id not in cache
             or self._tooltip_needs_retry(cache.get(spell_id))
+            or (
+                wowhead_icon_names is not None
+                and spell_id not in wowhead_icon_names
+            )
         )
         if not missing:
             found = sum(bool(cache.get(spell_id)) for spell_id in spell_ids)
@@ -894,7 +960,7 @@ class Command(BaseCommand):
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {
                 executor.submit(
-                    self._fetch_wowhead_tooltip,
+                    self._fetch_wowhead_tooltip_payload,
                     spell_id,
                     delay,
                     locale,
@@ -907,16 +973,22 @@ class Command(BaseCommand):
             for index, future in enumerate(as_completed(futures), start=1):
                 spell_id = futures[future]
                 try:
-                    description = future.result()
-                    if description is not None:
-                        cache[spell_id] = description
+                    payload = future.result()
+                    if payload is not None:
+                        cache[spell_id] = payload['description']
+                        if wowhead_icon_names is not None:
+                            wowhead_icon_names[spell_id] = payload['icon_name']
                     else:
                         request_failures += 1
                 except Exception:
                     request_failures += 1
                 if index % 50 == 0 or index == len(futures):
                     if cache_path is not None:
-                        self._write_tooltip_cache(cache_path, cache)
+                        self._write_tooltip_cache(
+                            cache_path,
+                            cache,
+                            wowhead_icon_names,
+                        )
                     found = sum(
                         bool(cache.get(requested_spell_id))
                         for requested_spell_id in spell_ids
@@ -1008,9 +1080,33 @@ class Command(BaseCommand):
         depth=0,
         seen=None,
     ):
+        payload = Command._fetch_wowhead_tooltip_payload(
+            spell_id,
+            delay,
+            locale,
+            data_env=data_env,
+            difficulty_id=difficulty_id,
+            depth=depth,
+            seen=seen,
+        )
+        if payload is None:
+            return None
+        return payload['description']
+
+    @staticmethod
+    def _fetch_wowhead_tooltip_payload(
+        spell_id,
+        delay,
+        locale,
+        *,
+        data_env,
+        difficulty_id=8,
+        depth=0,
+        seen=None,
+    ):
         seen = set(seen or ())
         if spell_id in seen or depth > 2:
-            return ''
+            return {'description': '', 'icon_name': ''}
         seen.add(spell_id)
         if delay:
             time.sleep(delay)
@@ -1032,19 +1128,26 @@ class Command(BaseCommand):
                     proxies=_get_configured_proxies(),
                 )
                 if response.status_code == 404:
-                    return ''
+                    return {'description': '', 'icon_name': ''}
                 response.raise_for_status()
-                tooltip_html = str(response.json().get('tooltip') or '')
+                response_payload = response.json()
+                icon_name = normalize_wowhead_icon_slug(
+                    response_payload.get('icon'),
+                )
+                tooltip_html = str(response_payload.get('tooltip') or '')
                 if not tooltip_html:
-                    return ''
+                    return {'description': '', 'icon_name': icon_name}
                 description = Command._description_from_tooltip_html(tooltip_html)
                 if description and '$spelldesc' not in description.lower():
-                    return description
+                    return {
+                        'description': description,
+                        'icon_name': icon_name,
+                    }
                 for referenced_id in Command._referenced_spell_ids_from_tooltip(
                     tooltip_html,
                     spell_id,
                 ):
-                    referenced = Command._fetch_wowhead_tooltip(
+                    referenced = Command._fetch_wowhead_tooltip_payload(
                         referenced_id,
                         0,
                         locale,
@@ -1053,14 +1156,20 @@ class Command(BaseCommand):
                         depth=depth + 1,
                         seen=seen,
                     )
-                    if referenced:
-                        return referenced
-                return re.sub(
-                    r'^\$spelldesc(?=\D)',
-                    '',
-                    description,
-                    flags=re.IGNORECASE,
-                ).strip()
+                    if referenced and referenced['description']:
+                        return {
+                            'description': referenced['description'],
+                            'icon_name': icon_name,
+                        }
+                return {
+                    'description': re.sub(
+                        r'^\$spelldesc(?=\D)',
+                        '',
+                        description,
+                        flags=re.IGNORECASE,
+                    ).strip(),
+                    'icon_name': icon_name,
+                }
             except Exception:
                 if attempt < 2:
                     time.sleep(2 ** attempt)
@@ -1266,7 +1375,18 @@ class Command(BaseCommand):
         return ''
 
     @staticmethod
-    def _coverage(spell_ids, rows, misc, icon_names, wowhead_tooltips):
+    def _coverage(
+        spell_ids,
+        rows,
+        misc,
+        icon_names,
+        wowhead_tooltips,
+        *,
+        wowhead_icon_names=None,
+        existing_icon_urls=None,
+    ):
+        wowhead_icon_names = wowhead_icon_names or {}
+        existing_icon_urls = existing_icon_urls or {}
         return {
             'total': len(spell_ids),
             'name': sum(bool(rows.get(spell_id, {}).get('name')) for spell_id in spell_ids),
@@ -1283,9 +1403,13 @@ class Command(BaseCommand):
                 for spell_id in spell_ids
             ),
             'icon_name': sum(
-                bool(icon_names.get(
-                    _to_int(misc.get(spell_id, {}).get('SpellIconFileDataID')),
-                ))
+                bool(
+                    icon_names.get(
+                        _to_int(misc.get(spell_id, {}).get('SpellIconFileDataID')),
+                    )
+                    or wowhead_icon_names.get(spell_id)
+                    or existing_icon_urls.get(spell_id)
+                )
                 for spell_id in spell_ids
             ),
             'rendered_tooltip_zh': sum(
@@ -1313,7 +1437,9 @@ class Command(BaseCommand):
         tooltip_data_env,
         tooltip_locale=4,
         tooltip_difficulty_id=8,
+        wowhead_icon_names=None,
     ):
+        wowhead_icon_names = wowhead_icon_names or {}
         now = timezone.now()
         all_ids = set(rows)
         for locale in ('enUS', 'zhCN'):
@@ -1399,10 +1525,19 @@ class Command(BaseCommand):
             row = rows.get(spell_id, {})
             misc_row = misc.get(spell_id, {})
             file_data_id = _to_int(misc_row.get('SpellIconFileDataID')) or None
-            icon_name = normalize_wowhead_icon_slug(
+            wago_icon_name = normalize_wowhead_icon_slug(
                 icon_names.get(file_data_id, '') if file_data_id else '',
             )
+            wowhead_icon_name = normalize_wowhead_icon_slug(
+                wowhead_icon_names.get(spell_id),
+            )
+            icon_name = wago_icon_name or wowhead_icon_name
             icon_url = build_wowhead_icon_url(icon_name)
+            icon_source = (
+                'wago_db2'
+                if wago_icon_name
+                else 'wowhead_tooltip' if wowhead_icon_name else ''
+            )
             existing_record = existing_spell_records.get(spell_id)
             existing_icon_url = str(
                 existing_record.icon_url if existing_record else ''
@@ -1412,17 +1547,32 @@ class Command(BaseCommand):
                 if existing_record
                 else False
             )
-            preserve_asset = (
+            preserve_missing_icon = bool(
                 existing_record is not None
-                and existing_record.icon_name == icon_name
-                and (
-                    existing_asset_unavailable
-                    or (
-                        existing_icon_url
-                        and not self._is_wowhead_asset_url(existing_icon_url)
+                and not icon_name
+                and existing_icon_url
+            )
+            preserve_asset = (
+                preserve_missing_icon
+                or (
+                    existing_record is not None
+                    and existing_record.icon_name == icon_name
+                    and (
+                        existing_asset_unavailable
+                        or (
+                            existing_icon_url
+                            and not self._is_wowhead_asset_url(existing_icon_url)
+                        )
                     )
                 )
             )
+            if preserve_missing_icon:
+                file_data_id = existing_record.icon_file_data_id
+                icon_name = existing_record.icon_name
+                icon_source = str(
+                    (existing_record.metadata or {}).get('icon_source')
+                    or 'preserved_existing'
+                )
             if preserve_asset:
                 icon_url = existing_icon_url
             description = resolver_en.resolve(row.get('description'), spell_id)
@@ -1468,9 +1618,16 @@ class Command(BaseCommand):
                 'raw_description_zh': row.get('description_zh', ''),
                 'raw_aura_description': row.get('aura_description', ''),
                 'raw_aura_description_zh': row.get('aura_description_zh', ''),
+                'icon_source': icon_source,
                 'listfile_url': listfile_url,
                 'coverage': coverage,
             }
+            if icon_source == 'wowhead_tooltip':
+                metadata['wowhead_icon_source'] = (
+                    f'https://nether.wowhead.com/tooltip/spell/{spell_id}'
+                    f'?dataEnv={tooltip_data_env}&locale={tooltip_locale}'
+                    f'&dd={tooltip_difficulty_id}'
+                )
             if incoming_source == SOURCE_WOWHEAD_TOOLTIP:
                 metadata['wowhead_tooltip_url'] = self._wowhead_spell_url(
                     spell_id,
