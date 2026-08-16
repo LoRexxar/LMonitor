@@ -24,20 +24,25 @@ def ensure_result_hero_talent_field(apps, schema_editor):
         )
 
 
-def _source_runs_by_candidate(task, SimulationRun):
+def _source_runs_by_candidate(task_id, SimcTask, SimulationRun):
     """Select the newest completed Run per candidate through a retry lineage."""
     runs = {}
-    current = task
+    current_id = task_id
     visited = set()
-    while current is not None and current.pk not in visited:
-        visited.add(current.pk)
+    while current_id is not None and current_id not in visited:
+        visited.add(current_id)
         completed = SimulationRun.objects.filter(
-            task_id=current.pk,
+            task_id=current_id,
             status='completed',
-        ).select_related('task').order_by('candidate_key', '-sequence', '-id')
+        ).only(
+            'id', 'task_id', 'candidate_key', 'resource_manifest',
+            'sequence', 'status',
+        ).order_by('candidate_key', '-sequence', '-id')
         for run in completed.iterator(chunk_size=200):
             runs.setdefault(run.candidate_key, run)
-        current = current.source_task
+        current_id = SimcTask.objects.filter(pk=current_id).values_list(
+            'source_task_id', flat=True,
+        ).first()
     return runs
 
 
@@ -46,6 +51,7 @@ def backfill_result_hero_talents(apps, schema_editor):
     from botend.models import (
         SimcBenchmarkExecution,
         SimcBenchmarkResult,
+        SimcTask,
         SimulationRun,
     )
     from botend.services.simc_benchmark_execution import (
@@ -55,6 +61,7 @@ def backfill_result_hero_talents(apps, schema_editor):
     from botend.services.simc_run_control import build_frozen_run_input
 
     analysis_cache = {}
+    task_identity_cache = {}
     processed_run_ids = set()
     result_batch = []
     run_batch = []
@@ -78,17 +85,18 @@ def backfill_result_hero_talents(apps, schema_editor):
             )
             run_batch.clear()
 
-    results = SimcBenchmarkResult.objects.select_related(
-        'case__task',
+    results = SimcBenchmarkResult.objects.select_related('case').only(
+        'id', 'case_id', 'candidate_key', 'hero_talent_names',
+        'case__id', 'case__task_id',
     ).order_by('case_id', 'id')
     for result in results.iterator(chunk_size=200):
         result_count += 1
-        task = result.case.task
+        task_id = result.case.task_id
         if result.case_id != current_case_id:
             current_case_id = result.case_id
             source_runs = (
-                _source_runs_by_candidate(task, SimulationRun)
-                if task is not None else {}
+                _source_runs_by_candidate(task_id, SimcTask, SimulationRun)
+                if task_id is not None else {}
             )
 
         names = []
@@ -98,10 +106,16 @@ def backfill_result_hero_talents(apps, schema_editor):
                 run.resource_manifest if isinstance(run.resource_manifest, dict) else {}
             )
             talent_candidate = original_manifest.get('talent_candidate')
+            input_identity = task_identity_cache.get(run.task_id)
+            if input_identity is None:
+                input_identity = SimcTask.objects.filter(pk=run.task_id).values_list(
+                    'profile_version_id',
+                    'talent_version_id',
+                    'template_version_id',
+                ).first()
+                task_identity_cache[run.task_id] = input_identity
             analysis_key = (
-                run.task.profile_version_id,
-                run.task.talent_version_id,
-                run.task.template_version_id,
+                *(input_identity or (None, None, None)),
                 json.dumps(
                     talent_candidate,
                     ensure_ascii=False,
@@ -111,7 +125,8 @@ def backfill_result_hero_talents(apps, schema_editor):
             )
             if analysis_key not in analysis_cache:
                 try:
-                    _content, rebuilt_manifest = build_frozen_run_input(run.task, run)
+                    run_task = SimcTask.objects.get(pk=run.task_id)
+                    _content, rebuilt_manifest = build_frozen_run_input(run_task, run)
                 except Exception as exc:
                     rebuilt_manifest = {
                         'hero_talent_names': [],
