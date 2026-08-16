@@ -4924,12 +4924,11 @@ class SimcTalentStringAPIView(View):
     def post(self, request):
         try:
             data = json.loads(request.body or '{}')
-            source = self._visible(request).filter(id=data.get('copy_from_id')).first() if data.get('copy_from_id') else None
-            if data.get('copy_from_id') and source is None:
-                return JsonResponse({'success': False, 'error': '源天赋字符串不存在或无权复制'}, status=404)
-            name = str(data.get('name') or (f'{source.name} 副本' if source else '')).strip()
-            spec = str(data.get('spec') or (source.spec if source else '')).strip().lower()
-            talent = str(data.get('talent') if 'talent' in data else (source.talent if source else '') or '').strip()
+            if data.get('copy_from_id'):
+                return JsonResponse({'success': False, 'error': '天赋字符串不支持复制资源，请使用复制字符串'}, status=400)
+            name = str(data.get('name') or '').strip()
+            spec = str(data.get('spec') or '').strip().lower()
+            talent = str(data.get('talent') or '').strip()
             if not name or not talent:
                 return JsonResponse({'success': False, 'error': '名称和天赋字符串不能为空'}, status=400)
             if not spec:

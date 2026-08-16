@@ -335,6 +335,15 @@ class SimcTalentStringSaveTests(TestCase):
         self.assertIn('无法获取英雄天赋树', response.json()['error'])
         self.assertFalse(SimcTalentString.objects.exists())
 
+    def test_create_rejects_copy_resource_payload(self):
+        response = self.client.post('/api/simc-talent-string/', data=json.dumps({
+            'copy_from_id': 1,
+        }), content_type='application/json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('不支持复制资源', response.json()['error'])
+        self.assertFalse(SimcTalentString.objects.exists())
+
     @patch('botend.dashboard.api.TalentBuildCodeService.build_api_view')
     def test_update_rejects_talent_string_when_hero_tree_resolution_fails(self, build_api_view):
         row = SimcTalentString.objects.create(

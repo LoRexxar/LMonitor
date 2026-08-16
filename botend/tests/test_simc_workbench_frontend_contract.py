@@ -1237,7 +1237,9 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
         list_end = MAIN.index('function simcTalentStringOpenEditor(', list_start)
         listing = MAIN[list_start:list_end]
         self.assertIn('data-talent-string-action="copy-code"', listing)
+        self.assertNotIn('data-talent-string-action="copy"', listing)
         self.assertIn('navigator.clipboard.writeText(row.talent)', MAIN)
+        self.assertNotIn("action === 'copy'", MAIN)
 
     def test_dialog_has_keyboard_focus_scroll_and_mobile_contract(self):
         for token in (
