@@ -793,6 +793,28 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIn('/portal/simc-benchmarks/${encodeURIComponent(id)}/', dashboard_js)
         self.assertNotIn('/portal/simc-benchmarks/?benchmark=', dashboard_js)
 
+    def test_benchmark_editor_uses_one_advanced_profile_and_quick_multi_talents(self):
+        dashboard_js = (
+            self.ROOT / 'static/dashboard/js/simc-benchmark-dashboard.js'
+        ).read_text(encoding='utf-8')
+        add_spec = dashboard_js[
+            dashboard_js.index('function addSpec'):
+            dashboard_js.index('\nfunction renderRaidBuffEditor')
+        ]
+        collect = dashboard_js[
+            dashboard_js.index('function selectedProfiles'):
+            dashboard_js.index('\nfunction configErrors')
+        ]
+
+        self.assertIn("selectField('Profile *','profile_id'", add_spec)
+        self.assertIn("dataset:{talentPicker:''}", add_spec)
+        self.assertIn('type:\'checkbox\'', add_spec)
+        self.assertIn('dataset:{talentIncluded:', add_spec)
+        self.assertNotIn('data-profile-included', dashboard_js)
+        self.assertNotIn('data-profile-settings', dashboard_js)
+        self.assertIn("card.querySelector('[name=\"profile_id\"]')", collect)
+        self.assertIn("$$('[data-talent-included]:checked',card)", collect)
+
     def test_public_renderer_hides_baseline_candidates_but_keeps_comparison_data(self):
         self.assertIn('candidate.type === "base"', self.JS)
         self.assertIn('allCandidates.find(isBaseline)', self.JS)

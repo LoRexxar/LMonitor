@@ -8,6 +8,7 @@ from django.core.cache import cache
 from django.urls import reverse
 
 from botend.models import SimcBenchmarkScenario, SimcBenchmarkSpec
+from botend.services.simc_benchmark_config import benchmark_profile_key
 from botend.services.spec_stats_service import SpecStatsService
 
 
@@ -177,16 +178,22 @@ class SpecOverviewService:
             'panel': panel_spec.panel.slug,
             'spec': panel_spec.spec_key,
             'scenario': scenarios[0].key,
-            'profile': str(profiles[0].profile_id) if profiles else '',
+            'profile': benchmark_profile_key(
+                profiles[0].profile_id, profiles[0].talent_string_id,
+            ) if profiles else '',
             'scenario_keys': ','.join(scenario.key for scenario in scenarios),
-            'profile_keys': ','.join(str(profile.profile_id) for profile in profiles),
+            'profile_keys': ','.join(
+                benchmark_profile_key(profile.profile_id, profile.talent_string_id)
+                for profile in profiles
+            ),
             'scenarios': [
                 {'key': scenario.key, 'label': scenario.name,
                  'detail': scenario.simulation_params or {}}
                 for scenario in scenarios
             ],
             'profiles': [
-                {'key': str(profile.profile_id), 'label': profile.label,
+                {'key': benchmark_profile_key(profile.profile_id, profile.talent_string_id),
+                 'label': profile.label,
                  'profile_name': profile.profile.name}
                 for profile in profiles
             ],

@@ -44,6 +44,13 @@ MAX_SPECS = len(SUPPORTED_SIMC_SPEC_IDENTITIES)
 MAX_PROFILES_PER_SPEC = 5
 MAX_SCENARIOS = 8
 
+
+def benchmark_profile_key(profile_id, talent_string_id=None):
+    """Return the durable coordinate key for one Profile/talent variant."""
+    if talent_string_id is None:
+        return str(profile_id)
+    return f'{profile_id}:talent:{talent_string_id}'
+
 # SimulationCraft commit 32ceb18d81557965afa5e240dc32b8659549c53d,
 # engine/util/util.cpp::parse_fight_style(). Keep values byte-for-byte identical.
 SIMC_FIGHT_STYLES = (
@@ -615,7 +622,8 @@ def normalize_panel_payload(payload, user_id, panel=None):
             profile_payload = [{'profile_id': default.pk, 'label': default.name}]
         if len(profile_payload) > MAX_PROFILES_PER_SPEC:
             _error(f'每个 spec 最多 {MAX_PROFILES_PER_SPEC} 个 profiles', 'profiles')
-        normalized_profiles, seen_profiles = [], set()
+        normalized_profiles, seen_talent_variants = [], set()
+        selected_profile_id = None
         for profile_index, profile_raw in enumerate(profile_payload):
             if type(profile_raw) is int:
                 profile_raw = {'profile_id': profile_raw}
@@ -623,8 +631,10 @@ def normalize_panel_payload(payload, user_id, panel=None):
             unknown_profile = set(profile_raw) - {'profile_id', 'label', 'talent_string_id', 'is_enabled', 'display_order'}
             if unknown_profile: _error('profile 包含未知字段', 'profiles')
             profile = _resource(SimcProfile, profile_raw.get('profile_id'), 'profile', user_id)
-            if profile.pk in seen_profiles: _error('profiles 包含重复 Profile', 'profiles')
-            seen_profiles.add(profile.pk)
+            if selected_profile_id is None:
+                selected_profile_id = profile.pk
+            elif profile.pk != selected_profile_id:
+                _error('每个专精只能选择一个 Profile', 'profiles')
             profile_class = _profile_class_name(profile)
             if profile_class and profile_class != expected_class:
                 _error('Profile 职业不一致', 'profiles')
@@ -634,11 +644,15 @@ def normalize_panel_payload(payload, user_id, panel=None):
                 talent = _resource(SimcTalentString, profile_raw['talent_string_id'], 'talent', user_id)
                 if str(talent.spec).strip().lower() not in {expected_spec, spec_key}:
                     _error('天赋字符串专精不一致', 'talent_string_id')
+            talent_variant = talent.pk if talent else None
+            if talent_variant in seen_talent_variants:
+                _error('profiles 包含重复天赋配置', 'profiles')
+            seen_talent_variants.add(talent_variant)
             normalized_profiles.append({
                 'profile_id': profile.pk,
                 'label': _text(profile_raw.get('label', profile.name), 'profile.label',
                                max_length=200),
-                'talent_string_id': talent.pk if talent else None,
+                'talent_string_id': talent_variant,
                 'is_enabled': _strict_bool(profile_raw.get('is_enabled'), 'profile.is_enabled', True),
                 'display_order': _order(profile_raw.get('display_order'), 'profile.display_order', profile_index),
             })
@@ -1137,7 +1151,10 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
                     'spec_key': spec.spec_key, 'spec_label': spec.label,
                     'class_name': spec.class_name,
                     'scenario_key': scenario.key, 'scenario_label': scenario.name,
-                    'profile_key': str(selected.profile_id), 'profile_label': selected.profile.name,
+                    'profile_key': benchmark_profile_key(
+                        selected.profile_id, selected.talent_string_id,
+                    ),
+                    'profile_label': selected.profile.name,
                     'profile_id': selected.profile_id,
                     'talent_string_id': selected.talent_string_id,
                     'apl_id': spec.apl_id,

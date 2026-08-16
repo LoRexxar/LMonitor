@@ -10,7 +10,7 @@ from django.test.utils import CaptureQueriesContext
 from botend.models import (
     SimcApl, SimcBackendBinary, SimcBenchmarkCandidate, SimcBenchmarkPanel,
     SimcBenchmarkProfile, SimcBenchmarkScenario, SimcBenchmarkSpec,
-    SimcContentTemplate, SimcProfile, WowItemSnapshot,
+    SimcContentTemplate, SimcProfile, SimcTalentString, WowItemSnapshot,
 )
 from botend.services.simc_benchmark_config import (
     MAX_PROFILES_PER_SPEC, MAX_SCENARIOS, MAX_SPECS,
@@ -420,6 +420,55 @@ class SimcBenchmarkConfigServiceTests(TestCase):
         with self.assertRaisesMessage(ValidationError, 'Profile'):
             normalize_panel_payload(self.payload, self.user_id)
 
+    def test_one_profile_can_expand_multiple_talents_into_distinct_cases(self):
+        talents = [
+            SimcTalentString.objects.create(
+                name=name, spec='warrior_fury', talent=value,
+                owner_user_id=self.user_id,
+            )
+            for name, value in (('屠戮者', 'slayer-code'), ('山丘领主', 'thane-code'))
+        ]
+        profiles = [{
+            'profile_id': self.profile.pk,
+            'talent_string_id': talent.pk,
+            'label': talent.name,
+        } for talent in talents]
+        payload = dict(self.payload, specs=[dict(
+            self.payload['specs'][0], profiles=profiles,
+        )])
+
+        panel, plan = replace_panel_config(payload, self.user_id)
+
+        saved = list(panel.specs.get().profiles.order_by('display_order').values_list(
+            'profile_id', 'talent_string_id',
+        ))
+        self.assertEqual(saved, [
+            (self.profile.pk, talents[0].pk),
+            (self.profile.pk, talents[1].pk),
+        ])
+        self.assertEqual(plan['case_count'], 2)
+        self.assertEqual(
+            {case['talent_string_id'] for case in plan['cases']},
+            {talents[0].pk, talents[1].pk},
+        )
+        self.assertEqual(
+            {case['profile_key'] for case in plan['cases']},
+            {
+                f'{self.profile.pk}:talent:{talents[0].pk}',
+                f'{self.profile.pk}:talent:{talents[1].pk}',
+            },
+        )
+        other_profile = SimcProfile.objects.create(
+            user_id=self.user_id, name='Other', spec='warrior_fury',
+        )
+        invalid = dict(payload, specs=[dict(
+            payload['specs'][0], profiles=[
+                profiles[0], {'profile_id': other_profile.pk},
+            ],
+        )])
+        with self.assertRaisesMessage(ValidationError, '只能选择一个 Profile'):
+            normalize_panel_payload(invalid, self.user_id)
+
     def test_system_resources_and_default_upstream_profile(self):
         self.apl.owner_user_id = None; self.apl.is_system = True; self.apl.save()
         self.template.owner_user_id = None; self.template.save()
@@ -543,12 +592,20 @@ class SimcBenchmarkConfigServiceTests(TestCase):
         self.assertNotIn('simc_path', text)
         self.assertNotIn('player_equipment', text)
 
-    def test_plan_is_stable_three_dimensional_and_filters_candidates(self):
-        profile2 = SimcProfile.objects.create(user_id=self.user_id, name='Second', spec='warrior_fury')
+    def test_plan_is_stable_across_talent_variants_and_filters_candidates(self):
+        talents = [
+            SimcTalentString.objects.create(
+                name=name, spec='warrior_fury', talent=value,
+                owner_user_id=self.user_id,
+            )
+            for name, value in (('First', 'first-code'), ('Second', 'second-code'))
+        ]
         payload = dict(self.payload)
         payload['specs'] = [dict(self.payload['specs'][0], profiles=[
-            {'profile_id': profile2.pk, 'label': 'Second', 'display_order': 2},
-            {'profile_id': self.profile.pk, 'label': 'First', 'display_order': 1},
+            {'profile_id': self.profile.pk, 'talent_string_id': talents[1].pk,
+             'label': 'Second', 'display_order': 2},
+            {'profile_id': self.profile.pk, 'talent_string_id': talents[0].pk,
+             'label': 'First', 'display_order': 1},
         ])]
         payload['scenarios'] = [
             dict(self.payload['scenarios'][0], key='second', display_order=2),
@@ -562,8 +619,9 @@ class SimcBenchmarkConfigServiceTests(TestCase):
         plan = build_execution_plan(panel)
         self.assertEqual(plan['case_count'], 4)
         self.assertEqual(plan['run_count'], 8)  # auto baseline + applicable candidate
-        self.assertEqual([(c['scenario_key'], c['profile_label']) for c in plan['cases']], [
-            ('first', 'First'), ('first', 'Second'), ('second', 'First'), ('second', 'Second'),
+        self.assertEqual([(c['scenario_key'], c['talent_string_id']) for c in plan['cases']], [
+            ('first', talents[0].pk), ('first', talents[1].pk),
+            ('second', talents[0].pk), ('second', talents[1].pk),
         ])
         self.assertEqual([c['candidate_key'] for c in plan['cases'][0]['candidates']], ['baseline', 'all'])
 

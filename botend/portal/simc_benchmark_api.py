@@ -9,6 +9,7 @@ from botend.models import (
     SimcBenchmarkPanel, SimcBenchmarkProfile, SimcBenchmarkScenario,
     SimcBenchmarkSpec,
 )
+from botend.services.simc_benchmark_config import benchmark_profile_key
 from botend.services.simc_benchmark_execution import (
     serialize_incremental_panel_results, serialize_panel_apl_ranking_results,
     summarize_panel_coverage_counts,
@@ -75,16 +76,22 @@ def get_portal_apl_ranking(panel, spec_key, scenario_key, profile_key=None):
     if configured is not None:
         profiles = configured.profiles.filter(is_enabled=True).order_by('display_order', 'id')
         if profile_key:
-            try:
-                profile_id = int(profile_key)
-            except (TypeError, ValueError):
-                profile_id = None
-            selected_profile = profiles.filter(profile_id=profile_id).first() if profile_id is not None else None
+            requested_key = str(profile_key)
+            selected_profile = next((
+                profile for profile in profiles
+                if benchmark_profile_key(
+                    profile.profile_id, profile.talent_string_id,
+                ) == requested_key
+            ), None)
+            if selected_profile is None and requested_key.isdigit():
+                selected_profile = profiles.filter(profile_id=int(requested_key)).first()
         else:
             selected_profile = profiles.first()
     if configured is None or scenario is None or selected_profile is None:
         return _ranking_not_ready('dimension_not_configured')
-    profile_key = str(selected_profile.profile_id)
+    profile_key = benchmark_profile_key(
+        selected_profile.profile_id, selected_profile.talent_string_id,
+    )
     rankings = serialize_panel_apl_ranking_results(
         panel, spec_key=spec_key, scenario_key=scenario_key,
     )
@@ -99,7 +106,10 @@ def get_portal_apl_ranking(panel, spec_key, scenario_key, profile_key=None):
         rankings = [
             row for row in rankings
             if str(row.get('profile_key')) == profile_key
-            or not str(row.get('profile_key', '')).isdigit()
+            or (
+                not str(row.get('profile_key', '')).isdigit()
+                and ':talent:' not in str(row.get('profile_key', ''))
+            )
         ]
     if not rankings:
         return _ranking_not_ready('no_comparable_baseline_results')
@@ -141,7 +151,10 @@ def get_portal_spec_ranking(panel, scenario_key):
     ).select_related('panel_spec').order_by(
         'panel_spec__display_order', 'panel_spec_id', 'display_order', 'id',
     ):
-        preferred_profiles.setdefault(profile.panel_spec.spec_key, str(profile.profile_id))
+        preferred_profiles.setdefault(
+            profile.panel_spec.spec_key,
+            benchmark_profile_key(profile.profile_id, profile.talent_string_id),
+        )
     coordinates = [
         row for row in coordinates
         if preferred_profiles.get(row.get('spec_key')) == row.get('profile_key')

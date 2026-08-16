@@ -1826,7 +1826,8 @@ class SimcBenchmarkProfile(models.Model):
         ordering = ['display_order', 'id']
         constraints = [
             models.UniqueConstraint(
-                fields=['panel_spec', 'profile'], name='simc_bench_spec_profile_uniq',
+                fields=['panel_spec', 'profile', 'talent_string'],
+                name='simc_bench_spec_profile_talent_uniq',
             ),
         ]
         indexes = [

@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{{ panel_name }} · 私有执行结果</title>
-  <link rel="stylesheet" href="{% static 'dashboard/css/simc-benchmark-dashboard.css' %}?v=20260816_benchmark_talent_shortcut">
+  <link rel="stylesheet" href="{% static 'dashboard/css/simc-benchmark-dashboard.css' %}?v=20260817_benchmark_talent_multi_select">
 </head>
 <body class="simc-benchmark-config-body">
 <main class="simc-benchmark-config-page benchmark-execution-page" data-benchmark-execution-page data-benchmark-execution-id="{{ execution_id }}">
@@ -22,6 +22,6 @@
     <div data-execution-detail></div>
   </section>
 </main>
-<script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260817_benchmark_expanded_talent_names"></script>
+<script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260817_benchmark_talent_multi_select"></script>
 </body>
 </html>

@@ -157,23 +157,13 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
 .spec-config-row .config-card-primary > .config-check { min-height:34px; margin:0; align-self:center; padding:.35rem .55rem; }
 .spec-config-row .config-card-primary select { min-height:34px; padding:.35rem .55rem; }
 .spec-config-row .spec-catalog-name { min-width:0; padding:.38rem .7rem; overflow:hidden; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
-.spec-profile-picker { display:grid; min-width:0; gap:.38rem; padding:.35rem 0; }
-.profile-quick-row { display:grid; grid-template-columns:minmax(9rem,.7fr) minmax(14rem,1.3fr); align-items:center; gap:.5rem; min-width:0; border:1px solid #dce3eb; border-radius:.62rem; padding:.38rem .45rem; background:#fafbfc; }
-.profile-quick-row:has([data-profile-included]:checked) { border-color:#9bb5e1; background:#f2f6fd; }
-.profile-quick-choice { display:flex !important; min-width:0; align-items:center; gap:.45rem; cursor:pointer; }
-.profile-quick-choice input { flex:0 0 auto; width:auto !important; min-height:auto !important; margin:0; box-shadow:none !important; accent-color:#315db6; }
-.profile-quick-copy { display:grid; min-width:0; gap:.05rem; }
-.profile-quick-copy strong,.profile-quick-copy small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.profile-quick-copy strong { color:#344054; font-size:.72rem; }.profile-quick-copy small { color:#7a8699; font-size:.62rem; }
-.profile-talent-shortcut { display:grid !important; grid-template-columns:max-content minmax(0,1fr) !important; align-items:center; gap:.42rem !important; min-width:0; color:#596579; font-size:.64rem; font-weight:700; }
-.profile-talent-shortcut select { min-width:0; min-height:34px; padding:.34rem .5rem; background:#fff; font-size:.68rem; }
-.profile-talent-shortcut select:disabled { color:#98a2b3; background:#f2f4f7; }
-.simc-benchmark-config-page .profile-select-chip { display:flex !important; min-width:0; max-width:100%; align-items:center; gap:.35rem; border:1px solid #dce3eb; border-radius:999px; padding:.32rem .55rem; background:#fafbfc; color:#4b5870; font-size:.68rem; cursor:pointer; }
-.profile-select-chip input { flex:0 0 auto; width:auto !important; min-height:auto !important; margin:0; box-shadow:none !important; accent-color:#315db6; }
-.profile-select-chip span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.profile-select-chip:has(input:checked) { border-color:#8eabe0; background:#edf4ff; color:#274f9a; }
-.profile-settings-group { display:grid; gap:.34rem; color:#4b5565; font-size:.7rem; }
-.profile-settings-title { font-weight:650; }
+.spec-talent-picker { display:flex; min-width:0; flex-wrap:wrap; gap:.35rem; padding:.35rem 0; }
+.simc-benchmark-config-page .talent-select-chip { display:flex !important; min-width:0; max-width:100%; align-items:center; gap:.4rem; border:1px solid #dce3eb; border-radius:.6rem; padding:.34rem .5rem; background:#fafbfc; color:#4b5870; cursor:pointer; }
+.talent-select-chip input { flex:0 0 auto; width:auto !important; min-height:auto !important; margin:0; box-shadow:none !important; accent-color:#315db6; }
+.talent-select-chip span { display:grid; min-width:0; gap:.02rem; }
+.talent-select-chip strong,.talent-select-chip small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.talent-select-chip strong { font-size:.68rem; }.talent-select-chip small { color:#7a8699; font-size:.6rem; }
+.talent-select-chip:has(input:checked) { border-color:#8eabe0; background:#edf4ff; color:#274f9a; }
 .spec-config-row .config-card-advanced { grid-column:4; grid-row:1; border:0; background:transparent; }
 .spec-config-row .config-card-advanced > summary { min-height:34px; border:1px solid #e0e6ed; border-radius:.55rem; padding:.35rem .55rem; background:#fafbfc; }
 .spec-config-row .config-card-advanced summary small { display:none; }
@@ -202,8 +192,7 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
   .spec-config-table { overflow:visible; }
   .spec-config-table-head { display:none; }
   .simc-benchmark-config-page .spec-config-row { min-width:0; grid-template-columns:minmax(0,1fr) 6rem 8rem; }
-  .spec-config-row .spec-profile-picker { grid-column:1/-1; grid-row:2; padding:.35rem .7rem .55rem; }
-  .profile-quick-row { grid-template-columns:minmax(8rem,.65fr) minmax(12rem,1.35fr); }
+  .spec-config-row .spec-talent-picker { grid-column:1/-1; grid-row:2; padding:.35rem .7rem .55rem; }
   .spec-config-row .config-card-advanced { grid-column:3; grid-row:1; }
   .spec-config-row .config-card-advanced[open] { grid-row:3; }
 }
