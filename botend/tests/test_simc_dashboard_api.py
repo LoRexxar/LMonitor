@@ -16,7 +16,7 @@ from botend.management.commands.update_simc_binary import Command as UpdateSimcB
 from botend.services.simc_player_config import build_player_config_detail, parse_manual_player_config, parse_manual_simc_candidates, parse_simc_player_profile
 from botend.services.simc_composer import SimcComposer
 from botend.services.simc_task_service import append_candidate_runs
-from botend.models import DashboardUserGroup, DashboardUserGroupMembership, PlayerSpecTopPlayer, SeasonMeta, SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate, SimcProfile, SimcResourceVersion, SimcTask, SimcTaskArtifact, SimulationRun, WowItemSnapshot, WowTalentVersion
+from botend.models import DashboardUserGroup, DashboardUserGroupMembership, PlayerSpecTopPlayer, SeasonMeta, SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate, SimcProfile, SimcResourceVersion, SimcTalentString, SimcTask, SimcTaskArtifact, SimulationRun, WowItemSnapshot, WowTalentVersion
 from botend.tests.simc_apl_symbol_test_utils import get_or_create_symbol_scope
 
 
@@ -313,6 +313,48 @@ class SimcWorkerTaskRunLifecycleTests(TestCase):
         self.assertEqual(run.task_id, self.task.id)
         self.assertNotEqual(run.task_id, other.id)
 
+
+
+class SimcTalentStringSaveTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='talent_string_user', password='pwd')
+        self.client.force_login(self.user)
+
+    @patch('botend.dashboard.api.TalentBuildCodeService.build_api_view')
+    def test_create_rejects_talent_string_without_resolved_hero_tree(self, build_api_view):
+        build_api_view.return_value = {'talent_render_model': {'trees': []}}
+
+        response = self.client.post('/api/simc-talent-string/', data=json.dumps({
+            'name': '无法解析英雄树',
+            'spec': 'warrior_fury',
+            'talent': 'TEST_BUILD_CODE',
+        }), content_type='application/json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.json()['success'])
+        self.assertIn('无法获取英雄天赋树', response.json()['error'])
+        self.assertFalse(SimcTalentString.objects.exists())
+
+    @patch('botend.dashboard.api.TalentBuildCodeService.build_api_view')
+    def test_update_rejects_talent_string_when_hero_tree_resolution_fails(self, build_api_view):
+        row = SimcTalentString.objects.create(
+            name='原天赋', spec='warrior_fury', talent='ORIGINAL_CODE',
+            owner_user_id=self.user.id, is_active=True, is_selectable=True,
+        )
+        build_api_view.side_effect = RuntimeError('talent parser unavailable')
+
+        response = self.client.put('/api/simc-talent-string/', data=json.dumps({
+            'id': row.id,
+            'name': '新天赋',
+            'spec': 'warrior_fury',
+            'talent': 'BROKEN_CODE',
+        }), content_type='application/json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('无法获取英雄天赋树', response.json()['error'])
+        row.refresh_from_db()
+        self.assertEqual(row.name, '原天赋')
+        self.assertEqual(row.talent, 'ORIGINAL_CODE')
 
 
 class SimcProfileResourceListTests(TestCase):

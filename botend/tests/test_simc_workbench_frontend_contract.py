@@ -1218,6 +1218,14 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
         self.assertIn('id="simc-workbench-dialog-content"', HTML)
         self.assertIn('data-simc-dialog-close', HTML)
 
+    def test_talent_string_editor_populates_the_visible_dialog_spec_select(self):
+        self.assertNotIn('id="simc-talent-string-editor"', HTML)
+        editor_start = MAIN.index('function simcTalentStringOpenEditor(')
+        editor_end = MAIN.index('async function saveSimcTalentString()', editor_start)
+        editor = MAIN[editor_start:editor_end]
+        self.assertIn("body.querySelector('#simc-talent-string-spec')", editor)
+        self.assertNotIn("document.getElementById('simc-talent-string-spec')", editor)
+
     def test_dialog_has_keyboard_focus_scroll_and_mobile_contract(self):
         for token in (
             'function openSimcWorkbenchDialog(',

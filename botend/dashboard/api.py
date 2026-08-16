@@ -194,28 +194,48 @@ def _simc_class_label(spec, class_name=''):
     return str(class_name or '').strip() or '通用职业'
 
 
-def _simc_talent_string_details(row):
+def _resolve_simc_talent_hero_names(spec, talent):
     """Resolve hero-tree titles through the authoritative talent parser."""
-    identity = SIMC_SPEC_DB_IDENTITIES.get(str(row.spec or '').strip().lower())
+    identity = SIMC_SPEC_DB_IDENTITIES.get(str(spec or '').strip().lower())
     if not identity:
         return []
     class_name, spec_name = identity
+    payload = TalentBuildCodeService.build_api_view(
+        talent_build_code=talent,
+        class_name=class_name,
+        spec_name=spec_name,
+        usage='simulator',
+    )
+    render_model = payload.get('talent_render_model') or {}
+    return [
+        str(tree.get('title') or '').strip()
+        for tree in render_model.get('trees') or []
+        if tree.get('tree_type') == 'hero' and str(tree.get('title') or '').strip()
+    ]
+
+
+def _simc_talent_string_details(row):
+    """Keep legacy rows readable even when their talent code no longer parses."""
     try:
-        payload = TalentBuildCodeService.build_api_view(
-            talent_build_code=row.talent,
-            class_name=class_name,
-            spec_name=spec_name,
-            usage='simulator',
-        )
-        render_model = payload.get('talent_render_model') or {}
-        return [
-            str(tree.get('title') or '').strip()
-            for tree in render_model.get('trees') or []
-            if tree.get('tree_type') == 'hero' and str(tree.get('title') or '').strip()
-        ]
+        return _resolve_simc_talent_hero_names(row.spec, row.talent)
     except Exception:
         logger.exception('解析独立天赋字符串英雄天赋树失败: id=%s', row.id)
         return []
+
+
+class SimcTalentHeroTreeValidationError(ValueError):
+    pass
+
+
+def _validate_simc_talent_hero_tree(spec, talent):
+    try:
+        hero_names = _resolve_simc_talent_hero_names(spec, talent)
+    except Exception as exc:
+        logger.exception('保存独立天赋字符串时解析英雄天赋树失败: spec=%s', spec)
+        raise SimcTalentHeroTreeValidationError('无法获取英雄天赋树，请检查专精和天赋字符串') from exc
+    if not hero_names:
+        raise SimcTalentHeroTreeValidationError('无法获取英雄天赋树，请检查专精和天赋字符串')
+    return hero_names
 
 
 def _simc_spec_visual(spec, class_name=''):
@@ -4893,10 +4913,13 @@ class SimcTalentStringAPIView(View):
                 return JsonResponse({'success': False, 'error': '名称、专精和天赋字符串不能为空'}, status=400)
             if spec not in SIMC_SPEC_VALUES:
                 return JsonResponse({'success': False, 'error': '必须选择有效的专精'}, status=400)
+            _validate_simc_talent_hero_tree(spec, talent)
             row = SimcTalentString.objects.create(name=name[:200], spec=spec, talent=talent[:2000], owner_user_id=request.user.id, is_active=True, is_selectable=True)
             return JsonResponse({'success': True, 'message': '天赋字符串已创建', 'data': self._row(row, request)})
         except json.JSONDecodeError:
             return JsonResponse({'success': False, 'error': '无效的JSON数据'}, status=400)
+        except SimcTalentHeroTreeValidationError as exc:
+            return JsonResponse({'success': False, 'error': str(exc)}, status=400)
 
     def put(self, request):
         try:
@@ -4909,11 +4932,14 @@ class SimcTalentStringAPIView(View):
             talent = str(data.get('talent', row.talent) or '').strip()
             if not name or not spec or not talent or spec not in SIMC_SPEC_VALUES:
                 return JsonResponse({'success': False, 'error': '名称、有效专精和天赋字符串不能为空'}, status=400)
+            _validate_simc_talent_hero_tree(spec, talent)
             row.name, row.spec, row.talent = name[:200], spec, talent[:2000]
             if 'is_active' in data: row.is_active = bool(data['is_active'])
             if 'is_selectable' in data: row.is_selectable = bool(data['is_selectable'])
             row.save()
             return JsonResponse({'success': True, 'message': '天赋字符串已更新', 'data': self._row(row, request)})
+        except SimcTalentHeroTreeValidationError as exc:
+            return JsonResponse({'success': False, 'error': str(exc)}, status=400)
         except (TypeError, ValueError, json.JSONDecodeError):
             return JsonResponse({'success': False, 'error': '请求数据无效'}, status=400)
 

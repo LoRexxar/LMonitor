@@ -1786,7 +1786,12 @@ function simcTalentStringOpenEditor(row = null) {
     if (!title || !body) return;
     title.textContent = row ? '编辑天赋字符串' : '新增天赋字符串';
     body.innerHTML = `<div class="space-y-4"><div class="grid gap-3 sm:grid-cols-2"><label class="text-sm">名称<input id="simc-talent-string-name" class="mt-1 w-full rounded-lg border px-3 py-2" value="${escapeHtml(row?.name || '')}"></label><label class="text-sm">专精<select id="simc-talent-string-spec" class="mt-1 w-full rounded-lg border px-3 py-2"></select></label></div><label class="block text-sm">天赋字符串<textarea id="simc-talent-string-talent" rows="5" class="mt-1 w-full rounded-lg border px-3 py-2 font-mono text-xs">${escapeHtml(row?.talent || '')}</textarea></label><div class="flex justify-end gap-2"><button type="button" id="simc-talent-string-cancel" class="rounded-lg border bg-white px-3 py-2 text-sm">取消</button><button type="button" id="simc-talent-string-save" class="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">保存</button></div></div>`;
-    loadSimcSpecOptions().then(rows => { document.getElementById('simc-talent-string-spec').innerHTML = '<option value="">选择专精</option>' + rows.map(item => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.spec_label)}</option>`).join(''); document.getElementById('simc-talent-string-spec').value = row?.spec || ''; });
+    loadSimcSpecOptions().then(rows => {
+        const specSelect = body.querySelector('#simc-talent-string-spec');
+        if (!specSelect) return;
+        specSelect.innerHTML = '<option value="">选择专精</option>' + rows.map(item => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label || item.spec_label)}</option>`).join('');
+        specSelect.value = row?.spec || '';
+    }).catch(error => showMessage(error.message, 'error'));
     document.getElementById('simc-talent-string-cancel').addEventListener('click', closeSimcWorkbenchDialog);
     document.getElementById('simc-talent-string-save').addEventListener('click', saveSimcTalentString);
 }
