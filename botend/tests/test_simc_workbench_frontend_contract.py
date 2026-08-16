@@ -1243,6 +1243,21 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
         self.assertIn("response.status === 403 ? '请求被拒绝，请刷新页面后重试'", MAIN)
         self.assertNotIn("const result = await response.json();", MAIN[MAIN.index('async function saveSimcTalentString'):MAIN.index('function bindSimcTalentStringControls')])
 
+    def test_talent_string_list_uses_shared_spec_catalog_labels(self):
+        loader_start = MAIN.index('async function loadSimcSpecOptions()')
+        loader_end = MAIN.index('window.loadSimcSpecOptions', loader_start)
+        loader = MAIN[loader_start:loader_end]
+        self.assertIn("document.getElementById('simc-talent-string-spec-filter')", loader)
+        list_start = MAIN.index('function loadSimcTalentStrings()')
+        list_end = MAIN.index('function simcTalentStringOpenEditor(', list_start)
+        listing = MAIN[list_start:list_end]
+        self.assertIn('row.label ||', listing)
+        self.assertIn('row.spec_label} · ${row.class_label ||', listing)
+        editor_start = MAIN.index('function simcTalentStringOpenEditor(')
+        editor_end = MAIN.index('async function saveSimcTalentString()', editor_start)
+        editor = MAIN[editor_start:editor_end]
+        self.assertIn('item.label || `${item.spec_label} · ${item.class_label}`', editor)
+
     def test_dialog_has_keyboard_focus_scroll_and_mobile_contract(self):
         for token in (
             'function openSimcWorkbenchDialog(',

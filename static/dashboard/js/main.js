@@ -1774,7 +1774,7 @@ function loadSimcTalentStrings() {
         .then(response => response.json()).then(payload => {
             if (!payload.success) throw new Error(payload.error || '加载失败');
         const rows = payload.data || [];
-        list.innerHTML = rows.length ? `<table class="min-w-full text-sm"><thead><tr class="border-b text-left text-xs text-slate-500"><th class="px-3 py-2">名称</th><th class="px-3 py-2">专精</th><th class="px-3 py-2">英雄天赋树</th><th class="px-3 py-2">来源</th><th class="px-3 py-2 text-right">操作</th></tr></thead><tbody>${rows.map(row => { const heroNames = (row.hero_talent_names || []).join('、') || '未解析'; const simulator = row.talent_simulator_url ? `<a href="${escapeHtml(row.talent_simulator_url)}" target="_blank" rel="noopener noreferrer" class="mr-2 text-violet-600">天赋模拟器</a>` : ''; return `<tr class="border-b"><td class="px-3 py-3 font-medium">${escapeHtml(row.name)}</td><td class="px-3 py-3">${escapeHtml(row.spec_label || row.spec)}</td><td class="px-3 py-3 text-slate-600">${escapeHtml(heroNames)}</td><td class="px-3 py-3 text-xs text-slate-500">${row.is_system ? '系统资源' : '个人资源'}</td><td class="px-3 py-3 text-right whitespace-nowrap">${simulator}<button type="button" data-talent-string-action="view" data-talent-string-id="${row.id}" class="mr-2 text-slate-600">查看</button><button type="button" data-talent-string-action="copy-code" data-talent-string-id="${row.id}" class="mr-2 text-blue-600">复制字符串</button>${row.can_edit ? `<button type="button" data-talent-string-action="edit" data-talent-string-id="${row.id}" class="mr-2 text-blue-600">编辑</button>` : ''}${row.can_delete ? `<button type="button" data-talent-string-action="delete" data-talent-string-id="${row.id}" class="text-red-600">删除</button>` : ''}</td></tr>`; }).join('')}</tbody></table>` : '<p class="py-6 text-center text-sm text-slate-400">暂无天赋字符串</p>';
+        list.innerHTML = rows.length ? `<table class="min-w-full text-sm"><thead><tr class="border-b text-left text-xs text-slate-500"><th class="px-3 py-2">名称</th><th class="px-3 py-2">专精</th><th class="px-3 py-2">英雄天赋树</th><th class="px-3 py-2">来源</th><th class="px-3 py-2 text-right">操作</th></tr></thead><tbody>${rows.map(row => { const heroNames = (row.hero_talent_names || []).join('、') || '未解析'; const simulator = row.talent_simulator_url ? `<a href="${escapeHtml(row.talent_simulator_url)}" target="_blank" rel="noopener noreferrer" class="mr-2 text-violet-600">天赋模拟器</a>` : ''; return `<tr class="border-b"><td class="px-3 py-3 font-medium">${escapeHtml(row.name)}</td><td class="px-3 py-3">${escapeHtml(row.label || `${row.spec_label} · ${row.class_label || ''}`.replace(/ · $/, '') || row.spec)}</td><td class="px-3 py-3 text-slate-600">${escapeHtml(heroNames)}</td><td class="px-3 py-3 text-xs text-slate-500">${row.is_system ? '系统资源' : '个人资源'}</td><td class="px-3 py-3 text-right whitespace-nowrap">${simulator}<button type="button" data-talent-string-action="view" data-talent-string-id="${row.id}" class="mr-2 text-slate-600">查看</button><button type="button" data-talent-string-action="copy-code" data-talent-string-id="${row.id}" class="mr-2 text-blue-600">复制字符串</button>${row.can_edit ? `<button type="button" data-talent-string-action="edit" data-talent-string-id="${row.id}" class="mr-2 text-blue-600">编辑</button>` : ''}${row.can_delete ? `<button type="button" data-talent-string-action="delete" data-talent-string-id="${row.id}" class="text-red-600">删除</button>` : ''}</td></tr>`; }).join('')}</tbody></table>` : '<p class="py-6 text-center text-sm text-slate-400">暂无天赋字符串</p>';
             rows.forEach(row => { if (!window.simcTalentStringRows) window.simcTalentStringRows = {}; window.simcTalentStringRows[row.id] = row; });
         }).catch(error => { list.innerHTML = `<p class="py-6 text-center text-sm text-red-500">${escapeHtml(error.message)}</p>`; });
 }
@@ -1789,7 +1789,7 @@ function simcTalentStringOpenEditor(row = null) {
     loadSimcSpecOptions().then(rows => {
         const specSelect = body.querySelector('#simc-talent-string-spec');
         if (!specSelect) return;
-        specSelect.innerHTML = '<option value="">选择专精</option>' + rows.map(item => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label || item.spec_label)}</option>`).join('');
+        specSelect.innerHTML = '<option value="">选择专精</option>' + rows.map(item => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label || `${item.spec_label} · ${item.class_label}`)}</option>`).join('');
         specSelect.value = row?.spec || '';
     }).catch(error => showMessage(error.message, 'error'));
     document.getElementById('simc-talent-string-cancel').addEventListener('click', closeSimcWorkbenchDialog);
@@ -1826,9 +1826,9 @@ function bindSimcTalentStringControls() {
     if (!specFilter || specFilter.dataset.bound === '1') return;
     specFilter.dataset.bound = '1';
     loadSimcSpecOptions().then(rows => {
-        const options = '<option value="">全部专精</option>' + rows.map(row => `<option value="${escapeHtml(row.value)}">${escapeHtml(row.spec_label)}</option>`).join('');
+        const options = '<option value="">全部专精</option>' + rows.map(row => `<option value="${escapeHtml(row.value)}">${escapeHtml(row.label || `${row.spec_label} · ${row.class_label}`)}</option>`).join('');
         specFilter.innerHTML = options;
-        if (specEditor) specEditor.innerHTML = options.replace('全部专精', '选择专精');
+        specFilter.dataset.specCatalogLoaded = '1';
     }).catch(error => showMessage(error.message, 'error'));
     document.getElementById('simc-talent-string-refresh')?.addEventListener('click', loadSimcTalentStrings);
     document.getElementById('simc-talent-string-add')?.addEventListener('click', () => simcTalentStringOpenEditor());
@@ -2141,6 +2141,7 @@ async function loadSimcSpecOptions() {
         { select: document.getElementById('simc-sim-bnet-spec'), placeholder: '-- 选择专精加载当前赛季 Top10 --' },
         { select: document.getElementById('simc-wb-profile-spec-filter'), placeholder: '全部专精' },
         { select: document.getElementById('simc-profile-spec-filter'), placeholder: '全部专精' },
+        { select: document.getElementById('simc-talent-string-spec-filter'), placeholder: '全部专精' },
         { select: document.querySelector('#simc-wb-profile-form-source select[name="spec"]'), placeholder: '请选择专精' },
         { select: document.querySelector('#simc-wb-mastery-form select[name="spec"]'), placeholder: '请选择专精' },
     ];

@@ -4891,7 +4891,8 @@ class SimcTalentStringAPIView(View):
         is_system = bool(row.is_system)
         return {
             'id': row.id, 'name': row.name, 'spec': row.spec, 'canonical_spec': row.spec,
-            'spec_label': _simc_spec_label(row.spec, ''), 'talent': row.talent,
+            'spec_label': _simc_spec_label(row.spec, ''), 'class_label': _simc_class_label(row.spec, ''),
+            'label': f"{_simc_spec_label(row.spec, '')} · {_simc_class_label(row.spec, '')}", 'talent': row.talent,
             'hero_talent_names': _simc_talent_string_details(row),
             'talent_simulator_url': '/portal/talents/?' + urlencode({'class': SIMC_SPEC_DB_IDENTITIES.get(row.spec, ('', ''))[0], 'spec': SIMC_SPEC_DB_IDENTITIES.get(row.spec, ('', ''))[1], 'code': row.talent}),
             'is_system': is_system, 'is_active': bool(row.is_active),
