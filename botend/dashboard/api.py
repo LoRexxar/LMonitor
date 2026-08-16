@@ -71,6 +71,7 @@ from botend.services.simc_attribute_search import (
 from botend.services.task_rerun import create_rerun, TaskRerunError
 from botend.services.battlenet_preflight import fetch_battlenet_character_preflight
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
+from botend.constants.hero_talents import normalize_hero_subtree_names_zh
 from botend.constants.wow import CLASS_SPEC_MAP, CLASS_CN, CLASS_COLOR, SPEC_CN, SPEC_ICON, SPEC_ROLE
 from botend.services.simc_apl.catalog import query_symbol_catalog, query_visible_symbols
 from botend.services.simc_apl.validation import validate_payload
@@ -4866,7 +4867,7 @@ class SimcTalentStringAPIView(View):
             'id': row.id, 'name': row.name, 'spec': row.spec, 'canonical_spec': row.spec,
             'spec_label': _simc_spec_label(row.spec, ''), 'class_label': _simc_class_label(row.spec, ''),
             'label': f"{_simc_spec_label(row.spec, '')} · {_simc_class_label(row.spec, '')}", 'talent': row.talent,
-            'hero_talent_names': list(row.hero_talent_names or []),
+            'hero_talent_names': normalize_hero_subtree_names_zh(row.hero_talent_names),
             'talent_simulator_url': '/portal/talents/?' + urlencode({'class': SIMC_SPEC_DB_IDENTITIES.get(row.spec, ('', ''))[0], 'spec': SIMC_SPEC_DB_IDENTITIES.get(row.spec, ('', ''))[1], 'code': row.talent}),
             'is_system': is_system, 'is_active': bool(row.is_active),
             'is_selectable': bool(row.is_selectable), 'owner_user_id': row.owner_user_id,
@@ -9979,7 +9980,7 @@ def _benchmark_options_payload(owner_id=None, ownership_context=None):
                 'id': row.pk, 'name': row.name, 'spec': row.spec,
                 'spec_key': _benchmark_resource_spec_key(row),
                 'canonical_spec': _benchmark_resource_spec_key(row),
-                'hero_talent_names': list(row.hero_talent_names or []),
+                'hero_talent_names': normalize_hero_subtree_names_zh(row.hero_talent_names),
                 'is_system': bool(row.is_system or row.owner_user_id is None),
             } for row in resources['talent_strings']],
         },

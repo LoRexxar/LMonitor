@@ -47,6 +47,18 @@ HERO_SUBTREE_NAME_ZH = {
     'Wildstalker': '荒野追猎者',
 }
 
+# 历史版本曾按英文直译并持久化这些名称。冻结的 Benchmark 结果不能原地改写，
+# 因此读取展示时统一投影到当前 Wowhead 简中名称。
+_LEGACY_HERO_SUBTREE_NAME_ZH = {
+    '奥达奇掠夺者': '奥达奇收割者',
+    '巨像': '巨神兵',
+    '邪痕者': '邪痕枭雄',
+    '太阳使者': '烈日先驱',
+    '圣光匠': '铸光者',
+    '兽群领袖': '猎群领袖',
+    '法术投射者': '疾咒师',
+}
+
 # 当前 DB2 TraitSubTree.csv 中 18-66 为 The War Within 英雄天赋树。
 HERO_SUBTREE_ID_TO_NAME = {
     18: 'Voidweaver',
@@ -139,7 +151,23 @@ def hero_subtree_name_zh(name):
     """返回英雄天赋树中文名；未收录时返回原名。"""
     if not name:
         return name
-    return HERO_SUBTREE_NAME_ZH.get(str(name).strip(), name)
+    normalized = str(name).strip()
+    return HERO_SUBTREE_NAME_ZH.get(
+        normalized,
+        _LEGACY_HERO_SUBTREE_NAME_ZH.get(normalized, normalized),
+    )
+
+
+def normalize_hero_subtree_names_zh(names):
+    """规范化用于展示的英雄天赋树名称列表，并保持原始顺序。"""
+    if not isinstance(names, (list, tuple)):
+        return []
+    normalized = []
+    for name in names:
+        title = hero_subtree_name_zh(name)
+        if title and title not in normalized:
+            normalized.append(title)
+    return normalized
 
 
 def hero_subtree_name_by_id(subtree_id):

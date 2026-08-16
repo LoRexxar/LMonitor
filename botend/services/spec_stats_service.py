@@ -895,7 +895,7 @@ def _hero_subtree_name_from_table(subtree_id):
             )
             for hero_name_zh, hero_name in cursor.fetchall():
                 raw_title = hero_name or ''
-                title = hero_name_zh or hero_subtree_name_zh(raw_title) or raw_title
+                title = hero_subtree_name_zh(hero_name_zh or raw_title) or raw_title
                 if not _is_placeholder_hero_subtree_name(title):
                     return title
     except Exception:
@@ -925,7 +925,7 @@ def _hero_subtree_display_title(class_name, spec_name, subtree_id, hero_index=No
         ).exclude(name='').values('name', 'name_zh').first()
         if anchor:
             anchor_name = anchor.get('name') or ''
-            return anchor.get('name_zh') or hero_subtree_name_zh(anchor_name) or anchor_name or _talent_tree_render_title('hero', hero_index)
+            return hero_subtree_name_zh(anchor.get('name_zh') or anchor_name) or anchor_name or _talent_tree_render_title('hero', hero_index)
     return _talent_tree_render_title('hero', hero_index)
 
 

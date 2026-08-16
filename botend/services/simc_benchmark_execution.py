@@ -17,6 +17,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Count, Prefetch
 from django.utils import timezone
 
+from botend.constants.hero_talents import normalize_hero_subtree_names_zh
 from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON
 from botend.models import (
     SimcBenchmarkCandidate, SimcBenchmarkCase, SimcBenchmarkExecution,
@@ -1438,8 +1439,10 @@ def _selected_plan_coordinate(cases, requested):
 
 def _hero_talent_label(result=None):
     """Return only the hero tree frozen on the immutable Benchmark Result."""
-    names = _normalized_hero_talent_names(
-        result.hero_talent_names if result is not None else []
+    names = normalize_hero_subtree_names_zh(
+        _normalized_hero_talent_names(
+            result.hero_talent_names if result is not None else []
+        )
     )
     return ' / '.join(names) if names else '无法获取'
 
