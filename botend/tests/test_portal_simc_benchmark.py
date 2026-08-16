@@ -853,6 +853,21 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertGreaterEqual(self.JS.count('coordinate?.audit'), 2)
         self.assertIn('nextCoordinate?.audit', self.JS)
 
+    def test_expanded_result_details_show_current_talent_and_hero_talent_names(self):
+        renderer_start = self.JS.index('function renderProfileDetails')
+        renderer_end = self.JS.index('\n  function renderCoordinate', renderer_start)
+        renderer = self.JS[renderer_start:renderer_end]
+        dashboard_js = (
+            self.ROOT / 'static/dashboard/js/simc-benchmark-dashboard.js'
+        ).read_text(encoding='utf-8')
+
+        self.assertIn('profileDetail?.talents?.name', renderer)
+        self.assertIn('["当前天赋", talentName]', renderer)
+        self.assertIn('["英雄天赋", heroTalent || "无法获取"]', renderer)
+        self.assertGreaterEqual(self.JS.count('coordinate?.labels?.hero_talent'), 4)
+        self.assertIn('profileDetail.talents?.name', dashboard_js)
+        self.assertIn('[["当前天赋",talentName],["英雄天赋",heroTalent]', dashboard_js)
+
     def test_profile_talent_code_is_read_only_with_separate_ptr_simulator_button(self):
         for contract in (
             'profileTalentSimulatorUrl', "params.set('class'", "params.set('spec'",

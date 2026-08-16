@@ -583,8 +583,8 @@ function renderOptionGainDetails(profileDetail,simulationDetail,audit,coordinate
   appendOptionGainDetailSection(body,'消耗品与临时附魔',[["合剂",consumable(consumables.flask)],["药水",consumable(consumables.potion)],["食物",consumable(consumables.food)],["增幅符文",consumable(consumables.augmentation)],["主手临时附魔",consumable(consumables.temporary_enchant?.main_hand)],["副手临时附魔",consumable(consumables.temporary_enchant?.off_hand)]]);
   const extraOptions=Array.isArray(simulationDetail.extra_options)?simulationDetail.extra_options.map(option=>option?.description?`${option?.label||option?.value} · ${option.description}`:(option?.label||option?.value)).filter(Boolean):[];
   appendOptionGainDetailSection(body,'APL 额外选项',[["使用选项",extraOptions.length?extraOptions.join('、'):'未启用']]);
-  const talentCode=profileDetail.talents?.build_code,heroTalent=coordinate?.labels?.hero_talent||'无法获取';
-  appendOptionGainDetailSection(body,'天赋',[["英雄天赋树",heroTalent],["Build Code",talentCode]]);
+  const talentName=profileDetail.talents?.name||'无法获取',talentCode=profileDetail.talents?.build_code,heroTalent=coordinate?.labels?.hero_talent||'无法获取';
+  appendOptionGainDetailSection(body,'天赋',[["当前天赋",talentName],["英雄天赋",heroTalent],["Build Code",talentCode]]);
   const equipment=Array.isArray(profileDetail.equipment)?profileDetail.equipment:[];
   if(equipment.length){ const section=el('section',{class:'benchmark-option-detail-section'}), list=el('div',{class:'benchmark-option-detail-equipment'}); equipment.forEach(item=>{ const name=item?.display_name||item?.name_zh||item?.name||`#${item?.item_id||'—'}`, meta=[item?.item_level?`装等 ${item.item_level}`:'',item?.enchant?.display_name?`附魔：${item.enchant.display_name}`:''].filter(Boolean).join(' · '), row=el('div',{class:'benchmark-option-detail-equipment-row'}); row.append(el('span',{class:'benchmark-option-detail-slot'},item?.slot_label||item?.slot||'装备'),el('strong',{},name)); if(meta) row.append(el('small',{},meta)); list.append(row); }); section.append(el('h5',{},`装备 (${equipment.length})`),list); body.append(section); }
   if(!body.childElementCount) body.append(el('p',{class:'benchmark-empty'},'该 Profile 没有可展示的配置内容'));

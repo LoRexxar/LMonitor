@@ -104,16 +104,21 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.benchmark_profile.save(update_fields=['talent_string'])
 
         execution = self._published_success(hero_talent_names=['屠戮者'])
-        task = execution.cases.select_related('task').get().task
+        task = execution.cases.select_related('task', 'task__talent_version').get().task
         result = execution.cases.get().results.get(candidate_key='baseline')
+        frozen_talent_name = task.talent_version.payload['name']
+        self.talent.name = '修改后的天赋名称'
         self.talent.hero_talent_names = ['修改后的来源名称']
-        self.talent.save(update_fields=['hero_talent_names'])
+        self.talent.save(update_fields=['name', 'hero_talent_names'])
         payload = serialize_incremental_panel_results(self.panel)
+        coordinate = payload['coordinates'][0]
 
         self.assertEqual(task.talent_string_id, self.talent.pk)
         self.assertIsNotNone(task.talent_version_id)
+        self.assertEqual(frozen_talent_name, 'Slayer talents')
+        self.assertEqual(coordinate['profile_detail']['talents']['name'], 'Slayer talents')
         self.assertEqual(result.hero_talent_names, ['屠戮者'])
-        self.assertEqual(payload['coordinates'][0]['labels']['hero_talent'], '屠戮者')
+        self.assertEqual(coordinate['labels']['hero_talent'], '屠戮者')
 
     def test_cancel_execution_fences_tasks_runs_and_releases_active_slot(self):
         execution = self._create()

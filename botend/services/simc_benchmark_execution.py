@@ -431,7 +431,7 @@ def _latest_source_tasks_by_coordinate(panel, coordinate_filter=None):
                 case_filters[key] = str(value)
     cases = SimcBenchmarkCase.objects.filter(**case_filters)
     cases = cases.select_related(
-        'task', 'task__profile_version', 'execution',
+        'task', 'task__profile_version', 'task__talent_version', 'execution',
     ).order_by(
         '-execution_id', '-id',
     )
@@ -1463,9 +1463,10 @@ def _coordinate_option(coordinate):
     }
 
 
-def _profile_detail_from_payload(payload, spec_key):
+def _profile_detail_from_payload(payload, spec_key, talent_payload=None):
     """Project the immutable Profile snapshot used by a result-producing Task."""
     payload = payload if isinstance(payload, dict) else {}
+    talent_payload = talent_payload if isinstance(talent_payload, dict) else None
     detail = parse_manual_player_config(
         payload.get('player_equipment') or '', payload.get('spec') or spec_key,
     )
@@ -1475,8 +1476,13 @@ def _profile_detail_from_payload(payload, spec_key):
         identity['class_name'] = identity.get('class_name') or class_key
         identity['spec_key'] = identity.get('spec') or fallback_spec_key
         identity['spec'] = _spec_display_name(identity.get('spec'), spec_key)
-    if not detail['talents']['build_code']:
-        detail['talents']['build_code'] = payload.get('talent') or ''
+    profile_talent_code = detail['talents']['build_code'] or payload.get('talent') or ''
+    if talent_payload is not None:
+        detail['talents']['name'] = talent_payload.get('name') or '无法获取'
+        detail['talents']['build_code'] = talent_payload.get('talent') or profile_talent_code
+    else:
+        detail['talents']['name'] = 'Profile 默认天赋' if profile_talent_code else '无法获取'
+        detail['talents']['build_code'] = profile_talent_code
     is_ptr = payload.get('use_ptr') is True
     detail['is_ptr'] = is_ptr
     branch = 'ptr' if is_ptr else 'retail'
@@ -1665,11 +1671,17 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
         )
         source_result = source_match['result'] if source_match is not None else None
         profile_version = source_task.profile_version if source_task is not None else None
-        detail_key = (profile_id, profile_version.pk if profile_version is not None else None)
+        talent_version = source_task.talent_version if source_task is not None else None
+        detail_key = (
+            profile_id,
+            profile_version.pk if profile_version is not None else None,
+            talent_version.pk if talent_version is not None else None,
+        )
         if detail_key not in profile_details:
             if profile_version is not None:
                 profile_details[detail_key] = _profile_detail_from_payload(
                     profile_version.payload, coordinate['spec_key'],
+                    talent_version.payload if talent_version is not None else None,
                 )
             else:
                 profile = profiles.get(profile_id)
