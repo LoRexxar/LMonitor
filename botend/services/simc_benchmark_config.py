@@ -23,7 +23,7 @@ from botend.constants.wow import SPEC_CN
 from botend.models import (
     SimcApl, SimcBackendBinary, SimcBenchmarkCandidate, SimcBenchmarkPanel,
     SimcBenchmarkProfile, SimcBenchmarkScenario, SimcBenchmarkSpec,
-    SimcContentTemplate, SimcProfile, WowItemSnapshot,
+    SimcContentTemplate, SimcProfile, SimcTalentString, WowItemSnapshot,
 )
 from botend.services.simc_player_config import (
     EQUIPMENT_SLOTS, EQUIPMENT_SLOT_ALIASES, canonical_simc_profile_identity,
@@ -111,6 +111,8 @@ def benchmark_resource_access_q(kind, user_id=None):
         return Q(is_active=True) & (Q(is_system=False) | Q(is_selectable=True))
     if kind == 'profile':
         return Q(is_active=True)
+    if kind == 'talent':
+        return Q(is_active=True, is_selectable=True)
     raise ValueError(f'unknown benchmark resource kind: {kind}')
 
 
@@ -121,6 +123,7 @@ def benchmark_resource_querysets(user_id=None):
         'templates': (SimcContentTemplate, 'template'),
         'apls': (SimcApl, 'apl'),
         'profiles': (SimcProfile, 'profile'),
+        'talent_strings': (SimcTalentString, 'talent'),
     }
     return {
         name: model.objects.filter(benchmark_resource_access_q(kind, user_id)).order_by('name', 'id')
@@ -617,7 +620,7 @@ def normalize_panel_payload(payload, user_id, panel=None):
             if type(profile_raw) is int:
                 profile_raw = {'profile_id': profile_raw}
             profile_raw = _require_dict(profile_raw, f'profiles[{profile_index}]')
-            unknown_profile = set(profile_raw) - {'profile_id', 'label', 'is_enabled', 'display_order'}
+            unknown_profile = set(profile_raw) - {'profile_id', 'label', 'talent_string_id', 'is_enabled', 'display_order'}
             if unknown_profile: _error('profile 包含未知字段', 'profiles')
             profile = _resource(SimcProfile, profile_raw.get('profile_id'), 'profile', user_id)
             if profile.pk in seen_profiles: _error('profiles 包含重复 Profile', 'profiles')
@@ -626,10 +629,16 @@ def normalize_panel_payload(payload, user_id, panel=None):
             if profile_class and profile_class != expected_class:
                 _error('Profile 职业不一致', 'profiles')
             if not _same_profile_spec(profile, expected_class, expected_spec): _error('Profile 专精不一致', 'profiles')
+            talent = None
+            if profile_raw.get('talent_string_id') is not None:
+                talent = _resource(SimcTalentString, profile_raw['talent_string_id'], 'talent', user_id)
+                if str(talent.spec).strip().lower() not in {expected_spec, spec_key}:
+                    _error('天赋字符串专精不一致', 'talent_string_id')
             normalized_profiles.append({
                 'profile_id': profile.pk,
                 'label': _text(profile_raw.get('label', profile.name), 'profile.label',
                                max_length=200),
+                'talent_string_id': talent.pk if talent else None,
                 'is_enabled': _strict_bool(profile_raw.get('is_enabled'), 'profile.is_enabled', True),
                 'display_order': _order(profile_raw.get('display_order'), 'profile.display_order', profile_index),
             })
@@ -823,7 +832,11 @@ def replace_panel_config(payload, user_id, panel=None):
                 profiles = spec_data.pop('profiles')
                 spec = _save_clean(SimcBenchmarkSpec(panel=panel, **spec_data))
                 for profile_data in profiles:
-                    _save_clean(SimcBenchmarkProfile(panel_spec=spec, **profile_data))
+                    talent_string_id = profile_data.pop('talent_string_id', None)
+                    _save_clean(SimcBenchmarkProfile(
+                        panel_spec=spec, talent_string_id=talent_string_id,
+                        **profile_data,
+                    ))
             for scenario_data in snapshot['scenarios']:
                 _save_clean(SimcBenchmarkScenario(panel=panel, **scenario_data))
             for candidate_data in snapshot['candidates']:
@@ -980,6 +993,10 @@ def _resource_display_snapshot(spec, selected):
             'sync_version': selected.profile.sync_version,
             'class_name': selected.profile.class_name, 'spec': selected.profile.spec,
         },
+        'talent_string': ({
+            'id': selected.talent_string_id, 'name': selected.talent_string.name,
+            'spec': selected.talent_string.spec,
+        } if selected.talent_string_id else None),
         'apl': {
             'id': spec.apl_id, 'name': spec.apl.name, 'source': spec.apl.source,
             'spec': spec.apl.spec, 'sync_version': spec.apl.sync_version,
@@ -1000,7 +1017,7 @@ def _resource_display_snapshot(spec, selected):
 
 
 def _panel_snapshot_queryset(*, enabled_only):
-    profile_rows = SimcBenchmarkProfile.objects.select_related('profile').order_by('display_order', 'id')
+    profile_rows = SimcBenchmarkProfile.objects.select_related('profile', 'talent_string').order_by('display_order', 'id')
     specs = SimcBenchmarkSpec.objects.select_related('apl', 'template', 'backend').order_by('display_order', 'id')
     scenarios = SimcBenchmarkScenario.objects.order_by('display_order', 'id')
     candidates = SimcBenchmarkCandidate.objects.order_by('display_order', 'id')
@@ -1072,12 +1089,15 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
         backends = SimcBackendBinary.objects.in_bulk({row.backend_id for row in specs})
         profile_rows = [selected for row in specs for selected in row._snapshot_profiles]
         profiles = SimcProfile.objects.in_bulk({row.profile_id for row in profile_rows})
+        talents = SimcTalentString.objects.in_bulk({row.talent_string_id for row in profile_rows if row.talent_string_id})
         for row in specs:
             row.apl = apls[row.apl_id]
             row.template = templates[row.template_id]
             row.backend = backends[row.backend_id]
         for row in profile_rows:
             row.profile = profiles[row.profile_id]
+            if row.talent_string_id:
+                row.talent_string = talents[row.talent_string_id]
     if not specs: _error('没有 enabled 专精，无法执行')
     if not scenarios: _error('没有 enabled 场景，无法执行')
     is_option_gain = panel.benchmark_type == SimcBenchmarkPanel.BENCHMARK_TYPE_OPTION_GAIN
@@ -1117,7 +1137,9 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
                     'class_name': spec.class_name,
                     'scenario_key': scenario.key, 'scenario_label': scenario.name,
                     'profile_key': str(selected.profile_id), 'profile_label': selected.profile.name,
-                    'profile_id': selected.profile_id, 'apl_id': spec.apl_id,
+                    'profile_id': selected.profile_id,
+                    'talent_string_id': selected.talent_string_id,
+                    'apl_id': spec.apl_id,
                     'template_id': spec.template_id, 'backend_id': spec.backend_id,
                     'simulation_params': simulation_params,
                     'candidates': deepcopy(case_candidates),
@@ -1176,6 +1198,8 @@ def serialize_panel_config(panel):
             'profiles': [{
                 'id': selected.pk, 'profile_id': selected.profile_id,
                 'label': selected.label, 'profile_name': selected.profile.name,
+                'talent_string_id': selected.talent_string_id,
+                'talent_string_name': selected.talent_string.name if selected.talent_string_id else '',
                 'is_enabled': selected.is_enabled, 'display_order': selected.display_order,
             } for selected in spec._snapshot_profiles],
         })

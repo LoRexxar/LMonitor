@@ -411,6 +411,15 @@ class SimcTalentStringSaveTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['data']['hero_talent_names'], ['山丘领主'])
+        row = SimcTalentString.objects.get()
+        self.assertEqual(row.hero_talent_names, ['山丘领主'])
+
+        build_api_view.reset_mock()
+        list_response = self.client.get('/api/simc-talent-string/')
+
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(list_response.json()['data'][0]['hero_talent_names'], ['山丘领主'])
+        build_api_view.assert_not_called()
 
 
 class SimcProfileResourceListTests(TestCase):

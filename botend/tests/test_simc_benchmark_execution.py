@@ -18,7 +18,7 @@ from botend.models import (
     SimcBenchmarkExecution, SimcBenchmarkPanel, SimcBenchmarkProfile,
     SimcBenchmarkResult,
     SimcBenchmarkScenario, SimcBenchmarkSpec, SimcContentTemplate, SimcProfile,
-    SimcTask, SimcTaskArtifact, SimulationRun, WowItemSnapshot,
+    SimcTalentString, SimcTask, SimcTaskArtifact, SimulationRun, WowItemSnapshot,
 )
 from botend.services.simc_benchmark_execution import (
     BenchmarkExecutionConflict, backfill_completed_case_results, cancel_execution,
@@ -51,6 +51,10 @@ class SimcBenchmarkExecutionTests(TestCase):
             user_id=self.user_id, name='Profile', class_name='warrior',
             spec='warrior_fury', is_active=True,
         )
+        self.talent = SimcTalentString.objects.create(
+            name='Slayer talents', spec='warrior_fury', talent='CYEAoonA',
+            owner_user_id=self.user_id,
+        )
         self.panel = SimcBenchmarkPanel.objects.create(
             name='Weekly', slug='weekly-execution', created_by_id=self.user_id,
             is_active=True, schedule_enabled=True,
@@ -59,7 +63,7 @@ class SimcBenchmarkExecutionTests(TestCase):
             panel=self.panel, class_name='warrior', spec_key='warrior_fury',
             label='Fury', apl=self.apl, template=self.template, backend=self.backend,
         )
-        SimcBenchmarkProfile.objects.create(
+        self.benchmark_profile = SimcBenchmarkProfile.objects.create(
             panel_spec=spec, profile=self.profile, label='Raid profile',
         )
         SimcBenchmarkScenario.objects.create(
@@ -92,6 +96,15 @@ class SimcBenchmarkExecutionTests(TestCase):
             return create_execution(
                 self.panel, requested_by=self.user_id, **kwargs,
             )
+
+    def test_selected_talent_string_is_frozen_on_created_task(self):
+        self.benchmark_profile.talent_string = self.talent
+        self.benchmark_profile.save(update_fields=['talent_string'])
+        execution = self._create()
+
+        task = execution.cases.select_related('task').get().task
+        self.assertEqual(task.talent_string_id, self.talent.pk)
+        self.assertIsNotNone(task.talent_version_id)
 
     def test_cancel_execution_fences_tasks_runs_and_releases_active_slot(self):
         execution = self._create()

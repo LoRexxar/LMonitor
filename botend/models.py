@@ -1412,6 +1412,7 @@ class SimcTalentString(models.Model):
     name = models.CharField(max_length=200)
     spec = models.CharField(max_length=100, default='fury')
     talent = models.CharField(max_length=2000)
+    hero_talent_names = models.JSONField(default=list, blank=True)
     owner_user_id = models.IntegerField(null=True, blank=True)
     is_system = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
@@ -1811,6 +1812,10 @@ class SimcBenchmarkProfile(models.Model):
     )
     profile = models.ForeignKey(
         SimcProfile, on_delete=models.PROTECT, related_name='benchmark_profiles',
+    )
+    talent_string = models.ForeignKey(
+        'SimcTalentString', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='benchmark_profiles',
     )
     label = models.CharField(max_length=200)
     is_enabled = models.BooleanField(default=True)

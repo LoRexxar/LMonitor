@@ -174,6 +174,7 @@ def _safe_snapshot(panel, plan, *, execution_mode='supplement'):
         resource_key = _canonical_hash({
             'backend_id': row['backend_id'], 'profile_id': row['profile_id'],
             'apl_id': row['apl_id'], 'template_id': row['template_id'],
+            'talent_string_id': row.get('talent_string_id'),
         })
         resources.setdefault(resource_key, deepcopy(row['resources']))
         profiles.setdefault(row['profile_key'], {
@@ -628,7 +629,8 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
     preflight_errors = {}
     for coordinate in optimistic_plan['cases']:
         key = (coordinate['backend_id'], coordinate['profile_id'],
-               coordinate['apl_id'], coordinate['template_id'])
+               coordinate['apl_id'], coordinate['template_id'],
+               coordinate.get('talent_string_id'))
         if key in prepared_by_resources or key in preflight_errors:
             continue
         try:
@@ -636,6 +638,7 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
                 current_panel.created_by_id, coordinate['profile_id'],
                 coordinate['template_id'], coordinate['apl_id'],
                 backend_id=coordinate['backend_id'],
+                talent_string_id=coordinate.get('talent_string_id'),
                 is_admin=True,
             )
         except TaskPreparedResourceChanged as exc:
@@ -688,7 +691,8 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
             )
         for coordinate in locked_plan['cases']:
             key = (coordinate['backend_id'], coordinate['profile_id'],
-                   coordinate['apl_id'], coordinate['template_id'])
+                   coordinate['apl_id'], coordinate['template_id'],
+                   coordinate.get('talent_string_id'))
             prepared = prepared_by_resources.get(key)
             if prepared is None:
                 continue
@@ -737,7 +741,8 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
         try:
             for coordinate in execution_coordinates:
                 key = (coordinate['backend_id'], coordinate['profile_id'],
-                       coordinate['apl_id'], coordinate['template_id'])
+                       coordinate['apl_id'], coordinate['template_id'],
+                       coordinate.get('talent_string_id'))
                 preflight_error = preflight_errors.get(key)
                 if preflight_error is not None:
                     SimcBenchmarkCase.objects.create(
@@ -756,6 +761,7 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
                     name=_task_name(locked_panel.pk, execution.pk, coordinate),
                     profile_id=coordinate['profile_id'], template_id=coordinate['template_id'],
                     apl_id=coordinate['apl_id'], backend_id=coordinate['backend_id'],
+                    talent_string_id=coordinate.get('talent_string_id'),
                     mode='comparison',
                     simulation_params=deepcopy(coordinate['simulation_params']),
                     mode_params={'request_manifest': {
@@ -991,6 +997,7 @@ def rerun_failed_cases(execution, requested_by=None, case_id=None):
             resource_key = (
                 coordinate['backend_id'], coordinate['profile_id'],
                 coordinate['apl_id'], coordinate['template_id'],
+                coordinate.get('talent_string_id'),
             )
             resource_key_by_coordinate[coordinate_key] = resource_key
             if resource_key in prepared_by_resources or resource_key in preflight_errors:
@@ -1000,6 +1007,7 @@ def rerun_failed_cases(execution, requested_by=None, case_id=None):
                     preliminary_panel.created_by_id, coordinate['profile_id'],
                     coordinate['template_id'], coordinate['apl_id'],
                     backend_id=coordinate['backend_id'],
+                    talent_string_id=coordinate.get('talent_string_id'),
                     is_admin=True,
                 )
             except (TaskPreparedResourceChanged, TaskValidationUnavailable,
@@ -1124,6 +1132,7 @@ def rerun_failed_cases(execution, requested_by=None, case_id=None):
                         template_id=current_coordinate['template_id'],
                         apl_id=current_coordinate['apl_id'],
                         backend_id=current_coordinate['backend_id'],
+                        talent_string_id=current_coordinate.get('talent_string_id'),
                         mode='comparison',
                         simulation_params=deepcopy(current_coordinate['simulation_params']),
                         mode_params={'request_manifest': {
