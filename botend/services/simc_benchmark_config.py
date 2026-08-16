@@ -996,6 +996,7 @@ def _resource_display_snapshot(spec, selected):
         'talent_string': ({
             'id': selected.talent_string_id, 'name': selected.talent_string.name,
             'spec': selected.talent_string.spec,
+            'hero_talent_names': list(selected.talent_string.hero_talent_names or []),
         } if selected.talent_string_id else None),
         'apl': {
             'id': spec.apl_id, 'name': spec.apl.name, 'source': spec.apl.source,

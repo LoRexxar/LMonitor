@@ -323,7 +323,12 @@ def _build_apl_payload(apl: SimcApl) -> dict:
 
 
 def _build_talent_payload(talent: SimcTalentString) -> dict:
-    return {'name': talent.name, 'spec': talent.spec, 'talent': talent.talent}
+    return {
+        'name': talent.name,
+        'spec': talent.spec,
+        'talent': talent.talent,
+        'hero_talent_names': list(talent.hero_talent_names or []),
+    }
 
 
 def _normalize_params(params: Optional[Dict[str, Any]], whitelist: set) -> Optional[Dict[str, Any]]:

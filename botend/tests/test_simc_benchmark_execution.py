@@ -97,14 +97,21 @@ class SimcBenchmarkExecutionTests(TestCase):
                 self.panel, requested_by=self.user_id, **kwargs,
             )
 
-    def test_selected_talent_string_is_frozen_on_created_task(self):
+    def test_selected_talent_string_is_frozen_and_projected_as_hero_subtitle(self):
+        self.talent.hero_talent_names = ['斩杀者']
+        self.talent.save(update_fields=['hero_talent_names'])
         self.benchmark_profile.talent_string = self.talent
         self.benchmark_profile.save(update_fields=['talent_string'])
-        execution = self._create()
 
+        execution = self._published_success()
         task = execution.cases.select_related('task').get().task
+        self.talent.hero_talent_names = ['山丘领主']
+        self.talent.save(update_fields=['hero_talent_names'])
+        payload = serialize_incremental_panel_results(self.panel)
+
         self.assertEqual(task.talent_string_id, self.talent.pk)
         self.assertIsNotNone(task.talent_version_id)
+        self.assertEqual(payload['coordinates'][0]['labels']['hero_talent'], '斩杀者')
 
     def test_cancel_execution_fences_tasks_runs_and_releases_active_slot(self):
         execution = self._create()

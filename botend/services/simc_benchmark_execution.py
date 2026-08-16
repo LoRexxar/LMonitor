@@ -1436,6 +1436,22 @@ def _selected_plan_coordinate(cases, requested):
     )
 
 
+def _hero_talent_label(coordinate, task=None):
+    """Return the hero tree frozen for a result; never infer history from mutable config."""
+    names = []
+    if task is not None:
+        if task.talent_version_id:
+            payload = task.talent_version.payload
+            if isinstance(payload, dict):
+                names = payload.get('hero_talent_names') or []
+    else:
+        resources = coordinate.get('resources') or {}
+        talent = resources.get('talent_string') or {}
+        names = talent.get('hero_talent_names') or []
+    normalized = [str(name).strip() for name in names if str(name).strip()]
+    return ' / '.join(normalized) if normalized else 'Profile 默认'
+
+
 def _coordinate_option(coordinate):
     params = coordinate.get('simulation_params') or {}
     return {
@@ -1446,6 +1462,7 @@ def _coordinate_option(coordinate):
             'spec': _spec_display_name(coordinate['spec_label'], coordinate['spec_key']),
             'scenario': coordinate['scenario_label'],
             'profile': coordinate['profile_label'],
+            'hero_talent': _hero_talent_label(coordinate),
         },
         'scenario_detail': {
             'desired_targets': params.get('desired_targets', 1),
@@ -1751,6 +1768,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                 'spec': _spec_display_name(coordinate['spec_label'], coordinate['spec_key']),
                 'scenario': coordinate['scenario_label'],
                 'profile': coordinate['profile_label'],
+                'hero_talent': _hero_talent_label(coordinate, source_task),
             },
             'profile_detail': profile_details[detail_key],
             'simulation_detail': _simulation_detail_from_task(

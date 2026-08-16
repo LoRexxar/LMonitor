@@ -9997,6 +9997,7 @@ def _benchmark_options_payload(owner_id=None, ownership_context=None):
                 'id': row.pk, 'name': row.name, 'spec': row.spec,
                 'spec_key': _benchmark_resource_spec_key(row),
                 'canonical_spec': _benchmark_resource_spec_key(row),
+                'hero_talent_names': list(row.hero_talent_names or []),
                 'is_system': bool(row.is_system or row.owner_user_id is None),
             } for row in resources['talent_strings']],
         },
