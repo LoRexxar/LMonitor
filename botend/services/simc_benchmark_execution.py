@@ -473,7 +473,7 @@ def _reusable_candidate_tasks_by_coordinate(
     cases = SimcBenchmarkCase.objects.filter(**case_filters)
     cases = cases.select_related(
         'task', 'task__profile_version', 'task__apl_version',
-        'task__template_version', 'execution',
+        'task__template_version', 'task__talent_version', 'execution',
     ).prefetch_related('results').order_by(
         '-execution_id', '-id',
     ).distinct()
