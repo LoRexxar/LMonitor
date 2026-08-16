@@ -9857,7 +9857,7 @@ def _benchmark_resource_spec_key(row, *, allow_generic=False):
     raw_spec = str(row.spec or '').strip().lower()
     if allow_generic and raw_spec in {'', 'generic', 'default', 'all', '*'}:
         return ''
-    resolved = canonical_simc_profile_identity(raw_spec, row.class_name)
+    resolved = canonical_simc_profile_identity(raw_spec, getattr(row, 'class_name', ''))
     if resolved not in SUPPORTED_SIMC_SPEC_IDENTITIES:
         return ''
     return f'{resolved[0]}_{resolved[1]}'

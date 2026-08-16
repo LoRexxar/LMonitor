@@ -8,7 +8,7 @@ from django.test.utils import CaptureQueriesContext
 
 from botend.models import (
     SimcApl, SimcBackendBinary, SimcBenchmarkPanel, SimcContentTemplate,
-    SimcProfile,
+    SimcProfile, SimcTalentString,
 )
 from botend.services.simc_benchmark_config import (
     MAX_PROFILES_PER_SPEC, MAX_SCENARIOS, MAX_SPECS,
@@ -131,6 +131,20 @@ class SimcBenchmarkOptionsApiTests(TestCase):
             next(row for row in specs if row['value'] == 'priest_holy')['role'],
             'healer',
         )
+
+    def test_options_project_talent_string_without_profile_class_field(self):
+        talent = SimcTalentString.objects.create(
+            name='Fury talent', spec='warrior_fury', talent='BUILD',
+            owner_user_id=self.owner.id, is_active=True, is_selectable=True,
+        )
+
+        response = self.client.get('/api/simc-benchmarks/options/')
+
+        self.assertEqual(response.status_code, 200)
+        rows = response.json()['data']['resources']['talent_strings']
+        projected = next(row for row in rows if row['id'] == talent.id)
+        self.assertEqual(projected['spec_key'], 'warrior_fury')
+        self.assertEqual(projected['canonical_spec'], 'warrior_fury')
 
     def test_options_publish_exact_fight_styles_accepted_by_current_simc_source(self):
         data = self.client.get('/api/simc-benchmarks/options/').json()['data']
