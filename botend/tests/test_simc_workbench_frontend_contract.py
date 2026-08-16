@@ -1239,7 +1239,9 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
         self.assertIn('data-talent-string-action="copy-code"', listing)
         self.assertNotIn('data-talent-string-action="copy"', listing)
         self.assertIn('navigator.clipboard.writeText(row.talent)', MAIN)
-        self.assertNotIn("action === 'copy'", MAIN)
+        self.assertIn('parseSimcTalentStringResponse', MAIN)
+        self.assertIn("response.status === 403 ? '请求被拒绝，请刷新页面后重试'", MAIN)
+        self.assertNotIn("const result = await response.json();", MAIN[MAIN.index('async function saveSimcTalentString'):MAIN.index('function bindSimcTalentStringControls')])
 
     def test_dialog_has_keyboard_focus_scroll_and_mobile_contract(self):
         for token in (

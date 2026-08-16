@@ -1795,14 +1795,30 @@ function simcTalentStringOpenEditor(row = null) {
     document.getElementById('simc-talent-string-cancel').addEventListener('click', closeSimcWorkbenchDialog);
     document.getElementById('simc-talent-string-save').addEventListener('click', saveSimcTalentString);
 }
+async function parseSimcTalentStringResponse(response) {
+    const text = await response.text();
+    let result;
+    try {
+        result = text ? JSON.parse(text) : {};
+    } catch (_) {
+        throw new Error(response.status === 403 ? '请求被拒绝，请刷新页面后重试' : `服务器返回了非 JSON 响应（HTTP ${response.status}）`);
+    }
+    if (!response.ok) throw new Error(result.error || result.detail || `请求失败（HTTP ${response.status}）`);
+    return result;
+}
+
 async function saveSimcTalentString() {
     const payload = { name: document.getElementById('simc-talent-string-name').value.trim(), spec: document.getElementById('simc-talent-string-spec').value, talent: document.getElementById('simc-talent-string-talent').value.trim() };
     if (!payload.name || !payload.talent) return showMessage('请填写名称和天赋字符串', 'error');
     if (simcTalentStringEditId) payload.id = simcTalentStringEditId;
-    const response = await fetch('/api/simc-talent-string/', { method: simcTalentStringEditId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() }, body: JSON.stringify(payload) });
-    const result = await response.json();
-    if (!result.success) return showMessage(result.error || '保存失败', 'error');
-    closeSimcWorkbenchDialog(); showMessage(result.message || '已保存', 'success'); loadSimcTalentStrings();
+    try {
+        const response = await fetch('/api/simc-talent-string/', { method: simcTalentStringEditId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() }, body: JSON.stringify(payload) });
+        const result = await parseSimcTalentStringResponse(response);
+        if (!result.success) return showMessage(result.error || '保存失败', 'error');
+        closeSimcWorkbenchDialog(); showMessage(result.message || '已保存', 'success'); loadSimcTalentStrings();
+    } catch (error) {
+        showMessage(error.message || '保存失败，请稍后重试', 'error');
+    }
 }
 function bindSimcTalentStringControls() {
     const specFilter = document.getElementById('simc-talent-string-spec-filter');
