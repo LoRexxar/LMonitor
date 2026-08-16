@@ -1226,6 +1226,13 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
         self.assertIn("body.querySelector('#simc-talent-string-spec')", editor)
         self.assertNotIn("document.getElementById('simc-talent-string-spec')", editor)
 
+    def test_talent_string_list_has_copy_code_action(self):
+        list_start = MAIN.index('function loadSimcTalentStrings()')
+        list_end = MAIN.index('function simcTalentStringOpenEditor(', list_start)
+        listing = MAIN[list_start:list_end]
+        self.assertIn('data-talent-string-action="copy-code"', listing)
+        self.assertIn('navigator.clipboard.writeText(row.talent)', MAIN)
+
     def test_dialog_has_keyboard_focus_scroll_and_mobile_contract(self):
         for token in (
             'function openSimcWorkbenchDialog(',
