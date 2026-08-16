@@ -58,7 +58,7 @@ from botend.services.simc_composer import SimcComposer, validate_simulation_opti
 from botend.wow.talents.service import TalentBuildCodeService
 from botend.services.simc_consumables import simc_consumable_option
 from botend.services.simc_benchmark_config import SIMC_RAID_BUFFS
-from botend.services.spec_stats_service import SpecStatsService
+from botend.services.spec_stats_service import SpecStatsService, _hero_subtree_name_from_table
 from botend.services.simc_task_service import create_task, create_task_from_request, TaskCreationError
 from botend.services.simc_attribute_search import (
     ATTRIBUTE_DPS_TOLERANCE as SIMC_ATTRIBUTE_DPS_TOLERANCE,
@@ -207,10 +207,19 @@ def _resolve_simc_talent_hero_names(spec, talent):
         usage='simulator',
     )
     render_model = payload.get('talent_render_model') or {}
-    return [
-        str(tree.get('title') or '').strip()
+    subtree_ids = {
+        node.get('db2_subtree_id')
         for tree in render_model.get('trees') or []
-        if tree.get('tree_type') == 'hero' and str(tree.get('title') or '').strip()
+        if tree.get('tree_type') == 'hero'
+        for node in tree.get('nodes') or []
+        if node.get('tree_type') == 'hero'
+        and node.get('db2_subtree_id')
+        and (node.get('selected') or int(node.get('points') or 0) > 0)
+    }
+    return [
+        name
+        for subtree_id in sorted(subtree_ids)
+        if (name := _hero_subtree_name_from_table(subtree_id))
     ]
 
 

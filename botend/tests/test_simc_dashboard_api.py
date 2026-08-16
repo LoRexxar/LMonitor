@@ -356,6 +356,33 @@ class SimcTalentStringSaveTests(TestCase):
         self.assertEqual(row.name, '原天赋')
         self.assertEqual(row.talent, 'ORIGINAL_CODE')
 
+    @patch('botend.dashboard.api._hero_subtree_name_from_table', return_value='山丘领主')
+    @patch('botend.dashboard.api.TalentBuildCodeService.build_api_view')
+    def test_create_returns_resolved_hero_subtree_name(self, build_api_view, _hero_name):
+        build_api_view.return_value = {
+            'talent_render_model': {
+                'trees': [{
+                    'tree_type': 'hero',
+                    'title': '英雄天赋',
+                    'nodes': [{
+                        'tree_type': 'hero',
+                        'db2_subtree_id': 61,
+                        'selected': True,
+                        'points': 1,
+                    }],
+                }],
+            },
+        }
+
+        response = self.client.post('/api/simc-talent-string/', data=json.dumps({
+            'name': '山丘大米',
+            'spec': 'warrior_fury',
+            'talent': 'VALID_CODE',
+        }), content_type='application/json')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['data']['hero_talent_names'], ['山丘领主'])
+
 
 class SimcProfileResourceListTests(TestCase):
     def setUp(self):
