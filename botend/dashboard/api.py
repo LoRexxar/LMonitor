@@ -223,6 +223,18 @@ def _resolve_simc_talent_hero_names(spec, talent):
     ]
 
 
+def _detect_simc_talent_spec(talent):
+    """Detect the canonical spec by parsing the import string against the spec catalog."""
+    for candidate in SIMC_SPEC_OPTIONS:
+        spec = candidate['value']
+        try:
+            if _resolve_simc_talent_hero_names(spec, talent):
+                return spec
+        except Exception:
+            continue
+    return ''
+
+
 def _simc_talent_string_details(row):
     """Keep legacy rows readable even when their talent code no longer parses."""
     try:
@@ -4918,8 +4930,12 @@ class SimcTalentStringAPIView(View):
             name = str(data.get('name') or (f'{source.name} 副本' if source else '')).strip()
             spec = str(data.get('spec') or (source.spec if source else '')).strip().lower()
             talent = str(data.get('talent') if 'talent' in data else (source.talent if source else '') or '').strip()
-            if not name or not spec or not talent:
-                return JsonResponse({'success': False, 'error': '名称、专精和天赋字符串不能为空'}, status=400)
+            if not name or not talent:
+                return JsonResponse({'success': False, 'error': '名称和天赋字符串不能为空'}, status=400)
+            if not spec:
+                spec = _detect_simc_talent_spec(talent)
+                if not spec:
+                    return JsonResponse({'success': False, 'error': '无法根据天赋字符串识别专精，请手动选择专精'}, status=400)
             if spec not in SIMC_SPEC_VALUES:
                 return JsonResponse({'success': False, 'error': '必须选择有效的专精'}, status=400)
             _validate_simc_talent_hero_tree(spec, talent)

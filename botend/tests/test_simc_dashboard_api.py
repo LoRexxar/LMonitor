@@ -358,6 +358,26 @@ class SimcTalentStringSaveTests(TestCase):
 
     @patch('botend.dashboard.api._hero_subtree_name_from_table', return_value='山丘领主')
     @patch('botend.dashboard.api.TalentBuildCodeService.build_api_view')
+    def test_create_auto_detects_spec_when_spec_is_omitted(self, build_api_view, _hero_name):
+        def parse_for_spec(**kwargs):
+            if kwargs['spec_name'] != 'Arms':
+                return {'talent_render_model': {'trees': []}}
+            return {'talent_render_model': {'trees': [{
+                'tree_type': 'hero',
+                'nodes': [{'tree_type': 'hero', 'db2_subtree_id': 61, 'selected': True, 'points': 1}],
+            }]}}
+
+        build_api_view.side_effect = parse_for_spec
+        response = self.client.post('/api/simc-talent-string/', data=json.dumps({
+            'name': '自动识别专精',
+            'talent': 'VALID_CODE',
+        }), content_type='application/json')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['data']['spec'], 'warrior_arms')
+
+    @patch('botend.dashboard.api._hero_subtree_name_from_table', return_value='山丘领主')
+    @patch('botend.dashboard.api.TalentBuildCodeService.build_api_view')
     def test_create_returns_resolved_hero_subtree_name(self, build_api_view, _hero_name):
         build_api_view.return_value = {
             'talent_render_model': {

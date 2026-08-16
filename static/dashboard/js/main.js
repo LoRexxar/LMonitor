@@ -1785,7 +1785,7 @@ function simcTalentStringOpenEditor(row = null) {
     const body = document.getElementById('simc-dialog-body');
     if (!title || !body) return;
     title.textContent = row ? '编辑天赋字符串' : '新增天赋字符串';
-    body.innerHTML = `<div class="space-y-4"><div class="grid gap-3 sm:grid-cols-2"><label class="text-sm">名称<input id="simc-talent-string-name" class="mt-1 w-full rounded-lg border px-3 py-2" value="${escapeHtml(row?.name || '')}"></label><label class="text-sm">专精<select id="simc-talent-string-spec" class="mt-1 w-full rounded-lg border px-3 py-2"></select></label></div><label class="block text-sm">天赋字符串<textarea id="simc-talent-string-talent" rows="5" class="mt-1 w-full rounded-lg border px-3 py-2 font-mono text-xs">${escapeHtml(row?.talent || '')}</textarea></label><div class="flex justify-end gap-2"><button type="button" id="simc-talent-string-cancel" class="rounded-lg border bg-white px-3 py-2 text-sm">取消</button><button type="button" id="simc-talent-string-save" class="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">保存</button></div></div>`;
+    body.innerHTML = `<div class="space-y-4"><div class="grid gap-3 sm:grid-cols-2"><label class="text-sm">名称<input id="simc-talent-string-name" class="mt-1 w-full rounded-lg border px-3 py-2" value="${escapeHtml(row?.name || '')}"></label><label class="text-sm">专精（可选，留空自动识别）<select id="simc-talent-string-spec" class="mt-1 w-full rounded-lg border px-3 py-2"></select></label></div><label class="block text-sm">天赋字符串<textarea id="simc-talent-string-talent" rows="5" class="mt-1 w-full rounded-lg border px-3 py-2 font-mono text-xs">${escapeHtml(row?.talent || '')}</textarea></label><div class="flex justify-end gap-2"><button type="button" id="simc-talent-string-cancel" class="rounded-lg border bg-white px-3 py-2 text-sm">取消</button><button type="button" id="simc-talent-string-save" class="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">保存</button></div></div>`;
     loadSimcSpecOptions().then(rows => {
         const specSelect = body.querySelector('#simc-talent-string-spec');
         if (!specSelect) return;
@@ -1797,7 +1797,7 @@ function simcTalentStringOpenEditor(row = null) {
 }
 async function saveSimcTalentString() {
     const payload = { name: document.getElementById('simc-talent-string-name').value.trim(), spec: document.getElementById('simc-talent-string-spec').value, talent: document.getElementById('simc-talent-string-talent').value.trim() };
-    if (!payload.name || !payload.spec || !payload.talent) return showMessage('请填写名称、专精和天赋字符串', 'error');
+    if (!payload.name || !payload.talent) return showMessage('请填写名称和天赋字符串', 'error');
     if (simcTalentStringEditId) payload.id = simcTalentStringEditId;
     const response = await fetch('/api/simc-talent-string/', { method: simcTalentStringEditId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() }, body: JSON.stringify(payload) });
     const result = await response.json();

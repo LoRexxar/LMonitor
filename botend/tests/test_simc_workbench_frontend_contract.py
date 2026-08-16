@@ -1226,6 +1226,12 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
         self.assertIn("body.querySelector('#simc-talent-string-spec')", editor)
         self.assertNotIn("document.getElementById('simc-talent-string-spec')", editor)
 
+    def test_talent_string_editor_allows_auto_spec_detection(self):
+        editor_start = MAIN.index('function simcTalentStringOpenEditor(')
+        editor_end = MAIN.index('async function saveSimcTalentString()', editor_start)
+        editor = MAIN[editor_start:editor_end]
+        self.assertIn('专精（可选，留空自动识别）', editor)
+
     def test_talent_string_list_has_copy_code_action(self):
         list_start = MAIN.index('function loadSimcTalentStrings()')
         list_end = MAIN.index('function simcTalentStringOpenEditor(', list_start)
