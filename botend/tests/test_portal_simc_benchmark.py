@@ -667,6 +667,17 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIn('params.set("scenario"', self.JS)
         self.assertIn('纵轴：职业专精', self.JS)
 
+    def test_result_rankings_show_hero_talent_in_subtitle_instead_of_profile_name(self):
+        spec_start = self.JS.index('function renderSpecComparison')
+        spec_end = self.JS.index('\n  function renderOptionGain', spec_start)
+        gain_start = self.JS.index('function renderOptionGain')
+        gain_end = self.JS.index('\n  function renderOptionGainByScenario', gain_start)
+
+        for renderer in (self.JS[spec_start:spec_end], self.JS[gain_start:gain_end]):
+            self.assertIn('labels?.hero_talent', renderer)
+            self.assertIn('`英雄天赋：${heroTalent}`', renderer)
+            self.assertNotIn('simc-benchmark-spec-profile", profile', renderer)
+
     def test_option_gain_renderer_switches_between_configured_scenarios(self):
         portal_start = self.JS.index('function renderOptionGainByScenario')
         portal_end = self.JS.index('\n  function renderResults', portal_start)
@@ -706,7 +717,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             self.assertIn('simc-benchmark-spec-name', renderer)
             self.assertIn('simc-benchmark-spec-track', renderer)
             self.assertIn('simc-benchmark-spec-bar', renderer)
-            self.assertIn('profile_label', renderer)
+            self.assertIn('hero_talent', renderer)
             self.assertIn('aria-expanded', renderer)
             self.assertIn('profile_detail', renderer)
             self.assertIn('simulation_detail', renderer)

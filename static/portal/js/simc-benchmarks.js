@@ -579,8 +579,8 @@
         }
         const copy = node("div", "simc-benchmark-spec-copy");
         copy.appendChild(node("strong", "simc-benchmark-spec-name", coordinate?.labels?.spec || coordinate?.spec_key || "未知专精"));
-        const profile = coordinate?.labels?.profile || coordinate?.profile_key;
-        if (profile) copy.appendChild(node("small", "simc-benchmark-spec-profile", profile));
+        const heroTalent = coordinate?.labels?.hero_talent || "Profile 默认天赋";
+        copy.appendChild(node("small", "simc-benchmark-spec-profile", `英雄天赋：${heroTalent}`));
         identity.appendChild(copy);
         const track = node("div", "simc-benchmark-spec-track");
         const bar = node("div", "simc-benchmark-spec-bar");
@@ -715,6 +715,7 @@
       const comparisonDps = validDps(entry?.comparison_dps ?? entry?.enabled_dps) ?? 0;
       const hasGain = Number.isFinite(gainPercent);
       const isNegative = hasGain && gainPercent < 0;
+      const coordinate = coordinateFor(entry) || {};
       const row = node("div", "simc-benchmark-spec-row simc-benchmark-gain-row");
       const content = node("button", "simc-benchmark-spec-row-toggle simc-benchmark-gain-row-content");
       content.type = "button";
@@ -732,8 +733,8 @@
       }
       const copy = node("div", "simc-benchmark-spec-copy");
       copy.appendChild(node("strong", "simc-benchmark-spec-name", entry?.spec_label || entry?.spec_key || "未知专精"));
-      const profileLabel = entry?.profile_label || entry?.profile_key;
-      if (profileLabel) copy.appendChild(node("small", "simc-benchmark-spec-profile", profileLabel));
+      const heroTalent = coordinate?.labels?.hero_talent || "Profile 默认天赋";
+      copy.appendChild(node("small", "simc-benchmark-spec-profile", `英雄天赋：${heroTalent}`));
       identity.appendChild(copy);
       const track = node("div", "simc-benchmark-spec-track");
       const bar = node("div", `simc-benchmark-spec-bar simc-benchmark-gain-bar${isNegative ? " simc-benchmark-gain-bar--negative" : ""}`);
@@ -750,7 +751,6 @@
         `${numberFormat.format(baselineDps)} → ${numberFormat.format(comparisonDps)} DPS · ${gainDps >= 0 ? "+" : ""}${numberFormat.format(Number.isFinite(gainDps) ? gainDps : 0)} DPS`,
       ));
       content.append(identity, track, metrics);
-      const coordinate = coordinateFor(entry) || {};
       const profileDetails = renderProfileDetails(
         coordinate.profile_detail || {},
         coordinate.simulation_detail || {},
