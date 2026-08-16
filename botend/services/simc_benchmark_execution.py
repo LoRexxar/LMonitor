@@ -1436,20 +1436,12 @@ def _selected_plan_coordinate(cases, requested):
     )
 
 
-def _hero_talent_label(coordinate, task=None):
-    """Return the hero tree frozen for a result; never infer history from mutable config."""
-    names = []
-    if task is not None:
-        if task.talent_version_id:
-            payload = task.talent_version.payload
-            if isinstance(payload, dict):
-                names = payload.get('hero_talent_names') or []
-    else:
-        resources = coordinate.get('resources') or {}
-        talent = resources.get('talent_string') or {}
-        names = talent.get('hero_talent_names') or []
-    normalized = [str(name).strip() for name in names if str(name).strip()]
-    return ' / '.join(normalized) if normalized else 'Profile 默认'
+def _hero_talent_label(result=None):
+    """Return only the hero tree frozen on the immutable Benchmark Result."""
+    names = _normalized_hero_talent_names(
+        result.hero_talent_names if result is not None else []
+    )
+    return ' / '.join(names) if names else '无法获取'
 
 
 def _coordinate_option(coordinate):
@@ -1462,7 +1454,7 @@ def _coordinate_option(coordinate):
             'spec': _spec_display_name(coordinate['spec_label'], coordinate['spec_key']),
             'scenario': coordinate['scenario_label'],
             'profile': coordinate['profile_label'],
-            'hero_talent': _hero_talent_label(coordinate),
+            'hero_talent': _hero_talent_label(),
         },
         'scenario_detail': {
             'desired_targets': params.get('desired_targets', 1),
@@ -1646,15 +1638,32 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
     for coordinate in projected_cases:
         profile_id = coordinate['profile_id']
         reusable = _reusable_candidate_tasks(panel, coordinate, reusable_by_coordinate)
-        source_task = next(
+        baseline_candidate = next(
             (
-                reusable[identity]['task']
-                for candidate in coordinate['candidates']
-                for identity in [_candidate_input_identity(candidate)]
-                if identity in reusable
+                candidate for candidate in coordinate['candidates']
+                if candidate['candidate_key'] == 'baseline'
             ),
-            source_tasks_by_coordinate.get(_coordinate_input_identity(coordinate)),
+            None,
         )
+        source_match = (
+            reusable.get(_candidate_input_identity(baseline_candidate))
+            if baseline_candidate is not None else None
+        )
+        if source_match is None:
+            source_match = next(
+                (
+                    reusable[identity]
+                    for candidate in coordinate['candidates']
+                    for identity in [_candidate_input_identity(candidate)]
+                    if identity in reusable
+                ),
+                None,
+            )
+        source_task = (
+            source_match['task'] if source_match is not None
+            else source_tasks_by_coordinate.get(_coordinate_input_identity(coordinate))
+        )
+        source_result = source_match['result'] if source_match is not None else None
         profile_version = source_task.profile_version if source_task is not None else None
         detail_key = (profile_id, profile_version.pk if profile_version is not None else None)
         if detail_key not in profile_details:
@@ -1768,7 +1777,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                 'spec': _spec_display_name(coordinate['spec_label'], coordinate['spec_key']),
                 'scenario': coordinate['scenario_label'],
                 'profile': coordinate['profile_label'],
-                'hero_talent': _hero_talent_label(coordinate, source_task),
+                'hero_talent': _hero_talent_label(source_result),
             },
             'profile_detail': profile_details[detail_key],
             'simulation_detail': _simulation_detail_from_task(
@@ -2026,6 +2035,17 @@ def _runs_through_source_chain(task):
     return runs_by_key
 
 
+def _normalized_hero_talent_names(value):
+    if not isinstance(value, list):
+        return []
+    names = []
+    for item in value:
+        name = str(item or '').strip()
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
 def _summarize_live_execution(execution):
     """Derive state from Runs, using Task for abandoned Runs and zero-run terminal edges."""
     execution = _load_execution(execution)
@@ -2087,6 +2107,10 @@ def _summarize_live_execution(execution):
                 # Live DPS is internal reconciliation input, never display output.
                 'status': run_status, 'dps': None,
                 '_raw_dps': None if semantic_error else summary.get('dps'),
+                '_hero_talent_names': _normalized_hero_talent_names(
+                    (run.resource_manifest or {}).get('hero_talent_names')
+                    if isinstance(run.resource_manifest, dict) else []
+                ),
             })
         actual_keys = [run.candidate_key for run in ordered_runs]
         case_status = _case_status(
@@ -2138,6 +2162,9 @@ def _result_seal(rows, completed_at):
         'scenario_label': row['scenario_label'], 'profile_label': row['profile_label'],
         'status': row['status'], 'candidate_key': row['candidate_key'],
         'dps': float(row['dps']),
+        'hero_talent_names': _normalized_hero_talent_names(
+            row.get('hero_talent_names')
+        ),
     } for row in rows]})
 
 
@@ -2234,6 +2261,9 @@ def _summarize_persisted_execution(execution):
             'key': result.candidate_key,
             'label': labels.get(result.candidate_key, result.candidate_key),
             'status': 'success', 'dps': result.dps,
+            'hero_talent_names': _normalized_hero_talent_names(
+                result.hero_talent_names
+            ),
         } for result in case._persisted_results]
         result_runs += len(run_rows)
         if case.task_id is None and case.status == SimcBenchmarkExecution.STATUS_FAILED:
@@ -2332,6 +2362,7 @@ def summarize_execution(execution):
                     'profile_label': case['labels']['profile'],
                     'status': case['status'], 'candidate_key': run['key'],
                     'dps': run['dps'],
+                    'hero_talent_names': run['hero_talent_names'],
                 })
         if is_failed_case_retry:
             valid = valid and bool(seen) and seen.issubset(expected)
@@ -2414,6 +2445,9 @@ def _collect_success_results(execution, live, *, require_complete_execution):
                 'profile_label': case['labels']['profile'],
                 'status': case['status'], 'candidate_key': candidate_key,
                 'dps': float(dps),
+                'hero_talent_names': _normalized_hero_talent_names(
+                    run.get('_hero_talent_names')
+                ),
             })
     return rows
 
@@ -2467,7 +2501,13 @@ def backfill_completed_case_results(execution):
                         _validation_error('已有结果与冻结 Run DPS 不一致', 'execution')
                     continue
                 case_rows.append(SimcBenchmarkResult(
-                    case_id=case.pk, candidate_key=run.candidate_key, dps=expected_dps,
+                    case_id=case.pk,
+                    candidate_key=run.candidate_key,
+                    dps=expected_dps,
+                    hero_talent_names=_normalized_hero_talent_names(
+                        (run.resource_manifest or {}).get('hero_talent_names')
+                        if isinstance(run.resource_manifest, dict) else []
+                    ),
                 ))
             if case_rows:
                 rows.extend(case_rows)
@@ -2558,7 +2598,7 @@ def reconcile_execution(execution):
                 SimcBenchmarkResult.objects.bulk_create([
                     SimcBenchmarkResult(
                         case_id=row['case_id'], candidate_key=row['candidate_key'],
-                        dps=row['dps'],
+                        dps=row['dps'], hero_talent_names=row['hero_talent_names'],
                     )
                     for row in partial_rows
                 ])
@@ -2584,7 +2624,7 @@ def reconcile_execution(execution):
             SimcBenchmarkResult.objects.bulk_create([
                 SimcBenchmarkResult(
                     case_id=row['case_id'], candidate_key=row['candidate_key'],
-                    dps=row['dps'],
+                    dps=row['dps'], hero_talent_names=row['hero_talent_names'],
                 )
                 for row in partial_rows
             ])
@@ -2646,7 +2686,8 @@ def reconcile_execution(execution):
         SimcBenchmarkResult.objects.filter(case__execution_id=locked.pk).delete()
         SimcBenchmarkResult.objects.bulk_create([
             SimcBenchmarkResult(case_id=row['case_id'], candidate_key=row['candidate_key'],
-                                dps=row['dps'])
+                                dps=row['dps'],
+                                hero_talent_names=row['hero_talent_names'])
             for row in rows
         ])
         locked.status = SimcBenchmarkExecution.STATUS_SUCCESS

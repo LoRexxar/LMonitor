@@ -12,11 +12,8 @@ from botend.models import (
     SimcTalentString,
     SimcTask,
 )
-from botend.services.simc_benchmark_execution import _hero_talent_label
-
-
 class BenchmarkTaskTalentVersionBackfillTests(TestCase):
-    def test_unique_frozen_profile_talent_is_backfilled_as_immutable_hero_label(self):
+    def test_unique_frozen_profile_talent_is_backfilled_as_resource_version(self):
         backend = SimcBackendBinary.objects.create(
             identifier='task-talent-backfill', name='Task Talent Backfill',
             current_version='simc-test',
@@ -73,9 +70,14 @@ class BenchmarkTaskTalentVersionBackfillTests(TestCase):
         duplicate_task.refresh_from_db()
         self.assertEqual(exact_task.talent_string_id, exact_talent.id)
         self.assertIsNotNone(exact_task.talent_version_id)
-        self.assertEqual(_hero_talent_label({}, exact_task), '斩杀者')
+        self.assertEqual(
+            exact_task.talent_version.payload['hero_talent_names'], ['斩杀者'],
+        )
         exact_talent.hero_talent_names = ['山丘领主']
         exact_talent.save(update_fields=['hero_talent_names'])
-        self.assertEqual(_hero_talent_label({}, exact_task), '斩杀者')
+        exact_task.talent_version.refresh_from_db()
+        self.assertEqual(
+            exact_task.talent_version.payload['hero_talent_names'], ['斩杀者'],
+        )
         self.assertIsNone(missing_task.talent_version_id)
         self.assertIsNone(duplicate_task.talent_version_id)

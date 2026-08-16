@@ -56,6 +56,7 @@ from botend.services.simc_player_config import (
 )
 from botend.services.simc_composer import SimcComposer, validate_simulation_options
 from botend.wow.talents.service import TalentBuildCodeService
+from botend.services.simc_hero_talents import resolve_hero_talent_names
 from botend.services.simc_consumables import simc_consumable_option
 from botend.services.simc_benchmark_config import SIMC_RAID_BUFFS
 from botend.services.spec_stats_service import SpecStatsService, _hero_subtree_name_from_table
@@ -196,31 +197,12 @@ def _simc_class_label(spec, class_name=''):
 
 def _resolve_simc_talent_hero_names(spec, talent):
     """Resolve hero-tree titles through the authoritative talent parser."""
-    identity = SIMC_SPEC_DB_IDENTITIES.get(str(spec or '').strip().lower())
-    if not identity:
-        return []
-    class_name, spec_name = identity
-    payload = TalentBuildCodeService.build_api_view(
-        talent_build_code=talent,
-        class_name=class_name,
-        spec_name=spec_name,
-        usage='simulator',
+    return resolve_hero_talent_names(
+        talent,
+        spec,
+        build_api_view=TalentBuildCodeService.build_api_view,
+        hero_name_resolver=_hero_subtree_name_from_table,
     )
-    render_model = payload.get('talent_render_model') or {}
-    subtree_ids = {
-        node.get('db2_subtree_id')
-        for tree in render_model.get('trees') or []
-        if tree.get('tree_type') == 'hero'
-        for node in tree.get('nodes') or []
-        if node.get('tree_type') == 'hero'
-        and node.get('db2_subtree_id')
-        and (node.get('selected') or int(node.get('points') or 0) > 0)
-    }
-    return [
-        name
-        for subtree_id in sorted(subtree_ids)
-        if (name := _hero_subtree_name_from_table(subtree_id))
-    ]
 
 
 def _detect_simc_talent_spec(talent):

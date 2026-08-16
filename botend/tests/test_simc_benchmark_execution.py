@@ -97,21 +97,23 @@ class SimcBenchmarkExecutionTests(TestCase):
                 self.panel, requested_by=self.user_id, **kwargs,
             )
 
-    def test_selected_talent_string_is_frozen_and_projected_as_hero_subtitle(self):
-        self.talent.hero_talent_names = ['斩杀者']
+    def test_actual_run_hero_talent_is_frozen_on_result_and_ignores_source_resource(self):
+        self.talent.hero_talent_names = ['来源资源名称']
         self.talent.save(update_fields=['hero_talent_names'])
         self.benchmark_profile.talent_string = self.talent
         self.benchmark_profile.save(update_fields=['talent_string'])
 
-        execution = self._published_success()
+        execution = self._published_success(hero_talent_names=['屠戮者'])
         task = execution.cases.select_related('task').get().task
-        self.talent.hero_talent_names = ['山丘领主']
+        result = execution.cases.get().results.get(candidate_key='baseline')
+        self.talent.hero_talent_names = ['修改后的来源名称']
         self.talent.save(update_fields=['hero_talent_names'])
         payload = serialize_incremental_panel_results(self.panel)
 
         self.assertEqual(task.talent_string_id, self.talent.pk)
         self.assertIsNotNone(task.talent_version_id)
-        self.assertEqual(payload['coordinates'][0]['labels']['hero_talent'], '斩杀者')
+        self.assertEqual(result.hero_talent_names, ['屠戮者'])
+        self.assertEqual(payload['coordinates'][0]['labels']['hero_talent'], '屠戮者')
 
     def test_cancel_execution_fences_tasks_runs_and_releases_active_slot(self):
         execution = self._create()
@@ -555,11 +557,13 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertIn('trinket1=,id=456,ilevel=300', rendered)
         self.assertIn('trinket2=Original Two,id=123,ilevel=300', rendered)
 
-    def _run(self, task, sequence, status, key=None, label=None, dps=None):
+    def _run(self, task, sequence, status, key=None, label=None, dps=None,
+             hero_talent_names=None):
         return SimulationRun.objects.create(
             task=task, sequence=sequence, candidate_key=key or f'candidate-{sequence}',
             candidate_label=label or key or f'Candidate {sequence}', status=status,
             result_summary={'dps': dps} if dps is not None else None,
+            resource_manifest={'hero_talent_names': list(hero_talent_names or [])},
         )
 
     def _aggregate_candidate(self, key, dps, task_id, source_result_id, *, label=None,
@@ -571,7 +575,7 @@ class SimcBenchmarkExecutionTests(TestCase):
             'dps': dps, 'task_id': task_id, 'source_result_id': source_result_id,
         }
 
-    def _published_success(self):
+    def _published_success(self, hero_talent_names=None):
         # A completed immutable coordinate is intentionally not scheduled again.
         # Serializer-contract subtests need an independent fixture, so vary the
         # frozen scenario input after the first completed fixture in this database.
@@ -580,14 +584,20 @@ class SimcBenchmarkExecutionTests(TestCase):
         ).count()
         if completed:
             SimcBenchmarkScenario.objects.filter(panel=self.panel, key='patchwerk').update(
-                simulation_params={'iterations': 1000 + completed},
+                simulation_params={'iterations': 1000 + completed}
             )
         execution = self._create()
         task = execution.cases.get().task
         task.current_status = 2
         task.save(update_fields=['current_status'])
-        self._run(task, 1, 'completed', 'baseline', dps=1234)
-        self._run(task, 2, 'completed', 'trinket', dps=1300)
+        self._run(
+            task, 1, 'completed', 'baseline', dps=1234,
+            hero_talent_names=hero_talent_names,
+        )
+        self._run(
+            task, 2, 'completed', 'trinket', dps=1300,
+            hero_talent_names=hero_talent_names,
+        )
         reconcile_execution(execution)
         self.panel.is_public = True
         self.panel.save(update_fields=['is_public'])

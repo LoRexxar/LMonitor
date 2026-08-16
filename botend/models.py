@@ -2011,6 +2011,7 @@ class SimcBenchmarkResult(models.Model):
     )
     candidate_key = models.CharField(max_length=100)
     dps = models.FloatField()
+    hero_talent_names = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -676,6 +676,8 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         for renderer in (self.JS[spec_start:spec_end], self.JS[gain_start:gain_end]):
             self.assertIn('labels?.hero_talent', renderer)
             self.assertIn('`英雄天赋：${heroTalent}`', renderer)
+            self.assertIn('"无法获取"', renderer)
+            self.assertNotIn('"Profile 默认天赋"', renderer)
             self.assertNotIn('simc-benchmark-spec-profile", profile', renderer)
 
     def test_option_gain_renderer_switches_between_configured_scenarios(self):

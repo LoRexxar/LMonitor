@@ -21,6 +21,7 @@ from botend.models import (
 )
 from botend.services.simc_agent_control import AgentAPIError, TOKEN_HASH_PREFIX, authenticate_bearer
 from botend.services.simc_benchmark_scheduler import reconcile_execution_for_task
+from botend.services.simc_hero_talents import enrich_manifest_with_actual_hero_talents
 from botend.services.simc_task_service import initialize_task_runs
 from botend.services.task_resolver import resolve_task
 
@@ -154,6 +155,12 @@ def build_frozen_run_input(task, run, output_filename=None):
         'talent_candidate': talent_candidate,
         'output_filename': filename,
     }
+    manifest = enrich_manifest_with_actual_hero_talents(
+        manifest,
+        code,
+        f'{composer_class}_{composer_spec}',
+        use_ptr=profile_payload.get('use_ptr') is True,
+    )
     return code, manifest
 
 

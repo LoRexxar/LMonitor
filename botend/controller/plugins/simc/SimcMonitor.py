@@ -33,6 +33,7 @@ from botend.services.simc_player_config import (
     validate_player_baseline,
 )
 from botend.services.simc_composer import SIMC_EXTRA_OPTION_VALUES, SimcComposer
+from botend.services.simc_hero_talents import enrich_manifest_with_actual_hero_talents
 from botend.services.task_resolver import resolve_task, is_reference_task, TaskResolutionError
 from botend.models import SimulationRun
 from botend.services.simc_attribute_search import advance_attribute_search
@@ -675,6 +676,12 @@ class SimcMonitor(BaseScan):
                 'composition_manifest': serializable_manifest,
                 'talent_candidate': talent_candidate,
             }
+            resource_manifest = enrich_manifest_with_actual_hero_talents(
+                resource_manifest,
+                simc_code,
+                f'{composer_class}_{composer_spec}',
+                use_ptr=profile_payload.get('use_ptr') is True,
+            )
             if not self._save_run_for_active_claim(
                 simc_task,
                 run,

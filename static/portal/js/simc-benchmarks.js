@@ -579,7 +579,7 @@
         }
         const copy = node("div", "simc-benchmark-spec-copy");
         copy.appendChild(node("strong", "simc-benchmark-spec-name", coordinate?.labels?.spec || coordinate?.spec_key || "未知专精"));
-        const heroTalent = coordinate?.labels?.hero_talent || "Profile 默认天赋";
+        const heroTalent = coordinate?.labels?.hero_talent || "无法获取";
         copy.appendChild(node("small", "simc-benchmark-spec-profile", `英雄天赋：${heroTalent}`));
         identity.appendChild(copy);
         const track = node("div", "simc-benchmark-spec-track");
@@ -733,7 +733,7 @@
       }
       const copy = node("div", "simc-benchmark-spec-copy");
       copy.appendChild(node("strong", "simc-benchmark-spec-name", entry?.spec_label || entry?.spec_key || "未知专精"));
-      const heroTalent = coordinate?.labels?.hero_talent || "Profile 默认天赋";
+      const heroTalent = coordinate?.labels?.hero_talent || "无法获取";
       copy.appendChild(node("small", "simc-benchmark-spec-profile", `英雄天赋：${heroTalent}`));
       identity.appendChild(copy);
       const track = node("div", "simc-benchmark-spec-track");

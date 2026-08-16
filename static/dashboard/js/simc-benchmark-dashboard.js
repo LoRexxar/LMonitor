@@ -155,7 +155,7 @@ function renderGearResultChart(rows){
   groups.forEach(group=>{
     const row=el('div',{class:'benchmark-gear-row'}),identity=el('div',{class:'benchmark-gear-identity'});
     identity.append(group.icon_url?el('img',{class:'benchmark-gear-icon',src:group.icon_url,alt:'',loading:'lazy'}):el('span',{class:'benchmark-gear-icon placeholder','aria-hidden':'true'},'◈'));
-    const identityText=el('span',{class:'benchmark-gear-identity-text'}),heroTalent=group.coordinate?.labels?.hero_talent||'Profile 默认天赋';identityText.append(el('strong',{},group.label),el('small',{},`英雄天赋：${heroTalent}`));identity.append(identityText);
+    const identityText=el('span',{class:'benchmark-gear-identity-text'}),heroTalent=group.coordinate?.labels?.hero_talent||'无法获取';identityText.append(el('strong',{},group.label),el('small',{},`英雄天赋：${heroTalent}`));identity.append(identityText);
     const plot=el('div',{class:'benchmark-gear-plot'}),zero=el('i',{class:'benchmark-gear-zero','aria-hidden':'true'});zero.style.left=`${position(0)}%`;plot.append(zero);
     let previous=0;
     group.variants.forEach(variant=>{
