@@ -120,6 +120,19 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(result.hero_talent_names, ['屠戮者'])
         self.assertEqual(coordinate['labels']['hero_talent'], '屠戮者')
 
+        self.benchmark_profile.talent_string = None
+        self.benchmark_profile.save(update_fields=['talent_string'])
+        self.profile.name = 'MID2 默认玩家-屠戮者'
+        self.profile.save(update_fields=['name'])
+        self._published_success(hero_talent_names=['屠戮者'])
+
+        payload = serialize_incremental_panel_results(self.panel)
+        coordinate = payload['coordinates'][0]
+        self.assertEqual(
+            coordinate['profile_detail']['talents']['name'],
+            'MID2 默认玩家-屠戮者',
+        )
+
     def test_cancel_execution_fences_tasks_runs_and_releases_active_slot(self):
         execution = self._create()
         case = execution.cases.select_related('task').get()

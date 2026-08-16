@@ -1463,7 +1463,8 @@ def _coordinate_option(coordinate):
     }
 
 
-def _profile_detail_from_payload(payload, spec_key, talent_payload=None):
+def _profile_detail_from_payload(
+        payload, spec_key, talent_payload=None, fallback_talent_name=''):
     """Project the immutable Profile snapshot used by a result-producing Task."""
     payload = payload if isinstance(payload, dict) else {}
     talent_payload = talent_payload if isinstance(talent_payload, dict) else None
@@ -1481,7 +1482,10 @@ def _profile_detail_from_payload(payload, spec_key, talent_payload=None):
         detail['talents']['name'] = talent_payload.get('name') or '无法获取'
         detail['talents']['build_code'] = talent_payload.get('talent') or profile_talent_code
     else:
-        detail['talents']['name'] = 'Profile 默认天赋' if profile_talent_code else '无法获取'
+        detail['talents']['name'] = (
+            str(fallback_talent_name or '').strip()
+            or ('Profile 默认天赋' if profile_talent_code else '无法获取')
+        )
         detail['talents']['build_code'] = profile_talent_code
     is_ptr = payload.get('use_ptr') is True
     detail['is_ptr'] = is_ptr
@@ -1673,6 +1677,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
         profile_version = source_task.profile_version if source_task is not None else None
         talent_version = source_task.talent_version if source_task is not None else None
         detail_key = (
+            coordinate['profile_key'],
             profile_id,
             profile_version.pk if profile_version is not None else None,
             talent_version.pk if talent_version is not None else None,
@@ -1682,6 +1687,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                 profile_details[detail_key] = _profile_detail_from_payload(
                     profile_version.payload, coordinate['spec_key'],
                     talent_version.payload if talent_version is not None else None,
+                    coordinate['profile_label'],
                 )
             else:
                 profile = profiles.get(profile_id)
@@ -1691,7 +1697,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                         'spec': profile.spec,
                         'talent': profile.talent,
                         'use_ptr': profile.use_ptr,
-                    }, coordinate['spec_key'])
+                    }, coordinate['spec_key'], fallback_talent_name=coordinate['profile_label'])
                     if profile is not None else None
                 )
             if profile_details[detail_key] is not None:
