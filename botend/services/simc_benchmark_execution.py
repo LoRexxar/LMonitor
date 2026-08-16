@@ -17,7 +17,9 @@ from django.db import IntegrityError, transaction
 from django.db.models import Count, Prefetch
 from django.utils import timezone
 
-from botend.constants.hero_talents import normalize_hero_subtree_names_zh
+from botend.constants.hero_talents import (
+    normalize_hero_subtree_names_zh, normalize_hero_subtree_title_zh,
+)
 from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON
 from botend.models import (
     SimcBenchmarkCandidate, SimcBenchmarkCase, SimcBenchmarkExecution,
@@ -1456,7 +1458,7 @@ def _coordinate_option(coordinate):
         'labels': {
             'spec': _spec_display_name(coordinate['spec_label'], coordinate['spec_key']),
             'scenario': coordinate['scenario_label'],
-            'profile': coordinate['profile_label'],
+            'profile': normalize_hero_subtree_title_zh(coordinate['profile_label']),
             'hero_talent': _hero_talent_label(),
         },
         'scenario_detail': {
@@ -1490,6 +1492,9 @@ def _profile_detail_from_payload(
             or ('Profile 默认天赋' if profile_talent_code else '无法获取')
         )
         detail['talents']['build_code'] = profile_talent_code
+    detail['talents']['name'] = normalize_hero_subtree_title_zh(
+        detail['talents']['name'],
+    )
     is_ptr = payload.get('use_ptr') is True
     detail['is_ptr'] = is_ptr
     branch = 'ptr' if is_ptr else 'retail'
@@ -1782,7 +1787,9 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                         coordinate['spec_label'], coordinate['spec_key'],
                     ),
                     'profile_key': coordinate['profile_key'],
-                    'profile_label': coordinate['profile_label'],
+                    'profile_label': normalize_hero_subtree_title_zh(
+                        coordinate['profile_label'],
+                    ),
                     'scenario_key': coordinate['scenario_key'],
                     'scenario_label': coordinate['scenario_label'],
                     'baseline_dps': baseline_dps,
@@ -1797,7 +1804,9 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
             'labels': {
                 'spec': _spec_display_name(coordinate['spec_label'], coordinate['spec_key']),
                 'scenario': coordinate['scenario_label'],
-                'profile': coordinate['profile_label'],
+                'profile': normalize_hero_subtree_title_zh(
+                    coordinate['profile_label'],
+                ),
                 'hero_talent': _hero_talent_label(source_result),
             },
             'profile_detail': profile_details[detail_key],
@@ -1864,7 +1873,9 @@ def serialize_panel_apl_ranking_results(panel, *, spec_key, scenario_key):
             'spec_key': result.case.spec_key,
             'spec_label': result.case.spec_label,
             'profile_key': result.case.profile_key,
-            'profile_label': result.case.profile_label,
+            'profile_label': normalize_hero_subtree_title_zh(
+                result.case.profile_label,
+            ),
             'scenario_label': result.case.scenario_label,
             'apl_key': task.apl_version.content_hash,
             'apl_label': apl_payload.get('name') or task.apl.name,

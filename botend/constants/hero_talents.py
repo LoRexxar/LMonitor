@@ -170,6 +170,16 @@ def normalize_hero_subtree_names_zh(names):
     return normalized
 
 
+def normalize_hero_subtree_title_zh(value):
+    """规范化不可变展示标题中嵌入的英雄天赋树名称。"""
+    title = str(value or '')
+    replacements = {**HERO_SUBTREE_NAME_ZH, **_LEGACY_HERO_SUBTREE_NAME_ZH}
+    for source, target in sorted(
+            replacements.items(), key=lambda item: len(item[0]), reverse=True):
+        title = title.replace(source, target)
+    return title
+
+
 def hero_subtree_name_by_id(subtree_id):
     try:
         return HERO_SUBTREE_ID_TO_NAME.get(int(subtree_id or 0), '')

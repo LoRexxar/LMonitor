@@ -71,7 +71,9 @@ from botend.services.simc_attribute_search import (
 from botend.services.task_rerun import create_rerun, TaskRerunError
 from botend.services.battlenet_preflight import fetch_battlenet_character_preflight
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
-from botend.constants.hero_talents import normalize_hero_subtree_names_zh
+from botend.constants.hero_talents import (
+    normalize_hero_subtree_names_zh, normalize_hero_subtree_title_zh,
+)
 from botend.constants.wow import CLASS_SPEC_MAP, CLASS_CN, CLASS_COLOR, SPEC_CN, SPEC_ICON, SPEC_ROLE
 from botend.services.simc_apl.catalog import query_symbol_catalog, query_visible_symbols
 from botend.services.simc_apl.validation import validate_payload
@@ -4864,7 +4866,8 @@ class SimcTalentStringAPIView(View):
     def _row(row, request):
         is_system = bool(row.is_system)
         return {
-            'id': row.id, 'name': row.name, 'spec': row.spec, 'canonical_spec': row.spec,
+            'id': row.id, 'name': normalize_hero_subtree_title_zh(row.name),
+            'spec': row.spec, 'canonical_spec': row.spec,
             'spec_label': _simc_spec_label(row.spec, ''), 'class_label': _simc_class_label(row.spec, ''),
             'label': f"{_simc_spec_label(row.spec, '')} · {_simc_class_label(row.spec, '')}", 'talent': row.talent,
             'hero_talent_names': normalize_hero_subtree_names_zh(row.hero_talent_names),
@@ -9969,7 +9972,8 @@ def _benchmark_options_payload(owner_id=None, ownership_context=None):
                 'validation_status': row.validation_status,
             } for row in resources['apls']],
             'profiles': [{
-                'id': row.pk, 'name': row.name, 'spec': row.spec,
+                'id': row.pk, 'name': normalize_hero_subtree_title_zh(row.name),
+                'spec': row.spec,
                 'spec_key': _benchmark_resource_spec_key(row),
                 'canonical_spec': _benchmark_resource_spec_key(row),
                 'class_name': row.class_name, 'source': row.source,
@@ -9977,7 +9981,8 @@ def _benchmark_options_payload(owner_id=None, ownership_context=None):
                 'is_default': row.user_id is None,
             } for row in resources['profiles']],
             'talent_strings': [{
-                'id': row.pk, 'name': row.name, 'spec': row.spec,
+                'id': row.pk, 'name': normalize_hero_subtree_title_zh(row.name),
+                'spec': row.spec,
                 'spec_key': _benchmark_resource_spec_key(row),
                 'canonical_spec': _benchmark_resource_spec_key(row),
                 'hero_talent_names': normalize_hero_subtree_names_zh(row.hero_talent_names),

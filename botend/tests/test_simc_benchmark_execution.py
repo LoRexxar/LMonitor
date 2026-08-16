@@ -134,13 +134,23 @@ class SimcBenchmarkExecutionTests(TestCase):
         )
 
     def test_legacy_hero_talent_name_is_standardized_only_for_display(self):
+        self.profile.name = 'MID2 默认玩家-法术投射者'
+        self.profile.save(update_fields=['name'])
+        self.talent.name = 'MID2 默认玩家-法术投射者'
+        self.talent.save(update_fields=['name'])
         execution = self._published_success(hero_talent_names=['法术投射者'])
         result = execution.cases.get().results.get(candidate_key='baseline')
 
         payload = serialize_incremental_panel_results(self.panel)
+        coordinate = payload['coordinates'][0]
 
         self.assertEqual(result.hero_talent_names, ['法术投射者'])
-        self.assertEqual(payload['coordinates'][0]['labels']['hero_talent'], '疾咒师')
+        self.assertEqual(coordinate['labels']['profile'], 'MID2 默认玩家-疾咒师')
+        self.assertEqual(coordinate['labels']['hero_talent'], '疾咒师')
+        self.assertEqual(
+            coordinate['profile_detail']['talents']['name'],
+            'MID2 默认玩家-疾咒师',
+        )
 
     def test_cancel_execution_fences_tasks_runs_and_releases_active_slot(self):
         execution = self._create()
