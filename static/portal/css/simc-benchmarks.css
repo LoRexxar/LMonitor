@@ -140,6 +140,8 @@
 .simc-benchmark-profile-identity dd { color: #0f172a; font-size: 0.68rem; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .simc-benchmark-simulation-facts dd { overflow-wrap: anywhere; white-space: normal; }
 .simc-benchmark-profile-talent-row { align-items: center; display: flex; flex-wrap: wrap; gap: 0.45rem; }
+.simc-benchmark-profile-talent-thumbnail { border-radius: 12px; margin: 0.8rem 0; overflow: hidden; width: min(100%, 520px); }
+.simc-benchmark-profile-talent-thumbnail svg { display: block; height: auto; max-width: 100%; }
 .simc-benchmark-profile-talent-code { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 0.3rem; color: #1e3a8a; flex: 1 1 18rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.68rem; margin: 0; min-width: 0; overflow-wrap: anywhere; padding: 0.4rem 0.5rem; }
 .simc-benchmark-profile-talent-link { align-items: center; background: #2563eb; border: 1px solid #2563eb; border-radius: 0.35rem; color: #fff; display: inline-flex; flex: 0 0 auto; font-size: 0.68rem; font-weight: 700; justify-content: center; min-height: 2rem; padding: 0.35rem 0.65rem; text-decoration: none; }
 .simc-benchmark-profile-talent-link:hover { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }

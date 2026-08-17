@@ -501,6 +501,27 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIn('portal/js/simc-benchmarks.js', self.RESULTS_TEMPLATE)
         self.assertIn('/portal/simc-benchmarks/', self.TEMPLATE)
 
+    def test_expanded_profile_mounts_frozen_talent_thumbnail(self):
+        results_soup = BeautifulSoup(self.RESULTS_TEMPLATE, 'html.parser')
+        script_sources = [script.get('src', '') for script in results_soup.select('script[src]')]
+        thumbnail_asset = next(
+            index for index, source in enumerate(script_sources)
+            if 'portal/js/talent_tree_thumbnail.js' in source
+        )
+        benchmark_asset = next(
+            index for index, source in enumerate(script_sources)
+            if 'portal/js/simc-benchmarks.js' in source
+        )
+        profile_start = self.JS.index('function renderProfileDetails(')
+        profile_end = self.JS.index('function renderCoordinate(', profile_start)
+        profile_renderer = self.JS[profile_start:profile_end]
+
+        self.assertLess(thumbnail_asset, benchmark_asset)
+        self.assertIn('data-benchmark-profile-talent-thumbnail', profile_renderer)
+        self.assertIn('profileDetail?.talents?.build_code', profile_renderer)
+        self.assertIn('TalentTreeThumbnail.mount', self.JS)
+        self.assertIn('mountProfileTalentThumbnail(loadedDetails)', self.JS)
+
     def test_home_lists_public_baseline_tasks_below_wago_monitoring(self):
         soup = BeautifulSoup(self.TEMPLATE, 'html.parser')
         sections = soup.select('.snap-section')

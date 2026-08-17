@@ -343,6 +343,25 @@
     body.appendChild(section);
   }
 
+  async function mountProfileTalentThumbnail(details) {
+    const host = details?.querySelector('[data-benchmark-profile-talent-thumbnail]');
+    if (!details?.open || !host || host.dataset.thumbnailState || !window.TalentTreeThumbnail) return;
+    const buildCode = String(host.dataset.buildCode || "").trim();
+    if (!buildCode) return;
+    host.dataset.thumbnailState = "loading";
+    try {
+      await window.TalentTreeThumbnail.mount(
+        host,
+        {buildCode, versionKey: host.dataset.versionKey || ""},
+        {width: Math.min(520, Math.max(280, host.clientWidth || 480)), background: "160f0b", borderRadius: 12},
+      );
+      host.dataset.thumbnailState = "ready";
+    } catch (error) {
+      host.dataset.thumbnailState = "error";
+      host.textContent = "天赋缩略图加载失败";
+    }
+  }
+
   function renderProfileDetails(profileDetail, simulationDetail, audit, summaryText = "展开 Profile 配置", reportUrl = "", heroTalent = "无法获取") {
     const details = node("details", "simc-benchmark-profile-details");
     const summary = node("summary", "profile-details-toggle", summaryText);
@@ -435,6 +454,11 @@
     });
     section.append(node("h4", "", "天赋"), talentFacts);
     if (talentCode) {
+      const thumbnail = node("div", "simc-benchmark-profile-talent-thumbnail");
+      thumbnail.setAttribute("data-benchmark-profile-talent-thumbnail", "");
+      thumbnail.dataset.buildCode = talentCode;
+      thumbnail.dataset.versionKey = profileDetail?.talent_version || "";
+      section.appendChild(thumbnail);
       const simulatorUrl = profileTalentSimulatorUrl(
         identity, talentCode, profileDetail?.talent_version,
       );
@@ -483,6 +507,9 @@
       section.append(node("h4", "", `装备 (${equipment.length})`), list); body.appendChild(section);
     }
     details.appendChild(body);
+    details.addEventListener("toggle", () => {
+      if (details.open) mountProfileTalentThumbnail(details);
+    });
     return details;
   }
 
@@ -648,6 +675,7 @@
             loadedDetails.open = true;
             profileDetails.replaceWith(loadedDetails);
             profileDetails = loadedDetails;
+            mountProfileTalentThumbnail(loadedDetails);
           } catch (error) {
             profileDetails.replaceChildren(state("冻结 Profile 加载失败，请稍后重试", "error"));
           } finally {
