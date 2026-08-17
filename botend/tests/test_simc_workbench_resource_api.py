@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from botend.models import (
     SimulationRun,
@@ -490,3 +490,62 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
         self.assertIn('sandbox allow-scripts', csp)
         self.assertNotIn('allow-same-origin', csp)
         self.assertNotIn('https:', csp)
+
+    @override_settings(
+        OSS_CONFIG={'base_url': 'https://reports.example/base'},
+        ALLOWED_HOSTS=['testserver'],
+    )
+    def test_missing_legacy_report_redirects_to_oss_for_task_and_artifact_preview(self):
+        base = 'a' * 32
+        task = SimcTask.objects.create(
+            user_id=self.user.id, name='OSS legacy report', simc_profile_id=0,
+            backend=self.backend, current_status=2, result_file=f'{base}.html',
+        )
+        run = SimulationRun.objects.create(
+            task=task, sequence=1, candidate_key='oss', status='completed',
+        )
+        filename = f'{base}_run_{run.id}.html'
+        SimcTask.objects.filter(pk=task.pk).update(result_file=filename)
+        task.refresh_from_db()
+        artifact = SimcTaskArtifact.objects.create(
+            task=task, run=run, artifact_type='html_report',
+            file_path=f'simc_results/{filename}',
+        )
+        with patch('botend.services.simc_artifacts._validated_result', return_value=None):
+            task_response = self.client.get(
+                f'/api/simc-workbench/tasks/{task.id}/report-preview/',
+            )
+            artifact_response = self.client.get(
+                f'/api/simc-workbench/artifacts/{artifact.id}/preview/',
+            )
+
+        expected = f'https://reports.example/base/{filename}'
+        self.assertEqual(task_response.status_code, 302, task_response.content)
+        self.assertEqual(task_response['Location'], expected)
+        self.assertEqual(artifact_response.status_code, 302)
+        self.assertEqual(artifact_response['Location'], expected)
+
+    @override_settings(
+        OSS_CONFIG={'base_url': 'https://reports.example/base'},
+        ALLOWED_HOSTS=['testserver'],
+    )
+    def test_missing_legacy_report_does_not_redirect_when_artifact_is_not_task_owned(self):
+        task = SimcTask.objects.create(
+            user_id=self.user.id, name='Mismatched OSS legacy report', simc_profile_id=0,
+            backend=self.backend, current_status=2, result_file=f'{"b" * 32}.html',
+        )
+        run = SimulationRun.objects.create(
+            task=task, sequence=1, candidate_key='mismatch', status='completed',
+        )
+        filename = f'{"a" * 32}_run_{run.id}.html'
+        artifact = SimcTaskArtifact.objects.create(
+            task=task, run=run, artifact_type='html_report',
+            file_path=f'simc_results/{filename}',
+        )
+
+        with patch('botend.services.simc_artifacts._validated_result', return_value=None):
+            response = self.client.get(
+                f'/api/simc-workbench/artifacts/{artifact.id}/preview/',
+            )
+
+        self.assertEqual(response.status_code, 404)

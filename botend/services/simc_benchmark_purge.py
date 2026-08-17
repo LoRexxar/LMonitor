@@ -58,6 +58,7 @@ TRANSITIONAL_PURGE_STATUSES = (
 )
 CLAIM_STALE_AFTER = timedelta(hours=6)
 EXECUTION_LOCK_PREFIX = 'lmonitor:simc-benchmark-purge:'
+QUARANTINE_PERSIST_BATCH_SIZE = 100
 
 
 @dataclass(frozen=True)
@@ -732,16 +733,16 @@ def _process_claimed_purge(job_id, token, phase):
                 job, token, command, quarantine_map,
                 SimcBenchmarkPurgeTask.STATUS_RUNNING,
             )
-        for key in object_keys:
-            if key in quarantine_map:
-                continue
-            created = command._quarantine_objects((key,), job.batch_id)
+        pending_keys = [key for key in object_keys if key not in quarantine_map]
+        for offset in range(0, len(pending_keys), QUARANTINE_PERSIST_BATCH_SIZE):
+            batch = tuple(pending_keys[offset:offset + QUARANTINE_PERSIST_BATCH_SIZE])
+            created = command._quarantine_objects(batch, job.batch_id)
             if created:
                 quarantine_map.update(created)
-                _persist_quarantine(
-                    job.id, token, quarantine_map,
-                    SimcBenchmarkPurgeTask.STATUS_RUNNING,
-                )
+            _refresh_claim(job.id, token, SimcBenchmarkPurgeTask.STATUS_RUNNING)
+        _persist_quarantine(
+            job.id, token, quarantine_map, SimcBenchmarkPurgeTask.STATUS_RUNNING,
+        )
         # Keep every pre-commit OSS operation non-destructive. If DB ownership
         # or connectivity is lost, an old delayed Worker can only repeat copies.
         _delete_database(job.id, token)

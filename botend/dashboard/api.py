@@ -7871,7 +7871,9 @@ class SimcTaskReportPreviewAPIView(View):
         if all((task.profile_id, task.template_id, task.apl_id,
                 task.profile_version_id, task.template_version_id, task.apl_version_id)):
             return JsonResponse({'success': False, 'error': '引用型任务报告请通过 Artifact 预览'}, status=404)
-        from botend.services.simc_artifacts import _validated_result
+        from botend.services.simc_artifacts import (
+            _validated_result, _validated_result_location,
+        )
         result_name = os.path.basename(str(task.result_file))
         artifact = SimcTaskArtifact.objects.filter(
             task=task, artifact_type='html_report',
@@ -7879,6 +7881,16 @@ class SimcTaskReportPreviewAPIView(View):
         ).select_related('run').order_by('-created_at', '-id').first()
         validated = _validated_result(task, result_name, run=artifact.run if artifact else None)
         if not validated:
+            location = _validated_result_location(
+                task, result_name, run=artifact.run if artifact else None,
+            )
+            expected_path = f'simc_results/{result_name}'
+            if location and location[1] == expected_path:
+                from botend.services.simc_agent_oss import ReportStorageError, public_legacy_report_url
+                try:
+                    return HttpResponseRedirect(public_legacy_report_url(location[1]))
+                except ReportStorageError:
+                    pass
             return JsonResponse({'success': False, 'error': '任务报告不可用'}, status=404)
         response = FileResponse(open(str(validated[0]), 'rb'), content_type='text/html; charset=utf-8')
         response['Content-Security-Policy'] = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; sandbox allow-scripts; frame-ancestors 'self'"
@@ -7901,11 +7913,24 @@ class SimcArtifactPreviewAPIView(View):
                 return HttpResponseRedirect(public_report_url(artifact_path))
             except ReportStorageError:
                 return JsonResponse({'success': False, 'error': '产物链接不可用'}, status=503)
-        from botend.services.simc_artifacts import _validated_result
+        from botend.services.simc_artifacts import (
+            _validated_result, _validated_result_location,
+        )
         validated = _validated_result(
             artifact.task, os.path.basename(artifact_path), run=artifact.run,
         )
-        if not validated or validated[1] != artifact_path:
+        if not validated:
+            location = _validated_result_location(
+                artifact.task, os.path.basename(artifact_path), run=artifact.run,
+            )
+            if location and location[1] == artifact_path:
+                from botend.services.simc_agent_oss import ReportStorageError, public_legacy_report_url
+                try:
+                    return HttpResponseRedirect(public_legacy_report_url(location[1]))
+                except ReportStorageError:
+                    pass
+            return JsonResponse({'success': False, 'error': '产物文件不可用'}, status=404)
+        if validated[1] != artifact_path:
             return JsonResponse({'success': False, 'error': '产物文件不可用'}, status=404)
         full_path = str(validated[0])
         content_type = 'text/html; charset=utf-8'

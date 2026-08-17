@@ -46,8 +46,8 @@ def agent_result_filename_for_run(task, run):
     return f"simc_task_{task.pk}_run_{run.pk}.html"
 
 
-def _validated_result(task, result_file, run=None):
-    """Return (absolute path, static-relative path) for this task's generated report."""
+def _validated_result_location(task, result_file, run=None):
+    """Return the canonical task-owned location without requiring a local file."""
     filename = str(result_file or "").strip()
     if not filename or filename != os.path.basename(filename) or "\n" in filename or "\r" in filename:
         return None
@@ -93,10 +93,16 @@ def _validated_result(task, result_file, run=None):
         full_path.relative_to(result_root)
     except ValueError:
         return None
-    if not full_path.is_file():
-        return None
     relative_path = agent_relative_path if is_agent_artifact else f"simc_results/{filename}"
     return full_path, relative_path
+
+
+def _validated_result(task, result_file, run=None):
+    """Return an owned report location only when the local file currently exists."""
+    location = _validated_result_location(task, result_file, run=run)
+    if not location or not location[0].is_file():
+        return None
+    return location
 
 
 def upsert_task_html_artifact(task, result_file, run=None):

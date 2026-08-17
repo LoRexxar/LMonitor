@@ -210,6 +210,50 @@ class SimcBenchmarkPanelPurgeTests(TestCase):
         oss._quarantine_objects.assert_not_called()
         oss._delete_objects.assert_called_once_with(quarantine_map)
 
+    def test_large_quarantine_persists_in_bounded_batches(self):
+        panel, *_ = self._graph()
+        preview = self.client.get(
+            f'/api/simc-benchmarks/panels/{panel.id}/purge/',
+        ).json()['data']
+        job = queue_panel_purge(panel.id, preview['fingerprint'], self.staff.id)
+        object_keys = [
+            f'simc_agent_results/simc_task_1_run_{index}.html'
+            for index in range(205)
+        ]
+        plan = dict(job.plan)
+        plan['object_keys'] = object_keys
+        token = 'bounded-batch-owner'
+        SimcBenchmarkPurgeTask.objects.filter(pk=job.id).update(
+            status=SimcBenchmarkPurgeTask.STATUS_RUNNING,
+            claim_token=token,
+            attempts=1,
+            plan=plan,
+        )
+
+        oss = Mock()
+        oss._quarantine_objects.side_effect = lambda keys, batch_id: {
+            key: {
+                'quarantine_key': f'simc_benchmark_cleanup/quarantine/{batch_id}/{key}',
+                'source': {}, 'quarantine': {},
+            }
+            for key in keys
+        }
+        with patch('botend.services.simc_benchmark_purge._oss_command', return_value=oss), \
+                patch('botend.services.simc_benchmark_purge._delete_database'), \
+                patch(
+                    'botend.services.simc_benchmark_purge._persist_quarantine',
+                    wraps=purge_service._persist_quarantine,
+                ) as persist:
+            purge_service._process_claimed_purge(job.id, token, 'execute')
+
+        self.assertEqual(
+            [len(call.args[0]) for call in oss._quarantine_objects.call_args_list],
+            [100, 100, 5],
+        )
+        persist.assert_called_once()
+        job.refresh_from_db()
+        self.assertEqual(len(job.quarantine_map), 205)
+
     def test_reference_created_after_database_commit_retains_recovery_copy(self):
         panel, _execution, _task, _run, _case, unique_artifact, _retained = self._graph()
         preview = self.client.get(
