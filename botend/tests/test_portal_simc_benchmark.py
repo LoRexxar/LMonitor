@@ -173,30 +173,39 @@ class PortalSimcBenchmarkAPITests(TestCase):
         }
         serializer.return_value = projection
 
-        for panel_ref in (str(self.public.id), self.public.slug):
-            with self.subTest(panel_ref=panel_ref):
+        for panel_ref, dimension_query in (
+            (str(self.public.id), {'talent': 'raid'}),
+            (self.public.slug, {'profile': 'raid'}),
+        ):
+            with self.subTest(panel_ref=panel_ref, dimension_query=dimension_query):
                 response = self.client.get(
                     f'/portal/api/simc-benchmarks/panels/{panel_ref}/',
-                    {'selected': '1', 'spec': 'fury', 'profile': 'raid', 'scenario': 'st'},
+                    {
+                        'selected': '1', 'spec': 'fury', 'scenario': 'st',
+                        **dimension_query,
+                    },
                 )
                 payload = json.loads(response.content)
 
                 self.assertEqual(response.status_code, 200)
-                self.assertEqual(payload['results'], {
-                    'coordinate_options': projection['coordinate_options'],
-                    'coordinates': projection['coordinates'],
-                })
+                self.assertEqual(
+                    payload['results']['coordinate_options'],
+                    projection['coordinate_options'],
+                )
+                self.assertEqual(payload['results']['coordinates'], projection['coordinates'])
         self.assertEqual(serializer.call_count, 2)
         serializer.assert_has_calls([
             call(
                 self.public,
                 coordinate_filter={'spec_key': 'fury', 'profile_key': 'raid', 'scenario_key': 'st'},
                 include_coordinate_options=True,
+                include_details=False,
             ),
             call(
                 self.public,
                 coordinate_filter={'spec_key': 'fury', 'profile_key': 'raid', 'scenario_key': 'st'},
                 include_coordinate_options=True,
+                include_details=False,
             ),
         ])
 
@@ -691,11 +700,18 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIn('.simc-benchmark-list-header', self.CSS)
         self.assertIn('.simc-benchmark-list-action', self.CSS)
 
-    def test_public_renderer_uses_spec_driven_profile_and_scenario_filters(self):
-        for contract in ('payload?.results?.coordinate_options', 'spec_key', 'scenario_key', 'profile_key',
-                         'syncFilterOptions', 'availableCoordinates', 'profile_key',
+    def test_public_renderer_uses_spec_talent_and_scenario_filters(self):
+        for contract in ('payload?.results?.coordinate_options', 'spec_key', 'scenario_key', 'talent_key',
+                         'syncFilterOptions', 'availableCoordinates', 'talent_key',
                          'renderCoordinate', 'sortCandidates', 'relative', 'baseline'):
             self.assertIn(contract, self.JS)
+        renderer_start = self.JS.index('function renderResults')
+        renderer_end = self.JS.index('\n  function applyPanelHeading', renderer_start)
+        renderer = self.JS[renderer_start:renderer_end]
+        self.assertIn('["talent_key", "talent", "天赋字符串"]', renderer)
+        self.assertIn('params.get("talent") || params.get("profile")', renderer)
+        self.assertIn('params.set("talent", selected.talent_key.value)', renderer)
+        self.assertNotIn('["profile_key", "profile", "Profile"]', renderer)
         self.assertNotIn('innerHTML', self.JS)
         self.assertNotIn('results_finalized_at', self.JS)
 

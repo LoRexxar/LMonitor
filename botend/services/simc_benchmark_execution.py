@@ -1479,14 +1479,17 @@ def _hero_talent_label(result=None):
 
 def _coordinate_option(coordinate):
     params = coordinate.get('simulation_params') or {}
+    talent_label = normalize_hero_subtree_title_zh(coordinate['profile_label'])
     return {
         'spec_key': coordinate['spec_key'],
         'scenario_key': coordinate['scenario_key'],
         'profile_key': coordinate['profile_key'],
+        'talent_key': coordinate['profile_key'],
         'labels': {
             'spec': _spec_display_name(coordinate['spec_label'], coordinate['spec_key']),
             'scenario': coordinate['scenario_label'],
-            'profile': normalize_hero_subtree_title_zh(coordinate['profile_label']),
+            'profile': talent_label,
+            'talent': talent_label,
             'hero_talent': _hero_talent_label(),
         },
         'scenario_detail': {
@@ -1846,16 +1849,17 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                     'gain_dps': round(gain_dps, 4),
                     'gain_percent': round(gain_dps / baseline_dps * 100, 4),
                 })
+        talent_label = normalize_hero_subtree_title_zh(coordinate['profile_label'])
         coordinate_payload = {
             'spec_key': coordinate['spec_key'], 'scenario_key': coordinate['scenario_key'],
             'profile_key': coordinate['profile_key'],
+            'talent_key': coordinate['profile_key'],
             'spec_icon_url': _spec_icon_url(coordinate['spec_key']),
             'labels': {
                 'spec': _spec_display_name(coordinate['spec_label'], coordinate['spec_key']),
                 'scenario': coordinate['scenario_label'],
-                'profile': normalize_hero_subtree_title_zh(
-                    coordinate['profile_label'],
-                ),
+                'profile': talent_label,
+                'talent': talent_label,
                 'hero_talent': _hero_talent_label(source_result),
             },
             'scenario_detail': {

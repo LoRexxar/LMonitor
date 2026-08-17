@@ -112,7 +112,7 @@
   }
 
   function coordinateDetailKey(detailUrl, coordinate) {
-    return [detailUrl, coordinate?.spec_key, coordinate?.profile_key, coordinate?.scenario_key]
+    return [detailUrl, coordinate?.spec_key, coordinate?.talent_key, coordinate?.scenario_key]
       .map((value) => String(value || "")).join("|");
   }
 
@@ -122,13 +122,13 @@
     const query = new URLSearchParams();
     query.set("detail", "1");
     query.set("spec", coordinate?.spec_key || "");
-    query.set("profile", coordinate?.profile_key || "");
+    query.set("talent", coordinate?.talent_key || "");
     query.set("scenario", coordinate?.scenario_key || "");
     const request = requestJson(`${detailUrl}?${query.toString()}`).then((payload) => {
       const rows = Array.isArray(payload?.results?.coordinates) ? payload.results.coordinates : [];
       const resolved = rows.find((row) => (
         String(row?.spec_key || "") === String(coordinate?.spec_key || "")
-        && String(row?.profile_key || "") === String(coordinate?.profile_key || "")
+        && String(row?.talent_key || "") === String(coordinate?.talent_key || "")
         && String(row?.scenario_key || "") === String(coordinate?.scenario_key || "")
       )) || rows[0];
       if (!resolved?.profile_detail) throw new Error("Frozen profile detail unavailable");
@@ -589,7 +589,7 @@
     const info = node("div", "simc-benchmark-basic-info");
     [
       ["simc-benchmark-info-spec", "专精", coordinate?.labels?.spec || coordinate?.spec_key],
-      ["simc-benchmark-info-profile", "Profile", coordinate?.labels?.profile || coordinate?.profile_key],
+      ["simc-benchmark-info-profile", "天赋字符串", coordinate?.labels?.talent || coordinate?.talent_key],
       ["simc-benchmark-info-scenario", "场景", scenarioLabel(coordinate)],
     ].forEach(([className, label, value]) => {
       const item = node("div", className);
@@ -914,10 +914,10 @@
     const params = new URLSearchParams(syncLocation ? window.location.search : "");
     const requested = {
       spec: params.get("spec") || "",
-      profile: params.get("profile") || "",
+      talent: params.get("talent") || params.get("profile") || "",
       scenario: params.get("scenario") || "",
     };
-    const dimensions = [["spec_key", "spec", "专精"], ["profile_key", "profile", "Profile"], ["scenario_key", "scenario", "场景"]];
+    const dimensions = [["spec_key", "spec", "专精"], ["talent_key", "talent", "天赋字符串"], ["scenario_key", "scenario", "场景"]];
     const filters = node("div", "simc-benchmark-filters");
     const selected = {};
     dimensions.forEach(([key, labelKey, title]) => {
@@ -928,7 +928,7 @@
 
     const availableCoordinates = (key) => coordinateOptions.filter((coordinate) => {
       if (key !== "spec_key" && String(coordinate?.spec_key || "") !== selected.spec_key.value) return false;
-      if (key === "scenario_key" && String(coordinate?.profile_key || "") !== selected.profile_key.value) return false;
+      if (key === "scenario_key" && String(coordinate?.talent_key || "") !== selected.talent_key.value) return false;
       return true;
     });
     const syncFilterOptions = (key, preferred = "") => {
@@ -945,20 +945,21 @@
       options.forEach((label, value) => { const option = node("option", "", label); option.value = value; select.appendChild(option); });
       select.value = options.has(previous) ? previous : (options.keys().next().value || "");
     };
-    const syncDependentFilters = (preferredProfile = "", preferredScenario = "") => {
-      syncFilterOptions("profile_key", preferredProfile);
+    const syncDependentFilters = (preferredTalent = "", preferredScenario = "") => {
+      syncFilterOptions("talent_key", preferredTalent);
       syncFilterOptions("scenario_key", preferredScenario);
     };
     syncFilterOptions("spec_key", requested.spec);
-    syncDependentFilters(requested.profile, requested.scenario);
+    syncDependentFilters(requested.talent, requested.scenario);
 
     const selectedResult = node("div", "simc-benchmark-cases");
     const syncUrl = () => {
       if (!syncLocation) return;
       const params = new URLSearchParams(window.location.search);
       params.set("spec", selected.spec_key.value);
-      params.set("profile", selected.profile_key.value);
+      params.set("talent", selected.talent_key.value);
       params.set("scenario", selected.scenario_key.value);
+      params.delete("profile");
       params.delete("selected");
       window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
     };
@@ -984,7 +985,7 @@
       const params = new URLSearchParams();
       params.set("selected", "1");
       params.set("spec", selected.spec_key.value);
-      params.set("profile", selected.profile_key.value);
+      params.set("talent", selected.talent_key.value);
       params.set("scenario", selected.scenario_key.value);
       selectedResult.replaceChildren(state("正在加载当前结果…", "loading"));
       try {
@@ -998,7 +999,7 @@
         const resolved = rows[0] || null;
         syncFilterOptions("spec_key", String(resolved?.spec_key || ""));
         syncDependentFilters(
-          String(resolved?.profile_key || ""),
+          String(resolved?.talent_key || ""),
           String(resolved?.scenario_key || ""),
         );
         syncUrl();
@@ -1010,7 +1011,7 @@
       }
     };
     selected.spec_key.addEventListener("change", () => { syncDependentFilters(); loadSelectedCoordinate(); });
-    selected.profile_key.addEventListener("change", () => { syncFilterOptions("scenario_key"); loadSelectedCoordinate(); });
+    selected.talent_key.addEventListener("change", () => { syncFilterOptions("scenario_key"); loadSelectedCoordinate(); });
     selected.scenario_key.addEventListener("change", loadSelectedCoordinate);
     renderCoordinateResult(coordinates);
     syncUrl();

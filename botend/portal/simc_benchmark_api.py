@@ -366,17 +366,18 @@ class PortalSimcBenchmarkPanelDetailAPIView(View):
         coordinate_filter = None
         scenario_filter = None
         include_details = request.GET.get('detail') == '1'
+        talent_key = request.GET.get('talent') or request.GET.get('profile', '')
         if include_details:
             coordinate_filter = {
                 'spec_key': request.GET.get('spec', ''),
-                'profile_key': request.GET.get('profile', ''),
+                'profile_key': talent_key,
                 'scenario_key': request.GET.get('scenario', ''),
             }
         elif request.GET.get('selected') == '1':
             if panel.candidates.filter(is_enabled=True).exists():
                 coordinate_filter = {
                     'spec_key': request.GET.get('spec', ''),
-                    'profile_key': request.GET.get('profile', ''),
+                    'profile_key': talent_key,
                     'scenario_key': request.GET.get('scenario', ''),
                 }
             else:
