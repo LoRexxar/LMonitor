@@ -12,7 +12,7 @@ from django.utils import timezone
 from botend.models import (
     SimcAgent, SimcApl, SimcBackendBinary, SimcBenchmarkCase, SimcBenchmarkExecution,
     SimcBenchmarkPanel, SimcContentTemplate, SimcProfile,
-    SimcResourceVersion, SimcTask, SimcTaskArtifact, SimulationRun,
+    SimcResourceVersion, SimcTalentString, SimcTask, SimcTaskArtifact, SimulationRun,
 )
 from botend.services.simc_agent_control import _issue_token
 from botend.services.simc_benchmark_execution import cancel_execution
@@ -228,6 +228,33 @@ class SimcAgentJobAPITests(TestCase):
         self.assertEqual(run.input_hash, body['input_hash'])
         task.refresh_from_db()
         self.assertEqual(task.execution_owner, SimcTask.EXECUTION_OWNER_AGENT)
+
+    def test_claim_uses_frozen_task_talent_instead_of_profile_talent(self):
+        task = self.task()
+        profile_payload = {**task.profile_version.payload, 'talent': 'PROFILE_BUILD'}
+        profile_version = SimcResourceVersion.objects.create(
+            resource_type='profile', resource_id=task.profile_id,
+            content_hash='profile-build', payload=profile_payload,
+        )
+        talent = SimcTalentString.objects.create(
+            name='Selected build', spec='fury', talent='SELECTED_BUILD',
+            owner_user_id=task.user_id,
+        )
+        talent_version = SimcResourceVersion.objects.create(
+            resource_type='talent', resource_id=talent.pk,
+            content_hash='selected-build',
+            payload={'name': talent.name, 'spec': talent.spec, 'talent': talent.talent},
+        )
+        task.profile_version = profile_version
+        task.talent_string = talent
+        task.talent_version = talent_version
+        task.save(update_fields=['profile_version', 'talent_string', 'talent_version'])
+
+        response = self.claim()
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertIn('talents=SELECTED_BUILD', response.json()['input'])
+        self.assertNotIn('talents=PROFILE_BUILD', response.json()['input'])
 
     def test_agent_registered_after_pending_task_can_claim_it(self):
         self.agent.delete()

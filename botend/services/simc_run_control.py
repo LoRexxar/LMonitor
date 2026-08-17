@@ -126,7 +126,7 @@ def build_frozen_run_input(task, run, output_filename=None):
         'battlenet_region': profile_payload.get('battlenet_region', ''),
         'battlenet_realm': profile_payload.get('battlenet_realm', ''),
         'battlenet_character': profile_payload.get('battlenet_character', ''),
-        'talent': profile_payload.get('talent', ''),
+        'talent': (resolved.talent_payload.get('talent') or profile_payload.get('talent', '')),
         'gear_strength': profile_payload.get('gear_strength'),
         'gear_crit': profile_payload.get('gear_crit'),
         'gear_haste': profile_payload.get('gear_haste'),
