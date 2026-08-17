@@ -48,6 +48,7 @@ from botend.wow.talents.build_code import (
 )
 from botend.portal.talent_simulator import (
     PortalTalentSimulatorAPIView,
+    PortalTalentSimulatorView,
     _map_decoded_states_to_full_nodes,
     _merge_nodes_for_simulator,
     _resolve_simulator_spec,
@@ -1560,6 +1561,45 @@ class TalentTreeRenderTests(SimpleTestCase):
 class TalentSimulatorBuildCodeTests(SimpleTestCase):
     ARMS_REFERENCE_CODE = 'CcEAjLzRlq54bI5v+r8Sr9Xw4jZmZmFzYmZGAAAghphZGmZzMzMzYmxMDAAAAgxyMDsFGLLDsAGwMMBmBbgZGGGMbzsNAzMAYM8AA'
     DEATH_KNIGHT_REFERENCE_CODE = 'CoPAAAAAAAAAAAAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAA'
+
+    @patch('botend.portal.talent_simulator.TalentVersionResolver.get_default')
+    @patch('botend.portal.talent_simulator.TalentVersionResolver.list_active')
+    @patch('botend.portal.talent_simulator._build_specs_payload')
+    def test_mini_parameter_renders_reusable_talent_tree_thumbnail(
+        self,
+        build_specs_payload,
+        list_active_versions,
+        get_default_version,
+    ):
+        build_specs_payload.return_value = []
+        list_active_versions.return_value = []
+        get_default_version.return_value = SimpleNamespace(
+            key='retail', label='正式服', branch='retail',
+            current_build='', status='active',
+        )
+        request = RequestFactory().get('/portal/talents/', {
+            'code': self.ARMS_REFERENCE_CODE,
+            'mini': '1',
+            'width': '150',
+            'bgcolor': '160f0b',
+        })
+
+        response = PortalTalentSimulatorView.as_view()(request)
+        html = response.content.decode('utf-8')
+        renderer_source = (
+            Path(__file__).resolve().parents[2]
+            / 'static/portal/js/talent_tree_thumbnail.js'
+        ).read_text(encoding='utf-8')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('data-talent-thumbnail-auto', html)
+        self.assertIn('talent_tree_thumbnail.js', html)
+        self.assertNotIn('talent-sim-toolbar', html)
+        self.assertNotIn('talent-stage-container', html)
+        self.assertIn('class TalentTreeThumbnail', renderer_source)
+        for method in ('async load(', 'render(', 'destroy(', 'static async mount('):
+            self.assertIn(method, renderer_source)
+        self.assertIn('window.TalentTreeThumbnail = TalentTreeThumbnail', renderer_source)
 
     def test_choice_entry_order_accepts_zero_based_db2_index(self):
         with tempfile.TemporaryDirectory() as tmp:

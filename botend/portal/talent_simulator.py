@@ -416,13 +416,18 @@ class PortalTalentSimulatorView(View):
             )
         except ValueError:
             class_name, spec_name = DEFAULT_CLASS, DEFAULT_SPEC
+        mini_mode = request.GET.get('mini') == '1'
         context = {
             'class_name': class_name,
             'spec_name': spec_name,
-            'specs_payload': _build_specs_payload(),
-            'talent_versions': [TalentVersionResolver.serialize(v) for v in TalentVersionResolver.list_active()],
+            'mini_mode': mini_mode,
             'default_talent_version': TalentVersionResolver.serialize(TalentVersionResolver.get_default(TalentVersionResolver.USAGE_SIMULATOR)),
         }
+        if not mini_mode:
+            context.update({
+                'specs_payload': _build_specs_payload(),
+                'talent_versions': [TalentVersionResolver.serialize(v) for v in TalentVersionResolver.list_active()],
+            })
         return render(request, 'portal/talent_simulator.html', context)
 
 
