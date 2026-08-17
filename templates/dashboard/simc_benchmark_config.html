@@ -13,7 +13,7 @@
   <header class="simc-benchmark-config-toolbar">
     <div class="simc-benchmark-config-identity">
       <a class="simc-benchmark-back-link" href="/dashboard/#simc-benchmarks">← 返回基准面板</a>
-      <div><span class="simc-benchmark-eyebrow">TASK MATRIX</span><h1 id="simc-benchmark-editor-title">{{ panel_name }}</h1><p>这里仅配置要创建的任务矩阵：专精、Profile、场景与候选装备。</p></div>
+      <div><span class="simc-benchmark-eyebrow">TASK MATRIX</span><h1 id="simc-benchmark-editor-title">{{ panel_name }}</h1><p>这里配置候选装备模拟矩阵：专精、天赋字符串、战斗场景与候选装备。</p></div>
     </div>
     <div class="simc-benchmark-config-actions">
       <span class="simc-benchmark-save-status" data-save-status aria-live="polite">正在载入配置…</span>
@@ -36,8 +36,8 @@
             <div data-editor-comparison-config hidden></div>
           </section>
 
-          <section class="simc-benchmark-form-section"><div class="section-title"><div class="section-heading-copy"><span class="section-kicker">01 · MATRIX</span><h2>专精配置</h2><p>每个 Profile 行可直接选择天赋树；APL、Template、Backend 和 Profile 标签/启停收在“进阶选项”中。</p></div></div><div class="spec-config-table"><div class="spec-config-table-head" aria-hidden="true"><span>专精</span><span>状态</span><span>Profile / 天赋树</span><span>进阶选项</span></div><div data-editor-specs class="config-stack spec-config-list"></div></div></section>
-          <section class="simc-benchmark-form-section"><div class="section-title"><div class="section-heading-copy"><span class="section-kicker">02 · SCENARIOS</span><h2>场景</h2><p>只在首层维护场景身份，SimC 详细参数默认折叠。</p></div><button type="button" class="simc-benchmark-btn secondary" data-editor-add="scenario">＋ 添加场景</button></div><div data-editor-scenarios class="config-stack"></div></section>
+          <section class="simc-benchmark-form-section"><div class="section-title"><div class="section-heading-copy"><span class="section-kicker">01 · MATRIX</span><h2>候选装备模拟矩阵</h2><p>首层只勾选专精、天赋字符串、战斗场景；Profile、APL、Template 和 Backend 统一收在进阶模拟选项中。</p></div></div><div class="spec-config-table"><div class="spec-config-table-head" aria-hidden="true"><span>专精</span><span>状态</span><span>天赋字符串</span><span>进阶模拟选项</span></div><div data-editor-specs class="config-stack spec-config-list"></div></div></section>
+          <section class="simc-benchmark-form-section"><div class="section-title"><div class="section-heading-copy"><span class="section-kicker">02 · SCENARIOS</span><h2>战斗场景</h2><p>只在首层维护场景身份，SimC 详细参数默认折叠。</p></div><button type="button" class="simc-benchmark-btn secondary" data-editor-add="scenario">＋ 添加场景</button></div><div data-editor-scenarios class="config-stack"></div></section>
           <section class="simc-benchmark-form-section" data-editor-candidate-section><div class="section-title"><div class="section-heading-copy"><span class="section-kicker">03 · CANDIDATES</span><h2>候选装备</h2><p>装备行保持可见，来源、图标和适用专精收进高级配置；baseline 由系统生成。</p></div><button type="button" class="simc-benchmark-btn secondary" data-editor-add="candidate">＋ 添加候选</button></div><div data-editor-candidates class="config-stack"></div></section>
         </form>
       </div>
@@ -45,6 +45,6 @@
   </div>
 </main>
 <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
-<script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260817_simc_surfaces"></script>
+<script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260817_talent_matrix_only"></script>
 </body>
 </html>
