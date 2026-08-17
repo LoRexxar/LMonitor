@@ -63,6 +63,17 @@ class SimcHistoryPaginationContractTests(unittest.TestCase):
         self.assertIn('simc-task-type', kind)
         self.assertLess(kind.index('simc-task-id'), kind.index('simc-task-type'))
 
+    def test_history_filters_and_talent_resource_replace_profile(self):
+        history = JS[JS.index('async function loadTasks('):JS.index('function scheduleTaskRefresh(', JS.index('async function loadTasks('))]
+        self.assertIn('data-task-history-spec', HTML)
+        self.assertIn('data-task-history-type', HTML)
+        self.assertIn('spec=${encodeURIComponent(state.taskSpecFilter)}', history)
+        self.assertIn('simulation_type=${encodeURIComponent(state.taskTypeFilter)}', history)
+        self.assertIn("state.taskTypeFilter = 'non_benchmark'", JS)
+        self.assertIn('<b>天赋字符串</b>', history)
+        self.assertIn('row.talent_name', history)
+        self.assertNotIn('<b>Profile</b>', history)
+
     def test_active_task_polling_is_silent_and_preserves_expanded_benchmark(self):
         """后台轮询不能反复展示 loading，也不能收起用户正在看的基准子任务。"""
         self.assertIn("loadTasks(page, { background: true })", JS)
@@ -334,7 +345,7 @@ class SimcHistoryBackendPaginationTests(TestCase):
         self.assertIn('await loadTasks(state.taskPage)', JS)
 
     def test_history_exposes_frozen_resource_names_and_battle_scenario(self):
-        from botend.models import SimcApl, SimcResourceVersion
+        from botend.models import SimcApl, SimcResourceVersion, SimcTalentString
         apl = SimcApl.objects.create(
             name='个人狂怒优化 APL：长名称用于验证省略', spec='warrior_fury', content='actions=auto_attack',
             owner_user_id=self.user.id, source='user', is_active=True,
@@ -347,10 +358,19 @@ class SimcHistoryBackendPaginationTests(TestCase):
             resource_type='apl', resource_id=apl.id, content_hash='history-apl-v1',
             payload={'name': '冻结 APL：12.1 Fury优化APL-LoRexxar'},
         )
+        talent = SimcTalentString.objects.create(
+            name='当前天赋名称', spec='warrior_fury', talent='FROZEN_BUILD',
+            owner_user_id=self.user.id,
+        )
+        talent_version = SimcResourceVersion.objects.create(
+            resource_type='talent', resource_id=talent.id, content_hash='history-talent-v1',
+            payload={'name': '冻结天赋：山丘领主单体', 'spec': 'warrior_fury', 'talent': 'FROZEN_BUILD'},
+        )
         task = SimcTask.objects.create(
             user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
             name='资源展示任务', current_status=2, is_active=True, profile=self.profile, apl=apl,
             profile_version=profile_version, apl_version=apl_version,
+            talent_string=talent, talent_version=talent_version,
             simulation_params={'fight_style': 'Patchwerk', 'desired_targets': 3},
         )
         request = self.factory.get('/api/simc-workbench/history/')
@@ -358,7 +378,8 @@ class SimcHistoryBackendPaginationTests(TestCase):
         rows = json.loads(self.view.get(request, resource='history').content)['data']
         row = next(item for item in rows if item.get('id') == task.id)
         self.assertEqual(row['apl_name'], '冻结 APL：12.1 Fury优化APL-LoRexxar')
-        self.assertEqual(row['profile_name'], '冻结 Profile：12.1 狂怒 Raid 单体配置')
+        self.assertEqual(row['talent_name'], '冻结天赋：山丘领主单体')
+        self.assertNotIn('profile_name', row)
         self.assertEqual(row['battle_scenario'], 'Patchwerk · 3目标')
 
         detail_request = self.factory.get(f'/api/simc-workbench/tasks/{task.id}/')
@@ -368,6 +389,54 @@ class SimcHistoryBackendPaginationTests(TestCase):
         )['data']
         self.assertEqual(detail['apl_name'], '冻结 APL：12.1 Fury优化APL-LoRexxar')
         self.assertEqual(detail['profile_name'], '冻结 Profile：12.1 狂怒 Raid 单体配置')
+
+    def test_history_filters_before_pagination_by_frozen_spec_and_simulation_type(self):
+        from botend.models import SimcResourceVersion
+        fury_version = SimcResourceVersion.objects.create(
+            resource_type='profile', resource_id=self.profile.id, content_hash='filter-fury-v1',
+            payload={'name': '狂怒冻结配置', 'spec': 'warrior_fury'},
+        )
+        normal = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            name='狂怒普通模拟', mode='normal', current_status=2, is_active=True,
+            profile_version=fury_version,
+        )
+        comparison = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            name='狂怒候选对比', mode='comparison', current_status=2, is_active=True,
+            profile_version=fury_version,
+        )
+        panel = SimcBenchmarkPanel.objects.create(
+            name='狂怒 Benchmark', slug='history-filter-benchmark', created_by_id=self.user.id,
+        )
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, config_snapshot={}, config_hash='f' * 64,
+        )
+        benchmark_task = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            name='Benchmark 内部任务', mode='normal', current_status=2, is_active=True,
+            profile_version=fury_version,
+        )
+        SimcBenchmarkCase.objects.create(
+            execution=execution, task=benchmark_task, spec_key='warrior_fury',
+            scenario_key='patchwerk', profile_key='raid', spec_label='狂怒',
+            scenario_label='木桩', profile_label='Raid', coordinate_hash='f' * 64,
+        )
+
+        request = self.factory.get(
+            '/api/simc-workbench/history/?spec=warrior_fury&simulation_type=non_benchmark&page_size=1'
+        )
+        request.user = self.user
+        data = json.loads(self.view.get(request, resource='history').content)
+        self.assertEqual(data['pagination']['total'], 2)
+        self.assertEqual(len(data['data']), 1)
+        self.assertNotEqual(data['data'][0].get('row_type'), 'benchmark_execution')
+
+        request = self.factory.get('/api/simc-workbench/history/?simulation_type=comparison')
+        request.user = self.user
+        rows = json.loads(self.view.get(request, resource='history').content)['data']
+        self.assertEqual([row['id'] for row in rows], [comparison.id])
+        self.assertNotIn(normal.id, [row['id'] for row in rows])
 
     def test_history_groups_benchmark_tasks_as_one_expandable_execution(self):
         panel = SimcBenchmarkPanel.objects.create(name='基准', slug='history-benchmark', created_by_id=self.user.id)

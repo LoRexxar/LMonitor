@@ -4,7 +4,8 @@
     const apiRoot = '/api/simc-workbench/';
     const TASK_POLL_MS = 10000;
     const state = {
-        activePanel: '', taskPage: 1, taskScope: 'all', taskFetchInFlight: false,
+        activePanel: '', taskPage: 1, taskScope: 'all', taskSpecFilter: '', taskTypeFilter: 'all',
+        taskFetchInFlight: false,
         taskRequestSerial: 0, taskPollTimer: null, taskAbortController: null,
         taskResponseSignature: '',
         benchmarkExecutionDetails: new Map(),
@@ -143,6 +144,28 @@
                 : 'border-b-2 border-transparent px-3 py-2 text-sm font-bold text-slate-500 hover:text-slate-800';
         });
     }
+    function syncTaskHistoryFilters() {
+        const specSelect = document.querySelector('[data-task-history-spec]');
+        const typeSelect = document.querySelector('[data-task-history-type]');
+        if (specSelect) specSelect.value = state.taskSpecFilter;
+        if (typeSelect) {
+            typeSelect.value = state.taskTypeFilter;
+            ['all', 'benchmark'].forEach(value => {
+                const option = typeSelect.querySelector(`option[value="${value}"]`);
+                if (option) option.disabled = Boolean(state.taskSpecFilter);
+            });
+        }
+    }
+    async function loadTaskHistorySpecOptions() {
+        const select = document.querySelector('[data-task-history-spec]');
+        if (!select || select.dataset.loaded === '1') return;
+        await loadSpecOptions();
+        select.innerHTML = '<option value="">全部专精</option>' + state.specOptions.map(row => (
+            `<option value="${esc(row.value)}">${esc(row.label || `${row.spec_label} · ${row.class_label}`)}</option>`
+        )).join('');
+        select.dataset.loaded = '1';
+        syncTaskHistoryFilters();
+    }
     async function toggleTaskFavorite(button) {
         const taskId = idOf(button.dataset.taskFavoriteId);
         const action = button.dataset.taskFavoriteAction;
@@ -222,7 +245,7 @@
         state.taskFetchInFlight = true;
         let data;
         try {
-            data = await json(`${resourceUrl('history')}?page=${requestedPage}&page_size=20&scope=${encodeURIComponent(state.taskScope)}`, { signal: controller.signal });
+            data = await json(`${resourceUrl('history')}?page=${requestedPage}&page_size=20&scope=${encodeURIComponent(state.taskScope)}&spec=${encodeURIComponent(state.taskSpecFilter)}&simulation_type=${encodeURIComponent(state.taskTypeFilter)}`, { signal: controller.signal });
         } catch (error) {
             if (error.name === 'AbortError') return;
             if (requestSerial === state.taskRequestSerial && state.activePanel === 'tasks') {
@@ -309,7 +332,7 @@
             const favoriteButton = `<button type="button" data-task-favorite-id="${idOf(row.id)}" data-task-favorite-action="${favoriteAction}" aria-pressed="${row.is_favorite === true}" title="${favoriteLabel}" class="simc-touch-action simc-task-secondary-action"><i class="${row.is_favorite === true ? 'fas' : 'far'} fa-star text-amber-500" aria-hidden="true"></i><span>${favoriteLabel}</span></button>`;
             const pendingActions = status === 0 ? `<button type="button" data-task-status="5" data-task-id="${idOf(row.id)}" title="取消任务" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-ban" aria-hidden="true"></i><span>取消</span></button><button type="button" data-task-status="3" data-task-id="${idOf(row.id)}" title="标记失败" class="simc-touch-action simc-task-secondary-action"><i class="fas fa-exclamation-circle" aria-hidden="true"></i><span>失败</span></button>` : '';
             const deleteButton = [2, 3, 5].includes(status) ? `<button type="button" data-task-delete="${idOf(row.id)}" title="删除任务" class="simc-touch-action simc-task-secondary-action text-red-700"><i class="fas fa-trash-alt" aria-hidden="true"></i><span>删除</span></button>` : '';
-            const resourceMeta = `<div class="simc-task-card__resources" aria-label="任务资源"><span title="APL：${esc(row.apl_name || '—')}"><b>APL</b><em>${esc(row.apl_name || '—')}</em></span><span title="Profile：${esc(row.profile_name || '—')}"><b>Profile</b><em>${esc(row.profile_name || '—')}</em></span></div>`;
+            const resourceMeta = `<div class="simc-task-card__resources" aria-label="任务资源"><span title="APL：${esc(row.apl_name || '—')}"><b>APL</b><em>${esc(row.apl_name || '—')}</em></span><span title="天赋字符串：${esc(row.talent_name || '—')}"><b>天赋字符串</b><em>${esc(row.talent_name || '—')}</em></span></div>`;
             const cardAction = status === 2 && row.can_compare === true ? 'compare' : status === 3 ? 'error' : '';
             return `<article class="simc-task-card simc-responsive-row${cardAction ? ' is-status-actionable' : ''}"${cardAction ? ` data-task-card-action="${cardAction}" data-task-card-id="${idOf(row.id)}"` : ''}>
                 ${row.can_compare === true && status === 2 ? `<label class="simc-task-card__select"><input type="checkbox" data-task-compare-id="${idOf(row.id)}" aria-label="选择任务 ${idOf(row.id)} 进行对比" class="accent-violet-600"></label>` : ''}
@@ -1327,7 +1350,10 @@
     }
     function activate(tab) {
         state.activePanel = tab || '';
-        if (tab === 'tasks') loadTasks().catch(notify);
+        if (tab === 'tasks') {
+            loadTaskHistorySpecOptions().catch(notify);
+            loadTasks().catch(notify);
+        }
         if (tab === 'templates') loadTemplates().catch(notify);
         if (tab === 'apl') {
             loadApl('apls', 'simc-unified-apl-list').catch(notify);
@@ -1708,6 +1734,22 @@
             editor.dispatchEvent(new Event('input', { bubbles: true }));
         });
         document.addEventListener('change', event => {
+            const taskSpecFilter = event.target.closest('[data-task-history-spec]');
+            if (taskSpecFilter) {
+                state.taskSpecFilter = taskSpecFilter.value || '';
+                if (state.taskSpecFilter) state.taskTypeFilter = 'non_benchmark';
+                state.taskResponseSignature = '';
+                syncTaskHistoryFilters();
+                loadTasks(1).catch(notify);
+                return;
+            }
+            const taskTypeFilter = event.target.closest('[data-task-history-type]');
+            if (taskTypeFilter) {
+                state.taskTypeFilter = taskTypeFilter.value || 'all';
+                state.taskResponseSignature = '';
+                loadTasks(1).catch(notify);
+                return;
+            }
             const aplSpecFilter = event.target.closest('#simc-apl-spec-filter');
             if (aplSpecFilter) {
                 state.aplSpecFilter = aplSpecFilter.value || '';

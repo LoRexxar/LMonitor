@@ -467,7 +467,7 @@
     <script src="{% static 'dashboard/js/main.js' %}?v=20260817_apl_source_label"></script>
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806c" defer></script>
     <script src="{% static 'dashboard/js/simc-result-report.js' %}?v=20260817_result_config_panel"></script>
-    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260817_apl_select"></script>
+    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260817_history_filters"></script>
     <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260817_talent_matrix_only"></script>
     {% if user.is_staff or user.is_superuser %}
     <link rel="stylesheet" href="{% static 'dashboard/css/mythic_planner.css' %}?v=20260806a">
@@ -1538,6 +1538,21 @@
                                     <button type="button" data-task-history-scope="all" aria-selected="true" class="border-b-2 border-blue-600 px-3 py-2 text-sm font-bold text-blue-700">全部任务</button>
                                     <button type="button" data-task-history-scope="favorites" aria-selected="false" class="border-b-2 border-transparent px-3 py-2 text-sm font-bold text-slate-500 hover:text-slate-800"><i class="fas fa-star mr-1 text-amber-400" aria-hidden="true"></i>收藏</button>
                                 </nav>
+                                <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:max-w-2xl">
+                                    <label class="text-xs font-bold text-slate-500">专精
+                                        <select data-task-history-spec class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-700"><option value="">全部专精</option></select>
+                                    </label>
+                                    <label class="text-xs font-bold text-slate-500">模拟类型
+                                        <select data-task-history-type class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-700">
+                                            <option value="all">全部类型</option>
+                                            <option value="non_benchmark">非 Benchmark 模拟</option>
+                                            <option value="normal">普通模拟</option>
+                                            <option value="comparison">候选对比</option>
+                                            <option value="attribute_sweep">属性寻优</option>
+                                            <option value="benchmark">Benchmark</option>
+                                        </select>
+                                    </label>
+                                </div>
                                 <div id="simc-wb-task-list" class="mt-4"></div>
                                 <div id="simc-wb-task-pagination" class="mt-3"></div>
 

@@ -6813,6 +6813,15 @@ class SimcWorkbenchAPIView(View):
             scope = str(request.GET.get('scope') or 'all').strip().lower()
             if scope not in ('all', 'favorites'):
                 return JsonResponse({'success': False, 'error': '历史任务范围无效'}, status=400)
+            simulation_type = str(request.GET.get('simulation_type') or 'all').strip().lower()
+            if simulation_type not in {
+                'all', 'non_benchmark', 'normal', 'comparison', 'attribute_sweep', 'benchmark',
+            }:
+                return JsonResponse({'success': False, 'error': '模拟类型筛选无效'}, status=400)
+            requested_spec = str(request.GET.get('spec') or '').strip().lower()
+            spec = _canonical_simc_spec(requested_spec) if requested_spec else ''
+            if requested_spec and not spec:
+                return JsonResponse({'success': False, 'error': '专精筛选无效'}, status=400)
 
             benchmark_ancestor_ids = set()
             ancestor_frontier = set(
@@ -6830,36 +6839,49 @@ class SimcWorkbenchAPIView(View):
                     ).values_list('source_task_id', flat=True)
                 ) - benchmark_ancestor_ids
 
+            ordinary_queryset = SimcTask.objects.filter(
+                user_id=request.user.id,
+                is_active=True,
+                benchmark_case__isnull=True,
+            ).exclude(pk__in=benchmark_ancestor_ids)
+            if spec:
+                ordinary_queryset = ordinary_queryset.filter(
+                    models.Q(talent_version__payload__spec=spec)
+                    | models.Q(talent_version__isnull=True, profile_version__payload__spec=spec)
+                    | models.Q(
+                        talent_version__isnull=True,
+                        profile_version__isnull=True,
+                        profile__spec=spec,
+                    )
+                )
+            if simulation_type == 'benchmark':
+                ordinary_queryset = ordinary_queryset.none()
+            elif simulation_type == 'normal':
+                ordinary_queryset = ordinary_queryset.filter(mode__in=('', 'normal'))
+            elif simulation_type in ('comparison', 'attribute_sweep'):
+                ordinary_queryset = ordinary_queryset.filter(mode=simulation_type)
+
             if scope == 'favorites':
                 ordinary_refs = [
                     ('task', task_id, favorited_at)
                     for task_id, favorited_at in SimcTaskFavorite.objects.filter(
                         user_id=request.user.id,
-                        task__user_id=request.user.id,
-                        task__is_active=True,
-                        task__benchmark_case__isnull=True,
-                    ).exclude(
-                        task_id__in=benchmark_ancestor_ids,
+                        task_id__in=ordinary_queryset.values('id'),
                     ).values_list('task_id', 'created_at')
                 ]
                 execution_refs = []
             else:
                 ordinary_refs = [
                     ('task', task_id, modified_time)
-                    for task_id, modified_time in SimcTask.objects.filter(
-                        user_id=request.user.id,
-                        is_active=True,
-                        benchmark_case__isnull=True,
-                    ).exclude(
-                        pk__in=benchmark_ancestor_ids,
-                    ).values_list('id', 'modified_time')
+                    for task_id, modified_time in ordinary_queryset.values_list('id', 'modified_time')
                 ]
+                include_benchmark = not spec and simulation_type in ('all', 'benchmark')
                 execution_refs = [
                     ('benchmark_execution', execution_id, created_at)
                     for execution_id, created_at in SimcBenchmarkExecution.objects.filter(
                         cases__task__user_id=request.user.id,
                     ).distinct().values_list('id', 'created_at')
-                ]
+                ] if include_benchmark else []
             refs = ordinary_refs + execution_refs
             # Stable page boundaries even when MySQL timestamps have identical precision.
             refs.sort(
@@ -6883,12 +6905,12 @@ class SimcWorkbenchAPIView(View):
             tasks = {
                 task.pk: task for task in SimcTask.objects.filter(pk__in=task_ids).only(
                     'id', 'name', 'current_status', 'ext', 'modified_time', 'mode',
-                    'profile_id', 'apl_id', 'profile_version_id', 'apl_version_id', 'simulation_params',
+                    'apl_id', 'talent_string_id', 'apl_version_id', 'talent_version_id', 'simulation_params',
                 )
             }
             version_ids = {
                 version_id for task in tasks.values()
-                for version_id in (task.profile_version_id, task.apl_version_id)
+                for version_id in (task.apl_version_id, task.talent_version_id)
                 if version_id
             }
             versions = {
@@ -6896,13 +6918,13 @@ class SimcWorkbenchAPIView(View):
                     id__in=version_ids,
                 ).only('id', 'resource_type', 'payload')
             }
-            profile_ids = {task.profile_id for task in tasks.values() if task.profile_id}
             apl_ids = {task.apl_id for task in tasks.values() if task.apl_id}
-            profiles = {
-                profile.id: profile for profile in SimcProfile.objects.filter(id__in=profile_ids).only('id', 'name')
-            }
+            talent_ids = {task.talent_string_id for task in tasks.values() if task.talent_string_id}
             apls = {
                 apl.id: apl for apl in SimcApl.objects.filter(id__in=apl_ids).only('id', 'name')
+            }
+            talents = {
+                talent.id: talent for talent in SimcTalentString.objects.filter(id__in=talent_ids).only('id', 'name')
             }
             completed_task_ids = set(SimulationRun.objects.filter(
                 task_id__in=task_ids, status='completed',
@@ -6973,10 +6995,10 @@ class SimcWorkbenchAPIView(View):
                     continue
                 task = tasks.get(object_id)
                 if task is not None:
-                    profile_version = versions.get(task.profile_version_id)
                     apl_version = versions.get(task.apl_version_id)
-                    profile_payload = profile_version.payload if profile_version and isinstance(profile_version.payload, dict) else {}
+                    talent_version = versions.get(task.talent_version_id)
                     apl_payload = apl_version.payload if apl_version and isinstance(apl_version.payload, dict) else {}
+                    talent_payload = talent_version.payload if talent_version and isinstance(talent_version.payload, dict) else {}
                     params = task.simulation_params if isinstance(task.simulation_params, dict) else {}
                     fight_style = str(params.get('fight_style') or 'Patchwerk').strip()
                     target_count = params.get('desired_targets', 1)
@@ -6999,7 +7021,11 @@ class SimcWorkbenchAPIView(View):
                         'is_favorite': task.id in favorite_task_ids,
                         'can_compare': task.current_status == 2 and task.id in completed_task_ids,
                         'apl_name': apl_payload.get('name') or getattr(apls.get(task.apl_id), 'name', '') or '—',
-                        'profile_name': profile_payload.get('name') or getattr(profiles.get(task.profile_id), 'name', '') or '—',
+                        'talent_name': (
+                            talent_payload.get('name')
+                            or getattr(talents.get(task.talent_string_id), 'name', '')
+                            or '—'
+                        ),
                         'battle_scenario': scenario,
                     })
             return JsonResponse({
