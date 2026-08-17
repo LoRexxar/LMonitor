@@ -96,15 +96,23 @@
       ? card('候选方案', `<dl><div><dt>方案名称</dt><dd>${value(talentCandidate.name || row.candidate_label)}</dd></div><div><dt>完整天赋树字符串</dt><dd><code class="talent-code">${value(talentCandidate.talent)}</code></dd></div></dl>`, true)
       : '';
     const bonusValue = setBonuses.length ? `<div class="bonus-list">${setBonuses.map(item => `<span class="bonus-tag">${value(item)}</span>`).join('')}</div>` : '报告未解析到套装效果';
-    const topConfiguration = `<section class="result-group" data-simc-result-top-config>
-      <header class="result-group__heading"><span>当前配置</span><div><h2>天赋与套装</h2><p>本次模拟实际使用的天赋字符串与报告解析到的套装效果。</p></div></header>
-      <div class="grid">
-        ${card('当前天赋', `${thumbnailCode ? '<div data-simc-detail-talent-thumbnail style="margin-bottom:14px;overflow:hidden;border-radius:12px"></div>' : ''}<dl><div><dt>天赋字符串</dt><dd>${talentValue}</dd></div></dl>${talentActions}`)}
-        ${card('当前套装', `<div class="current-set-bonuses">${bonusValue}</div>`)}
+    const topConfiguration = `<section class="simc-result-configuration" data-simc-result-top-config>
+      <header class="simc-result-configuration__heading"><div><span>当前配置</span><h3>天赋与套装</h3></div><p>本次 Run 实际使用的构筑</p></header>
+      <div class="simc-result-configuration__grid">
+        <article class="simc-result-configuration__card is-talent">
+          <div class="simc-result-configuration__card-heading"><span>当前天赋</span><small>可复制或在天赋模拟器中继续调整</small></div>
+          ${thumbnailCode ? '<div class="simc-result-talent-thumbnail" data-simc-detail-talent-thumbnail></div>' : ''}
+          <details class="simc-result-talent-code"><summary>查看天赋字符串</summary>${talentValue}</details>
+          ${talentActions}
+        </article>
+        <article class="simc-result-configuration__card is-set">
+          <div class="simc-result-configuration__card-heading"><span>当前套装</span><small>报告解析到的套装与套装效果</small></div>
+          <div class="current-set-bonuses">${bonusValue}</div>
+        </article>
       </div>
     </section>`;
     const resultSummary = hasStructuredReport || report.dps != null
-      ? window.SimcResultReport.renderSummary(report)
+      ? window.SimcResultReport.renderSummary(report, {upperContent: topConfiguration})
       : '';
     const completeReport = Array.isArray(report.sections) && report.sections.length
       ? window.SimcResultReport.renderDetails(report)
@@ -120,7 +128,6 @@
     </section>` : '';
     root.innerHTML = `<section class="hero"><div class="hero-status"><span class="pill">任务${statusClass(row)}</span>${failureTooltip}</div><div class="hero-primary-column"><h1>${value(row.name, `任务 #${objectId}`)}</h1><div class="hero-resource-stack" aria-label="当前模拟资源"><div class="hero-resource-line"><span>当前 APL</span><b>${value(row.apl_name, '未命名')}</b></div><div class="hero-resource-line"><span>当前 Profile</span><b>${value(row.profile_name, '未命名')}</b></div></div></div><div class="hero-meta"><span class="pill">${modeLabel}</span><span class="pill">更新 ${value(row.updated_at)}</span></div>${nativeReportAction}</section>
       ${hasStructuredReport ? '' : (taskFailed ? '<div class="analysis-warning"><b>模拟执行失败</b><span>失败状态旁的提示图标可查看详情；只有 SimC 实际生成 HTML Artifact 时才会提供原生报告。</span></div>' : '<div class="analysis-warning"><b>模拟已成功，结构化分析信息不完整</b><span>当前仅展示已确认的执行轮次和原生报告；缺失字段不会被猜测填充。</span></div>')}
-      ${topConfiguration}
       ${resultSummary}
       ${renderTaskComparison(row)}
       ${corePerformance}

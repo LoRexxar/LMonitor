@@ -90,18 +90,23 @@ class SimcDetailPageFrontendContractTests(TestCase):
         self.assertIn('profileDetail.talents?.build_code', benchmark)
         self.assertIn("query.set('thumbnail', '1')", thumbnail)
 
-    def test_regular_task_result_prioritizes_talents_sets_and_current_resources(self):
+    def test_regular_task_result_embeds_talents_and_sets_below_top_metrics(self):
         detail = (ROOT / 'static/dashboard/js/simc-detail.js').read_text(encoding='utf-8')
         report = (ROOT / 'static/dashboard/js/simc-result-report.js').read_text(encoding='utf-8')
         regular = detail[detail.index('function renderTask(row)'):detail.index('function renderAttributeTask(row)')]
-        summary = report[report.index('function renderSummary(report)'):report.index('function renderSection(', report.index('function renderSummary(report)'))]
+        summary_start = report.index('function renderSummary(')
+        summary = report[summary_start:report.index('function renderSection(', summary_start)]
 
         self.assertIn('当前 APL', regular)
         self.assertIn('当前 Profile', regular)
         self.assertIn('data-copy-talent-code', regular)
         self.assertIn('/portal/talents/?code=', regular)
         self.assertIn('打开天赋模拟器', regular)
-        self.assertLess(regular.index('data-simc-result-top-config'), regular.index('${resultSummary}'))
+        self.assertIn('class="simc-result-configuration"', regular)
+        self.assertIn('renderSummary(report, {upperContent: topConfiguration})', regular)
+        self.assertNotIn('\n      ${topConfiguration}\n', regular)
+        self.assertLess(summary.index('simc-report-result-metrics'), summary.index('${upperContent}'))
+        self.assertLess(summary.index('${upperContent}'), summary.index('simc-report-result-stats'))
         self.assertNotIn('renderDamageProfile(report)', summary)
 
     def test_battlenet_source_can_load_spec_top_players_and_fill_armory_fields(self):

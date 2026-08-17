@@ -440,7 +440,8 @@
     </section>`;
   }
 
-  function renderSummary(report) {
+  function renderSummary(report, options = {}) {
+    const upperContent = typeof options.upperContent === 'string' ? options.upperContent : '';
     const character = report?.character || {};
     const simulation = report?.simulation || {};
     const results = tableValueMap(report, 'results', 'DPS');
@@ -466,6 +467,7 @@
     return `<section class="simc-report-result-summary" aria-labelledby="simc-report-result-title">
       <div class="simc-report-result-heading"><span>模拟结论</span><div><h2 id="simc-report-result-title">${esc(character.name ? `${character.name} · 模拟结果` : '模拟结果')}</h2><p>结论来自当前 Run；技能、属性和战斗条件均直接引用 SimC 报告，未解析字段不推算。</p></div></div>
       <div class="simc-report-result-metrics">${metrics.map(metric => `<article class="simc-report-result-metric ${metric.primary ? 'is-primary' : ''}"><span>${esc(metric.label)}</span><strong>${esc(displayValue(metric.value))}</strong></article>`).join('')}</div>
+      ${upperContent}
       ${stats.length ? `<div class="simc-report-result-stats"><b>角色属性</b><div>${stats.map(stat => `<span><small>${esc(localizeReportText(stat.name))}</small><strong>${esc(displayValue(stat.value))}</strong></span>`).join('')}</div></div>` : ''}
       ${facts.length ? `<dl class="simc-report-result-facts">${facts.map(([label, value]) => `<div><dt>${esc(label)}</dt><dd>${esc(displayValue(value))}</dd></div>`).join('')}</dl>` : ''}
     </section>`;
