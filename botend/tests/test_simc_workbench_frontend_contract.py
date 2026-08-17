@@ -1231,6 +1231,14 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
         self.assertIn('id="simc-workbench-dialog-content"', HTML)
         self.assertIn('data-simc-dialog-close', HTML)
 
+    def test_simulation_apl_picker_only_marks_simc_sources(self):
+        start = MAIN.index('async function loadSimcAplCandidates(')
+        end = MAIN.index('async function simcWbFetchProfilesForWorkbench(', start)
+        picker = MAIN[start:end]
+        self.assertIn("['simc_upstream', 'simc_builtin'].includes(row.source)", picker)
+        self.assertIn("`${name} · SimC`", picker)
+        self.assertNotIn('row.spec_label', picker)
+
     def test_talent_string_editor_populates_the_visible_dialog_spec_select(self):
         self.assertNotIn('id="simc-talent-string-editor"', HTML)
         editor_start = MAIN.index('function simcTalentStringOpenEditor(')

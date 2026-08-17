@@ -3489,8 +3489,10 @@ async function loadSimcAplCandidates(spec, control = null) {
             : String(defaults[0].id);
         simcPendingAplId = '';
         container.innerHTML = rows.length ? rows.map(row => {
-            const detail = [row.spec_label || row.spec || '', row.source || ''].filter(Boolean).join(' · ');
-            const label = `${row.name || `APL #${row.id}`}${detail ? ` · ${detail}` : ''}`;
+            const name = row.name || `APL #${row.id}`;
+            const label = ['simc_upstream', 'simc_builtin'].includes(row.source)
+                ? `${name} · SimC`
+                : name;
             return `<option value="${Number(row.id) || ''}" ${String(row.id) === selectedAplId ? 'selected' : ''}>${escapeHtml(label)}</option>`;
         }).join('') : '<option value="">当前 Profile 专精没有可选 APL</option>';
         container.disabled = rows.length === 0;
