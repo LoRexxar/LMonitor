@@ -90,6 +90,20 @@ class SimcDetailPageFrontendContractTests(TestCase):
         self.assertIn('profileDetail.talents?.build_code', benchmark)
         self.assertIn("query.set('thumbnail', '1')", thumbnail)
 
+    def test_regular_task_result_prioritizes_talents_sets_and_current_resources(self):
+        detail = (ROOT / 'static/dashboard/js/simc-detail.js').read_text(encoding='utf-8')
+        report = (ROOT / 'static/dashboard/js/simc-result-report.js').read_text(encoding='utf-8')
+        regular = detail[detail.index('function renderTask(row)'):detail.index('function renderAttributeTask(row)')]
+        summary = report[report.index('function renderSummary(report)'):report.index('function renderSection(', report.index('function renderSummary(report)'))]
+
+        self.assertIn('当前 APL', regular)
+        self.assertIn('当前 Profile', regular)
+        self.assertIn('data-copy-talent-code', regular)
+        self.assertIn('/portal/talents/?code=', regular)
+        self.assertIn('打开天赋模拟器', regular)
+        self.assertLess(regular.index('data-simc-result-top-config'), regular.index('${resultSummary}'))
+        self.assertNotIn('renderDamageProfile(report)', summary)
+
     def test_battlenet_source_can_load_spec_top_players_and_fill_armory_fields(self):
         template = (ROOT / 'templates/dashboard/index.html').read_text(encoding='utf-8')
         main = (ROOT / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
@@ -158,8 +172,8 @@ class SimcDetailPageFrontendContractTests(TestCase):
         self.assertIn('flex-direction:column', template)
         self.assertIn('.hero-resource-line b{', template)
         self.assertIn('overflow-wrap:anywhere', template)
-        self.assertLess(hero.index('<h1>'), hero.index('<span>APL</span>'))
-        self.assertLess(hero.index('<span>APL</span>'), hero.index('<span>Profile</span>'))
+        self.assertLess(hero.index('<h1>'), hero.index('<span>当前 APL</span>'))
+        self.assertLess(hero.index('<span>当前 APL</span>'), hero.index('<span>当前 Profile</span>'))
         self.assertIn("row.apl_name", hero)
         self.assertIn("row.profile_name", hero)
         self.assertIn('percentNumber(item.dps_percent)', script)

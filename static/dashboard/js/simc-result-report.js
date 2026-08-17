@@ -468,7 +468,6 @@
       <div class="simc-report-result-metrics">${metrics.map(metric => `<article class="simc-report-result-metric ${metric.primary ? 'is-primary' : ''}"><span>${esc(metric.label)}</span><strong>${esc(displayValue(metric.value))}</strong></article>`).join('')}</div>
       ${stats.length ? `<div class="simc-report-result-stats"><b>角色属性</b><div>${stats.map(stat => `<span><small>${esc(localizeReportText(stat.name))}</small><strong>${esc(displayValue(stat.value))}</strong></span>`).join('')}</div></div>` : ''}
       ${facts.length ? `<dl class="simc-report-result-facts">${facts.map(([label, value]) => `<div><dt>${esc(label)}</dt><dd>${esc(displayValue(value))}</dd></div>`).join('')}</dl>` : ''}
-      ${renderDamageProfile(report)}
     </section>`;
   }
 

@@ -17,6 +17,19 @@
   const artifactType = type => ({html_report: 'HTML 原生报告'}[String(type)] || value(type));
   const artifactRows = rows => (Array.isArray(rows) ? rows : []).map(item => `<tr><td title="${value(item.file_name)}">${value(item.file_name || item.artifact_type)}</td><td>${artifactType(item.artifact_type)}</td><td class="right">${humanSize(item.file_size)}</td><td class="right">${item.can_preview === true ? `<a href="${esc(item.preview_url)}">查看原生报告</a>` : '不可预览'}</td></tr>`).join('');
 
+  async function copyTalentCode(button) {
+    const talentCode = button?.dataset.copyTalentCode || '';
+    if (!talentCode) return;
+    const originalLabel = button.textContent;
+    try {
+      await navigator.clipboard.writeText(talentCode);
+      button.textContent = '已复制';
+    } catch (_) {
+      button.textContent = '复制失败';
+    }
+    window.setTimeout(() => { button.textContent = originalLabel; }, 1500);
+  }
+
   async function showRunInput(taskId, runId) {
     const dialog = document.getElementById('simc-input-dialog');
     const status = dialog?.querySelector('[data-run-input-status]');
@@ -75,13 +88,21 @@
     const constantBuffRows = constantBuffs.map(item => { const details = item.details || {}; return `<tr><td class="ability-name">${value(item.name)}${item.spell_id ? `<small>#${value(item.spell_id)}</small>` : ''}</td><td class="right">${value(details.max_stacks)}</td><td class="right">${value(details.base_duration)}</td><td class="right">${value(details.base_cooldown)}</td><td>${details.stat ? `${value(details.stat)} ${value(details.amount, '')}` : '-'}</td></tr>`; }).join('');
     const sequenceRows = sampleSequence.map(item => `<tr><td class="right">${value(item.time)}</td><td class="right">${value(item.marker)}</td><td class="ability-name">${value(item.action)}${item.action_list ? `<small>${value(item.action_list)}</small>` : ''}</td><td>${value(item.target)}</td><td>${value(item.resources)}</td><td class="sequence-buffs">${value(item.buffs)}</td></tr>`).join('');
     const runRows = runs.map(run => `<tr><td>#${value(run.sequence)}</td><td><span class="status-dot ${statusKey(run.status)}"></span>${runStatus(run.status)}</td><td class="right">${number(run.result_summary?.dps)}</td><td>${value(run.started_at)}</td><td>${value(run.completed_at)}</td><td class="right"><button type="button" class="run-input-button" data-run-input data-task-id="${objectId}" data-run-id="${Number(run.id)}">查看 SimC 输入</button></td></tr>`).join('');
-    const talentValue = talents.string ? `<code class="talent-code">${value(talents.string)}</code>` : '报告未解析到天赋字符串';
     const talentCandidate = row.mode_summary?.talent_candidate || null;
     const thumbnailCode = row.talent_build_code || talentCandidate?.talent || talents.string || '';
+    const talentValue = thumbnailCode ? `<code class="talent-code">${value(thumbnailCode)}</code>` : '报告未解析到天赋字符串';
+    const talentActions = thumbnailCode ? `<div class="talent-actions"><button type="button" class="run-input-button" data-copy-talent-code="${esc(thumbnailCode)}">复制天赋字符串</button><a class="primary-link" href="/portal/talents/?code=${encodeURIComponent(thumbnailCode)}" target="_blank" rel="noopener">打开天赋模拟器 <span aria-hidden="true">↗</span></a></div>` : '';
     const talentCandidateCard = talentCandidate?.talent
       ? card('候选方案', `<dl><div><dt>方案名称</dt><dd>${value(talentCandidate.name || row.candidate_label)}</dd></div><div><dt>完整天赋树字符串</dt><dd><code class="talent-code">${value(talentCandidate.talent)}</code></dd></div></dl>`, true)
       : '';
     const bonusValue = setBonuses.length ? `<div class="bonus-list">${setBonuses.map(item => `<span class="bonus-tag">${value(item)}</span>`).join('')}</div>` : '报告未解析到套装效果';
+    const topConfiguration = `<section class="result-group" data-simc-result-top-config>
+      <header class="result-group__heading"><span>当前配置</span><div><h2>天赋与套装</h2><p>本次模拟实际使用的天赋字符串与报告解析到的套装效果。</p></div></header>
+      <div class="grid">
+        ${card('当前天赋', `${thumbnailCode ? '<div data-simc-detail-talent-thumbnail style="margin-bottom:14px;overflow:hidden;border-radius:12px"></div>' : ''}<dl><div><dt>天赋字符串</dt><dd>${talentValue}</dd></div></dl>${talentActions}`)}
+        ${card('当前套装', `<div class="current-set-bonuses">${bonusValue}</div>`)}
+      </div>
+    </section>`;
     const resultSummary = hasStructuredReport || report.dps != null
       ? window.SimcResultReport.renderSummary(report)
       : '';
@@ -89,7 +110,7 @@
       ? window.SimcResultReport.renderDetails(report)
       : '';
     const corePerformance = hasStructuredReport ? `<section class="result-group">
-      <header class="result-group__heading"><span>核心表现</span><div><h2>伤害与效果明细</h2><p>结论卡先给出前 5 个伤害来源；这里保留全部技能、Proc 与 Buff 证据。</p></div></header>
+      <header class="result-group__heading"><span>核心表现</span><div><h2>伤害与效果明细</h2><p>这里保留全部技能、Proc 与 Buff 证据。</p></div></header>
       <div class="grid">
         ${card('技能伤害与触发明细', `<p class="muted">全部伤害技能按 SimC 原始数值展示；中文名称来自现有技能词典。</p><div class="table-scroll"><table class="dense-table"><thead><tr><th>技能</th><th class="right">DPS</th><th>伤害占比</th><th class="right">施放</th><th class="right">间隔</th><th class="right">暴击</th><th class="right">覆盖</th><th class="right">Ticks</th><th class="right">刷新</th></tr></thead><tbody>${abilityRows || '<tr><td colspan="9" class="empty">暂无已解析技能</td></tr>'}</tbody></table></div>`, true)}
         ${card('动态 Buff / Proc', `<p class="muted">展示启动、刷新、触发间隔、持续时间、覆盖率、收益覆盖与各层数覆盖。</p><div class="table-scroll"><table class="dense-table"><thead><tr><th>Buff</th><th class="right">启动</th><th class="right">刷新</th><th class="right">总触发</th><th class="right">触发间隔</th><th class="right">持续</th><th class="right">覆盖率</th><th class="right">收益覆盖</th><th class="right">溢出</th><th class="right">到期</th><th class="right">触发率</th><th>属性效果</th></tr></thead><tbody>${dynamicBuffRows || '<tr><td colspan="12" class="empty">暂无动态 Buff</td></tr>'}</tbody></table></div>`, true)}
@@ -97,8 +118,9 @@
         ${disclosureCard('技能施放序列', '代表性战斗的逐步动作、目标、资源与激活 Buff，仅在排查 APL 时展开。', `<div class="table-scroll sequence-scroll"><table class="dense-table sequence-table"><thead><tr><th class="right">时间</th><th class="right">序号</th><th>技能 / 动作列表</th><th>目标</th><th>资源</th><th>激活 Buff</th></tr></thead><tbody>${sequenceRows || '<tr><td colspan="6" class="empty">报告中未包含技能施放序列</td></tr>'}</tbody></table></div>`, `${sampleSequence.length} 条`)}
       </div>
     </section>` : '';
-    root.innerHTML = `<section class="hero"><div class="hero-status"><span class="pill">任务${statusClass(row)}</span>${failureTooltip}</div><div class="hero-primary-column"><h1>${value(row.name, `任务 #${objectId}`)}</h1><div class="hero-resource-stack" aria-label="模拟资源"><div class="hero-resource-line"><span>APL</span><b>${value(row.apl_name, '未命名')}</b></div><div class="hero-resource-line"><span>Profile</span><b>${value(row.profile_name, '未命名')}</b></div></div></div><div class="hero-meta"><span class="pill">${modeLabel}</span><span class="pill">更新 ${value(row.updated_at)}</span></div>${nativeReportAction}</section>
+    root.innerHTML = `<section class="hero"><div class="hero-status"><span class="pill">任务${statusClass(row)}</span>${failureTooltip}</div><div class="hero-primary-column"><h1>${value(row.name, `任务 #${objectId}`)}</h1><div class="hero-resource-stack" aria-label="当前模拟资源"><div class="hero-resource-line"><span>当前 APL</span><b>${value(row.apl_name, '未命名')}</b></div><div class="hero-resource-line"><span>当前 Profile</span><b>${value(row.profile_name, '未命名')}</b></div></div></div><div class="hero-meta"><span class="pill">${modeLabel}</span><span class="pill">更新 ${value(row.updated_at)}</span></div>${nativeReportAction}</section>
       ${hasStructuredReport ? '' : (taskFailed ? '<div class="analysis-warning"><b>模拟执行失败</b><span>失败状态旁的提示图标可查看详情；只有 SimC 实际生成 HTML Artifact 时才会提供原生报告。</span></div>' : '<div class="analysis-warning"><b>模拟已成功，结构化分析信息不完整</b><span>当前仅展示已确认的执行轮次和原生报告；缺失字段不会被猜测填充。</span></div>')}
+      ${topConfiguration}
       ${resultSummary}
       ${renderTaskComparison(row)}
       ${corePerformance}
@@ -106,7 +128,6 @@
         <header class="result-group__heading"><span>配置与复现</span><div><h2>输入、模拟参数、产物与冻结版本</h2><p>把用于解释结果的配置证据集中到页面后部，不与模拟结论混排。</p></div></header>
         <div class="grid">
           ${talentCandidateCard}
-          ${card('天赋与套装', `${thumbnailCode ? '<div data-simc-detail-talent-thumbnail style="margin-bottom:14px;overflow:hidden;border-radius:12px"></div>' : ''}<dl><div><dt>天赋字符串</dt><dd>${talentValue}</dd></div><div><dt>套装效果</dt><dd>${bonusValue}</dd></div></dl>`, true)}
           ${card('执行轮次', `<div class="table-scroll"><table><thead><tr><th>轮次</th><th>状态</th><th class="right">DPS</th><th>开始</th><th>完成</th><th class="right">输入</th></tr></thead><tbody>${runRows || '<tr><td colspan="6" class="empty">暂无执行轮次</td></tr>'}</tbody></table></div><details><summary>输入说明</summary>查看输入会按当前任务冻结配置调用 SimC Composer 生成可读文本；它不是历史执行输入的复原或校验。命令、路径及原始 stderr 不在页面展示。</details>`, true)}
           ${card('Artifact / 原生报告', `<p class="muted">${taskFailed && !nativeArtifact ? '本次失败未生成原生报告。SimC 在初始化阶段终止时不会产出 HTML Artifact。' : '原生报告继续通过独立鉴权页面读取。'}</p><div class="table-scroll"><table><thead><tr><th>文件</th><th>类型</th><th class="right">大小</th><th class="right">操作</th></tr></thead><tbody>${artifactRows(artifacts) || '<tr><td colspan="4" class="empty">暂无 Artifact</td></tr>'}</tbody></table></div>`, true)}
           ${card('引用版本', `<dl><div><dt>Profile</dt><dd>${value(row.profile_name, '未命名')} · #${value(row.profile_id)} · v${value(row.profile_version_id)}</dd></div><div><dt>基础模板</dt><dd>#${value(row.template_id)} · v${value(row.template_version_id)}</dd></div><div><dt>APL</dt><dd>${value(row.apl_name, '未命名')} · #${value(row.apl_id)} · v${value(row.apl_version_id)}</dd></div><div><dt>报告时间</dt><dd>${value(simulation.timestamp)}</dd></div><div><dt>来源任务</dt><dd>${row.source_task_id ? `<a href="/dashboard/simc/tasks/${Number(row.source_task_id)}/">#${Number(row.source_task_id)}</a>` : '-'}</dd></div></dl><details><summary>为什么显示版本号？</summary>名称来自任务创建时的冻结资源版本；版本引用用于复现，不展示配置原文或服务器路径。</details>`, true)}
@@ -342,6 +363,8 @@
     .catch(() => { root.innerHTML = '<div class="error"><b>详情暂时无法加载</b><p>请返回工作台稍后重试。为避免泄露内部信息，此处不展示原始错误。</p></div>'; });
 
   document.addEventListener('click', event => {
+    const talentCopyButton = event.target.closest('[data-copy-talent-code]');
+    if (talentCopyButton) copyTalentCode(talentCopyButton);
     const inputButton = event.target.closest('[data-run-input]');
     if (inputButton) showRunInput(Number(inputButton.dataset.taskId), Number(inputButton.dataset.runId));
     if (event.target.closest('[data-run-input-close]')) document.getElementById('simc-input-dialog')?.close();
