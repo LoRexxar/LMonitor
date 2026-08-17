@@ -6693,6 +6693,47 @@ class SimcWorkbenchAPIView(View):
         }
 
     @staticmethod
+    def _benchmark_history_summary(execution, task_counts=None, run_counts=None):
+        """Serialize one list row without materializing child Case/Task details."""
+        status_labels = {
+            'pending': '待运行', 'running': '运行中', 'success': '成功',
+            'partial': '部分完成', 'failed': '失败', 'cancelled': '已取消',
+        }
+        task_counts = task_counts or {
+            key: 0 for key in ('pending', 'running', 'success', 'partial', 'failed', 'cancelled')
+        }
+        run_counts = run_counts or {
+            key: 0 for key in ('pending', 'running', 'success', 'failed', 'cancelled')
+        }
+        case_count = sum(task_counts.values())
+        run_count = sum(run_counts.values())
+        if run_count:
+            completed = run_counts['success'] + run_counts['failed'] + run_counts['cancelled']
+            total = run_count
+        else:
+            completed = sum(task_counts[key] for key in ('success', 'partial', 'failed', 'cancelled'))
+            total = case_count
+        return {
+            'row_type': 'benchmark_execution', 'id': execution.pk,
+            'execution_id': execution.pk, 'panel_id': execution.panel_id,
+            'name': f'{execution.panel.name} · 执行 #{execution.pk}',
+            'status': execution.status,
+            'status_label': status_labels.get(execution.status, '未知'),
+            'is_active': execution.status in {
+                SimcBenchmarkExecution.STATUS_PENDING,
+                SimcBenchmarkExecution.STATUS_RUNNING,
+            },
+            'progress': int(completed * 100 / total) if total else 0,
+            'case_count': case_count,
+            'task_counts': task_counts,
+            'run_count': run_count,
+            'run_counts': run_counts,
+            'baseline_counts': None,
+            'created_at': execution.created_at,
+            'detail_resource': 'benchmark_executions',
+        }
+
+    @staticmethod
     def _task_row(task):
         summary = {}
         latest_run = task.simulation_runs.filter(status='completed').order_by('-sequence').first()
@@ -6866,20 +6907,56 @@ class SimcWorkbenchAPIView(View):
             completed_task_ids = set(SimulationRun.objects.filter(
                 task_id__in=task_ids, status='completed',
             ).values_list('task_id', flat=True))
-            history_cases = SimcBenchmarkCase.objects.select_related('task').only(
-                'id', 'execution_id', 'task_id', 'status', 'error_detail',
-                'spec_key', 'scenario_key', 'profile_key',
-                'spec_label', 'scenario_label', 'profile_label',
-                'task__id', 'task__current_status', 'task__ext', 'task__error_detail',
-            ).order_by('id')
+            active_execution_statuses = (
+                SimcBenchmarkExecution.STATUS_PENDING,
+                SimcBenchmarkExecution.STATUS_RUNNING,
+            )
+            effective_case_filters = {
+                'pending': models.Q(task__current_status=0),
+                'running': models.Q(task__current_status__in=(1, 4)),
+                'success': models.Q(task__current_status=2),
+                'partial': models.Q(pk__isnull=True),
+                'failed': models.Q(task__current_status=3),
+                'cancelled': models.Q(task__current_status=5),
+            }
+            case_annotations = {}
+            for status_name, active_task_filter in effective_case_filters.items():
+                case_annotations[status_name] = models.Count('id', filter=(
+                    models.Q(execution__status__in=active_execution_statuses, task__isnull=False)
+                    & active_task_filter
+                ) | (
+                    models.Q(execution__status__in=active_execution_statuses, task__isnull=True)
+                    & models.Q(status=status_name)
+                ) | (
+                    ~models.Q(execution__status__in=active_execution_statuses)
+                    & models.Q(status=status_name)
+                ))
+            task_count_keys = ('pending', 'running', 'success', 'partial', 'failed', 'cancelled')
+            task_counts_by_execution = {
+                row['execution_id']: {key: row[key] for key in task_count_keys}
+                for row in SimcBenchmarkCase.objects.filter(
+                    execution_id__in=execution_ids,
+                ).values('execution_id').annotate(**case_annotations)
+            }
+            run_count_keys = ('pending', 'running', 'success', 'failed', 'cancelled')
+            run_annotations = {
+                key: models.Count('id', filter=models.Q(
+                    status__in=('completed', 'success') if key == 'success' else (key,),
+                ))
+                for key in run_count_keys
+            }
+            run_counts_by_execution = {
+                row['task__benchmark_case__execution_id']: {key: row[key] for key in run_count_keys}
+                for row in SimulationRun.objects.filter(
+                    task__benchmark_case__execution_id__in=execution_ids,
+                ).values('task__benchmark_case__execution_id').annotate(**run_annotations)
+            }
             executions = {
                 execution.pk: execution
                 for execution in SimcBenchmarkExecution.objects.filter(
                     pk__in=execution_ids,
                 ).select_related('panel').only(
-                    'id', 'panel_id', 'panel__name', 'status', 'created_at', 'config_snapshot',
-                ).prefetch_related(
-                    models.Prefetch('cases', queryset=history_cases, to_attr='_history_cases'),
+                    'id', 'panel_id', 'panel__name', 'status', 'created_at',
                 )
             }
 
@@ -6888,7 +6965,11 @@ class SimcWorkbenchAPIView(View):
                 if row_type == 'benchmark_execution':
                     execution = executions.get(object_id)
                     if execution is not None:
-                        page_rows.append(self._benchmark_history_row(execution))
+                        page_rows.append(self._benchmark_history_summary(
+                            execution,
+                            task_counts_by_execution.get(object_id),
+                            run_counts_by_execution.get(object_id),
+                        ))
                     continue
                 task = tasks.get(object_id)
                 if task is not None:
@@ -6931,6 +7012,15 @@ class SimcWorkbenchAPIView(View):
                     'total_pages': total_pages,
                 },
             })
+
+        if resource == 'benchmark-executions' and object_id:
+            execution = SimcBenchmarkExecution.objects.filter(
+                id=object_id,
+                cases__task__user_id=request.user.id,
+            ).select_related('panel').distinct().first()
+            if execution is None:
+                return JsonResponse({'success': False, 'error': 'Benchmark 执行不存在'}, status=404)
+            return JsonResponse({'success': True, 'data': self._benchmark_history_row(execution)})
 
         if resource == 'tasks':
             if object_id:
@@ -9372,22 +9462,60 @@ def _benchmark_panel_summary(panel, execution=None, panel_coverage=None):
             'profiles': panel.profile_count, 'candidates': panel.candidate_count,
         },
     }
-    data['execution'] = (
-        _benchmark_execution_progress(
-            execution,
-            getattr(execution, '_dashboard_cases', []),
-            is_active=panel.active_execution_id == execution.pk,
-        ) if execution is not None else None
-    )
-    data['panel_coverage'] = panel_coverage or {
-        'aggregate_baseline_execution_id': panel.aggregate_baseline_execution_id,
-        'coordinates': 0,
-        'candidate_runs': 0,
-        'available_results': 0,
-        'missing_results': 0,
-        'source_executions': [],
-    }
+    data['execution'] = execution
+    if panel_coverage is not None:
+        data['panel_coverage'] = panel_coverage
     return data
+
+
+def _benchmark_execution_list_summary(execution, panel, case_counts=None, run_counts=None):
+    """Project list progress from aggregate counts only; details stay on execution APIs."""
+    if execution is None:
+        return None
+    case_counts = dict(case_counts or {
+        key: 0 for key in ('pending', 'running', 'success', 'partial', 'failed', 'cancelled')
+    })
+    run_counts = run_counts or {
+        key: 0 for key in ('pending', 'running', 'success', 'failed', 'cancelled')
+    }
+    snapshot = execution.config_snapshot if isinstance(execution.config_snapshot, dict) else {}
+    materialized_runs = sum(run_counts.values())
+    total_runs = snapshot.get('run_count')
+    if type(total_runs) is not int or total_runs < 0:
+        total_runs = materialized_runs
+    total_cases = snapshot.get('case_count')
+    if type(total_cases) is not int or total_cases < 0:
+        total_cases = sum(case_counts.values())
+    counted_cases = sum(case_counts.values())
+    if counted_cases < total_cases:
+        case_counts['pending'] += total_cases - counted_cases
+    ended_runs = run_counts['success'] + run_counts['failed'] + run_counts['cancelled']
+    progress = int(ended_runs * 100 / total_runs) if total_runs else 0
+    return {
+        'id': execution.pk,
+        'panel_id': execution.panel_id,
+        'trigger': execution.trigger,
+        'status': execution.status,
+        'scheduled_slot': _benchmark_iso(execution.scheduled_slot),
+        'created_at': _benchmark_iso(execution.created_at),
+        'completed_at': _benchmark_iso(execution.completed_at),
+        'total_cases': total_cases,
+        'total_runs': total_runs,
+        'materialized_runs': materialized_runs,
+        'progress': progress,
+        'counts': case_counts,
+        'run_counts': run_counts,
+        'current_cases': [],
+        'failures': [],
+        'metadata': {
+            'config_frozen': _benchmark_config_frozen(execution),
+            'task_bindings': 0,
+            'task_total': total_cases,
+            'results_available': False,
+        },
+        'is_active': panel.active_execution_id == execution.pk,
+        'is_published': panel.published_execution_id == execution.pk,
+    }
 
 
 def _benchmark_config_frozen(execution):
@@ -9783,19 +9911,48 @@ class SimcBenchmarkPanelListAPIView(_BenchmarkAdminAPIView):
             for panel in rows
             if panel.active_execution_id or panel.dashboard_latest_execution_id
         }
-        case_queryset = _benchmark_progress_case_queryset()
-        executions = SimcBenchmarkExecution.objects.filter(pk__in=execution_ids).prefetch_related(
-            models.Prefetch('cases', queryset=case_queryset, to_attr='_dashboard_cases'),
+        executions = SimcBenchmarkExecution.objects.filter(pk__in=execution_ids).only(
+            'id', 'panel_id', 'trigger', 'status', 'scheduled_slot',
+            'created_at', 'completed_at', 'config_snapshot', 'config_hash',
         )
         execution_by_id = {execution.pk: execution for execution in executions}
-        coverage_by_panel = summarize_panel_coverage_counts(rows)
+        case_count_keys = ('pending', 'running', 'success', 'partial', 'failed', 'cancelled')
+        case_counts_by_execution = {
+            row['execution_id']: {key: row[key] for key in case_count_keys}
+            for row in SimcBenchmarkCase.objects.filter(
+                execution_id__in=execution_ids,
+            ).values('execution_id').annotate(**{
+                key: models.Count('id', filter=models.Q(status=key))
+                for key in case_count_keys
+            })
+        }
+        run_count_keys = ('pending', 'running', 'success', 'failed', 'cancelled')
+        run_counts_by_execution = {
+            row['task__benchmark_case__execution_id']: {key: row[key] for key in run_count_keys}
+            for row in SimulationRun.objects.filter(
+                task__benchmark_case__execution_id__in=execution_ids,
+            ).values('task__benchmark_case__execution_id').annotate(**{
+                key: models.Count('id', filter=models.Q(
+                    status__in=('completed', 'success') if key == 'success' else (key,),
+                ))
+                for key in run_count_keys
+            })
+        }
         return JsonResponse({'success': True, 'data': [
             _benchmark_panel_summary(
                 panel,
-                execution_by_id.get(
-                    panel.active_execution_id or panel.dashboard_latest_execution_id,
+                _benchmark_execution_list_summary(
+                    execution_by_id.get(
+                        panel.active_execution_id or panel.dashboard_latest_execution_id,
+                    ),
+                    panel,
+                    case_counts_by_execution.get(
+                        panel.active_execution_id or panel.dashboard_latest_execution_id,
+                    ),
+                    run_counts_by_execution.get(
+                        panel.active_execution_id or panel.dashboard_latest_execution_id,
+                    ),
                 ),
-                coverage_by_panel[panel.pk],
             )
             for panel in rows
         ]})

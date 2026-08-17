@@ -254,13 +254,16 @@ class SimcBenchmarkDashboardApiTests(TestCase):
 
     def test_crud_list_counts_and_creator_cannot_be_reassigned(self):
         panel = self._create_panel()
-        response = self.client.get('/api/simc-benchmarks/panels/')
+        with patch('botend.dashboard.api.summarize_panel_coverage_counts') as summarize:
+            response = self.client.get('/api/simc-benchmarks/panels/')
         self.assertEqual(response.status_code, 200)
         row = response.json()['data'][0]
         self.assertEqual(row['counts'], {
             'specs': 1, 'scenarios': 1, 'profiles': 1, 'candidates': 0,
         })
         self.assertEqual(row['published_execution_id'], None)
+        self.assertNotIn('panel_coverage', row)
+        summarize.assert_not_called()
 
         other = Client()
         other.force_login(self.other_staff)
@@ -445,7 +448,7 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         portal_panel = next(
             row for row in portal_response.json()['panels'] if row['id'] == panel.id
         )
-        self.assertEqual(dashboard_panel['panel_coverage']['available_results'], 1)
+        self.assertNotIn('panel_coverage', dashboard_panel)
         self.assertEqual(portal_panel['result_count'], 1)
 
     def test_panel_list_exposes_current_plan_growth_separately_from_aggregate_baseline(self):
@@ -472,10 +475,7 @@ class SimcBenchmarkDashboardApiTests(TestCase):
 
         response = self.client.get('/api/simc-benchmarks/panels/')
         self.assertEqual(response.status_code, 200, response.content)
-        coverage = response.json()['data'][0]['panel_coverage']
-        self.assertEqual(coverage['candidate_runs'], 1)
-        self.assertEqual(coverage['current_plan_runs'], 2)
-        self.assertEqual(coverage['plan_delta_runs'], 1)
+        self.assertNotIn('panel_coverage', response.json()['data'][0])
 
     def test_panel_list_keeps_full_coverage_when_active_supplement_owns_every_coordinate(self):
         """A supplement can contain 96 Case Tasks but only the missing candidate Runs."""
@@ -523,18 +523,9 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         row = response.json()['data'][0]
         self.assertEqual(row['aggregate_baseline_execution_id'], None)
-        self.assertEqual(row['execution']['case_count'], 2)
+        self.assertEqual(row['execution']['total_cases'], 2)
         self.assertEqual(row['execution']['total_runs'], 2)
-        self.assertEqual(row['panel_coverage'], {
-            'aggregate_baseline_execution_id': full.id,
-            'coordinates': 2,
-            'candidate_runs': 4,
-            'current_plan_runs': 1,
-            'plan_delta_runs': -3,
-            'available_results': 4,
-            'missing_results': 0,
-            'source_executions': [],
-        })
+        self.assertNotIn('panel_coverage', row)
         summarize.assert_not_called()
 
     def test_panel_list_and_history_expose_execution_progress_and_metadata_readiness(self):
@@ -605,49 +596,23 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         progress = response.json()['data'][0]['execution']
         self.assertEqual(progress['id'], execution.id)
         self.assertTrue(progress['is_active'])
-        self.assertEqual(progress['progress'], 59)
+        self.assertEqual(progress['progress'], 22)
         self.assertEqual(progress['counts'], {
             'pending': 1, 'running': 1, 'success': 1,
             'partial': 0, 'failed': 1, 'cancelled': 0,
         })
-        self.assertEqual(progress['current_cases'], [{
-            'task_id': task_ids[2],
-            'spec': 'Fury', 'scenario': 'Scenario 2', 'profile': 'Profile 2',
-            'progress': 37,
-        }])
+        self.assertEqual(progress['current_cases'], [])
         self.assertEqual(progress['run_counts'], {
             'pending': 1, 'running': 1, 'success': 1,
             'failed': 1, 'cancelled': 0,
         })
         self.assertEqual(progress['total_runs'], 9)
         self.assertEqual(progress['materialized_runs'], 4)
-        self.assertEqual(progress['failures'], [{
-            'case_id': execution.cases.get(status='failed').id,
-            'task_id': task_ids[1],
-            'labels': {
-                'spec': 'Fury', 'scenario': 'Scenario 1', 'profile': 'Profile 1',
-            },
-            'error': (
-                "Player 'MID2_Rogue_Outlaw' attempting to use Action 'dispatch' "
-                "with invalid main-hand weapon type 'Dagger'."
-            ),
-            'report_url': f'/api/simc-workbench/artifacts/{report_artifact.id}/preview/',
-            'detail_url': f'/dashboard/simc/benchmarks/executions/{execution.id}/',
-        }])
-        coverage = response.json()['data'][0]['panel_coverage']
-        self.assertEqual(coverage, {
-            'aggregate_baseline_execution_id': execution.id,
-            'coordinates': 4,
-            'candidate_runs': 9,
-            'current_plan_runs': 1,
-            'plan_delta_runs': -8,
-            'available_results': 0,
-            'missing_results': 9,
-            'source_executions': [],
-        })
+        self.assertEqual(progress['failures'], [])
+        self.assertNotIn('panel_coverage', response.json()['data'][0])
         self.assertEqual(progress['metadata'], {
             'config_frozen': True,
-            'task_bindings': 4,
+            'task_bindings': 0,
             'task_total': 4,
             'results_available': False,
         })
@@ -659,7 +624,8 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         self.assertEqual(history['progress'], 59)
         self.assertEqual(history['counts']['running'], 1)
         self.assertEqual(history['metadata']['task_bindings'], 4)
-        self.assertEqual(history['failures'], progress['failures'])
+        self.assertEqual(len(history['failures']), 1)
+        self.assertEqual(history['failures'][0]['report_url'], f'/api/simc-workbench/artifacts/{report_artifact.id}/preview/')
 
     def test_execution_progress_counts_missing_cases_without_claiming_aggregate_available(self):
         panel = self._create_panel()
@@ -687,8 +653,8 @@ class SimcBenchmarkDashboardApiTests(TestCase):
 
         panel_response = self.client.get('/api/simc-benchmarks/panels/')
         panel_progress = panel_response.json()['data'][0]['execution']
-        self.assertEqual(panel_progress['case_count'], 3)
-        self.assertEqual(panel_progress['progress'], 33)
+        self.assertEqual(panel_progress['total_cases'], 3)
+        self.assertEqual(panel_progress['progress'], 0)
         self.assertEqual(panel_progress['counts'], {
             'pending': 2, 'running': 0, 'success': 1,
             'partial': 0, 'failed': 0, 'cancelled': 0,

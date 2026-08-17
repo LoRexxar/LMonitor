@@ -7,6 +7,7 @@
         activePanel: '', taskPage: 1, taskScope: 'all', taskFetchInFlight: false,
         taskRequestSerial: 0, taskPollTimer: null, taskAbortController: null,
         taskResponseSignature: '',
+        benchmarkExecutionDetails: new Map(),
         detailRequestSerial: 0, detailAbortController: null, detailRequestKey: '',
         dialogStack: [],
         rows: Object.create(null),
@@ -247,7 +248,8 @@
 
         host.innerHTML = data.data.length ? `<div class="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-violet-200 bg-violet-50 p-3" data-task-compare-toolbar><span class="text-sm text-violet-900"><i class="fas fa-check-square mr-1" aria-hidden="true"></i>勾选至少两个已完成结果，生成对比页面</span><button type="button" data-task-compare-submit disabled class="simc-touch-action rounded-lg bg-violet-700 px-3 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50"><i class="fas fa-balance-scale mr-1" aria-hidden="true"></i>生成对比结果（0）</button></div><div class="simc-task-list">${data.data.map(row => {
             if (row.row_type === 'benchmark_execution') {
-                const executionId = idOf(row.execution_id);
+                Object.assign(row, state.benchmarkExecutionDetails.get(String(row.execution_id || row.id)) || {});
+                const executionId = idOf(row.execution_id || row.id);
                 const expanded = expandedExecutionIds.has(executionId);
                 const runCounts = row.run_counts || {};
                 const executionActive = row.is_active === true
@@ -1554,6 +1556,24 @@
             if (benchmarkToggle) {
                 const cases = document.getElementById(benchmarkToggle.getAttribute('aria-controls'));
                 const expanded = benchmarkToggle.getAttribute('aria-expanded') === 'true';
+                const executionId = idOf(benchmarkToggle.dataset.benchmarkTaskToggle);
+                if (!expanded && executionId && !state.benchmarkExecutionDetails.has(String(executionId))) {
+                    benchmarkToggle.disabled = true;
+                    benchmarkToggle.textContent = '正在加载子任务…';
+                    try {
+                        const payload = await json(resourceUrl('benchmark-executions', executionId));
+                        state.benchmarkExecutionDetails.set(String(executionId), payload.data || {});
+                        benchmarkToggle.setAttribute('aria-expanded', 'true');
+                        state.taskResponseSignature = '';
+                        await loadTasks(state.taskPage, { background: true });
+                    } catch (error) {
+                        benchmarkToggle.textContent = '展开子任务进度';
+                        notify(error);
+                    } finally {
+                        benchmarkToggle.disabled = false;
+                    }
+                    return;
+                }
                 benchmarkToggle.setAttribute('aria-expanded', expanded ? 'false' : 'true');
                 benchmarkToggle.textContent = expanded ? '展开子任务进度' : '收起子任务进度';
                 if (cases) cases.hidden = expanded;

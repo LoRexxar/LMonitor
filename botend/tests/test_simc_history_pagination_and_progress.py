@@ -384,12 +384,21 @@ class SimcHistoryBackendPaginationTests(TestCase):
         benchmark_rows = [row for row in rows if row.get('row_type') == 'benchmark_execution']
         self.assertEqual(len(benchmark_rows), 1)
         self.assertFalse(any(row.get('id') == task.id for row in rows if row.get('row_type') != 'benchmark_execution'))
-        self.assertEqual(benchmark_rows[0]['cases'][0]['task_id'], task.id)
-        self.assertEqual(benchmark_rows[0]['cases'][0]['labels']['spec'], '狂怒-战士')
-        self.assertEqual(benchmark_rows[0]['cases'][0]['progress'], 37)
+        self.assertNotIn('cases', benchmark_rows[0])
         self.assertEqual(benchmark_rows[0]['task_counts'], {
             'pending': 0, 'running': 1, 'success': 0, 'partial': 0, 'failed': 0, 'cancelled': 0,
         })
+
+        detail_request = self.factory.get(
+            f'/api/simc-workbench/benchmark-executions/{execution.id}/'
+        )
+        detail_request.user = self.user
+        detail = json.loads(self.view.get(
+            detail_request, resource='benchmark-executions', object_id=execution.id,
+        ).content)['data']
+        self.assertEqual(detail['cases'][0]['task_id'], task.id)
+        self.assertEqual(detail['cases'][0]['labels']['spec'], '狂怒-战士')
+        self.assertEqual(detail['cases'][0]['progress'], 37)
 
     def test_history_keeps_rebound_benchmark_retry_lineage_inside_execution(self):
         panel = SimcBenchmarkPanel.objects.create(
