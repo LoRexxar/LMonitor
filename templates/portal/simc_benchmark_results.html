@@ -20,17 +20,17 @@
                 <div>
                     <h1 id="simc-benchmarks-title">{% if benchmark_panel_id is None %}simc模拟数据列表{% else %}模拟结果{% endif %}</h1>
                     <div id="simc-benchmarks-description" class="simc-benchmark-description-card">
-                        <div class="simc-benchmark-description-content">{% if benchmark_panel_id is None %}查看公开基线任务的数据量、更新时间及模拟结果。{% else %}独立展示已发布的基准模拟结果。选择专精、战斗场景和 Profile，查看当前组合下候选方案的 DPS 排名。{% endif %}</div>
+                        <div class="simc-benchmark-description-content">{% if benchmark_panel_id is None %}查看公开基线任务的更新时间及模拟结果。{% else %}独立展示已发布的基准模拟结果。选择专精、战斗场景和 Profile，查看当前组合下候选方案的 DPS 排名。{% endif %}</div>
                     </div>
                 </div>
             </div>
             <div id="simc-benchmark-root" class="simc-benchmark-panels" aria-live="polite" aria-busy="true"{% if benchmark_panel_id is not None %} data-panel-id="{{ benchmark_panel_id }}"{% endif %}>
-                <div class="simc-benchmark-state" role="status">正在加载 Benchmark 结果…</div>
+                <div class="simc-benchmark-state" role="status">{% if benchmark_panel_id is None %}正在加载公开 Benchmark 列表…{% else %}正在加载 Benchmark 结果…{% endif %}</div>
             </div>
         </section>
     </main>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
-    <script src="{% static 'portal/js/simc-benchmarks.js' %}?v=20260817_phased_detail"></script>
+    <script src="{% static 'portal/js/simc-benchmarks.js' %}?v=20260817_fast_panel_list"></script>
 </body>
 </html>

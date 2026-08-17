@@ -45,9 +45,8 @@ class PortalSimcBenchmarkAPITests(TestCase):
         self.assertEqual(payload, {
             'status': 'ready',
             'panels': [{
-                'id': self.public.id, 'slug': 'public-panel', 'name': 'Public panel',
-                'description': 'Public description', 'status': 'not_ready',
-                'result_count': 0, 'result_updated_at': None,
+                'id': self.public.id, 'name': 'Public panel',
+                'description': 'Public description', 'result_updated_at': None,
             }],
         })
         serializer.assert_not_called()
@@ -56,7 +55,7 @@ class PortalSimcBenchmarkAPITests(TestCase):
                           'published_execution_id', 'config', 'task', 'run'):
             self.assertNotIn(forbidden, serialized.lower())
 
-    def test_list_exposes_result_count_and_latest_result_update_time(self):
+    def test_list_exposes_only_latest_result_update_time_not_result_count(self):
         execution = SimcBenchmarkExecution.objects.create(
             panel=self.public, config_hash='a' * 64,
         )
@@ -71,56 +70,18 @@ class PortalSimcBenchmarkAPITests(TestCase):
         latest = SimcBenchmarkResult.objects.create(
             case=case, candidate_key='trinket-1', dps=101000,
         )
+        execution.results_finalized_at = latest.created_at
+        execution.save(update_fields=['results_finalized_at'])
 
         with self.assertNumQueries(1):
             response = self.client.get('/portal/api/simc-benchmarks/panels/')
 
         panel = json.loads(response.content)['panels'][0]
-        self.assertEqual(panel['result_count'], 2)
+        self.assertNotIn('result_count', panel)
+        self.assertNotIn('status', panel)
+        self.assertNotIn('slug', panel)
         self.assertEqual(panel['result_updated_at'], latest.created_at.isoformat())
         self.assertNotEqual(panel['result_updated_at'], first.created_at.isoformat())
-
-    def test_list_marks_baseline_only_configured_panel_ready(self):
-        backend = SimcBackendBinary.objects.create(
-            identifier='portal-baseline-only', name='Portal baseline',
-            current_version='a' * 40, is_active=True,
-        )
-        apl_content = 'actions=/auto_attack'
-        apl = SimcApl.objects.create(
-            name='Portal baseline APL', spec='warrior_fury', content=apl_content,
-            owner_user_id=10, is_active=True, is_selectable=True,
-            validation_status=SimcApl.VALIDATION_VALID,
-            validated_content_hash=hashlib.sha256(apl_content.encode()).hexdigest(),
-            validation_revision='a' * 40, validation_game_build='12.0.1',
-        )
-        template = SimcContentTemplate.objects.create(
-            name='Portal baseline template', spec='warrior_fury',
-            content='iterations=1000', owner_user_id=10,
-        )
-        profile = SimcProfile.objects.create(
-            user_id=10, name='Portal baseline profile', class_name='warrior',
-            spec='warrior_fury', is_active=True,
-        )
-        panel_spec = SimcBenchmarkSpec.objects.create(
-            panel=self.public, class_name='warrior', spec_key='warrior_fury',
-            label='Fury', apl=apl, template=template, backend=backend,
-        )
-        SimcBenchmarkProfile.objects.create(
-            panel_spec=panel_spec, profile=profile, label='Raid profile',
-        )
-        SimcBenchmarkScenario.objects.create(
-            panel=self.public, key='patchwerk', name='Patchwerk',
-            simulation_params={'iterations': 1000},
-        )
-
-        with self.assertNumQueries(1):
-            response = self.client.get('/portal/api/simc-benchmarks/panels/')
-
-        public_panel = next(
-            panel for panel in json.loads(response.content)['panels']
-            if panel['id'] == self.public.id
-        )
-        self.assertEqual(public_panel['status'], 'ready')
 
     @patch('botend.portal.simc_benchmark_api.serialize_incremental_panel_results')
     def test_detail_returns_immediate_result_projection(self, serializer):
@@ -531,6 +492,35 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIn('portal/js/simc-benchmarks.js', self.RESULTS_TEMPLATE)
         self.assertIn('/portal/simc-benchmarks/', self.TEMPLATE)
 
+    def test_benchmark_lists_keep_a_loading_message_and_only_render_update_time(self):
+        results_soup = BeautifulSoup(self.RESULTS_TEMPLATE, 'html.parser')
+        loading = results_soup.select_one(
+            '#simc-benchmark-root[aria-busy="true"] [role="status"]'
+        )
+        self.assertIsNotNone(loading)
+        self.assertIn(
+            '正在加载公开 Benchmark 列表', loading.get_text(' ', strip=True)
+        )
+
+        load_start = self.JS.index('async function loadBenchmarks()')
+        load_end = self.JS.index(
+            'document.addEventListener("DOMContentLoaded", loadBenchmarks)',
+            load_start,
+        )
+        loader = self.JS[load_start:load_end]
+        loading_source = 'state("正在加载公开 Benchmark 列表…", "loading")'
+        self.assertIn(loading_source, loader)
+        self.assertLess(
+            loader.index(loading_source), loader.index('await requestJson(LIST_URL)')
+        )
+
+        render_start = self.JS.index('function renderPanelList(')
+        render_end = self.JS.index('async function loadBenchmarks()', render_start)
+        self.assertNotIn('result_count', self.JS[render_start:render_end])
+        baseline_start = self.PORTAL_JS.index('async function loadPublicBaselines()')
+        baseline_end = self.PORTAL_JS.index('async function loadTools()', baseline_start)
+        self.assertNotIn('result_count', self.PORTAL_JS[baseline_start:baseline_end])
+
     def test_expanded_profile_mounts_frozen_talent_thumbnail(self):
         results_soup = BeautifulSoup(self.RESULTS_TEMPLATE, 'html.parser')
         script_sources = [script.get('src', '') for script in results_soup.select('script[src]')]
@@ -574,7 +564,6 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             '/portal/api/simc-benchmarks/panels/',
             'Array.isArray(payload?.panels)',
             '/portal/simc-benchmarks/${encodeURIComponent(String(panel.id))}/',
-            'panel?.result_count',
             'panel?.result_updated_at',
         ):
             self.assertIn(contract, self.PORTAL_JS)
@@ -679,7 +668,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
 
         self.assertIn('function renderPanelList', self.JS)
         self.assertIn('/portal/simc-benchmarks/${encodeURIComponent(String(panel.id))}/', self.JS)
-        self.assertIn('panel?.result_count', self.JS)
+        self.assertNotIn('panel?.result_count', self.JS)
         self.assertIn('panel?.result_updated_at', self.JS)
         self.assertNotIn('Promise.all(panels.map((panel) => loadPanel', self.JS)
 
@@ -689,7 +678,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         renderer = self.JS[renderer_start:renderer_end]
 
         for contract in (
-            'simc-benchmark-list-header', '模拟任务', '数据概览',
+            'simc-benchmark-list-header', '模拟任务', '更新时间',
             'role", "list"', 'role", "listitem"',
             'simc-benchmark-list-kicker', '公开模拟任务',
             'simc-benchmark-list-metric', 'simc-benchmark-list-metric-label',

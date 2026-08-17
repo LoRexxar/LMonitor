@@ -1,7 +1,7 @@
 """Public, read-only SimC benchmark endpoints for the Portal."""
 import json
 
-from django.db.models import Exists, Max, OuterRef
+from django.db.models import Max
 from django.http import JsonResponse
 from django.views import View
 
@@ -12,7 +12,6 @@ from botend.models import (
 from botend.services.simc_benchmark_config import benchmark_profile_key
 from botend.services.simc_benchmark_execution import (
     serialize_incremental_panel_results, serialize_panel_apl_ranking_results,
-    summarize_panel_coverage_counts,
 )
 
 
@@ -314,35 +313,16 @@ class PortalSimcBenchmarkPanelListAPIView(View):
         panels = []
         queryset = SimcBenchmarkPanel.objects.filter(
             is_active=True, is_public=True,
+        ).only(
+            'id', 'name', 'description',
         ).annotate(
-            has_enabled_scenario=Exists(
-                SimcBenchmarkScenario.objects.filter(
-                    panel_id=OuterRef('pk'), is_enabled=True,
-                )
-            ),
-            has_enabled_profile=Exists(
-                SimcBenchmarkProfile.objects.filter(
-                    panel_spec__panel_id=OuterRef('pk'),
-                    panel_spec__is_enabled=True,
-                    is_enabled=True,
-                )
-            ),
-            result_updated_at=Max('executions__cases__results__created_at'),
+            result_updated_at=Max('executions__results_finalized_at'),
         ).order_by('name', 'id')
-        queryset = list(queryset)
-        coverage_by_panel = summarize_panel_coverage_counts(queryset)
         for panel in queryset:
-            is_ready = (
-                panel.has_enabled_scenario
-                and panel.has_enabled_profile
-            )
             panels.append({
                 'id': panel.id,
-                'slug': panel.slug,
                 'name': panel.name,
                 'description': panel.description,
-                'status': 'ready' if is_ready else 'not_ready',
-                'result_count': coverage_by_panel[panel.pk]['available_results'],
                 'result_updated_at': (
                     panel.result_updated_at.isoformat()
                     if panel.result_updated_at else None

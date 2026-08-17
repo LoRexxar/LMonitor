@@ -1064,7 +1064,7 @@
     listHeader.setAttribute("aria-hidden", "true");
     listHeader.append(
       node("span", "", "模拟任务"),
-      node("span", "", "数据概览"),
+      node("span", "", "更新时间"),
       node("span", "", "操作"),
     );
     list.appendChild(listHeader);
@@ -1088,18 +1088,12 @@
       }
 
       const meta = node("div", "simc-benchmark-list-meta");
-      const resultCount = Math.max(0, Number(panel?.result_count) || 0);
-      const resultMetric = node("span", "simc-benchmark-list-metric");
-      resultMetric.append(
-        node("span", "simc-benchmark-list-metric-label", "数据量"),
-        node("strong", "simc-benchmark-list-metric-value", numberFormat.format(resultCount)),
-      );
       const updateMetric = node("span", "simc-benchmark-list-metric");
       updateMetric.append(
         node("span", "simc-benchmark-list-metric-label", "数据更新"),
         node("strong", "simc-benchmark-list-metric-value", formatResultUpdateTime(panel?.result_updated_at)),
       );
-      meta.append(resultMetric, updateMetric);
+      meta.append(updateMetric);
 
       const action = node("span", "simc-benchmark-list-action");
       action.append(
@@ -1116,12 +1110,15 @@
     const root = document.getElementById("simc-benchmark-root"); if (!root) return;
     const panelId = root.dataset.panelId; root.setAttribute("aria-busy", "true");
     try {
-      root.replaceChildren();
-      if (panelId) await loadPanel({ id: panelId }, root, { setPageHeading: true });
+      if (panelId) {
+        root.replaceChildren();
+        await loadPanel({ id: panelId }, root, { setPageHeading: true });
+      }
       else {
+        root.replaceChildren(state("正在加载公开 Benchmark 列表…", "loading"));
         const payload = await requestJson(LIST_URL);
         const panels = payload.status === "ready" && Array.isArray(payload.panels) ? payload.panels : [];
-        if (!panels.length) root.appendChild(state("暂无公开的 Benchmark 面板", "empty"));
+        if (!panels.length) root.replaceChildren(state("暂无公开的 Benchmark 面板", "empty"));
         else renderPanelList(root, panels);
       }
     } catch (_) { root.replaceChildren(state("Benchmark 列表加载失败，请稍后重试", "error")); }

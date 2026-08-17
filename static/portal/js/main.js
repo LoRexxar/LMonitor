@@ -337,7 +337,6 @@ async function loadPublicBaselines() {
       const href = `/portal/simc-benchmarks/${encodeURIComponent(String(panel.id))}/`;
       const name = escapeHtml(panel?.name || "未命名基线任务");
       const description = escapeHtml(panel?.description || "查看各职业专精的基线模拟结果");
-      const resultCount = Math.max(0, Number(panel?.result_count) || 0);
       const updatedAt = escapeHtml(formatPortalDateTime(panel?.result_updated_at));
       return `<a href="${href}" class="group flex flex-col gap-2 py-3 transition hover:bg-indigo-50/50 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-2">
         <div class="min-w-0">
@@ -345,7 +344,6 @@ async function loadPublicBaselines() {
           <div class="mt-0.5 truncate text-xs text-slate-500">${description}</div>
         </div>
         <div class="flex shrink-0 items-center gap-4 text-xs text-slate-500">
-          <span>数据量 <strong class="font-semibold text-slate-700">${resultCount.toLocaleString("zh-CN")}</strong></span>
           <span>更新于 <time>${updatedAt}</time></span>
           <span class="text-indigo-600" aria-hidden="true">→</span>
         </div>
