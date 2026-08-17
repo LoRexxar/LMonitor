@@ -93,6 +93,7 @@ class SimcDetailPageFrontendContractTests(TestCase):
     def test_regular_task_result_embeds_talents_and_sets_below_top_metrics(self):
         detail = (ROOT / 'static/dashboard/js/simc-detail.js').read_text(encoding='utf-8')
         report = (ROOT / 'static/dashboard/js/simc-result-report.js').read_text(encoding='utf-8')
+        tooltip = (ROOT / 'static/shared/js/wow-item-tooltip.js').read_text(encoding='utf-8')
         regular = detail[detail.index('function renderTask(row)'):detail.index('function renderAttributeTask(row)')]
         summary_start = report.index('function renderSummary(')
         summary = report[summary_start:report.index('function renderSection(', summary_start)]
@@ -107,6 +108,8 @@ class SimcDetailPageFrontendContractTests(TestCase):
         self.assertNotIn('\n      ${topConfiguration}\n', regular)
         self.assertLess(summary.index('simc-report-result-metrics'), summary.index('${upperContent}'))
         self.assertLess(summary.index('${upperContent}'), summary.index('simc-report-result-stats'))
+        self.assertIn('function ensureTooltipMounted()', tooltip)
+        self.assertNotIn('document.body.appendChild(tooltip);', tooltip)
         self.assertNotIn('renderDamageProfile(report)', summary)
 
     def test_battlenet_source_can_load_spec_top_players_and_fill_armory_fields(self):

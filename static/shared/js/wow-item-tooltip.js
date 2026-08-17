@@ -7,6 +7,10 @@
   const tooltip = template.content.firstElementChild;
   let activeTrigger = null;
 
+  function ensureTooltipMounted() {
+    if (!tooltip.isConnected && document.body) document.body.append(tooltip);
+  }
+
   function triggerFor(target) {
     return target instanceof Element ? target.closest(selector) : null;
   }
@@ -37,6 +41,7 @@
   function show(trigger) {
     const description = String(trigger?.dataset.wowItemTooltip || "").trim();
     if (!description) return;
+    ensureTooltipMounted();
     const name = String(trigger.dataset.wowItemTooltipName || trigger.textContent || "装备").trim();
     tooltip.replaceChildren(
       Object.assign(document.createElement("strong"), {className: "wow-item-tooltip__name", textContent: name}),
@@ -59,7 +64,10 @@
     tooltip.hidden = true;
   }
 
-  document.body.appendChild(tooltip);
+  ensureTooltipMounted();
+  if (!tooltip.isConnected) {
+    window.addEventListener("DOMContentLoaded", ensureTooltipMounted, {once: true});
+  }
   document.addEventListener("pointerover", (event) => {
     const trigger = triggerFor(event.target);
     if (trigger && !trigger.contains(event.relatedTarget)) show(trigger);
