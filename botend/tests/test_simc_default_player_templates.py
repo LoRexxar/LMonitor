@@ -12,7 +12,7 @@ from django.core.management.base import CommandError
 from django.db import IntegrityError, transaction
 from django.test import Client, TestCase, override_settings
 
-from botend.models import SimcApl, SimcContentTemplate, SimcProfile, SimcTask
+from botend.models import SimcApl, SimcContentTemplate, SimcProfile, SimcTalentString, SimcTask
 
 
 DEFAULT_GEAR = '''head=,id=212048,ilevel=639
@@ -105,12 +105,53 @@ class ImportSimcPlayerTemplatesTests(TestCase):
             call_command('import_simc_player_templates', source_dir=tmp, use_ptr=True)
 
         profile = SimcProfile.objects.get(system_key='simc_upstream:warrior_fury')
+        talent = SimcTalentString.objects.get(system_key='simc_upstream:warrior_fury')
         self.assertIn('head=,id=212048,ilevel=639', profile.player_equipment)
         self.assertIn('main_hand=,id=222222,ilevel=639', profile.player_equipment)
         self.assertNotIn('\nptr=', f'\n{profile.player_equipment}')
         self.assertIs(profile.use_ptr, True)
+        self.assertEqual(profile.talent, '')
+        self.assertNotIn('talents=', profile.player_equipment)
+        self.assertEqual(talent.system_key, profile.system_key)
+        self.assertEqual(talent.spec, 'warrior_fury')
+        self.assertEqual(talent.talent, 'UPSTREAM_BUILD')
+        self.assertTrue(talent.is_system)
+        stable_talent_id = talent.id
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, 'MID1_Warrior_Fury.simc').write_text(upstream, encoding='utf-8')
+            call_command('import_simc_player_templates', source_dir=tmp, use_ptr=True)
+        self.assertEqual(
+            SimcTalentString.objects.get(system_key='simc_upstream:warrior_fury').id,
+            stable_talent_id,
+        )
         for field in ('gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility'):
             self.assertIsNone(getattr(profile, field), field)
+
+    @patch(
+        'botend.management.commands.import_simc_player_templates.REQUIRED_PROFILE_SPECS',
+        {('warrior', 'fury')},
+    )
+    def test_import_rejects_system_talent_key_owned_by_user_without_mutating_it(self):
+        collision = SimcTalentString.objects.create(
+            system_key='simc_upstream:warrior_fury',
+            owner_user_id=987,
+            is_system=False,
+            name='User-owned collision',
+            spec='warrior_fury',
+            talent='DO_NOT_OVERWRITE',
+            is_active=True,
+            is_selectable=True,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, 'MID1_Warrior_Fury.simc').write_text(DEFAULT_PLAYER, encoding='utf-8')
+            with self.assertRaisesMessage(CommandError, '系统天赋键已被非系统资源占用'):
+                call_command('import_simc_player_templates', source_dir=tmp)
+
+        collision.refresh_from_db()
+        self.assertEqual(collision.owner_user_id, 987)
+        self.assertFalse(collision.is_system)
+        self.assertEqual(collision.talent, 'DO_NOT_OVERWRITE')
+        self.assertFalse(SimcProfile.objects.exists())
 
     @patch(
         'botend.management.commands.import_simc_player_templates.REQUIRED_PROFILE_SPECS',
@@ -302,6 +343,12 @@ class DefaultPlayerReferenceContractTests(TestCase):
             talent='USER_BUILD',
             is_active=True,
         )
+        self.talent = SimcTalentString.objects.create(
+            owner_user_id=self.user.id,
+            name='Fury independent talent',
+            spec='warrior_fury',
+            talent='USER_BUILD',
+        )
 
     def add_default_player(self, content=DEFAULT_PLAYER):
         return SimcProfile.objects.create(
@@ -319,6 +366,7 @@ class DefaultPlayerReferenceContractTests(TestCase):
             'simc_profile_id': self.profile.id,
             'base_template_id': self.template.id,
             'selected_apl_id': self.apl.id,
+            'talent_string_id': self.talent.id,
         }
         payload.update(overrides)
         return payload
@@ -338,7 +386,13 @@ class DefaultPlayerReferenceContractTests(TestCase):
         self.assertEqual(task.profile_version.resource_id, task.profile_id)
         self.assertEqual(task.template_version.resource_id, self.template.id)
         self.assertEqual(task.apl_version.resource_id, self.apl.id)
-        self.assertEqual(task.profile_version.payload['player_equipment'].strip(), DEFAULT_PLAYER.strip())
+        frozen_player = task.profile_version.payload['player_equipment'].strip()
+        expected_player = '\n'.join(
+            line for line in DEFAULT_PLAYER.strip().splitlines()
+            if line.partition('=')[0].strip().lower() != 'talents'
+        )
+        self.assertEqual(frozen_player, expected_player)
+        self.assertNotIn('\ntalents=', f'\n{frozen_player}')
         self.assertEqual(task.template_version.payload['content'], BASE_TEMPLATE)
         self.assertEqual(task.apl_version.payload['content'], APL_CONTENT)
         self.assertNotIn('player_equipment', json.loads(task.ext or '{}'))

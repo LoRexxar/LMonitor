@@ -10,12 +10,15 @@ from django.utils import timezone
 from botend.services.simc_task_service import _build_profile_payload
 
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
-from botend.models import SimcApl, SimcContentTemplate, SimcProfile, SimulationRun
+from botend.models import (
+    SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate, SimcProfile,
+    SimcTalentString, SimulationRun,
+)
 from botend.services.simc_composer import SimcComposer
 from botend.services.simc_task_service import create_task
 
 
-TEST_VALIDATION_IDENTITY = ('test-simc-revision', 'test-game-build')
+TEST_VALIDATION_IDENTITY = ('a' * 40, 'test-game-build')
 
 
 def mark_apl_valid(apl):
@@ -71,20 +74,34 @@ class SimcReferenceRunContractTests(TestCase):
         )
 
         payload = _build_profile_payload(profile)
+        self.assertNotIn('talent', payload)
         self.assertEqual(payload['gear_strength'], 93330)
         self.assertEqual(payload['gear_crit'], 10730)
         self.assertEqual(payload['gear_haste'], 18641)
         self.assertEqual(payload['gear_mastery'], 21785)
         self.assertEqual(payload['gear_versatility'], 6757)
 
+        talent = SimcTalentString.objects.create(
+            name='Explicit saved build', spec='fury', talent='EXPLICIT_BUILD',
+            owner_user_id=1, is_active=True, is_selectable=True,
+        )
+        task = create_task(
+            user_id=1, name='explicit talent contract', profile_id=profile.id,
+            template_id=self.template.id, apl_id=self.apl.id,
+            talent_string_id=talent.id,
+        )
+        self.assertEqual(task.talent_version.payload['talent'], 'EXPLICIT_BUILD')
+
         final, _manifest, error = SimcComposer(1).compose({
             **payload,
+            **task.talent_version.payload,
             'player_import_mode': payload['player_config_mode'],
             'base_template_content': '{player_config}',
             '_result_file_path': 'simc/result.html',
         })
         self.assertIsNone(error)
-        self.assertEqual(final.splitlines().count('talents=SAVED_BUILD'), 1)
+        self.assertEqual(final.splitlines().count('talents=EXPLICIT_BUILD'), 1)
+        self.assertNotIn('SAVED_BUILD', final)
         self.assertNotIn('STALE_BUILD', final)
         self.assertEqual(final.splitlines().count('gear_strength=93330'), 1)
         self.assertEqual(final.splitlines().count('gear_crit_rating=10730'), 1)
@@ -116,6 +133,19 @@ class SimcReferenceRunContractTests(TestCase):
 
     def setUp(self):
         self.user_id = 8123
+        self.backend, _ = SimcBackendBinary.objects.update_or_create(
+            identifier='production',
+            defaults={
+                'name': 'contract backend', 'platform': 'linux64',
+                'simc_path': '/bin/true',
+                'current_version': TEST_VALIDATION_IDENTITY[0],
+                'game_build': TEST_VALIDATION_IDENTITY[1], 'is_active': True,
+            },
+        )
+        SimcAplSymbol.objects.update_or_create(
+            token='wait', symbol_kind=SimcAplSymbol.KIND_ACTION,
+            defaults={'is_active': True},
+        )
         self.profile = SimcProfile.objects.create(
             user_id=self.user_id, name='contract profile', spec='fury',
             player_config_mode='manual_equipment',
@@ -132,12 +162,16 @@ class SimcReferenceRunContractTests(TestCase):
             is_system=True, is_active=True, is_selectable=True,
         )
         mark_apl_valid(self.apl)
+        self.talent = SimcTalentString.objects.create(
+            name='contract talent', spec='fury', talent='CONTRACT_BUILD',
+            owner_user_id=self.user_id, is_active=True, is_selectable=True,
+        )
 
     def make_task(self, **kwargs):
         values = {
             'user_id': self.user_id, 'name': 'contract task',
             'profile_id': self.profile.id, 'template_id': self.template.id,
-            'apl_id': self.apl.id,
+            'apl_id': self.apl.id, 'talent_string_id': self.talent.id,
         }
         values.update(kwargs)
         return create_task(**values)
@@ -155,6 +189,7 @@ class SimcReferenceRunContractTests(TestCase):
             composer_cls.return_value = composer
             with patch.object(SimcMonitor, 'execute_simc_command', return_value=True):
                 monitor = SimcMonitor(None, task)
+                monitor.simc_path = '/bin/true'
                 monitor.result_path = '/tmp/simc_contract_results'
                 os.makedirs(monitor.result_path, exist_ok=True)
                 self.assertTrue(monitor.process_simc_task(task))
@@ -175,6 +210,7 @@ class SimcReferenceRunContractTests(TestCase):
 
         with patch.object(SimcMonitor, 'execute_simc_command', side_effect=finish_after_recovery):
             monitor = SimcMonitor(None, task)
+            monitor.simc_path = '/bin/true'
             monitor.result_path = '/tmp/simc_contract_results'
             os.makedirs(monitor.result_path, exist_ok=True)
             self.assertFalse(monitor.process_simc_task(task))
@@ -324,6 +360,7 @@ class SimcReferenceRunContractTests(TestCase):
             result_summary={'dps': 99000},
         )
         self._make_completed_attribute_round(task, center, round_number=2)
+        initial_run_count = task.simulation_runs.count()
         lease = timezone.now()
         task.current_status = 1
         task.started_at = lease
@@ -335,14 +372,15 @@ class SimcReferenceRunContractTests(TestCase):
         self.assertTrue(result['converged'])
         self.assertEqual(result['recommendation']['stop_reason'], 'cycle_detected')
         self.assertEqual(task.analysis_result['attribute_search']['stop_reason'], 'cycle_detected')
-        self.assertEqual(task.simulation_runs.count(), 14)
+        self.assertEqual(task.simulation_runs.count(), initial_run_count + 12)
 
-    def test_attribute_search_stops_at_max_round_without_appending_runs(self):
+    def test_attribute_search_stops_at_max_round_and_appends_marginal_runs(self):
         from botend.services.simc_attribute_search import advance_attribute_search
 
         center = {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}
         task = self.make_task(name='max round search', mode='attribute_sweep')
         self._make_completed_attribute_round(task, center, round_number=20)
+        initial_run_count = task.simulation_runs.count()
         lease = timezone.now()
         task.current_status = 1
         task.started_at = lease
@@ -354,7 +392,7 @@ class SimcReferenceRunContractTests(TestCase):
         self.assertTrue(result['converged'])
         self.assertEqual(result['recommendation']['stop_reason'], 'max_rounds_reached')
         self.assertEqual(task.analysis_result['attribute_search']['stop_reason'], 'max_rounds_reached')
-        self.assertEqual(task.simulation_runs.count(), 13)
+        self.assertEqual(task.simulation_runs.count(), initial_run_count + 12)
 
     def test_success_persists_semantic_summary_on_run_and_task(self):
         task = self.make_task()
@@ -366,6 +404,7 @@ class SimcReferenceRunContractTests(TestCase):
 
         with patch.object(SimcMonitor, 'execute_simc_command', side_effect=successful_execution):
             monitor = SimcMonitor(None, task)
+            monitor.simc_path = '/bin/true'
             monitor.result_path = '/tmp/simc_contract_results'
             os.makedirs(monitor.result_path, exist_ok=True)
             self.assertTrue(monitor.process_simc_task(task))
@@ -385,6 +424,7 @@ class SimcReferenceRunContractTests(TestCase):
 
         with patch.object(SimcMonitor, 'execute_simc_command', side_effect=failed_execution):
             monitor = SimcMonitor(None, task)
+            monitor.simc_path = '/bin/true'
             monitor.result_path = '/tmp/simc_contract_results'
             os.makedirs(monitor.result_path, exist_ok=True)
             self.assertFalse(monitor.process_simc_task(task))

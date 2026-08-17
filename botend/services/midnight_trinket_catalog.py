@@ -249,6 +249,7 @@ def build_ptr_12_1_panel_payload(
             'backend_id': selected['backend'].pk,
             'profiles': [{
                 'profile_id': selected['profile'].pk,
+                'talent_string_id': selected['talent'].pk,
                 'label': selected['profile'].name,
             }],
             'display_order': order,

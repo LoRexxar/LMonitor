@@ -1413,6 +1413,7 @@ class SimcTalentString(models.Model):
     spec = models.CharField(max_length=100, default='fury')
     talent = models.CharField(max_length=2000)
     hero_talent_names = models.JSONField(default=list, blank=True)
+    system_key = models.CharField(max_length=160, unique=True, null=True, blank=True)
     owner_user_id = models.IntegerField(null=True, blank=True)
     is_system = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)

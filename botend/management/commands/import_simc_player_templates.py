@@ -5,7 +5,7 @@ import re
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
-from botend.models import SimcProfile
+from botend.models import SimcProfile, SimcTalentString
 from botend.services.simc_player_config import validate_default_player_baseline, validate_player_baseline
 
 
@@ -111,6 +111,23 @@ class Command(BaseCommand):
                 lines.append(Command._normalize_equipment_line(line))
         return validate_player_baseline('\n'.join(lines))
 
+    @staticmethod
+    def _split_profile_and_talent(baseline):
+        talent = ''
+        profile_lines = []
+        for line in str(baseline or '').splitlines():
+            key, sep, value = line.partition('=')
+            normalized_key = key.strip().lower()
+            if sep and normalized_key in {'talents', 'talent', 'omnium_talents'}:
+                candidate = value.strip()
+                if candidate and not talent:
+                    talent = candidate
+                continue
+            profile_lines.append(line)
+        if not talent:
+            raise ValueError('缺少独立天赋字符串')
+        return '\n'.join(profile_lines), talent
+
     def handle(self, *args, **options):
         source_dir = options['source_dir']
         profile_set = str(options.get('profile_set') or 'MID1').upper()
@@ -142,13 +159,17 @@ class Command(BaseCommand):
                     with open(os.path.join(current_source_dir, filename), encoding='utf-8') as source:
                         baseline = self._extract_baseline(source.read())
                     baseline = validate_default_player_baseline(f'{class_name}_{spec}', baseline)
+                    profile_baseline, talent_string = self._split_profile_and_talent(baseline)
                 except (OSError, ValueError) as exc:
                     errors += 1
                     self.stderr.write(self.style.ERROR(f'{filename}: {exc}'))
                     continue
                 seen.add(parsed)
                 spec_key = f'{class_name}_{spec}'
-                validated.append((spec_key, class_name, baseline, current_profile_set, current_profile_version))
+                validated.append((
+                    spec_key, class_name, profile_baseline, talent_string,
+                    current_profile_set, current_profile_version,
+                ))
                 if options['dry_run']:
                     self.stdout.write(f'[DRY] {spec_key}: {len(baseline.splitlines())} 行')
                 imported += 1
@@ -165,7 +186,31 @@ class Command(BaseCommand):
                     system_key__startswith='simc_upstream:',
                     is_active=True,
                 ).update(is_active=False, system_key=None)
-                for spec_key, class_name, baseline, current_profile_set, current_profile_version in validated:
+                active_talent_keys = {
+                    f'simc_upstream:{spec_key}' for spec_key, *_rest in validated
+                }
+                SimcTalentString.objects.filter(
+                    owner_user_id__isnull=True,
+                    is_system=True,
+                    system_key__startswith='simc_upstream:',
+                ).exclude(system_key__in=active_talent_keys).update(
+                    is_active=False, is_selectable=False,
+                )
+                for (
+                    spec_key, class_name, profile_baseline, talent_string,
+                    current_profile_set, current_profile_version,
+                ) in validated:
+                    talent_system_key = f'simc_upstream:{spec_key}'
+                    existing_talent = SimcTalentString.objects.select_for_update().filter(
+                        system_key=talent_system_key,
+                    ).first()
+                    if existing_talent and (
+                        existing_talent.owner_user_id is not None
+                        or not existing_talent.is_system
+                    ):
+                        raise CommandError(
+                            f'系统天赋键已被非系统资源占用: {talent_system_key}'
+                        )
                     SimcProfile.objects.create(
                         system_key=f'simc_upstream:{spec_key}',
                         user_id=None,
@@ -177,7 +222,7 @@ class Command(BaseCommand):
                         spec=spec_key,
                         player_config_mode='manual_equipment',
                         use_ptr=bool(options.get('use_ptr', False)),
-                        player_equipment=baseline,
+                        player_equipment=profile_baseline,
                         talent='',
                         gear_strength=None,
                         gear_crit=None,
@@ -186,6 +231,18 @@ class Command(BaseCommand):
                         gear_versatility=None,
                         sync_version=options['sync_version'],
                         is_active=True,
+                    )
+                    SimcTalentString.objects.update_or_create(
+                        system_key=talent_system_key,
+                        defaults={
+                            'owner_user_id': None,
+                            'is_system': True,
+                            'name': f'{current_profile_set} 默认天赋 {spec_key}',
+                            'spec': spec_key,
+                            'talent': talent_string,
+                            'is_active': True,
+                            'is_selectable': True,
+                        },
                     )
         action = '预览' if options['dry_run'] else '导入'
         if errors:

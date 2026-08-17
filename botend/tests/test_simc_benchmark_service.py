@@ -37,6 +37,10 @@ class SimcBenchmarkConfigServiceTests(TestCase):
         self.profile = SimcProfile.objects.create(
             user_id=self.user_id, name='My fury', spec='warrior_fury', is_active=True,
         )
+        self.talent = SimcTalentString.objects.create(
+            name='My fury talent', spec='warrior_fury', talent='frozen-talent-code',
+            owner_user_id=self.user_id,
+        )
         self.payload = {
             'name': 'Weekly benchmark', 'slug': 'weekly-benchmark',
             'description': 'safe description',
@@ -44,7 +48,11 @@ class SimcBenchmarkConfigServiceTests(TestCase):
                 'class_name': 'warrior', 'spec_key': 'warrior_fury', 'label': 'Fury',
                 'apl_id': self.apl.pk, 'template_id': self.template.pk,
                 'backend_id': self.backend.pk,
-                'profiles': [{'profile_id': self.profile.pk, 'label': 'My fury'}],
+                'profiles': [{
+                    'profile_id': self.profile.pk,
+                    'talent_string_id': self.talent.pk,
+                    'label': 'My fury',
+                }],
             }],
             'scenarios': [{
                 'key': 'patchwerk', 'name': 'Patchwerk',
@@ -59,6 +67,15 @@ class SimcBenchmarkConfigServiceTests(TestCase):
 
     def test_published_limits_only_cover_structural_choices(self):
         self.assertEqual((MAX_SPECS, MAX_PROFILES_PER_SPEC, MAX_SCENARIOS), (40, 5, 8))
+
+    def test_new_benchmark_profile_requires_independent_talent_string(self):
+        payload = dict(self.payload)
+        payload['specs'] = [dict(
+            self.payload['specs'][0],
+            profiles=[{'profile_id': self.profile.pk, 'label': 'Missing talent'}],
+        )]
+        with self.assertRaisesMessage(ValidationError, '独立天赋字符串'):
+            normalize_panel_payload(payload, self.user_id)
 
     def test_normalize_strict_shapes_unknown_options_and_types(self):
         for field in ('specs', 'scenarios', 'candidates'):
@@ -374,7 +391,10 @@ class SimcBenchmarkConfigServiceTests(TestCase):
         )
         payload = dict(self.payload)
         payload['specs'] = [dict(
-            self.payload['specs'][0], profiles=[{'profile_id': other_profile.pk}],
+            self.payload['specs'][0], profiles=[{
+                'profile_id': other_profile.pk,
+                'talent_string_id': self.talent.pk,
+            }],
         )]
         normalized = normalize_panel_payload(payload, self.user_id)
         self.assertEqual(
@@ -387,7 +407,10 @@ class SimcBenchmarkConfigServiceTests(TestCase):
             is_active=True,
         )
         payload['specs'] = [dict(
-            self.payload['specs'][0], profiles=[{'profile_id': global_wcl.pk}],
+            self.payload['specs'][0], profiles=[{
+                'profile_id': global_wcl.pk,
+                'talent_string_id': self.talent.pk,
+            }],
         )]
         normalized = normalize_panel_payload(payload, self.user_id)
         self.assertEqual(normalized['specs'][0]['profiles'][0]['profile_id'], global_wcl.pk)
@@ -461,9 +484,16 @@ class SimcBenchmarkConfigServiceTests(TestCase):
         other_profile = SimcProfile.objects.create(
             user_id=self.user_id, name='Other', spec='warrior_fury',
         )
+        other_talent = SimcTalentString.objects.create(
+            name='Other talent', spec='warrior_fury', talent='other-code',
+            owner_user_id=self.user_id,
+        )
         invalid = dict(payload, specs=[dict(
             payload['specs'][0], profiles=[
-                profiles[0], {'profile_id': other_profile.pk},
+                profiles[0], {
+                    'profile_id': other_profile.pk,
+                    'talent_string_id': other_talent.pk,
+                },
             ],
         )])
         with self.assertRaisesMessage(ValidationError, '只能选择一个 Profile'):
@@ -476,10 +506,18 @@ class SimcBenchmarkConfigServiceTests(TestCase):
             user_id=None, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
             name='Upstream Fury', spec='warrior_fury', is_active=True,
         )
+        default_talent = SimcTalentString.objects.create(
+            system_key='simc_upstream:warrior_fury', owner_user_id=None,
+            is_system=True, name='Upstream Fury talent', spec='warrior_fury',
+            talent='upstream-frozen-code', is_active=True, is_selectable=True,
+        )
         payload = dict(self.payload)
         payload['specs'] = [{k: v for k, v in self.payload['specs'][0].items() if k != 'profiles'}]
         result = normalize_panel_payload(payload, self.user_id)
         self.assertEqual(result['specs'][0]['profiles'][0]['profile_id'], default.pk)
+        self.assertEqual(
+            result['specs'][0]['profiles'][0]['talent_string_id'], default_talent.pk,
+        )
 
     def test_disabled_spec_may_explicitly_have_no_profile(self):
         payload = dict(self.payload)
@@ -632,7 +670,13 @@ class SimcBenchmarkConfigServiceTests(TestCase):
         spec = panel.specs.get()
         for index in range(1, 5):
             profile = SimcProfile.objects.create(user_id=self.user_id, name=f'P{index}', spec='warrior_fury')
-            SimcBenchmarkProfile.objects.create(panel_spec=spec, profile=profile, label=f'P{index}')
+            talent = SimcTalentString.objects.create(
+                owner_user_id=self.user_id, name=f'T{index}', spec='warrior_fury',
+                talent=f'talent-{index}',
+            )
+            SimcBenchmarkProfile.objects.create(
+                panel_spec=spec, profile=profile, talent_string=talent, label=f'P{index}',
+            )
         for index in range(1, 8):
             SimcBenchmarkScenario.objects.create(panel=panel, key=f's{index}', name=f'S{index}')
         # 5 profiles * 8 scenarios is still valid; make four specs directly to exceed 120.
@@ -641,8 +685,12 @@ class SimcBenchmarkConfigServiceTests(TestCase):
                 panel=panel, class_name='warrior', spec_key=f'warrior_fury_{index}', label='Fury',
                 apl=self.apl, template=self.template, backend=self.backend,
             )
-            for profile in SimcProfile.objects.filter(user_id=self.user_id)[:5]:
-                SimcBenchmarkProfile.objects.create(panel_spec=extra, profile=profile, label=profile.name)
+            source_rows = list(spec.profiles.order_by('display_order', 'id'))
+            for source_row in source_rows:
+                SimcBenchmarkProfile.objects.create(
+                    panel_spec=extra, profile=source_row.profile,
+                    talent_string=source_row.talent_string, label=source_row.profile.name,
+                )
         estimate = build_execution_plan(panel, validate_for_execution=False)
         execution_plan = build_execution_plan(panel, validate_for_execution=True)
         self.assertGreater(estimate['case_count'], 120)
@@ -708,9 +756,10 @@ class SimcBenchmarkConfigServiceTests(TestCase):
             plan = build_execution_plan(stale)
         self.assertEqual(plan['cases'][0]['scenario_label'], 'DB current')
         one_spec_queries = len(captured)
-        # Locked planning is fixed at 11 statements under TestCase: savepoint pair,
-        # Panel + four config-axis reads, then four batched resource in_bulk reads.
-        self.assertLessEqual(one_spec_queries, 11)
+        # Locked planning is fixed at 12 statements under TestCase: savepoint pair,
+        # Panel + four config-axis reads, then five batched resource in_bulk reads
+        # (APL, Template, Backend, Profile, TalentString).
+        self.assertLessEqual(one_spec_queries, 12)
 
         mage_apl = SimcApl.objects.create(
             name='Fire APL', spec='mage_fire', content='actions=/fireball',
@@ -729,14 +778,19 @@ class SimcBenchmarkConfigServiceTests(TestCase):
                 user_id=self.user_id, name=f'Fire {index}', class_name='mage',
                 spec='mage_fire', is_active=True,
             )
+            talent = SimcTalentString.objects.create(
+                owner_user_id=self.user_id, name=f'Fire talent {index}',
+                spec='mage_fire', talent=f'fire-talent-{index}',
+            )
             SimcBenchmarkProfile.objects.create(
-                panel_spec=mage_spec, profile=profile, label=profile.name,
+                panel_spec=mage_spec, profile=profile, talent_string=talent,
+                label=profile.name,
             )
         with CaptureQueriesContext(connection) as captured:
             expanded = build_execution_plan(stale)
         self.assertEqual(len(expanded['specs']), 2)
         self.assertEqual(len(captured), one_spec_queries)
-        self.assertLessEqual(len(captured), 11)
+        self.assertLessEqual(len(captured), 12)
 
         spec = panel.specs.get(spec_key='warrior_fury')
         for index in range(3):
@@ -758,7 +812,8 @@ class SimcBenchmarkConfigServiceTests(TestCase):
                 backend=self.backend,
             )
             SimcBenchmarkProfile.objects.create(
-                panel_spec=spec, profile=self.profile, label=self.profile.name,
+                panel_spec=spec, profile=self.profile, talent_string=self.talent,
+                label=self.profile.name,
             )
 
         with CaptureQueriesContext(connection) as captured:
@@ -766,8 +821,8 @@ class SimcBenchmarkConfigServiceTests(TestCase):
 
         self.assertEqual(len(plan['specs']), MAX_SPECS)
         self.assertEqual(plan['case_count'], MAX_SPECS)
-        # Resource FKs are loaded by four in_bulk statements, not per Spec/Profile.
-        self.assertLessEqual(len(captured), 11)
+        # Resource FKs are loaded by five in_bulk statements, not per Spec/Profile.
+        self.assertLessEqual(len(captured), 12)
 
     def test_execution_snapshot_queryset_locks_every_config_axis(self):
         """SQLite ignores row locks at runtime, so assert the ORM lock contract itself."""

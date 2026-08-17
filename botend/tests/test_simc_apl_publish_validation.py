@@ -8,7 +8,7 @@ from django.test import TestCase, override_settings
 
 from botend.models import (SimcApl, SimcAplSymbol, SimcBackendBinary,
                            SimcContentTemplate, SimcProfile,
-                           SimcResourceVersion, SimcTask)
+                           SimcResourceVersion, SimcTalentString, SimcTask)
 from botend.services.simc_apl.publish import (current_validation_identity,
                                               validate_apl_for_profile)
 from botend.services.simc_task_service import TaskCreationError, create_task
@@ -123,6 +123,10 @@ class SimcAplPublishValidationTests(TestCase):
         self.template = SimcContentTemplate.objects.create(
             name="Base", spec="warrior_fury",
             content="{simulation_options}\n{player_config}\n{action_list}\n{output_options}",
+            owner_user_id=self.user.id, is_active=True, is_selectable=True,
+        )
+        self.talent = SimcTalentString.objects.create(
+            name="Frozen talent", spec="warrior_fury", talent="frozen-talent-code",
             owner_user_id=self.user.id, is_active=True, is_selectable=True,
         )
 
@@ -260,7 +264,8 @@ class SimcAplPublishValidationTests(TestCase):
             owner_user_id=self.user.id, is_selectable=False,
             validation_status=SimcApl.VALIDATION_DRAFT,
         )
-        task = create_task(self.user.id, "Runnable", self.profile.id, self.template.id, apl.id)
+        task = create_task(self.user.id, "Runnable", self.profile.id, self.template.id, apl.id,
+                           talent_string_id=self.talent.id)
         self.assertEqual(task.apl_id, apl.id)
 
     @patch("botend.services.simc_task_service.validate_apl_for_profile")
@@ -276,7 +281,8 @@ class SimcAplPublishValidationTests(TestCase):
             "valid": True, "content_hash": digest(CONTENT), "revision": REVISION,
             "game_build": BUILD, "diagnostics": [],
         }
-        task = create_task(self.user.id, "Accepted", self.profile.id, self.template.id, apl.id)
+        task = create_task(self.user.id, "Accepted", self.profile.id, self.template.id, apl.id,
+                           talent_string_id=self.talent.id)
         version_id = task.apl_version_id
         frozen = task.apl_version.payload["content"]
         apl.content = "actions=/changed"
@@ -298,7 +304,8 @@ class SimcAplPublishValidationTests(TestCase):
             validation_game_build=BUILD,
         )
 
-        task = create_task(self.user.id, "Runnable", self.profile.id, self.template.id, apl.id)
+        task = create_task(self.user.id, "Runnable", self.profile.id, self.template.id, apl.id,
+                           talent_string_id=self.talent.id)
         self.assertEqual(task.apl_version.payload["content"], CONTENT)
 
     @patch("botend.services.simc_task_service.validate_apl_for_profile")
@@ -316,7 +323,8 @@ class SimcAplPublishValidationTests(TestCase):
             "valid": True, "content_hash": digest(CONTENT), "revision": REVISION,
             "game_build": BUILD, "diagnostics": [],
         }
-        source = create_task(self.user.id, "Source", self.profile.id, self.template.id, apl.id)
+        source = create_task(self.user.id, "Source", self.profile.id, self.template.id, apl.id,
+                             talent_string_id=self.talent.id)
         source.current_status = 2
         source.save(update_fields=["current_status"])
         validate.reset_mock()
@@ -328,7 +336,28 @@ class SimcAplPublishValidationTests(TestCase):
         validate.assert_not_called()
         self.assertEqual(SimcTask.objects.count(), 2)
         self.assertEqual(rerun.apl_version_id, source.apl_version_id)
+        self.assertEqual(rerun.talent_string_id, source.talent_string_id)
+        self.assertEqual(rerun.talent_version_id, source.talent_version_id)
         self.assertEqual(rerun.simulation_runs.count(), 0)
+
+    def test_historical_task_without_frozen_talent_cannot_be_rerun(self):
+        from botend.services.task_rerun import TaskRerunError, create_rerun
+
+        apl = SimcApl.objects.create(
+            name="Historical APL", spec="warrior_fury", content=CONTENT,
+            owner_user_id=self.user.id, is_selectable=True,
+        )
+        source = create_task(
+            self.user.id, "Historical", self.profile.id, self.template.id, apl.id,
+            talent_string_id=self.talent.id,
+        )
+        source.current_status = 2
+        source.talent_string = None
+        source.talent_version = None
+        source.save(update_fields=["current_status", "talent_string", "talent_version"])
+
+        with self.assertRaisesMessage(TaskRerunError, "historical tasks"):
+            create_rerun(source.id, self.user.id)
 
     @patch("botend.services.simc_apl.publish.validate_apl_for_profile")
     def test_generated_candidate_must_publish_before_execution(self, validate):

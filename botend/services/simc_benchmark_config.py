@@ -169,6 +169,10 @@ def resolve_default_benchmark_resources(spec_keys, user_id):
             user_id__isnull=True, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
             system_key=f'simc_upstream:{spec_key}', spec=spec_key,
         ), f'{spec_key} system Profile')
+        talent = exactly_one(querysets['talent_strings'].filter(
+            owner_user_id__isnull=True, is_system=True,
+            system_key=f'simc_upstream:{spec_key}', spec=spec_key,
+        ), f'{spec_key} system TalentString')
         if not _same_spec(apl.spec, expected_class, expected_spec):
             _error(f'{spec_key}: APL specialization mismatch', 'resources')
         if not _same_spec(template.spec, expected_class, expected_spec, allow_generic=True):
@@ -180,6 +184,7 @@ def resolve_default_benchmark_resources(spec_keys, user_id):
             _error(f'{spec_key}: Profile specialization mismatch', 'resources')
         resolved[spec_key] = {
             'apl': apl, 'template': template, 'backend': backend, 'profile': profile,
+            'talent': talent,
         }
     return resolved
 
@@ -492,6 +497,19 @@ def _default_profile(spec_key):
     return matches[0]
 
 
+def _default_talent_string(spec_key):
+    matches = list(SimcTalentString.objects.filter(
+        owner_user_id__isnull=True, is_system=True,
+        spec=spec_key, is_active=True, is_selectable=True,
+        system_key=f'simc_upstream:{spec_key}',
+    ).order_by('id')[:2])
+    if len(matches) != 1:
+        if len(matches) > 1:
+            _error(f'专精 {spec_key} 存在重复的系统上游默认天赋字符串', 'profiles')
+        _error(f'专精 {spec_key} 未配置 active 系统上游默认天赋字符串', 'profiles')
+    return matches[0]
+
+
 def _benchmark_tooltip_completeness(value):
     lines = [line.strip() for line in str(value or '').splitlines() if line.strip()]
     semantic_lines = sum(line.startswith(('+', 'Use:', 'Equip:', 'Passive:', 'Effect:', '使用：', '装备：', '被动：', '效果：')) for line in lines)
@@ -619,7 +637,12 @@ def normalize_panel_payload(payload, user_id, panel=None):
         profile_payload = _require_list(profile_payload, 'profiles')
         if not profile_payload and spec_enabled:
             default = _default_profile(spec_key)
-            profile_payload = [{'profile_id': default.pk, 'label': default.name}]
+            default_talent = _default_talent_string(spec_key)
+            profile_payload = [{
+                'profile_id': default.pk,
+                'talent_string_id': default_talent.pk,
+                'label': default.name,
+            }]
         if len(profile_payload) > MAX_PROFILES_PER_SPEC:
             _error(f'每个 spec 最多 {MAX_PROFILES_PER_SPEC} 个 profiles', 'profiles')
         normalized_profiles, seen_talent_variants = [], set()
@@ -639,12 +662,14 @@ def normalize_panel_payload(payload, user_id, panel=None):
             if profile_class and profile_class != expected_class:
                 _error('Profile 职业不一致', 'profiles')
             if not _same_profile_spec(profile, expected_class, expected_spec): _error('Profile 专精不一致', 'profiles')
-            talent = None
-            if profile_raw.get('talent_string_id') is not None:
-                talent = _resource(SimcTalentString, profile_raw['talent_string_id'], 'talent', user_id)
-                if str(talent.spec).strip().lower() not in {expected_spec, spec_key}:
-                    _error('天赋字符串专精不一致', 'talent_string_id')
-            talent_variant = talent.pk if talent else None
+            if not profile_raw.get('talent_string_id'):
+                _error('新建 Benchmark 配置必须为每个 Profile 选择独立天赋字符串', 'talent_string_id')
+            talent = _resource(
+                SimcTalentString, profile_raw['talent_string_id'], 'talent', user_id,
+            )
+            if str(talent.spec).strip().lower() not in {expected_spec, spec_key}:
+                _error('天赋字符串专精不一致', 'talent_string_id')
+            talent_variant = talent.pk
             if talent_variant in seen_talent_variants:
                 _error('profiles 包含重复天赋配置', 'profiles')
             seen_talent_variants.add(talent_variant)
@@ -1141,6 +1166,12 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
             case_candidates = _freeze_case_candidates(spec.spec_key, applicable)
         for scenario in scenarios:
             for selected in profiles:
+                if not selected.talent_string_id:
+                    _error(
+                        f'专精 {spec.spec_key} 的 Profile {selected.profile_id} 未绑定独立天赋字符串；'
+                        '历史配置可继续查看，但必须补全后才能新建任务',
+                        'talent_string_id',
+                    )
                 simulation_params = deepcopy(scenario.simulation_params)
                 if is_option_gain and not comparison_config:
                     simulation_params['extra_options'] = [

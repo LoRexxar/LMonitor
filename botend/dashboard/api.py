@@ -2853,6 +2853,7 @@ class SimcComparisonTaskAPIView(View):
             task = create_task_from_request(
                 user_id=request.user.id, profile_fields=profile_fields,
                 base_template_id=base_template_id, selected_apl_id=selected_apl_id,
+                talent_string_id=data.get('talent_string_id'),
                 simulation_params=simulation_params,
                 name=name, mode=task_mode,
                 mode_params={'request_manifest': {
@@ -3933,6 +3934,7 @@ class SimcProfileAPIView(View):
                         regular_target_count=regular_target_count,
                         base_template_id=base_template_id,
                         selected_apl_id=selected_apl_id,
+                        talent_string_id=data.get('talent_string_id'),
                         is_admin=_is_simc_admin(request.user),
                     )
 
@@ -4024,6 +4026,7 @@ class SimcProfileAPIView(View):
                         profile_fields=profile_fields,
                         base_template_id=data.get('base_template_id'),
                         selected_apl_id=data.get('selected_apl_id'),
+                        talent_string_id=data.get('talent_string_id'),
                         simulation_params=simulation_params or None,
                         name=f'{name}_常规模拟',
                         is_admin=_is_simc_admin(request.user),
@@ -4106,6 +4109,7 @@ class SimcProfileAPIView(View):
                             regular_target_count=regular_target_count,
                             base_template_id=base_template_id,
                             selected_apl_id=selected_apl_id,
+                            talent_string_id=data.get('talent_string_id'),
                             is_admin=_is_simc_admin(request.user),
                         )
                         if task_result['success']:
@@ -4174,6 +4178,7 @@ class SimcProfileAPIView(View):
                         regular_target_count=regular_target_count,
                         base_template_id=base_template_id,
                         selected_apl_id=selected_apl_id,
+                        talent_string_id=data.get('talent_string_id'),
                         is_admin=_is_simc_admin(request.user),
                     )
                     if task_result['success']:
@@ -4202,7 +4207,8 @@ class SimcProfileAPIView(View):
             })
     
     def _create_simulation_task(self, user_id, profile, regular_time=None, regular_target_count=None,
-                                base_template_id=None, selected_apl_id=None, is_admin=False):
+                                base_template_id=None, selected_apl_id=None,
+                                talent_string_id=None, is_admin=False):
         """创建模拟任务的辅助方法"""
         from botend.services.simc_task_service import create_task_from_request, TaskCreationError
 
@@ -4249,6 +4255,7 @@ class SimcProfileAPIView(View):
                 profile_fields=profile_fields,
                 base_template_id=base_template_id,
                 selected_apl_id=selected_apl_id,
+                talent_string_id=talent_string_id,
                 simulation_params=simulation_params if simulation_params else None,
                 name=task_name,
                 is_admin=is_admin,
@@ -4476,7 +4483,14 @@ class SimcProfileAPIView(View):
             
             # 创建模拟任务
             task_result = self._create_simulation_task(
-                request.user.id, profile, is_admin=_is_simc_admin(request.user),
+                request.user.id,
+                profile,
+                regular_time=data.get('regular_time'),
+                regular_target_count=data.get('regular_target_count'),
+                base_template_id=data.get('base_template_id'),
+                selected_apl_id=data.get('selected_apl_id'),
+                talent_string_id=data.get('talent_string_id'),
+                is_admin=_is_simc_admin(request.user),
             )
             
             if task_result['success']:

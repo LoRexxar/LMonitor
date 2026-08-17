@@ -16,6 +16,7 @@ from botend.models import (
     SimcApl,
     SimcContentTemplate,
     SimcProfile,
+    SimcTalentString,
     SimcTask,
     SimulationRun,
 )
@@ -39,9 +40,14 @@ def mark_apl_valid(apl):
 
 def setUpModule():
     from django.test import override_settings
-    global _validation_settings, _validation_mock
+    global _validation_settings, _validation_mock, _identity_mock
     _validation_settings = override_settings(SIMC_APL_CURRENT_IDENTITY=TEST_VALIDATION_IDENTITY)
     _validation_settings.enable()
+    _identity_mock = patch(
+        'botend.services.simc_task_service.current_validation_identity',
+        return_value=TEST_VALIDATION_IDENTITY,
+    )
+    _identity_mock.start()
     _validation_mock = patch('botend.services.simc_task_service.validate_apl_for_profile', side_effect=lambda _p, apl: {
         'valid': True, 'content_hash': hashlib.sha256(apl.content.encode()).hexdigest(),
         'revision': TEST_VALIDATION_IDENTITY[0], 'game_build': TEST_VALIDATION_IDENTITY[1]})
@@ -49,7 +55,7 @@ def setUpModule():
 
 
 def tearDownModule():
-    _validation_mock.stop(); _validation_settings.disable()
+    _validation_mock.stop(); _identity_mock.stop(); _validation_settings.disable()
 
 
 class ReferenceBatchTaskCreationServiceTests(TestCase):
@@ -71,6 +77,10 @@ class ReferenceBatchTaskCreationServiceTests(TestCase):
             gear_mastery=3000,
             gear_versatility=4000,
             is_active=True,
+        )
+        self.talent = SimcTalentString.objects.create(
+            owner_user_id=self.user_id, name='Batch Fury Talent', spec='fury', talent='BASE',
+            is_active=True, is_selectable=True,
         )
         self.template = SimcContentTemplate.objects.create(
             name='Batch Base Template',
@@ -95,7 +105,7 @@ class ReferenceBatchTaskCreationServiceTests(TestCase):
             name='Reference comparison · helm',
             profile_id=self.profile.id,
             template_id=self.template.id,
-            apl_id=self.apl.id,
+            apl_id=self.apl.id, talent_string_id=self.talent.id,
             mode='comparison',
             simulation_params={
                 'fight_style': 'Patchwerk',
@@ -133,7 +143,7 @@ class ReferenceBatchTaskCreationServiceTests(TestCase):
             name='Reference attributes · crit -50 / haste +50',
             profile_id=self.profile.id,
             template_id=self.template.id,
-            apl_id=self.apl.id,
+            apl_id=self.apl.id, talent_string_id=self.talent.id,
             mode='attribute_sweep',
             candidates=[{
                 'candidate_key': 'crit-to-haste',
@@ -166,7 +176,7 @@ class ReferenceBatchTaskCreationServiceTests(TestCase):
         }]
         task = create_task(
             user_id=self.user_id, name='backend-owned runs',
-            profile_id=self.profile.id, template_id=self.template.id, apl_id=self.apl.id,
+            profile_id=self.profile.id, template_id=self.template.id, apl_id=self.apl.id, talent_string_id=self.talent.id,
             mode='comparison', candidates=candidates,
         )
         self.assertEqual(task.simulation_runs.count(), 0)
@@ -204,6 +214,10 @@ class ReferenceBatchAPIViewTests(TestCase):
             talent='BASE',
             is_active=True,
         )
+        self.talent = SimcTalentString.objects.create(
+            owner_user_id=self.user.id, name='API Batch Fury Talent', spec='fury', talent='BASE',
+            is_active=True, is_selectable=True,
+        )
         self.template = SimcContentTemplate.objects.create(
             name='API Batch Base Template',
             spec='fury',
@@ -228,7 +242,7 @@ class ReferenceBatchAPIViewTests(TestCase):
             'simc_profile_id': self.profile.id,
             'candidates': [{'slot': 'head', 'item_id': 299001, 'source': 'bags'}],
             'base_template_id': self.template.id,
-            'selected_apl_id': self.apl.id,
+            'selected_apl_id': self.apl.id, 'talent_string_id': self.talent.id,
         }), content_type='application/json')
 
         payload = response.json()
@@ -262,7 +276,7 @@ class ReferenceBatchAPIViewTests(TestCase):
                 'simc_profile_id': self.profile.id,
                 'attribute_step': 100,
                 'base_template_id': self.template.id,
-                'selected_apl_id': self.apl.id,
+                'selected_apl_id': self.apl.id, 'talent_string_id': self.talent.id,
             }), content_type='application/json')
 
         payload = response.json()
@@ -355,7 +369,7 @@ class ReferenceBatchAPIViewTests(TestCase):
             })
         task = create_task(
             user_id=self.user.id, name='Attribute reference request', profile_id=profile.id,
-            template_id=self.template.id, apl_id=self.apl.id, mode='attribute_sweep',
+            template_id=self.template.id, apl_id=self.apl.id, talent_string_id=self.talent.id, mode='attribute_sweep',
             simulation_params={'fight_style': 'Patchwerk', 'max_time': 300, 'desired_targets': 1},
             candidates=candidates,
         )
@@ -424,7 +438,7 @@ class ReferenceBatchAPIViewTests(TestCase):
             task = create_task(
                 user_id=self.user.id, name='progressive attribute refinement',
                 profile_id=self.profile.id, template_id=self.template.id,
-                apl_id=self.apl.id, mode='attribute_sweep', candidates=candidates,
+                apl_id=self.apl.id, talent_string_id=self.talent.id, mode='attribute_sweep', candidates=candidates,
             )
         lease = timezone.now()
         task.current_status = 1
@@ -544,7 +558,7 @@ class ReferenceBatchAPIViewTests(TestCase):
                 return_value=TEST_VALIDATION_IDENTITY):
             task = create_task(
                 user_id=self.user.id, name='error-aware continuation', profile_id=self.profile.id,
-                template_id=self.template.id, apl_id=self.apl.id,
+                template_id=self.template.id, apl_id=self.apl.id, talent_string_id=self.talent.id,
                 mode='attribute_sweep', candidates=candidates,
             )
         from botend.services.simc_task_service import initialize_task_runs
@@ -585,7 +599,7 @@ class ReferenceBatchAPIViewTests(TestCase):
             })
         task = create_task(
             user_id=self.user.id, name='guarded', profile_id=self.profile.id,
-            template_id=self.template.id, apl_id=self.apl.id,
+            template_id=self.template.id, apl_id=self.apl.id, talent_string_id=self.talent.id,
             mode='attribute_sweep', candidates=candidates,
         )
         from botend.services.simc_task_service import initialize_task_runs
@@ -617,7 +631,7 @@ class ReferenceBatchAPIViewTests(TestCase):
     def test_complete_reference_task_put_only_renames_and_cannot_reset_status_or_inputs(self):
         task = create_task(
             user_id=self.user.id, name='Immutable run', profile_id=self.profile.id,
-            template_id=self.template.id, apl_id=self.apl.id,
+            template_id=self.template.id, apl_id=self.apl.id, talent_string_id=self.talent.id,
             simulation_params={'iterations': 100},
         )
         task.current_status = 2
@@ -638,14 +652,14 @@ class ReferenceBatchAPIViewTests(TestCase):
     def test_complete_reference_task_post_rerun_copies_frozen_execution(self):
         task = create_task(
             user_id=self.user.id, name='Immutable source', profile_id=self.profile.id,
-            template_id=self.template.id, apl_id=self.apl.id,
+            template_id=self.template.id, apl_id=self.apl.id, talent_string_id=self.talent.id,
             simulation_params={'iterations': 100},
         )
         task.current_status = 2
         task.save(update_fields=['current_status'])
 
         response = self.client.post('/api/simc-task/', data=json.dumps({
-            'id': task.id, 'action': 'rerun',
+            'id': task.id, 'action': 'rerun', 'talent_string_id': self.talent.id,
         }), content_type='application/json')
 
         payload = response.json()
@@ -679,9 +693,13 @@ class ReferenceBatchAPIViewTests(TestCase):
             is_active=True, is_selectable=True, owner_user_id=self.user.id,
         )
         mark_apl_valid(apl)
+        talent = SimcTalentString.objects.create(
+            owner_user_id=self.user.id, name='Preview Talent', spec='warrior_fury',
+            talent='PREVIEW', is_active=True, is_selectable=True,
+        )
         task = create_task(
             user_id=self.user.id, name='Reference preview', profile_id=profile.id,
-            template_id=template.id, apl_id=apl.id, mode='normal',
+            template_id=template.id, apl_id=apl.id, talent_string_id=talent.id, mode='normal',
             simulation_params={'iterations': 100}, mode_params={'candidate_type': 'base'},
         )
         request = RequestFactory().get(f'/api/simc-task/preview/?task_id={task.id}')
@@ -713,9 +731,13 @@ class ReferenceBatchAPIViewTests(TestCase):
             is_active=True, is_selectable=True, owner_user_id=self.user.id,
         )
         mark_apl_valid(apl)
+        talent = SimcTalentString.objects.create(
+            owner_user_id=self.user.id, name='Rerun Talent', spec='warrior_fury',
+            talent='RERUN', is_active=True, is_selectable=True,
+        )
         source = create_task(
             user_id=self.user.id, name='Source', profile_id=profile.id,
-            template_id=template.id, apl_id=apl.id, mode='normal',
+            template_id=template.id, apl_id=apl.id, talent_string_id=talent.id, mode='normal',
             simulation_params={'iterations': 100}, mode_params={'candidate_type': 'base'},
         )
         source.current_status = 2

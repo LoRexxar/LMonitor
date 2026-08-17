@@ -3310,7 +3310,7 @@ function clearSimcResolvedResources() {
         apl.innerHTML = '<option value="">请先完成来源预检以加载 APL</option>';
     }
     const talent = document.getElementById('simc-sim-talent-string');
-    if (talent) talent.innerHTML = '<option value="">沿用玩家配置中的天赋</option>';
+    if (talent) talent.innerHTML = '<option value="">请选择天赋字符串</option>';
     const detail = document.getElementById('simc-sim-player-detail');
     if (detail) detail.innerHTML = '';
     simcComparisonDefaultTalent = null;
@@ -3352,7 +3352,8 @@ function requireSimcRunReferences() {
     if (!backend_id) throw new Error('请选择 SimC 后端');
     const references = { base_template_id, selected_apl_id, backend_id, player_source, spec: simcResolvedCanonicalSpec };
     const talent_string_id = document.getElementById('simc-sim-talent-string')?.value || '';
-    if (talent_string_id) references.talent_string_id = talent_string_id;
+    if (!talent_string_id) throw new Error('请选择天赋字符串');
+    references.talent_string_id = talent_string_id;
     if (player_source.type === 'saved_profile') references.simc_profile_id = player_source.profile_id;
     return references;
 }
@@ -3363,7 +3364,7 @@ async function loadSimcTalentStringCandidates(spec) {
     const response = await fetch(`/api/simc-talent-string-candidates/?spec=${encodeURIComponent(spec)}`);
     const payload = await response.json();
     if (!response.ok || !payload.success) return;
-    select.innerHTML = '<option value="">沿用玩家配置中的天赋</option>' + payload.data.map(item => {
+    select.innerHTML = '<option value="">请选择天赋字符串</option>' + payload.data.map(item => {
         const heroTalentNames = Array.isArray(item.hero_talent_names)
             ? item.hero_talent_names.filter(Boolean).join('、')
             : '';
@@ -3942,7 +3943,7 @@ async function startSelectedSimcCandidateComparisons() {
     let references;
     try { references = requireSimcRunReferences(); }
     catch (error) { showMessage(String(error.message || error), 'warning'); return; }
-    const { simc_profile_id, player_source, base_template_id, selected_apl_id, backend_id } = references;
+    const { simc_profile_id, player_source, base_template_id, selected_apl_id, backend_id, talent_string_id } = references;
     const selected = Array.from(document.querySelectorAll('.simc-comparison-candidate:checked'));
     const include_base = Boolean(document.querySelector('.simc-comparison-current:checked'));
     if (!selected.length) { showMessage('请至少选择一个候选', 'warning'); return; }
@@ -3962,7 +3963,7 @@ async function startSelectedSimcCandidateComparisons() {
             body: JSON.stringify({
                 kind, name: `${simcResolvedCanonicalSpec || 'SimC'} 候选对比`,
                 spec: simcResolvedCanonicalSpec,
-                simc_profile_id, player_source, base_template_id, selected_apl_id, backend_id, candidates, include_base,
+                simc_profile_id, player_source, base_template_id, selected_apl_id, backend_id, talent_string_id, candidates, include_base,
                 ...currentSimcScenario(),
             }),
         });
@@ -4040,6 +4041,7 @@ async function createSimcAplCandidateTask() {
             base_template_id: references.base_template_id,
             selected_apl_id: references.selected_apl_id,
             backend_id: references.backend_id,
+            talent_string_id: references.talent_string_id,
             candidate_count: 5, include_base: true,
         }),
     });

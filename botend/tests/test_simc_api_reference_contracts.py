@@ -123,6 +123,14 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
             owner_user_id=self.user.id,
         )
         mark_apl_current(self, self.apl)
+        self.talent_string = SimcTalentString.objects.create(
+            owner_user_id=self.user.id,
+            name='Test Talent',
+            spec='warrior_fury',
+            talent='BQEAAAAAAAAAAAAAAAAAAAAAAAAAAAAg',
+            is_active=True,
+            is_selectable=True,
+        )
 
     def test_api_rejects_raw_simc_code(self):
         """RED: API should reject raw_simc_code and require base_template_id + selected_apl_id."""
@@ -131,6 +139,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
             data=json.dumps({
                 'name': 'Task',
                 'raw_simc_code': 'warrior="Test"\nlevel=80',
+                'talent_string_id': self.talent_string.id,
             }),
             content_type='application/json',
         )
@@ -180,6 +189,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
                 'task_type': 2,
                 'base_template_id': self.template.id,
                 'selected_apl_id': self.apl.id,
+                'talent_string_id': self.talent_string.id,
             }),
             content_type='application/json',
         )
@@ -248,6 +258,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
             profile_id=self.profile.id,
             template_id=self.template.id,
             apl_id=self.apl.id,
+            talent_string_id=self.talent_string.id,
             name='Rerun source',
         )
         cases = [
@@ -287,6 +298,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
             'profile_id': self.profile.id,
             'base_template_id': self.template.id,
             'selected_apl_id': self.apl.id,
+            'talent_string_id': self.talent_string.id,
             'candidate_count': 1,
         }), content_type='application/json')
         candidate_request.user = self.user
@@ -311,6 +323,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
             profile_id=self.profile.id,
             template_id=self.template.id,
             apl_id=self.apl.id,
+            talent_string_id=self.talent_string.id,
             name='Reference report task',
         )
         task.result_file = 'reference-task-report.html'
@@ -419,6 +432,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
                 'name': 'Task',
                 'base_template_content': 'iterations=1000',
                 'selected_apl_id': self.apl.id,
+                'talent_string_id': self.talent_string.id,
             }),
             content_type='application/json',
         )
@@ -438,6 +452,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
                 'name': 'Task',
                 'base_template_id': self.template.id,
                 'override_action_list': 'actions=/custom',
+                'talent_string_id': self.talent_string.id,
             }),
             content_type='application/json',
         )
@@ -456,6 +471,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
             data=json.dumps({
                 'name': 'Task',
                 'selected_apl_id': self.apl.id,
+                'talent_string_id': self.talent_string.id,
             }),
             content_type='application/json',
         )
@@ -474,6 +490,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
             data=json.dumps({
                 'name': 'Task',
                 'base_template_id': self.template.id,
+                'talent_string_id': self.talent_string.id,
             }),
             content_type='application/json',
         )
@@ -494,6 +511,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
                 'simc_profile_id': self.profile.id,
                 'base_template_id': self.template.id,
                 'selected_apl_id': self.apl.id,
+                'talent_string_id': self.talent_string.id,
             }),
             content_type='application/json',
         )
@@ -540,6 +558,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
                 'simc_profile_id': self.profile.id,
                 'base_template_id': self.template.id,
                 'selected_apl_id': self.apl.id,
+                'talent_string_id': self.talent_string.id,
             }),
             content_type='application/json',
         )
@@ -574,6 +593,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
                 'simc_profile_id': self.profile.id,
                 'base_template_id': other_template.id,
                 'selected_apl_id': self.apl.id,
+                'talent_string_id': self.talent_string.id,
             }),
             content_type='application/json',
         )
@@ -596,6 +616,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
                 'simc_profile_id': self.profile.id,
                 'base_template_id': self.template.id,
                 'selected_apl_id': self.apl.id,
+                'talent_string_id': self.talent_string.id,
             }),
             content_type='application/json',
         )
@@ -609,6 +630,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
 
     def test_api_rejects_unselectable_apl(self):
         """RED: API should reject is_selectable=False APL."""
+        self.apl.is_system = True
         self.apl.is_selectable = False
         self.apl.save()
 
@@ -619,6 +641,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
                 'simc_profile_id': self.profile.id,
                 'base_template_id': self.template.id,
                 'selected_apl_id': self.apl.id,
+                'talent_string_id': self.talent_string.id,
             }),
             content_type='application/json',
         )
@@ -641,6 +664,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
                 'simc_profile_id': self.profile.id,
                 'base_template_id': self.template.id,
                 'selected_apl_id': self.apl.id,
+                'talent_string_id': self.talent_string.id,
                 'spec': 'warrior_fury',
                 'player_equipment': 'warrior="UPDATED"\nlevel=85',
                 'talent': 'XYZ',
@@ -669,6 +693,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
                 'simc_profile_id': self.profile.id,
                 'base_template_id': self.template.id,
                 'selected_apl_id': self.apl.id,
+                'talent_string_id': self.talent_string.id,
                 'spec': 'warrior_fury',
                 'player_equipment': 'warrior="Test"\nlevel=80',
             }),
@@ -695,6 +720,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
                 'profile_name': 'New Profile Name',
                 'base_template_id': self.template.id,
                 'selected_apl_id': self.apl.id,
+                'talent_string_id': self.talent_string.id,
                 'spec': 'warrior_fury',
             }),
             content_type='application/json',
@@ -754,6 +780,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
                 'name': 'Task',
                 'base_template_id': self.template.id,
                 'selected_apl_id': self.apl.id,
+                'talent_string_id': self.talent_string.id,
                 'spec': 'warrior_fury',
                 'player_equipment': 'warrior="Test"\nlevel=80',
             }),
@@ -785,6 +812,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
                 'simc_profile_id': self.profile.id,
                 'base_template_id': self.template.id,
                 'selected_apl_id': self.apl.id,
+                'talent_string_id': self.talent_string.id,
                 'spec': 'warrior_fury',
                 'player_equipment': 'warrior="SHOULD_ROLLBACK"\nlevel=80',
             }),
@@ -814,6 +842,7 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
                 'simc_profile_id': 99999,
                 'base_template_id': self.template.id,
                 'selected_apl_id': self.apl.id,
+                'talent_string_id': self.talent_string.id,
                 'spec': 'warrior_fury',
             }),
             content_type='application/json',
@@ -957,11 +986,24 @@ class SimcProfileAPISimulateNowContractsTests(TestCase):
             owner_user_id=self.user.id,
         )
         mark_apl_current(self, self.apl)
+        self.talent_string = SimcTalentString.objects.create(
+            owner_user_id=self.user.id,
+            name='Simulate Now Talent',
+            spec='warrior_fury',
+            talent='BQEAAAAAAAAAAAAAAAAAAAAAAAAAAAAg',
+            is_active=True,
+            is_selectable=True,
+        )
 
     def test_profile_api_rejects_obsolete_task_type_parameter(self):
         request = self.factory.post(
             '/api/simc-profile/',
-            data=json.dumps({'simc_profile_id': self.profile.id, 'simulate_now': True, 'task_type': 1}),
+            data=json.dumps({
+                'simc_profile_id': self.profile.id,
+                'simulate_now': True,
+                'task_type': 1,
+                'talent_string_id': self.talent_string.id,
+            }),
             content_type='application/json',
         )
         request.user = self.user
@@ -974,7 +1016,10 @@ class SimcProfileAPISimulateNowContractsTests(TestCase):
         before = SimcTask.objects.count()
         patch_request = self.factory.patch(
             f'/api/simc-profile/{self.profile.id}/simulate/',
-            data=json.dumps({'task_type': 1}),
+            data=json.dumps({
+                'task_type': 1,
+                'talent_string_id': self.talent_string.id,
+            }),
             content_type='application/json',
         )
         patch_request.user = self.user
@@ -992,6 +1037,7 @@ class SimcProfileAPISimulateNowContractsTests(TestCase):
             data=json.dumps({
                 'simc_profile_id': self.profile.id,
                 'simulate_now': True,
+                'talent_string_id': self.talent_string.id,
             }),
             content_type='application/json',
         )
@@ -1012,6 +1058,7 @@ class SimcProfileAPISimulateNowContractsTests(TestCase):
                 'simulate_now': True,
                 'base_template_id': self.template.id,
                 'selected_apl_id': self.apl.id,
+                'talent_string_id': self.talent_string.id,
             }),
             content_type='application/json',
         )
@@ -1044,6 +1091,7 @@ class SimcProfileAPISimulateNowContractsTests(TestCase):
                 'simulate_now': True,
                 'base_template_id': self.template.id,
                 'selected_apl_id': self.apl.id,
+                'talent_string_id': self.talent_string.id,
             }),
             content_type='application/json',
         )
@@ -1074,6 +1122,7 @@ class SimcProfileAPISimulateNowContractsTests(TestCase):
                 'simulate_now': True,
                 'base_template_id': self.template.id,
                 'selected_apl_id': self.apl.id,
+                'talent_string_id': self.talent_string.id,
             }),
             content_type='application/json',
         )
@@ -1101,6 +1150,7 @@ class SimcProfileAPISimulateNowContractsTests(TestCase):
                 'simulate_now': True,
                 'base_template_id': self.template.id,
                 'selected_apl_id': self.apl.id,
+                'talent_string_id': self.talent_string.id,
             }),
             content_type='application/json',
         )
@@ -1125,6 +1175,7 @@ class SimcProfileAPISimulateNowContractsTests(TestCase):
                 'simulate_now': True,
                 'base_template_id': self.template.id,
                 'selected_apl_id': self.apl.id,
+                'talent_string_id': self.talent_string.id,
                 'spec': 'warrior_fury',
                 'player_config_mode': 'manual_equipment',
                 'player_equipment': 'warrior="Atomic"\nlevel=80',

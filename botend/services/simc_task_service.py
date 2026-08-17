@@ -273,6 +273,23 @@ def _create_or_reuse_version(
         return version
 
 
+_EMBEDDED_TALENT_KEYS = {
+    'talent', 'talents', 'omnium_talents',
+    'class_talents', 'spec_talents', 'hero_talents',
+}
+
+
+def _strip_embedded_talents(player_equipment: str) -> str:
+    """Keep the frozen player block free of any second talent authority."""
+    lines = []
+    for line in str(player_equipment or '').splitlines():
+        key, separator, _value = line.partition('=')
+        if separator and key.strip().lower() in _EMBEDDED_TALENT_KEYS:
+            continue
+        lines.append(line)
+    return '\n'.join(lines)
+
+
 def _build_profile_payload(profile: SimcProfile) -> dict:
     """Build immutable executable payload from SimcProfile.
 
@@ -284,6 +301,7 @@ def _build_profile_payload(profile: SimcProfile) -> dict:
     if profile.player_config_mode == 'manual_equipment' and player_equipment:
         from botend.services.simc_player_config import parse_simc_player_profile
         player_equipment = parse_simc_player_profile(player_equipment)['profile']['raw_player_block']
+    player_equipment = _strip_embedded_talents(player_equipment)
     return {
         'name': profile.name,
         'spec': profile.spec,
@@ -293,7 +311,6 @@ def _build_profile_payload(profile: SimcProfile) -> dict:
         'battlenet_realm': profile.battlenet_realm,
         'battlenet_character': profile.battlenet_character,
         'player_equipment': player_equipment,
-        'talent': profile.talent,
         # Explicit Profile overrides are frozen independently of player source.
         'gear_strength': profile.gear_strength,
         'gear_crit': profile.gear_crit,
@@ -528,7 +545,7 @@ def create_task_from_request(
                 profile.battlenet_realm = profile_fields.get('battlenet_realm', profile.battlenet_realm or '')
                 profile.battlenet_character = profile_fields.get('battlenet_character', profile.battlenet_character or '')
                 profile.player_equipment = profile_fields.get('player_equipment', profile.player_equipment or '')
-                profile.talent = profile_fields.get('talent', profile.talent or '')
+
                 override_fields = (
                     'gear_strength', 'gear_crit', 'gear_haste',
                     'gear_mastery', 'gear_versatility',
@@ -561,7 +578,10 @@ def create_task_from_request(
                 battlenet_realm=profile_fields.get('battlenet_realm', ''),
                 battlenet_character=profile_fields.get('battlenet_character', ''),
                 player_equipment=profile_fields.get('player_equipment', ''),
-                talent=profile_fields.get('talent', ''),
+                # New task/Profile writes never persist an executable talent on
+                # the Profile.  The selected SimcTalentString is the sole
+                # authoritative talent resource for every new task.
+                talent='',
                 **override_values,
                 is_active=True,
             )
@@ -661,6 +681,8 @@ def _load_resources(user_id, profile_id, template_id, apl_id, backend_id, *,
         raise TaskCreationError(
             'Complete references required: profile_id, template_id, and apl_id must all be provided'
         )
+    if not talent_string_id:
+        raise TaskCreationError('新建 SimC 任务必须选择并冻结独立天赋字符串')
     backend_qs = SimcBackendBinary.objects
     profile_qs = SimcProfile.objects
     apl_qs = SimcApl.objects
@@ -698,17 +720,14 @@ def _load_resources(user_id, profile_id, template_id, apl_id, backend_id, *,
     # lists. Executing a simulation is intentionally not an authorization
     # boundary; callers already provide explicit resource IDs and we only
     # enforce executable state and specialization compatibility here.
-    talent = None
-    if talent_string_id:
-        try:
-            talent = talent_qs.get(pk=talent_string_id)
-        except SimcTalentString.DoesNotExist:
-            raise TaskCreationError(f'天赋字符串 {talent_string_id} 不存在')
+    try:
+        talent = talent_qs.get(pk=talent_string_id)
+    except SimcTalentString.DoesNotExist:
+        raise TaskCreationError(f'天赋字符串 {talent_string_id} 不存在')
     _validate_executable_resource_state(profile, 'profile')
     _validate_executable_resource_state(apl, 'apl')
     _validate_executable_resource_state(template, 'template')
-    if talent:
-        _validate_executable_resource_state(talent, 'talent')
+    _validate_executable_resource_state(talent, 'talent')
     _check_resource_specs(profile, apl, template, talent)
     return backend, profile, apl, template, talent
 
@@ -799,6 +818,14 @@ def create_task_from_prepared(*, prepared, user_id: int, name: str,
     """Persist a preflighted Task in a short transaction, failing closed if stale."""
     if not isinstance(prepared, PreparedTaskCreation) or prepared.seal is not _PREPARED_SEAL:
         raise TaskCreationError('Invalid prepared task creation token')
+    if talent_string_id in (None, '', False):
+        raise TaskCreationError('新建 SimC 任务必须选择并冻结独立天赋字符串')
+    try:
+        talent_string_id = int(talent_string_id)
+    except (TypeError, ValueError):
+        raise TaskCreationError('talent_string_id must be a positive integer')
+    if talent_string_id <= 0:
+        raise TaskCreationError('talent_string_id must be a positive integer')
     requested_ids = (user_id, backend_id or prepared.backend_id, profile_id, apl_id, template_id, talent_string_id)
     prepared_ids = (prepared.user_id, prepared.backend_id, prepared.profile_id,
                     prepared.apl_id, prepared.template_id, prepared.talent_string_id)

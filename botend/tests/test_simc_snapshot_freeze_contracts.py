@@ -17,7 +17,7 @@ from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.management.commands.import_simc_apl import Command as ImportSimcAplCommand
 from botend.management.commands.update_simc_binary import Command as UpdateSimcBinaryCommand
 from botend.models import SimcApl, SimcContentTemplate, SimcProfile, SimcTalentString, SimcTask
-from botend.services.simc_task_service import initialize_task_runs
+from botend.services.simc_task_service import _build_profile_payload, initialize_task_runs
 
 
 BASE_CONTENT = (
@@ -57,7 +57,11 @@ class UpdateSimcBinarySyncContractTests(TestCase):
         command = UpdateSimcBinaryCommand()
         command.simc_source_dir = '/srv/simc'
         command.stdout = SimpleNamespace(write=lambda x: None)
-        command.row = SimpleNamespace(current_version='a' * 40, save=lambda **kwargs: None)
+        command.row = SimpleNamespace(
+            current_version='a' * 40,
+            game_build='12.0.1.70000',
+            save=lambda **kwargs: None,
+        )
         git_hash = 'a' * 40
 
         with patch.object(command, '_get_git_hash', return_value=git_hash), \
@@ -72,7 +76,8 @@ class UpdateSimcBinarySyncContractTests(TestCase):
         player_calls = [call for call in call_cmd.call_args_list if call[0][0] == 'import_simc_player_templates']
         self.assertEqual(len(player_calls), 1)
         self.assertEqual(player_calls[0][1]['sync_version'], git_hash)
-        self.assertEqual(player_calls[0][1]['source_dir'], '/srv/simc/profiles/MID1')
+        self.assertEqual(player_calls[0][1]['source_dir'], '/srv/simc/profiles/MID2')
+        self.assertEqual(player_calls[0][1]['fallback_source_dir'], '/srv/simc/profiles/MID1')
         apl_calls = [call for call in call_cmd.call_args_list if call[0][0] == 'import_simc_apl']
         self.assertEqual(len(apl_calls), 1)
         self.assertEqual(apl_calls[0][1]['sync_version'], git_hash)
@@ -112,6 +117,10 @@ class SimcTaskReferenceContracts(TestCase):
             talent='BUILD',
             is_active=True,
         )
+        self.talent = SimcTalentString.objects.create(
+            name='Explicit talent string', spec='warrior_fury', talent='BUILD',
+            owner_user_id=self.user.id,
+        )
 
     def payload(self, **overrides):
         payload = {
@@ -119,6 +128,7 @@ class SimcTaskReferenceContracts(TestCase):
             'simc_profile_id': self.profile.id,
             'base_template_id': self.template.id,
             'selected_apl_id': self.apl.id,
+            'talent_string_id': self.talent.id,
         }
         payload.update(overrides)
         return payload
@@ -140,6 +150,28 @@ class SimcTaskReferenceContracts(TestCase):
             'profile', 'template', 'apl', 'profile_version', 'template_version', 'apl_version'
         ).get(id=response.json()['data']['id'])
 
+    def test_profile_snapshot_strips_all_embedded_talent_authorities_for_every_source_mode(self):
+        embedded = '\n'.join([
+            PLAYER_CONTENT,
+            'talent=legacy',
+            'talents=legacy',
+            'omnium_talents=legacy',
+            'class_talents=legacy',
+            'spec_talents=legacy',
+            'hero_talents=legacy',
+        ])
+        for mode in ('manual_equipment', 'simc_addon', 'attribute_only', 'battlenet'):
+            with self.subTest(mode=mode):
+                self.profile.player_config_mode = mode
+                self.profile.player_equipment = embedded
+                frozen = _build_profile_payload(self.profile)['player_equipment']
+                for key in (
+                    'talent', 'talents', 'omnium_talents',
+                    'class_talents', 'spec_talents', 'hero_talents',
+                ):
+                    self.assertNotIn(f'\n{key}=', f'\n{frozen}')
+                self.assertIn('main_hand=,id=222222', frozen)
+
     def test_task_stores_resource_fks_and_immutable_version_payloads(self):
         task = self.create_task()
 
@@ -155,11 +187,42 @@ class SimcTaskReferenceContracts(TestCase):
         self.assertEqual(task.profile_version.payload['player_equipment'], PLAYER_CONTENT)
         self.assertEqual(task.template_version.payload['content'], BASE_CONTENT)
         self.assertEqual(task.apl_version.payload['content'], APL_CONTENT)
+        self.assertEqual(task.talent_string_id, self.talent.id)
+        self.assertEqual(task.talent_version.payload['talent'], 'BUILD')
 
         ext = json.loads(task.ext or '{}')
         self.assertNotIn('base_template_content', ext)
         self.assertNotIn('override_action_list', ext)
         self.assertNotIn('player_equipment', ext)
+
+    def test_new_task_requires_an_independent_talent_string_reference(self):
+        valid = {
+            'valid': True, 'content_hash': hashlib.sha256(APL_CONTENT.encode()).hexdigest(),
+            'revision': 'a' * 40, 'game_build': '12.0.1.70000', 'diagnostics': [],
+        }
+        with patch('botend.services.simc_task_service.current_validation_identity', return_value=('a' * 40, '12.0.1.70000')), \
+             patch('botend.services.simc_task_service.validate_apl_for_profile', return_value=valid):
+            response = self.client.post(
+                '/api/simc-task/', data=json.dumps(self.payload(talent_string_id=None)),
+                content_type='application/json',
+            )
+
+        self.assertFalse(response.json()['success'], response.json())
+        self.assertIn('天赋字符串', response.json()['error'])
+
+        root = Path(__file__).resolve().parents[2]
+        frontend = (root / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
+        references = frontend[
+            frontend.index('function requireSimcRunReferences'):
+            frontend.index('async function loadSimcTalentStringCandidates')
+        ]
+        loader = frontend[
+            frontend.index('async function loadSimcTalentStringCandidates'):
+            frontend.index('function currentSimcScenario')
+        ]
+        self.assertIn("if (!talent_string_id) throw new Error('请选择天赋字符串')", references)
+        self.assertIn('references.talent_string_id = talent_string_id', references)
+        self.assertNotIn('沿用玩家配置中的天赋', loader)
 
     def test_talent_candidate_picker_shows_name_and_hero_tree_without_apl_explanation(self):
         talent = SimcTalentString.objects.create(
@@ -171,7 +234,8 @@ class SimcTaskReferenceContracts(TestCase):
             '/api/simc-talent-string-candidates/', {'spec': 'warrior_fury'},
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['data'], [{
+        rows = [row for row in response.json()['data'] if row['id'] == talent.id]
+        self.assertEqual(rows, [{
             'id': talent.id,
             'name': 'Fury raid build',
             'spec': 'warrior_fury',
@@ -205,8 +269,12 @@ class SimcTaskReferenceContracts(TestCase):
             '/api/simc-talent-string-candidates/', {'spec': 'warrior_fury'},
         )
         self.assertEqual(candidates.status_code, 200)
-        self.assertEqual(
-            [row['id'] for row in candidates.json()['data']], [talent.id],
+        candidate_ids = [row['id'] for row in candidates.json()['data']]
+        self.assertIn(self.talent.id, candidate_ids)
+        self.assertIn(talent.id, candidate_ids)
+        self.assertNotIn(
+            SimcTalentString.objects.get(name='Arms build').id,
+            candidate_ids,
         )
 
         task = self.create_task(talent_string_id=talent.id)
@@ -355,7 +423,7 @@ class SimcTaskReferenceContracts(TestCase):
         self.assertIn('food=keep_food', content)
         self.assertIn('temporary_enchant=main_hand:new_enchant', content)
         self.assertIn('class_talents=100:2/400:1', content)
-        self.assertIn('spec_talents=300:1', content)
+        self.assertNotIn('spec_talents=300:1', content)
         self.assertNotIn('old_flask', content)
         self.assertNotIn('old_potion', content)
         self.assertNotIn('old_enchant', content)

@@ -8,8 +8,8 @@ from django.utils import timezone
 
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.dashboard.api import SimcAplCandidatesAPIView, SimcTaskAPIView, SimcWorkbenchAPIView
-from botend.models import (SimcApl, SimcContentTemplate, SimcProfile, SimcTask,
-                           SimcTaskArtifact, SimulationRun)
+from botend.models import (SimcApl, SimcContentTemplate, SimcProfile, SimcTalentString,
+                           SimcTask, SimcTaskArtifact, SimulationRun)
 from botend.services.simc_task_service import (
     append_candidate_runs,
     create_task,
@@ -32,9 +32,14 @@ def mark_apl_valid(apl):
 
 def setUpModule():
     from django.test import override_settings
-    global _validation_settings, _validation_mock
+    global _validation_settings, _validation_mock, _identity_mock
     _validation_settings = override_settings(SIMC_APL_CURRENT_IDENTITY=TEST_VALIDATION_IDENTITY)
     _validation_settings.enable()
+    _identity_mock = patch(
+        'botend.services.simc_task_service.current_validation_identity',
+        return_value=TEST_VALIDATION_IDENTITY,
+    )
+    _identity_mock.start()
     _validation_mock = patch('botend.services.simc_task_service.validate_apl_for_profile', side_effect=lambda _p, apl: {
         'valid': True, 'content_hash': hashlib.sha256(apl.content.encode()).hexdigest(),
         'revision': TEST_VALIDATION_IDENTITY[0], 'game_build': TEST_VALIDATION_IDENTITY[1]})
@@ -42,7 +47,7 @@ def setUpModule():
 
 
 def tearDownModule():
-    _validation_mock.stop(); _validation_settings.disable()
+    _validation_mock.stop(); _identity_mock.stop(); _validation_settings.disable()
 
 
 class SimcCoreClosureTests(TestCase):
@@ -50,6 +55,10 @@ class SimcCoreClosureTests(TestCase):
         self.user = get_user_model().objects.create_user(username='closure', password='x')
         self.other = get_user_model().objects.create_user(username='other-closure', password='x')
         self.profile = SimcProfile.objects.create(user_id=self.user.id, name='P', spec='fury', player_config_mode='manual_equipment', player_equipment='warrior="x"\nspec=fury', is_active=True)
+        self.talent = SimcTalentString.objects.create(
+            owner_user_id=self.user.id, name='Fury talent', spec='fury', talent='BASE',
+            is_active=True, is_selectable=True,
+        )
         self.template = SimcContentTemplate.objects.create(name='T', spec='fury', content='{simulation_options}\n{player_config}\n{action_list}\n{output_options}', is_active=True, is_selectable=True)
         self.apl = SimcApl.objects.create(name='A', spec='fury', content='actions=/bloodthirst', is_system=True, is_active=True, is_selectable=True)
         mark_apl_valid(self.apl)
@@ -64,7 +73,7 @@ class SimcCoreClosureTests(TestCase):
         before = {f: getattr(self.profile, f) for f in ('name', 'spec', 'talent', 'gear_crit')}
         response = SimcTaskAPIView.as_view()(self.request('/api/simc-tasks/', {
             'name': 'new task', 'simc_profile_id': self.profile.id,
-            'base_template_id': self.template.id, 'selected_apl_id': self.apl.id,
+            'base_template_id': self.template.id, 'selected_apl_id': self.apl.id, 'talent_string_id': self.talent.id,
             'profile_name': 'MUTATE', 'spec': 'warrior_fury', 'talent': 'MUTATE', 'gear_crit': 999,
             'time': 180, 'target_count': 2,
         }))
@@ -83,7 +92,7 @@ class SimcCoreClosureTests(TestCase):
             'name': 'task with additional input',
             'simc_profile_id': self.profile.id,
             'base_template_id': self.template.id,
-            'selected_apl_id': self.apl.id,
+            'selected_apl_id': self.apl.id, 'talent_string_id': self.talent.id,
             'additional_simc_input': additional_input,
         }))
         self.assertEqual(response.status_code, 200)
@@ -115,7 +124,7 @@ class SimcCoreClosureTests(TestCase):
     def test_task_post_requires_existing_owner_profile(self):
         count = SimcProfile.objects.count()
         response = SimcTaskAPIView.as_view()(self.request('/api/simc-tasks/', {
-            'name': 'bad', 'base_template_id': self.template.id, 'selected_apl_id': self.apl.id,
+            'name': 'bad', 'base_template_id': self.template.id, 'selected_apl_id': self.apl.id, 'talent_string_id': self.talent.id,
             'profile_name': 'must not create',
         }))
         self.assertFalse(json.loads(response.content)['success'])
@@ -136,7 +145,7 @@ class SimcCoreClosureTests(TestCase):
         ]
         response = SimcAplCandidatesAPIView.as_view()(self.request('/api/simc-apl-candidates/', {
             'profile_id': self.profile.id, 'base_template_id': self.template.id,
-            'selected_apl_id': self.apl.id, 'candidate_count': 5, 'include_base': True,
+            'selected_apl_id': self.apl.id, 'talent_string_id': self.talent.id, 'candidate_count': 5, 'include_base': True,
         }))
         body = json.loads(response.content)
         self.assertTrue(body['success'], body)
@@ -157,7 +166,7 @@ class SimcCoreClosureTests(TestCase):
         ))
 
     def test_worker_manifest_combines_resolver_and_composition_metadata(self):
-        task = create_task(user_id=self.user.id, name='run', profile_id=self.profile.id, template_id=self.template.id, apl_id=self.apl.id)
+        task = create_task(user_id=self.user.id, name='run', profile_id=self.profile.id, template_id=self.template.id, apl_id=self.apl.id, talent_string_id=self.talent.id)
         composition = {'composer': {'version': 7}, 'sections': ['profile', 'apl']}
         with patch('botend.controller.plugins.simc.SimcMonitor.SimcComposer.compose', return_value=('warrior="x"', composition, None)), patch.object(SimcMonitor, 'execute_simc_command', return_value=True):
             monitor = SimcMonitor(None, task); monitor.result_path = '/tmp'
@@ -172,7 +181,7 @@ class SimcCoreClosureTests(TestCase):
             name='stale claim',
             profile_id=self.profile.id,
             template_id=self.template.id,
-            apl_id=self.apl.id,
+            apl_id=self.apl.id, talent_string_id=self.talent.id,
         )
         task.current_status = 1
         task.started_at = timezone.now()
@@ -204,7 +213,7 @@ class SimcCoreClosureTests(TestCase):
             name='unclaimed attribute',
             profile_id=self.profile.id,
             template_id=self.template.id,
-            apl_id=self.apl.id,
+            apl_id=self.apl.id, talent_string_id=self.talent.id,
             mode='attribute_sweep',
             candidates=[{'candidate_key': 'round-1', 'candidate_label': 'round 1'}],
         )
@@ -221,7 +230,7 @@ class SimcCoreClosureTests(TestCase):
             name='stale attribute',
             profile_id=self.profile.id,
             template_id=self.template.id,
-            apl_id=self.apl.id,
+            apl_id=self.apl.id, talent_string_id=self.talent.id,
             mode='attribute_sweep',
             candidates=[{'candidate_key': 'round-1', 'candidate_label': 'round 1'}],
         )
@@ -253,7 +262,7 @@ class SimcCoreClosureTests(TestCase):
         self.assertEqual(task.simulation_runs.count(), 0)
 
     def test_workbench_task_detail_returns_safe_runs(self):
-        task = create_task(user_id=self.user.id, name='detail', profile_id=self.profile.id, template_id=self.template.id, apl_id=self.apl.id)
+        task = create_task(user_id=self.user.id, name='detail', profile_id=self.profile.id, template_id=self.template.id, apl_id=self.apl.id, talent_string_id=self.talent.id)
         task.mode_params = {
             'candidate_type': 'gear_swap', 'is_base': False, 'batch_index': 1,
             'gear_swap': {'slot': 'head', 'raw_value': 'secret frozen input'},
@@ -281,7 +290,7 @@ class SimcCoreClosureTests(TestCase):
         self.assertNotIn('mode_params', body)
 
     def test_artifact_can_be_bound_to_specific_run(self):
-        task = create_task(user_id=self.user.id, name='artifact', profile_id=self.profile.id, template_id=self.template.id, apl_id=self.apl.id)
+        task = create_task(user_id=self.user.id, name='artifact', profile_id=self.profile.id, template_id=self.template.id, apl_id=self.apl.id, talent_string_id=self.talent.id)
         from botend.services.simc_task_service import initialize_task_runs
         run = initialize_task_runs(task)[0]
         artifact = SimcTaskArtifact.objects.create(task=task, run=run, artifact_type='html_report', file_path='simc_results/x.html')
@@ -293,7 +302,7 @@ class SimcCoreClosureTests(TestCase):
         from tempfile import NamedTemporaryFile
         from botend.services.simc_artifacts import upsert_task_html_artifact
 
-        task = create_task(user_id=self.user.id, name='artifact-history', profile_id=self.profile.id, template_id=self.template.id, apl_id=self.apl.id)
+        task = create_task(user_id=self.user.id, name='artifact-history', profile_id=self.profile.id, template_id=self.template.id, apl_id=self.apl.id, talent_string_id=self.talent.id)
         from botend.services.simc_task_service import initialize_task_runs
         old_run = initialize_task_runs(task)[0]
         new_run = SimulationRun.objects.create(task=task, sequence=2)
@@ -307,7 +316,7 @@ class SimcCoreClosureTests(TestCase):
         self.assertEqual(new_artifact.run_id, new_run.id)
 
     def test_rerun_rejects_all_request_overrides_and_copies_frozen_task(self):
-        task = create_task(user_id=self.user.id, name='old', profile_id=self.profile.id, template_id=self.template.id, apl_id=self.apl.id, simulation_params={'iterations': 1000})
+        task = create_task(user_id=self.user.id, name='old', profile_id=self.profile.id, template_id=self.template.id, apl_id=self.apl.id, talent_string_id=self.talent.id, simulation_params={'iterations': 1000})
         task.current_status = 2; task.save(update_fields=['current_status'])
         new_apl = SimcApl.objects.create(name='new', spec='fury', content='actions=/rampage', owner_user_id=self.user.id, is_active=True, is_selectable=True)
         mark_apl_valid(new_apl)

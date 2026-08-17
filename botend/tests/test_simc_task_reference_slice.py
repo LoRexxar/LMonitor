@@ -18,7 +18,7 @@ from django.test import TestCase
 from django.utils import timezone
 from botend.models import (
     SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate,
-    SimcProfile, SimcTask,
+    SimcProfile, SimcTalentString, SimcTask,
 )
 from botend.tests.simc_apl_symbol_test_utils import get_or_create_symbol_scope
 
@@ -50,6 +50,14 @@ def mark_apl_valid(apl):
               'validation_game_build': TEST_VALIDATION_IDENTITY[1], 'is_selectable': True}
     SimcApl.objects.filter(pk=apl.pk).update(**values)
     for key, value in values.items(): setattr(apl, key, value)
+
+
+def create_test_talent(*, user_id, spec, talent='TEST_BUILD'):
+    """Create a selectable talent resource suitable for new-task fixtures."""
+    return SimcTalentString.objects.create(
+        name=f'Test talent {spec}', spec=spec, talent=talent,
+        owner_user_id=user_id, is_active=True, is_selectable=True,
+    )
 
 
 def setUpModule():
@@ -178,6 +186,9 @@ class SimcTaskServiceTests(TestCase):
             owner_user_id=self.user_id,
         )
         mark_apl_valid(self.apl)
+        self.talent = create_test_talent(
+            user_id=self.user_id, spec=self.profile.spec,
+        )
 
     def test_task_service_allows_explicit_cross_owner_simulation(self):
         from botend.services.simc_task_service import create_task, TaskCreationError
@@ -204,6 +215,7 @@ class SimcTaskServiceTests(TestCase):
                 profile_id=other_profile.id,
                 template_id=self.template.id,
                 apl_id=self.apl.id,
+                talent_string_id=self.talent.id,
             )
         self.assertEqual(task.profile_id, other_profile.id)
 
@@ -236,6 +248,7 @@ class SimcTaskServiceTests(TestCase):
                 profile_id=global_profile.id,
                 template_id=self.template.id,
                 apl_id=self.apl.id,
+                talent_string_id=self.talent.id,
                 backend_id=self.backend.id,
             )
 
@@ -272,6 +285,7 @@ class SimcTaskServiceTests(TestCase):
                 profile_id=foreign_profile.id,
                 template_id=foreign_template.id,
                 apl_id=foreign_apl.id,
+                talent_string_id=self.talent.id,
                 backend_id=self.backend.id,
                 is_admin=True,
             )
@@ -293,14 +307,15 @@ class SimcTaskServiceTests(TestCase):
                    return_value=validation) as validator:
             prepared = prepare_task_creation(
                 self.user_id, self.profile.pk, self.template.pk, self.apl.pk,
-                backend_id=self.backend.pk,
+                backend_id=self.backend.pk, talent_string_id=self.talent.pk,
             )
             task = create_task_from_prepared(
                 prepared=prepared, user_id=self.user_id, name='Prepared',
                 profile_id=self.profile.pk, template_id=self.template.pk,
                 apl_id=self.apl.pk, backend_id=self.backend.pk,
+                talent_string_id=self.talent.pk,
             )
-        validator.assert_called_once()
+        validator.assert_not_called()
         self.assertIsNotNone(task.pk)
         self.assertNotIn(self.backend.simc_path, repr(task.mode_params))
 
@@ -363,10 +378,8 @@ class SimcTaskServiceTests(TestCase):
         self.assertTrue(_validation_failure_is_retryable({'valid': False, 'unexpected': True}))
         self.assertTrue(issubclass(TaskValidationUnavailable, TaskCreationError))
 
-    def test_prepare_raises_retryable_subclass_only_for_validator_unavailability(self):
-        from botend.services.simc_task_service import (
-            TaskCreationError, TaskValidationUnavailable, prepare_task_creation,
-        )
+    def test_prepare_does_not_revalidate_published_apl(self):
+        from botend.services.simc_task_service import prepare_task_creation
 
         base = {
             'valid': False,
@@ -383,21 +396,17 @@ class SimcTaskServiceTests(TestCase):
             'structural_valid': True, 'authoritative_valid': False,
             'authoritative_status': 'invalid',
         })
-        for result, exception in (
-            (retryable, TaskValidationUnavailable),
-            (permanent, TaskCreationError),
-        ):
-            with self.subTest(exception=exception.__name__), patch(
+        for result in (retryable, permanent):
+            with self.subTest(result=result), patch(
                 'botend.services.simc_task_service.validate_apl_for_profile',
                 return_value=result,
-            ):
-                with self.assertRaises(exception) as caught:
-                    prepare_task_creation(
-                        self.user_id, self.profile.pk, self.template.pk, self.apl.pk,
-                        backend_id=self.backend.pk,
-                    )
-                if exception is TaskCreationError:
-                    self.assertNotIsInstance(caught.exception, TaskValidationUnavailable)
+            ) as validator:
+                prepared = prepare_task_creation(
+                    self.user_id, self.profile.pk, self.template.pk, self.apl.pk,
+                    backend_id=self.backend.pk, talent_string_id=self.talent.pk,
+                )
+                self.assertEqual(prepared.apl_id, self.apl.pk)
+                validator.assert_not_called()
 
     def test_prepared_creation_rejects_forgery_and_every_stale_resource_token(self):
         from botend.services.simc_task_service import (
@@ -409,11 +418,12 @@ class SimcTaskServiceTests(TestCase):
                 prepared=prepared, user_id=self.user_id, name='Prepared',
                 profile_id=self.profile.pk, template_id=self.template.pk,
                 apl_id=self.apl.pk, backend_id=self.backend.pk,
+                talent_string_id=self.talent.pk,
             )
 
         prepared = prepare_task_creation(
             self.user_id, self.profile.pk, self.template.pk, self.apl.pk,
-            backend_id=self.backend.pk,
+            backend_id=self.backend.pk, talent_string_id=self.talent.pk,
         )
         with self.assertRaisesRegex(TaskCreationError, 'stale'):
             persist(replace(prepared, resource_token='forged'))
@@ -421,13 +431,14 @@ class SimcTaskServiceTests(TestCase):
         changes = (
             (SimcProfile, self.profile.pk, {'player_equipment': 'warrior="Changed"'}),
             (SimcApl, self.apl.pk, {'is_active': False}),
+            (SimcTalentString, self.talent.pk, {'talent': 'CHANGED_BUILD'}),
             (SimcBackendBinary, self.backend.pk, {'current_version': 'b' * 40}),
         )
         for model, pk, values in changes:
             with self.subTest(model=model.__name__, values=values):
                 prepared = prepare_task_creation(
                     self.user_id, self.profile.pk, self.template.pk, self.apl.pk,
-                    backend_id=self.backend.pk,
+                    backend_id=self.backend.pk, talent_string_id=self.talent.pk,
                 )
                 original = {key: getattr(model.objects.get(pk=pk), key) for key in values}
                 model.objects.filter(pk=pk).update(**values)
@@ -442,7 +453,7 @@ class SimcTaskServiceTests(TestCase):
         )
         prepared = prepare_task_creation(
             self.user_id, self.profile.pk, self.template.pk, self.apl.pk,
-            backend_id=self.backend.pk,
+            backend_id=self.backend.pk, talent_string_id=self.talent.pk,
         )
         secret_path = '/srv/private/new-simc-binary'
         SimcBackendBinary.objects.filter(pk=self.backend.pk).update(simc_path=secret_path)
@@ -452,6 +463,7 @@ class SimcTaskServiceTests(TestCase):
                 prepared=prepared, user_id=self.user_id, name='Prepared',
                 profile_id=self.profile.pk, template_id=self.template.pk,
                 apl_id=self.apl.pk, backend_id=self.backend.pk,
+                talent_string_id=self.talent.pk,
             )
 
         self.assertIn('stale', str(caught.exception))
@@ -471,9 +483,9 @@ class SimcTaskServiceTests(TestCase):
             task = create_task(
                 user_id=self.user_id, name='Compatible', profile_id=self.profile.pk,
                 template_id=self.template.pk, apl_id=self.apl.pk,
-                backend_id=self.backend.pk,
+                talent_string_id=self.talent.pk, backend_id=self.backend.pk,
             )
-        validator.assert_called_once()
+        validator.assert_not_called()
         self.assertIsNotNone(task.pk)
 
     def test_backend_defaults_to_production_and_accepts_explicit_enabled_backend(self):
@@ -482,6 +494,7 @@ class SimcTaskServiceTests(TestCase):
         default_task = create_task(
             user_id=self.user_id, name='Default backend', profile_id=self.profile.id,
             template_id=self.template.id, apl_id=self.apl.id,
+            talent_string_id=self.talent.id,
         )
         self.assertEqual(default_task.backend_id, self.backend.id)
 
@@ -492,7 +505,8 @@ class SimcTaskServiceTests(TestCase):
         )
         explicit_task = create_task(
             user_id=self.user_id, name='PTR backend', profile_id=self.profile.id,
-            template_id=self.template.id, apl_id=self.apl.id, backend_id=alternate.id,
+            template_id=self.template.id, apl_id=self.apl.id,
+            talent_string_id=self.talent.id, backend_id=alternate.id,
         )
         self.assertEqual(explicit_task.backend_id, alternate.id)
 
@@ -507,7 +521,8 @@ class SimcTaskServiceTests(TestCase):
         with self.assertRaisesRegex(TaskCreationError, 'disabled'):
             create_task(
                 user_id=self.user_id, name='Disabled backend', profile_id=self.profile.id,
-                template_id=self.template.id, apl_id=self.apl.id, backend_id=disabled.id,
+                template_id=self.template.id, apl_id=self.apl.id,
+            talent_string_id=self.talent.id, backend_id=disabled.id,
             )
 
     def test_task_service_validates_active_and_selectable(self):
@@ -530,6 +545,7 @@ class SimcTaskServiceTests(TestCase):
                 profile_id=self.profile.id,
                 template_id=self.template.id,
                 apl_id=inactive_apl.id,
+                talent_string_id=self.talent.id,
             )
         self.assertIn("not active", str(ctx.exception).lower())
 
@@ -546,6 +562,7 @@ class SimcTaskServiceTests(TestCase):
             profile_id=self.profile.id,
             template_id=self.template.id,
             apl_id=self.apl.id,
+            talent_string_id=self.talent.id,
             simulation_params={'iterations': 2000},
         )
 
@@ -585,6 +602,7 @@ class SimcTaskServiceTests(TestCase):
             profile_id=self.profile.id,
             template_id=self.template.id,
             apl_id=self.apl.id,
+            talent_string_id=self.talent.id,
         )
 
         payload = task.profile_version.payload
@@ -608,6 +626,7 @@ class SimcTaskServiceTests(TestCase):
             },
             base_template_id=self.template.id,
             selected_apl_id=self.apl.id,
+            talent_string_id=self.talent.id,
             name='No attribute override task',
         )
 
@@ -637,6 +656,7 @@ class SimcTaskServiceTests(TestCase):
             },
             base_template_id=self.template.id,
             selected_apl_id=self.apl.id,
+            talent_string_id=self.talent.id,
             name='Manual profile cleanup task',
         )
 
@@ -673,6 +693,7 @@ class SimcTaskServiceTests(TestCase):
             },
             base_template_id=self.template.id,
             selected_apl_id=self.apl.id,
+            talent_string_id=self.talent.id,
             name='Cross-mode partial update task',
         )
 
@@ -697,6 +718,7 @@ class SimcTaskServiceTests(TestCase):
             profile_id=self.profile.id,
             template_id=self.template.id,
             apl_id=self.apl.id,
+            talent_string_id=self.talent.id,
         )
 
         version_count_before = SimcResourceVersion.objects.filter(
@@ -710,6 +732,7 @@ class SimcTaskServiceTests(TestCase):
             profile_id=self.profile.id,
             template_id=self.template.id,
             apl_id=self.apl.id,
+            talent_string_id=self.talent.id,
         )
 
         version_count_after = SimcResourceVersion.objects.filter(
@@ -731,6 +754,7 @@ class SimcTaskServiceTests(TestCase):
             profile_id=self.profile.id,
             template_id=self.template.id,
             apl_id=self.apl.id,
+            talent_string_id=self.talent.id,
             simulation_params={
                 'iterations': 1000,
                 'fight_style': 'patchwerk',
@@ -752,6 +776,7 @@ class SimcTaskServiceTests(TestCase):
             profile_id=self.profile.id,
             template_id=self.template.id,
             apl_id=self.apl.id,
+            talent_string_id=self.talent.id,
         )
 
         # After field deletion, these attributes should not exist
@@ -770,6 +795,7 @@ class SimcTaskServiceTests(TestCase):
                 name="Task",
                 profile_id=self.profile.id,
                 template_id=self.template.id,
+                talent_string_id=self.talent.id,
                 mode='normal',
             )
         self.assertIn("complete references", str(ctx.exception).lower())
@@ -781,6 +807,7 @@ class SimcTaskServiceTests(TestCase):
                 name="Task",
                 profile_id=self.profile.id,
                 apl_id=self.apl.id,
+                talent_string_id=self.talent.id,
                 mode='normal',
             )
         self.assertIn("complete references", str(ctx.exception).lower())
@@ -792,6 +819,7 @@ class SimcTaskServiceTests(TestCase):
                 name="Task",
                 template_id=self.template.id,
                 apl_id=self.apl.id,
+                talent_string_id=self.talent.id,
                 mode='normal',
             )
         self.assertIn("complete references", str(ctx.exception).lower())
@@ -804,7 +832,8 @@ class SimcTaskServiceTests(TestCase):
             with self.subTest(mode=mode):
                 task = create_task(
                     user_id=self.user_id, name="Task", profile_id=self.profile.id,
-                    template_id=self.template.id, apl_id=self.apl.id, mode=mode,
+                    template_id=self.template.id, apl_id=self.apl.id,
+            talent_string_id=self.talent.id, mode=mode,
                 )
                 self.assertEqual(task.mode, mode)
                 self.assertEqual(task.simulation_runs.count(), 0)
@@ -840,6 +869,9 @@ class TaskResolverWithVersionsTests(TestCase):
             owner_user_id=self.user_id,
         )
         mark_apl_valid(self.apl)
+        self.talent = create_test_talent(
+            user_id=self.user_id, spec=self.profile.spec,
+        )
 
     def test_resolver_reads_version_payload_not_live_content(self):
         """RED: resolve_task should read version payload, ignoring live resource updates."""
@@ -852,6 +884,7 @@ class TaskResolverWithVersionsTests(TestCase):
             profile_id=self.profile.id,
             template_id=self.template.id,
             apl_id=self.apl.id,
+            talent_string_id=self.talent.id,
         )
 
         # Modify live resource AFTER task creation
@@ -875,6 +908,7 @@ class TaskResolverWithVersionsTests(TestCase):
             profile_id=self.profile.id,
             template_id=self.template.id,
             apl_id=self.apl.id,
+            talent_string_id=self.talent.id,
         )
 
         # Manually corrupt version FK (point to different resource)
@@ -902,6 +936,7 @@ class TaskResolverWithVersionsTests(TestCase):
             profile_id=self.profile.id,
             template_id=self.template.id,
             apl_id=self.apl.id,
+            talent_string_id=self.talent.id,
         )
 
         # Soft-delete live resource
@@ -940,6 +975,9 @@ class TaskRerunWithVersionsTests(TestCase):
             owner_user_id=self.user_id,
         )
         mark_apl_valid(self.apl)
+        self.talent = create_test_talent(
+            user_id=self.user_id, spec=self.profile.spec,
+        )
 
     def test_rerun_copies_version_fk_by_default(self):
         """RED: create_rerun should copy version FK, not regenerate."""
@@ -952,6 +990,7 @@ class TaskRerunWithVersionsTests(TestCase):
             profile_id=self.profile.id,
             template_id=self.template.id,
             apl_id=self.apl.id,
+            talent_string_id=self.talent.id,
         )
 
         original.current_status = 2
@@ -975,6 +1014,7 @@ class TaskRerunWithVersionsTests(TestCase):
             profile_id=self.profile.id,
             template_id=self.template.id,
             apl_id=self.apl.id,
+            talent_string_id=self.talent.id,
         )
         original.current_status = 2
         original.save(update_fields=['current_status'])
@@ -992,6 +1032,7 @@ class TaskRerunWithVersionsTests(TestCase):
         original = create_task(
             user_id=self.user_id, name="Original", profile_id=self.profile.id,
             template_id=self.template.id, apl_id=self.apl.id,
+            talent_string_id=self.talent.id,
         )
         new_apl = SimcApl.objects.create(
             name="New APL", spec="warrior_fury", content="actions=/new_rotation",
@@ -1013,6 +1054,7 @@ class TaskRerunWithVersionsTests(TestCase):
         original = create_task(
             user_id=self.user_id, name="Original", profile_id=self.profile.id,
             template_id=self.template.id, apl_id=self.apl.id,
+            talent_string_id=self.talent.id,
         )
         original.current_status = 2
         original.save(update_fields=['current_status'])
@@ -1034,6 +1076,7 @@ class TaskRerunWithVersionsTests(TestCase):
         original = create_task(
             user_id=self.user_id, name="Original", profile_id=self.profile.id,
             template_id=self.template.id, apl_id=self.apl.id,
+            talent_string_id=self.talent.id,
         )
         replacement = SimcProfile.objects.create(
             user_id=self.user_id, name='Replacement', spec='warrior_fury', is_active=True,
@@ -1055,6 +1098,7 @@ class TaskRerunWithVersionsTests(TestCase):
             profile_id=self.profile.id,
             template_id=self.template.id,
             apl_id=self.apl.id,
+            talent_string_id=self.talent.id,
         )
 
         other_user_apl = SimcApl.objects.create(
@@ -1087,6 +1131,7 @@ class TaskRerunWithVersionsTests(TestCase):
             profile_id=self.profile.id,
             template_id=self.template.id,
             apl_id=self.apl.id,
+            talent_string_id=self.talent.id,
         )
 
         inactive_apl = SimcApl.objects.create(
@@ -1118,6 +1163,7 @@ class TaskRerunWithVersionsTests(TestCase):
             profile_id=self.profile.id,
             template_id=self.template.id,
             apl_id=self.apl.id,
+            talent_string_id=self.talent.id,
         )
 
         original.current_status = 2
@@ -1155,6 +1201,7 @@ class TaskRerunWithVersionsTests(TestCase):
         source = create_task(
             user_id=self.user_id, name="Not terminal", profile_id=self.profile.id,
             template_id=self.template.id, apl_id=self.apl.id,
+            talent_string_id=self.talent.id,
         )
         for status in (0, 1):
             source.current_status = status
@@ -1170,7 +1217,8 @@ class TaskRerunWithVersionsTests(TestCase):
 
         source = create_task(
             user_id=self.user_id, name='Candidate', profile_id=self.profile.id,
-            template_id=self.template.id, apl_id=self.apl.id, mode='comparison',
+            template_id=self.template.id, apl_id=self.apl.id,
+            talent_string_id=self.talent.id, mode='comparison',
             simulation_params={'iterations': 5000},
             mode_params={'request_manifest': {'kind': 'talent_candidates'}},
             candidates=[{

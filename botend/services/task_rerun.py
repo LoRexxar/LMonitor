@@ -38,11 +38,14 @@ def create_rerun(
         )
     if not (
         source.profile_id and source.template_id and source.apl_id
+        and source.talent_string_id
         and source.profile_version_id and source.template_version_id and source.apl_version_id
+        and source.talent_version_id
     ):
         raise TaskRerunError(
             f"Source task {source_task_id} lacks complete references. "
-            "All tasks must have profile/template/apl + version FKs."
+            "New reruns require profile/template/apl/talent + version FKs; "
+            "historical tasks without a frozen talent string remain read-only."
         )
 
     mode_params = copy.deepcopy(source.mode_params) or {}
@@ -59,9 +62,11 @@ def create_rerun(
         profile_id=source.profile_id,
         template_id=source.template_id,
         apl_id=source.apl_id,
+        talent_string_id=source.talent_string_id,
         profile_version_id=source.profile_version_id,
         template_version_id=source.template_version_id,
         apl_version_id=source.apl_version_id,
+        talent_version_id=source.talent_version_id,
         mode=source.mode,
         simulation_params=copy.deepcopy(source.simulation_params) or {},
         mode_params=mode_params,

@@ -9,13 +9,35 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
-from botend.models import SimcApl, SimcContentTemplate, SimcProfile, SimcTaskArtifact, SimulationRun
+from botend.models import (
+    SimcApl,
+    SimcBackendBinary,
+    SimcContentTemplate,
+    SimcProfile,
+    SimcTalentString,
+    SimcTaskArtifact,
+    SimulationRun,
+)
 from botend.services.simc_artifacts import upsert_task_html_artifact
 from botend.services.simc_task_service import create_task
 
 
 class SimcArtifactRunImmutabilityTests(TestCase):
     def setUp(self):
+        identity_patcher = patch(
+            'botend.services.simc_task_service.current_validation_identity',
+            return_value=('test-revision', 'test-build'),
+        )
+        identity_patcher.start()
+        self.addCleanup(identity_patcher.stop)
+        SimcBackendBinary.objects.update_or_create(
+            identifier='production',
+            defaults={
+                'name': 'Test production backend',
+                'simc_path': '/bin/true',
+                'is_active': True,
+            },
+        )
         self.user = get_user_model().objects.create_user(username='artifact-owner', password='x')
         self.profile = SimcProfile.objects.create(
             user_id=self.user.id, name='P', spec='fury',
@@ -31,11 +53,17 @@ class SimcArtifactRunImmutabilityTests(TestCase):
             name='A', spec='fury', content='actions=/bloodthirst',
             is_system=True, is_active=True, is_selectable=True,
         )
+        self.talent_string = SimcTalentString.objects.create(
+            owner_user_id=self.user.id, name='Fury talent', spec='fury',
+            talent='BQEAAAAAAAAAAAAAAAAAAAAAAAAAAAAg',
+            is_active=True, is_selectable=True,
+        )
 
     def make_task(self, name='artifact-task'):
         return create_task(
             user_id=self.user.id, name=name, profile_id=self.profile.id,
             template_id=self.template.id, apl_id=self.apl.id,
+            talent_string_id=self.talent_string.id,
         )
 
     def test_create_task_uuid_result_file_can_be_registered(self):
@@ -78,17 +106,22 @@ class SimcArtifactRunImmutabilityTests(TestCase):
             monitor.simc_path = '/fake/simc'
             generated = []
 
-            def fake_run(cmd, **kwargs):
+            def fake_popen(cmd, **kwargs):
                 output_path = Path(next(arg.split('=', 1)[1] for arg in cmd if arg.startswith('html=')))
                 content = f'report-{len(generated) + 1}'
                 output_path.write_text(content, encoding='utf-8')
                 generated.append((output_path, content))
                 return SimpleNamespace(
-                    returncode=0, stderr='',
-                    stdout='DPS=12345\n  bloodthirst Count=10 pDPS= 12345\n',
+                    returncode=0,
+                    communicate=lambda timeout=None: (
+                        'DPS=12345\n  bloodthirst Count=10 pDPS= 12345\n', ''
+                    ),
+                    poll=lambda: 0,
+                    terminate=lambda: None,
+                    kill=lambda: None,
                 )
 
-            with patch('botend.controller.plugins.simc.SimcMonitor.subprocess.run', side_effect=fake_run), \
+            with patch('botend.controller.plugins.simc.SimcMonitor.subprocess.Popen', side_effect=fake_popen), \
                     patch('botend.interface.ossupload.ossUpload', return_value=True):
                 self.assertTrue(monitor.execute_simc_command('/tmp/one.simc', task, run=run1))
                 old_artifact = SimcTaskArtifact.objects.get(run=run1)
