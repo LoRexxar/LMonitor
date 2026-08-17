@@ -1016,10 +1016,11 @@
     async function useAplForSimulation(id) {
         const row = await fetchAplStorageDetail(id);
         document.querySelector('.simc-l1-tab[data-simc-l1-tab="workflow"]')?.click();
-        const radio = Array.from(document.querySelectorAll('input[name="simc-sim-apl"]'))
-            .find(input => idOf(input.value) === idOf(id));
-        if (!radio) throw new Error('当前 Profile 专精下没有该 APL 引用');
-        radio.checked = true;
+        const aplSelect = document.getElementById('simc-sim-apl-list');
+        if (!aplSelect || !Array.from(aplSelect.options).some(option => idOf(option.value) === idOf(id))) {
+            throw new Error('当前 Profile 专精下没有该 APL 引用');
+        }
+        aplSelect.value = String(id);
         window.showMessage(`已选择“${row.title}”作为 APL 引用`, 'success');
     }
     window.loadSimcWorkbenchApl = () => loadApl('apls', 'simc-unified-apl-list').catch(notify);

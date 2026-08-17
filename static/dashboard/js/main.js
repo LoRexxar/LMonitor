@@ -3255,10 +3255,9 @@ async function startSimcSimulationFromResource({ profileId = 0, aplId = 0, spec 
     }
     if (aplId) {
         simcPendingAplId = String(aplId);
-        const aplInput = Array.from(document.querySelectorAll('input[name="simc-sim-apl"]'))
-            .find(input => input.value === simcPendingAplId);
-        if (aplInput) {
-            aplInput.checked = true;
+        const aplSelect = document.getElementById('simc-sim-apl-list');
+        if (aplSelect && Array.from(aplSelect.options).some(option => option.value === simcPendingAplId)) {
+            aplSelect.value = simcPendingAplId;
             simcPendingAplId = '';
         }
     }
@@ -3306,7 +3305,10 @@ function clearSimcResolvedResources() {
     simcResolvedCanonicalSpec = '';
     simcResolvedBaseTemplateId = 0;
     const apl = document.getElementById('simc-sim-apl-list');
-    if (apl) apl.innerHTML = '请先完成来源预检以加载 APL。';
+    if (apl) {
+        apl.disabled = true;
+        apl.innerHTML = '<option value="">请先完成来源预检以加载 APL</option>';
+    }
     const talent = document.getElementById('simc-sim-talent-string');
     if (talent) talent.innerHTML = '<option value="">沿用玩家配置中的天赋</option>';
     const detail = document.getElementById('simc-sim-player-detail');
@@ -3341,7 +3343,7 @@ function collectSimcPlayerSource({ requireComplete = true } = {}) {
 
 function requireSimcRunReferences() {
     const base_template_id = simcResolvedBaseTemplateId;
-    const selected_apl_id = selectedSimcReferenceValue('input[name="simc-sim-apl"]:checked');
+    const selected_apl_id = selectedSimcReferenceValue('#simc-sim-apl-list');
     if (!base_template_id) throw new Error('请选择基础模板');
     if (!selected_apl_id) throw new Error('请选择 APL');
     if (!simcResolvedCanonicalSpec) throw new Error('请先完成来源预检并解析职业专精');
@@ -3458,10 +3460,12 @@ async function loadSimcAplCandidates(spec, control = null) {
     if (!container) return;
     if (!isCurrentSimcResourceControl(control)) return;
     if (!spec) {
-        container.innerHTML = '请选择 Profile 以加载 APL。';
+        container.disabled = true;
+        container.innerHTML = '<option value="">请选择 Profile 以加载 APL</option>';
         return;
     }
-    container.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>加载 APL 列表中…';
+    container.disabled = true;
+    container.innerHTML = '<option value="">加载 APL 列表中…</option>';
     try {
         const query = new URLSearchParams({ spec });
         const className = getSimcSpecClass(spec);
@@ -3480,15 +3484,17 @@ async function loadSimcAplCandidates(spec, control = null) {
             ? simcPendingAplId
             : String(defaults[0].id);
         simcPendingAplId = '';
-        container.innerHTML = rows.length ? rows.map(row => `
-            <label class="mb-2 flex cursor-pointer items-start gap-2 rounded-xl border bg-white p-3">
-                <input type="radio" name="simc-sim-apl" value="${Number(row.id) || ''}" ${String(row.id) === selectedAplId ? 'checked' : ''}>
-                <span><b>${escapeHtml(row.name || `APL #${row.id}`)}</b><span class="block text-xs text-gray-500">${escapeHtml(row.spec_label || row.spec || '')} · ${escapeHtml(row.source || '')}</span></span>
-            </label>`).join('') : '<span class="text-amber-700">当前 Profile 专精没有可选 APL。</span>';
+        container.innerHTML = rows.length ? rows.map(row => {
+            const detail = [row.spec_label || row.spec || '', row.source || ''].filter(Boolean).join(' · ');
+            const label = `${row.name || `APL #${row.id}`}${detail ? ` · ${detail}` : ''}`;
+            return `<option value="${Number(row.id) || ''}" ${String(row.id) === selectedAplId ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+        }).join('') : '<option value="">当前 Profile 专精没有可选 APL</option>';
+        container.disabled = rows.length === 0;
     } catch (error) {
         simcResolvedBaseTemplateId = 0;
         if (error.name === 'AbortError' || !isCurrentSimcResourceControl(control)) return;
-        container.innerHTML = `<span class="text-red-700">${escapeHtml(String(error.message || error))}</span>`;
+        container.disabled = true;
+        container.innerHTML = `<option value="">${escapeHtml(String(error.message || error))}</option>`;
     }
 }
 

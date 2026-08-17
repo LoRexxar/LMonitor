@@ -93,6 +93,19 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn('提交时即时来源会原子固化为 Profile 不可变版本', workflow)
         self.assertNotIn('id="simc-sim-attribute-search-status"', workflow)
 
+    def test_home_apl_uses_the_same_dropdown_pattern_as_other_resources(self):
+        workflow = BeautifulSoup(
+            HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')],
+            "html.parser",
+        )
+        apl_select = workflow.select_one("select#simc-sim-apl-list")
+        self.assertIsNotNone(apl_select)
+        self.assertIn("w-full", apl_select.get("class", []))
+        loader = MAIN[MAIN.index("async function loadSimcAplCandidates("):MAIN.index("async function simcWbFetchProfilesForWorkbench(")]
+        self.assertIn("<option value=", loader)
+        self.assertNotIn('type="radio"', loader)
+        self.assertIn("selectedSimcReferenceValue('#simc-sim-apl-list')", MAIN)
+
     def test_combat_advanced_raid_buffs_use_server_catalog_and_explicit_three_state_payload(self):
         workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
         self.assertIn('id="simc-sim-combat-advanced"', workflow)
@@ -816,8 +829,8 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('.spec', detail_body)
 
     def test_script_is_really_loaded(self):
-        self.assertIn("{% static 'dashboard/js/main.js' %}?v=20260807_dashboard_theme", HTML)
-        self.assertIn("{% static 'dashboard/js/simc-workbench.js' %}?v=20260807_resource_simulation", HTML)
+        self.assertIn("{% static 'dashboard/js/main.js' %}?v=20260817_apl_select", HTML)
+        self.assertIn("{% static 'dashboard/js/simc-workbench.js' %}?v=20260817_apl_select", HTML)
         self.assertIn("{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260727b", HTML)
         self.assertNotIn("moveSimcToolIntoWorkbench", MAIN)
 
@@ -835,8 +848,8 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('value="specified_spec"', shortcut)
         self.assertIn('await resolveSimcPlayerSource()', shortcut)
         self.assertIn('await onSimcProfileSelect()', shortcut)
-        self.assertIn('input[name="simc-sim-apl"]', shortcut)
-        self.assertIn('input.value === String(aplId)', shortcut)
+        self.assertIn("document.getElementById('simc-sim-apl-list')", shortcut)
+        self.assertIn('option.value === simcPendingAplId', shortcut)
         self.assertNotIn("fetch('/api/simc-task/", shortcut)
         self.assertIn('data-apl-action="simulate"', JS)
         self.assertIn('data-spec="${esc(row.spec || \'\')}"', JS)

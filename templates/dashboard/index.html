@@ -464,10 +464,10 @@
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260817_simc_surfaces"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260817_apl_select"></script>
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806c" defer></script>
     <script src="{% static 'dashboard/js/simc-result-report.js' %}?v=20260817_result_config_panel"></script>
-    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260813_task_delete"></script>
+    <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260817_apl_select"></script>
     <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260817_talent_matrix_only"></script>
     {% if user.is_staff or user.is_superuser %}
     <link rel="stylesheet" href="{% static 'dashboard/css/mythic_planner.css' %}?v=20260806a">
@@ -1209,8 +1209,10 @@
                                         </div>
 
                                         <div class="mb-5">
-                                            <label class="block text-sm font-semibold text-gray-700 mb-2"><i class="fas fa-list-ol mr-1 text-green-500"></i>APL</label>
-                                            <div id="simc-sim-apl-list" class="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-500">请选择目标专精以加载 APL。</div>
+                                            <label for="simc-sim-apl-list" class="block text-sm font-semibold text-gray-700 mb-2"><i class="fas fa-list-ol mr-1 text-green-500"></i>APL</label>
+                                            <select id="simc-sim-apl-list" class="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white" disabled>
+                                                <option value="">请选择目标专精以加载 APL</option>
+                                            </select>
                                             <p class="mt-1 text-xs text-gray-500">系统默认 APL 由后端明确标记；基础模板由后端自动解析。</p>
                                         </div>
 
