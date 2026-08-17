@@ -834,7 +834,14 @@ class SimcBenchmarkExecutionTests(TestCase):
         )
 
         coordinate_filter = {'spec_key': 'warrior_fury'}
-        reusable_tasks.assert_called_once_with(self.panel, coordinate_filter)
+        reusable_tasks.assert_called_once()
+        args, kwargs = reusable_tasks.call_args
+        self.assertEqual(args, (self.panel, coordinate_filter))
+        self.assertIs(kwargs['summary_only'], False)
+        self.assertEqual(
+            [row['spec_key'] for row in kwargs['coordinate_plans']],
+            ['warrior_fury'],
+        )
         source_tasks.assert_called_once_with(self.panel, coordinate_filter)
 
     def test_incremental_projection_reuses_results_from_older_larger_execution(self):

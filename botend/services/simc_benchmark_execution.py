@@ -14,7 +14,7 @@ from datetime import timezone as datetime_timezone
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Prefetch
+from django.db.models import Count, Prefetch, Q
 from django.utils import timezone
 
 from botend.constants.hero_talents import (
@@ -361,7 +361,9 @@ def _task_candidate_identities_through_source_chain(task):
         seen.add(current.pk)
         if current.source_task_id is None:
             break
-        current = SimcTask.objects.select_related('source_task').get(pk=current.source_task_id)
+        current = SimcTask.objects.only(
+            'id', 'mode_params', 'source_task_id',
+        ).get(pk=current.source_task_id)
     identities = {}
     for source in reversed(tasks):
         identities.update(_task_candidate_identities(source))
@@ -454,7 +456,8 @@ def _latest_source_tasks_by_coordinate(panel, coordinate_filter=None):
 
 
 def _reusable_candidate_tasks_by_coordinate(
-        panel, coordinate_filter=None, *, include_resource_versions=False):
+        panel, coordinate_filter=None, *, include_resource_versions=False,
+        summary_only=False, coordinate_plans=None):
     """Load the newest successful provenance for each coordinate/candidate identity.
 
     A full rerun is an asynchronous replacement. Its successful candidates must
@@ -474,12 +477,37 @@ def _reusable_candidate_tasks_by_coordinate(
             if value:
                 case_filters[key] = str(value)
     cases = SimcBenchmarkCase.objects.filter(**case_filters)
-    cases = cases.select_related(
-        'task', 'task__profile_version', 'task__apl_version',
-        'task__template_version', 'task__talent_version', 'execution',
-    ).prefetch_related('results').order_by(
-        '-execution_id', '-id',
-    ).distinct()
+    if coordinate_plans:
+        current_coordinates = Q(pk__in=[])
+        for coordinate in coordinate_plans:
+            current_coordinates |= Q(
+                spec_key=coordinate['spec_key'],
+                profile_key=coordinate['profile_key'],
+                scenario_key=coordinate['scenario_key'],
+                task__profile_id=coordinate['profile_id'],
+                task__apl_id=coordinate['apl_id'],
+                task__template_id=coordinate['template_id'],
+                task__backend_id=coordinate['backend_id'],
+            )
+        cases = cases.filter(current_coordinates)
+    if summary_only:
+        result_rows = SimcBenchmarkResult.objects.only(
+            'id', 'case_id', 'candidate_key', 'dps', 'hero_talent_names',
+        )
+        cases = cases.select_related('task', 'execution').only(
+            'id', 'spec_key', 'scenario_key', 'profile_key', 'execution_id',
+            'task__id', 'task__profile_id', 'task__apl_id', 'task__template_id',
+            'task__backend_id', 'task__simulation_params', 'task__mode_params',
+            'task__source_task_id',
+        ).prefetch_related(
+            Prefetch('results', queryset=result_rows),
+        )
+    else:
+        cases = cases.select_related(
+            'task', 'task__profile_version', 'task__apl_version',
+            'task__template_version', 'task__talent_version', 'execution',
+        ).prefetch_related('results')
+    cases = cases.order_by('-execution_id', '-id').distinct()
     for case in cases:
         if not _execution_contributes_to_projection(case.execution):
             continue
@@ -1594,8 +1622,9 @@ def _spec_icon_url(spec_key):
 
 def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                                         scenario_filter=None, spec_filter=None,
-                                        include_coordinate_options=False):
-    """Aggregate reusable Results for all, one spec, coordinate, or scenario."""
+                                        include_coordinate_options=False,
+                                        include_details=True):
+    """Aggregate reusable Results as a light summary or full coordinate detail."""
     plan = build_execution_plan(panel, lock=False)
     is_option_gain = (
         plan['panel'].get('benchmark_type')
@@ -1641,15 +1670,26 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
     else:
         projected_cases = [] if coordinate_filter is not None else plan_cases
         selected_filter = historical_filter or None
-    reusable_by_coordinate = _reusable_candidate_tasks_by_coordinate(panel, selected_filter)
-    report_urls = _candidate_raw_report_urls(reusable_by_coordinate)
-    source_tasks_by_coordinate = _latest_source_tasks_by_coordinate(panel, selected_filter)
-    profiles = {
-        row.profile_id: row.profile
-        for spec in panel.specs.prefetch_related('profiles__profile')
-        for row in spec.profiles.all()
-        if selected is None or row.profile_id == selected['profile_id']
-    }
+    reusable_by_coordinate = _reusable_candidate_tasks_by_coordinate(
+        panel, selected_filter, summary_only=not include_details,
+        coordinate_plans=projected_cases,
+    )
+    report_urls = (
+        _candidate_raw_report_urls(reusable_by_coordinate) if include_details else {}
+    )
+    source_tasks_by_coordinate = (
+        _latest_source_tasks_by_coordinate(panel, selected_filter)
+        if include_details else {}
+    )
+    profiles = (
+        {
+            row.profile_id: row.profile
+            for spec in panel.specs.prefetch_related('profiles__profile')
+            for row in spec.profiles.all()
+            if selected is None or row.profile_id == selected['profile_id']
+        }
+        if include_details else {}
+    )
     profile_details = {}
     coordinates = []
     option_gain_rows = []
@@ -1682,34 +1722,36 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
             else source_tasks_by_coordinate.get(_coordinate_input_identity(coordinate))
         )
         source_result = source_match['result'] if source_match is not None else None
-        profile_version = source_task.profile_version if source_task is not None else None
-        talent_version = source_task.talent_version if source_task is not None else None
-        detail_key = (
-            coordinate['profile_key'],
-            profile_id,
-            profile_version.pk if profile_version is not None else None,
-            talent_version.pk if talent_version is not None else None,
-        )
-        if detail_key not in profile_details:
-            if profile_version is not None:
-                profile_details[detail_key] = _profile_detail_from_payload(
-                    profile_version.payload, coordinate['spec_key'],
-                    talent_version.payload if talent_version is not None else None,
-                    coordinate['profile_label'],
-                )
-            else:
-                profile = profiles.get(profile_id)
-                profile_details[detail_key] = (
-                    _profile_detail_from_payload({
-                        'player_equipment': profile.player_equipment,
-                        'spec': profile.spec,
-                        'talent': profile.talent,
-                        'use_ptr': profile.use_ptr,
-                    }, coordinate['spec_key'], fallback_talent_name=coordinate['profile_label'])
-                    if profile is not None else None
-                )
-            if profile_details[detail_key] is not None:
-                profile_details[detail_key]['profile_id'] = profile_id
+        detail_key = None
+        if include_details:
+            profile_version = source_task.profile_version if source_task is not None else None
+            talent_version = source_task.talent_version if source_task is not None else None
+            detail_key = (
+                coordinate['profile_key'],
+                profile_id,
+                profile_version.pk if profile_version is not None else None,
+                talent_version.pk if talent_version is not None else None,
+            )
+            if detail_key not in profile_details:
+                if profile_version is not None:
+                    profile_details[detail_key] = _profile_detail_from_payload(
+                        profile_version.payload, coordinate['spec_key'],
+                        talent_version.payload if talent_version is not None else None,
+                        coordinate['profile_label'],
+                    )
+                else:
+                    profile = profiles.get(profile_id)
+                    profile_details[detail_key] = (
+                        _profile_detail_from_payload({
+                            'player_equipment': profile.player_equipment,
+                            'spec': profile.spec,
+                            'talent': profile.talent,
+                            'use_ptr': profile.use_ptr,
+                        }, coordinate['spec_key'], fallback_talent_name=coordinate['profile_label'])
+                        if profile is not None else None
+                    )
+                if profile_details[detail_key] is not None:
+                    profile_details[detail_key]['profile_id'] = profile_id
         scenario_params = next(
             (match['task'].simulation_params or {} for match in reusable.values()),
             coordinate['simulation_params'],
@@ -1720,7 +1762,10 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
             match = reusable.get(_candidate_input_identity(candidate))
             if match:
                 result_task = match['task']
-                source_run = _candidate_source_run(result_task, candidate['candidate_key'])
+                source_run = (
+                    _candidate_source_run(result_task, candidate['candidate_key'])
+                    if include_details else None
+                )
                 effect = candidate.get('effect') or ''
                 row = {
                     'key': candidate['candidate_key'],
@@ -1728,9 +1773,13 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                     'type': candidate['candidate_type'],
                     'icon_url': candidate['icon_url'],
                     'source_label': candidate['source_label'],
-                    'dps': float(match['result'].dps), 'task_id': result_task.pk,
-                    'source_result_id': match['result'].pk,
+                    'dps': float(match['result'].dps),
                 }
+                if include_details:
+                    row.update({
+                        'task_id': result_task.pk,
+                        'source_result_id': match['result'].pk,
+                    })
                 if effect:
                     row['effect'] = effect
                 report_url = report_urls.get((match['task'].pk, candidate['candidate_key']))
@@ -1744,7 +1793,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                 if item_level is not None:
                     row['item_level'] = item_level
                 rows.append(row)
-                if candidate['candidate_key'] == 'baseline':
+                if include_details and candidate['candidate_key'] == 'baseline':
                     manifest = source_run.resource_manifest if source_run is not None else {}
                     manifest = manifest if isinstance(manifest, dict) else {}
                     coordinate_audit = {
@@ -1809,18 +1858,21 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                 ),
                 'hero_talent': _hero_talent_label(source_result),
             },
-            'profile_detail': profile_details[detail_key],
-            'simulation_detail': _simulation_detail_from_task(
-                source_task, coordinate['simulation_params'], profile_details[detail_key],
-            ),
             'scenario_detail': {
                 'desired_targets': scenario_params.get('desired_targets', 1),
                 'max_time': scenario_params.get('max_time', 300),
             },
             'candidates': [] if is_option_gain else rows,
         }
-        if coordinate_audit is not None:
-            coordinate_payload['audit'] = coordinate_audit
+        if include_details:
+            coordinate_payload.update({
+                'profile_detail': profile_details[detail_key],
+                'simulation_detail': _simulation_detail_from_task(
+                    source_task, coordinate['simulation_params'], profile_details[detail_key],
+                ),
+            })
+            if coordinate_audit is not None:
+                coordinate_payload['audit'] = coordinate_audit
         coordinates.append(coordinate_payload)
     payload = {'panel_id': panel.pk, 'coordinates': coordinates}
     if is_option_gain:

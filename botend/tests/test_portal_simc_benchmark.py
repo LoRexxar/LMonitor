@@ -354,17 +354,38 @@ class PortalSimcRankingTests(TestCase):
         profile.name = 'Renamed current profile'
         profile.save(update_fields=['name'])
 
-        response = self.client.get(
+        summary_response = self.client.get(
             f'/portal/api/simc-benchmarks/panels/{self.panel.id}/',
             {'selected': '1', 'scenario': self.scenario.key},
         )
 
-        self.assertEqual(response.status_code, 200)
-        coordinate = response.json()['results']['coordinates'][0]
-        self.assertEqual(coordinate['profile_key'], str(profile.id))
-        self.assertEqual(coordinate['labels']['profile'], 'Renamed current profile')
-        self.assertEqual(coordinate['profile_detail']['talent_version'], '')
-        self.assertEqual(coordinate['candidates'][0]['dps'], 200.0)
+        self.assertEqual(summary_response.status_code, 200)
+        summary = summary_response.json()['results']['coordinates'][0]
+        self.assertEqual(summary['profile_key'], str(profile.id))
+        self.assertEqual(summary['labels']['profile'], 'Renamed current profile')
+        self.assertEqual(summary['candidates'][0]['dps'], 200.0)
+        for detail_key in ('profile_detail', 'simulation_detail', 'audit'):
+            self.assertNotIn(detail_key, summary)
+        for detail_key in ('task_id', 'source_result_id', 'raw_report_url'):
+            self.assertNotIn(detail_key, summary['candidates'][0])
+
+        detail_response = self.client.get(
+            f'/portal/api/simc-benchmarks/panels/{self.panel.id}/',
+            {
+                'detail': '1',
+                'spec': 'warrior_fury',
+                'profile': str(profile.id),
+                'scenario': self.scenario.key,
+            },
+        )
+
+        self.assertEqual(detail_response.status_code, 200)
+        detail = detail_response.json()['results']['coordinates'][0]
+        self.assertEqual(detail['profile_detail']['talent_version'], '')
+        self.assertIn('simulation_detail', detail)
+        self.assertIn('audit', detail)
+        self.assertIn('task_id', detail['candidates'][0])
+        self.assertIn('source_result_id', detail['candidates'][0])
 
     def test_spec_ranking_uses_each_enabled_specs_standard_profile_and_apl_only(self):
         _, fury_task, _ = self._baseline('warrior_fury', 200)

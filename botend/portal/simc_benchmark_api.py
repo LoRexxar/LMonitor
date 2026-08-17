@@ -258,20 +258,25 @@ class PortalSimcSpecRankingAPIView(_PortalRankingAPIView):
         ))
 
 
-def _public_result_payload(panel, *, coordinate_filter=None, scenario_filter=None):
+def _public_result_payload(panel, *, coordinate_filter=None, scenario_filter=None,
+                           include_details=False):
     if scenario_filter is not None:
         results = serialize_incremental_panel_results(
             panel,
             scenario_filter=scenario_filter,
             include_coordinate_options=True,
+            include_details=include_details,
         )
     elif coordinate_filter is None:
-        results = serialize_incremental_panel_results(panel)
+        results = serialize_incremental_panel_results(
+            panel, include_details=include_details,
+        )
     else:
         results = serialize_incremental_panel_results(
             panel,
             coordinate_filter=coordinate_filter,
             include_coordinate_options=True,
+            include_details=include_details,
         )
     coordinates = results.get('coordinates', [])
     payload = {
@@ -360,7 +365,14 @@ class PortalSimcBenchmarkPanelDetailAPIView(View):
             return JsonResponse(_NOT_READY)
         coordinate_filter = None
         scenario_filter = None
-        if request.GET.get('selected') == '1':
+        include_details = request.GET.get('detail') == '1'
+        if include_details:
+            coordinate_filter = {
+                'spec_key': request.GET.get('spec', ''),
+                'profile_key': request.GET.get('profile', ''),
+                'scenario_key': request.GET.get('scenario', ''),
+            }
+        elif request.GET.get('selected') == '1':
             if panel.candidates.filter(is_enabled=True).exists():
                 coordinate_filter = {
                     'spec_key': request.GET.get('spec', ''),
@@ -373,4 +385,5 @@ class PortalSimcBenchmarkPanelDetailAPIView(View):
             panel,
             coordinate_filter=coordinate_filter,
             scenario_filter=scenario_filter,
+            include_details=include_details,
         ))

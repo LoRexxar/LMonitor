@@ -2,6 +2,7 @@
   "use strict";
 
   const LIST_URL = "/portal/api/simc-benchmarks/panels/";
+  const coordinateDetailCache = new Map();
   const numberFormat = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 });
   const dateTimeFormat = new Intl.DateTimeFormat("zh-CN", {
     year: "numeric", month: "2-digit", day: "2-digit",
@@ -108,6 +109,36 @@
     const data = await response.json();
     if (!data || typeof data !== "object") throw new Error("Invalid response");
     return data;
+  }
+
+  function coordinateDetailKey(detailUrl, coordinate) {
+    return [detailUrl, coordinate?.spec_key, coordinate?.profile_key, coordinate?.scenario_key]
+      .map((value) => String(value || "")).join("|");
+  }
+
+  async function loadCoordinateDetail(detailUrl, coordinate) {
+    const key = coordinateDetailKey(detailUrl, coordinate);
+    if (coordinateDetailCache.has(key)) return coordinateDetailCache.get(key);
+    const query = new URLSearchParams();
+    query.set("detail", "1");
+    query.set("spec", coordinate?.spec_key || "");
+    query.set("profile", coordinate?.profile_key || "");
+    query.set("scenario", coordinate?.scenario_key || "");
+    const request = requestJson(`${detailUrl}?${query.toString()}`).then((payload) => {
+      const rows = Array.isArray(payload?.results?.coordinates) ? payload.results.coordinates : [];
+      const resolved = rows.find((row) => (
+        String(row?.spec_key || "") === String(coordinate?.spec_key || "")
+        && String(row?.profile_key || "") === String(coordinate?.profile_key || "")
+        && String(row?.scenario_key || "") === String(coordinate?.scenario_key || "")
+      )) || rows[0];
+      if (!resolved?.profile_detail) throw new Error("Frozen profile detail unavailable");
+      return resolved;
+    }).catch((error) => {
+      coordinateDetailCache.delete(key);
+      throw error;
+    });
+    coordinateDetailCache.set(key, request);
+    return request;
   }
 
   function validDps(value) {
@@ -513,7 +544,44 @@
     return details;
   }
 
-  function renderCoordinate(coordinate) {
+  function renderDeferredProfileDetails(coordinate, detailUrl, summaryText = "展开 Profile 配置") {
+    if (coordinate?.profile_detail || !detailUrl) {
+      return renderProfileDetails(
+        coordinate?.profile_detail, coordinate?.simulation_detail, coordinate?.audit,
+        summaryText, rawReportUrlForCoordinate(coordinate), coordinate?.labels?.hero_talent,
+      );
+    }
+    const details = node("details", "simc-benchmark-profile-details");
+    let loading = false;
+    const renderState = (message, kind) => {
+      const summary = node("summary", "profile-details-toggle", summaryText);
+      if (!summaryText) summary.hidden = true;
+      details.replaceChildren(summary, state(message, kind));
+    };
+    renderState("展开后加载 Profile 配置", "empty");
+    details.addEventListener("toggle", async () => {
+      if (!details.open || coordinate?.profile_detail || loading) return;
+      loading = true;
+      renderState("正在加载冻结 Profile…", "loading");
+      try {
+        const loadedCoordinate = await loadCoordinateDetail(detailUrl, coordinate);
+        Object.assign(coordinate, loadedCoordinate);
+        const loadedDetails = renderProfileDetails(
+          coordinate.profile_detail, coordinate.simulation_detail, coordinate.audit,
+          summaryText, rawReportUrlForCoordinate(coordinate), coordinate?.labels?.hero_talent,
+        );
+        details.replaceChildren(...loadedDetails.childNodes);
+        mountProfileTalentThumbnail(details);
+      } catch (_) {
+        renderState("冻结 Profile 加载失败，收起后可重试", "error");
+      } finally {
+        loading = false;
+      }
+    });
+    return details;
+  }
+
+  function renderCoordinate(coordinate, { detailUrl = "" } = {}) {
     const allCandidates = Array.isArray(coordinate?.candidates) ? coordinate.candidates : [];
     const baseline = allCandidates.find(isBaseline);
     const candidates = sortCandidates(allCandidates.filter((candidate) => !isBaseline(candidate)));
@@ -528,9 +596,8 @@
       item.append(node("span", "simc-benchmark-info-label", label), node("strong", "simc-benchmark-info-value", value || "—"));
       info.appendChild(item);
     });
-    caseNode.append(info, renderProfileDetails(
-      coordinate?.profile_detail, coordinate?.simulation_detail, coordinate?.audit,
-      "展开 Profile 配置", rawReportUrlForCoordinate(coordinate), coordinate?.labels?.hero_talent,
+    caseNode.append(info, renderDeferredProfileDetails(
+      coordinate, detailUrl, "展开 Profile 配置",
     ));
     if (!candidates.length) { caseNode.appendChild(state("当前坐标暂无已完成候选结果", "empty")); return caseNode; }
     const values = candidates.map((candidate) => validDps(candidate?.dps)).filter((value) => value !== null);
@@ -623,18 +690,14 @@
         const metrics = node("div", "simc-benchmark-spec-metrics");
         metrics.appendChild(node("strong", "simc-benchmark-spec-dps", entry.dps === null ? "暂无结果" : `${numberFormat.format(entry.dps)} DPS`));
         metrics.appendChild(node("small", "simc-benchmark-spec-relative", entry.dps === null || highest <= 0 ? "该场景未完成" : `相对最高 ${(entry.dps * 100 / highest).toFixed(1)}%`));
-        let profileDetails = renderProfileDetails(
-          coordinate?.profile_detail, coordinate?.simulation_detail, coordinate?.audit,
-          "", rawReportUrlForCoordinate(coordinate), coordinate?.labels?.hero_talent,
-        );
+        const profileDetails = renderDeferredProfileDetails(coordinate, detailUrl, "");
         const detailId = `simc-benchmark-spec-profile-${index}`;
         profileDetails.id = detailId;
         profileDetails.classList.add("simc-benchmark-spec-profile-details");
         toggle.setAttribute("aria-expanded", "false");
         toggle.setAttribute("aria-controls", detailId);
         toggle.setAttribute("aria-label", `${coordinate?.labels?.spec || coordinate?.spec_key || "职业专精"} Profile`);
-        let profileLoading = false;
-        toggle.addEventListener("click", async () => {
+        toggle.addEventListener("click", () => {
           if (profileDetails.open) {
             profileDetails.open = false;
             toggle.setAttribute("aria-expanded", "false");
@@ -644,44 +707,6 @@
           profileDetails.open = true;
           toggle.setAttribute("aria-expanded", "true");
           row.classList.add("is-expanded");
-          if (coordinate?.profile_detail || !detailUrl || profileLoading) return;
-          profileLoading = true;
-          toggle.setAttribute("aria-busy", "true");
-          profileDetails.replaceChildren(state("正在加载冻结 Profile…", "loading"));
-          const query = new URLSearchParams();
-          query.set("selected", "1");
-          query.set("spec", coordinate?.spec_key || "");
-          query.set("profile", coordinate?.profile_key || "");
-          query.set("scenario", coordinate?.scenario_key || select.value);
-          try {
-            const nextPayload = await requestJson(`${detailUrl}?${query.toString()}`);
-            const nextRows = Array.isArray(nextPayload?.results?.coordinates)
-              ? nextPayload.results.coordinates : [];
-            const nextCoordinate = nextRows.find((row) => (
-              row?.spec_key === coordinate?.spec_key
-              && row?.profile_key === coordinate?.profile_key
-              && row?.scenario_key === coordinate?.scenario_key
-            ));
-            if (!nextCoordinate?.profile_detail) throw new Error("Frozen profile detail unavailable");
-            coordinate.profile_detail = nextCoordinate.profile_detail;
-            coordinate.simulation_detail = nextCoordinate.simulation_detail;
-            coordinate.candidates = nextCoordinate.candidates;
-            const loadedDetails = renderProfileDetails(
-              nextCoordinate?.profile_detail, nextCoordinate?.simulation_detail, nextCoordinate?.audit,
-              "", rawReportUrlForCoordinate(nextCoordinate), nextCoordinate?.labels?.hero_talent,
-            );
-            loadedDetails.id = detailId;
-            loadedDetails.classList.add("simc-benchmark-spec-profile-details");
-            loadedDetails.open = true;
-            profileDetails.replaceWith(loadedDetails);
-            profileDetails = loadedDetails;
-            mountProfileTalentThumbnail(loadedDetails);
-          } catch (error) {
-            profileDetails.replaceChildren(state("冻结 Profile 加载失败，请稍后重试", "error"));
-          } finally {
-            profileLoading = false;
-            toggle.removeAttribute("aria-busy");
-          }
         });
         toggle.append(identity, track, metrics);
         row.append(toggle, profileDetails); chart.appendChild(row);
@@ -716,7 +741,7 @@
     shell.body.replaceChildren(controls, result);
   }
 
-  function renderOptionGain(shell, payload) {
+  function renderOptionGain(shell, payload, { detailUrl = "" } = {}) {
     const sourceRows = Array.isArray(payload?.results?.option_gain_rows)
       ? payload.results.option_gain_rows : [];
     const coordinates = Array.isArray(payload?.results?.coordinates)
@@ -786,14 +811,7 @@
         `${numberFormat.format(baselineDps)} → ${numberFormat.format(comparisonDps)} DPS · ${gainDps >= 0 ? "+" : ""}${numberFormat.format(Number.isFinite(gainDps) ? gainDps : 0)} DPS`,
       ));
       content.append(identity, track, metrics);
-      const profileDetails = renderProfileDetails(
-        coordinate.profile_detail || {},
-        coordinate.simulation_detail || {},
-        coordinate.audit || {},
-        "",
-        rawReportUrlForCoordinate(coordinate),
-        coordinate?.labels?.hero_talent,
-      );
+      const profileDetails = renderDeferredProfileDetails(coordinate, detailUrl, "");
       profileDetails.id = detailId;
       profileDetails.classList.add("simc-benchmark-spec-profile-details");
       content.addEventListener("click", () => {
@@ -824,7 +842,7 @@
 
     const result = node("div", "simc-benchmark-gain-results");
     const resultShell = { body: result };
-    renderOptionGain(resultShell, payload);
+    renderOptionGain(resultShell, payload, { detailUrl });
     if (scenarios.size < 2) {
       shell.body.replaceChildren(result);
       return;
@@ -869,7 +887,7 @@
       try {
         const nextPayload = await requestJson(`${detailUrl}?${query.toString()}`, { signal: current.signal });
         if (current !== requestController) return;
-        renderOptionGain(resultShell, nextPayload);
+        renderOptionGain(resultShell, nextPayload, { detailUrl });
       } catch (error) {
         if (error?.name !== "AbortError" && current === requestController) {
           result.replaceChildren(state("场景收益对比加载失败，请稍后重试", "error"));
@@ -949,7 +967,9 @@
     );
     const renderCoordinateResult = (rows) => {
       const coordinate = rows.find(matchesSelection) || rows[0];
-      selectedResult.replaceChildren(coordinate ? renderCoordinate(coordinate) : state("当前筛选条件下没有结果", "empty"));
+      selectedResult.replaceChildren(
+        coordinate ? renderCoordinate(coordinate, { detailUrl }) : state("当前筛选条件下没有结果", "empty"),
+      );
     };
     let coordinateRequestController = null;
     const loadSelectedCoordinate = async () => {
