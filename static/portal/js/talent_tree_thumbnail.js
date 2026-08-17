@@ -70,6 +70,7 @@
 
         static buildRequestUrl(params = {}, endpoint = '/portal/api/talents/simulator/') {
             const query = new URLSearchParams();
+            query.set('thumbnail', '1');
             const values = {
                 class: params.className || params.class || '',
                 spec: params.specName || params.spec || '',

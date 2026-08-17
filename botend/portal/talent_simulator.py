@@ -405,6 +405,36 @@ def build_simulator_payload(class_name='', spec_name='', build_code='', hero_sub
     }
 
 
+def _thumbnail_payload(payload):
+    """Keep only the topology fields consumed by TalentTreeThumbnail."""
+    node_fields = (
+        'node_key', 'tree_type', 'node_id', 'talent_id', 'spell_id',
+        'x', 'y', 'width', 'height', 'points', 'selected',
+        'display_name', 'name',
+    )
+    path_fields = ('parent_key', 'child_key', 'svg_path')
+    trees = []
+    for tree in (payload.get('render_model') or {}).get('trees') or []:
+        trees.append({
+            'tree_type': tree.get('tree_type') or '',
+            'nodes': [
+                {key: node.get(key) for key in node_fields if key in node}
+                for node in (tree.get('nodes') or [])
+            ],
+            'paths': [
+                {key: path.get(key) for key in path_fields if key in path}
+                for path in (tree.get('paths') or [])
+            ],
+        })
+    return {
+        'class_name': payload.get('class_name') or '',
+        'spec_name': payload.get('spec_name') or '',
+        'class_cn': payload.get('class_cn') or '',
+        'spec_cn': payload.get('spec_cn') or '',
+        'render_model': {'trees': trees},
+    }
+
+
 class PortalTalentSimulatorView(View):
     def get(self, request):
         build_code = request.GET.get('code') or ''
@@ -455,6 +485,8 @@ class PortalTalentSimulatorAPIView(View):
             return JsonResponse({'success': False, 'error': '未知职业或专精'}, status=404)
         except ValueError as exc:
             return JsonResponse({'success': False, 'error': str(exc)}, status=404)
+        if request.GET.get('thumbnail') == '1':
+            payload = _thumbnail_payload(payload)
         return JsonResponse({'success': True, **payload})
 
 

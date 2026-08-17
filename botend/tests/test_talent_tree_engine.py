@@ -1706,6 +1706,51 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
             profile_id='',
         )
 
+    @patch('botend.portal.talent_simulator.build_simulator_payload')
+    def test_simulator_thumbnail_response_only_contains_topology_fields(self, build_payload):
+        build_payload.return_value = {
+            'class_name': 'Warrior',
+            'spec_name': 'Arms',
+            'class_cn': '战士',
+            'spec_cn': '武器',
+            'spec_icon': 'unused-icon',
+            'talent_version': {'key': 'retail'},
+            'render_model': {
+                'trees': [{
+                    'tree_type': 'spec',
+                    'title': 'unused title',
+                    'nodes': [{
+                        'node_key': 'spec:1', 'tree_type': 'spec', 'node_id': 1,
+                        'x': 10, 'y': 20, 'width': 36, 'height': 36,
+                        'points': 1, 'selected': True, 'display_name': '致死打击',
+                        'icon_url': 'unused-icon-url', 'description': 'unused-description',
+                    }],
+                    'paths': [{
+                        'parent_key': 'spec:1', 'child_key': 'spec:2',
+                        'svg_path': 'M 1 2 L 3 4', 'unused': 'drop-me',
+                    }],
+                }],
+            },
+            'build_code': self.ARMS_REFERENCE_CODE,
+            'parse_status': 'success',
+        }
+        request = RequestFactory().get('/portal/api/talents/simulator/', {
+            'code': self.ARMS_REFERENCE_CODE,
+            'thumbnail': '1',
+        })
+
+        response = PortalTalentSimulatorAPIView.as_view()(request)
+        payload = json.loads(response.content)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(set(payload), {'success', 'class_name', 'spec_name', 'class_cn', 'spec_cn', 'render_model'})
+        node = payload['render_model']['trees'][0]['nodes'][0]
+        path = payload['render_model']['trees'][0]['paths'][0]
+        self.assertTrue(node['selected'])
+        self.assertNotIn('icon_url', node)
+        self.assertNotIn('description', node)
+        self.assertNotIn('unused', path)
+
     @patch('botend.wow.talents.service.TalentMetadataProvider')
     def test_encoder_preserves_choice_selection_for_choice_node(self, mock_provider_cls):
         mock_provider_cls.return_value.get_decoder_node_list.return_value = list(self.FULL_NODES)

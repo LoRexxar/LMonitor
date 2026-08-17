@@ -76,6 +76,7 @@ class SimcDetailPageFrontendContractTests(TestCase):
         main = (ROOT / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
         detail = (ROOT / 'static/dashboard/js/simc-detail.js').read_text(encoding='utf-8')
         benchmark = (ROOT / 'static/dashboard/js/simc-benchmark-dashboard.js').read_text(encoding='utf-8')
+        thumbnail = (ROOT / 'static/portal/js/talent_tree_thumbnail.js').read_text(encoding='utf-8')
 
         for template in (index, detail_template, benchmark_config, benchmark_execution):
             self.assertIn('portal/js/talent_tree_thumbnail.js', template)
@@ -87,6 +88,7 @@ class SimcDetailPageFrontendContractTests(TestCase):
         self.assertIn('talent.build_code', benchmark)
         self.assertIn('data-benchmark-result-talent-thumbnail', benchmark)
         self.assertIn('profileDetail.talents?.build_code', benchmark)
+        self.assertIn("query.set('thumbnail', '1')", thumbnail)
 
     def test_battlenet_source_can_load_spec_top_players_and_fill_armory_fields(self):
         template = (ROOT / 'templates/dashboard/index.html').read_text(encoding='utf-8')
