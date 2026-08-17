@@ -164,6 +164,10 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
 .talent-select-chip strong,.talent-select-chip small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .talent-select-chip strong { font-size:.68rem; }.talent-select-chip small { color:#7a8699; font-size:.6rem; }
 .talent-select-chip:has(input:checked) { border-color:#8eabe0; background:#edf4ff; color:#274f9a; }
+.talent-select-chip { position:relative; }
+.talent-select-thumbnail { position:absolute; z-index:30; top:calc(100% + .4rem); left:0; width:min(280px,80vw); overflow:hidden; border:1px solid #3c4658; border-radius:.65rem; box-shadow:0 14px 34px rgba(15,23,42,.28); }
+.talent-select-chip:not(:hover):not(:focus-within) .talent-select-thumbnail { display:none !important; }
+.benchmark-result-talent-thumbnail { max-width:420px; margin:0 0 1rem; overflow:hidden; border-radius:.7rem; }
 .spec-config-row .config-card-advanced { grid-column:4; grid-row:1; border:0; background:transparent; }
 .spec-config-row .config-card-advanced > summary { min-height:34px; border:1px solid #e0e6ed; border-radius:.55rem; padding:.35rem .55rem; background:#fafbfc; }
 .spec-config-row .config-card-advanced summary small { display:none; }

@@ -21,7 +21,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Custom styles -->
     <link rel="stylesheet" href="{% static 'dashboard/css/simc-apl-editor.css' %}?v=20260811_apl_full_catalog">
-    <link rel="stylesheet" href="{% static 'dashboard/css/simc-benchmark-dashboard.css' %}?v=20260817_benchmark_talent_multi_select">
+    <link rel="stylesheet" href="{% static 'dashboard/css/simc-benchmark-dashboard.css' %}?v=20260817_simc_surfaces">
     <link rel="stylesheet" href="{% static 'dashboard/css/simc-result-report.css' %}?v=20260811_result_architecture_zh">
     <link rel="stylesheet" href="{% static 'shared/css/wow-item-tooltip.css' %}?v=20260813_simc_equipment_icon">
     <style>
@@ -463,7 +463,8 @@
     {{ dashboard_permission_catalog|json_script:"dashboard-permission-catalog-data" }}
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260813_simc_equipment_tooltip"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260816_talent_string_editor"></script>
+    <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_simc_surfaces"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260817_simc_surfaces"></script>
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806c" defer></script>
     <script src="{% static 'dashboard/js/simc-result-report.js' %}?v=20260813_simc_equipment_icon"></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260813_task_delete"></script>

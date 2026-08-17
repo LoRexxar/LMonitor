@@ -61,9 +61,9 @@ def _cached_dump_spell_text(
 ) -> dict[int, str]:
     path = Path(path_value)
     out: dict[int, str] = {}
-    if not path.exists():
-        return out
     try:
+        if not path.exists():
+            return out
         with path.open(encoding='utf-8-sig') as handle:
             for row in csv.DictReader(handle):
                 spell_id = _to_int(row.get('ID'))

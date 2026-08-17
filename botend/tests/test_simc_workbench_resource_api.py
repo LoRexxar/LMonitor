@@ -427,6 +427,7 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()['data']
+        self.assertEqual(payload['talent_build_code'], '')
         detail = payload['report_summary']
         self.assertEqual(detail['dps'], 95132)
         self.assertEqual(detail['character'], {

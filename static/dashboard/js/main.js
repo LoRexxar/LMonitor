@@ -1820,6 +1820,13 @@ async function saveSimcTalentString() {
         showMessage(error.message || '保存失败，请稍后重试', 'error');
     }
 }
+function mountTalentThumbnail(container, buildCode, width = 420) {
+    if (!container || !buildCode || !window.TalentTreeThumbnail) return Promise.resolve(null);
+    container.__talentTreeThumbnail?.destroy?.();
+    return window.TalentTreeThumbnail.mount(container, { buildCode }, { width, borderRadius: 12 })
+        .then(instance => { container.__talentTreeThumbnail = instance; return instance; })
+        .catch(error => { if (error.name !== 'AbortError') console.error('天赋缩略图加载失败', error); return null; });
+}
 function bindSimcTalentStringControls() {
     const specFilter = document.getElementById('simc-talent-string-spec-filter');
     const specEditor = document.getElementById('simc-talent-string-spec');
@@ -1836,7 +1843,7 @@ function bindSimcTalentStringControls() {
     document.addEventListener('click', async event => {
         const button = event.target.closest('[data-talent-string-action]'); if (!button) return;
         const id = Number(button.dataset.talentStringId); const row = window.simcTalentStringRows?.[id]; const action = button.dataset.talentStringAction;
-        if (action === 'view') { openSimcWorkbenchDialog('talent-string-view', row || {}); document.getElementById('simc-dialog-title').textContent = row?.name || '天赋字符串'; document.getElementById('simc-dialog-body').innerHTML = `<div class="space-y-4"><div class="text-sm text-slate-600">${escapeHtml(row?.spec_label || row?.spec || '')} · 英雄天赋树：${escapeHtml((row?.hero_talent_names || []).join('、') || '未解析')}</div><pre class="max-h-[55vh] overflow-auto rounded-lg bg-slate-900 p-4 text-xs text-slate-100 whitespace-pre-wrap break-all">${escapeHtml(row?.talent || '')}</pre>${row?.talent_simulator_url ? `<a href="${escapeHtml(row.talent_simulator_url)}" target="_blank" rel="noopener noreferrer" class="inline-flex rounded-lg bg-violet-600 px-3 py-2 text-sm text-white">在天赋模拟器中打开</a>` : ''}</div>`; return; }
+        if (action === 'view') { openSimcWorkbenchDialog('talent-string-view', row || {}); document.getElementById('simc-dialog-title').textContent = row?.name || '天赋字符串'; const body = document.getElementById('simc-dialog-body'); body.innerHTML = `<div class="space-y-4"><div class="text-sm text-slate-600">${escapeHtml(row?.spec_label || row?.spec || '')} · 英雄天赋树：${escapeHtml((row?.hero_talent_names || []).join('、') || '未解析')}</div><div data-talent-thumbnail-view class="overflow-hidden rounded-xl"></div><pre class="max-h-[55vh] overflow-auto rounded-lg bg-slate-900 p-4 text-xs text-slate-100 whitespace-pre-wrap break-all">${escapeHtml(row?.talent || '')}</pre>${row?.talent_simulator_url ? `<a href="${escapeHtml(row.talent_simulator_url)}" target="_blank" rel="noopener noreferrer" class="inline-flex rounded-lg bg-violet-600 px-3 py-2 text-sm text-white">在天赋模拟器中打开</a>` : ''}</div>`; mountTalentThumbnail(body.querySelector('[data-talent-thumbnail-view]'), row?.talent || ''); return; }
         if (action === 'edit') return simcTalentStringOpenEditor(row);
         if (action === 'copy-code') {
             if (!row?.talent) return showMessage('天赋字符串为空', 'error');

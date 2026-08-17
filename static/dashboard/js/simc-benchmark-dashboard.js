@@ -28,6 +28,12 @@ let editorReturnFocus = null, historyReturnFocus = null, historyPanelId = null, 
 const $ = (selector, scope=document) => scope.querySelector(selector);
 const $$ = (selector, scope=document) => Array.from(scope.querySelectorAll(selector));
 function el(tag, attrs={}, text='') { const node=document.createElement(tag); Object.entries(attrs).forEach(([key,value])=>{ if(key==='class') node.className=value; else if(key==='dataset') Object.assign(node.dataset,value); else if(key==='checked') node.checked=!!value; else if(key==='disabled') node.disabled=!!value; else node.setAttribute(key,String(value)); }); if(text !== '') node.textContent=String(text); return node; }
+function mountBenchmarkTalentThumbnail(container,buildCode,width=300){
+  if(!container||!buildCode||!window.TalentTreeThumbnail||container.__talentTreeThumbnail)return;
+  window.TalentTreeThumbnail.mount(container,{buildCode},{width,borderRadius:10})
+    .then(instance=>{container.__talentTreeThumbnail=instance;})
+    .catch(error=>{if(error.name!=='AbortError')console.error('天赋缩略图加载失败',error);});
+}
 function clear(node){ while(node && node.firstChild) node.removeChild(node.firstChild); }
 function csrf(){ return ($('meta[name="csrf-token"]')||{}).content || (($('input[name="csrfmiddlewaretoken"]')||{}).value) || ''; }
 async function benchmarkFetch(url, options={}) {
@@ -346,9 +352,9 @@ function updateSpecResources(card,selectedProfileId=null,selectedTalentIds=[],or
   setOptions('template_id',(resources?.resources?.templates||[]).filter(x=>resourceMatches(x,spec,true)),original.template?.id??original.template_id,'Template');
   const picker=card.querySelector('[data-talent-picker]'),profiles=(resources?.resources?.profiles||[]).filter(x=>resourceMatches(x,spec)),talents=(resources?.resources?.talent_strings||[]).filter(x=>resourceMatches(x,spec)),selected=new Set(selectedTalentIds.map(value=>value==null?'':String(value)));
   setOptions('profile_id',profiles,selectedProfileId,'Profile');clear(picker);
-  const addTalent=(value,name,detail='')=>{const input=el('input',{type:'checkbox',value,checked:selected.has(String(value)),dataset:{talentIncluded:String(value)}}),label=el('label',{class:'talent-select-chip'}),copy=el('span',{});copy.append(el('strong',{},name));if(detail)copy.append(el('small',{},detail));label.append(input,copy);picker.append(label);};
+  const addTalent=(value,name,detail='',buildCode='')=>{const input=el('input',{type:'checkbox',value,checked:selected.has(String(value)),dataset:{talentIncluded:String(value)}}),label=el('label',{class:'talent-select-chip'}),copy=el('span',{});copy.append(el('strong',{},name));if(detail)copy.append(el('small',{},detail));label.append(input,copy);if(buildCode){const thumbnail=el('div',{class:'talent-select-thumbnail','data-talent-thumbnail-hover':''});label.append(thumbnail);const mount=()=>mountBenchmarkTalentThumbnail(thumbnail,buildCode,280);label.addEventListener('pointerenter',mount,{once:true});label.addEventListener('focusin',mount,{once:true});}picker.append(label);};
   addTalent('','沿用 Profile 默认天赋');
-  talents.forEach(talent=>addTalent(talent.id,talent.name,(talent.hero_talent_names||[]).join('、')));
+  talents.forEach(talent=>addTalent(talent.id,talent.name,(talent.hero_talent_names||[]).join('、'),talent.build_code));
 }
 function renderRaidBuffEditor(card,simulationParams={},inheritDefaults=false){
   const catalog=Array.isArray(resources?.raid_buffs)?resources.raid_buffs:[],explicit=Object.prototype.hasOwnProperty.call(simulationParams||{},'raid_buffs'),hasClassToggle=Object.prototype.hasOwnProperty.call(simulationParams||{},'use_class_raid_buff'),useClassRaidBuff=hasClassToggle?simulationParams.use_class_raid_buff===true:!explicit,selected=new Set(explicit&&Array.isArray(simulationParams.raid_buffs)?simulationParams.raid_buffs:[]);
@@ -573,6 +579,7 @@ function renderOptionGainDetails(profileDetail,simulationDetail,audit,coordinate
   appendOptionGainDetailSection(body,'APL 额外选项',[["使用选项",extraOptions.length?extraOptions.join('、'):'未启用']]);
   const talentName=profileDetail.talents?.name||'无法获取',talentCode=profileDetail.talents?.build_code,heroTalent=coordinate?.labels?.hero_talent||'无法获取';
   appendOptionGainDetailSection(body,'天赋',[["当前天赋",talentName],["英雄天赋",heroTalent],["Build Code",talentCode]]);
+  if(talentCode){const thumbnail=el('div',{class:'benchmark-result-talent-thumbnail','data-benchmark-result-talent-thumbnail':''});body.prepend(thumbnail);mountBenchmarkTalentThumbnail(thumbnail,talentCode,420);}
   const equipment=Array.isArray(profileDetail.equipment)?profileDetail.equipment:[];
   if(equipment.length){ const section=el('section',{class:'benchmark-option-detail-section'}), list=el('div',{class:'benchmark-option-detail-equipment'}); equipment.forEach(item=>{ const name=item?.display_name||item?.name_zh||item?.name||`#${item?.item_id||'—'}`, meta=[item?.item_level?`装等 ${item.item_level}`:'',item?.enchant?.display_name?`附魔：${item.enchant.display_name}`:''].filter(Boolean).join(' · '), row=el('div',{class:'benchmark-option-detail-equipment-row'}); row.append(el('span',{class:'benchmark-option-detail-slot'},item?.slot_label||item?.slot||'装备'),el('strong',{},name)); if(meta) row.append(el('small',{},meta)); list.append(row); }); section.append(el('h5',{},`装备 (${equipment.length})`),list); body.append(section); }
   if(!body.childElementCount) body.append(el('p',{class:'benchmark-empty'},'该 Profile 没有可展示的配置内容'));

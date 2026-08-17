@@ -77,6 +77,7 @@
     const runRows = runs.map(run => `<tr><td>#${value(run.sequence)}</td><td><span class="status-dot ${statusKey(run.status)}"></span>${runStatus(run.status)}</td><td class="right">${number(run.result_summary?.dps)}</td><td>${value(run.started_at)}</td><td>${value(run.completed_at)}</td><td class="right"><button type="button" class="run-input-button" data-run-input data-task-id="${objectId}" data-run-id="${Number(run.id)}">查看 SimC 输入</button></td></tr>`).join('');
     const talentValue = talents.string ? `<code class="talent-code">${value(talents.string)}</code>` : '报告未解析到天赋字符串';
     const talentCandidate = row.mode_summary?.talent_candidate || null;
+    const thumbnailCode = row.talent_build_code || talentCandidate?.talent || talents.string || '';
     const talentCandidateCard = talentCandidate?.talent
       ? card('候选方案', `<dl><div><dt>方案名称</dt><dd>${value(talentCandidate.name || row.candidate_label)}</dd></div><div><dt>完整天赋树字符串</dt><dd><code class="talent-code">${value(talentCandidate.talent)}</code></dd></div></dl>`, true)
       : '';
@@ -105,13 +106,19 @@
         <header class="result-group__heading"><span>配置与复现</span><div><h2>输入、模拟参数、产物与冻结版本</h2><p>把用于解释结果的配置证据集中到页面后部，不与模拟结论混排。</p></div></header>
         <div class="grid">
           ${talentCandidateCard}
-          ${card('天赋与套装', `<dl><div><dt>天赋字符串</dt><dd>${talentValue}</dd></div><div><dt>套装效果</dt><dd>${bonusValue}</dd></div></dl>`, true)}
+          ${card('天赋与套装', `${thumbnailCode ? '<div data-simc-detail-talent-thumbnail style="margin-bottom:14px;overflow:hidden;border-radius:12px"></div>' : ''}<dl><div><dt>天赋字符串</dt><dd>${talentValue}</dd></div><div><dt>套装效果</dt><dd>${bonusValue}</dd></div></dl>`, true)}
           ${card('执行轮次', `<div class="table-scroll"><table><thead><tr><th>轮次</th><th>状态</th><th class="right">DPS</th><th>开始</th><th>完成</th><th class="right">输入</th></tr></thead><tbody>${runRows || '<tr><td colspan="6" class="empty">暂无执行轮次</td></tr>'}</tbody></table></div><details><summary>输入说明</summary>查看输入会按当前任务冻结配置调用 SimC Composer 生成可读文本；它不是历史执行输入的复原或校验。命令、路径及原始 stderr 不在页面展示。</details>`, true)}
           ${card('Artifact / 原生报告', `<p class="muted">${taskFailed && !nativeArtifact ? '本次失败未生成原生报告。SimC 在初始化阶段终止时不会产出 HTML Artifact。' : '原生报告继续通过独立鉴权页面读取。'}</p><div class="table-scroll"><table><thead><tr><th>文件</th><th>类型</th><th class="right">大小</th><th class="right">操作</th></tr></thead><tbody>${artifactRows(artifacts) || '<tr><td colspan="4" class="empty">暂无 Artifact</td></tr>'}</tbody></table></div>`, true)}
           ${card('引用版本', `<dl><div><dt>Profile</dt><dd>${value(row.profile_name, '未命名')} · #${value(row.profile_id)} · v${value(row.profile_version_id)}</dd></div><div><dt>基础模板</dt><dd>#${value(row.template_id)} · v${value(row.template_version_id)}</dd></div><div><dt>APL</dt><dd>${value(row.apl_name, '未命名')} · #${value(row.apl_id)} · v${value(row.apl_version_id)}</dd></div><div><dt>报告时间</dt><dd>${value(simulation.timestamp)}</dd></div><div><dt>来源任务</dt><dd>${row.source_task_id ? `<a href="/dashboard/simc/tasks/${Number(row.source_task_id)}/">#${Number(row.source_task_id)}</a>` : '-'}</dd></div></dl><details><summary>为什么显示版本号？</summary>名称来自任务创建时的冻结资源版本；版本引用用于复现，不展示配置原文或服务器路径。</details>`, true)}
         </div>
       </section>
       ${completeReport}`;
+    const thumbnail = root.querySelector('[data-simc-detail-talent-thumbnail]');
+    if (thumbnail && window.TalentTreeThumbnail) {
+      window.TalentTreeThumbnail.mount(thumbnail, { buildCode: thumbnailCode }, { width: 480, borderRadius: 12 })
+        .then(instance => { thumbnail.__talentTreeThumbnail = instance; })
+        .catch(error => { if (error.name !== 'AbortError') console.error('天赋缩略图加载失败', error); });
+    }
   }
 
   function renderAttributeTask(row) {

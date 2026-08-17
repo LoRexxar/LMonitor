@@ -7028,6 +7028,8 @@ class SimcWorkbenchAPIView(View):
                 if not task:
                     return JsonResponse({'success': False, 'error': '任务不存在'}, status=404)
                 row = self._task_row(task)
+                talent_payload = task.talent_version.payload if task.talent_version and isinstance(task.talent_version.payload, dict) else {}
+                profile_payload = task.profile_version.payload if task.profile_version and isinstance(task.profile_version.payload, dict) else {}
                 row.update({
                     'profile_id': task.profile_id, 'template_id': task.template_id, 'apl_id': task.apl_id,
                     'profile_version_id': task.profile_version_id,
@@ -7045,6 +7047,10 @@ class SimcWorkbenchAPIView(View):
                         or (task.profile.name if task.profile else '')
                         or ''
                     ),
+                    'talent_build_code': str(
+                        talent_payload.get('talent') or talent_payload.get('build_code')
+                        or profile_payload.get('talent_build_code') or profile_payload.get('talents') or ''
+                    ).strip(),
                     'simulation_params': task.simulation_params or {},
                     'mode_summary': self._safe_mode_summary(task.mode_params),
                     'source_task_id': task.source_task_id,
@@ -10139,6 +10145,7 @@ def _benchmark_options_payload(owner_id=None, ownership_context=None):
             } for row in resources['profiles']],
             'talent_strings': [{
                 'id': row.pk, 'name': normalize_hero_subtree_title_zh(row.name),
+                'build_code': row.talent,
                 'spec': row.spec,
                 'spec_key': _benchmark_resource_spec_key(row),
                 'canonical_spec': _benchmark_resource_spec_key(row),
