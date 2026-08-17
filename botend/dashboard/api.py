@@ -4972,7 +4972,7 @@ class SimcTalentStringCandidatesAPIView(View):
         if spec:
             queryset = queryset.filter(spec=spec)
         return JsonResponse({'success': True, 'data': list(queryset.values(
-            'id', 'name', 'spec', 'talent', 'is_system',
+            'id', 'name', 'spec', 'talent', 'hero_talent_names', 'is_system',
         ))})
 
 

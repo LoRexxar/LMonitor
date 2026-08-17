@@ -3363,9 +3363,13 @@ async function loadSimcTalentStringCandidates(spec) {
     const response = await fetch(`/api/simc-talent-string-candidates/?spec=${encodeURIComponent(spec)}`);
     const payload = await response.json();
     if (!response.ok || !payload.success) return;
-    select.innerHTML = '<option value="">沿用玩家配置中的天赋</option>' + payload.data.map(item =>
-        `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}</option>`
-    ).join('');
+    select.innerHTML = '<option value="">沿用玩家配置中的天赋</option>' + payload.data.map(item => {
+        const heroTalentNames = Array.isArray(item.hero_talent_names)
+            ? item.hero_talent_names.filter(Boolean).join('、')
+            : '';
+        const label = `${item.name} · ${heroTalentNames || '未解析'}`;
+        return `<option value="${escapeHtml(item.id)}">${escapeHtml(label)}</option>`;
+    }).join('');
 }
 
 function currentSimcScenario() {

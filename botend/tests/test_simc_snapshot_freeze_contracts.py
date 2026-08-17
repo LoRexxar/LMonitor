@@ -161,6 +161,36 @@ class SimcTaskReferenceContracts(TestCase):
         self.assertNotIn('override_action_list', ext)
         self.assertNotIn('player_equipment', ext)
 
+    def test_talent_candidate_picker_shows_name_and_hero_tree_without_apl_explanation(self):
+        talent = SimcTalentString.objects.create(
+            name='Fury raid build', spec='warrior_fury', talent='SELECTED_BUILD',
+            hero_talent_names=['山丘领主'], owner_user_id=self.user.id,
+        )
+
+        response = self.client.get(
+            '/api/simc-talent-string-candidates/', {'spec': 'warrior_fury'},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['data'], [{
+            'id': talent.id,
+            'name': 'Fury raid build',
+            'spec': 'warrior_fury',
+            'talent': 'SELECTED_BUILD',
+            'hero_talent_names': ['山丘领主'],
+            'is_system': False,
+        }])
+
+        root = Path(__file__).resolve().parents[2]
+        workflow = (root / 'templates/dashboard/index.html').read_text(encoding='utf-8')
+        frontend = (root / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
+        loader = frontend[
+            frontend.index('async function loadSimcTalentStringCandidates'):
+            frontend.index('function currentSimcScenario', frontend.index('async function loadSimcTalentStringCandidates'))
+        ]
+        self.assertNotIn('系统默认 APL 由后端明确标记；基础模板由后端自动解析。', workflow)
+        self.assertIn('item.hero_talent_names', loader)
+        self.assertIn('item.name', loader)
+
     def test_selected_talent_string_is_filtered_frozen_and_composed(self):
         talent = SimcTalentString.objects.create(
             name='Fury raid build', spec='warrior_fury', talent='SELECTED_BUILD',
