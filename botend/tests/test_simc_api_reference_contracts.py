@@ -19,7 +19,9 @@ from botend.models import (
     SimcContentTemplate,
     SimcResourceVersion,
     SimcBackendBinary,
+    SimcTalentString,
 )
+from botend.services.simc_composer import SIMC_RAID_BUFF_VALUES
 from botend.dashboard.api import (
     SimcAplCandidatesAPIView,
     SimcAttributeAnalysisAPIView,
@@ -706,6 +708,41 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
 
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.name, 'Test Profile')
+
+    def test_api_creates_full_buff_task_with_browser_string_talent_id(self):
+        talent = SimcTalentString.objects.create(
+            owner_user_id=self.user.id,
+            name='Full Buff Talent',
+            spec='warrior_fury',
+            talent='BQEAAAAAAAAAAAAAAAAAAAAAAAAAAAAg',
+            is_active=True,
+            is_selectable=True,
+        )
+        request = self.factory.post(
+            '/api/simc-task/',
+            data=json.dumps({
+                'name': 'Full Buff Task',
+                'simc_profile_id': self.profile.id,
+                'base_template_id': self.template.id,
+                'selected_apl_id': self.apl.id,
+                'backend_id': self.backend.id,
+                'talent_string_id': str(talent.id),
+                'spec': 'warrior_fury',
+                'raid_buffs': list(SIMC_RAID_BUFF_VALUES),
+                'use_class_raid_buff': True,
+            }),
+            content_type='application/json',
+        )
+        request.user = self.user
+
+        response = SimcTaskAPIView().post(request)
+        data = json.loads(response.content)
+
+        self.assertTrue(data['success'], data.get('error'))
+        task = SimcTask.objects.get(pk=data['data']['id'])
+        self.assertEqual(task.talent_string_id, talent.id)
+        self.assertEqual(task.simulation_params['raid_buffs'], list(SIMC_RAID_BUFF_VALUES))
+        self.assertIs(task.simulation_params['use_class_raid_buff'], True)
 
     def test_api_requires_existing_profile_reference(self):
         """The run form cannot create a Profile implicitly."""

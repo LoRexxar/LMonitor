@@ -875,6 +875,11 @@ def create_task(user_id: int, name: str, profile_id: Optional[int] = None,
             talent_string_id=talent_string_id,
             is_admin=is_admin,
         )
+        backend_id = prepared.backend_id
+        profile_id = prepared.profile_id
+        apl_id = prepared.apl_id
+        template_id = prepared.template_id
+        talent_string_id = prepared.talent_string_id
     return create_task_from_prepared(
         prepared=prepared, user_id=user_id, name=name, profile_id=profile_id,
         template_id=template_id, apl_id=apl_id, backend_id=backend_id,
