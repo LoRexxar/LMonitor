@@ -9932,6 +9932,23 @@ class SimcBenchmarkPanelListAPIView(_BenchmarkAdminAPIView):
                 for key in case_count_keys
             })
         }
+        active_execution_ids = {
+            panel.active_execution_id for panel in rows if panel.active_execution_id
+        }
+        task_status_map = {
+            0: 'pending', 1: 'running', 2: 'success',
+            3: 'failed', 4: 'running', 5: 'cancelled',
+        }
+        live_task_counts_by_execution = {
+            execution_id: {key: 0 for key in case_count_keys}
+            for execution_id in active_execution_ids
+        }
+        for task_row in SimcBenchmarkCase.objects.filter(
+            execution_id__in=active_execution_ids,
+            task_id__isnull=False,
+        ).values('execution_id', 'task__current_status').annotate(total=models.Count('id')):
+            status = task_status_map.get(task_row['task__current_status'], 'pending')
+            live_task_counts_by_execution[task_row['execution_id']][status] += task_row['total']
         run_count_keys = ('pending', 'running', 'success', 'failed', 'cancelled')
         run_counts_by_execution = {
             row['task__benchmark_case__execution_id']: {key: row[key] for key in run_count_keys}
@@ -9952,9 +9969,9 @@ class SimcBenchmarkPanelListAPIView(_BenchmarkAdminAPIView):
                         panel.active_execution_id or panel.dashboard_latest_execution_id,
                     ),
                     panel,
-                    case_counts_by_execution.get(
-                        panel.active_execution_id or panel.dashboard_latest_execution_id,
-                    ),
+                    live_task_counts_by_execution.get(panel.active_execution_id)
+                    if panel.active_execution_id
+                    else case_counts_by_execution.get(panel.dashboard_latest_execution_id),
                     run_counts_by_execution.get(
                         panel.active_execution_id or panel.dashboard_latest_execution_id,
                     ),
@@ -9968,6 +9985,19 @@ class SimcBenchmarkPanelListAPIView(_BenchmarkAdminAPIView):
         data = serialize_panel_config(panel)
         data['next_run_at'] = _benchmark_iso(data['next_run_at'])
         return JsonResponse({'success': True, 'data': data}, status=201)
+
+
+class SimcBenchmarkPanelCoverageAPIView(_BenchmarkAdminAPIView):
+    """Load expensive aggregate result coverage for one panel at a time."""
+
+    def get(self, request, panel_id):
+        panel, error = self.panel_or_404(panel_id)
+        if error:
+            return error
+        return JsonResponse({
+            'success': True,
+            'data': summarize_incremental_panel_coverage(panel),
+        })
 
 
 def _benchmark_spec_options():

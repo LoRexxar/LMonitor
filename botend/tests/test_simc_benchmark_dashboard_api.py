@@ -285,6 +285,29 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         self.assertEqual(panel.created_by_id, self.staff.id)
         self.assertEqual(response.json()['error'], 'validation_error')
 
+    def test_panel_coverage_has_a_dedicated_lazy_endpoint(self):
+        panel = self._create_panel()
+        coverage = {
+            'aggregate_baseline_execution_id': 7,
+            'coordinates': 96,
+            'candidate_runs': 5031,
+            'available_results': 4342,
+            'missing_results': 689,
+            'source_executions': [{'execution_id': 7, 'results': 4342}],
+        }
+
+        with patch(
+            'botend.dashboard.api.summarize_incremental_panel_coverage',
+            return_value=coverage,
+        ) as summarize:
+            response = self.client.get(
+                f'/api/simc-benchmarks/panels/{panel.id}/coverage/',
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json(), {'success': True, 'data': coverage})
+        summarize.assert_called_once_with(panel)
+
     def test_completed_execution_rerun_endpoint_delegates_only_to_benchmark_service(self):
         panel = self._create_panel()
         execution = SimcBenchmarkExecution.objects.create(
@@ -563,6 +586,39 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         self.assertEqual(history['metadata']['task_bindings'], 4)
         self.assertEqual(len(history['failures']), 1)
         self.assertEqual(history['failures'][0]['report_url'], f'/api/simc-workbench/artifacts/{report_artifact.id}/preview/')
+
+    def test_active_panel_list_projects_live_task_status_not_stale_case_status(self):
+        panel = self._create_panel()
+        snapshot = {'version': 2, 'case_count': 1, 'run_count': 1}
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, config_snapshot=snapshot, config_hash='a' * 64,
+            status='running',
+        )
+        panel.active_execution = execution
+        panel.save(update_fields=['active_execution'])
+        task = SimcTask.objects.create(
+            user_id=self.staff.id, name='live-running-task', mode='comparison',
+            simc_profile_id=self.profile.id, backend=self.backend,
+            current_status=1, ext=json.dumps({'progress': 37}),
+        )
+        SimcBenchmarkCase.objects.create(
+            execution=execution, task=task,
+            # Case reconciliation may lag behind the authoritative live Task.
+            status='success', spec_key='warrior_fury', scenario_key='patchwerk',
+            profile_key=str(self.profile.id), spec_label='Fury',
+            scenario_label='Patchwerk', profile_label='Raid',
+            coordinate_hash='b' * 64,
+        )
+        SimulationRun.objects.create(task=task, sequence=1, status='running')
+
+        response = self.client.get('/api/simc-benchmarks/panels/')
+
+        self.assertEqual(response.status_code, 200, response.content)
+        progress = response.json()['data'][0]['execution']
+        self.assertEqual(progress['counts'], {
+            'pending': 0, 'running': 1, 'success': 0,
+            'partial': 0, 'failed': 0, 'cancelled': 0,
+        })
 
     def test_execution_progress_counts_missing_cases_without_claiming_aggregate_available(self):
         panel = self._create_panel()

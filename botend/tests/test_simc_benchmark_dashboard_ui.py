@@ -138,6 +138,25 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn('本次补充候选 Run', run_progress)
         self.assertIn('尚有 ${total-materialized} 个待 Worker 创建', run_progress)
 
+    def test_panel_coverage_loads_sequentially_and_current_execution_shows_live_status(self):
+        loader = JS[JS.index('async function loadPanels('):JS.index('function visiblePanels(')]
+        self.assertIn('loadPanelCoverages', loader)
+        coverage_loader = JS[
+            JS.index('async function loadPanelCoverages('):
+            JS.index('async function loadPanels(')
+        ]
+        self.assertIn('for(const panel of', coverage_loader)
+        self.assertIn('panels/${panel.id}/coverage/', coverage_loader)
+        self.assertNotIn('Promise.all', coverage_loader)
+
+        execution_renderer = JS[
+            JS.index('function renderExecutionProgress('):
+            JS.index('async function loadPanelCoverages(')
+        ]
+        self.assertIn('statusBadge(execution.status)', execution_renderer)
+        self.assertIn('execution.counts', execution_renderer)
+        self.assertIn('子任务', execution_renderer)
+
     def test_execution_progress_renders_explicit_safe_failure_summary_outside_task_detail(self):
         failure_renderer = JS[
             JS.index('function renderExecutionFailures('):

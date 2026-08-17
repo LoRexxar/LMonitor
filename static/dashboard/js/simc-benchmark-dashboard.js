@@ -24,6 +24,8 @@ let configPage = false;
 let executionPage = false;
 let forceDiscoveryUntil = 0;
 let listFetchInFlight = false;
+let coverageFetchInFlight = false;
+const panelCoverageCache = new Map();
 let editorReturnFocus = null, historyReturnFocus = null, historyPanelId = null, historyPage = 1;
 const $ = (selector, scope=document) => scope.querySelector(selector);
 const $$ = (selector, scope=document) => Array.from(scope.querySelectorAll(selector));
@@ -203,7 +205,7 @@ function renderRunProgress(execution,compact=false){
   const counts=execution.run_counts||{},total=Math.max(0,Number(execution.total_runs ?? execution.run_count)||0),materialized=Math.max(0,Number(execution.materialized_runs)||0);
   const done=(Number(counts.success)||0)+(Number(counts.failed)||0)+(Number(counts.cancelled)||0);
   const percent=total?Math.round(done*100/total):0;
-  const head=el('div',{class:'benchmark-run-progress-head'});head.append(el('strong',{},'本次补充候选 Run'),el('span',{},`${done}/${total} 已结束 · ${percent}%`));
+  const head=el('div',{class:'benchmark-run-progress-head'});head.append(el('strong',{},'本次补充候选 Run'),el('span',{},`${done}/${total} 已完成 · ${percent}%`));
   if(materialized<total)head.append(el('span',{class:'benchmark-run-materializing'},`已生成 ${materialized}/${total} · 尚有 ${total-materialized} 个待 Worker 创建`));
   const statuses=el('div',{class:'benchmark-status-counts'});statuses.append(statusCount('成功',counts.success,'good'),statusCount('失败',counts.failed,'bad'),statusCount('运行',counts.running,'running'),statusCount('等待',counts.pending,'warn'),statusCount('取消',counts.cancelled,'muted'));
   host.append(head,statuses);return host;
@@ -211,6 +213,11 @@ function renderRunProgress(execution,compact=false){
 function renderExecutionProgress(execution,compact=false){
   const host=el('div',{class:`benchmark-execution-progress${compact?' compact':''}`});
   if(!execution){host.append(el('div',{class:'benchmark-no-execution'},'尚无执行记录'));return host;}
+  const taskCounts=execution.counts||{}, taskHead=el('div',{class:'benchmark-run-progress-head'});
+  taskHead.append(el('strong',{},'当前子任务'),statusBadge(execution.status));
+  const taskStatuses=el('div',{class:'benchmark-status-counts'});
+  taskStatuses.append(statusCount('成功',taskCounts.success,'good'),statusCount('失败',taskCounts.failed,'bad'),statusCount('运行',taskCounts.running,'running'),statusCount('等待',taskCounts.pending,'warn'),statusCount('取消',taskCounts.cancelled,'muted'));
+  host.append(taskHead,taskStatuses);
   // Case/Task is an orchestration implementation detail.  The user-facing unit
   // is the frozen candidate Run workload, identical in list and detail views.
   host.append(renderRunProgress(execution,compact));
@@ -218,12 +225,31 @@ function renderExecutionProgress(execution,compact=false){
   return host;
 }
 
+async function loadPanelCoverages(panelRows=panels){
+  if(coverageFetchInFlight)return;
+  coverageFetchInFlight=true;
+  try{
+    for(const panel of panelRows){
+      if(panelCoverageCache.has(panel.id))continue;
+      try{
+        const coverage=await benchmarkFetch(`${API}panels/${panel.id}/coverage/`);
+        panelCoverageCache.set(panel.id,coverage);
+        const current=panels.find(item=>item.id===panel.id);
+        if(current){current.panel_coverage=coverage;delete current.panel_coverage_error;renderList();}
+      }catch(error){
+        const current=panels.find(item=>item.id===panel.id);
+        if(current){current.panel_coverage_error=`聚合覆盖加载失败：${error.message}`;renderList();}
+      }
+    }
+  }finally{coverageFetchInFlight=false;}
+}
+
 async function loadPanels(force=false,{background=false}={}){
   if(!root || (!force && loaded) || (background&&listFetchInFlight)) return;
   loaded=true; listController?.abort(); listController=new AbortController(); const controller=listController; listFetchInFlight=true;
   const state=$('[data-benchmark-list-state]',root);
   if(!background){state.hidden=false; state.textContent='正在加载基准面板…'; $('[data-benchmark-table-wrap]',root).hidden=true; clear($('[data-benchmark-cards]',root));}
-  try { panels=await benchmarkFetch(`${API}panels/`,{signal:controller.signal}); listLoadError=''; renderList(); }
+  try { panels=await benchmarkFetch(`${API}panels/`,{signal:controller.signal}); panels.forEach(panel=>{if(panel.execution?.is_active)panelCoverageCache.delete(panel.id);if(panelCoverageCache.has(panel.id))panel.panel_coverage=panelCoverageCache.get(panel.id);}); listLoadError=''; renderList(); void loadPanelCoverages(panels); }
   catch(error){ if(error.name==='AbortError'){if(!background)loaded=false;}else if(!background){ panels=[];listLoadError=`加载失败：${error.message}`;state.hidden=false;state.textContent=listLoadError; } }
   finally{if(listController===controller)listFetchInFlight=false;}
 }
@@ -250,7 +276,7 @@ function renderList(){
   if(!rows.length){ state.hidden=false;state.textContent=panels.length?'没有匹配的面板':'暂无基准面板';$('[data-benchmark-table-wrap]',root).hidden=true;return; }
   state.hidden=true;$('[data-benchmark-table-wrap]',root).hidden=false;
   rows.forEach(p=>{ const c=p.counts||{}, coverage=p.panel_coverage; const dims=`${c.specs||0} 专精 × ${c.scenarios||0} 场景 · 共 ${c.profiles||0} Profiles · ${c.candidates||0} 候选 + baseline`;
- const coverageSummary=()=>coverage?renderPanelCoverage(coverage):el('div',{class:'benchmark-task-total-note'},'结果覆盖已从列表延迟加载，请进入结果页查看');
+ const coverageSummary=()=>coverage?renderPanelCoverage(coverage):el('div',{class:'benchmark-task-total-note'},p.panel_coverage_error||'正在逐一加载聚合基线覆盖…');
  const tr=el('tr'); const name=el('td');name.append(el('div',{class:'benchmark-name'},p.name),el('div',{class:'benchmark-slug'},p.slug)); const dim=el('td',{},dims); const total=el('td',{class:'benchmark-total-cell'});total.append(coverageSummary()); const current=el('td',{class:'benchmark-current-execution-cell'});current.append(renderExecutionProgress(p.execution,true)); const schedule=el('td');schedule.append(badge(p.schedule_enabled?'已定时':'未定时',p.schedule_enabled?'good':''),el('div',{},`下次：${formatTime(p.next_run_at)}`)); const publish=el('td');publish.append(badge(p.is_public?(p.published_execution_id?'公开 · 已发布':'公开 · 未发布'):'私有',p.is_public&&p.published_execution_id?'good':'warn')); const actions=el('td',{class:'benchmark-actions'});appendActions(actions,p);tr.append(name,dim,total,current,schedule,publish,actions);tbody.append(tr);
  const card=el('article',{class:'benchmark-card'});card.append(el('div',{class:'benchmark-name'},p.name),el('div',{class:'benchmark-slug'},p.slug),el('div',{},dims),coverageSummary(),renderExecutionProgress(p.execution),el('div',{},`${p.schedule_enabled?'已定时':'未定时'} · ${formatTime(p.next_run_at)}`)); const ca=el('div',{class:'benchmark-actions'});appendActions(ca,p);card.append(ca);cards.append(card);
 });
