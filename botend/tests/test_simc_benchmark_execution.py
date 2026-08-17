@@ -152,6 +152,32 @@ class SimcBenchmarkExecutionTests(TestCase):
             'MID2 默认玩家-疾咒师',
         )
 
+    def test_running_reconcile_appends_new_results_without_rewriting_existing_rows(self):
+        execution = self._create()
+        case = execution.cases.select_related('task').get()
+        task = case.task
+        task.current_status = 1
+        task.save(update_fields=['current_status'])
+        self._run(task, 1, 'completed', 'baseline', dps=1234)
+        pending = self._run(task, 2, 'pending', 'trinket')
+
+        reconcile_execution(execution)
+        baseline_id = case.results.get(candidate_key='baseline').pk
+
+        pending.status = 'completed'
+        pending.result_summary = {'dps': 1300}
+        pending.save(update_fields=['status', 'result_summary'])
+        reconcile_execution(execution)
+
+        self.assertEqual(
+            case.results.get(candidate_key='baseline').pk,
+            baseline_id,
+        )
+        self.assertEqual(
+            set(case.results.values_list('candidate_key', flat=True)),
+            {'baseline', 'trinket'},
+        )
+
     def test_cancel_execution_fences_tasks_runs_and_releases_active_slot(self):
         execution = self._create()
         case = execution.cases.select_related('task').get()

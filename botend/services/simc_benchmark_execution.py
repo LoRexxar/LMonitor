@@ -2604,6 +2604,40 @@ def backfill_completed_case_results(execution):
         return len(rows)
 
 
+def _append_incremental_results(execution_id, rows):
+    """Persist only newly completed candidate rows during a live Execution.
+
+    Completed Run results are immutable. Rewriting every previously completed row on
+    each reconcile makes the Panel lock scale with all historical progress and blocks
+    cancellation behind a large DELETE/INSERT transaction.
+    """
+    if not rows:
+        return 0
+    case_ids = {row['case_id'] for row in rows}
+    existing = {
+        (case_id, candidate_key): dps
+        for case_id, candidate_key, dps in SimcBenchmarkResult.objects.filter(
+            case__execution_id=execution_id,
+            case_id__in=case_ids,
+        ).values_list('case_id', 'candidate_key', 'dps')
+    }
+    new_rows = []
+    for row in rows:
+        key = (row['case_id'], row['candidate_key'])
+        current_dps = existing.get(key)
+        if current_dps is not None:
+            if current_dps != row['dps']:
+                _validation_error('已有结果与冻结 Run DPS 不一致', 'execution')
+            continue
+        new_rows.append(SimcBenchmarkResult(
+            case_id=row['case_id'], candidate_key=row['candidate_key'],
+            dps=row['dps'], hero_talent_names=row['hero_talent_names'],
+        ))
+    if new_rows:
+        SimcBenchmarkResult.objects.bulk_create(new_rows, batch_size=500)
+    return len(new_rows)
+
+
 def reconcile_execution(execution):
     """Finalize exactly once under Execution/Panel locks and publish monotonically."""
     with transaction.atomic():
@@ -2676,20 +2710,7 @@ def reconcile_execution(execution):
                 locked, live, require_complete_execution=False,
             )
             if partial_rows is not None:
-                successful_case_ids = {row['case_id'] for row in partial_rows}
-                SimcBenchmarkResult.objects.filter(
-                    case__execution_id=locked.pk,
-                ).exclude(case_id__in=successful_case_ids).delete()
-                SimcBenchmarkResult.objects.filter(
-                    case_id__in=successful_case_ids,
-                ).delete()
-                SimcBenchmarkResult.objects.bulk_create([
-                    SimcBenchmarkResult(
-                        case_id=row['case_id'], candidate_key=row['candidate_key'],
-                        dps=row['dps'], hero_talent_names=row['hero_talent_names'],
-                    )
-                    for row in partial_rows
-                ])
+                _append_incremental_results(locked.pk, partial_rows)
             if locked.status != live_status:
                 locked.status = live_status
                 locked.save(update_fields=['status'])
