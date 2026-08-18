@@ -10592,7 +10592,7 @@ class SimcBenchmarkPanelDetailAPIView(_BenchmarkAdminAPIView):
     def patch(self, request, panel_id):
         payload = _benchmark_json_object(request, allowed_fields={
             'name', 'description', 'is_active', 'is_public',
-            'schedule_enabled', 'interval_seconds', 'next_run_at',
+            'schedule_enabled', 'interval_seconds', 'next_run_at', 'queue_priority',
         })
         with transaction.atomic():
             panel = SimcBenchmarkPanel.objects.select_for_update().filter(pk=panel_id).first()
@@ -10601,7 +10601,7 @@ class SimcBenchmarkPanelDetailAPIView(_BenchmarkAdminAPIView):
             if panel_has_active_purge(panel_id):
                 return _benchmark_error('panel_purge_in_progress', 409)
             for field in ('name', 'description', 'is_active', 'is_public',
-                          'schedule_enabled', 'interval_seconds', 'next_run_at'):
+                          'schedule_enabled', 'interval_seconds', 'next_run_at', 'queue_priority'):
                 if field in payload:
                     setattr(panel, field, payload[field])
             panel.full_clean()

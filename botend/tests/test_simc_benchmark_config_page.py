@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from django.contrib.auth.models import User
@@ -60,6 +61,18 @@ class SimcBenchmarkConfigPageTests(TestCase):
         self.assertContains(response, '支持 Markdown 和多行文本')
         self.assertContains(response, 'textarea name="description" rows="10"', html=False)
         self.assertContains(response, '维护面板身份、说明、公开边界和定时策略')
+
+    def test_panel_edit_patch_persists_queue_priority(self):
+        self.client.force_login(self.staff)
+        response = self.client.patch(
+            f'/api/simc-benchmarks/panels/{self.panel.id}/',
+            data=json.dumps({'name': 'Detailed benchmark', 'queue_priority': 30}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['data']['queue_priority'], 30)
+        self.panel.refresh_from_db()
+        self.assertEqual(self.panel.queue_priority, 30)
 
     def test_unknown_panel_is_not_disclosed(self):
         self.client.force_login(self.staff)
