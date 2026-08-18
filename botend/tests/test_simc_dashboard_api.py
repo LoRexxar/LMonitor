@@ -25,7 +25,7 @@ TEST_WOW_BUILD = 'test-build'
 
 
 class SimcDispatchSwitchTests(TestCase):
-    def test_disabled_local_worker_does_not_scan_or_fail_pending_tasks(self):
+    def test_disabled_local_worker_checks_backend_but_does_not_fail_pending_tasks(self):
         SimcBackendBinary.objects.update_or_create(
             identifier='production',
             defaults={
@@ -35,11 +35,11 @@ class SimcDispatchSwitchTests(TestCase):
         )
         monitor = SimcMonitor(None, None)
         with (
-            patch.object(monitor, 'ensure_local_simc_backend_current') as ensure_current,
+            patch.object(monitor, 'ensure_local_simc_backend_current', return_value=False) as ensure_current,
             patch.object(monitor, 'fail_pending_tasks') as fail_pending,
         ):
             self.assertTrue(monitor.scan())
-        ensure_current.assert_not_called()
+        ensure_current.assert_called_once_with()
         fail_pending.assert_not_called()
 
 

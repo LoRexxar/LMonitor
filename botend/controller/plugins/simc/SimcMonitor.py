@@ -377,11 +377,17 @@ class SimcMonitor(BaseScan):
             local_backend = SimcBackendBinary.objects.filter(identifier='production').only(
                 'local_worker_enabled'
             ).first()
-            if local_backend is not None and not local_backend.local_worker_enabled:
+            local_worker_enabled = local_backend is None or local_backend.local_worker_enabled
+
+            # Backend health is independent from accepting simulation tasks.  A
+            # disabled local worker still has to clear interrupted-update status
+            # and report whether its prepared binary is usable; it simply must
+            # not dispatch or fail pending tasks owned by another execution face.
+            backend_ready = self.ensure_local_simc_backend_current()
+            if not local_worker_enabled:
                 logger.info("[SimC Monitor] Local Worker task dispatch is disabled.")
                 return True
-
-            if not self.ensure_local_simc_backend_current():
+            if not backend_ready:
                 logger.error("[SimC Monitor] Local SimC backend is not ready")
                 self.fail_pending_tasks("SimC本地编译产物不可用，请先完成后端编译更新")
                 return False

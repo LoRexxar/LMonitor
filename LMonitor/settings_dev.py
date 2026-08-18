@@ -132,10 +132,14 @@ BATTLENET_CONFIG = {
     "api_host_cn": "https://gateway.battlenet.com.cn",
 }
 
+LOCAL_SIMC_SOURCE_DIR = os.environ.get(
+    'LMONITOR_SIMC_SOURCE_DIR', '/home/ubuntu/simc-tooltip-generator',
+).rstrip('/')
+
 SIMC_CONFIG = {
-    "simc_source_dir": "/home/lighthouse/simc",
-    "simc_build_dir": "/home/lighthouse/simc/build-cli",
-    "simc_path": "/home/lighthouse/simc/build-cli/simc",
+    "simc_source_dir": LOCAL_SIMC_SOURCE_DIR,
+    "simc_build_dir": os.path.join(LOCAL_SIMC_SOURCE_DIR, "build-cli"),
+    "simc_path": os.path.join(LOCAL_SIMC_SOURCE_DIR, "build-cli", "simc"),
     "result_path": "static/simc_results/",
     "simc_template": "LMonitor/simc_template.txt",
     "update_check_interval_seconds": 1800,
