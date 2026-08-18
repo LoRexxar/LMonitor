@@ -521,7 +521,7 @@
 
     function renderTaskRerunForm(taskId) {
         const target = new URL('/dashboard/', window.location.origin);
-        target.searchParams.set('section', 'simc-workbench');
+        target.searchParams.set('section', 'simc-workflow');
         target.searchParams.set('simc_rerun_task', idOf(taskId));
         window.location.assign(target.toString());
     }

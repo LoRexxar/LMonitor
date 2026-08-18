@@ -110,7 +110,7 @@ class SimcHistoryPaginationContractTests(unittest.TestCase):
     def test_regular_task_rerun_routes_to_the_simulation_form_without_posting_a_rerun(self):
         rerun = JS[JS.index('function renderTaskRerunForm'):JS.index('function specLabel', JS.index('function renderTaskRerunForm'))]
         self.assertIn('simc_rerun_task', rerun)
-        self.assertIn("searchParams.set('section', 'simc-workbench')", rerun)
+        self.assertIn("searchParams.set('section', 'simc-workflow')", rerun)
         self.assertNotIn("action: 'rerun'", rerun)
         self.assertNotIn("method: 'POST'", rerun)
 
