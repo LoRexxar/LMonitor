@@ -196,6 +196,8 @@
             state.taskResponseSignature = '';
             await loadTasks(state.taskPage);
             window.showMessage('任务已删除', 'success');
+        } catch (error) {
+            window.showMessage(`删除失败：${error.message}`, 'error');
         } finally {
             button.disabled = false;
         }

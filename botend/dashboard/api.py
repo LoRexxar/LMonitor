@@ -7821,10 +7821,14 @@ class SimcWorkbenchAPIView(View):
                 id=object_id,
                 user_id=request.user.id,
                 is_active=True,
-                benchmark_case__isnull=True,
-            ).first()
+            ).select_related('benchmark_case__execution__panel').first()
             if not task:
                 return JsonResponse({'success': False, 'error': '任务不存在'}, status=404)
+            benchmark_case = getattr(task, 'benchmark_case', None)
+            if benchmark_case and benchmark_case.execution.panel_id:
+                return JsonResponse(
+                    {'success': False, 'error': '基准任务仍绑定面板，不能删除'}, status=409,
+                )
             if task.current_status not in (2, 3, 5):
                 return JsonResponse({'success': False, 'error': '待执行或执行中的任务不能删除'}, status=409)
             task.is_active = False

@@ -312,7 +312,6 @@ class SimcHistoryBackendPaginationTests(TestCase):
             user_id=other_user.id, simc_profile_id=self.profile.id, backend=self.backend,
             name='其他账号任务', current_status=2, is_active=True,
         )
-
         delete_request = self.factory.delete(f'/api/simc-workbench/tasks/{completed.id}/')
         delete_request.user = self.user
         response = self.view.delete(delete_request, resource='tasks', object_id=completed.id)
@@ -334,6 +333,39 @@ class SimcHistoryBackendPaginationTests(TestCase):
             task.refresh_from_db()
             self.assertTrue(task.is_active)
 
+        panel = SimcBenchmarkPanel.objects.create(
+            name='仍绑定的基准面板', slug='bound-history-delete-panel', created_by_id=self.user.id,
+        )
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, config_hash='b' * 64, status=SimcBenchmarkExecution.STATUS_SUCCESS,
+        )
+        benchmark_task = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
+            name='历史基准子任务', current_status=2, is_active=True,
+        )
+        SimcBenchmarkCase.objects.create(
+            execution=execution, task=benchmark_task, status=SimcBenchmarkExecution.STATUS_SUCCESS,
+            spec_key='warrior_fury', scenario_key='single-target', profile_key='history',
+            spec_label='狂怒', scenario_label='单体', profile_label='历史配置',
+            coordinate_hash='history-delete-bound-case',
+        )
+
+        bound_request = self.factory.delete(f'/api/simc-workbench/tasks/{benchmark_task.id}/')
+        bound_request.user = self.user
+        bound = self.view.delete(bound_request, resource='tasks', object_id=benchmark_task.id)
+        self.assertEqual(bound.status_code, 409)
+        self.assertEqual(json.loads(bound.content)['error'], '基准任务仍绑定面板，不能删除')
+        benchmark_task.refresh_from_db()
+        self.assertTrue(benchmark_task.is_active)
+
+        panel.delete()
+        detached_request = self.factory.delete(f'/api/simc-workbench/tasks/{benchmark_task.id}/')
+        detached_request.user = self.user
+        detached = self.view.delete(detached_request, resource='tasks', object_id=benchmark_task.id)
+        self.assertEqual(detached.status_code, 200)
+        benchmark_task.refresh_from_db()
+        self.assertFalse(benchmark_task.is_active)
+
         history_js = JS[
             JS.index('async function loadTasks('):
             JS.index('function scheduleTaskRefresh(', JS.index('async function loadTasks('))
@@ -341,6 +373,7 @@ class SimcHistoryBackendPaginationTests(TestCase):
         self.assertIn('data-task-delete=', history_js)
         self.assertIn('[2, 3, 5].includes(status)', history_js)
         self.assertIn("window.confirm('删除后该任务将不再显示，是否继续？')", JS)
+        self.assertIn("window.showMessage(`删除失败：${error.message}`, 'error')", JS)
         self.assertIn("method: 'DELETE'", JS)
         self.assertIn('await loadTasks(state.taskPage)', JS)
 
