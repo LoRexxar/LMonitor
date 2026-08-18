@@ -174,6 +174,23 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
 .spec-config-row .config-card-advanced[open] { grid-column:1/-1; grid-row:2; border-top:1px solid #edf0f3; background:#f7f9fb; }
 .spec-config-row .config-card-advanced[open] > summary { border:0; border-radius:0; padding:.5rem .7rem; background:#f7f9fb; }
 
+/* 专精展开态：先统一资源，再明确区分共享基线与变体覆盖。 */
+.spec-config-row .benchmark-spec-advanced-body { display:grid; grid-template-columns:minmax(18rem,.8fr) minmax(23rem,1.2fr); gap:.8rem; padding:.8rem; background:#f5f7fa; }
+.spec-config-row .benchmark-spec-resource-grid { grid-column:1/-1; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.55rem; padding:.7rem; border:1px solid #e1e7ef; border-radius:.7rem; background:#fff; }
+.spec-config-row .benchmark-spec-resource-grid label { gap:.25rem; color:#667085; font-size:.65rem; }
+.spec-config-row .benchmark-spec-resource-grid select { min-height:36px; padding:.35rem .55rem; background:#fcfdff; }
+.benchmark-spec-additional-input,.benchmark-variant-apl-editor { display:grid; align-content:start; gap:.48rem; min-width:0; border:1px solid #e0e7f0; border-radius:.72rem; padding:.75rem; background:#fff; box-shadow:0 1px 2px rgba(15,23,42,.025); }
+.benchmark-spec-additional-input { border-top:3px solid #83a4df; }
+.benchmark-spec-section-title,.benchmark-variant-apl-head strong { color:#344054; font-size:.76rem; font-weight:800; }
+.benchmark-spec-section-help,.benchmark-variant-apl-head small { color:#7a8699; font-size:.65rem; line-height:1.45; }
+.benchmark-spec-additional-input textarea { min-height:6rem; resize:vertical; border-color:#d9e2ef; border-radius:.55rem; padding:.55rem .65rem; background:#fbfdff; color:#334155; font:500 .72rem/1.5 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; }
+.benchmark-spec-additional-input textarea::placeholder { color:#9aa7b9; }
+.benchmark-variant-apl-editor { border-top:3px solid #b0c2e6; }
+.benchmark-variant-apl-head { display:grid; gap:.12rem; padding-bottom:.12rem; border-bottom:1px solid #edf1f5; }
+.benchmark-variant-apl-row { display:grid !important; grid-template-columns:minmax(8rem,.8fr) minmax(13rem,1.2fr); align-items:center; gap:.65rem; min-width:0; padding:.12rem 0; color:#4b5870; font-size:.7rem; font-weight:700; }
+.benchmark-variant-apl-row > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.benchmark-variant-apl-row select { min-height:34px; padding:.32rem .55rem; color:#41516b; font-size:.7rem; background:#fcfdff; }
+
 /* 场景主输入与启用控件按输入框顶边对齐，帮助文字不再拉低启用列。 */
 .scenario-primary { align-items:start; }
 .scenario-primary > .config-check { align-self:start; margin-top:1.15rem; }
@@ -199,6 +216,12 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
   .spec-config-row .spec-talent-picker { grid-column:1/-1; grid-row:2; padding:.35rem .7rem .55rem; }
   .spec-config-row .config-card-advanced { grid-column:3; grid-row:1; }
   .spec-config-row .config-card-advanced[open] { grid-row:3; }
+  .spec-config-row .benchmark-spec-advanced-body { grid-template-columns:1fr; }
+  .spec-config-row .benchmark-spec-resource-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+@media (max-width: 560px) {
+  .spec-config-row .benchmark-spec-resource-grid { grid-template-columns:1fr; }
+  .benchmark-variant-apl-row { grid-template-columns:1fr; gap:.28rem; padding:.35rem 0; }
 }
 
 .scenario-raid-buffs { display:grid; gap:.65rem; border-top:1px solid #e8edf3; padding-top:.8rem; }

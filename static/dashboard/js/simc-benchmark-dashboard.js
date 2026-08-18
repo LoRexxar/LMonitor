@@ -357,10 +357,10 @@ function addSpec(data={}){
   const box=$('[data-editor-specs]',root),card=el('div',{class:'config-card spec-config-row',dataset:{config:'spec',specPersistable:persistable?'1':'0'}});
   const primary=el('div',{class:'config-card-primary spec-primary'}),identity=el('input',{type:'hidden',name:'spec_key',value:data.spec_key||''}),specName=el('span',{class:'spec-catalog-name'},catalog.label||data.label||data.spec_key),toggle=checkbox('启用','is_enabled',active),picker=el('div',{class:'spec-talent-picker',dataset:{talentPicker:''}});
   primary.append(identity,specName,toggle,picker);
-  const advanced=advancedGroup('进阶模拟选项','Profile、统一 APL、Template、Backend、专精基线额外输入与各天赋独立 APL 覆盖'),grid=el('div',{class:'config-card-grid'}),variantAplEditor=el('div',{class:'benchmark-variant-apl-editor',dataset:{variantAplEditor:''}}),baselineInput=el('label',{class:'benchmark-spec-additional-input'});
-  const baselineTextarea=el('textarea',{name:'additional_simc_input',rows:'4',maxlength:'20000',placeholder:'例如：set_bonus=midnight_season_2_2pc=1\n作用于此专精的所有天赋和战斗场景'});baselineTextarea.value=data.additional_simc_input||'';baselineInput.append(el('span',{},'专精基线额外 SimC 输入'),baselineTextarea,el('small',{},'先注入该专精基线，再追加场景的额外输入。'));
+  const advanced=advancedGroup('进阶模拟选项','统一资源、专精基线输入与天赋变体覆盖'),grid=el('div',{class:'config-card-grid benchmark-spec-resource-grid'}),variantAplEditor=el('section',{class:'benchmark-variant-apl-editor',dataset:{variantAplEditor:''}}),baselineInput=el('label',{class:'benchmark-spec-additional-input'});
+  const baselineTextarea=el('textarea',{name:'additional_simc_input',rows:'3',maxlength:'20000',placeholder:'例如：set_bonus=midnight_season_2_2pc=1\n作用于此专精的所有天赋和战斗场景'});baselineTextarea.value=data.additional_simc_input||'';baselineInput.append(el('span',{class:'benchmark-spec-section-title'},'专精基线额外 SimC 输入'),el('small',{class:'benchmark-spec-section-help'},'先注入该专精基线，再追加场景的额外输入。'),baselineTextarea);
   grid.append(selectField('APL *','apl_id',[],'','当前专精无可用 APL'),selectField('Template *','template_id',[],'','当前专精无可用 Template'),selectField('Backend *','backend_id',(resources?.resources?.backends||[]).map(x=>({value:x.id,label:`${x.name} (${x.identifier})`})),data.backend?.id??data.backend_id),selectField('Profile *','profile_id',[],selectedProfile?.profile_id,'当前专精无可用 Profile'));
-  advanced.body.append(grid,baselineInput,variantAplEditor);card.append(primary,advanced.details);box.append(card);
+  advanced.body.classList.add('benchmark-spec-advanced-body');advanced.body.append(grid,baselineInput,variantAplEditor);card.append(primary,advanced.details);box.append(card);
   updateSpecResources(card,selectedProfile?.profile_id,selectedTalents,data);
   if(!persistable){toggle.querySelector('input').disabled=true;advanced.body.prepend(el('div',{class:'resource-empty'},data.unavailable_reason||'缺少可用 Profile、天赋字符串或系统资源，仅展示为未启用'));}
   if(!availableProfiles.length||!availableTalents.length){const input=toggle.querySelector('input');input.checked=false;input.disabled=true;}
@@ -378,7 +378,7 @@ function updateSpecResources(card,selectedProfileId=null,selectedTalentIds=[],or
   setOptions('profile_id',profiles,selectedProfileId,'Profile');clear(picker);
   const variantAplEditor=card.querySelector('[data-variant-apl-editor]');
   clear(variantAplEditor);
-  variantAplEditor.append(el('strong',{},'天赋变体 APL 覆盖'),el('small',{},'默认继承天赋默认 APL；仅在需要时为某个天赋单独覆盖。'));
+  const variantAplHead=el('header',{class:'benchmark-variant-apl-head'});variantAplHead.append(el('strong',{},'天赋变体 APL 覆盖'),el('small',{},'默认继承天赋默认 APL；仅在需要时单独覆盖。'));variantAplEditor.append(variantAplHead);
   const addTalent=(value,name,detail='',buildCode='')=>{
     const talent=(resources?.resources?.talent_strings||[]).find(item=>String(item.id)===String(value))||{};
     const saved=(original.profiles||[]).find(profile=>String(profile.talent_string_id)===String(value)&&String(profile.profile_id)===String(selectedProfileId));
