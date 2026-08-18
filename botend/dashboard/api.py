@@ -5811,10 +5811,16 @@ class SimcRegularCompareAPIView(View):
     def _apl_action_localizations(baseline):
         """Return only authoritative APL action token → Chinese labels for a frozen spec."""
         character = baseline.get('character') if isinstance(baseline, dict) else {}
-        raw_spec = str((character or {}).get('spec') or '').strip().lower()
-        if '_' not in raw_spec:
+        character = character if isinstance(character, dict) else {}
+        raw_class = str(character.get('class') or '').strip().lower()
+        raw_spec = str(character.get('spec') or '').strip().lower()
+        if '_' in raw_spec:
+            class_name, spec = raw_spec.split('_', 1)
+        elif raw_class and raw_spec:
+            # Frozen SimC reports expose canonical class and spec as separate fields.
+            class_name, spec = raw_class, raw_spec
+        else:
             return {}
-        class_name, spec = raw_spec.split('_', 1)
         localizations = {}
         for symbol in query_visible_symbols(class_name, spec):
             if symbol.symbol_kind not in (SimcAplSymbol.KIND_ACTION, SimcAplSymbol.KIND_PSEUDO_ACTION):

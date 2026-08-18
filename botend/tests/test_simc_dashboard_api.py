@@ -2842,6 +2842,23 @@ DPS=208365 DPS-Error=200/0.1%
             [('Pre', 0.0), ('0:00.000', 0.0), ('0:01.163', 1.163)],
         )
 
+    def test_cast_timeline_action_localizations_accepts_separate_class_and_spec(self):
+        symbol = SimpleNamespace(
+            symbol_kind=SimcAplSymbol.KIND_ACTION,
+            token='bloodthirst',
+            name_zh='嗜血',
+        )
+        with patch(
+            'botend.dashboard.api.query_visible_symbols',
+            return_value=[symbol],
+        ) as visible_symbols:
+            localizations = SimcRegularCompareAPIView._apl_action_localizations({
+                'character': {'class': 'warrior', 'spec': 'fury'},
+            })
+
+        visible_symbols.assert_called_once_with('warrior', 'fury')
+        self.assertEqual(localizations, {'bloodthirst': '嗜血'})
+
     def test_selected_comparison_can_read_other_users_task_results(self):
         other_user = User.objects.create_user(username='comparison_other', password='pwd')
         own = create_test_task(user_id=self.user.id, name='我的结果', simc_profile_id=0, mode='regular', current_status=2)
