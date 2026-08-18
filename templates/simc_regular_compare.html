@@ -27,6 +27,22 @@
             height: 420px;
             width: 100%;
         }
+        .config-difference-cell {
+            background: #fffbeb;
+            box-shadow: inset 3px 0 #f59e0b;
+        }
+        .cast-timeline-grid {
+            display: grid;
+            grid-template-columns: 68px repeat(var(--timeline-columns), minmax(220px, 1fr));
+            min-width: max-content;
+        }
+        .cast-timeline-axis, .cast-timeline-lane { position: relative; }
+        .cast-timeline-axis { border-right: 1px solid #e5e7eb; }
+        .cast-timeline-lane { border-right: 1px solid #e5e7eb; background: repeating-linear-gradient(to bottom, transparent 0, transparent 59px, #f3f4f6 60px); }
+        .cast-timeline-tick { position: absolute; right: 8px; transform: translateY(-50%); font-size: 11px; color: #6b7280; white-space: nowrap; }
+        .cast-timeline-guide { position: absolute; left: 0; right: 0; border-top: 1px dashed #d1d5db; }
+        .cast-timeline-event { position: absolute; left: 8px; right: 8px; transform: translateY(-50%); padding: 3px 6px; border-radius: 4px; background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; font-size: 12px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+        .cast-timeline-event:hover { z-index: 2; overflow: visible; white-space: normal; background: #d1fae5; }
     </style>
 </head>
 <body class="bg-gray-100">
@@ -97,7 +113,6 @@
                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b whitespace-nowrap">APL</th>
                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b whitespace-nowrap">Profile</th>
                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b whitespace-nowrap">场景</th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b whitespace-nowrap">实际输入差异（相对基准）</th>
                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b whitespace-nowrap">DPS差异（相对基准）</th>
                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b whitespace-nowrap">职业/专精</th>
                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b whitespace-nowrap">天赋</th>
@@ -111,11 +126,31 @@
             </div>
 
             <div class="bg-white rounded-lg shadow-md p-6">
-                <h2 class="text-xl font-semibold text-gray-900 mb-4">
-                    <i class="fas fa-code-compare text-teal-600 mr-2"></i>
-                    APL内容对比（相对基准）
-                </h2>
-                <div id="apl-compare-list" class="space-y-4"></div>
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+                    <h2 class="text-xl font-semibold text-gray-900">
+                        <i class="fas fa-sliders-h text-amber-500 mr-2"></i>
+                        配置差异一览
+                    </h2>
+                    <span class="text-xs text-gray-500">琥珀色单元格表示相对基准任务的冻结输入不同</span>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full border border-gray-200 rounded-lg">
+                        <thead class="bg-gray-50" id="config-compare-thead"></thead>
+                        <tbody class="bg-white divide-y divide-gray-200" id="config-compare-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+                    <h2 class="text-xl font-semibold text-gray-900">
+                        <i class="fas fa-stream text-emerald-600 mr-2"></i>
+                        施法序列对比
+                    </h2>
+                    <span id="cast-timeline-summary" class="text-xs text-gray-500"></span>
+                </div>
+                <p class="text-sm text-gray-600 mb-4">每列为一个任务；所有列共用同一条纵向时间轴。悬浮施法可查看目标、资源与 Buff 快照。</p>
+                <div class="overflow-x-auto"><div id="cast-timeline"></div></div>
             </div>
 
             <div class="bg-white rounded-lg shadow-md p-6">
@@ -302,29 +337,6 @@
             });
         }
 
-        function renderInputDifferences(task) {
-            const differences = Array.isArray(task.input_differences) ? task.input_differences : [];
-            const summary = escapeHtml(task.input_difference_summary || '');
-            if (task.is_base) {
-                return '<span class="inline-flex px-2 py-1 rounded bg-blue-50 text-blue-700 font-medium">对比基准</span>';
-            }
-            if (differences.length === 0) {
-                return `<span class="inline-flex px-2 py-1 rounded bg-gray-100 text-gray-600">${summary || '与基准输入一致'}</span>`;
-            }
-            return `
-                <div class="min-w-[20rem] space-y-2">
-                    <div class="text-xs font-semibold text-amber-700">${summary}</div>
-                    ${differences.map(item => `
-                        <div class="border-l-2 border-amber-300 pl-2">
-                            <div class="text-xs font-semibold text-gray-700">${escapeHtml(item.label || item.key || '')}</div>
-                            <div class="text-xs text-gray-500 break-all">${escapeHtml(item.before || '—')}</div>
-                            <div class="text-xs text-amber-800 break-all"><i class="fas fa-arrow-right mr-1"></i>${escapeHtml(item.after || '—')}</div>
-                        </div>
-                    `).join('')}
-                </div>
-            `;
-        }
-
         function renderTaskTable(tasks) {
             const tbody = document.getElementById('task-compare-table');
             const maxDps = Math.max(...tasks.map(t => t.dps || 0));
@@ -350,7 +362,6 @@
                         <td class="px-4 py-3 text-sm text-gray-700" title="${aplName}">${aplName}</td>
                         <td class="px-4 py-3 text-sm text-gray-700" title="${profileName}">${profileName}</td>
                         <td class="px-4 py-3 text-sm text-gray-700" title="${battleScenario}">${battleScenario}</td>
-                        <td class="px-4 py-3 text-sm text-gray-700 align-top">${renderInputDifferences(t)}</td>
                         <td class="px-4 py-3 text-sm ${deltaClass}">
                             ${deltaPercent === null || deltaPercent === undefined ? '-' : (t.is_base ? '基准' : `${deltaSign}${deltaPercent.toFixed(2)}% (${Number(t.delta_dps || 0) >= 0 ? '+' : ''}${Number(t.delta_dps || 0).toLocaleString()})`)}
                         </td>
@@ -446,30 +457,59 @@
             document.getElementById('apl-modal').classList.add('hidden');
         }
 
-        function renderAplCompare(tasks) {
-            const host = document.getElementById('apl-compare-list');
-            const baselineTask = tasks.find(t => t.is_base) || tasks[0];
-            const comparisonTasks = tasks.filter(t => !baselineTask || t.id !== baselineTask.id);
-            if (!comparisonTasks.length) {
-                host.innerHTML = '<div class="text-sm text-gray-500">没有可对比的 APL 内容</div>';
+        function renderConfigurationCompare(tasks) {
+            const thead = document.getElementById('config-compare-thead');
+            const tbody = document.getElementById('config-compare-tbody');
+            const keys = [];
+            const labels = new Map();
+            tasks.forEach(task => Object.entries(task.config_facts || {}).forEach(([key, fact]) => {
+                if (!labels.has(key)) keys.push(key);
+                labels.set(key, (fact && fact.label) || key);
+            }));
+            thead.innerHTML = `<tr><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">配置</th>${tasks.map(task => `<th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b min-w-[13rem]">${escapeHtml(task.name || '任务')}(#${task.id})${task.is_base ? '（基准）' : ''}</th>`).join('')}</tr>`;
+            if (!keys.length) {
+                tbody.innerHTML = `<tr><td colspan="${tasks.length + 1}" class="px-4 py-6 text-center text-gray-500">未读取到冻结配置快照</td></tr>`;
                 return;
             }
-            host.innerHTML = comparisonTasks.map(task => {
-                const differences = Array.isArray(task.apl_differences) ? task.apl_differences : [];
-                const lines = differences.length ? differences.map(item => {
-                    const added = item.type === 'added';
-                    const lineClass = added ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800';
-                    return `<div class="${lineClass} px-3 py-1 font-mono text-xs whitespace-pre-wrap break-all"><span class="inline-block w-4 select-none">${added ? '+' : '-'}</span>${escapeHtml(item.line || '')}</div>`;
-                }).join('') : '<div class="px-3 py-3 text-sm text-gray-500">与基准 APL 内容一致</div>';
-                return `
-                    <section class="border border-gray-200 rounded overflow-hidden">
-                        <div class="flex flex-wrap items-center justify-between gap-2 bg-gray-50 px-4 py-3 border-b border-gray-200">
-                            <div class="font-semibold text-gray-900">${escapeHtml(task.name || '')}(#${task.id})</div>
-                            <div class="text-xs text-gray-600">${escapeHtml(task.apl_difference_summary || '')}</div>
-                        </div>
-                        <div>${lines}</div>
-                    </section>`;
-            }).join('');
+            tbody.innerHTML = keys.map(key => `<tr class="hover:bg-gray-50"><td class="px-4 py-3 text-sm font-medium text-gray-900 align-top">${escapeHtml(labels.get(key))}</td>${tasks.map(task => {
+                const fact = (task.config_facts || {})[key];
+                const changed = !!(fact && fact.is_different);
+                return `<td class="px-4 py-3 text-sm text-gray-700 break-all align-top ${changed ? 'config-difference-cell' : ''}">${escapeHtml((fact && fact.display) || '—')}</td>`;
+            }).join('')}</tr>`).join('');
+        }
+
+        function renderCastTimeline(tasks) {
+            const host = document.getElementById('cast-timeline');
+            const summary = document.getElementById('cast-timeline-summary');
+            const sequences = tasks.map(task => (Array.isArray(task.sample_sequence) ? task.sample_sequence : []).filter(row => Number.isFinite(Number(row.time_seconds))));
+            const eventCount = sequences.reduce((total, sequence) => total + sequence.length, 0);
+            if (!eventCount) {
+                summary.textContent = '无可用施法序列';
+                host.innerHTML = '<div class="py-8 text-center text-gray-500">此批次结果未包含 Sample Sequence Table。</div>';
+                return;
+            }
+            const allEvents = sequences.flat();
+            const minTime = Math.min(...allEvents.map(row => Number(row.time_seconds)));
+            const maxTime = Math.max(...allEvents.map(row => Number(row.time_seconds)));
+            const timelineDuration = Math.max(1, maxTime - minTime);
+            const pixelsPerSecond = 3;
+            const height = Math.max(540, Math.ceil(timelineDuration * pixelsPerSecond) + 48);
+            const desiredTick = Math.max(5, timelineDuration / 8);
+            const magnitude = Math.pow(10, Math.floor(Math.log10(desiredTick)));
+            const tickStep = Math.ceil(desiredTick / magnitude) * magnitude;
+            const tickStart = Math.floor(minTime / tickStep) * tickStep;
+            const ticks = [];
+            for (let time = tickStart; time <= maxTime + 0.001; time += tickStep) ticks.push(Math.round(time * 1000) / 1000);
+            const topFor = time => 24 + (Number(time || 0) - minTime) * pixelsPerSecond;
+            const titleFor = row => [
+                `${row.time_label || Number(row.time_seconds).toFixed(3)}s · ${row.action || ''}`,
+                row.action_list ? `APL：${row.action_list}` : '',
+                row.target ? `目标：${row.target}` : '',
+                row.resources ? `资源：${row.resources}` : '',
+                row.buffs ? `Buff：${row.buffs}` : '',
+            ].filter(Boolean).join('\n');
+            summary.textContent = `${eventCount} 次施法 · ${minTime.toFixed(1)}–${maxTime.toFixed(1)} 秒`;
+            host.innerHTML = `<div class="cast-timeline-grid" style="--timeline-columns:${tasks.length}"><div class="bg-gray-50 border-b border-gray-200 px-2 py-3 text-xs font-semibold text-gray-500">时间</div>${tasks.map(task => `<div class="bg-gray-50 border-b border-gray-200 px-3 py-3 text-sm font-semibold text-gray-900">${escapeHtml(task.name || '任务')}(#${task.id})${task.is_base ? ' <span class="text-xs text-blue-600">基准</span>' : ''}</div>`).join('')}<div class="cast-timeline-axis" style="height:${height}px">${ticks.map(time => `<span class="cast-timeline-tick" style="top:${topFor(time)}px">${time}s</span>`).join('')}</div>${tasks.map((task, index) => `<div class="cast-timeline-lane" style="height:${height}px">${ticks.map(time => `<span class="cast-timeline-guide" style="top:${topFor(time)}px"></span>`).join('')}${sequences[index].map(row => `<span class="cast-timeline-event" style="top:${topFor(row.time_seconds)}px" title="${escapeHtml(titleFor(row))}">${escapeHtml(row.action || '')}</span>`).join('')}</div>`).join('')}</div>`;
         }
 
         function renderAbilityCompare(tasks) {
@@ -623,7 +663,8 @@
                 renderInvalid(invalid);
                 renderDpsChart(tasks);
                 renderTaskTable(tasks);
-                renderAplCompare(tasks);
+                renderConfigurationCompare(tasks);
+                renderCastTimeline(tasks);
                 renderAbilityCompare(tasks);
 
                 document.getElementById('loading-section').classList.add('hidden');

@@ -17,6 +17,7 @@ from django.contrib.auth.decorators import login_required
 import json
 import traceback
 import hashlib
+import math
 import time
 import re
 import requests
@@ -5807,25 +5808,40 @@ class SimcRegularCompareAPIView(View):
         return differences
 
     @staticmethod
-    def _apl_content_differences(baseline_content, current_content):
-        from difflib import SequenceMatcher
+    def _safe_sample_sequence(sequence):
+        """Return a bounded, display-only action sequence with numeric time coordinates."""
+        if not isinstance(sequence, list):
+            return []
 
-        baseline_lines = str(baseline_content or '').splitlines()
-        current_lines = str(current_content or '').splitlines()
-        differences = []
-        matcher = SequenceMatcher(None, baseline_lines, current_lines, autojunk=False)
-        for tag, baseline_start, baseline_end, current_start, current_end in matcher.get_opcodes():
-            if tag in ('replace', 'delete'):
-                differences.extend(
-                    {'type': 'removed', 'line': line}
-                    for line in baseline_lines[baseline_start:baseline_end]
-                )
-            if tag in ('replace', 'insert'):
-                differences.extend(
-                    {'type': 'added', 'line': line}
-                    for line in current_lines[current_start:current_end]
-                )
-        return differences
+        def safe_text(value, maximum):
+            return ' '.join(str(value or '').split())[:maximum]
+
+        safe_rows = []
+        for row in sequence[:1200]:
+            if not isinstance(row, dict):
+                continue
+            raw_time = row.get('time')
+            if raw_time is None or str(raw_time).strip() == '':
+                continue
+            try:
+                time_seconds = float(str(raw_time).strip())
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(time_seconds):
+                continue
+            action = safe_text(row.get('action'), 300)
+            if not action:
+                continue
+            safe_rows.append({
+                'time_seconds': time_seconds,
+                'time_label': safe_text(raw_time, 32),
+                'action': action,
+                'action_list': safe_text(row.get('action_list'), 100),
+                'target': safe_text(row.get('target'), 300),
+                'resources': safe_text(row.get('resources'), 300),
+                'buffs': safe_text(row.get('buffs'), 1000),
+            })
+        return safe_rows
 
     def _get_multi_task_payload(self, request, task_ids):
         """Build a safe comparison report from selected ordinary simulation tasks."""
@@ -5857,7 +5873,14 @@ class SimcRegularCompareAPIView(View):
             battle_scenario = f'{fight_style} · {target_count}目标' if target_count not in (None, '') else fight_style
             result_file = SimcComparisonTaskAPIView._run_result_file(run)
             parsed = {}
-            if result_file:
+            report_artifact = next(
+                (artifact for artifact in run.artifacts.all() if artifact.artifact_type == 'html_report'),
+                None,
+            )
+            if report_artifact:
+                from botend.services.simc_result_analysis import analyze_run_artifact
+                parsed = analyze_run_artifact(task, report_artifact) or {}
+            if not parsed and result_file:
                 content = self._get_result_file_content(result_file)
                 parsed = self._parse_regular_result(content) if content else {}
             dps = summary.get('dps') or parsed.get('dps')
@@ -5880,6 +5903,7 @@ class SimcRegularCompareAPIView(View):
                     for ability in parsed.get('abilities', parsed.get('top_abilities', []))
                 ],
                 'top_abilities': parsed.get('top_abilities', []),
+                'sample_sequence': self._safe_sample_sequence(parsed.get('sample_sequence')),
                 'apl_name': apl_name, 'profile_name': profile_name,
                 'spec': str(profile_payload.get('spec') or getattr(task.profile, 'spec', '') or ''),
                 'battle_scenario': battle_scenario,
@@ -5892,34 +5916,33 @@ class SimcRegularCompareAPIView(View):
         baseline = rows[0]
         baseline_dps = baseline['dps']
         baseline_input_facts = baseline.get('_input_facts') or {}
-        baseline_apl_content = baseline.get('apl_list') or ''
         for row in rows:
             current_input_facts = row.pop('_input_facts', {})
-            if row is baseline:
-                row['input_differences'] = []
-                row['input_difference_summary'] = '对比基准'
-            else:
-                differences = self._frozen_input_differences(
-                    baseline_input_facts, current_input_facts,
-                )
-                row['input_differences'] = differences
-                row['input_difference_summary'] = (
-                    f'{len(differences)} 项输入不同' if differences else '与基准输入一致'
-                )
-            if row is baseline:
-                row['apl_differences'] = []
-                row['apl_difference_summary'] = '对比基准'
-            else:
-                apl_differences = self._apl_content_differences(
-                    baseline_apl_content, row.get('apl_list') or '',
-                )
-                added_count = sum(item['type'] == 'added' for item in apl_differences)
-                removed_count = sum(item['type'] == 'removed' for item in apl_differences)
-                row['apl_differences'] = apl_differences
-                row['apl_difference_summary'] = (
-                    f'{added_count} 行新增，{removed_count} 行删除'
-                    if apl_differences else '与基准 APL 内容一致'
-                )
+            differences = [] if row is baseline else self._frozen_input_differences(
+                baseline_input_facts, current_input_facts,
+            )
+            row['input_differences'] = differences
+            row['input_difference_summary'] = (
+                '对比基准' if row is baseline
+                else (f'{len(differences)} 项输入不同' if differences else '与基准输入一致')
+            )
+            row['config_facts'] = {
+                key: {
+                    'label': str((current_input_facts.get(key) or baseline_fact).get('label') or key),
+                    'display': str((current_input_facts.get(key) or {}).get('display') or '—'),
+                    'is_different': (
+                        current_input_facts.get(key, {}).get('value') != baseline_fact.get('value')
+                    ),
+                }
+                for key, baseline_fact in baseline_input_facts.items()
+            }
+            for key, current_fact in current_input_facts.items():
+                if key not in row['config_facts']:
+                    row['config_facts'][key] = {
+                        'label': str(current_fact.get('label') or key),
+                        'display': str(current_fact.get('display') or '—'),
+                        'is_different': True,
+                    }
         ranked = sorted(rows, key=lambda row: (-row['dps'], row['id']))
         for rank, row in enumerate(ranked, start=1):
             row['rank'] = rank

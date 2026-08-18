@@ -2746,29 +2746,42 @@ DPS=208365 DPS-Error=200/0.1%
             )
             tasks.append(task)
 
-        report_html = (
-            '<div class="player"><div class="toggle-content">'
-            '<script type="text/x-deferred-html">'
-            '<table class="sc sort"><thead><tr>'
-            '<th>Damage Stats</th><th>DPS</th><th>DPS%</th>'
-            '</tr></thead><tbody>'
-            '<tr class="toprow"><td>{ability}</td>'
-            '<td>({ability_dps})</td><td>({percent}%)</td></tr>'
-            '</tbody></table>'
-            '</script></div></div>'
-        )
-        with patch.object(
+        parsed_reports = [
+            {
+                'dps': 1000, 'character': {}, 'simulation': {}, 'talents': {},
+                'abilities': [{'name': 'Bloodthirst', 'dps': '600', 'dps_percent': '60%'}],
+                'sample_sequence': [
+                    {'time': '-0.250', 'marker': '', 'action': 'Charge', 'action_list': 'default',
+                     'target': 'Target Dummy', 'resources': '', 'buffs': ''},
+                    {'time': '1.500', 'marker': '', 'action': 'Bloodthirst', 'action_list': 'default',
+                     'target': 'Target Dummy', 'resources': '', 'buffs': ''},
+                ],
+            },
+            {
+                'dps': 1100, 'character': {}, 'simulation': {}, 'talents': {},
+                'abilities': [{'name': 'Whirlwind', 'dps': '770', 'dps_percent': '70%'}],
+                'sample_sequence': [
+                    {'time': '0.000', 'marker': '', 'action': 'Charge', 'action_list': 'default',
+                     'target': 'Target Dummy', 'resources': '', 'buffs': ''},
+                    {'time': '2.000', 'marker': '', 'action': 'Whirlwind', 'action_list': 'default',
+                     'target': 'Target Dummy', 'resources': '', 'buffs': ''},
+                ],
+            },
+        ]
+        with patch(
+            'botend.services.simc_result_analysis.analyze_run_artifact',
+            side_effect=parsed_reports,
+        ) as artifact_analysis, patch.object(
             SimcRegularCompareAPIView,
             '_get_result_file_content',
-            side_effect=(
-                report_html.format(ability='Bloodthirst', ability_dps=600, percent=60),
-                report_html.format(ability='Whirlwind', ability_dps=770, percent=70),
-            ),
-        ):
+        ) as legacy_result_reader:
             payload = self.client.get(
                 '/api/simc-regular-compare/',
                 {'task_ids': ','.join(str(task.id) for task in tasks)},
             ).json()
+
+        self.assertEqual(artifact_analysis.call_count, 2)
+        legacy_result_reader.assert_not_called()
 
         self.assertTrue(payload['success'], payload)
         baseline, candidate = payload['data']['runs']
@@ -2791,23 +2804,28 @@ DPS=208365 DPS-Error=200/0.1%
         self.assertEqual(candidate['abilities'], [
             {'name': 'Whirlwind', 'dps': '770', 'dps_percent': '70%'},
         ])
-        self.assertEqual(baseline['apl_difference_summary'], '对比基准')
-        self.assertEqual(baseline['apl_differences'], [])
-        self.assertEqual(candidate['apl_difference_summary'], '1 行新增，1 行删除')
-        self.assertEqual(candidate['apl_differences'], [
-            {'type': 'removed', 'line': 'actions=/bloodthirst'},
-            {'type': 'added', 'line': 'actions=/whirlwind'},
-        ])
+        self.assertEqual(baseline['sample_sequence'][0]['time_seconds'], -0.25)
+        self.assertEqual(baseline['sample_sequence'][0]['time_label'], '-0.250')
+        self.assertEqual(baseline['sample_sequence'][1]['time_seconds'], 1.5)
+        self.assertEqual(baseline['sample_sequence'][1]['action'], 'Bloodthirst')
+        self.assertEqual(candidate['sample_sequence'][1]['time_seconds'], 2.0)
         compare_template = (Path(__file__).resolve().parents[2] / 'templates/simc_regular_compare.html').read_text()
-        self.assertIn('实际输入差异（相对基准）', compare_template)
-        self.assertIn('APL内容对比（相对基准）', compare_template)
-        self.assertIn('apl_differences', compare_template)
+        self.assertNotIn('实际输入差异（相对基准）', compare_template)
+        self.assertNotIn('APL内容对比（相对基准）', compare_template)
+        self.assertNotIn('function renderAplCompare(', compare_template)
+        self.assertIn('配置差异一览', compare_template)
+        self.assertIn('config-difference-cell', compare_template)
+        self.assertIn('施法序列对比', compare_template)
+        self.assertIn('sample_sequence', compare_template)
+        self.assertIn('time_seconds', compare_template)
         self.assertIn('技能DPS占比对比', compare_template)
         self.assertIn('data-apl-language="cn"', compare_template)
         self.assertIn("fetch('/api/convert-text/'", compare_template)
         self.assertIn("conversion_type: 'apl_to_cn'", compare_template)
         self.assertIn('spec: aplModalState.spec', compare_template)
-        self.assertIn('input_differences', compare_template)
+        self.assertTrue(candidate['config_facts']['profile']['is_different'])
+        self.assertEqual(candidate['config_facts']['profile']['display'], '候选 Profile')
+        self.assertIn('config_facts', compare_template)
 
     def test_selected_comparison_can_read_other_users_task_results(self):
         other_user = User.objects.create_user(username='comparison_other', password='pwd')
