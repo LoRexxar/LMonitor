@@ -623,6 +623,8 @@ function renderOptionGainDetails(profileDetail,simulationDetail,audit,coordinate
   appendOptionGainDetailSection(body,'消耗品与临时附魔',[["合剂",consumable(consumables.flask)],["药水",consumable(consumables.potion)],["食物",consumable(consumables.food)],["增幅符文",consumable(consumables.augmentation)],["主手临时附魔",consumable(consumables.temporary_enchant?.main_hand)],["副手临时附魔",consumable(consumables.temporary_enchant?.off_hand)]]);
   const extraOptions=Array.isArray(simulationDetail.extra_options)?simulationDetail.extra_options.map(option=>option?.description?`${option?.label||option?.value} · ${option.description}`:(option?.label||option?.value)).filter(Boolean):[];
   appendOptionGainDetailSection(body,'APL 额外选项',[["使用选项",extraOptions.length?extraOptions.join('、'):'未启用']]);
+  const additionalSimcInput=String(simulationDetail.additional_simc_input||'').trim();
+  if(additionalSimcInput){const section=el('section',{class:'benchmark-option-detail-section'});section.append(el('h5',{},'附加 SimC 输入'),el('pre',{class:'benchmark-option-detail-additional-input'},additionalSimcInput));body.append(section);}
   const talentName=profileDetail.talents?.name||'无法获取',talentCode=profileDetail.talents?.build_code,heroTalent=coordinate?.labels?.hero_talent||'无法获取';
   appendOptionGainDetailSection(body,'天赋',[["当前天赋",talentName],["英雄天赋",heroTalent],["Build Code",talentCode]]);
   if(talentCode){const thumbnail=el('div',{class:'benchmark-result-talent-thumbnail','data-benchmark-result-talent-thumbnail':''});body.prepend(thumbnail);mountBenchmarkTalentThumbnail(thumbnail,talentCode,420);}

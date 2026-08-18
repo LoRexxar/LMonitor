@@ -143,6 +143,7 @@
 .simc-benchmark-profile-talent-thumbnail { border-radius: 12px; margin: 0.8rem 0; overflow: hidden; width: min(100%, 520px); }
 .simc-benchmark-profile-talent-thumbnail svg { display: block; height: auto; max-width: 100%; }
 .simc-benchmark-profile-talent-code { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 0.3rem; color: #1e3a8a; flex: 1 1 18rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.68rem; margin: 0; min-width: 0; overflow-wrap: anywhere; padding: 0.4rem 0.5rem; }
+.simc-benchmark-profile-additional-input { background: #0f172a; border-radius: 0.35rem; color: #e2e8f0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.68rem; line-height: 1.5; margin: 0; max-height: 16rem; overflow: auto; padding: 0.55rem; white-space: pre-wrap; word-break: break-word; }
 .simc-benchmark-profile-talent-link { align-items: center; background: #2563eb; border: 1px solid #2563eb; border-radius: 0.35rem; color: #fff; display: inline-flex; flex: 0 0 auto; font-size: 0.68rem; font-weight: 700; justify-content: center; min-height: 2rem; padding: 0.35rem 0.65rem; text-decoration: none; }
 .simc-benchmark-profile-talent-link:hover { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
 .simc-benchmark-profile-talent-link:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }

@@ -476,6 +476,15 @@
     appendProfileFactSection(body, "APL 额外选项", [
       ["使用选项", extraOptions.length ? extraOptions.join("、") : "未启用"],
     ], "simc-benchmark-simulation-facts");
+    const additionalSimcInput = String(simulationDetail?.additional_simc_input || "").trim();
+    if (additionalSimcInput) {
+      const section = node("section", "simc-benchmark-profile-section");
+      section.append(
+        node("h4", "", "附加 SimC 输入"),
+        node("pre", "simc-benchmark-profile-additional-input", additionalSimcInput),
+      );
+      body.appendChild(section);
+    }
     const talentName = profileDetail?.talents?.name || "无法获取";
     const talentCode = profileDetail?.talents?.build_code;
     const section = node("section", "simc-benchmark-profile-section");

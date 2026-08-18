@@ -1124,12 +1124,15 @@ class SimcBenchmarkExecutionTests(TestCase):
             'use_class_raid_buff': True,
             'raid_buffs': ['arcane_intellect', 'bloodlust'],
             'extra_options': ['power_infusion'],
+            'additional_simc_input': 'set_bonus=midnight_season_2_2pc=1\ntarget_health=1',
             'profile_overrides': {
                 'flask': 'flask_of_the_magisters_2',
                 'temporary_enchant': 'main_hand:thalassian_phoenix_oil_2',
             },
         }
         scenario.save(update_fields=['simulation_params'])
+        self.benchmark_profile.talent_string = self.talent
+        self.benchmark_profile.save(update_fields=['talent_string'])
         execution = self._published_success()
         source_task = execution.cases.get().task
 
@@ -1169,8 +1172,9 @@ class SimcBenchmarkExecutionTests(TestCase):
             'extra_options': [{
                 'value': 'power_infusion',
                 'label': '牧师能量灌注',
-                'description': '允许 APL 在最佳时机调用能量灌注（120 秒冷却）。',
+                'description': '从开战起按 120 秒间隔定时施加能量灌注。',
             }],
+            'additional_simc_input': 'set_bonus=midnight_season_2_2pc=1\ntarget_health=1',
             'source_task_id': source_task.id,
         })
         frontend = (
@@ -1178,6 +1182,11 @@ class SimcBenchmarkExecutionTests(TestCase):
         ).read_text(encoding='utf-8')
         self.assertIn('"消耗品与临时附魔"', frontend)
         self.assertIn('"APL 额外选项"', frontend)
+        self.assertIn('"附加 SimC 输入"', frontend)
+        dashboard = (
+            Path(__file__).resolve().parents[2] / 'static/dashboard/js/simc-benchmark-dashboard.js'
+        ).read_text(encoding='utf-8')
+        self.assertIn("'附加 SimC 输入'", dashboard)
 
     def test_incremental_projection_uses_profile_frozen_by_failed_source_task(self):
         self.profile.player_equipment = (

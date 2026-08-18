@@ -1612,6 +1612,7 @@ def _simulation_detail_from_task(task, fallback_params, profile_detail):
         'raid_buffs': labeled_buffs(raid_buffs),
         'consumables': consumables,
         'extra_options': extra_options,
+        'additional_simc_input': str(params.get('additional_simc_input') or '').strip(),
         'source_task_id': task.pk if task is not None else None,
     }
 
