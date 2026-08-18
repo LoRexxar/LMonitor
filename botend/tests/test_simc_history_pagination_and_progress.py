@@ -115,6 +115,15 @@ class SimcHistoryPaginationContractTests(unittest.TestCase):
         self.assertNotIn("action: 'rerun'", rerun)
         self.assertNotIn("method: 'POST'", rerun)
 
+    def test_rerun_handoff_is_consumed_after_the_projection_is_read(self):
+        """一次性重跑参数不能残留，避免后续路由再次回填同一任务。"""
+        start = DASHBOARD_JS.index('async function loadSimcRerunFormFromLocation()')
+        end = DASHBOARD_JS.index('function bindSimcWorkbenchSimulationControls()', start)
+        rerun = DASHBOARD_JS[start:end]
+        self.assertIn("url.searchParams.delete('simc_rerun_task');", rerun)
+        self.assertIn('window.history.replaceState(window.history.state, \'\', url);', rerun)
+        self.assertLess(rerun.index("url.searchParams.delete('simc_rerun_task');"), rerun.index('applySimcRerunSelectionShell(form, taskId);'))
+
     def test_rerun_applies_selection_shell_before_loading_dependent_resources(self):
         """跳转后先显示冻结选择，Profile/APL/天赋等依赖项改为后续异步补全。"""
         start = DASHBOARD_JS.index('function setSimcRerunValue(')

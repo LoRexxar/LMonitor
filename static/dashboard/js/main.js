@@ -4308,6 +4308,12 @@ async function loadSimcRerunFormFromLocation() {
         throw new Error(payload.error || '无法读取历史任务的模拟配置');
     }
     const form = payload.data.rerun_form;
+    // `simc_rerun_task` is a one-shot handoff, not persistent workflow state.
+    // Consume it only after the projection is available, so a failed fetch can
+    // still be retried, while later Dashboard routing never re-hydrates it.
+    const url = new URL(window.location.href);
+    url.searchParams.delete('simc_rerun_task');
+    window.history.replaceState(window.history.state, '', url);
     const specReady = applySimcRerunSelectionShell(form, taskId);
     hydrateSimcRerunDependencies(form, taskId, specReady).catch(error => showMessage(String(error.message || error), 'error'));
 }
