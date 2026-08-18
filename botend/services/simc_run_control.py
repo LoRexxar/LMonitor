@@ -134,6 +134,7 @@ def build_frozen_run_input(task, run, output_filename=None):
         'gear_versatility': profile_payload.get('gear_versatility'),
         'base_template_content': resolved.template_content or '',
         'override_action_list': resolved.apl_content or '',
+        'additional_simc_input': resolved.simulation_params.get('additional_simc_input', ''),
         '_result_file_path': filename,
     }
     if 'raid_buffs' in resolved.simulation_params:

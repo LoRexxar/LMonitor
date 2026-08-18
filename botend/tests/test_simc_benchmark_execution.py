@@ -26,6 +26,7 @@ from botend.services.simc_benchmark_execution import (
     serialize_incremental_panel_results, serialize_public_execution,
     summarize_execution, _spec_icon_url,
 )
+from botend.services.simc_run_control import build_frozen_run_input
 
 
 class SimcBenchmarkExecutionTests(TestCase):
@@ -295,6 +296,47 @@ class SimcBenchmarkExecutionTests(TestCase):
         frozen = execution.config_snapshot['scenarios'][0]['simulation_params']
         self.assertEqual(frozen, scenario.simulation_params)
         self.assertEqual(execution.cases.get().task.simulation_params, scenario.simulation_params)
+
+    def test_selected_variant_and_combined_additional_input_reach_frozen_simc_task(self):
+        """Panel selections must survive into the task and its composed SimC input."""
+        self.benchmark_profile.talent_string = self.talent
+        self.benchmark_profile.apl = self.apl
+        self.benchmark_profile.save(update_fields=['talent_string', 'apl'])
+        spec = self.panel.specs.get(spec_key='warrior_fury')
+        spec.additional_simc_input = 'set_bonus=midnight_season_2_2pc=1'
+        spec.save(update_fields=['additional_simc_input'])
+        scenario = self.panel.scenarios.get(key='patchwerk')
+        scenario.simulation_params = {
+            'iterations': 1000,
+            'additional_simc_input': 'target_health=1',
+        }
+        scenario.save(update_fields=['simulation_params'])
+        self.profile.player_config_mode = 'manual_equipment'
+        self.profile.player_equipment = 'warrior="Benchmark test"\nspec=fury'
+        self.profile.save(update_fields=['player_config_mode', 'player_equipment'])
+        self.template.content = (
+            '{simulation_options}\n{player_config}\n{action_list}\n{output_options}'
+        )
+        self.template.save(update_fields=['content'])
+
+        execution = self._create()
+        task = execution.cases.select_related('task').get().task
+        # Benchmark creates its Task plus frozen candidate plan first; the Agent
+        # persists SimulationRun only when it claims an individual candidate.
+        # The composer only needs the candidate payload, so use the base candidate
+        # here to verify the exact Task -> frozen-input path without an Agent.
+        run = SimulationRun(task=task, candidate_key='baseline', candidate_params={})
+        code, _manifest = build_frozen_run_input(task, run)
+
+        self.assertEqual(task.talent_string_id, self.talent.pk)
+        self.assertEqual(task.apl_id, self.apl.pk)
+        self.assertEqual(
+            task.simulation_params['additional_simc_input'],
+            'set_bonus=midnight_season_2_2pc=1\ntarget_health=1',
+        )
+        self.assertIn('talents=CYEAoonA', code)
+        self.assertIn('actions=/auto_attack', code)
+        self.assertIn('set_bonus=midnight_season_2_2pc=1\ntarget_health=1', code)
 
     def test_explicit_raid_buffs_are_frozen_into_execution_and_task(self):
         scenario = self.panel.scenarios.get(key='patchwerk')
