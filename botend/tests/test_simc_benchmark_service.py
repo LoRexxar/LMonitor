@@ -77,6 +77,86 @@ class SimcBenchmarkConfigServiceTests(TestCase):
         with self.assertRaisesMessage(ValidationError, '独立天赋字符串'):
             normalize_panel_payload(payload, self.user_id)
 
+    def test_each_talent_variant_can_override_the_spec_apl(self):
+        alternate_apl = SimcApl.objects.create(
+            name='Fury cleave APL', spec='warrior_fury', content='actions=/whirlwind',
+            owner_user_id=self.user_id, is_active=True, is_selectable=True,
+        )
+        alternate_talent = SimcTalentString.objects.create(
+            name='My cleave talent', spec='warrior_fury', talent='cleave-talent-code',
+            owner_user_id=self.user_id, default_apl=alternate_apl,
+        )
+        payload = dict(self.payload)
+        payload['specs'] = [dict(self.payload['specs'][0], profiles=[
+            {
+                'profile_id': self.profile.pk, 'talent_string_id': self.talent.pk,
+                'apl_id': self.apl.pk, 'label': 'Single target',
+            },
+            {
+                'profile_id': self.profile.pk, 'talent_string_id': alternate_talent.pk,
+                'apl_id': alternate_apl.pk, 'label': 'Cleave',
+            },
+        ])]
+
+        panel, _ = replace_panel_config(payload, self.user_id)
+        plan = build_execution_plan(panel)
+
+        self.assertEqual(
+            {case['talent_string_id']: case['apl_id'] for case in plan['cases']},
+            {self.talent.pk: self.apl.pk, alternate_talent.pk: alternate_apl.pk},
+        )
+        saved = serialize_panel_config(panel)['specs'][0]['profiles']
+        self.assertEqual(
+            {row['talent_string_id']: row['apl']['id'] for row in saved},
+            {self.talent.pk: self.apl.pk, alternate_talent.pk: alternate_apl.pk},
+        )
+
+    def test_talent_default_apl_is_inherited_when_panel_variant_omits_override(self):
+        default_apl = SimcApl.objects.create(
+            name='Fury default for talent', spec='warrior_fury', content='actions=/bloodthirst',
+            owner_user_id=self.user_id, is_active=True, is_selectable=True,
+        )
+        self.talent.default_apl = default_apl
+        self.talent.save(update_fields=['default_apl'])
+        payload = dict(self.payload)
+        payload['specs'] = [dict(self.payload['specs'][0], profiles=[{
+            'profile_id': self.profile.pk, 'talent_string_id': self.talent.pk,
+            'label': 'Inherited default',
+        }])]
+
+        panel, _ = replace_panel_config(payload, self.user_id)
+        case = build_execution_plan(panel)['cases'][0]
+        saved = serialize_panel_config(panel)['specs'][0]['profiles'][0]
+
+        self.assertEqual(case['apl_id'], default_apl.pk)
+        self.assertEqual(saved['apl'], {
+            'id': default_apl.pk, 'name': default_apl.name, 'inherited': True,
+        })
+
+    def test_spec_baseline_additional_input_is_frozen_into_every_case(self):
+        payload = dict(self.payload)
+        payload['specs'] = [dict(
+            self.payload['specs'][0],
+            additional_simc_input='set_bonus=midnight_season_2_2pc=1',
+        )]
+        payload['scenarios'] = [dict(
+            self.payload['scenarios'][0],
+            simulation_params={
+                'iterations': 1000, 'desired_targets': 1,
+                'additional_simc_input': 'target_health=1',
+            },
+        )]
+
+        panel, _ = replace_panel_config(payload, self.user_id)
+        case = build_execution_plan(panel)['cases'][0]
+        saved = serialize_panel_config(panel)['specs'][0]
+
+        self.assertEqual(saved['additional_simc_input'], 'set_bonus=midnight_season_2_2pc=1')
+        self.assertEqual(
+            case['simulation_params']['additional_simc_input'],
+            'set_bonus=midnight_season_2_2pc=1\ntarget_health=1',
+        )
+
     def test_normalize_strict_shapes_unknown_options_and_types(self):
         for field in ('specs', 'scenarios', 'candidates'):
             payload = dict(self.payload); payload[field] = {}

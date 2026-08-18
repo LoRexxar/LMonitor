@@ -613,7 +613,7 @@ def normalize_panel_payload(payload, user_id, panel=None):
         raw = _require_dict(raw, f'specs[{index}]')
         unknown = set(raw) - {
             'class_name', 'spec_key', 'label', 'apl_id', 'template_id', 'backend_id',
-            'profiles', 'is_enabled', 'display_order',
+            'additional_simc_input', 'profiles', 'is_enabled', 'display_order',
         }
         if unknown: _error(f'spec 包含未知字段: {", ".join(sorted(unknown))}', 'specs')
         spec_key = _key(raw.get('spec_key'), 'spec_key')
@@ -651,7 +651,9 @@ def normalize_panel_payload(payload, user_id, panel=None):
             if type(profile_raw) is int:
                 profile_raw = {'profile_id': profile_raw}
             profile_raw = _require_dict(profile_raw, f'profiles[{profile_index}]')
-            unknown_profile = set(profile_raw) - {'profile_id', 'label', 'talent_string_id', 'is_enabled', 'display_order'}
+            unknown_profile = set(profile_raw) - {
+                'profile_id', 'label', 'talent_string_id', 'apl_id', 'is_enabled', 'display_order',
+            }
             if unknown_profile: _error('profile 包含未知字段', 'profiles')
             profile = _resource(SimcProfile, profile_raw.get('profile_id'), 'profile', user_id)
             if selected_profile_id is None:
@@ -669,6 +671,18 @@ def normalize_panel_payload(payload, user_id, panel=None):
             )
             if str(talent.spec).strip().lower() not in {expected_spec, spec_key}:
                 _error('天赋字符串专精不一致', 'talent_string_id')
+            selected_apl = None
+            if profile_raw.get('apl_id') is not None:
+                selected_apl = _resource(SimcApl, profile_raw['apl_id'], 'apl', user_id)
+                if not _same_spec(selected_apl.spec, expected_class, expected_spec):
+                    _error('Profile APL 专精不一致', 'apl_id')
+            elif talent.default_apl_id:
+                # The talent resource owns its default. Validate it again while
+                # saving Panel config so inactive/mismatched defaults never leak
+                # into a newly created execution.
+                selected_apl = _resource(SimcApl, talent.default_apl_id, 'apl', user_id)
+                if not _same_spec(selected_apl.spec, expected_class, expected_spec):
+                    _error('天赋默认 APL 专精不一致', 'talent_string_id')
             talent_variant = talent.pk
             if talent_variant in seen_talent_variants:
                 _error('profiles 包含重复天赋配置', 'profiles')
@@ -678,6 +692,7 @@ def normalize_panel_payload(payload, user_id, panel=None):
                 'label': _text(profile_raw.get('label', profile.name), 'profile.label',
                                max_length=200),
                 'talent_string_id': talent_variant,
+                'apl_id': selected_apl.pk if profile_raw.get('apl_id') is not None else None,
                 'is_enabled': _strict_bool(profile_raw.get('is_enabled'), 'profile.is_enabled', True),
                 'display_order': _order(profile_raw.get('display_order'), 'profile.display_order', profile_index),
             })
@@ -689,6 +704,10 @@ def normalize_panel_payload(payload, user_id, panel=None):
                 ''.join(part.capitalize() for part in expected_spec.split('_')), expected_spec,
             ),
             'apl_id': apl.pk, 'template_id': template.pk, 'backend_id': backend.pk,
+            'additional_simc_input': _text(
+                raw.get('additional_simc_input', ''), 'spec.additional_simc_input',
+                required=False, max_length=20000,
+            ),
             'profiles': normalized_profiles,
             'is_enabled': spec_enabled,
             'display_order': _order(raw.get('display_order'), 'spec.display_order', index),
@@ -1023,7 +1042,7 @@ def _freeze_comparison_candidates(comparison_config):
     ]
 
 
-def _resource_display_snapshot(spec, selected):
+def _resource_display_snapshot(spec, selected, apl):
     """Freeze display/version identities, deliberately excluding bodies and paths."""
     return {
         'profile': {
@@ -1038,10 +1057,10 @@ def _resource_display_snapshot(spec, selected):
             'hero_talent_names': list(selected.talent_string.hero_talent_names or []),
         } if selected.talent_string_id else None),
         'apl': {
-            'id': spec.apl_id, 'name': spec.apl.name, 'source': spec.apl.source,
-            'spec': spec.apl.spec, 'sync_version': spec.apl.sync_version,
-            'validation_revision': spec.apl.validation_revision,
-            'validation_game_build': spec.apl.validation_game_build,
+            'id': apl.pk, 'name': apl.name, 'source': apl.source,
+            'spec': apl.spec, 'sync_version': apl.sync_version,
+            'validation_revision': apl.validation_revision,
+            'validation_game_build': apl.validation_game_build,
         },
         'template': {
             'id': spec.template_id, 'name': spec.template.name,
@@ -1057,7 +1076,9 @@ def _resource_display_snapshot(spec, selected):
 
 
 def _panel_snapshot_queryset(*, enabled_only):
-    profile_rows = SimcBenchmarkProfile.objects.select_related('profile', 'talent_string').order_by('display_order', 'id')
+    profile_rows = SimcBenchmarkProfile.objects.select_related(
+        'profile', 'apl', 'talent_string', 'talent_string__default_apl',
+    ).order_by('display_order', 'id')
     specs = SimcBenchmarkSpec.objects.select_related('apl', 'template', 'backend').order_by('display_order', 'id')
     scenarios = SimcBenchmarkScenario.objects.order_by('display_order', 'id')
     candidates = SimcBenchmarkCandidate.objects.order_by('display_order', 'id')
@@ -1124,20 +1145,27 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
         # Locks above cover configuration only. Load display resources afterwards
         # with ordinary batched reads; task persistence acquires their locks in the
         # global Backend→Profile→APL→Template order.
-        apls = SimcApl.objects.in_bulk({row.apl_id for row in specs})
-        templates = SimcContentTemplate.objects.in_bulk({row.template_id for row in specs})
-        backends = SimcBackendBinary.objects.in_bulk({row.backend_id for row in specs})
         profile_rows = [selected for row in specs for selected in row._snapshot_profiles]
         profiles = SimcProfile.objects.in_bulk({row.profile_id for row in profile_rows})
         talents = SimcTalentString.objects.in_bulk({row.talent_string_id for row in profile_rows if row.talent_string_id})
+        apl_ids = ({row.apl_id for row in specs}
+                   | {row.apl_id for row in profile_rows if row.apl_id}
+                   | {talent.default_apl_id for talent in talents.values() if talent.default_apl_id})
+        apls = SimcApl.objects.in_bulk(apl_ids)
+        templates = SimcContentTemplate.objects.in_bulk({row.template_id for row in specs})
+        backends = SimcBackendBinary.objects.in_bulk({row.backend_id for row in specs})
         for row in specs:
             row.apl = apls[row.apl_id]
             row.template = templates[row.template_id]
             row.backend = backends[row.backend_id]
         for row in profile_rows:
             row.profile = profiles[row.profile_id]
+            if row.apl_id:
+                row.apl = apls[row.apl_id]
             if row.talent_string_id:
                 row.talent_string = talents[row.talent_string_id]
+                if row.talent_string.default_apl_id:
+                    row.talent_string.default_apl = apls[row.talent_string.default_apl_id]
     if not specs: _error('没有 enabled 专精，无法执行')
     if not scenarios: _error('没有 enabled 场景，无法执行')
     is_option_gain = panel.benchmark_type == SimcBenchmarkPanel.BENCHMARK_TYPE_OPTION_GAIN
@@ -1173,11 +1201,25 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
                         'talent_string_id',
                     )
                 simulation_params = deepcopy(scenario.simulation_params)
+                additional_inputs = [
+                    str(value).strip() for value in (
+                        spec.additional_simc_input,
+                        simulation_params.get('additional_simc_input', ''),
+                    ) if str(value).strip()
+                ]
+                if additional_inputs:
+                    simulation_params['additional_simc_input'] = '\n'.join(additional_inputs)
+                else:
+                    simulation_params.pop('additional_simc_input', None)
                 if is_option_gain and not comparison_config:
                     simulation_params['extra_options'] = [
                         value for value in simulation_params.get('extra_options', [])
                         if value != panel.comparison_option
                     ]
+                effective_apl = (
+                    selected.apl if selected.apl_id else
+                    (selected.talent_string.default_apl if selected.talent_string.default_apl_id else spec.apl)
+                )
                 cases.append({
                     'spec_key': spec.spec_key, 'spec_label': spec.label,
                     'class_name': spec.class_name,
@@ -1188,11 +1230,11 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
                     'profile_label': selected.profile.name,
                     'profile_id': selected.profile_id,
                     'talent_string_id': selected.talent_string_id,
-                    'apl_id': spec.apl_id,
+                    'apl_id': effective_apl.pk,
                     'template_id': spec.template_id, 'backend_id': spec.backend_id,
                     'simulation_params': simulation_params,
                     'candidates': deepcopy(case_candidates),
-                    'resources': _resource_display_snapshot(spec, selected),
+                    'resources': _resource_display_snapshot(spec, selected, effective_apl),
                 })
     case_count = len(cases)
     run_count = sum(len(item['candidates']) for item in cases)
@@ -1238,19 +1280,33 @@ def serialize_panel_config(panel):
         'specs': [], 'scenarios': [], 'candidates': [],
     }
     for spec in panel._snapshot_specs:
-        result['specs'].append({
-            'id': spec.pk, 'class_name': spec.class_name, 'spec_key': spec.spec_key,
-            'label': spec.label, 'is_enabled': spec.is_enabled, 'display_order': spec.display_order,
-            'apl': {'id': spec.apl_id, 'name': spec.apl.name},
-            'template': {'id': spec.template_id, 'name': spec.template.name},
-            'backend': {'id': spec.backend_id, 'identifier': spec.backend.identifier, 'name': spec.backend.name},
-            'profiles': [{
+        profiles = []
+        for selected in spec._snapshot_profiles:
+            effective_apl = (
+                selected.apl if selected.apl_id else
+                (selected.talent_string.default_apl if (
+                    selected.talent_string_id and selected.talent_string.default_apl_id
+                ) else spec.apl)
+            )
+            profiles.append({
                 'id': selected.pk, 'profile_id': selected.profile_id,
                 'label': selected.label, 'profile_name': selected.profile.name,
                 'talent_string_id': selected.talent_string_id,
                 'talent_string_name': selected.talent_string.name if selected.talent_string_id else '',
+                'apl': {
+                    'id': effective_apl.pk, 'name': effective_apl.name,
+                    'inherited': not bool(selected.apl_id),
+                },
                 'is_enabled': selected.is_enabled, 'display_order': selected.display_order,
-            } for selected in spec._snapshot_profiles],
+            })
+        result['specs'].append({
+            'id': spec.pk, 'class_name': spec.class_name, 'spec_key': spec.spec_key,
+            'label': spec.label, 'is_enabled': spec.is_enabled, 'display_order': spec.display_order,
+            'additional_simc_input': spec.additional_simc_input,
+            'apl': {'id': spec.apl_id, 'name': spec.apl.name},
+            'template': {'id': spec.template_id, 'name': spec.template.name},
+            'backend': {'id': spec.backend_id, 'identifier': spec.backend.identifier, 'name': spec.backend.name},
+            'profiles': profiles,
         })
     result['scenarios'] = [{
         'id': row.pk, 'key': row.key, 'name': row.name,
@@ -1295,6 +1351,9 @@ def duplicate_panel_config(panel, user_id):
         for profile in spec['profiles']:
             profile.pop('id', None)
             profile.pop('profile_name', None)
+            apl = profile.pop('apl', None)
+            if apl and not apl.get('inherited'):
+                profile['apl_id'] = apl['id']
     for scenario in payload['scenarios']:
         scenario.pop('id', None)
     for candidate in payload['candidates']:

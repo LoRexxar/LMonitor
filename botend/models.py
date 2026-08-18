@@ -1413,6 +1413,12 @@ class SimcTalentString(models.Model):
     spec = models.CharField(max_length=100, default='fury')
     talent = models.CharField(max_length=2000)
     hero_talent_names = models.JSONField(default=list, blank=True)
+    # Authoritative fallback APL for this talent variant.  NULL deliberately
+    # inherits the legacy specialization APL so old resources stay runnable.
+    default_apl = models.ForeignKey(
+        'SimcApl', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='default_for_talent_strings',
+    )
     system_key = models.CharField(max_length=160, unique=True, null=True, blank=True)
     owner_user_id = models.IntegerField(null=True, blank=True)
     is_system = models.BooleanField(default=False)
@@ -1789,6 +1795,9 @@ class SimcBenchmarkSpec(models.Model):
     backend = models.ForeignKey(
         SimcBackendBinary, on_delete=models.PROTECT, related_name='benchmark_specs',
     )
+    # Raw SimC directives shared by every case of this specialization. Scenario
+    # input is appended after this baseline when a task is frozen.
+    additional_simc_input = models.TextField(default='', blank=True)
     is_enabled = models.BooleanField(default=True)
     display_order = models.PositiveIntegerField(default=0)
 
@@ -1816,6 +1825,12 @@ class SimcBenchmarkProfile(models.Model):
     )
     talent_string = models.ForeignKey(
         'SimcTalentString', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='benchmark_profiles',
+    )
+    # Explicit Panel-level APL override. NULL inherits talent.default_apl and,
+    # only for legacy rows, the containing specialization APL.
+    apl = models.ForeignKey(
+        SimcApl, null=True, blank=True, on_delete=models.PROTECT,
         related_name='benchmark_profiles',
     )
     label = models.CharField(max_length=200)

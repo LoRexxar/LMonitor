@@ -4885,6 +4885,7 @@ class SimcTalentStringAPIView(View):
             'spec_label': _simc_spec_label(row.spec, ''), 'class_label': _simc_class_label(row.spec, ''),
             'label': f"{_simc_spec_label(row.spec, '')} · {_simc_class_label(row.spec, '')}", 'talent': row.talent,
             'hero_talent_names': normalize_hero_subtree_names_zh(row.hero_talent_names),
+            'default_apl_id': row.default_apl_id,
             'talent_simulator_url': '/portal/talents/?' + urlencode({'class': SIMC_SPEC_DB_IDENTITIES.get(row.spec, ('', ''))[0], 'spec': SIMC_SPEC_DB_IDENTITIES.get(row.spec, ('', ''))[1], 'code': row.talent}),
             'is_system': is_system, 'is_active': bool(row.is_active),
             'is_selectable': bool(row.is_selectable), 'owner_user_id': row.owner_user_id,
@@ -4893,6 +4894,20 @@ class SimcTalentStringAPIView(View):
             'can_edit': _is_simc_admin(request.user) or (not is_system and row.owner_user_id == request.user.id),
             'can_delete': not is_system and row.owner_user_id == request.user.id,
         }
+
+    @staticmethod
+    def _default_apl(raw_id, spec):
+        if raw_id in (None, ''):
+            return None
+        try:
+            apl = SimcApl.objects.filter(
+                pk=int(raw_id), is_active=True, is_selectable=True,
+            ).first()
+        except (TypeError, ValueError):
+            apl = None
+        if apl is None or _benchmark_resource_spec_key(apl) != spec:
+            raise ValueError('默认 APL 不存在、不可选，或与天赋专精不一致')
+        return apl
 
     @staticmethod
     def _visible(request, include_inactive=False):
@@ -4929,9 +4944,11 @@ class SimcTalentStringAPIView(View):
                     return JsonResponse({'success': False, 'error': '无法根据天赋字符串识别专精，请手动选择专精'}, status=400)
             if spec not in SIMC_SPEC_VALUES:
                 return JsonResponse({'success': False, 'error': '必须选择有效的专精'}, status=400)
+            default_apl = self._default_apl(data.get('default_apl_id'), spec)
             hero_talent_names = _validate_simc_talent_hero_tree(spec, talent)
             row = SimcTalentString.objects.create(
                 name=name[:200], spec=spec, talent=talent[:2000],
+                default_apl=default_apl,
                 hero_talent_names=hero_talent_names,
                 owner_user_id=request.user.id, is_active=True, is_selectable=True,
             )
@@ -4952,8 +4969,12 @@ class SimcTalentStringAPIView(View):
             talent = str(data.get('talent', row.talent) or '').strip()
             if not name or not spec or not talent or spec not in SIMC_SPEC_VALUES:
                 return JsonResponse({'success': False, 'error': '名称、有效专精和天赋字符串不能为空'}, status=400)
+            default_apl = self._default_apl(
+                data.get('default_apl_id') if 'default_apl_id' in data else row.default_apl_id,
+                spec,
+            )
             hero_talent_names = _validate_simc_talent_hero_tree(spec, talent)
-            row.name, row.spec, row.talent = name[:200], spec, talent[:2000]
+            row.name, row.spec, row.talent, row.default_apl = name[:200], spec, talent[:2000], default_apl
             row.hero_talent_names = hero_talent_names
             if 'is_active' in data: row.is_active = bool(data['is_active'])
             if 'is_selectable' in data: row.is_selectable = bool(data['is_selectable'])
@@ -10246,6 +10267,7 @@ def _benchmark_options_payload(owner_id=None, ownership_context=None):
                 'spec_key': _benchmark_resource_spec_key(row),
                 'canonical_spec': _benchmark_resource_spec_key(row),
                 'hero_talent_names': normalize_hero_subtree_names_zh(row.hero_talent_names),
+                'default_apl_id': row.default_apl_id,
                 'is_system': bool(row.is_system or row.owner_user_id is None),
             } for row in resources['talent_strings']],
         },
