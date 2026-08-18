@@ -90,7 +90,9 @@ _PANEL_FIELDS = {
     'name', 'slug', 'description', 'benchmark_type', 'comparison_option',
     'comparison_config',
     'is_active', 'is_public', 'schedule_enabled', 'interval_seconds', 'next_run_at',
+    'queue_priority',
 }
+BENCHMARK_QUEUE_PRIORITIES = frozenset((10, 20, 30))
 _EXTRA_OPTION_BY_VALUE = {option['value']: option for option in SIMC_EXTRA_OPTIONS}
 _ITEM_OPTION_KEYS = {
     'id', 'ilevel', 'item_level', 'bonus_id', 'bonus_ids', 'gem_id', 'gems',
@@ -603,10 +605,13 @@ def normalize_panel_payload(payload, user_id, panel=None):
         'schedule_enabled': _strict_bool(payload.get('schedule_enabled'), 'schedule_enabled', False),
         'interval_seconds': payload.get('interval_seconds', 86400),
         'next_run_at': payload.get('next_run_at'),
+        'queue_priority': payload.get('queue_priority', 20),
         'specs': [], 'scenarios': [], 'candidates': [],
     }
     if type(normalized['interval_seconds']) is not int or normalized['interval_seconds'] <= 0:
         _error('interval_seconds 必须是正整数', 'interval_seconds')
+    if normalized['queue_priority'] not in BENCHMARK_QUEUE_PRIORITIES:
+        _error('queue_priority 必须是 10（低）、20（普通）或 30（高）', 'queue_priority')
 
     seen_specs = set()
     for index, raw in enumerate(specs):
@@ -1276,7 +1281,8 @@ def serialize_panel_config(panel):
         'comparison_config': deepcopy(panel.comparison_config or {}),
         'is_active': panel.is_active,
         'is_public': panel.is_public, 'schedule_enabled': panel.schedule_enabled,
-        'interval_seconds': panel.interval_seconds, 'next_run_at': panel.next_run_at,
+        'interval_seconds': panel.interval_seconds, 'queue_priority': panel.queue_priority,
+        'next_run_at': panel.next_run_at,
         'specs': [], 'scenarios': [], 'candidates': [],
     }
     for spec in panel._snapshot_specs:

@@ -265,6 +265,7 @@ class SimcWorker:
         """只领取一个 pending Task；返回是否发现任务。"""
         close_old_connections()
         claimed_at = None
+        task = None
         claimed = 0
         try:
             with transaction.atomic():
@@ -279,11 +280,11 @@ class SimcWorker:
                     ~Q(mode='attribute_sweep')
                     | Q(create_time__lte=attribute_search_local_cutoff),
                 ).annotate(
-                    queue_priority=Case(
+                    is_benchmark=Case(
                         When(benchmark_case__isnull=True, then=Value(0)),
                         default=Value(1), output_field=IntegerField(),
                     ),
-                ).order_by('queue_priority', 'create_time', 'id').first()
+                ).order_by('-queue_priority', 'is_benchmark', 'create_time', 'id').first()
                 if task is None:
                     return False
                 claimed_at = timezone.now()
@@ -315,8 +316,9 @@ class SimcWorker:
                     modified_time=timezone.now(),
                 )
         except Exception as exc:
-            logger.exception('[SimC Worker] task %s failed', task.id)
-            self._mark_unexpected_failure(task, exc, claimed_at)
+            logger.exception('[SimC Worker] task %s failed', task.id if task else 'selection')
+            if task is not None:
+                self._mark_unexpected_failure(task, exc, claimed_at)
         if claimed == 1:
             try:
                 simc_benchmark_scheduler.reconcile_execution_for_task(task.id)

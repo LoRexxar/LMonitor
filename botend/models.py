@@ -1171,6 +1171,20 @@ class SimcTask(models.Model):
     ext = models.TextField(null=True, blank=True, help_text="扩展信息（legacy兼容）")
 
     candidate_label = models.CharField(max_length=200, default='', blank=True, help_text="对比任务标签，如 crit+1000")
+    # Regular simulations deliberately use the fixed highest priority. Benchmark
+    # executions only compete below that ceiling, using their frozen panel value.
+    QUEUE_PRIORITY_NORMAL = 100
+    QUEUE_PRIORITY_BENCHMARK_LOW = 10
+    QUEUE_PRIORITY_BENCHMARK_NORMAL = 20
+    QUEUE_PRIORITY_BENCHMARK_HIGH = 30
+    queue_priority = models.PositiveSmallIntegerField(
+        default=QUEUE_PRIORITY_NORMAL,
+        help_text="领取队列优先级；普通模拟固定为最高值，Benchmark 创建时冻结",
+    )
+    is_benchmark_task = models.BooleanField(
+        default=False,
+        help_text='仅 Benchmark Execution 创建的任务；用于持久化校验队列优先级边界。',
+    )
 
     # Reference-based fields (live resource FKs)
     profile = models.ForeignKey('SimcProfile', null=True, blank=True, on_delete=models.SET_NULL, related_name='tasks', help_text="引用的玩家配置")
@@ -1233,11 +1247,21 @@ class SimcTask(models.Model):
                 name='simctask_stale_q_idx',
             ),
             models.Index(
-                fields=['execution_owner', 'is_active', 'current_status', 'create_time'],
+                fields=['execution_owner', 'is_active', 'current_status', '-queue_priority', 'create_time'],
                 name='simctask_owner_queue_idx',
             ),
         ]
         constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(is_benchmark_task=False, queue_priority=100)
+                    | models.Q(
+                        is_benchmark_task=True,
+                        queue_priority__in=(10, 20, 30),
+                    )
+                ),
+                name='simctask_queue_priority_ck',
+            ),
             models.CheckConstraint(
                 condition=models.Q(execution_owner__in=('', 'local', 'agent')),
                 name='simctask_execution_owner_ck',
@@ -1693,6 +1717,10 @@ class SimcBenchmarkPanel(models.Model):
     interval_seconds = models.PositiveIntegerField(
         default=86400, validators=[MinValueValidator(1)],
     )
+    queue_priority = models.PositiveSmallIntegerField(
+        default=SimcTask.QUEUE_PRIORITY_BENCHMARK_NORMAL,
+        help_text='Benchmark 队列优先级；创建 Execution 时冻结到其 Task，始终低于普通模拟。',
+    )
     next_run_at = models.DateTimeField(null=True, blank=True)
     last_scheduled_at = models.DateTimeField(null=True, blank=True)
     published_execution = models.ForeignKey(
@@ -1715,6 +1743,10 @@ class SimcBenchmarkPanel(models.Model):
         db_table = 'simc_benchmark_panel'
         ordering = ['name', 'id']
         constraints = [
+            models.CheckConstraint(
+                condition=models.Q(queue_priority__in=(10, 20, 30)),
+                name='simc_bench_queue_priority_ck',
+            ),
             models.CheckConstraint(
                 condition=models.Q(interval_seconds__gt=0),
                 name='simc_bench_interval_gt0_ck',

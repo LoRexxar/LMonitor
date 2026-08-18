@@ -814,7 +814,8 @@ def create_task_from_prepared(*, prepared, user_id: int, name: str,
                               profile_id: int, template_id: int, apl_id: int,
                               talent_string_id: Optional[int] = None,
                               mode='normal', simulation_params=None, mode_params=None,
-                              candidates=None, backend_id=None, is_admin=False):
+                              candidates=None, backend_id=None, is_admin=False,
+                              benchmark_queue_priority=None, is_benchmark_task=False):
     """Persist a preflighted Task in a short transaction, failing closed if stale."""
     if not isinstance(prepared, PreparedTaskCreation) or prepared.seal is not _PREPARED_SEAL:
         raise TaskCreationError('Invalid prepared task creation token')
@@ -836,6 +837,16 @@ def create_task_from_prepared(*, prepared, user_id: int, name: str,
     allowed_modes = {'normal', 'comparison', 'attribute_sweep'}
     if mode not in allowed_modes:
         raise TaskCreationError(f"Invalid mode '{mode}'. Allowed: {allowed_modes}")
+    if benchmark_queue_priority is None:
+        queue_priority = SimcTask.QUEUE_PRIORITY_NORMAL
+    elif is_benchmark_task and benchmark_queue_priority in (
+            SimcTask.QUEUE_PRIORITY_BENCHMARK_LOW,
+            SimcTask.QUEUE_PRIORITY_BENCHMARK_NORMAL,
+            SimcTask.QUEUE_PRIORITY_BENCHMARK_HIGH,
+    ):
+        queue_priority = benchmark_queue_priority
+    else:
+        raise TaskCreationError('Invalid benchmark queue priority')
     normalized_simulation_params = _normalize_params(simulation_params, SIMULATION_PARAMS_WHITELIST)
     options_error = validate_simulation_options(normalized_simulation_params or {})
     if options_error:
@@ -886,6 +897,7 @@ def create_task_from_prepared(*, prepared, user_id: int, name: str,
             simulation_params=deepcopy(normalized_simulation_params),
             mode_params=deepcopy(normalized_mode_params), candidate_label='',
             result_file=f'{uuid.uuid4().hex}.html', current_status=0, is_active=True,
+            queue_priority=queue_priority, is_benchmark_task=is_benchmark_task,
         )
 
 
@@ -894,7 +906,8 @@ def create_task(user_id: int, name: str, profile_id: Optional[int] = None,
                 talent_string_id: Optional[int] = None,
                 mode: str = 'normal', simulation_params=None, mode_params=None,
                 candidates=None, backend_id: Optional[int] = None,
-                prepared=None, is_admin: bool = False) -> SimcTask:
+                prepared=None, is_admin: bool = False,
+                benchmark_queue_priority=None, is_benchmark_task=False) -> SimcTask:
     """Compatibility entry point for structural resource validation."""
     if prepared is None:
         prepared = prepare_task_creation(
@@ -913,4 +926,6 @@ def create_task(user_id: int, name: str, profile_id: Optional[int] = None,
         talent_string_id=talent_string_id,
         mode=mode, simulation_params=simulation_params, mode_params=mode_params,
         candidates=candidates, is_admin=is_admin,
+        benchmark_queue_priority=benchmark_queue_priority,
+        is_benchmark_task=is_benchmark_task,
     )

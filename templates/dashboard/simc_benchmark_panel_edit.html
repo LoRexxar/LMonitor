@@ -30,11 +30,12 @@
         <label class="config-toggle"><input type="checkbox" name="is_public"><span><strong>Portal 公开</strong><small>允许 Portal 发现已发布的结果</small></span></label>
         <label class="config-toggle"><input type="checkbox" name="schedule_enabled"><span><strong>启用定时</strong><small>由后台按设置的间隔创建执行</small></span></label>
         <label>间隔（秒）<input type="number" name="interval_seconds" min="1"></label>
+        <label>基线任务优先级<select name="queue_priority"><option value="10">低</option><option value="20">普通</option><option value="30">高</option></select><small>普通模拟始终优先于任何 Benchmark。</small></label>
         <label>下次运行<input type="datetime-local" name="next_run_at"></label>
       </div>
     </div></div>
   </form>
 </main>
-<script src="{% static 'dashboard/js/simc-benchmark-panel-edit.js' %}?v=20260803b"></script>
+<script src="{% static 'dashboard/js/simc-benchmark-panel-edit.js' %}?v=20260818_queue_priority"></script>
 </body>
 </html>

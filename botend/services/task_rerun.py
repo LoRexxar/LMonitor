@@ -75,4 +75,6 @@ def create_rerun(
         current_status=0,
         analysis_result={},
         is_active=True,
+        queue_priority=source.queue_priority,
+        is_benchmark_task=source.is_benchmark_task,
     )

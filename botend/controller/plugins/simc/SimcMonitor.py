@@ -406,7 +406,7 @@ class SimcMonitor(BaseScan):
             first_task = SimcTask.objects.filter(
                 is_active=True,
                 current_status=0,
-            ).order_by('modified_time', 'id').first()
+            ).order_by('-queue_priority', 'create_time', 'id').first()
             if not first_task:
                 logger.info("[SimC Monitor] No pending SimC task.")
                 return True

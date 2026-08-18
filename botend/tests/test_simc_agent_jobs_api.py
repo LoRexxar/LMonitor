@@ -102,6 +102,49 @@ class SimcAgentJobAPITests(TestCase):
                         'agent_revision': settings.SIMC_AGENT_REQUIRED_REVISION or ('a' * 40), 'protocol_version': 1,
         }, token)
 
+    def test_claim_keeps_regular_simulation_above_high_priority_benchmark(self):
+        regular = self.task(name='regular')
+        benchmark = self.task(name='benchmark')
+        benchmark.queue_priority = SimcTask.QUEUE_PRIORITY_BENCHMARK_HIGH
+        benchmark.is_benchmark_task = True
+        benchmark.save(update_fields=['queue_priority', 'is_benchmark_task'])
+        panel = SimcBenchmarkPanel.objects.create(
+            name='Priority', slug='priority-regular-first', created_by_id=1,
+            queue_priority=SimcTask.QUEUE_PRIORITY_BENCHMARK_HIGH,
+        )
+        execution = SimcBenchmarkExecution.objects.create(panel=panel, config_hash='p' * 64)
+        SimcBenchmarkCase.objects.create(
+            execution=execution, task=benchmark, spec_key='warrior_fury',
+            scenario_key='patchwerk', profile_key='default', spec_label='Fury',
+            scenario_label='Patchwerk', profile_label='Default', coordinate_hash='q' * 64,
+        )
+
+        response = self.claim()
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['task_id'], regular.pk)
+
+    def test_claim_orders_benchmark_tasks_by_frozen_priority(self):
+        low = self.task(name='low')
+        high = self.task(name='high')
+        low.queue_priority = SimcTask.QUEUE_PRIORITY_BENCHMARK_LOW
+        high.queue_priority = SimcTask.QUEUE_PRIORITY_BENCHMARK_HIGH
+        low.is_benchmark_task = high.is_benchmark_task = True
+        SimcTask.objects.bulk_update([low, high], ['queue_priority', 'is_benchmark_task'])
+        panel = SimcBenchmarkPanel.objects.create(name='Priority', slug='priority-benchmark-order', created_by_id=1)
+        execution = SimcBenchmarkExecution.objects.create(panel=panel, config_hash='r' * 64)
+        for task, key in ((low, 'low'), (high, 'high')):
+            SimcBenchmarkCase.objects.create(
+                execution=execution, task=task, spec_key='warrior_fury',
+                scenario_key='patchwerk', profile_key=key, spec_label='Fury',
+                scenario_label='Patchwerk', profile_label=key, coordinate_hash=key * 64,
+            )
+
+        response = self.claim()
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['task_id'], high.pk)
+
     def test_control_plane_settings_pin_current_repository_revision(self):
         expected = subprocess.check_output(
             ['git', '-C', settings.BASE_DIR, 'rev-parse', 'HEAD'], text=True, timeout=5,

@@ -244,7 +244,7 @@ def claim_run(payload, authorization):
             simulation_runs__status='pending',
         ).annotate(has_expired_run=Exists(expired_run)).filter(
             has_expired_run=False,
-        ).order_by('create_time', 'id').first())
+        ).order_by('-queue_priority', 'create_time', 'id').first())
         if task is None:
             benchmark = SimcBenchmarkCase.objects.filter(task_id=OuterRef('pk'))
             task = (SimcTask.objects.select_for_update().filter(
@@ -254,7 +254,7 @@ def claim_run(payload, authorization):
             ).annotate(
                 is_benchmark=Exists(benchmark), has_expired_run=Exists(expired_run),
             ).filter(has_expired_run=False).order_by(
-                'is_benchmark', 'create_time', 'id',
+                '-queue_priority', 'is_benchmark', 'create_time', 'id',
             ).first())
 
         # Keep one global order for control-plane mutations: Task -> Run -> Agent.

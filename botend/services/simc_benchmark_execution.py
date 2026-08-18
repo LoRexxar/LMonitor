@@ -800,7 +800,8 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
                     }},
                     candidates=deepcopy(coordinate['candidates']),
                     prepared=prepared_by_resources[key],
-                    is_admin=True,
+                    is_admin=True, benchmark_queue_priority=locked_panel.queue_priority,
+                    is_benchmark_task=True,
                 )
                 source_task = coordinate.get('_source_task')
                 if source_task is not None:
@@ -1171,7 +1172,8 @@ def rerun_failed_cases(execution, requested_by=None, case_id=None):
                         }},
                         candidates=deepcopy(current_coordinate['candidates']),
                         prepared=prepared_by_resources[resource_key],
-                        is_admin=True,
+                        is_admin=True, benchmark_queue_priority=panel.queue_priority,
+                        is_benchmark_task=True,
                     )
                 except (TaskPreparedResourceChanged, TaskValidationUnavailable,
                         TaskCreationError) as exc:

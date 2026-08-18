@@ -97,6 +97,32 @@ class SimcWorkerTests(TestCase):
         self.assertIsNotNone(task.started_at)
         process.assert_called_once()
 
+    def test_consume_once_keeps_regular_simulation_above_high_priority_benchmark(self):
+        from botend.services.simc_worker import SimcWorker
+
+        regular = self.make_task(name='regular')
+        benchmark = self.make_task(name='benchmark')
+        SimcTask.objects.filter(pk=benchmark.pk).update(
+            queue_priority=SimcTask.QUEUE_PRIORITY_BENCHMARK_HIGH,
+            is_benchmark_task=True,
+        )
+        panel = SimcBenchmarkPanel.objects.create(
+            name='Priority', slug='worker-priority-regular-first', created_by_id=1,
+            queue_priority=SimcTask.QUEUE_PRIORITY_BENCHMARK_HIGH,
+        )
+        execution = SimcBenchmarkExecution.objects.create(panel=panel, config_hash='w' * 64)
+        SimcBenchmarkCase.objects.create(
+            execution=execution, task=benchmark, spec_key='warrior_fury',
+            scenario_key='patchwerk', profile_key='default', spec_label='Fury',
+            scenario_label='Patchwerk', profile_label='Default', coordinate_hash='x' * 64,
+        )
+        monitor = MagicMock()
+        monitor.process_simc_task.return_value = True
+
+        self.assertTrue(SimcWorker(monitor=monitor, poll_interval=0).consume_once())
+
+        self.assertEqual(monitor.process_simc_task.call_args.args[0].pk, regular.pk)
+
     def test_consume_once_skips_cancelled_and_failed_tasks(self):
         from botend.services.simc_worker import SimcWorker
 
