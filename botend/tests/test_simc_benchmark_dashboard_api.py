@@ -286,7 +286,10 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         self.assertEqual(response.json()['error'], 'validation_error')
 
     def test_panel_coverage_has_a_dedicated_lazy_endpoint(self):
-        panel = self._create_panel()
+        panel = SimcBenchmarkPanel.objects.create(
+            name='Coverage endpoint', slug='coverage-endpoint',
+            created_by_id=self.staff.id,
+        )
         coverage = {
             'aggregate_baseline_execution_id': 7,
             'coordinates': 96,
@@ -297,8 +300,8 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         }
 
         with patch(
-            'botend.dashboard.api.summarize_incremental_panel_coverage',
-            return_value=coverage,
+            'botend.dashboard.api.summarize_panel_coverage_counts',
+            return_value={panel.id: coverage},
         ) as summarize:
             response = self.client.get(
                 f'/api/simc-benchmarks/panels/{panel.id}/coverage/',
@@ -306,7 +309,7 @@ class SimcBenchmarkDashboardApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json(), {'success': True, 'data': coverage})
-        summarize.assert_called_once_with(panel)
+        summarize.assert_called_once_with([panel])
 
     def test_completed_execution_rerun_endpoint_delegates_only_to_benchmark_service(self):
         panel = self._create_panel()

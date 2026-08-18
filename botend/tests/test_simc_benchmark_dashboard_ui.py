@@ -138,7 +138,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn('本次补充候选 Run', run_progress)
         self.assertIn('尚有 ${total-materialized} 个待 Worker 创建', run_progress)
 
-    def test_panel_coverage_loads_sequentially_and_current_execution_shows_live_status(self):
+    def test_panel_coverage_loads_once_without_background_polling(self):
         loader = JS[JS.index('async function loadPanels('):JS.index('function visiblePanels(')]
         self.assertIn('loadPanelCoverages', loader)
         coverage_loader = JS[
@@ -148,6 +148,10 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn('for(const panel of', coverage_loader)
         self.assertIn('panels/${panel.id}/coverage/', coverage_loader)
         self.assertNotIn('Promise.all', coverage_loader)
+        self.assertNotIn('if(panel.execution?.is_active)panelCoverageCache.delete(panel.id)', loader)
+        self.assertNotIn('setInterval', JS)
+        self.assertNotIn('pollActiveExecutions', JS)
+        self.assertNotIn('BENCHMARK_POLL_MS', JS)
 
         execution_renderer = JS[
             JS.index('function renderExecutionProgress('):
@@ -229,7 +233,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn('当前执行', headers)
         for contract in (
             'renderExecutionProgress', '成功', '失败', '运行', 'background:true',
-            'BENCHMARK_POLL_MS', 'forceDiscoveryUntil', 'listFetchInFlight',
+            'listFetchInFlight',
             '候选 Run', 'run_counts', 'renderRunProgress',
         ):
             self.assertIn(contract, JS)

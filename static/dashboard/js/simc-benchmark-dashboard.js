@@ -1,8 +1,6 @@
 (() => {
 'use strict';
 const API = '/api/simc-benchmarks/';
-const BENCHMARK_POLL_MS = 10000;
-const BENCHMARK_DISCOVERY_MS = 60000;
 const STRUCTURED_PARAMS = ['iterations','target_error','fight_style','max_time','vary_combat_length','enemy_type','desired_targets'];
 const SCENARIO_PRIMARY_PARAMS = ['desired_targets','max_time','iterations','fight_style'];
 const SCENARIO_ADVANCED_PARAMS = STRUCTURED_PARAMS.filter(key=>!SCENARIO_PRIMARY_PARAMS.includes(key));
@@ -22,7 +20,6 @@ let panels = [], editingId = null, resources = null, limits = {...DEFAULT_LIMITS
 let listLoadError = '', editorReady = false, savedPayloadFingerprint = '';
 let configPage = false;
 let executionPage = false;
-let forceDiscoveryUntil = 0;
 let listFetchInFlight = false;
 let coverageFetchInFlight = false;
 const panelCoverageCache = new Map();
@@ -249,7 +246,7 @@ async function loadPanels(force=false,{background=false}={}){
   loaded=true; listController?.abort(); listController=new AbortController(); const controller=listController; listFetchInFlight=true;
   const state=$('[data-benchmark-list-state]',root);
   if(!background){state.hidden=false; state.textContent='正在加载基准面板…'; $('[data-benchmark-table-wrap]',root).hidden=true; clear($('[data-benchmark-cards]',root));}
-  try { panels=await benchmarkFetch(`${API}panels/`,{signal:controller.signal}); panels.forEach(panel=>{if(panel.execution?.is_active)panelCoverageCache.delete(panel.id);if(panelCoverageCache.has(panel.id))panel.panel_coverage=panelCoverageCache.get(panel.id);}); listLoadError=''; renderList(); void loadPanelCoverages(panels); }
+  try { panels=await benchmarkFetch(`${API}panels/`,{signal:controller.signal}); panels.forEach(panel=>{if(panelCoverageCache.has(panel.id))panel.panel_coverage=panelCoverageCache.get(panel.id);}); listLoadError=''; renderList(); void loadPanelCoverages(panels); }
   catch(error){ if(error.name==='AbortError'){if(!background)loaded=false;}else if(!background){ panels=[];listLoadError=`加载失败：${error.message}`;state.hidden=false;state.textContent=listLoadError; } }
   finally{if(listController===controller)listFetchInFlight=false;}
 }
@@ -511,7 +508,6 @@ async function runPanel(id,button,mode='supplement'){
   setBusy(button,true);
   try{
     const created=await benchmarkFetch(`${API}panels/${id}/run/`,{method:'POST',body:JSON.stringify({mode})});
-    forceDiscoveryUntil=Date.now()+BENCHMARK_DISCOVERY_MS;
     const cases=Number(created.case_count)||0,runs=Number(created.run_count)||0;
     const failures=Array.isArray(created.preflight_failures)?created.preflight_failures:[];
     if(failures.length){
@@ -559,8 +555,8 @@ async function deletePanel(id,button){
   }catch(e){notify(`删除失败：${e.message}`,'error');}
   finally{if(button?.isConnected)setBusy(button,false);}
 }
-async function cancelExecutionPanel(id,button){const panel=panels.find(x=>String(x.id)===String(id)),execution=panel?.execution;if(!execution||!window.confirm(`取消 Execution #${execution.id}？\n\n会取消该执行的未完成 Case、Task 和 Run，但不会停止共享 Worker。`))return;setBusy(button,true);try{await benchmarkFetch(`${API}executions/${execution.id}/cancel/`,{method:'POST',body:'{}'});forceDiscoveryUntil=Date.now()+BENCHMARK_DISCOVERY_MS;notify(`Execution #${execution.id} 已取消`,'success');await loadPanels(true);}catch(error){notify(`取消失败：${error.message}`,'error');}finally{setBusy(button,false);}}
-async function rerunFailedPanel(id,button){const panel=panels.find(x=>String(x.id)===String(id)),execution=panel?.execution;if(!execution)return;if(!window.confirm(`直接创建一次批量失败重跑？\n\n只复制 Execution #${execution.id} 中失败或已取消的子任务；历史任务和结果不会被修改。`))return;setBusy(button,true);try{const data=await benchmarkFetch(`${API}executions/${execution.id}/rerun-failed/`,{method:'POST',body:'{}'});forceDiscoveryUntil=Date.now()+BENCHMARK_DISCOVERY_MS;notify(`已创建失败重跑 Execution #${data.id}`,'success');await loadPanels(true,{background:true});}catch(error){notify(`失败重跑创建失败：${error.message}`,'error');}finally{setBusy(button,false);}}
+async function cancelExecutionPanel(id,button){const panel=panels.find(x=>String(x.id)===String(id)),execution=panel?.execution;if(!execution||!window.confirm(`取消 Execution #${execution.id}？\n\n会取消该执行的未完成 Case、Task 和 Run，但不会停止共享 Worker。`))return;setBusy(button,true);try{await benchmarkFetch(`${API}executions/${execution.id}/cancel/`,{method:'POST',body:'{}'});notify(`Execution #${execution.id} 已取消`,'success');await loadPanels(true);}catch(error){notify(`取消失败：${error.message}`,'error');}finally{setBusy(button,false);}}
+async function rerunFailedPanel(id,button){const panel=panels.find(x=>String(x.id)===String(id)),execution=panel?.execution;if(!execution)return;if(!window.confirm(`直接创建一次批量失败重跑？\n\n只复制 Execution #${execution.id} 中失败或已取消的子任务；历史任务和结果不会被修改。`))return;setBusy(button,true);try{const data=await benchmarkFetch(`${API}executions/${execution.id}/rerun-failed/`,{method:'POST',body:'{}'});notify(`已创建失败重跑 Execution #${data.id}`,'success');await loadPanels(true,{background:true});}catch(error){notify(`失败重跑创建失败：${error.message}`,'error');}finally{setBusy(button,false);}}
 function abortHistoryRequests(){historyListController?.abort();historyDetailController?.abort();historyReconcileController?.abort();}
 function historyIsCurrent(token,panelId){const dialog=$('[data-benchmark-history]',root);return !!dialog&&!dialog.hidden&&token===historyGeneration&&String(panelId)===String(historyPanelId);}
 function closeHistory(){const dialog=$('[data-benchmark-history]',root);dialog.hidden=true;abortHistoryRequests();historyGeneration++;historyPanelId=null;$('[data-history-detail]',root).hidden=true;document.body.classList.remove('simc-benchmark-scroll-locked');historyReturnFocus?.focus?.();}
@@ -648,9 +644,7 @@ function bind(){
  document.addEventListener('keydown',e=>{if(configPage)return;const editor=$('[data-benchmark-editor]',root),history=$('[data-benchmark-history]',root);if(editor&&!editor.hidden){if(e.key==='Escape'&&!saving)closeEditor();trapFocus(e,editor);}else if(history&&!history.hidden){if(e.key==='Escape')closeHistory();trapFocus(e,history);}});
  document.addEventListener('dashboard-section-changed',e=>{if(configPage)return;if(e.detail?.section==='simc-benchmarks')loadPanels();else{listController?.abort();if($('[data-benchmark-editor]',root).hidden)resourceController?.abort();}});
 }
-function benchmarkSectionVisible(){const section=$('[data-simc-benchmark-root]',root);return !configPage&&document.visibilityState==='visible'&&!!section&&(section.classList.contains('active')||section.style.display==='block');}
-function pollActiveExecutions(){const discovering=Date.now()<forceDiscoveryUntil;if(benchmarkSectionVisible()&&(discovering||panels.some(panel=>panel.execution?.is_active)))loadPanels(true,{background:true});}
-function init(){if(initialized)return;const execution=$('[data-benchmark-execution-page]');if(execution){root=execution;executionPage=true;initialized=true;bind();loadExecutionPage();return;}const page=$('[data-benchmark-config-page]');if(page){root=page;configPage=true;initialized=true;bind();openEditor(page.dataset.benchmarkPanelId);return;}const section=$('[data-simc-benchmark-root]');root=section?.parentElement || section;if(!root)return;initialized=true;bind();window.setInterval(pollActiveExecutions,BENCHMARK_POLL_MS);if(section.classList.contains('active')||section.style.display==='block')loadPanels();}
+function init(){if(initialized)return;const execution=$('[data-benchmark-execution-page]');if(execution){root=execution;executionPage=true;initialized=true;bind();loadExecutionPage();return;}const page=$('[data-benchmark-config-page]');if(page){root=page;configPage=true;initialized=true;bind();openEditor(page.dataset.benchmarkPanelId);return;}const section=$('[data-simc-benchmark-root]');root=section?.parentElement || section;if(!root)return;initialized=true;bind();if(section.classList.contains('active')||section.style.display==='block')loadPanels();}
 if(typeof module==='object'&&module.exports){module.exports={comparisonSummaryData};return;}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
 })();

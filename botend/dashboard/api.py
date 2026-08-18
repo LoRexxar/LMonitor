@@ -107,7 +107,7 @@ from botend.services.simc_benchmark_config import (
 from botend.services.simc_benchmark_execution import (
     BenchmarkExecutionConflict, cancel_execution, create_execution, reconcile_execution,
     rerun_failed_cases, rerun_case, serialize_incremental_panel_results,
-    summarize_execution, summarize_incremental_panel_coverage,
+    summarize_execution,
     summarize_panel_coverage_counts, task_progress, _canonical_hash,
 )
 from botend.services.simc_task_service import TaskValidationUnavailable
@@ -10053,15 +10053,16 @@ class SimcBenchmarkPanelListAPIView(_BenchmarkAdminAPIView):
 
 
 class SimcBenchmarkPanelCoverageAPIView(_BenchmarkAdminAPIView):
-    """Load expensive aggregate result coverage for one panel at a time."""
+    """Load lightweight aggregate result coverage for one panel at a time."""
 
     def get(self, request, panel_id):
         panel, error = self.panel_or_404(panel_id)
         if error:
             return error
+        coverage = summarize_panel_coverage_counts([panel])[panel.pk]
         return JsonResponse({
             'success': True,
-            'data': summarize_incremental_panel_coverage(panel),
+            'data': coverage,
         })
 
 
