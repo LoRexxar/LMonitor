@@ -315,6 +315,17 @@ class SimcBenchmarkConfigServiceTests(TestCase):
         self.assertEqual(candidate['icon_url'], '/static/wow_icons/small/inv_trinket_raid_01.jpg')
         self.assertEqual(candidate['source_label'], '物品 #123')
 
+    def test_prefers_chinese_tooltip_even_when_english_snapshot_is_more_verbose(self):
+        WowItemSnapshot.objects.create(
+            item_id=123, name='Test Trinket', name_zh='测试饰品',
+            description='Equip: A much longer English static effect description with extra details.',
+            description_zh='装备：中文特效。',
+        )
+
+        candidate = normalize_panel_payload(self.payload, self.user_id)['candidates'][0]
+
+        self.assertEqual(candidate['effect'], '装备：中文特效。')
+
     def test_preserves_explicit_variant_suffix_when_localizing_item_name(self):
         WowItemSnapshot.objects.create(
             item_id=123, name='Test Trinket', name_zh='测试饰品', icon='inv_trinket_raid_01',

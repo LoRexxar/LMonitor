@@ -19,16 +19,9 @@ SPECIAL_BONUS_LABELS = {
 }
 
 
-def _tooltip_completeness(value):
-    lines = [line.strip() for line in str(value or '').splitlines() if line.strip()]
-    semantic_lines = sum(line.startswith(('+', 'Use:', 'Equip:', 'Passive:', 'Effect:', '使用：', '装备：', '被动：', '效果：')) for line in lines)
-    return (semantic_lines, len(lines), len(str(value or '')))
-
-
 def _best_tooltip(description_zh, description):
-    zh = str(description_zh or '').strip()
-    fallback = str(description or '').strip()
-    return max((zh, fallback), key=_tooltip_completeness)
+    """Keep public Benchmark descriptions Chinese whenever the item snapshot has one."""
+    return str(description_zh or '').strip() or str(description or '').strip()
 
 
 

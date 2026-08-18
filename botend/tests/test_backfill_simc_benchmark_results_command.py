@@ -97,6 +97,42 @@ class BackfillSimcBenchmarkResultsCommandTests(SimcBenchmarkExecutionTests):
         call_command('backfill_simc_benchmark_display_metadata', stdout=repeat)
         self.assertIn('updated 0 candidates, 0 runs, and 0 executions', repeat.getvalue())
 
+    def test_backfill_prefers_chinese_tooltip_over_more_verbose_english_snapshot(self):
+        self.benchmark_profile.talent_string = self.talent
+        self.benchmark_profile.save(update_fields=['talent_string'])
+        execution = self._create()
+        case = execution.cases.get()
+        candidate = SimcBenchmarkCandidate.objects.get(panel=execution.panel, key='trinket')
+        candidate.effect = 'Equip: stale English effect with more verbose frozen content.'
+        candidate.save(update_fields=['effect'])
+        execution.display_metadata = {
+            'trinket': {'effect': 'Equip: stale execution English effect with more verbose frozen content.'},
+        }
+        execution.save(update_fields=['display_metadata'])
+        run = SimulationRun.objects.create(
+            task=case.task, sequence=1, candidate_key='trinket', candidate_label='Trinket',
+            candidate_params=candidate.params,
+            display_metadata={'effect': 'Equip: stale run English effect with more verbose frozen content.'},
+        )
+        WowItemSnapshot.objects.create(
+            item_id=123, name='Test Trinket', name_zh='测试饰品',
+            description='Equip: A much longer English static effect description with extra details.',
+            description_zh='装备：中文特效。',
+        )
+        snapshot_before = deepcopy(execution.config_snapshot)
+        hash_before = execution.config_hash
+
+        call_command('backfill_simc_benchmark_display_metadata', panel_slug=execution.panel.slug)
+
+        candidate.refresh_from_db()
+        run.refresh_from_db()
+        execution.refresh_from_db()
+        self.assertEqual(candidate.effect, '装备：中文特效。')
+        self.assertEqual(run.display_metadata['effect'], '装备：中文特效。')
+        self.assertEqual(execution.display_metadata['trinket']['effect'], '装备：中文特效。')
+        self.assertEqual(execution.config_snapshot, snapshot_before)
+        self.assertEqual(execution.config_hash, hash_before)
+
     def test_candidate_level_tooltips_are_exact_and_preserve_results(self):
         execution = self._create()
         case = execution.cases.get()

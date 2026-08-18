@@ -512,17 +512,9 @@ def _default_talent_string(spec_key):
     return matches[0]
 
 
-def _benchmark_tooltip_completeness(value):
-    lines = [line.strip() for line in str(value or '').splitlines() if line.strip()]
-    semantic_lines = sum(line.startswith(('+', 'Use:', 'Equip:', 'Passive:', 'Effect:', '使用：', '装备：', '被动：', '效果：')) for line in lines)
-    return (semantic_lines, len(lines), len(str(value or '')))
-
-
 def _best_benchmark_tooltip(description_zh, description):
-    return max(
-        (str(description_zh or '').strip(), str(description or '').strip()),
-        key=_benchmark_tooltip_completeness,
-    )
+    """Prefer the configured Chinese item tooltip; fall back only when it is absent."""
+    return str(description_zh or '').strip() or str(description or '').strip()
 
 
 def _benchmark_item_display_metadata(item_id):
