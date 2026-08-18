@@ -389,7 +389,7 @@ function updateSpecResources(card,selectedProfileId=null,selectedTalentIds=[],or
     if(buildCode){const thumbnail=el('div',{class:'talent-select-thumbnail','data-talent-thumbnail-hover':''});label.append(thumbnail);const mount=()=>mountBenchmarkTalentThumbnail(thumbnail,buildCode,280);label.addEventListener('pointerenter',mount,{once:true});label.addEventListener('focusin',mount,{once:true});}
     picker.append(label);
     const inheritedApl=(resources?.resources?.apls||[]).find(item=>String(item.id)===String(talent.default_apl_id))?.name||'统一专精 APL（兼容回退）';
-    const row=el('label',{class:'benchmark-variant-apl-row',hidden:!selected.has(String(value)),dataset:{variantAplRow:String(value)}}),aplSelect=el('select',{dataset:{talentApl:String(value)},title:'此天赋变体的 APL；留在继承项时使用天赋默认 APL'});
+    const row=el('label',{class:'benchmark-variant-apl-row',dataset:{variantAplRow:String(value)}});row.hidden=!selected.has(String(value));const aplSelect=el('select',{dataset:{talentApl:String(value)},title:'此天赋变体的 APL；留在继承项时使用天赋默认 APL'});
     aplSelect.append(el('option',{value:'',selected:!explicitApl},`继承：${inheritedApl}`));
     (resources?.resources?.apls||[]).filter(item=>resourceMatches(item,spec)).forEach(apl=>aplSelect.append(el('option',{value:apl.id,selected:String(apl.id)===String(explicitApl)},`覆盖：${apl.name}`)));
     row.append(el('span',{},name),aplSelect);variantAplEditor.append(row);
