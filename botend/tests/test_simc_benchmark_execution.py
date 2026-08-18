@@ -65,7 +65,8 @@ class SimcBenchmarkExecutionTests(TestCase):
             label='Fury', apl=self.apl, template=self.template, backend=self.backend,
         )
         self.benchmark_profile = SimcBenchmarkProfile.objects.create(
-            panel_spec=spec, profile=self.profile, label='Raid profile',
+            panel_spec=spec, profile=self.profile, talent_string=self.talent,
+            label='Raid profile',
         )
         SimcBenchmarkScenario.objects.create(
             panel=self.panel, key='patchwerk', name='Patchwerk',
@@ -891,7 +892,8 @@ class SimcBenchmarkExecutionTests(TestCase):
         aggregate = serialize_incremental_panel_results(self.panel)
         coordinates = {row['scenario_key']: row for row in aggregate['coordinates']}
         self.assertEqual(coordinates['patchwerk']['labels'], {
-            'spec': '狂怒-战士', 'scenario': 'Patchwerk', 'profile': 'Raid profile',
+            'spec': '狂怒-战士', 'scenario': 'Patchwerk', 'profile': 'Profile',
+            'talent': 'Profile', 'hero_talent': '无法获取',
         })
         self.assertEqual(
             benchmark_execution_service._spec_display_name('Warrior Fury', 'warrior_fury'),
