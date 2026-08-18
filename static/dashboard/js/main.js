@@ -3371,6 +3371,7 @@ async function loadSimcTalentStringCandidates(spec) {
         const label = `${item.name} · ${heroTalentNames || '未解析'}`;
         return `<option value="${escapeHtml(item.id)}">${escapeHtml(label)}</option>`;
     }).join('');
+    select.disabled = false;
 }
 
 function currentSimcScenario() {
@@ -3537,6 +3538,7 @@ async function loadSimcSimProfileSelect(preferredId = 0, control = null) {
         } else if (defaultSystemProfile) {
             select.value = String(defaultSystemProfile.id);
         }
+        select.disabled = matchingProfiles.length === 0;
         if (select.value && select.value !== 'default') await onSimcProfileSelect();
     } catch (error) {
         if (error.name === 'AbortError' || !isCurrentSimcResourceControl(control)) return;
@@ -4223,22 +4225,48 @@ async function loadSimcBackendOptions() {
     if (!backends.length) select.innerHTML = '<option value="">暂无可用后端</option>';
 }
 
-async function loadSimcRerunFormFromLocation() {
-    const taskId = new URLSearchParams(window.location.search).get('simc_rerun_task');
-    if (!taskId) return;
-    const response = await fetch(`/api/simc-workbench/tasks/${encodeURIComponent(taskId)}/?rerun_form=1`);
-    const payload = await response.json();
-    if (!response.ok || !payload.success || !payload.data?.rerun_form) {
-        throw new Error(payload.error || '无法读取历史任务的模拟配置');
-    }
-    const form = payload.data.rerun_form;
+function setSimcRerunValue(id, value) {
+    const input = document.getElementById(id);
+    if (input && value !== undefined && value !== null) input.value = String(value);
+}
+
+function applySimcRerunSelectionShell(form, taskId) {
     const params = form.simulation_params || {};
     const source = document.querySelector('input[name="simc-sim-player-source"][value="specified_spec"]');
     if (source) source.checked = true;
     switchSimcPlayerImportMode({ resolve: false });
-    await loadSimcSpecOptions();
-    const spec = document.getElementById('simc-sim-spec');
-    if (spec && form.spec) spec.value = form.spec;
+    setSimcRerunValue('simc-sim-mode', form.mode);
+    setSimcRerunValue('simc-sim-fight-style', params.fight_style);
+    setSimcRerunValue('simc-sim-time', params.time);
+    setSimcRerunValue('simc-sim-target-count', params.target_count ?? params.desired_targets);
+    setSimcRerunValue('simc-sim-additional-input', params.additional_simc_input);
+    const profile = document.getElementById('simc-sim-profile-select');
+    if (profile && form.profile_id) {
+        profile.innerHTML = `<option value="${Number(form.profile_id)}" selected>${escapeHtml(form.profile_name || `Profile #${form.profile_id}`)}（正在加载详情…）</option>`;
+        profile.disabled = true;
+    }
+    const setPendingSelection = (id, value, label) => {
+        const select = document.getElementById(id);
+        if (!select || !value) return;
+        select.innerHTML = `<option value="${escapeHtml(value)}" selected>${escapeHtml(label)}（正在加载…）</option>`;
+        select.disabled = true;
+    };
+    setPendingSelection('simc-sim-apl-list', form.apl_id, '历史 APL');
+    setPendingSelection('simc-sim-talent-string', form.talent_string_id, '历史天赋字符串');
+    setPendingSelection('simc-sim-backend', form.backend_id, '历史 SimC 后端');
+    const submit = document.getElementById('simc-sim-submit-btn');
+    if (submit) submit.disabled = true;
+    updateSimcHomeMode();
+    syncSimcFightPresetFromInputs();
+    showMessage(`正在载入历史任务 #${taskId} 的具体配置…`, 'info');
+    return loadSimcSpecOptions().then(() => {
+        const spec = document.getElementById('simc-sim-spec');
+        if (spec && form.spec) spec.value = form.spec;
+    });
+}
+
+async function hydrateSimcRerunDependencies(form, taskId, specReady) {
+    await specReady;
     await resolveSimcPlayerSource(form.profile_id);
     await Promise.all([
         loadSimcTalentStringCandidates(simcResolvedCanonicalSpec),
@@ -4247,18 +4275,10 @@ async function loadSimcRerunFormFromLocation() {
         loadSimcExtraOptions(),
         loadSimcConsumableOptions(),
     ]);
-    const setValue = (id, value) => {
-        const input = document.getElementById(id);
-        if (input && value !== undefined && value !== null) input.value = String(value);
-    };
-    setValue('simc-sim-mode', form.mode);
-    setValue('simc-sim-apl-list', form.apl_id);
-    setValue('simc-sim-talent-string', form.talent_string_id);
-    setValue('simc-sim-backend', form.backend_id);
-    setValue('simc-sim-fight-style', params.fight_style);
-    setValue('simc-sim-time', params.time);
-    setValue('simc-sim-target-count', params.target_count ?? params.desired_targets);
-    setValue('simc-sim-additional-input', params.additional_simc_input);
+    const params = form.simulation_params || {};
+    setSimcRerunValue('simc-sim-apl-list', form.apl_id);
+    setSimcRerunValue('simc-sim-talent-string', form.talent_string_id);
+    setSimcRerunValue('simc-sim-backend', form.backend_id);
     const classRaidBuff = document.getElementById('simc-sim-use-class-raid-buff');
     if (classRaidBuff && typeof params.use_class_raid_buff === 'boolean') classRaidBuff.checked = params.use_class_raid_buff;
     if (Array.isArray(params.raid_buffs)) {
@@ -4273,10 +4293,23 @@ async function loadSimcRerunFormFromLocation() {
             input.checked = params.extra_options.includes(input.value);
         });
     }
-    updateSimcHomeMode();
-    syncSimcFightPresetFromInputs();
+    const submit = document.getElementById('simc-sim-submit-btn');
+    if (submit) submit.disabled = false;
     syncSimcRaidBuffSummary();
     showMessage(`已载入历史任务 #${taskId} 的配置；请确认或编辑后再发起模拟。`, 'success');
+}
+
+async function loadSimcRerunFormFromLocation() {
+    const taskId = new URLSearchParams(window.location.search).get('simc_rerun_task');
+    if (!taskId) return;
+    const response = await fetch(`/api/simc-workbench/tasks/${encodeURIComponent(taskId)}/?rerun_form=1`);
+    const payload = await response.json();
+    if (!response.ok || !payload.success || !payload.data?.rerun_form) {
+        throw new Error(payload.error || '无法读取历史任务的模拟配置');
+    }
+    const form = payload.data.rerun_form;
+    const specReady = applySimcRerunSelectionShell(form, taskId);
+    hydrateSimcRerunDependencies(form, taskId, specReady).catch(error => showMessage(String(error.message || error), 'error'));
 }
 
 function bindSimcWorkbenchSimulationControls() {

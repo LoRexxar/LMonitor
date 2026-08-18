@@ -16,6 +16,7 @@ import json
 ROOT = Path(__file__).resolve().parents[2]
 HTML = (ROOT / "templates/dashboard/index.html").read_text(encoding="utf-8")
 JS = (ROOT / "static/dashboard/js/simc-workbench.js").read_text(encoding="utf-8")
+DASHBOARD_JS = (ROOT / "static/dashboard/js/main.js").read_text(encoding="utf-8")
 
 
 class SimcHistoryPaginationContractTests(unittest.TestCase):
@@ -113,6 +114,17 @@ class SimcHistoryPaginationContractTests(unittest.TestCase):
         self.assertIn("searchParams.set('section', 'simc-workflow')", rerun)
         self.assertNotIn("action: 'rerun'", rerun)
         self.assertNotIn("method: 'POST'", rerun)
+
+    def test_rerun_applies_selection_shell_before_loading_dependent_resources(self):
+        """跳转后先显示冻结选择，Profile/APL/天赋等依赖项改为后续异步补全。"""
+        start = DASHBOARD_JS.index('function setSimcRerunValue(')
+        end = DASHBOARD_JS.index('function bindSimcWorkbenchSimulationControls()', start)
+        rerun = DASHBOARD_JS[start:end]
+        self.assertIn('function applySimcRerunSelectionShell(', rerun)
+        self.assertIn('async function hydrateSimcRerunDependencies(', rerun)
+        self.assertIn('applySimcRerunSelectionShell(form, taskId);', rerun)
+        self.assertIn('hydrateSimcRerunDependencies(form, taskId, specReady).catch(', rerun)
+        self.assertNotIn('await hydrateSimcRerunDependencies(', rerun)
 
     def test_expanded_benchmark_case_omits_low_value_task_id(self):
         """展开项保留坐标、状态和进度，不重复展示内部 Task 编号。"""
@@ -261,6 +273,7 @@ class SimcHistoryBackendPaginationTests(TestCase):
         form = payload['data']['rerun_form']
         self.assertEqual(form['source_task_id'], task.id)
         self.assertEqual(form['profile_id'], self.profile.id)
+        self.assertEqual(form['profile_name'], '冻结狂怒配置')
         self.assertEqual(form['backend_id'], self.backend.id)
         self.assertEqual(form['spec'], 'warrior_fury')
         self.assertEqual(form['talent_string_id'], 42)

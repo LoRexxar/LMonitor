@@ -7125,6 +7125,9 @@ class SimcWorkbenchAPIView(View):
                         'mode': task.mode,
                         'mode_params': task.mode_params if isinstance(task.mode_params, dict) else {},
                         'profile_id': task.profile_id,
+                        'profile_name': str(
+                            profile_payload.get('name') or (task.profile.name if task.profile else '') or ''
+                        ),
                         'backend_id': task.backend_id,
                         'apl_id': task.apl_id,
                         'talent_string_id': task.talent_string_id or (
