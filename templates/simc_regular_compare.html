@@ -41,7 +41,7 @@
         .cast-timeline-lane { border-right: 1px solid #e5e7eb; background: repeating-linear-gradient(to bottom, transparent 0, transparent 59px, #f3f4f6 60px); }
         .cast-timeline-tick { position: absolute; right: 8px; transform: translateY(-50%); font-size: 11px; color: #6b7280; white-space: nowrap; }
         .cast-timeline-guide { position: absolute; left: 0; right: 0; border-top: 1px dashed #d1d5db; }
-        .cast-timeline-event { position: absolute; left: 8px; right: 8px; transform: translateY(-50%); padding: 3px 6px; border-radius: 4px; background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; font-size: 12px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+        .cast-timeline-event { position: absolute; left: 8px; right: 8px; transform: translateY(-50%); padding: 1px 5px; border-radius: 4px; background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; font-size: 11px; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
         .cast-timeline-event:hover { z-index: 2; overflow: visible; white-space: normal; background: #d1fae5; }
     </style>
 </head>
@@ -458,8 +458,8 @@
             const minTime = Math.min(...allEvents.map(row => Number(row.time_seconds)));
             const maxTime = Math.max(...allEvents.map(row => Number(row.time_seconds)));
             const timelineDuration = Math.max(1, maxTime - minTime);
-            const pixelsPerSecond = 3;
-            const height = Math.max(540, Math.ceil(timelineDuration * pixelsPerSecond) + 48);
+            const pixelsPerSecond = 16;
+            const height = Math.max(540, Math.ceil((maxTime - minTime) * pixelsPerSecond) + 48);
             const desiredTick = Math.max(5, timelineDuration / 8);
             const magnitude = Math.pow(10, Math.floor(Math.log10(desiredTick)));
             const tickStep = Math.ceil(desiredTick / magnitude) * magnitude;
