@@ -26,7 +26,7 @@ const panelCoverageCache = new Map();
 let editorReturnFocus = null, historyReturnFocus = null, historyPanelId = null, historyPage = 1;
 const $ = (selector, scope=document) => scope.querySelector(selector);
 const $$ = (selector, scope=document) => Array.from(scope.querySelectorAll(selector));
-function el(tag, attrs={}, text='') { const node=document.createElement(tag); Object.entries(attrs).forEach(([key,value])=>{ if(key==='class') node.className=value; else if(key==='dataset') Object.assign(node.dataset,value); else if(key==='checked') node.checked=!!value; else if(key==='disabled') node.disabled=!!value; else node.setAttribute(key,String(value)); }); if(text !== '') node.textContent=String(text); return node; }
+function el(tag, attrs={}, text='') { const node=document.createElement(tag); Object.entries(attrs).forEach(([key,value])=>{ if(key==='class') node.className=value; else if(key==='dataset') Object.assign(node.dataset,value); else if(key==='checked') node.checked=!!value; else if(key==='disabled') node.disabled=!!value; else if(key==='selected') node.selected=!!value; else node.setAttribute(key,String(value)); }); if(text !== '') node.textContent=String(text); return node; }
 function mountBenchmarkTalentThumbnail(container,buildCode,width=300){
   if(!container||!buildCode||!window.TalentTreeThumbnail||container.__talentTreeThumbnail)return;
   window.TalentTreeThumbnail.mount(container,{buildCode},{width,borderRadius:10})

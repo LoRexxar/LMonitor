@@ -97,6 +97,12 @@ class SimcBenchmarkConfigPageTests(TestCase):
         self.assertEqual(self.client.get(url).status_code, 200)
         self.assertEqual(self.client.get(f'/api/simc-benchmarks/executions/{execution.id}/').status_code, 200)
 
+    def test_variant_apl_option_selection_uses_dom_boolean_property(self):
+        """A saved non-default variant APL must not be replaced by the last option."""
+        script = Path('static/dashboard/js/simc-benchmark-dashboard.js').read_text()
+        self.assertIn("else if(key==='selected') node.selected=!!value", script)
+        self.assertIn("selected:String(apl.id)===String(explicitApl)", script)
+
     def test_existing_candidate_keeps_key_when_another_item_level_is_added(self):
         script = Path('static/dashboard/js/simc-benchmark-dashboard.js').read_text()
         self.assertIn('originalItemId:parts.itemId', script)
