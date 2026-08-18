@@ -92,7 +92,8 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertEqual(title.get_text(strip=True), 'SimC 基准面板')
 
     def test_shared_benchmark_assets_use_current_cache_version(self):
-        expected = '?v=20260817_talent_matrix_only'
+        """All Benchmark entry pages must invalidate the APL-override editor bundle."""
+        expected = '?v=20260818_benchmark_advanced_talent_filter_v5'
         for page in (INDEX, CONFIG_PAGE, EXECUTION_PAGE):
             script = next(line for line in page.splitlines() if 'simc-benchmark-dashboard.js' in line)
             self.assertIn(expected, script)
