@@ -22,7 +22,7 @@ from botend.models import (
 )
 from botend.services.simc_benchmark_execution import (
     BenchmarkExecutionConflict, backfill_completed_case_results, cancel_execution,
-    create_execution, reconcile_execution, rerun_failed_cases,
+    create_execution, reconcile_execution, reconcile_execution_case, rerun_failed_cases,
     serialize_incremental_panel_results, serialize_public_execution,
     summarize_execution, _spec_icon_url,
 )
@@ -177,6 +177,52 @@ class SimcBenchmarkExecutionTests(TestCase):
             set(case.results.values_list('candidate_key', flat=True)),
             {'baseline', 'trinket'},
         )
+
+    def test_task_reconcile_projects_one_case_without_loading_the_whole_execution(self):
+        SimcBenchmarkScenario.objects.create(
+            panel=self.panel, key='second', name='Second',
+            simulation_params={'iterations': 1000},
+        )
+        self.benchmark_profile.talent_string = self.talent
+        self.benchmark_profile.save(update_fields=['talent_string'])
+        execution = self._create()
+        case = execution.cases.select_related('task').order_by('id').first()
+        task = case.task
+        task.current_status = 2
+        task.save(update_fields=['current_status'])
+        self._run(task, 1, 'completed', 'baseline', dps=1234)
+        self._run(task, 2, 'completed', 'trinket', dps=1300)
+
+        with patch.object(
+            benchmark_execution_service, '_load_execution',
+            side_effect=AssertionError('must not load every Case/Run'),
+        ):
+            reconciled = reconcile_execution_case(execution, case.pk)
+
+        case.refresh_from_db()
+        execution.refresh_from_db()
+        self.assertEqual(reconciled.pk, execution.pk)
+        self.assertEqual(case.status, SimcBenchmarkExecution.STATUS_SUCCESS)
+        self.assertEqual(
+            set(case.results.values_list('candidate_key', flat=True)),
+            {'baseline', 'trinket'},
+        )
+        self.assertEqual(execution.status, SimcBenchmarkExecution.STATUS_RUNNING)
+        self.assertIsNone(execution.completed_at)
+
+        final_case = execution.cases.select_related('task').exclude(pk=case.pk).get()
+        final_task = final_case.task
+        final_task.current_status = 2
+        final_task.save(update_fields=['current_status'])
+        self._run(final_task, 1, 'completed', 'baseline', dps=1200)
+        self._run(final_task, 2, 'completed', 'trinket', dps=1250)
+        reconcile_execution_case(execution, final_case.pk)
+
+        execution.refresh_from_db()
+        self.panel.refresh_from_db()
+        self.assertEqual(execution.status, SimcBenchmarkExecution.STATUS_SUCCESS)
+        self.assertIsNotNone(execution.completed_at)
+        self.assertEqual(self.panel.published_execution_id, execution.pk)
 
     def test_cancel_execution_fences_tasks_runs_and_releases_active_slot(self):
         execution = self._create()

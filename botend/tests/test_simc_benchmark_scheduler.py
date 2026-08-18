@@ -174,8 +174,9 @@ class SimcBenchmarkSchedulerTests(TestCase):
             spec_label='s', scenario_label='c', profile_label='p', coordinate_hash='3' * 64,
         )
         with patch(
-            'botend.services.simc_benchmark_scheduler.reconcile_execution', return_value=second,
+            'botend.services.simc_benchmark_scheduler.reconcile_execution_case',
+            return_value=second,
         ) as targeted:
             self.assertEqual(reconcile_execution_for_task(task.pk), second)
             self.assertIsNone(reconcile_execution_for_task(task.pk + 999))
-        targeted.assert_called_once()
+        targeted.assert_called_once_with(second, second.cases.get().pk)

@@ -2134,10 +2134,22 @@ def _normalized_hero_talent_names(value):
     return names
 
 
-def _summarize_live_execution(execution):
-    """Derive state from Runs, using Task for abandoned Runs and zero-run terminal edges."""
-    execution = _load_execution(execution)
-    cases = execution._benchmark_cases
+def _summarize_live_execution(execution, *, case_id=None):
+    """Derive state from Runs, optionally loading only one Case for incremental reconcile."""
+    if case_id is None:
+        execution = _load_execution(execution)
+        cases = execution._benchmark_cases
+    else:
+        try:
+            execution = SimcBenchmarkExecution.objects.get(pk=execution.pk)
+        except SimcBenchmarkExecution.DoesNotExist:
+            _validation_error('Execution 不存在', 'execution')
+        runs = SimulationRun.objects.order_by('sequence', 'id')
+        cases = list(SimcBenchmarkCase.objects.filter(
+            execution_id=execution.pk, pk=case_id,
+        ).select_related('task').prefetch_related(
+            Prefetch('task__simulation_runs', queryset=runs, to_attr='_benchmark_runs'),
+        ).order_by('id'))
     expected_by_coordinate = dict(_snapshot_layout(execution) or [])
     count_names = ('pending', 'running', 'success', 'partial', 'failed', 'cancelled')
     counts = {name: 0 for name in count_names}
@@ -2636,6 +2648,68 @@ def _append_incremental_results(execution_id, rows):
     if new_rows:
         SimcBenchmarkResult.objects.bulk_create(new_rows, batch_size=500)
     return len(new_rows)
+
+
+def reconcile_execution_case(execution, case_id):
+    """Project one live Case; run the full finalizer only after every Case is terminal."""
+    with transaction.atomic():
+        try:
+            panel_id = SimcBenchmarkExecution.objects.values_list('panel_id', flat=True).get(
+                pk=execution.pk,
+            )
+        except SimcBenchmarkExecution.DoesNotExist:
+            _validation_error('Execution 不存在', 'execution')
+        panel = SimcBenchmarkPanel.objects.select_for_update().get(pk=panel_id)
+        _ensure_panel_not_purging(panel.pk)
+        locked = SimcBenchmarkExecution.objects.select_for_update().get(pk=execution.pk)
+        if locked.panel_id != panel.pk:
+            raise BenchmarkExecutionConflict('Execution Panel changed during reconciliation')
+        if locked.completed_at is not None:
+            return locked
+
+        live = _summarize_live_execution(locked, case_id=case_id)
+        if len(live['cases']) != 1:
+            _validation_error('Benchmark Case 不属于当前 Execution', 'case')
+        row = live['cases'][0]
+        case = SimcBenchmarkCase.objects.select_for_update().get(
+            pk=case_id, execution_id=locked.pk,
+        )
+        error_detail = (
+            (row.get('error') or '')
+            if row['status'] in ('partial', 'failed', 'cancelled') else ''
+        )
+        if case.status != row['status'] or case.error_detail != error_detail:
+            case.status = row['status']
+            case.error_detail = error_detail
+            case.save(update_fields=['status', 'error_detail'])
+
+        partial_rows = _collect_success_results(
+            locked, live, require_complete_execution=False,
+        )
+        if partial_rows is not None:
+            _append_incremental_results(locked.pk, partial_rows)
+
+        live_case_states = (
+            SimcBenchmarkExecution.STATUS_PENDING,
+            SimcBenchmarkExecution.STATUS_RUNNING,
+        )
+        if SimcBenchmarkCase.objects.filter(
+            execution_id=locked.pk, status__in=live_case_states,
+        ).exists():
+            status = (
+                SimcBenchmarkExecution.STATUS_RUNNING
+                if SimcBenchmarkCase.objects.filter(execution_id=locked.pk).exclude(
+                    status=SimcBenchmarkExecution.STATUS_PENDING,
+                ).exists()
+                else SimcBenchmarkExecution.STATUS_PENDING
+            )
+            if locked.status != status:
+                locked.status = status
+                locked.save(update_fields=['status'])
+            return locked
+
+    # Full snapshot validation and publication happen once, after the final Case exits.
+    return reconcile_execution(execution)
 
 
 def reconcile_execution(execution):

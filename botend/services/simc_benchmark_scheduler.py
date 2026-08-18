@@ -14,6 +14,7 @@ from botend.models import (
 )
 from botend.services.simc_benchmark_execution import (
     BenchmarkExecutionConflict, create_execution, reconcile_execution,
+    reconcile_execution_case,
 )
 
 _ERROR_LIMIT = 120
@@ -158,4 +159,4 @@ def reconcile_execution_for_task(task_id):
     case = SimcBenchmarkCase.objects.select_related('execution').filter(task_id=task_id).first()
     if case is None:
         return None
-    return reconcile_execution(case.execution)
+    return reconcile_execution_case(case.execution, case.pk)
