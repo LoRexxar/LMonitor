@@ -60,3 +60,19 @@ class SpecDetailSeasonMonitorActivationTests(SimpleTestCase):
         _, kwargs = season_meta.objects.update_or_create.call_args
         self.assertTrue(kwargs['defaults']['is_active'])
         self.assertEqual(kwargs['defaults']['season_name'], 'Mythic+ Season Test')
+
+    @patch('botend.controller.plugins.portal.SpecDetailSeasonMonitor.SeasonMeta')
+    def test_mn_s2_replaces_stale_s1_raid_zone_with_venomous_abyss(self, season_meta):
+        season_meta.objects.filter.return_value.first.return_value = SimpleNamespace(
+            season_key='mn-s2',
+            raid_zone_id=46,
+            raid_zones=[{'id': 46, 'name': 'S1 Raid'}],
+        )
+        monitor = SpecDetailSeasonMonitor(req=None, task=DummyTask())
+
+        zones = monitor._find_all_raid_zones(
+            [{'id': 46, 'name': 'S1 Raid'}, {'id': 53, 'name': 'The Venomous Abyss'}],
+            season_key='mn-s2',
+        )
+
+        self.assertEqual(zones, [{'id': 53, 'name': 'The Venomous Abyss'}])

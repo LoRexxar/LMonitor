@@ -14,6 +14,11 @@ from utils.log import logger
 
 
 class SpecDetailSeasonMonitor(SpecDetailBase):
+    # A season's raid must be selected from its official WCL zone, not from an
+    # earlier SeasonMeta cache. S2 begins with The Venomous Abyss (zone 53).
+    AUTHORITATIVE_RAID_ZONE_IDS_BY_SEASON = {
+        'mn-s2': [53],
+    }
     EXTRA_RAID_ZONE_IDS_BY_SEASON = {
         'mn-s1': [50],  # Sporefall / Rotmire is published as a separate WCL raid zone.
     }
@@ -118,7 +123,10 @@ class SpecDetailSeasonMonitor(SpecDetailBase):
         必须用配置的 zone id 从最新的 WCL zones 中重新匹配。
         """
         season = SeasonMeta.objects.filter(is_active=True).first()
-        zone_ids = []
+        zone_ids = list(self.AUTHORITATIVE_RAID_ZONE_IDS_BY_SEASON.get(season_key or '', []))
+        if zone_ids:
+            # A stale active-season cache must never bleed S1 raids into S2.
+            season = None
         if season:
             if season.raid_zone_id:
                 zone_ids.append(season.raid_zone_id)

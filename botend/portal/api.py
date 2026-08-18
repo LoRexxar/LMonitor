@@ -9,7 +9,7 @@ from django.db.models import Count, Q
 from django.utils import timezone
 from datetime import timedelta
 
-from botend.models import PortalEvent, PortalMplusRun, PortalMplusSeasonCutoff, PortalMythicstatsDpsRow, PortalPeakSpecRankRow, PortalToolLink, PortalVideo, WowArticle, WowDailyReport, WowSkillDiffReport, WowHotfixReport, WowWagoMonitorState
+from botend.models import PortalEvent, PortalMplusRun, PortalMplusSeasonCutoff, PortalMythicstatsDpsRow, PortalPeakSpecRankRow, PortalToolLink, PortalVideo, SeasonMeta, WowArticle, WowDailyReport, WowSkillDiffReport, WowHotfixReport, WowWagoMonitorState
 from botend.services.article_content_service import loads_blocks
 from botend.controller.plugins.wow.wago_regions import wago_region_name
 from botend.portal.mythicstats import (
@@ -29,6 +29,11 @@ def _fmt_dt(dt):
         return timezone.localtime(dt).strftime('%Y-%m-%d %H:%M:%S')
     except Exception:
         return ''
+
+
+def _active_rio_season():
+    row = SeasonMeta.objects.filter(is_active=True).first()
+    return (getattr(row, 'rio_season', '') or '').strip()
 
 
 def _normalize_url(v):
@@ -727,8 +732,7 @@ class PortalMplusCutoffAPIView(View):
         season = (request.GET.get('season') or '').strip()
         auto_season = (not season) or season in {"season-mn-1", "auto"}
         if auto_season:
-            last = PortalMplusSeasonCutoff.objects.all().order_by('-updated_at', '-id').first()
-            season = (getattr(last, 'season', '') or '').strip() or 'season-mn-1'
+            season = _active_rio_season()
 
         region_map = {
             "us": "美服",
@@ -785,19 +789,17 @@ class PortalMplusCutoffAPIView(View):
 
 class PortalMplusRankingsAPIView(View):
     def get(self, request):
-        season = (request.GET.get('season') or 'season-mn-1').strip()
+        season = (request.GET.get('season') or '').strip()
+        if not season or season in {"season-mn-1", "auto"}:
+            season = _active_rio_season()
         region = (request.GET.get('region') or 'world').strip()
         dungeon = (request.GET.get('dungeon') or '').strip()
-        dungeons = [
-            {'slug': 'algethar-academy', 'name_cn': '艾杰斯亚学院'},
-            {'slug': 'magisters-terrace', 'name_cn': '魔导师平台'},
-            {'slug': 'maisara-caverns', 'name_cn': '迈萨拉洞窟'},
-            {'slug': 'nexuspoint-xenas', 'name_cn': '节点希纳斯'},
-            {'slug': 'pit-of-saron', 'name_cn': '萨隆矿坑'},
-            {'slug': 'seat-of-the-triumvirate', 'name_cn': '执政团之座'},
-            {'slug': 'skyreach', 'name_cn': '通天峰'},
-            {'slug': 'windrunner-spire', 'name_cn': '风行者之塔'},
-        ]
+        dungeon_rows = list(
+            PortalMplusRun.objects.filter(is_active=True, season=season, region=region)
+            .exclude(dungeon_slug__isnull=True).exclude(dungeon_slug='')
+            .values('dungeon_slug', 'dungeon').order_by('dungeon_slug').distinct()
+        )
+        dungeons = [{'slug': x['dungeon_slug'], 'name_cn': x['dungeon']} for x in dungeon_rows]
         dungeon_name_map = {d['slug']: d['name_cn'] for d in dungeons}
 
         qs = PortalMplusRun.objects.filter(is_active=True, season=season, region=region)
@@ -829,8 +831,7 @@ class PortalPeakSpecRankingsAPIView(View):
 
         season = (request.GET.get("season") or "").strip()
         if not season or season in {"auto", "season-mn-1"}:
-            last = PortalPeakSpecRankRow.objects.filter(is_active=True).order_by("-updated_at", "-id").first()
-            season = (getattr(last, "season", "") or "").strip() or "season-mn-1"
+            season = _active_rio_season()
 
         region = (request.GET.get("region") or "world").strip()
         qs = PortalPeakSpecRankRow.objects.filter(is_active=True, season=season, region=region)

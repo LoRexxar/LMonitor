@@ -7,7 +7,7 @@ import urllib3
 from django.conf import settings as django_settings
 
 from botend.controller.BaseScan import BaseScan
-from botend.models import PortalMplusRun
+from botend.models import PortalMplusRun, SeasonMeta
 from utils.log import logger
 
 
@@ -28,7 +28,10 @@ class PortalMplusRunMonitor(BaseScan):
     def scan(self, url):
         try:
             base = (url or "").strip()
-            season = "season-mn-1"
+            season = self._resolve_season()
+            if not season:
+                logger.error("[PortalMplusRunMonitor] active SeasonMeta has no Raider.IO season")
+                return False
             region = "world"
             dungeons = self._get_season_dungeons(season) or []
             if not dungeons:
@@ -52,6 +55,10 @@ class PortalMplusRunMonitor(BaseScan):
         except Exception as e:
             logger.error(f"[PortalMplusRunMonitor] error: {str(e)}")
             return False
+
+    def _resolve_season(self):
+        season = SeasonMeta.objects.filter(is_active=True).first()
+        return (getattr(season, 'rio_season', '') or '').strip()
 
     def _get_proxies(self):
         proxies = getattr(django_settings, 'PROXY_CONFIG', None)

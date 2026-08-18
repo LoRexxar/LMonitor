@@ -4,7 +4,7 @@ from datetime import date, datetime, timezone
 import requests
 
 from botend.controller.BaseScan import BaseScan
-from botend.models import PortalMplusSeasonCutoff
+from botend.models import PortalMplusSeasonCutoff, SeasonMeta
 from utils.log import logger
 
 
@@ -24,6 +24,9 @@ class PortalMplusCutoffMonitor(BaseScan):
 
     def scan(self, url):
         season = self._resolve_season()
+        if not season:
+            logger.error("[PortalMplusCutoffMonitor] active SeasonMeta has no Raider.IO season")
+            return False
         base = (url or "").strip()
         if base and "season-cutoffs" not in base:
             base = ""
@@ -43,6 +46,10 @@ class PortalMplusCutoffMonitor(BaseScan):
         return ok
 
     def _resolve_season(self):
+        active = SeasonMeta.objects.filter(is_active=True).first()
+        active_slug = (getattr(active, 'rio_season', '') or '').strip()
+        if active_slug:
+            return active_slug
         try:
             resp = requests.get(
                 "https://raider.io/api/v1/mythic-plus/static-data?expansion_id=11",
@@ -50,7 +57,7 @@ class PortalMplusCutoffMonitor(BaseScan):
                 headers={"User-Agent": "Mozilla/5.0"},
             )
             if resp.status_code != 200:
-                return "season-mn-1"
+                return ""
             payload = resp.json() or {}
             seasons = payload.get("seasons") or []
             now = datetime.now(timezone.utc)
@@ -75,8 +82,8 @@ class PortalMplusCutoffMonitor(BaseScan):
                 if earliest_start <= now:
                     return slug
         except Exception:
-            return "season-mn-1"
-        return "season-mn-1"
+            return ""
+        return ""
 
     def _fetch_and_upsert(self, *, season, region, base=""):
         api = base or "https://raider.io/api/v1/mythic-plus/season-cutoffs"
