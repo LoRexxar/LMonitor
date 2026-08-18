@@ -228,6 +228,7 @@ class SimcHistoryBackendPaginationTests(TestCase):
         self.profile = SimcProfile.objects.create(
             user_id=self.user.id,
             name='Test Profile',
+            class_name='warrior',
             spec='fury',
             player_config_mode='attribute_only',
             is_active=True
@@ -260,7 +261,7 @@ class SimcHistoryBackendPaginationTests(TestCase):
         self.assertEqual(form['source_task_id'], task.id)
         self.assertEqual(form['profile_id'], self.profile.id)
         self.assertEqual(form['backend_id'], self.backend.id)
-        self.assertEqual(form['spec'], 'fury')
+        self.assertEqual(form['spec'], 'warrior_fury')
         self.assertEqual(form['talent_string_id'], 42)
         self.assertEqual(form['simulation_params']['fight_style'], 'HecticAddCleave')
         self.assertEqual(form['simulation_params']['raid_buffs'], ['chaos_brand'])

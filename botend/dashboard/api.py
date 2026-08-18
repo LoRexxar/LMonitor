@@ -7149,11 +7149,17 @@ class SimcWorkbenchAPIView(View):
                         'backend_id': task.backend_id,
                         'apl_id': task.apl_id,
                         'talent_string_id': task.talent_string_id or (task.talent_version.resource_id if task.talent_version else None),
-                        'spec': str(
-                            profile_payload.get('spec')
-                            or (task.profile.spec if task.profile else '')
-                            or ''
-                        ).strip(),
+                        'spec': (
+                            canonical_simc_profile_key(
+                                profile_payload.get('spec') or (task.profile.spec if task.profile else ''),
+                                task.profile.class_name if task.profile else '',
+                            )
+                            or str(
+                                profile_payload.get('spec')
+                                or (task.profile.spec if task.profile else '')
+                                or ''
+                            ).strip()
+                        ),
                         'simulation_params': params,
                     }
                 artifacts = list(task.artifacts.all().order_by('-created_at'))
