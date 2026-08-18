@@ -5769,17 +5769,14 @@ class SimcRegularCompareAPIView(View):
 
     @staticmethod
     def _format_input_item(item):
+        """Return the compact, reproducible equipment identity used by multi-task comparison."""
         item = item if isinstance(item, dict) else {}
-        title = str(item.get('name') or '物品')
         details = []
         if item.get('item_id') is not None:
             details.append(f"ID {item['item_id']}")
         if item.get('item_level') is not None:
             details.append(f"装等 {item['item_level']}")
-        modifiers = item.get('modifiers') if isinstance(item.get('modifiers'), dict) else {}
-        if modifiers:
-            details.append(json.dumps(modifiers, ensure_ascii=False, sort_keys=True))
-        return f"{title}（{'，'.join(details)}）" if details else title
+        return ' · '.join(details) if details else '—'
 
     @classmethod
     def _frozen_input_differences(cls, baseline, current):

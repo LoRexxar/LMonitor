@@ -2828,6 +2828,9 @@ DPS=208365 DPS-Error=200/0.1%
         self.assertTrue(candidate['config_facts']['apl']['is_different'])
         self.assertTrue(candidate['config_facts']['profile']['is_different'])
         self.assertEqual(candidate['config_facts']['profile']['display'], '候选 Profile')
+        # 多模拟对比的装备行只保留可复现的装备 ID 与装等，不能泄露名称、附魔或 modifiers。
+        self.assertEqual(baseline['config_facts']['equipment.head']['display'], 'ID 111 · 装等 650')
+        self.assertEqual(candidate['config_facts']['equipment.head']['display'], 'ID 222 · 装等 660')
         self.assertIn('config_facts', compare_template)
 
     def test_cast_timeline_normalizes_precombat_and_simc_clock_times(self):
