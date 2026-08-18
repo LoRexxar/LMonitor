@@ -3404,7 +3404,7 @@ function currentSimcScenario() {
     } else {
         delete scenario.raid_buffs;
     }
-    scenario.extra_options = Array.from(document.querySelectorAll('#simc-sim-extra-options input[type="checkbox"]:checked'))
+    scenario.extra_options = Array.from(document.querySelectorAll('[data-simc-extra-option]:checked'))
         .map(input => input.value);
     return scenario;
 }
@@ -4108,12 +4108,19 @@ async function loadSimcExtraOptions() {
         throw new Error(payload.error || '加载额外选项失败');
     }
     const host = document.getElementById('simc-sim-extra-options');
-    if (!host) return;
-    host.innerHTML = payload.data.map(option => `
+    const fourPieceHost = document.getElementById('simc-sim-force-current-tier-4pc');
+    if (!host || !fourPieceHost) return;
+    const renderOption = option => `
         <label class="flex items-start gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
-            <input type="checkbox" value="${escapeHtml(option.value)}" class="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300">
+            <input type="checkbox" value="${escapeHtml(option.value)}" data-simc-extra-option class="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300">
             <span><b>${escapeHtml(option.label)}</b><small class="block text-xs text-slate-500">${escapeHtml(option.description || '')}</small></span>
-        </label>`).join('');
+        </label>`;
+    const fourPieceOption = payload.data.find(option => option.value === 'force_current_tier_4pc');
+    fourPieceHost.innerHTML = fourPieceOption ? renderOption(fourPieceOption) : '';
+    host.innerHTML = payload.data
+        .filter(option => option.value !== 'force_current_tier_4pc')
+        .map(renderOption)
+        .join('');
 }
 
 async function loadSimcConsumableOptions() {

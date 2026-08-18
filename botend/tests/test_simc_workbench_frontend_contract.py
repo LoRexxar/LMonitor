@@ -141,6 +141,20 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('scenario.use_class_raid_buff', SIMC_MAIN)
         self.assertIn('额外团队增益', workflow)
 
+    def test_four_piece_override_is_beside_class_buff_toggle_and_keeps_extra_options_payload(self):
+        workflow = BeautifulSoup(
+            HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')],
+            "html.parser",
+        )
+        class_toggle = workflow.select_one('#simc-sim-use-class-raid-buff')
+        four_piece_host = workflow.select_one('#simc-sim-force-current-tier-4pc')
+        self.assertIsNotNone(class_toggle)
+        self.assertIsNotNone(four_piece_host)
+        self.assertIs(class_toggle.find_parent('div'), four_piece_host.parent)
+        self.assertIn("option.value === 'force_current_tier_4pc'", SIMC_MAIN)
+        self.assertIn('data-simc-extra-option', SIMC_MAIN)
+        self.assertIn('[data-simc-extra-option]:checked', SIMC_MAIN)
+
     def test_system_default_profile_is_selected_as_a_real_profile_and_renders_detail(self):
         loader = MAIN[
             MAIN.index('async function loadSimcSimProfileSelect'):
