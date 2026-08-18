@@ -355,6 +355,33 @@ class SimcBenchmarkExecutionTests(TestCase):
             frozen['raid_buffs'],
         )
 
+    def test_scenario_four_piece_override_is_opt_in_and_reaches_composer(self):
+        self.benchmark_profile.talent_string = self.talent
+        self.benchmark_profile.save(update_fields=['talent_string'])
+        scenario = self.panel.scenarios.get(key='patchwerk')
+        self.assertNotIn('extra_options', scenario.simulation_params)
+        scenario.simulation_params = {
+            'iterations': 1000,
+            'extra_options': ['force_current_tier_4pc'],
+        }
+        scenario.save(update_fields=['simulation_params'])
+        self.profile.player_config_mode = 'manual_equipment'
+        self.profile.player_equipment = 'warrior="Benchmark test"\nspec=fury'
+        self.profile.save(update_fields=['player_config_mode', 'player_equipment'])
+        self.template.content = (
+            '{simulation_options}\n{player_config}\n{action_list}\n{output_options}'
+        )
+        self.template.save(update_fields=['content'])
+
+        execution = self._create()
+        task = execution.cases.select_related('task').get().task
+        code, _manifest = build_frozen_run_input(
+            task, SimulationRun(task=task, candidate_key='baseline', candidate_params={}),
+        )
+
+        self.assertEqual(task.simulation_params['extra_options'], ['force_current_tier_4pc'])
+        self.assertIn('set_bonus=midnight_season_2_4pc=1', code)
+
     def test_option_gain_panel_synthesizes_power_infusion_pair_and_ranks_spec_gain(self):
         from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
         from botend.services.simc_benchmark_config import (

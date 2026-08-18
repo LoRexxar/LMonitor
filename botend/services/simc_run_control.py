@@ -137,6 +137,8 @@ def build_frozen_run_input(task, run, output_filename=None):
         'additional_simc_input': resolved.simulation_params.get('additional_simc_input', ''),
         '_result_file_path': filename,
     }
+    if 'extra_options' in resolved.simulation_params:
+        request['extra_options'] = list(resolved.simulation_params['extra_options'])
     if 'raid_buffs' in resolved.simulation_params:
         request['raid_buffs'] = list(resolved.simulation_params['raid_buffs'])
     if 'use_class_raid_buff' in resolved.simulation_params:

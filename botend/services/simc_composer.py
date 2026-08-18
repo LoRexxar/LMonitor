@@ -57,6 +57,12 @@ SIMC_EXTRA_OPTIONS = (
         'simc_external_buff': 'power_infusion',
         'cooldown_seconds': 120,
     },
+    {
+        'value': 'force_current_tier_4pc',
+        'label': '显式覆盖激活四件套',
+        'description': '显式启用当前 Midnight 第二赛季四件套；默认由装备自然判定。',
+        'simc_lines': ('set_bonus=midnight_season_2_4pc=1',),
+    },
 )
 SIMC_EXTRA_OPTION_VALUES = frozenset(option['value'] for option in SIMC_EXTRA_OPTIONS)
 SIMC_EXTRA_OPTION_BY_VALUE = {
@@ -68,6 +74,8 @@ def render_simc_extra_option_lines(
         value: str, request_data: Dict[str, Any]) -> tuple[str, ...]:
     """Render version-stable SimC input for a validated extra option."""
     option = SIMC_EXTRA_OPTION_BY_VALUE[value]
+    if 'simc_lines' in option:
+        return tuple(option['simc_lines'])
     buff_name = option['simc_external_buff']
     cooldown = option['cooldown_seconds']
     max_time = float(request_data.get('time', request_data.get('max_time', 300)))
