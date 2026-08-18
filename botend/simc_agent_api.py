@@ -261,7 +261,7 @@ class SimcAgentManagementListAPIView(View):
                 'id': agent.pk, 'name': agent.name,
                 'backend': {'id': agent.backend_id, 'identifier': agent.backend.identifier,
                             'name': agent.backend.name},
-                'is_active': agent.is_active, 'status': agent.status,
+                'is_active': agent.is_active, 'task_scope': agent.task_scope, 'status': agent.status,
                 'online': agent.is_online(timeout_seconds=timeout, now=now),
                 'platform': agent.platform, 'agent_version': agent.agent_version,
                 'agent_revision': agent.agent_revision,
@@ -295,6 +295,26 @@ class SimcAgentManagementActiveAPIView(View):
         agent.save(update_fields=['is_active', 'updated_at'])
         return _no_store(JsonResponse({'success': True, 'id': agent.pk,
                                        'is_active': agent.is_active}))
+
+
+class SimcAgentManagementTaskScopeAPIView(View):
+    http_method_names = ['post']
+
+    def post(self, request, agent_id):
+        if not _staff_required(request):
+            return _no_store(JsonResponse({'success': False, 'error': 'Staff access required'}, status=403))
+        try:
+            payload = _parse_request_json(request)
+            if set(payload) != {'task_scope'} or payload['task_scope'] not in dict(SimcAgent.TASK_SCOPE_CHOICES):
+                raise AgentAPIError('task_scope is invalid')
+            agent = SimcAgent.objects.get(pk=agent_id)
+        except AgentAPIError as exc:
+            return _error_response(exc)
+        except SimcAgent.DoesNotExist:
+            return _error_response(AgentAPIError('Agent not found', 404))
+        agent.task_scope = payload['task_scope']
+        agent.save(update_fields=['task_scope', 'updated_at'])
+        return _no_store(JsonResponse({'success': True, 'id': agent.pk, 'task_scope': agent.task_scope}))
 
 
 def _staff_required(request):

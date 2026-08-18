@@ -30,6 +30,8 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("action: 'set_local_worker_enabled'", JS)
         self.assertIn('data-agent-accepting-toggle', JS)
         self.assertIn("JSON.stringify({ is_active: enabled })", JS)
+        self.assertIn('data-agent-task-scope', JS)
+        self.assertIn("task-scope/`", JS)
 
     def test_apl_assistant_follows_dialog_scroll_and_fills_visible_height(self):
         desktop_css = APL_EDITOR_CSS[:APL_EDITOR_CSS.index("@media (max-width: 900px)")]

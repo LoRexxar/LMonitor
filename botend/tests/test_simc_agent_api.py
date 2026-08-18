@@ -573,6 +573,22 @@ class SimcAgentAPITests(TestCase):
         self.assertTrue(all(row['online'] for row in rows))
         self.assertTrue(all(row['lease'] is None for row in rows))
 
+    def test_management_task_scope_requires_an_allowed_scope_and_persists_it(self):
+        self.enroll(host_identifier=HOST_A, name='Node A')
+        agent = SimcAgent.objects.get()
+        staff = get_user_model().objects.create_user(username='staff', password='x', is_staff=True)
+        self.client.force_login(staff)
+        path = f'/api/simc-workbench/agents/{agent.pk}/task-scope/'
+
+        self.assertEqual(self.post_json(path, {'task_scope': 'invalid'}).status_code, 400)
+        response = self.post_json(path, {'task_scope': SimcAgent.TASK_SCOPE_REGULAR_ONLY})
+
+        self.assertEqual(response.status_code, 200, response.content)
+        agent.refresh_from_db()
+        self.assertEqual(agent.task_scope, SimcAgent.TASK_SCOPE_REGULAR_ONLY)
+        listed = self.client.get(MANAGEMENT_URL).json()['data'][0]
+        self.assertEqual(listed['task_scope'], SimcAgent.TASK_SCOPE_REGULAR_ONLY)
+
     def test_management_active_requires_exact_bool_and_only_toggles_target(self):
         self.enroll(host_identifier=HOST_A, name='Node A')
         self.enroll(host_identifier=HOST_B, name='Node B')

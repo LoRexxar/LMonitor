@@ -17,7 +17,7 @@ from django.utils import timezone
 from django.utils.crypto import constant_time_compare
 
 from botend.models import (
-    SimcBenchmarkCase, SimcTask, SimcTaskArtifact, SimulationRun,
+    SimcAgent, SimcBenchmarkCase, SimcTask, SimcTaskArtifact, SimulationRun,
 )
 from botend.services.simc_agent_control import AgentAPIError, TOKEN_HASH_PREFIX, authenticate_bearer
 from botend.services.simc_benchmark_scheduler import reconcile_execution_for_task
@@ -172,6 +172,22 @@ def runtime_threads(task):
     return SimcMonitor.runtime_threads(task)
 
 
+def _task_scope_queryset(queryset, task_scope):
+    if task_scope == SimcAgent.TASK_SCOPE_REGULAR_ONLY:
+        return queryset.filter(is_benchmark_task=False)
+    if task_scope == SimcAgent.TASK_SCOPE_BENCHMARK_ONLY:
+        return queryset.filter(is_benchmark_task=True)
+    return queryset
+
+
+def _task_scope_allows(task_scope, is_benchmark_task):
+    return task_scope == SimcAgent.TASK_SCOPE_ALL or (
+        task_scope == SimcAgent.TASK_SCOPE_BENCHMARK_ONLY and is_benchmark_task
+    ) or (
+        task_scope == SimcAgent.TASK_SCOPE_REGULAR_ONLY and not is_benchmark_task
+    )
+
+
 def claim_run(payload, authorization):
     allowed_fields = {'instance_id', 'agent_version', 'agent_revision', 'protocol_version'}
     if set(payload) - allowed_fields or 'instance_id' not in payload:
@@ -240,24 +256,30 @@ def claim_run(payload, authorization):
         expired_run = SimulationRun.objects.filter(
             task_id=OuterRef('pk'), status='running', lease_expires_at__lte=now,
         )
-        task = (SimcTask.objects.select_for_update().filter(
-            backend_id=discovered_agent.backend_id, is_active=True, current_status=1,
-            execution_owner=SimcTask.EXECUTION_OWNER_AGENT,
-            simulation_runs__status='pending',
+        task = _task_scope_queryset(
+            SimcTask.objects.select_for_update().filter(
+                backend_id=discovered_agent.backend_id, is_active=True, current_status=1,
+                execution_owner=SimcTask.EXECUTION_OWNER_AGENT,
+                simulation_runs__status='pending',
+            ),
+            discovered_agent.task_scope,
         ).annotate(has_expired_run=Exists(expired_run)).filter(
             has_expired_run=False,
-        ).order_by('-queue_priority', 'create_time', 'id').first())
+        ).order_by('-queue_priority', 'create_time', 'id').first()
         if task is None:
             benchmark = SimcBenchmarkCase.objects.filter(task_id=OuterRef('pk'))
-            task = (SimcTask.objects.select_for_update().filter(
-                backend_id=discovered_agent.backend_id, is_active=True, current_status=0,
-                execution_owner__in=(SimcTask.EXECUTION_OWNER_UNASSIGNED,
-                                     SimcTask.EXECUTION_OWNER_AGENT),
+            task = _task_scope_queryset(
+                SimcTask.objects.select_for_update().filter(
+                    backend_id=discovered_agent.backend_id, is_active=True, current_status=0,
+                    execution_owner__in=(SimcTask.EXECUTION_OWNER_UNASSIGNED,
+                                         SimcTask.EXECUTION_OWNER_AGENT),
+                ),
+                discovered_agent.task_scope,
             ).annotate(
                 is_benchmark=Exists(benchmark), has_expired_run=Exists(expired_run),
             ).filter(has_expired_run=False).order_by(
                 '-queue_priority', 'is_benchmark', 'create_time', 'id',
-            ).first())
+            ).first()
 
         # Keep one global order for control-plane mutations: Task -> Run -> Agent.
         locked_runs = []
@@ -269,6 +291,8 @@ def claim_run(payload, authorization):
         _check_agent_ready(agent, now)
         if agent.pk != discovered_agent.pk or (task is not None and task.backend_id != agent.backend_id):
             raise AgentAPIError('Agent backend changed during claim', 409)
+        if task is not None and not _task_scope_allows(agent.task_scope, task.is_benchmark_task):
+            return None
         live_run_count = SimulationRun.objects.filter(
             lease_agent=agent, status='running', lease_expires_at__gt=now,
         ).count()

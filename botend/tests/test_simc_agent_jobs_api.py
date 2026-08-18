@@ -145,6 +145,30 @@ class SimcAgentJobAPITests(TestCase):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()['task_id'], high.pk)
 
+    def test_claim_respects_agent_task_scope_for_regular_and_benchmark_tasks(self):
+        regular = self.task(name='regular-only')
+        benchmark = self.task(name='benchmark-only')
+        benchmark.queue_priority = SimcTask.QUEUE_PRIORITY_BENCHMARK_HIGH
+        benchmark.is_benchmark_task = True
+        benchmark.save(update_fields=['queue_priority', 'is_benchmark_task'])
+        panel = SimcBenchmarkPanel.objects.create(
+            name='Scope', slug='agent-task-scope', created_by_id=1,
+            queue_priority=SimcTask.QUEUE_PRIORITY_BENCHMARK_HIGH,
+        )
+        execution = SimcBenchmarkExecution.objects.create(panel=panel, config_hash='s' * 64)
+        SimcBenchmarkCase.objects.create(
+            execution=execution, task=benchmark, spec_key='warrior_fury',
+            scenario_key='patchwerk', profile_key='default', spec_label='Fury',
+            scenario_label='Patchwerk', profile_label='Default', coordinate_hash='t' * 64,
+        )
+
+        self.agent.task_scope = SimcAgent.TASK_SCOPE_BENCHMARK_ONLY
+        self.agent.save(update_fields=['task_scope', 'updated_at'])
+        response = self.claim()
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['task_id'], benchmark.pk)
+
     def test_control_plane_settings_pin_current_repository_revision(self):
         expected = subprocess.check_output(
             ['git', '-C', settings.BASE_DIR, 'rev-parse', 'HEAD'], text=True, timeout=5,

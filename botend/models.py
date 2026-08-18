@@ -1598,6 +1598,18 @@ class SimcAgent(models.Model):
     host_identifier = models.CharField(max_length=128, unique=True)
     name = models.CharField(max_length=100, default='', blank=True)
     is_active = models.BooleanField(default=True)
+    TASK_SCOPE_ALL = 'all'
+    TASK_SCOPE_REGULAR_ONLY = 'regular_only'
+    TASK_SCOPE_BENCHMARK_ONLY = 'benchmark_only'
+    TASK_SCOPE_CHOICES = (
+        (TASK_SCOPE_ALL, '全部任务'),
+        (TASK_SCOPE_REGULAR_ONLY, '仅普通模拟'),
+        (TASK_SCOPE_BENCHMARK_ONLY, '仅 Benchmark'),
+    )
+    task_scope = models.CharField(
+        max_length=16, choices=TASK_SCOPE_CHOICES, default=TASK_SCOPE_ALL,
+        help_text='本 Agent 可领取的 Task 范围；只影响未来领取，不中断已租约 Run。',
+    )
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_UNREGISTERED)
     platform = models.CharField(max_length=32, default='')
     agent_version = models.CharField(max_length=64, default='', blank=True)
@@ -1623,6 +1635,9 @@ class SimcAgent(models.Model):
             models.CheckConstraint(condition=models.Q(status__in=(
                 'unregistered', 'online', 'busy', 'degraded',
             )), name='simc_agent_status_ck'),
+            models.CheckConstraint(condition=models.Q(task_scope__in=(
+                'all', 'regular_only', 'benchmark_only',
+            )), name='simc_agent_task_scope_ck'),
             models.CheckConstraint(condition=(
                 models.Q(token_hash='') & (models.Q(token_id__isnull=True) | models.Q(token_id=''))
             ) | (

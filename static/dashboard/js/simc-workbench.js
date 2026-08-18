@@ -1122,15 +1122,15 @@
             degraded: ['异常', 'bg-amber-50 text-amber-700'],
             unregistered: ['未注册', 'bg-slate-100 text-slate-600'],
         };
-        host.innerHTML = `<div class="overflow-x-auto"><table class="simc-responsive-table w-full min-w-[980px] text-sm">
-            <thead><tr class="border-b text-left text-slate-500"><th class="p-2">Agent</th><th class="p-2">Backend</th><th class="p-2">接收任务</th><th class="p-2">连接</th><th class="p-2">运行状态</th><th class="p-2">SimC</th><th class="p-2">当前任务</th><th class="p-2">最后心跳</th></tr></thead>
+        host.innerHTML = `<div class="overflow-x-auto"><table class="simc-responsive-table w-full min-w-[1080px] text-sm">
+            <thead><tr class="border-b text-left text-slate-500"><th class="p-2">Agent</th><th class="p-2">Backend</th><th class="p-2">接收任务</th><th class="p-2">接收范围</th><th class="p-2">连接</th><th class="p-2">运行状态</th><th class="p-2">SimC</th><th class="p-2">当前任务</th><th class="p-2">最后心跳</th></tr></thead>
             <tbody>${rows.map(row => {
                 const status = statusMeta[row.status] || [row.status || '未知', 'bg-slate-100 text-slate-600'];
                 const leases = Array.isArray(row.leases) ? row.leases : (row.lease ? [row.lease] : []);
                 const leaseText = leases.length
                     ? leases.map(lease => `<div>Task #${idOf(lease.task_id)} · Run #${idOf(lease.run_id)}<span class="ml-1 text-xs text-slate-500">租约至 ${esc(timeText(lease.expires_at))}</span></div>`).join('')
                     : '—';
-                return `<tr class="border-b last:border-0"><td data-label="Agent" class="p-2"><div class="font-medium text-slate-900">${esc(row.name || `Agent #${idOf(row.id)}`)}</div><div class="text-xs text-slate-500">${esc(row.platform || '—')} · Agent ${esc(row.agent_version || '—')}</div></td><td data-label="Backend" class="p-2"><div class="font-medium">${esc(row.backend?.name || row.backend?.identifier || '—')}</div><div class="text-xs text-slate-500">${esc(row.backend?.identifier || '')}</div></td><td data-label="接收任务" class="p-2"><label class="inline-flex items-center gap-2"><input type="checkbox" data-agent-accepting-toggle data-agent-id="${idOf(row.id)}" ${row.is_active ? 'checked' : ''}><span>${row.is_active ? '开启' : '关闭'}</span></label></td><td data-label="连接" class="p-2"><span class="rounded-full px-2 py-1 text-xs font-medium ${row.online ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}">${row.online ? '在线' : '离线'}</span></td><td data-label="运行状态" class="p-2"><span class="rounded-full px-2 py-1 text-xs font-medium ${status[1]}">${esc(status[0])}</span></td><td data-label="SimC" class="p-2"><div>${esc(row.current_version || '—')}</div><div class="text-xs ${row.binary_available ? 'text-emerald-700' : 'text-red-700'}">${row.binary_available ? '二进制可用' : '二进制不可用'}</div></td><td data-label="当前任务" class="p-2">${leaseText}</td><td data-label="最后心跳" class="p-2">${esc(timeText(row.last_seen_at))}</td></tr>`;
+                return `<tr class="border-b last:border-0"><td data-label="Agent" class="p-2"><div class="font-medium text-slate-900">${esc(row.name || `Agent #${idOf(row.id)}`)}</div><div class="text-xs text-slate-500">${esc(row.platform || '—')} · Agent ${esc(row.agent_version || '—')}</div></td><td data-label="Backend" class="p-2"><div class="font-medium">${esc(row.backend?.name || row.backend?.identifier || '—')}</div><div class="text-xs text-slate-500">${esc(row.backend?.identifier || '')}</div></td><td data-label="接收任务" class="p-2"><label class="inline-flex items-center gap-2"><input type="checkbox" data-agent-accepting-toggle data-agent-id="${idOf(row.id)}" ${row.is_active ? 'checked' : ''}><span>${row.is_active ? '开启' : '关闭'}</span></label></td><td data-label="接收范围" class="p-2"><select data-agent-task-scope data-agent-id="${idOf(row.id)}" class="rounded border px-2 py-1 text-sm" ${row.is_active ? '' : 'disabled'}><option value="all" ${row.task_scope === 'all' || !row.task_scope ? 'selected' : ''}>全部</option><option value="regular_only" ${row.task_scope === 'regular_only' ? 'selected' : ''}>仅普通模拟</option><option value="benchmark_only" ${row.task_scope === 'benchmark_only' ? 'selected' : ''}>仅 Benchmark</option></select></td><td data-label="连接" class="p-2"><span class="rounded-full px-2 py-1 text-xs font-medium ${row.online ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}">${row.online ? '在线' : '离线'}</span></td><td data-label="运行状态" class="p-2"><span class="rounded-full px-2 py-1 text-xs font-medium ${status[1]}">${esc(status[0])}</span></td><td data-label="SimC" class="p-2"><div>${esc(row.current_version || '—')}</div><div class="text-xs ${row.binary_available ? 'text-emerald-700' : 'text-red-700'}">${row.binary_available ? '二进制可用' : '二进制不可用'}</div></td><td data-label="当前任务" class="p-2">${leaseText}</td><td data-label="最后心跳" class="p-2">${esc(timeText(row.last_seen_at))}</td></tr>`;
             }).join('')}</tbody>
         </table></div>`;
     }
@@ -1236,6 +1236,15 @@
             body: JSON.stringify({ is_active: enabled }),
         });
         window.showMessage(`Agent 接收任务已${enabled ? '开启' : '关闭'}`, 'success');
+        await loadAgents();
+    }
+    async function setAgentTaskScope(agentId, taskScope) {
+        await json(`${resourceUrl('agents', idOf(agentId))}task-scope/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
+            body: JSON.stringify({ task_scope: taskScope }),
+        });
+        window.showMessage('Agent 接收范围已更新', 'success');
         await loadAgents();
     }
     async function lifecycle(resource, id, action) {
@@ -1756,6 +1765,13 @@
             if (aplSpecFilter) {
                 state.aplSpecFilter = aplSpecFilter.value || '';
                 renderUnifiedAplList();
+                return;
+            }
+            const agentTaskScope = event.target.closest('[data-agent-task-scope]');
+            if (agentTaskScope) {
+                agentTaskScope.disabled = true;
+                setAgentTaskScope(agentTaskScope.dataset.agentId, agentTaskScope.value)
+                    .catch(error => { loadAgents().catch(notify); notify(error); });
                 return;
             }
             const autoUpdate = event.target.closest('[data-backend-auto-update]');

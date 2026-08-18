@@ -103,7 +103,7 @@ from botend.simc_agent_api import (
     SimcAgentJobClaimAPIView, SimcAgentJobHeartbeatAPIView,
     SimcAgentJobReportUploadAPIView, SimcAgentJobCompleteAPIView,
     SimcAgentMaintenanceTaskAPIView,
-    SimcAgentManagementListAPIView, SimcAgentManagementActiveAPIView,
+    SimcAgentManagementListAPIView, SimcAgentManagementActiveAPIView, SimcAgentManagementTaskScopeAPIView,
     SimcAgentEnrollmentCodeListAPIView, SimcAgentEnrollmentCodeRevokeAPIView,
 )
 from django.http import HttpResponse, JsonResponse
@@ -194,6 +194,7 @@ urlpatterns = [
     path('api/simc-agent/v1/maintenance-tasks/<int:task_id>/', SimcAgentMaintenanceTaskAPIView.as_view(), name='simc_agent_maintenance_task'),
     path('api/simc-workbench/agents/', SimcAgentManagementListAPIView.as_view(), name='simc_agent_management_list'),
     path('api/simc-workbench/agents/<int:agent_id>/active/', SimcAgentManagementActiveAPIView.as_view(), name='simc_agent_management_active'),
+    path('api/simc-workbench/agents/<int:agent_id>/task-scope/', SimcAgentManagementTaskScopeAPIView.as_view(), name='simc_agent_management_task_scope'),
     path('api/simc-workbench/agent-enrollment-codes/', SimcAgentEnrollmentCodeListAPIView.as_view(), name='simc_agent_enrollment_codes'),
     path('api/simc-workbench/agent-enrollment-codes/<int:code_id>/revoke/', SimcAgentEnrollmentCodeRevokeAPIView.as_view(), name='simc_agent_enrollment_code_revoke'),
     path('api/convert-text/', csrf_exempt(ConvertTextAPIView.as_view()), name="convert_text"),
