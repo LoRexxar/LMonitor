@@ -212,6 +212,20 @@ class SimcWorkerTests(TestCase):
         self.assertEqual(local_task.current_status, 2)
         self.assertEqual(local_task.execution_owner, SimcTask.EXECUTION_OWNER_LOCAL)
 
+    def test_consume_once_does_not_claim_when_local_worker_is_disabled(self):
+        from botend.services.simc_worker import SimcWorker
+
+        task = self.make_task()
+        SimcBackendBinary.objects.filter(pk=self.backend.pk).update(local_worker_enabled=False)
+        monitor = MagicMock()
+
+        self.assertFalse(SimcWorker(monitor=monitor, poll_interval=0).consume_once())
+
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 0)
+        self.assertEqual(task.execution_owner, SimcTask.EXECUTION_OWNER_UNASSIGNED)
+        monitor.process_simc_task.assert_not_called()
+
     def test_consume_once_prioritizes_regular_task_over_older_benchmark_backlog(self):
         from botend.services.simc_worker import SimcWorker
 

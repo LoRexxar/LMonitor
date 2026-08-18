@@ -269,6 +269,14 @@ class SimcWorker:
         claimed = 0
         try:
             with transaction.atomic():
+                # The Worker process may be running independently of SimcMonitor.scan().
+                # Recheck the persisted admission switch inside the same claim transaction
+                # so a disabled local Worker cannot claim newly pending/retried Tasks.
+                local_backend = SimcBackendBinary.objects.select_for_update().filter(
+                    identifier='production',
+                ).only('local_worker_enabled').first()
+                if local_backend is not None and not local_backend.local_worker_enabled:
+                    return False
                 attribute_search_local_cutoff = timezone.now() - timedelta(
                     seconds=self.attribute_search_agent_grace_seconds,
                 )

@@ -239,6 +239,23 @@ class SimcWorkbenchHistoryResourceTests(TestCase):
         self.assertNotIn('/private/', payload['runs'][0]['error_summary'])
         self.assertNotIn('command=', payload['runs'][0]['error_summary'])
 
+    def test_failed_task_detail_exposes_safe_scheduler_failure_reason(self):
+        task = SimcTask.objects.create(
+            user_id=self.user.id, name='Expired agent lease', simc_profile_id=0,
+            backend=self.backend, current_status=3, task_type=1, mode='normal',
+            error_detail='Worker 心跳超时，执行已中断；已复制 Task 重试',
+        )
+        run = SimulationRun.objects.create(
+            task=task, sequence=1, candidate_key='normal', status='failed',
+            error_detail='Agent 租约过期',
+        )
+
+        payload = self.client.get(f'/api/simc-workbench/tasks/{task.id}/').json()['data']
+
+        self.assertEqual(payload['runs'][0]['id'], run.id)
+        self.assertEqual(payload['runs'][0]['error_summary'], 'Agent 租约过期')
+        self.assertEqual(payload['task_error_summary'], 'Worker 心跳超时，执行已中断；已复制 Task 重试')
+
     def test_run_input_preview_composes_readable_input_from_current_task_configuration(self):
         task = SimcTask.objects.create(
             user_id=self.user.id, name='Auditable input', simc_profile_id=0,

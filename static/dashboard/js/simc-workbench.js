@@ -469,9 +469,10 @@
         const rerunButton = editable ? `<button data-task-rerun="${idOf(row.id)}" class="rounded-lg border px-3 py-2 text-blue-700">编辑后重跑</button>` : '';
         const compareButton = row.report_url ? `<button data-wb-action="compare" data-resource="tasks" data-id="${idOf(row.id || id)}" class="rounded-lg border px-3 py-2 text-purple-700">查看对比结果</button>` : '';
         const runs = Array.isArray(row.runs) ? row.runs : [];
-        const taskErrors = Array.from(new Set(
-            runs.filter(run => run?.status === 'failed').map(run => safeRunErrorSummary(run)).filter(Boolean)
-        )).slice(0, 5);
+        const taskErrors = Array.from(new Set([
+            ...runs.filter(run => run?.status === 'failed').map(run => safeRunErrorSummary(run)),
+            String(row.task_error_summary || '').trim(),
+        ].filter(Boolean))).slice(0, 5);
         const taskErrorPanel = taskFailed ? `<section class="mt-4 rounded-lg border border-red-200 bg-red-50 p-4"><h5 class="font-semibold text-red-800">任务错误</h5>${taskErrors.length ? taskErrors.map(error => `<p class="mt-2 whitespace-pre-wrap text-sm text-red-700">${esc(error)}</p>`).join('') : '<p class="mt-2 text-sm text-red-700">任务执行失败，未记录可展示的错误摘要。</p>'}</section>` : '';
         const runList = runs.length ? runs.map(run => {
             const errorSummary = String(run.error_summary || '').trim();
