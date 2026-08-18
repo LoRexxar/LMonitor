@@ -49,8 +49,8 @@ class SimcBenchmarkConfigPageTests(TestCase):
         self.assertTemplateUsed(response, 'dashboard/simc_benchmark_config.html')
         self.assertContains(response, 'data-benchmark-config-page')
         self.assertContains(response, f'data-benchmark-panel-id="{self.panel.id}"')
-        self.assertContains(response, '专精配置')
         self.assertContains(response, '候选装备')
+        self.assertContains(response, 'href="/dashboard/?section=simc-benchmarks"', html=False)
 
     def test_staff_can_open_separate_panel_editor(self):
         self.client.force_login(self.staff)
