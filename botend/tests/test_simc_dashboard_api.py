@@ -2823,6 +2823,9 @@ DPS=208365 DPS-Error=200/0.1%
         self.assertIn("fetch('/api/convert-text/'", compare_template)
         self.assertIn("conversion_type: 'apl_to_cn'", compare_template)
         self.assertIn('spec: aplModalState.spec', compare_template)
+        # 只要该配置行存在不同冻结值，所有参与任务（含基准）都必须被标识。
+        self.assertTrue(baseline['config_facts']['apl']['is_different'])
+        self.assertTrue(candidate['config_facts']['apl']['is_different'])
         self.assertTrue(candidate['config_facts']['profile']['is_different'])
         self.assertEqual(candidate['config_facts']['profile']['display'], '候选 Profile')
         self.assertIn('config_facts', compare_template)

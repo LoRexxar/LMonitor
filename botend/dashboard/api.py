@@ -5808,6 +5808,23 @@ class SimcRegularCompareAPIView(View):
         return differences
 
     @staticmethod
+    def _apl_action_localizations(baseline):
+        """Return only authoritative APL action token → Chinese labels for a frozen spec."""
+        character = baseline.get('character') if isinstance(baseline, dict) else {}
+        raw_spec = str((character or {}).get('spec') or '').strip().lower()
+        if '_' not in raw_spec:
+            return {}
+        class_name, spec = raw_spec.split('_', 1)
+        localizations = {}
+        for symbol in query_visible_symbols(class_name, spec):
+            if symbol.symbol_kind not in (SimcAplSymbol.KIND_ACTION, SimcAplSymbol.KIND_PSEUDO_ACTION):
+                continue
+            chinese = str(symbol.name_zh or '').strip()
+            if chinese:
+                localizations[str(symbol.token or '').strip().lower()] = chinese
+        return localizations
+
+    @staticmethod
     def _safe_sample_sequence(sequence):
         """Return a bounded, display-only action sequence with numeric time coordinates."""
         if not isinstance(sequence, list):
@@ -5912,6 +5929,7 @@ class SimcRegularCompareAPIView(View):
                 ],
                 'top_abilities': parsed.get('top_abilities', []),
                 'sample_sequence': self._safe_sample_sequence(parsed.get('sample_sequence')),
+                'action_localizations': self._apl_action_localizations(frozen_baseline),
                 'apl_name': apl_name, 'profile_name': profile_name,
                 'spec': str(profile_payload.get('spec') or getattr(task.profile, 'spec', '') or ''),
                 'battle_scenario': battle_scenario,
@@ -5938,9 +5956,8 @@ class SimcRegularCompareAPIView(View):
                 key: {
                     'label': str((current_input_facts.get(key) or baseline_fact).get('label') or key),
                     'display': str((current_input_facts.get(key) or {}).get('display') or '—'),
-                    'is_different': (
-                        current_input_facts.get(key, {}).get('value') != baseline_fact.get('value')
-                    ),
+                    'value': current_input_facts.get(key, {}).get('value'),
+                    'is_different': False,
                 }
                 for key, baseline_fact in baseline_input_facts.items()
             }
@@ -5949,8 +5966,24 @@ class SimcRegularCompareAPIView(View):
                     row['config_facts'][key] = {
                         'label': str(current_fact.get('label') or key),
                         'display': str(current_fact.get('display') or '—'),
-                        'is_different': True,
+                        'value': current_fact.get('value'),
+                        'is_different': False,
                     }
+        # A highlighted cell means its configuration row contains multiple frozen
+        # values, not merely that it differs from the first selected task.  This
+        # includes the baseline itself when every selected APL is different.
+        fact_keys = {key for row in rows for key in row['config_facts']}
+        for key in fact_keys:
+            values = {
+                json.dumps(row['config_facts'][key].get('value'), sort_keys=True, default=str)
+                for row in rows if key in row['config_facts']
+            }
+            changed = len(values) > 1
+            for row in rows:
+                fact = row['config_facts'].get(key)
+                if fact:
+                    fact['is_different'] = changed
+                    fact.pop('value', None)
         ranked = sorted(rows, key=lambda row: (-row['dps'], row['id']))
         for rank, row in enumerate(ranked, start=1):
             row['rank'] = rank
