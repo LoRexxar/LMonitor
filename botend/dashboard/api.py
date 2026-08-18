@@ -5823,10 +5823,18 @@ class SimcRegularCompareAPIView(View):
             raw_time = row.get('time')
             if raw_time is None or str(raw_time).strip() == '':
                 continue
-            try:
-                time_seconds = float(str(raw_time).strip())
-            except (TypeError, ValueError):
-                continue
+            time_label = safe_text(raw_time, 32)
+            if time_label.lower() == 'pre':
+                time_seconds = 0.0
+            else:
+                clock_match = re.fullmatch(r'(\d+):(\d+(?:\.\d+)?)', time_label)
+                try:
+                    time_seconds = (
+                        int(clock_match.group(1)) * 60 + float(clock_match.group(2))
+                        if clock_match else float(time_label)
+                    )
+                except (TypeError, ValueError):
+                    continue
             if not math.isfinite(time_seconds):
                 continue
             action = safe_text(row.get('action'), 300)

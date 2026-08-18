@@ -2827,6 +2827,18 @@ DPS=208365 DPS-Error=200/0.1%
         self.assertEqual(candidate['config_facts']['profile']['display'], '候选 Profile')
         self.assertIn('config_facts', compare_template)
 
+    def test_cast_timeline_normalizes_precombat_and_simc_clock_times(self):
+        rows = SimcRegularCompareAPIView._safe_sample_sequence([
+            {'time': 'Pre', 'action': 'Pre-pull buff'},
+            {'time': '0:00.000', 'action': 'Opening cast'},
+            {'time': '0:01.163', 'action': 'Follow-up cast'},
+            {'time': 'invalid', 'action': 'Ignored'},
+        ])
+        self.assertEqual(
+            [(row['time_label'], row['time_seconds']) for row in rows],
+            [('Pre', 0.0), ('0:00.000', 0.0), ('0:01.163', 1.163)],
+        )
+
     def test_selected_comparison_can_read_other_users_task_results(self):
         other_user = User.objects.create_user(username='comparison_other', password='pwd')
         own = create_test_task(user_id=self.user.id, name='我的结果', simc_profile_id=0, mode='regular', current_status=2)
