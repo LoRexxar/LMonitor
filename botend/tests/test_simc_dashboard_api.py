@@ -16,7 +16,7 @@ from botend.management.commands.update_simc_binary import Command as UpdateSimcB
 from botend.services.simc_player_config import build_player_config_detail, parse_manual_player_config, parse_manual_simc_candidates, parse_simc_player_profile
 from botend.services.simc_composer import SimcComposer
 from botend.services.simc_task_service import append_candidate_runs
-from botend.models import DashboardUserGroup, DashboardUserGroupMembership, PlayerSpecTopPlayer, SeasonMeta, SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate, SimcProfile, SimcResourceVersion, SimcTalentString, SimcTask, SimcTaskArtifact, SimulationRun, WowItemSnapshot, WowTalentVersion
+from botend.models import DashboardUserGroup, DashboardUserGroupMembership, PlayerSpecTopPlayer, SeasonMeta, SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate, SimcProfile, SimcResourceVersion, SimcTalentString, SimcTask, SimcTaskArtifact, SimulationRun, WowItemSnapshot, WowSpellSnapshot, WowTalentVersion
 from botend.tests.simc_apl_symbol_test_utils import get_or_create_symbol_scope
 
 
@@ -2861,6 +2861,33 @@ DPS=208365 DPS-Error=200/0.1%
 
         visible_symbols.assert_called_once_with('warrior', 'fury')
         self.assertEqual(localizations, {'bloodthirst': '嗜血'})
+
+    def test_cast_timeline_resolves_authoritative_spell_metadata_and_oss_icon(self):
+        get_or_create_symbol_scope(
+            token='bloodthirst', symbol_kind=SimcAplSymbol.KIND_ACTION,
+            defaults={
+                'class_name': 'warrior', 'spec': 'fury', 'spell_id': 23881,
+                'name_en': 'Bloodthirst', 'name_zh': '嗜血', 'is_active': True,
+            },
+        )
+        WowSpellSnapshot.objects.create(
+            branch='wow', locale='zhCN', spell_id=23881, name='嗜血', name_zh='嗜血',
+            description='攻击目标并恢复生命值。', aura_description='',
+            icon='spell_nature_bloodlust', snapshot_build='test-build',
+        )
+        metadata = SimcRegularCompareAPIView._cast_timeline_spell_metadata(
+            {'character': {'class': 'warrior', 'spec': 'fury'}},
+            [{'action': 'Bloodthirst'}, {'action': 'Unresolved action'}],
+        )
+
+        self.assertEqual(metadata['bloodthirst']['spell_id'], 23881)
+        self.assertEqual(metadata['bloodthirst']['name'], '嗜血')
+        self.assertEqual(metadata['bloodthirst']['description'], '攻击目标并恢复生命值。')
+        self.assertEqual(
+            metadata['bloodthirst']['icon_url'],
+            'https://oss.wowdaily.cn/wow_icons_oss/small/spell_nature_bloodlust.jpg',
+        )
+        self.assertNotIn('unresolvedaction', metadata)
 
     def test_selected_comparison_can_read_other_users_task_results(self):
         other_user = User.objects.create_user(username='comparison_other', password='pwd')

@@ -31,21 +31,32 @@
             background: #fffbeb;
             box-shadow: inset 3px 0 #f59e0b;
         }
-        .cast-timeline-viewport { height: 620px; overflow: auto; border: 1px solid #e5e7eb; border-radius: .5rem; background: #fff; }
+        .cast-timeline-viewport { height: 620px; overflow: auto; position: relative; border: 1px solid #d1d5db; border-radius: .75rem; background: #f8fafc; }
         .cast-timeline-content { width: max-content; min-width: 100%; }
-        .cast-timeline-header, .cast-timeline-body, .cast-timeline-lanes { display: flex; }
-        .cast-timeline-header { position: sticky; top: 0; z-index: 20; width: max-content; min-width: 100%; }
-        .cast-timeline-corner, .cast-timeline-task-title { min-height: 48px; background: #f9fafb; border-bottom: 1px solid #e5e7eb; }
-        .cast-timeline-corner { position: sticky; left: 0; z-index: 30; flex: 0 0 76px; padding: .75rem .5rem; border-right: 1px solid #e5e7eb; font-size: 11px; font-weight: 600; color: #6b7280; }
-        .cast-timeline-task-title { flex: 0 0 260px; width: 260px; padding: .65rem .75rem; border-right: 1px solid #e5e7eb; font-size: 14px; font-weight: 600; color: #111827; overflow-wrap: anywhere; }
-        .cast-timeline-axis, .cast-timeline-lane { position: relative; }
-        .cast-timeline-axis { position: sticky; left: 0; z-index: 10; flex: 0 0 76px; background: #fff; border-right: 1px solid #e5e7eb; }
-        .cast-timeline-lanes { width: max-content; }
-        .cast-timeline-lane { flex: 0 0 260px; width: 260px; border-right: 1px solid #e5e7eb; background: #fff; }
-        .cast-timeline-tick { position: absolute; right: 8px; transform: translateY(-50%); font-size: 11px; color: #6b7280; white-space: nowrap; }
-        .cast-timeline-guide { position: absolute; left: 0; right: 0; border-top: 1px dashed #d1d5db; }
-        .cast-timeline-event { position: absolute; left: 8px; right: 8px; transform: translateY(-50%); padding: 1px 5px; border-radius: 4px; background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; font-size: 11px; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
-        .cast-timeline-event:hover { z-index: 2; overflow: visible; white-space: normal; background: #d1fae5; }
+        .cast-timeline-header { position: sticky; top: 0; z-index: 30; display: flex; width: max-content; min-width: 100%; box-shadow: 0 1px 0 rgba(148,163,184,.45); }
+        .cast-timeline-corner, .cast-timeline-task-title { min-height: 52px; background: rgba(255,255,255,.96); backdrop-filter: blur(8px); }
+        .cast-timeline-corner { position: sticky; left: 0; z-index: 40; flex: 0 0 76px; padding: .85rem .5rem; border-right: 1px solid #d1d5db; font-size: 11px; font-weight: 700; color: #475569; letter-spacing: .04em; }
+        .cast-timeline-task-title { flex: 0 0 220px; width: 220px; padding: .7rem .75rem; border-right: 1px solid #e2e8f0; font-size: 13px; font-weight: 700; color: #0f172a; overflow-wrap: anywhere; }
+        .cast-timeline-body { display: flex; position: relative; }
+        .cast-timeline-axis { position: sticky; left: 0; z-index: 20; flex: 0 0 76px; background: rgba(255,255,255,.96); border-right: 1px solid #d1d5db; }
+        .cast-timeline-lanes { display: flex; position: relative; width: max-content; }
+        .cast-timeline-lane { position: relative; flex: 0 0 220px; width: 220px; border-right: 1px solid #e2e8f0; background: rgba(255,255,255,.72); }
+        .cast-timeline-lane:nth-child(even) { background: rgba(248,250,252,.92); }
+        .cast-timeline-tick { position: absolute; right: 8px; transform: translateY(-50%); font-size: 11px; color: #64748b; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .cast-timeline-grid { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+        .cast-timeline-guide { position: absolute; left: 0; right: 0; border-top: 1px solid rgba(203,213,225,.8); }
+        .cast-timeline-event { position: absolute; z-index: 2; width: 36px; height: 36px; padding: 3px; transform: translate(-50%, -50%); border: 2px solid #fff; border-radius: 8px; background: #0f766e; box-shadow: 0 2px 6px rgba(15,23,42,.24); cursor: pointer; transition: transform .12s ease, box-shadow .12s ease; }
+        .cast-timeline-event:hover, .cast-timeline-event:focus-visible { z-index: 5; transform: translate(-50%, -50%) scale(1.14); outline: 2px solid #0f766e; outline-offset: 2px; box-shadow: 0 5px 13px rgba(15,23,42,.3); }
+        .cast-timeline-event img { display: block; width: 100%; height: 100%; border-radius: 4px; object-fit: cover; background: #134e4a; }
+        .cast-timeline-event-fallback { display: grid; width: 100%; height: 100%; place-items: center; border-radius: 4px; background: #115e59; color: white; font-size: 13px; font-weight: 700; }
+        .cast-timeline-pointer { position: absolute; left: 0; right: 0; z-index: 8; display: none; border-top: 1px solid #f43f5e; pointer-events: none; }
+        .cast-timeline-pointer::before { content: attr(data-time); position: sticky; left: 4px; top: -11px; display: inline-block; padding: 1px 4px; border-radius: 3px; background: #f43f5e; color: white; font-size: 10px; line-height: 16px; font-variant-numeric: tabular-nums; }
+        .cast-timeline-popover { position: fixed; z-index: 100; display: none; width: min(340px, calc(100vw - 20px)); padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; box-shadow: 0 12px 30px rgba(15,23,42,.22); color: #1e293b; font-size: 12px; line-height: 1.45; pointer-events: none; }
+        .cast-timeline-popover-title { font-weight: 700; font-size: 13px; color: #0f172a; }
+        .cast-timeline-popover-time { margin-top: 2px; color: #64748b; font-variant-numeric: tabular-nums; }
+        .cast-timeline-popover-buffs { margin-top: 8px; padding-top: 8px; border-top: 1px solid #e2e8f0; white-space: pre-wrap; word-break: break-word; }
+        @media (max-width: 640px) { .cast-timeline-task-title, .cast-timeline-lane { flex-basis: 176px; width: 176px; } .cast-timeline-viewport { height: 520px; } }
+        @media (prefers-reduced-motion: reduce) { .cast-timeline-event { transition: none; } }
     </style>
 </head>
 <body class="bg-gray-100">
@@ -462,7 +473,8 @@
             const zoomValue = document.getElementById('cast-timeline-zoom-value');
             const pixelsPerSecond = Number(zoomInput && zoomInput.value) || 16;
             if (zoomValue) zoomValue.textContent = `${pixelsPerSecond} 像素/秒`;
-            const sequences = tasks.map(task => (Array.isArray(task.sample_sequence) ? task.sample_sequence : []).filter(row => Number.isFinite(Number(row.time_seconds))));
+            const sequences = tasks.map(task => (Array.isArray(task.sample_sequence) ? task.sample_sequence : [])
+                .filter(row => Number.isFinite(Number(row.time_seconds))));
             const eventCount = sequences.reduce((total, sequence) => total + sequence.length, 0);
             if (!eventCount) {
                 summary.textContent = '无可用施法序列';
@@ -472,37 +484,91 @@
             const allEvents = sequences.flat();
             const minTime = Math.min(...allEvents.map(row => Number(row.time_seconds)));
             const maxTime = Math.max(...allEvents.map(row => Number(row.time_seconds)));
-            const timelineDuration = Math.max(1, maxTime - minTime);
-            const height = Math.max(540, Math.ceil((maxTime - minTime) * pixelsPerSecond) + 48);
-            const desiredTick = Math.max(5, timelineDuration / 8);
+            const duration = Math.max(1, maxTime - minTime);
+            const height = Math.max(540, Math.ceil(duration * pixelsPerSecond) + 56);
+            const desiredTick = Math.max(5, duration / 8);
             const magnitude = Math.pow(10, Math.floor(Math.log10(desiredTick)));
             const tickStep = Math.ceil(desiredTick / magnitude) * magnitude;
             const tickStart = Math.floor(minTime / tickStep) * tickStep;
             const ticks = [];
             for (let time = tickStart; time <= maxTime + 0.001; time += tickStep) ticks.push(Math.round(time * 1000) / 1000);
-            const topFor = time => 24 + (Number(time || 0) - minTime) * pixelsPerSecond;
-            const titleFor = (row, task) => [
-                `${row.time_label || Number(row.time_seconds).toFixed(3) + 's'} · ${translateSkillName(row.action, task.action_localizations)}`,
-                row.action_list ? `APL：${row.action_list}` : '',
-                row.target ? `目标：${row.target}` : '',
-                row.resources ? `资源：${row.resources}` : '',
-                row.buffs ? `Buff：${row.buffs}` : '',
-            ].filter(Boolean).join('\n');
-            const eventsForLane = (task, sequence) => {
-                const slotsByTime = new Map();
+            const topFor = time => 28 + (Number(time || 0) - minTime) * pixelsPerSecond;
+            const displayName = (row, task) => (row.spell && row.spell.name) || translateSkillName(row.action, task.action_localizations);
+            const eventLabel = (row, task) => `${row.time_label || `${Number(row.time_seconds).toFixed(3)}s`}，${task.name || '任务'}，${displayName(row, task)}${row.buffs ? `，Buff：${row.buffs}` : ''}`;
+            const iconFor = (row, task) => {
+                const url = row.spell && row.spell.icon_url;
+                if (url) return `<img src="${escapeHtml(url)}" alt="">`;
+                return `<span class="cast-timeline-event-fallback" aria-hidden="true">${escapeHtml((displayName(row, task) || '?').slice(0, 1))}</span>`;
+            };
+            const eventsForLane = (task, sequence, taskIndex) => {
+                const slots = new Map();
                 sequence.forEach(row => {
                     const key = Number(row.time_seconds).toFixed(3);
-                    if (!slotsByTime.has(key)) slotsByTime.set(key, []);
-                    slotsByTime.get(key).push(row);
+                    slots.set(key, [...(slots.get(key) || []), row]);
                 });
-                return sequence.map(row => {
-                    const peers = slotsByTime.get(Number(row.time_seconds).toFixed(3));
+                return sequence.map((row, eventIndex) => {
+                    const peers = slots.get(Number(row.time_seconds).toFixed(3));
                     const slot = peers.indexOf(row);
-                    return `<span class="cast-timeline-event" style="top:${topFor(row.time_seconds)}px;left:calc(8px + (${slot} / ${peers.length}) * (100% - 16px));right:auto;width:calc((100% - 16px) / ${peers.length})" title="${escapeHtml(titleFor(row, task))}">${escapeHtml(translateSkillName(row.action, task.action_localizations))}</span>`;
+                    const x = ((slot + 1) / (peers.length + 1)) * 100;
+                    return `<button type="button" class="cast-timeline-event" data-task-index="${taskIndex}" data-event-index="${eventIndex}" style="top:${topFor(row.time_seconds)}px;left:${x}%" aria-label="${escapeHtml(eventLabel(row, task))}">${iconFor(row, task)}</button>`;
                 }).join('');
             };
             summary.textContent = `${eventCount} 次施法 · ${minTime.toFixed(1)}–${maxTime.toFixed(1)} 秒`;
-            host.innerHTML = `<div class="cast-timeline-viewport" aria-label="施法时间轴"><div class="cast-timeline-content"><div class="cast-timeline-header"><div class="cast-timeline-corner">时间</div>${tasks.map(task => `<div class="cast-timeline-task-title">${escapeHtml(task.name || '任务')}(#${escapeHtml(task.id)})${task.is_base ? ' <span class="text-xs text-blue-600">基准</span>' : ''}</div>`).join('')}</div><div class="cast-timeline-body"><div class="cast-timeline-axis" style="height:${height}px">${ticks.map(time => `<span class="cast-timeline-tick" style="top:${topFor(time)}px">${time}s</span>`).join('')}</div><div class="cast-timeline-lanes">${tasks.map((task, index) => `<div class="cast-timeline-lane" style="height:${height}px">${ticks.map(time => `<span class="cast-timeline-guide" style="top:${topFor(time)}px"></span>`).join('')}${eventsForLane(tasks[index], sequences[index])}</div>`).join('')}</div></div></div></div>`;
+            host.innerHTML = `<section class="cast-timeline-viewport" aria-label="施法时间轴"><div class="cast-timeline-content"><div class="cast-timeline-header"><div class="cast-timeline-corner">时间</div>${tasks.map(task => `<div class="cast-timeline-task-title">${escapeHtml(task.name || '任务')}(#${escapeHtml(task.id)})${task.is_base ? ' <span class="text-xs text-blue-600">基准</span>' : ''}</div>`).join('')}</div><div class="cast-timeline-body"><div class="cast-timeline-axis" style="height:${height}px">${ticks.map(time => `<span class="cast-timeline-tick" style="top:${topFor(time)}px">${time}s</span>`).join('')}</div><div class="cast-timeline-lanes" style="height:${height}px"><div class="cast-timeline-grid">${ticks.map(time => `<span class="cast-timeline-guide" style="top:${topFor(time)}px"></span>`).join('')}</div><div class="cast-timeline-pointer" aria-hidden="true"></div>${tasks.map((task, index) => `<section class="cast-timeline-lane" aria-label="${escapeHtml(task.name || '任务')}施法序列" style="height:${height}px">${eventsForLane(task, sequences[index], index)}</section>`).join('')}</div></div></div></section>`;
+
+            const viewport = host.querySelector('.cast-timeline-viewport');
+            const pointer = host.querySelector('.cast-timeline-pointer');
+            let animationFrame = 0;
+            let requestedY = null;
+            const updatePointer = () => {
+                animationFrame = 0;
+                if (requestedY === null) return;
+                const y = Math.max(0, Math.min(height, requestedY));
+                pointer.style.top = `${y}px`;
+                pointer.dataset.time = `${(minTime + (y - 28) / pixelsPerSecond).toFixed(3)}s`;
+                pointer.style.display = 'block';
+            };
+            viewport.addEventListener('pointermove', event => {
+                const body = event.target.closest('.cast-timeline-body');
+                if (!body) return;
+                const bodyRect = body.getBoundingClientRect();
+                requestedY = event.clientY - bodyRect.top;
+                if (!animationFrame) animationFrame = requestAnimationFrame(updatePointer);
+            });
+            viewport.addEventListener('pointerleave', () => { pointer.style.display = 'none'; requestedY = null; });
+
+            const popover = document.createElement('div');
+            popover.className = 'cast-timeline-popover';
+            popover.setAttribute('role', 'tooltip');
+            document.body.appendChild(popover);
+            const hidePopover = () => { popover.style.display = 'none'; };
+            const showPopover = (button, row, task) => {
+                popover.replaceChildren();
+                const title = document.createElement('div');
+                title.className = 'cast-timeline-popover-title';
+                title.textContent = displayName(row, task) || '未解析技能';
+                const time = document.createElement('div');
+                time.className = 'cast-timeline-popover-time';
+                time.textContent = `${row.time_label || `${Number(row.time_seconds).toFixed(3)}s`} · ${task.name || '任务'}`;
+                const buffs = document.createElement('div');
+                buffs.className = 'cast-timeline-popover-buffs';
+                buffs.textContent = row.buffs ? `此时 Buff 快照：\n${row.buffs}` : '此时无可用 Buff 快照';
+                popover.append(title, time, buffs);
+                const rect = button.getBoundingClientRect();
+                const width = Math.min(340, window.innerWidth - 20);
+                popover.style.left = `${Math.max(10, Math.min(window.innerWidth - width - 10, rect.right + 10))}px`;
+                popover.style.top = `${Math.max(10, Math.min(window.innerHeight - 150, rect.top - 8))}px`;
+                popover.style.display = 'block';
+            };
+            host.querySelectorAll('.cast-timeline-event').forEach(button => {
+                const task = tasks[Number(button.dataset.taskIndex)];
+                const row = sequences[Number(button.dataset.taskIndex)][Number(button.dataset.eventIndex)];
+                button.addEventListener('pointerenter', () => showPopover(button, row, task));
+                button.addEventListener('pointerleave', hidePopover);
+                button.addEventListener('focus', () => showPopover(button, row, task));
+                button.addEventListener('blur', hidePopover);
+                button.addEventListener('click', () => showPopover(button, row, task));
+            });
         }
 
         function renderAbilityCompare(tasks) {

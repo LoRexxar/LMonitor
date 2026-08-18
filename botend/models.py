@@ -425,6 +425,7 @@ class WowSpellSnapshot(models.Model):
     name_zh = models.CharField(max_length=255, default="", blank=True)
     description = models.TextField(default="", blank=True)
     aura_description = models.TextField(default="", blank=True)
+    icon = models.CharField(max_length=255, default="", blank=True)
     snapshot_build = models.CharField(max_length=64, default="", blank=True)
     updated_at = models.DateTimeField(default=timezone.now)
 

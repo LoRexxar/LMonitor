@@ -76,6 +76,7 @@ from botend.constants.hero_talents import (
     normalize_hero_subtree_names_zh, normalize_hero_subtree_title_zh,
 )
 from botend.constants.wow import CLASS_SPEC_MAP, CLASS_CN, CLASS_COLOR, SPEC_CN, SPEC_ICON, SPEC_ROLE
+from botend.templatetags.wow_tags import wow_icon_oss_url
 from botend.services.simc_apl.catalog import query_symbol_catalog, query_visible_symbols
 from botend.services.simc_apl.validation import validate_payload
 from botend.services.simc_apl.authoritative_validator import RestrictedSimcValidator
@@ -5828,7 +5829,78 @@ class SimcRegularCompareAPIView(View):
         return localizations
 
     @staticmethod
-    def _safe_sample_sequence(sequence):
+    def _cast_timeline_action_key(value):
+        """Normalize only presentation separators; collisions remain unresolved."""
+        return re.sub(r'[\s_-]+', '', str(value or '').strip().casefold())
+
+    @classmethod
+    def _cast_timeline_spell_metadata(cls, frozen_baseline, sequence):
+        """Resolve displayed Sample Sequence actions to audited APL SpellIDs.
+
+        Report actions have no spell ID of their own.  We therefore accept only a
+        unique match in the frozen actor's visible APL action catalog; aliases,
+        fuzzy names and conflicting IDs deliberately remain unresolved.
+        """
+        character = frozen_baseline.get('character') if isinstance(frozen_baseline, dict) else {}
+        character = character if isinstance(character, dict) else {}
+        raw_class = str(character.get('class') or '').strip().lower()
+        raw_spec = str(character.get('spec') or '').strip().lower()
+        if '_' in raw_spec:
+            class_name, spec = raw_spec.split('_', 1)
+        elif raw_class and raw_spec:
+            class_name, spec = raw_class, raw_spec
+        else:
+            return {}
+
+        wanted = {
+            cls._cast_timeline_action_key(row.get('action_en') or row.get('action'))
+            for row in sequence if isinstance(row, dict)
+        }
+        wanted.discard('')
+        if not wanted:
+            return {}
+
+        candidates = defaultdict(set)
+        for symbol in query_visible_symbols(class_name, spec):
+            if symbol.symbol_kind != SimcAplSymbol.KIND_ACTION or not symbol.spell_id:
+                continue
+            key = cls._cast_timeline_action_key(symbol.token)
+            if key in wanted:
+                candidates[key].add(symbol.spell_id)
+        bindings = {
+            key: next(iter(spell_ids)) for key, spell_ids in candidates.items()
+            if len(spell_ids) == 1
+        }
+        if not bindings:
+            return {}
+
+        rows = WowSpellSnapshot.objects.filter(
+            branch='wow', spell_id__in=set(bindings.values()), locale__in=('zhCN', 'enUS'),
+        ).order_by('-updated_at')
+        snapshots = defaultdict(dict)
+        for row in rows:
+            snapshots[row.spell_id].setdefault(row.locale, row)
+
+        metadata = {}
+        for key, spell_id in bindings.items():
+            zh = snapshots[spell_id].get('zhCN')
+            en = snapshots[spell_id].get('enUS')
+            primary = zh or en
+            if primary is None:
+                continue
+            icon = str((zh and zh.icon) or (en and en.icon) or '').strip()
+            metadata[key] = {
+                'spell_id': spell_id,
+                'name': str((zh and (zh.name_zh or zh.name)) or (en and en.name) or '').strip(),
+                'name_en': str((en and en.name) or (zh and zh.name) or '').strip(),
+                'description': str((zh and (zh.description or zh.aura_description)) or
+                    (en and (en.description or en.aura_description)) or '').strip(),
+                'icon_url': wow_icon_oss_url(icon) if icon else '',
+            }
+        return metadata
+
+    @classmethod
+    def _safe_sample_sequence(cls, sequence, spell_metadata=None):
         """Return a bounded, display-only action sequence with numeric time coordinates."""
         if not isinstance(sequence, list):
             return []
@@ -5860,10 +5932,20 @@ class SimcRegularCompareAPIView(View):
             action = safe_text(row.get('action'), 300)
             if not action:
                 continue
+            action_key = cls._cast_timeline_action_key(row.get('action_en') or action)
+            spell = (spell_metadata or {}).get(action_key) or {}
             safe_rows.append({
                 'time_seconds': time_seconds,
                 'time_label': safe_text(raw_time, 32),
                 'action': action,
+                'action_en': safe_text(row.get('action_en'), 300),
+                'spell': {
+                    'spell_id': spell.get('spell_id'),
+                    'name': safe_text(spell.get('name'), 300),
+                    'name_en': safe_text(spell.get('name_en'), 300),
+                    'description': safe_text(spell.get('description'), 1200),
+                    'icon_url': safe_text(spell.get('icon_url'), 1000),
+                } if spell else {},
                 'action_list': safe_text(row.get('action_list'), 100),
                 'target': safe_text(row.get('target'), 300),
                 'resources': safe_text(row.get('resources'), 300),
@@ -5915,6 +5997,8 @@ class SimcRegularCompareAPIView(View):
             if not isinstance(dps, (int, float)):
                 invalid.append({'id': task.id, 'name': task.name, 'error': '无法解析已完成结果的 DPS'})
                 continue
+            raw_sequence = parsed.get('sample_sequence')
+            spell_metadata = self._cast_timeline_spell_metadata(frozen_baseline, raw_sequence)
             rows.append({
                 'id': task.id, 'name': task.name, 'label': task.name,
                 'is_base': not rows, 'is_base_candidate': not rows,
@@ -5931,7 +6015,7 @@ class SimcRegularCompareAPIView(View):
                     for ability in parsed.get('abilities', parsed.get('top_abilities', []))
                 ],
                 'top_abilities': parsed.get('top_abilities', []),
-                'sample_sequence': self._safe_sample_sequence(parsed.get('sample_sequence')),
+                'sample_sequence': self._safe_sample_sequence(raw_sequence, spell_metadata),
                 'action_localizations': self._apl_action_localizations(frozen_baseline),
                 'apl_name': apl_name, 'profile_name': profile_name,
                 'spec': str(profile_payload.get('spec') or getattr(task.profile, 'spec', '') or ''),
