@@ -7108,8 +7108,43 @@ class SimcWorkbenchAPIView(View):
                 task = SimcTask.objects.filter(id=object_id).first()
                 if not task:
                     return JsonResponse({'success': False, 'error': '任务不存在'}, status=404)
-                if request.GET.get('rerun_form') == '1' and task.user_id != request.user.id:
-                    return JsonResponse({'success': False, 'error': '任务不存在或无权限访问'}, status=404)
+                if request.GET.get('rerun_form') == '1':
+                    if task.user_id != request.user.id:
+                        return JsonResponse({'success': False, 'error': '任务不存在或无权限访问'}, status=404)
+                    task = SimcTask.objects.select_related(
+                        'profile', 'profile_version', 'talent_version',
+                    ).get(id=task.id)
+                    profile_payload = (
+                        task.profile_version.payload
+                        if task.profile_version and isinstance(task.profile_version.payload, dict)
+                        else {}
+                    )
+                    return JsonResponse({'success': True, 'data': {'rerun_form': {
+                        'source_task_id': task.id,
+                        'name': task.name,
+                        'mode': task.mode,
+                        'mode_params': task.mode_params if isinstance(task.mode_params, dict) else {},
+                        'profile_id': task.profile_id,
+                        'backend_id': task.backend_id,
+                        'apl_id': task.apl_id,
+                        'talent_string_id': task.talent_string_id or (
+                            task.talent_version.resource_id if task.talent_version else None
+                        ),
+                        'spec': (
+                            canonical_simc_profile_key(
+                                profile_payload.get('spec') or (task.profile.spec if task.profile else ''),
+                                task.profile.class_name if task.profile else '',
+                            )
+                            or str(
+                                profile_payload.get('spec')
+                                or (task.profile.spec if task.profile else '')
+                                or ''
+                            ).strip()
+                        ),
+                        'simulation_params': (
+                            task.simulation_params if isinstance(task.simulation_params, dict) else {}
+                        ),
+                    }}})
                 row = self._task_row(task)
                 talent_payload = task.talent_version.payload if task.talent_version and isinstance(task.talent_version.payload, dict) else {}
                 profile_payload = task.profile_version.payload if task.profile_version and isinstance(task.profile_version.payload, dict) else {}
@@ -7138,30 +7173,6 @@ class SimcWorkbenchAPIView(View):
                     'mode_summary': self._safe_mode_summary(task.mode_params),
                     'source_task_id': task.source_task_id,
                 })
-                if request.GET.get('rerun_form') == '1':
-                    params = task.simulation_params if isinstance(task.simulation_params, dict) else {}
-                    row['rerun_form'] = {
-                        'source_task_id': task.id,
-                        'name': task.name,
-                        'mode': task.mode,
-                        'mode_params': task.mode_params if isinstance(task.mode_params, dict) else {},
-                        'profile_id': task.profile_id,
-                        'backend_id': task.backend_id,
-                        'apl_id': task.apl_id,
-                        'talent_string_id': task.talent_string_id or (task.talent_version.resource_id if task.talent_version else None),
-                        'spec': (
-                            canonical_simc_profile_key(
-                                profile_payload.get('spec') or (task.profile.spec if task.profile else ''),
-                                task.profile.class_name if task.profile else '',
-                            )
-                            or str(
-                                profile_payload.get('spec')
-                                or (task.profile.spec if task.profile else '')
-                                or ''
-                            ).strip()
-                        ),
-                        'simulation_params': params,
-                    }
                 artifacts = list(task.artifacts.all().order_by('-created_at'))
                 runs = list(task.simulation_runs.all().order_by('-sequence'))
                 latest_run = runs[0] if runs else None

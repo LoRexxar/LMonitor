@@ -3545,7 +3545,7 @@ async function loadSimcSimProfileSelect(preferredId = 0, control = null) {
     }
 }
 
-async function resolveSimcPlayerSource() {
+async function resolveSimcPlayerSource(preferredProfileId = 0) {
     simcSourceResolutionAbortController?.abort();
     beginSimcProfileSwitch(0);
     clearSimcResolvedResources();
@@ -3596,7 +3596,7 @@ async function resolveSimcPlayerSource() {
         const control = beginSimcTargetSpecLoad(canonicalSpec);
         await loadSimcAplCandidates(canonicalSpec, control);
         if (type === 'specified_spec') {
-            await loadSimcSimProfileSelect(0, control);
+            await loadSimcSimProfileSelect(preferredProfileId, control);
             if (document.getElementById('simc-sim-profile-select')?.value === 'default') renderSimcInstantPlayerDetail();
         } else if (type !== 'specified_spec' && detail) {
             renderSimcSavedProfileDetail(detail);
@@ -4239,12 +4239,7 @@ async function loadSimcRerunFormFromLocation() {
     await loadSimcSpecOptions();
     const spec = document.getElementById('simc-sim-spec');
     if (spec && form.spec) spec.value = form.spec;
-    await resolveSimcPlayerSource();
-    const profile = document.getElementById('simc-sim-profile-select');
-    if (profile && form.profile_id && Array.from(profile.options).some(option => option.value === String(form.profile_id))) {
-        profile.value = String(form.profile_id);
-        await onSimcProfileSelect();
-    }
+    await resolveSimcPlayerSource(form.profile_id);
     await Promise.all([
         loadSimcTalentStringCandidates(simcResolvedCanonicalSpec),
         loadSimcBackendOptions(),

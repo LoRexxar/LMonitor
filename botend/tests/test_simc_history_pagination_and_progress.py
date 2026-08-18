@@ -257,6 +257,7 @@ class SimcHistoryBackendPaginationTests(TestCase):
         request.user = self.user
         payload = json.loads(self.view.get(request, resource='tasks', object_id=task.id).content)
         self.assertTrue(payload['success'])
+        self.assertEqual(set(payload['data']), {'rerun_form'})
         form = payload['data']['rerun_form']
         self.assertEqual(form['source_task_id'], task.id)
         self.assertEqual(form['profile_id'], self.profile.id)
