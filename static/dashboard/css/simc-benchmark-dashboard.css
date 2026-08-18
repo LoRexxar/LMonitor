@@ -186,6 +186,7 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
 .benchmark-spec-additional-input textarea { min-height:6rem; resize:vertical; border-color:#d9e2ef; border-radius:.55rem; padding:.55rem .65rem; background:#fbfdff; color:#334155; font:500 .72rem/1.5 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; }
 .benchmark-spec-additional-input textarea::placeholder { color:#9aa7b9; }
 .benchmark-variant-apl-editor { border-top:3px solid #b0c2e6; }
+.benchmark-variant-apl-editor[hidden] { display:none !important; }
 .benchmark-variant-apl-head { display:grid; gap:.12rem; padding-bottom:.12rem; border-bottom:1px solid #edf1f5; }
 .benchmark-variant-apl-row { display:grid !important; grid-template-columns:minmax(8rem,.8fr) minmax(13rem,1.2fr); align-items:center; gap:.65rem; min-width:0; padding:.12rem 0; color:#4b5870; font-size:.7rem; font-weight:700; }
 .benchmark-variant-apl-row[hidden] { display:none !important; }
