@@ -7,7 +7,7 @@
         activePanel: '', taskPage: 1, taskScope: 'all', taskSpecFilter: '', taskTypeFilter: 'all',
         taskFetchInFlight: false,
         taskRequestSerial: 0, taskPollTimer: null, taskAbortController: null,
-        taskResponseSignature: '',
+        taskResponseSignature: '', taskCompareIds: new Set(),
         benchmarkExecutionDetails: new Map(),
         detailRequestSerial: 0, detailAbortController: null, detailRequestKey: '',
         dialogStack: [],
@@ -270,8 +270,14 @@
         }
         state.taskResponseSignature = responseSignature;
         state.rows.history = data.data || [];
+        const availableTaskCompareIds = new Set(data.data
+            .filter(row => Number(row.status) === 2 && row.can_compare === true)
+            .map(row => idOf(row.id))
+            .filter(Boolean));
+        state.taskCompareIds = new Set([...state.taskCompareIds].filter(compareId => availableTaskCompareIds.has(compareId)));
+        const compareCount = state.taskCompareIds.size;
 
-        host.innerHTML = data.data.length ? `<div class="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-violet-200 bg-violet-50 p-3" data-task-compare-toolbar><span class="text-sm text-violet-900"><i class="fas fa-check-square mr-1" aria-hidden="true"></i>勾选至少两个已完成结果，生成对比页面</span><button type="button" data-task-compare-submit disabled class="simc-touch-action rounded-lg bg-violet-700 px-3 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50"><i class="fas fa-balance-scale mr-1" aria-hidden="true"></i>生成对比结果（0）</button></div><div class="simc-task-list">${data.data.map(row => {
+        host.innerHTML = data.data.length ? `<div class="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-violet-200 bg-violet-50 p-3" data-task-compare-toolbar><span class="text-sm text-violet-900"><i class="fas fa-check-square mr-1" aria-hidden="true"></i>勾选至少两个已完成结果，生成对比页面</span><button type="button" data-task-compare-submit${compareCount < 2 ? ' disabled' : ''} class="simc-touch-action rounded-lg bg-violet-700 px-3 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50"><i class="fas fa-balance-scale mr-1" aria-hidden="true"></i>生成对比结果（${compareCount}）</button></div><div class="simc-task-list">${data.data.map(row => {
             if (row.row_type === 'benchmark_execution') {
                 Object.assign(row, state.benchmarkExecutionDetails.get(String(row.execution_id || row.id)) || {});
                 const executionId = idOf(row.execution_id || row.id);
@@ -337,7 +343,7 @@
             const resourceMeta = `<div class="simc-task-card__resources" aria-label="任务资源"><span title="APL：${esc(row.apl_name || '—')}"><b>APL</b><em>${esc(row.apl_name || '—')}</em></span><span title="天赋字符串：${esc(row.talent_name || '—')}"><b>天赋字符串</b><em>${esc(row.talent_name || '—')}</em></span></div>`;
             const cardAction = status === 2 && row.can_compare === true ? 'compare' : status === 3 ? 'error' : '';
             return `<article class="simc-task-card simc-responsive-row${cardAction ? ' is-status-actionable' : ''}"${cardAction ? ` data-task-card-action="${cardAction}" data-task-card-id="${idOf(row.id)}"` : ''}>
-                ${row.can_compare === true && status === 2 ? `<label class="simc-task-card__select"><input type="checkbox" data-task-compare-id="${idOf(row.id)}" aria-label="选择任务 ${idOf(row.id)} 进行对比" class="accent-violet-600"></label>` : ''}
+                ${row.can_compare === true && status === 2 ? `<label class="simc-task-card__select"><input type="checkbox" data-task-compare-id="${idOf(row.id)}" aria-label="选择任务 ${idOf(row.id)} 进行对比" class="accent-violet-600"${state.taskCompareIds.has(idOf(row.id)) ? ' checked' : ''}></label>` : ''}
                 <div class="simc-task-card__main">
                     <div class="simc-task-card__kind"><span class="simc-task-id">#${idOf(row.id)}</span><span class="simc-task-type">${typeLabel}</span></div>
                     <div class="simc-task-card__identity">
@@ -1528,14 +1534,17 @@
 
             const compareSubmit = event.target.closest('[data-task-compare-submit]');
             if (compareSubmit) {
-                const host = compareSubmit.closest('[data-task-compare-toolbar]')?.parentElement;
-                const ids = Array.from(host?.querySelectorAll('[data-task-compare-id]:checked') || []).map(input => idOf(input.dataset.taskCompareId));
+                const ids = Array.from(state.taskCompareIds);
                 if (ids.length >= 2) window.open(`/simc-compare/?task_ids=${ids.join(',')}`, '_blank', 'noopener,noreferrer');
                 return;
             }
             if (event.target.matches('[data-task-compare-id]')) {
+                const compareId = idOf(event.target.dataset.taskCompareId);
+                if (!compareId) return;
+                if (event.target.checked) state.taskCompareIds.add(compareId);
+                else state.taskCompareIds.delete(compareId);
                 const host = event.target.closest('#simc-wb-task-list');
-                const count = host?.querySelectorAll('[data-task-compare-id]:checked').length || 0;
+                const count = state.taskCompareIds.size;
                 const button = host?.querySelector('[data-task-compare-submit]');
                 if (button) {
                     button.disabled = count < 2;

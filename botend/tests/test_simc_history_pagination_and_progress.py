@@ -189,6 +189,17 @@ class SimcHistoryPaginationContractTests(unittest.TestCase):
         self.assertIn('@media (max-width: 900px)', HTML)
         self.assertIn('@media (max-width: 640px)', HTML)
 
+    def test_task_compare_selection_survives_background_list_refresh(self):
+        """轮询重绘任务列表时，仍可比较任务的对比选择必须按稳定 task ID 保留。"""
+        history = JS[JS.index('async function loadTasks('):JS.index('function scheduleTaskRefresh(', JS.index('async function loadTasks('))]
+        self.assertIn('taskCompareIds: new Set()', JS)
+        self.assertIn('state.taskCompareIds = new Set(', history)
+        self.assertIn('state.taskCompareIds.has(idOf(row.id)) ? \' checked\' : \'\'', history)
+        self.assertIn('state.taskCompareIds.size', history)
+        self.assertIn('Array.from(state.taskCompareIds)', JS)
+        self.assertIn('state.taskCompareIds.add(compareId)', JS)
+        self.assertIn('state.taskCompareIds.delete(compareId)', JS)
+
     def test_history_task_actions_use_compact_visible_labels(self):
         self.assertNotIn('<span>选择对比</span>', JS)
         self.assertIn('aria-label="选择任务 ${idOf(row.id)} 进行对比"', JS)
