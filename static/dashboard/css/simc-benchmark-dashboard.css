@@ -188,6 +188,7 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
 .benchmark-variant-apl-editor { border-top:3px solid #b0c2e6; }
 .benchmark-variant-apl-head { display:grid; gap:.12rem; padding-bottom:.12rem; border-bottom:1px solid #edf1f5; }
 .benchmark-variant-apl-row { display:grid !important; grid-template-columns:minmax(8rem,.8fr) minmax(13rem,1.2fr); align-items:center; gap:.65rem; min-width:0; padding:.12rem 0; color:#4b5870; font-size:.7rem; font-weight:700; }
+.benchmark-variant-apl-row[hidden] { display:none !important; }
 .benchmark-variant-apl-row > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .benchmark-variant-apl-row select { min-height:34px; padding:.32rem .55rem; color:#41516b; font-size:.7rem; background:#fcfdff; }
 
