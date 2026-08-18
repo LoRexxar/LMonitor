@@ -23,6 +23,14 @@ ITEM_LEVEL_PALETTE = [
 
 
 class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
+    def test_scenario_four_piece_checkbox_is_collected_from_its_rendered_dom_name(self):
+        """勾选场景级四件套覆盖必须进入保存 payload，而不是因 dataset 名称漂移被忽略。"""
+        render = JS[JS.index('function renderFourPieceOverride('):JS.index('function syncRaidBuffControls(')]
+        collect = JS[JS.index('function collectPayload('):JS.index('function configErrors(')]
+        self.assertIn("dataset:{forceCurrentTier4pc:''}", render)
+        self.assertIn("[data-force-current-tier4pc]", collect)
+        self.assertIn("simulation_params.extra_options=['force_current_tier_4pc']", collect)
+
     def test_full_run_reports_coordinate_preflight_failures_instead_of_generic_error(self):
         run_panel = JS[JS.index('async function runPanel('):JS.index('async function deletePanel(')]
         self.assertIn('preflight_failures', run_panel)
