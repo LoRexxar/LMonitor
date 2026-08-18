@@ -214,6 +214,10 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('--dry-run', action='store_true')
+        parser.add_argument(
+            '--batch-size', type=int, default=500,
+            help='每条 bulk update 的最大行数；大 JSON 快照在空间受限环境可调小。',
+        )
         parser.add_argument('--panel-slug', default='', help='仅回填指定 Benchmark Panel')
         parser.add_argument(
             '--tooltip-data', default='',
@@ -226,6 +230,9 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         dry_run = options['dry_run']
+        batch_size = options['batch_size']
+        if batch_size <= 0:
+            raise CommandError('--batch-size 必须为正整数。')
         panel_slug = str(options.get('panel_slug') or '').strip()
         candidate_tooltips = _load_candidate_tooltips(
             options.get('tooltip_data'),
@@ -335,15 +342,15 @@ class Command(BaseCommand):
             with transaction.atomic():
                 if candidate_updates:
                     SimcBenchmarkCandidate.objects.bulk_update(
-                        candidate_updates, ['label', 'icon_url', 'effect'], batch_size=500,
+                        candidate_updates, ['label', 'icon_url', 'effect'], batch_size=batch_size,
                     )
                 if run_updates:
                     SimulationRun.objects.bulk_update(
-                        run_updates, ['candidate_label', 'display_metadata'], batch_size=500,
+                        run_updates, ['candidate_label', 'display_metadata'], batch_size=batch_size,
                     )
                 if execution_updates:
                     SimcBenchmarkExecution.objects.bulk_update(
-                        execution_updates, ['display_metadata'], batch_size=500,
+                        execution_updates, ['display_metadata'], batch_size=batch_size,
                     )
 
         action = 'would update' if dry_run else 'updated'

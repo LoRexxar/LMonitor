@@ -122,7 +122,9 @@ class BackfillSimcBenchmarkResultsCommandTests(SimcBenchmarkExecutionTests):
         snapshot_before = deepcopy(execution.config_snapshot)
         hash_before = execution.config_hash
 
-        call_command('backfill_simc_benchmark_display_metadata', panel_slug=execution.panel.slug)
+        call_command(
+            'backfill_simc_benchmark_display_metadata', panel_slug=execution.panel.slug, batch_size=1,
+        )
 
         candidate.refresh_from_db()
         run.refresh_from_db()
