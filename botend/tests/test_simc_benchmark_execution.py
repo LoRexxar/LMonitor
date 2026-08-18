@@ -1575,6 +1575,37 @@ class SimcBenchmarkExecutionTests(TestCase):
             ('baseline', 1234.0), ('trinket', 1300.0),
         ])
 
+    def test_supplement_rerun_scopes_reusable_history_to_current_frozen_plan(self):
+        self.benchmark_profile.talent_string = self.talent
+        self.benchmark_profile.save(update_fields=['talent_string'])
+        with patch.object(
+            benchmark_execution_service,
+            '_reusable_candidate_tasks_by_coordinate',
+            return_value={},
+        ) as reusable:
+            self._create(execution_mode='supplement')
+
+        args, kwargs = reusable.call_args
+        self.assertEqual(args, (self.panel,))
+        self.assertTrue(kwargs['include_resource_versions'])
+        plan = kwargs['coordinate_plans']
+        self.assertEqual(len(plan), 1)
+        self.assertEqual(
+            {key: plan[0][key] for key in (
+                'spec_key', 'profile_key', 'scenario_key', 'profile_id',
+                'apl_id', 'template_id', 'backend_id',
+            )},
+            {
+                'spec_key': 'warrior_fury',
+                'profile_key': f'{self.profile.id}:talent:{self.talent.id}',
+                'scenario_key': 'patchwerk',
+                'profile_id': self.profile.id,
+                'apl_id': self.apl.id,
+                'template_id': self.template.id,
+                'backend_id': self.backend.id,
+            },
+        )
+
     def test_supplement_rerun_only_schedules_missing_candidates_from_current_baseline(self):
         original = self._published_success()
         task = original.cases.get().task

@@ -595,7 +595,7 @@ def _incremental_coordinates(panel, plan):
     """Schedule only candidate input identities absent from immutable successful results."""
     rows = []
     reusable_by_coordinate = _reusable_candidate_tasks_by_coordinate(
-        panel, include_resource_versions=True,
+        panel, include_resource_versions=True, coordinate_plans=plan['cases'],
     )
     for coordinate in plan['cases']:
         reusable = _reusable_candidate_tasks(
