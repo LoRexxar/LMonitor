@@ -519,25 +519,11 @@
         return (payload.data || []).filter(row => idOf(row.id) === originalId || (row.is_active !== false && row.is_selectable !== false)).map(row => `<option value="${idOf(row.id)}" ${idOf(row.id) === originalId ? 'selected' : ''}>${esc(row.name || row.title || `#${row.id}`)}</option>`).join('');
     }
 
-    async function renderTaskRerunForm(taskId) {
-        pushDialogState();
-        window.openSimcWorkbenchDialog('task-rerun', null);
-        const host = document.getElementById('simc-dialog-body');
-        if (!host) return;
-        host.innerHTML = `<form data-task-rerun-form data-task-id="${idOf(taskId)}" class="space-y-4">
-            <div><h4 class="font-bold">复制任务重跑</h4><p class="mt-2 text-sm text-gray-500">完整复制该任务的冻结请求，创建一个新的 pending Task；不会读取、复制或追加旧 Run。</p></div>
-            <div class="flex gap-2"><button type="submit" class="rounded bg-blue-600 px-4 py-2 text-white">确认重跑</button><button type="button" data-task-rerun-cancel class="rounded border px-4 py-2">取消</button></div>
-        </form>`;
-    }
-
-    async function submitTaskRerun(form) {
-        const result = await json(resourceUrl('tasks', idOf(form.dataset.taskId)), {
-            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.getCSRFToken() },
-            body: JSON.stringify({ action: 'rerun' }),
-        });
-        window.showMessage('已创建新的引用型任务', 'success');
-        state.dialogStack = [];
-        window.location.assign(`/dashboard/simc/tasks/${idOf(result.data?.id)}/`);
+    function renderTaskRerunForm(taskId) {
+        const target = new URL('/dashboard/', window.location.origin);
+        target.searchParams.set('section', 'simc-workbench');
+        target.searchParams.set('simc_rerun_task', idOf(taskId));
+        window.location.assign(target.toString());
     }
 
 
@@ -1789,12 +1775,6 @@
             if (enrollmentForm) {
                 event.preventDefault();
                 createAgentEnrollmentCode(enrollmentForm).catch(notify);
-                return;
-            }
-            const taskRerunForm = event.target.closest('[data-task-rerun-form]');
-            if (taskRerunForm) {
-                event.preventDefault();
-                submitTaskRerun(taskRerunForm).catch(notify);
                 return;
             }
             const aplStorageForm = event.target.closest('[data-apl-storage-form]');

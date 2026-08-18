@@ -107,6 +107,13 @@ class SimcHistoryPaginationContractTests(unittest.TestCase):
         self.assertIn('executions/${executionId}/cases/${caseId}/rerun/', JS)
         self.assertIn("event.target.closest('[data-benchmark-case-rerun]')", JS)
 
+    def test_regular_task_rerun_routes_to_the_simulation_form_without_posting_a_rerun(self):
+        rerun = JS[JS.index('function renderTaskRerunForm'):JS.index('function specLabel', JS.index('function renderTaskRerunForm'))]
+        self.assertIn('simc_rerun_task', rerun)
+        self.assertIn("searchParams.set('section', 'simc-workbench')", rerun)
+        self.assertNotIn("action: 'rerun'", rerun)
+        self.assertNotIn("method: 'POST'", rerun)
+
     def test_expanded_benchmark_case_omits_low_value_task_id(self):
         """展开项保留坐标、状态和进度，不重复展示内部 Task 编号。"""
         self.assertNotIn('<span class="simc-task-id">Task #${idOf(item.task_id)}</span>${title}', JS)
@@ -225,6 +232,44 @@ class SimcHistoryBackendPaginationTests(TestCase):
             player_config_mode='attribute_only',
             is_active=True
         )
+
+    def test_task_rerun_form_projection_is_owner_scoped_and_uses_frozen_params(self):
+        frozen_profile = SimcResourceVersion.objects.create(
+            resource_type='profile', resource_id=self.profile.id, content_hash='rerun-profile-v1',
+            payload={'name': '冻结狂怒配置', 'spec': 'fury'},
+        )
+        frozen_talent = SimcResourceVersion.objects.create(
+            resource_type='talent_string', resource_id=42, content_hash='rerun-talent-v1',
+            payload={'name': '冻结天赋', 'talent': 'CkEAAAAAAAAAAAAAAAAAAAAAA'},
+        )
+        task = SimcTask.objects.create(
+            user_id=self.user.id, simc_profile_id=self.profile.id, profile=self.profile,
+            profile_version=frozen_profile, talent_version=frozen_talent, backend=self.backend,
+            name='历史普通模拟', current_status=2,
+            simulation_params={
+                'fight_style': 'HecticAddCleave', 'time': 240, 'target_count': 3,
+                'raid_buffs': ['chaos_brand'], 'use_class_raid_buff': False,
+                'extra_options': ['force_current_tier_4pc'], 'additional_simc_input': 'set_bonus=x=1',
+            },
+        )
+        request = self.factory.get(f'/api/simc-workbench/tasks/{task.id}/?rerun_form=1')
+        request.user = self.user
+        payload = json.loads(self.view.get(request, resource='tasks', object_id=task.id).content)
+        self.assertTrue(payload['success'])
+        form = payload['data']['rerun_form']
+        self.assertEqual(form['source_task_id'], task.id)
+        self.assertEqual(form['profile_id'], self.profile.id)
+        self.assertEqual(form['backend_id'], self.backend.id)
+        self.assertEqual(form['spec'], 'fury')
+        self.assertEqual(form['talent_string_id'], 42)
+        self.assertEqual(form['simulation_params']['fight_style'], 'HecticAddCleave')
+        self.assertEqual(form['simulation_params']['raid_buffs'], ['chaos_brand'])
+
+        other = User.objects.create_user(username='rerun-form-other', password='testpass')
+        forbidden = self.factory.get(f'/api/simc-workbench/tasks/{task.id}/?rerun_form=1')
+        forbidden.user = other
+        response = self.view.get(forbidden, resource='tasks', object_id=task.id)
+        self.assertEqual(response.status_code, 404)
 
     def test_history_endpoint_unifies_standalone_and_grouped_tasks(self):
         grouped = SimcTask.objects.create(
