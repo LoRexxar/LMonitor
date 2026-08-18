@@ -34,8 +34,8 @@
         .cast-timeline-grid {
             display: grid;
             grid-template-columns: 68px repeat(var(--timeline-columns), minmax(220px, 1fr));
-            min-width: max-content;
         }
+        .cast-timeline-task-title { overflow-wrap: anywhere; }
         .cast-timeline-axis, .cast-timeline-lane { position: relative; }
         .cast-timeline-axis { border-right: 1px solid #e5e7eb; }
         .cast-timeline-lane { border-right: 1px solid #e5e7eb; background: repeating-linear-gradient(to bottom, transparent 0, transparent 59px, #f3f4f6 60px); }
@@ -488,7 +488,7 @@
                 }).join('');
             };
             summary.textContent = `${eventCount} 次施法 · ${minTime.toFixed(1)}–${maxTime.toFixed(1)} 秒`;
-            host.innerHTML = `<div class="cast-timeline-grid" style="--timeline-columns:${tasks.length}"><div class="bg-gray-50 border-b border-gray-200 px-2 py-3 text-xs font-semibold text-gray-500">时间</div>${tasks.map(task => `<div class="bg-gray-50 border-b border-gray-200 px-3 py-3 text-sm font-semibold text-gray-900">${escapeHtml(task.name || '任务')}(#${task.id})${task.is_base ? ' <span class="text-xs text-blue-600">基准</span>' : ''}</div>`).join('')}<div class="cast-timeline-axis" style="height:${height}px">${ticks.map(time => `<span class="cast-timeline-tick" style="top:${topFor(time)}px">${time}s</span>`).join('')}</div>${tasks.map((task, index) => `<div class="cast-timeline-lane" style="height:${height}px">${ticks.map(time => `<span class="cast-timeline-guide" style="top:${topFor(time)}px"></span>`).join('')}${eventsForLane(sequences[index])}</div>`).join('')}</div>`;
+            host.innerHTML = `<div class="cast-timeline-grid" style="--timeline-columns:${tasks.length}"><div class="bg-gray-50 border-b border-gray-200 px-2 py-3 text-xs font-semibold text-gray-500">时间</div>${tasks.map(task => `<div class="cast-timeline-task-title bg-gray-50 border-b border-gray-200 px-3 py-3 text-sm font-semibold text-gray-900">${escapeHtml(task.name || '任务')}(#${task.id})${task.is_base ? ' <span class="text-xs text-blue-600">基准</span>' : ''}</div>`).join('')}<div class="cast-timeline-axis" style="height:${height}px">${ticks.map(time => `<span class="cast-timeline-tick" style="top:${topFor(time)}px">${time}s</span>`).join('')}</div>${tasks.map((task, index) => `<div class="cast-timeline-lane" style="height:${height}px">${ticks.map(time => `<span class="cast-timeline-guide" style="top:${topFor(time)}px"></span>`).join('')}${eventsForLane(sequences[index])}</div>`).join('')}</div>`;
         }
 
         function renderAbilityCompare(tasks) {
