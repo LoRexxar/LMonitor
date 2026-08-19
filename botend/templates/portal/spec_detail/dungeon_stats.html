@@ -380,6 +380,7 @@
                             {% endif %}
                         </div>
                         <button type="button" class="talent-build-copy" data-build-code="{{ build.code|escape }}">复制</button>
+                        <a class="talent-build-copy talent-build-simulator" href="/portal/talents/?class={{ class_name|urlencode }}&amp;spec={{ spec_name|urlencode }}&amp;version=retail-12.0.7&amp;code={{ build.code|urlencode }}" aria-label="打开天赋模拟器" title="打开天赋模拟器">模拟器</a>
                     </div>
                     {% if build.added_talents or build.missing_talents %}
                     <div class="talent-build-diffs">
@@ -1442,6 +1443,7 @@
     cursor: pointer;
 }
 .talent-build-copy:hover { background: #dbeafe; color: #1e40af; }
+.talent-build-simulator { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
 .talent-build-copy.is-copied {
     border-color: #bbf7d0;
     background: #f0fdf4;
@@ -2017,7 +2019,7 @@ a.enchant-name:hover { color: #2563eb; }
         }, 1400);
     }
 
-    document.querySelectorAll('.talent-build-copy').forEach(function(button) {
+    document.querySelectorAll('.talent-build-copy[data-build-code]').forEach(function(button) {
         button.addEventListener('click', function() {
             var code = button.getAttribute('data-build-code') || '';
             if (!code) {

@@ -3412,6 +3412,10 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         self.assertIn('https://www.wowhead.com/spell=2020', html)
         self.assertIn('BwQAAAAAAAAAAAAAAAAAAAAA', html)
         self.assertIn('talent-copy-btn', html)
+        self.assertIn(
+            '/portal/talents/?class=Monk&spec=Windwalker&version=retail-12.0.7&profile_id=7&code=BwQAAAAAAAAAAAAAAAAAAAAA',
+            html,
+        )
         self.assertIn('已复制', html)
 
     @patch('botend.services.spec_stats_service.TalentMetadataProvider')
@@ -4187,6 +4191,11 @@ class SpecStatsTalentBuildDiffTooltipTemplateTests(SimpleTestCase):
 
             self.assertIn('talent-build-player-tooltip', html)
             self.assertIn('使用该字符串 Top5', html)
+            self.assertIn(
+                '/portal/talents/?class=Monk&amp;spec=Windwalker&amp;version=retail-12.0.7&amp;code=CODE_B',
+                html,
+            )
+            self.assertIn('打开天赋模拟器', html)
             self.assertNotIn('选取该天赋 Top5', html)
             self.assertNotIn('模板选取 Top5', html)
             self.assertIn('VariantOne-RealmB', html)
