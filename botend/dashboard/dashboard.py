@@ -70,7 +70,7 @@ MODEL_DESCRIPTIONS = {
     'PortalEvent': '活动信息',
     'PortalToolLink': '工具链接',
     'PortalMplusRun': '大秘境记录',
-    'PortalPeakSpecRankRow': '巅峰榜（专精前3）',
+    'PortalPeakSpecRankRow': '巅峰榜（专精前20）',
     'VideoMonitorTarget': '视频监控目标',
     'PortalVideo': '视频信息',
     'GeWechatAuth': '微信登录信息',

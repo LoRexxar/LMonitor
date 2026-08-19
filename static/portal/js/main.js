@@ -926,9 +926,8 @@ function renderPeakSpecGrid(containerId, payload) {
       if (!filtered.length) continue;
     }
 
-    const top3 = filtered.slice(0, 3);
-    while (top3.length < 3) top3.push(null);
-    const rows = top3.map((x) => {
+    const top20 = filtered.slice(0, 20);
+    const rows = top20.map((x) => {
       const name = escapeHtml(x?.name || "-");
       const score = x?.score != null ? escapeHtml(Number(x.score).toFixed(1)) : "-";
       const realm = String(x?.realm_name || "").trim();

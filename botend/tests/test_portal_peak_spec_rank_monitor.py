@@ -42,3 +42,37 @@ class PortalPeakSpecRankMonitorSeasonTests(SimpleTestCase):
 
         self.assertFalse(ok)
         objects.filter.assert_not_called()
+
+    def test_fetch_and_upsert_persists_raiderio_top_twenty(self):
+        monitor = PortalPeakSpecRankMonitor(Mock(), Mock())
+        rankings = [
+            {
+                'rank': index,
+                'score': 3000 - index,
+                'scoreColor': '#ffffff',
+                'character': {
+                    'name': f'Player{index}',
+                    'path': f'/characters/us/test/Player{index}',
+                    'class': {'name': 'Mage'},
+                    'spec': {'name': 'Arcane', 'role': 'dps'},
+                    'realm': {'slug': 'test', 'name': 'Test'},
+                    'region': {'slug': 'us'},
+                },
+            }
+            for index in range(1, 21)
+        ]
+        response = Mock(status_code=200)
+        response.json.return_value = {'rankings': {'rankedCharacters': rankings}}
+
+        with patch('botend.controller.plugins.portal.PortalPeakSpecRankMonitor.requests.get', return_value=response), \
+                patch('botend.controller.plugins.portal.PortalPeakSpecRankMonitor.PortalPeakSpecRankRow.objects') as objects:
+            ok = monitor._fetch_and_upsert(
+                season='season-mn-2', region='world', class_slug='mage', spec_slug='arcane'
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(objects.update_or_create.call_count, 20)
+        self.assertEqual(
+            [call.kwargs['rank'] for call in objects.update_or_create.call_args_list],
+            list(range(1, 21)),
+        )

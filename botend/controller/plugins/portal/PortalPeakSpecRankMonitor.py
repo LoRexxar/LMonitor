@@ -7,6 +7,9 @@ from botend.models import PortalPeakSpecRankRow, SeasonMeta
 from utils.log import logger
 
 
+TOP_RANK_LIMIT = 20
+
+
 class PortalPeakSpecRankMonitor(BaseScan):
     def __init__(self, req, task):
         super().__init__(req, task)
@@ -74,7 +77,7 @@ class PortalPeakSpecRankMonitor(BaseScan):
         seen = set()
         page = 0
         last_status = None
-        while len(top_rows) < 3 and page < 5:
+        while len(top_rows) < TOP_RANK_LIMIT and page < 5:
             payload, last_status = fetch_page(page)
             if not payload:
                 logger.warning(
@@ -91,7 +94,7 @@ class PortalPeakSpecRankMonitor(BaseScan):
                 break
 
             for row in rows:
-                if len(top_rows) >= 3:
+                if len(top_rows) >= TOP_RANK_LIMIT:
                     break
                 char = row.get("character") or {}
                 char_path = (char.get("path") or "").strip()
@@ -116,7 +119,7 @@ class PortalPeakSpecRankMonitor(BaseScan):
             logger.warning(f"[PortalPeakSpecRankMonitor] empty rankings: {class_slug}/{spec_slug} season={season}")
             return False
 
-        if len(top_rows) < 3:
+        if len(top_rows) < TOP_RANK_LIMIT:
             logger.warning(f"[PortalPeakSpecRankMonitor] not enough rows: {class_slug}/{spec_slug} rows={len(top_rows)}")
             return True
 
@@ -128,7 +131,7 @@ class PortalPeakSpecRankMonitor(BaseScan):
             is_active=True,
         ).update(is_active=False)
 
-        for idx, row in enumerate(top_rows[:3]):
+        for idx, row in enumerate(top_rows[:TOP_RANK_LIMIT]):
             rank = idx + 1
 
             score = row.get("score")
