@@ -7,6 +7,7 @@ from botend.management.commands.backfill_simc_benchmark_display_metadata import 
 from botend.management.commands.fetch_item_metadata import (
     Command,
     WOWHEAD_PTR_TOOLTIP_API,
+    _choose_icon,
 )
 from botend.services.simc_benchmark_config import _best_benchmark_tooltip
 
@@ -40,6 +41,12 @@ class FetchItemMetadataCommandTests(SimpleTestCase):
         self.assertIn('+123 暴击', data['description'])
         self.assertIn('装备：你的法术有几率触发海潮。', data['description'])
         self.assertNotIn('物品等级 300', data['description'])
+
+    def test_real_tooltip_icon_replaces_questionmark(self):
+        self.assertEqual(
+            _choose_icon('', 'inv_misc_questionmark', 'inv_gear_real', ''),
+            'inv_gear_real',
+        )
 
     def test_benchmark_metadata_prefers_complete_tooltip_over_short_chinese_text(self):
         item = SimpleNamespace(

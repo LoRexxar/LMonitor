@@ -29,6 +29,15 @@ def _norm_icon(icon):
     return icon
 
 
+def _choose_icon(fallback_icon='', existing_icon='', cn_icon='', en_icon=''):
+    """保留采集快照图标，但绝不让 questionmark 覆盖权威 tooltip 图标。"""
+    candidates = [_norm_icon(value) for value in (fallback_icon, existing_icon, cn_icon, en_icon)]
+    for icon in candidates:
+        if icon and icon != 'inv_misc_questionmark':
+            return icon
+    return next((icon for icon in candidates if icon), '')
+
+
 QUALITY_TEXT_MAP = {'poor': 0, 'common': 1, 'uncommon': 2, 'rare': 3, 'epic': 4, 'legendary': 5, 'artifact': 6, 'heirloom': 7}
 
 
@@ -248,7 +257,12 @@ class Command(BaseCommand):
                 'name_zh': meta.get('name_zh') or row_name_zh or fallback_name_zh,
                 'description': meta_en.get('description') or fallback_description or row_description,
                 'description_zh': meta.get('description_zh') or row_desc_zh or fallback_desc_zh,
-                'icon': fallback.get('icon') or (row.icon if row else '') or meta.get('icon') or meta_en.get('icon') or '',
+                'icon': _choose_icon(
+                    fallback.get('icon'),
+                    row.icon if row else '',
+                    meta.get('icon'),
+                    meta_en.get('icon'),
+                ),
                 'quality': _coerce_quality(fallback.get('quality') or meta.get('quality') or meta_en.get('quality') or (row.quality if row else 0)),
                 'source': 'wowhead_cn',
                 'updated_at': timezone.now(),
