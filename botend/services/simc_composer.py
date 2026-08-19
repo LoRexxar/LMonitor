@@ -141,6 +141,7 @@ def validate_simulation_options(params: Dict[str, Any]) -> str:
         integer('desired_targets', value('desired_targets', 'target_count', 1), 1, 1000),
         number('target_error', 0, 1),
         number('vary_combat_length', 0, 1),
+        number('enemy_initial_health_percentage', 1, 100),
     ]
     # If callers submit both schemas, also validate the request-side value that
     # Composer will render; canonical aliases must never mask an unsafe value.
@@ -938,6 +939,11 @@ class SimcComposer:
             options.append(f"vary_combat_length={request_data['vary_combat_length']}")
         if request_data.get('enemy_type'):
             options.append(f"enemy={request_data['enemy_type']}")
+        if request_data.get('enemy_initial_health_percentage') is not None:
+            options.append(
+                'enemy_initial_health_percentage='
+                f"{request_data['enemy_initial_health_percentage']}"
+            )
         candidate_options = request_data.get('_candidate_simc_options')
         if candidate_options is not None:
             from botend.services.simc_candidate_options import normalize_controlled_simc_options

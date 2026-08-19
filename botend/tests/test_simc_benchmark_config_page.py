@@ -129,7 +129,8 @@ class SimcBenchmarkConfigPageTests(TestCase):
 
     def test_scenario_editor_exposes_core_simc_parameters_without_opening_advanced_settings(self):
         script = Path('static/dashboard/js/simc-benchmark-dashboard.js').read_text()
-        self.assertIn("const SCENARIO_PRIMARY_PARAMS = ['desired_targets','max_time','iterations','fight_style'];", script)
+        self.assertIn("const SCENARIO_PRIMARY_PARAMS = ['desired_targets','enemy_initial_health_percentage','max_time','iterations','fight_style'];", script)
+        self.assertIn("enemy_initial_health_percentage:{label:'目标初始生命值 (%)'", script)
         self.assertIn("desired_targets:{label:'目标数'", script)
         self.assertIn("max_time:{label:'战斗时间（秒）'", script)
         self.assertIn("iterations:{label:'迭代次数'", script)

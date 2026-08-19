@@ -1628,6 +1628,7 @@ class SimcTaskAPIView(View):
             fight_style = data.get('fight_style')
             fight_time = data.get('time')
             target_count = data.get('target_count')
+            enemy_initial_health_percentage = data.get('enemy_initial_health_percentage')
             player_import_mode = data.get('player_import_mode') or data.get('player_config_mode')
             if player_import_mode == 'equipment':
                 player_import_mode = 'manual_equipment'
@@ -1808,6 +1809,9 @@ class SimcTaskAPIView(View):
                 simulation_params['max_time'] = fight_time
             if target_count is not None:
                 simulation_params['desired_targets'] = target_count
+            simulation_params['enemy_initial_health_percentage'] = (
+                enemy_initial_health_percentage if enemy_initial_health_percentage is not None else 100
+            )
             if 'raid_buffs' in data:
                 simulation_params['raid_buffs'] = data['raid_buffs']
             if 'use_class_raid_buff' in data:

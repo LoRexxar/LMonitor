@@ -563,6 +563,16 @@ class SimcComposerIdentitySlotResolutionTests(ComposerTestCase):
         self.assertIn('fight_style=Patchwerk', lines)
         self.assertIn('desired_targets=1', lines)
 
+    def test_initial_target_health_percentage_overrides_the_default_full_health(self):
+        self.base.content = '{player_identity}\n{equipment}\n{simulation_options}\n{output_options}'
+        self.base.save(update_fields=['content'])
+        final, _, error = self.compose(
+            self.base,
+            enemy_initial_health_percentage=20,
+        )
+        self.assertIsNone(error)
+        self.assertIn('enemy_initial_health_percentage=20', final.splitlines())
+
     def test_battlenet_spec_conflict_is_rejected(self):
         final, manifest, error = self.compose(
             self.base,

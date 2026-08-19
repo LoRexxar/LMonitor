@@ -145,6 +145,7 @@ SIMULATION_PARAMS_WHITELIST = {
     'vary_combat_length',
     'enemy_type',
     'desired_targets',
+    'enemy_initial_health_percentage',
     'raid_buffs',
     'use_class_raid_buff',
     'extra_options',

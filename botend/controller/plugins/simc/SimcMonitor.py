@@ -630,6 +630,7 @@ class SimcMonitor(BaseScan):
                 'fight_style': resolved.simulation_params.get('fight_style', 'Patchwerk'),
                 'time': resolved.simulation_params.get('max_time', 300),
                 'target_count': resolved.simulation_params.get('desired_targets', 1),
+                'enemy_initial_health_percentage': resolved.simulation_params.get('enemy_initial_health_percentage', 100),
                 'iterations': resolved.simulation_params.get('iterations', 10000),
                 'target_error': resolved.simulation_params.get('target_error'),
                 'vary_combat_length': resolved.simulation_params.get('vary_combat_length'),

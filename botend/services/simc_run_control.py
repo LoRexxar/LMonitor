@@ -121,6 +121,7 @@ def build_frozen_run_input(task, run, output_filename=None):
         'target_error': resolved.simulation_params.get('target_error'),
         'vary_combat_length': resolved.simulation_params.get('vary_combat_length'),
         'enemy_type': resolved.simulation_params.get('enemy_type'),
+        'enemy_initial_health_percentage': resolved.simulation_params.get('enemy_initial_health_percentage', 100),
         'player_import_mode': profile_payload.get('player_config_mode', ''),
         'player_equipment': profile_payload.get('player_equipment', ''),
         'battlenet_region': profile_payload.get('battlenet_region', ''),

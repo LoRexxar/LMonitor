@@ -3397,6 +3397,7 @@ function currentSimcScenario() {
         fight_style: document.getElementById('simc-sim-fight-style')?.value || 'Patchwerk',
         time: Math.max(1, Number.parseInt(document.getElementById('simc-sim-time')?.value || '300', 10) || 300),
         target_count: Math.max(1, Number.parseInt(document.getElementById('simc-sim-target-count')?.value || '1', 10) || 1),
+        enemy_initial_health_percentage: Math.min(100, Math.max(1, Number(document.getElementById('simc-sim-enemy-initial-health')?.value || '100') || 100)),
         additional_simc_input: document.getElementById('simc-sim-additional-input')?.value || '',
     };
     const profileOverrides = {};
@@ -4277,6 +4278,7 @@ function applySimcRerunSelectionShell(form, taskId) {
     setSimcRerunValue('simc-sim-fight-style', params.fight_style);
     setSimcRerunValue('simc-sim-time', params.time);
     setSimcRerunValue('simc-sim-target-count', params.target_count ?? params.desired_targets);
+    setSimcRerunValue('simc-sim-enemy-initial-health', params.enemy_initial_health_percentage ?? 100);
     setSimcRerunValue('simc-sim-additional-input', params.additional_simc_input);
     const profile = document.getElementById('simc-sim-profile-select');
     if (profile && form.profile_id) {

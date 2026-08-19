@@ -1605,6 +1605,7 @@ def _simulation_detail_from_task(task, fallback_params, profile_detail):
         'max_time': params.get('max_time', 300),
         'vary_combat_length': params.get('vary_combat_length'),
         'enemy_type': params.get('enemy_type'),
+        'enemy_initial_health_percentage': params.get('enemy_initial_health_percentage', 100),
         'iterations': params.get('iterations', 10000),
         'target_error': params.get('target_error'),
         'use_class_raid_buff': use_class_raid_buff,
