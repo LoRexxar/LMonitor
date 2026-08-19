@@ -4196,6 +4196,7 @@ class SpecStatsTalentBuildDiffTooltipTemplateTests(SimpleTestCase):
                 html,
             )
             self.assertIn('打开天赋模拟器', html)
+            self.assertIn('class="talent-build-actions"', html)
             self.assertNotIn('选取该天赋 Top5', html)
             self.assertNotIn('模板选取 Top5', html)
             self.assertIn('VariantOne-RealmB', html)

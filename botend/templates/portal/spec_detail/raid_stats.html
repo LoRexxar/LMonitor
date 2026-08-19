@@ -353,8 +353,10 @@
                             </div>
                             {% endif %}
                         </div>
-                        <button type="button" class="talent-build-copy" data-build-code="{{ build.code|escape }}">复制</button>
-                        <a class="talent-build-copy talent-build-simulator" href="/portal/talents/?class={{ class_name|urlencode }}&amp;spec={{ spec_name|urlencode }}&amp;version=retail-12.0.7&amp;code={{ build.code|urlencode }}" aria-label="打开天赋模拟器" title="打开天赋模拟器">模拟器</a>
+                        <div class="talent-build-actions">
+                            <button type="button" class="talent-build-copy" data-build-code="{{ build.code|escape }}">复制</button>
+                            <a class="talent-build-copy talent-build-simulator" href="/portal/talents/?class={{ class_name|urlencode }}&amp;spec={{ spec_name|urlencode }}&amp;version=retail-12.0.7&amp;code={{ build.code|urlencode }}" aria-label="打开天赋模拟器" title="打开天赋模拟器">模拟器</a>
+                        </div>
                     </div>
                     {% if build.added_talents or build.missing_talents %}
                     <div class="talent-build-diffs">
@@ -1354,6 +1356,12 @@
     border: 1px solid #a5f3fc;
     padding: 3px 9px;
 }
+.talent-build-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-self: end;
+}
 .talent-build-copy {
     border: 1px solid #bfdbfe;
     border-radius: 10px;
@@ -1508,7 +1516,7 @@
 }
 @media (max-width: 720px) {
     .talent-build-head { grid-template-columns: 38px 1fr; }
-    .talent-build-copy { grid-column: 2; justify-self: start; }
+    .talent-build-actions { grid-column: 2; justify-self: start; }
 }
 
 /* ===== Table ===== */
