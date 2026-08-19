@@ -47,6 +47,13 @@
 .spec-module-audit[open] summary::before { content: "−"; }
 .spec-module-audit small { display: block; margin-top: .25rem; white-space: normal; }
 .spec-module-zone-list { display: grid; gap: 1rem; padding: .35rem 0; }
+.spec-module-raid-tabs { display: grid; gap: .65rem; }
+.spec-module-raid-tablist { border-bottom: 1px solid #dbe3ef; display: flex; gap: .35rem; }
+.spec-module-raid-tab { background: transparent; border: 0; border-bottom: 2px solid transparent; color: #64748b; cursor: pointer; font: inherit; font-size: .75rem; font-weight: 700; margin-bottom: -1px; padding: .5rem .7rem; }
+.spec-module-raid-tab:hover { color: #2563eb; }
+.spec-module-raid-tab:focus-visible { outline: 2px solid #2563eb; outline-offset: -2px; }
+.spec-module-raid-tab.is-active { border-bottom-color: #2563eb; color: #1d4ed8; }
+.spec-module-raid-empty { color: #64748b; font-size: .72rem; margin: .75rem 0; text-align: center; }
 .spec-module-zone { border: 1px solid #eef2f7; border-radius: .7rem; overflow: hidden; }
 .spec-module-zone-title { background: #f8fafc; color: #334155; font-size: .74rem; margin: 0; padding: .48rem .65rem; }
 .spec-module-zone .spec-module-list { padding: 0 .65rem; }

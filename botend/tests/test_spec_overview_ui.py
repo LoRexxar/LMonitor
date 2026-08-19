@@ -243,12 +243,21 @@ class SpecOverviewDOMContractTests(TestCase):
         self.assertIn('AbortController', js)
         self.assertIn('signal: controller.signal', js)
 
+    def test_raid_difficulties_render_as_switchable_tabs_inside_the_raid_module(self):
+        js = (Path(__file__).resolve().parents[2] / 'static/portal/js/spec-overview.js').read_text()
+
+        self.assertIn('spec-module-raid-tabs', js)
+        self.assertIn('tabList.setAttribute("role", "tablist")', js)
+        self.assertIn('aria-selected', js)
+        self.assertIn('panel.setAttribute("role", "tabpanel")', js)
+        self.assertIn('button.addEventListener("click", () => activateTab(index))', js)
+
     def test_overview_assets_keep_cache_query_outside_static_path(self):
         response = self.client.get('/portal/spec/Mage/Fire/')
         content = response.content.decode()
 
-        self.assertIn('<link rel="stylesheet" href="/static/portal/css/spec-overview.css?v=20260809">', content)
-        self.assertIn('<script src="/static/portal/js/spec-overview.js?v=20260819" defer></script>', content)
+        self.assertRegex(content, r'<link rel="stylesheet" href="/static/portal/css/spec-overview\.css\?v=[^"]+">')
+        self.assertRegex(content, r'<script src="/static/portal/js/spec-overview\.js\?v=[^"]+" defer></script>')
         self.assertNotIn('spec-overview.js%3Fv', content)
         self.assertNotIn('spec-overview.css%3Fv', content)
 

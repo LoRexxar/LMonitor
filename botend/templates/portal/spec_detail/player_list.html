@@ -5,7 +5,7 @@
 {% block title %}{{ nav.class_cn }} {{ nav.spec_cn }} - 专精总览{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'portal/css/spec-overview.css' %}?v=20260809">
+<link rel="stylesheet" href="{% static 'portal/css/spec-overview.css' %}?v=20260820">
 {% endblock %}
 
 {% block content %}
@@ -72,7 +72,7 @@
         <section id="module-raid" class="spec-module-card" data-spec-module="raid"
                  data-endpoint="/portal/api/spec/{{ class_name }}/{{ spec_name }}/raid/" data-state="loading" aria-busy="true">
             <header class="spec-module-header">
-                <div><p class="spec-module-kicker">团本</p><h2>史诗团本表现</h2></div>
+                <div><p class="spec-module-kicker">团本</p><h2>团本表现</h2></div>
                 <span class="spec-module-source" data-module-source>来源：Warcraft Logs 聚合</span>
             </header>
             <p class="spec-module-context">按团本与首领展示中位 DPS、击杀时长和样本量；不与大秘境或模拟数值混合比较。</p>
@@ -88,5 +88,5 @@
 {% endblock %}
 
 {% block extra_script %}{{ block.super }}
-<script src="{% static 'portal/js/spec-overview.js' %}?v=20260819" defer></script>
+<script src="{% static 'portal/js/spec-overview.js' %}?v=20260820" defer></script>
 {% endblock %}

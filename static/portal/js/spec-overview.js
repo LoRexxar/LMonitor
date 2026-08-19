@@ -109,15 +109,48 @@
   function renderRaid(payload) {
     const difficulties = asArray(payload?.difficulties);
     if (difficulties.length) {
-      const container = node("div", "spec-module-difficulty-list");
-      difficulties.forEach((difficulty) => {
-        const block = renderRaid({ zone_groups: difficulty?.zone_groups });
-        if (!block) return;
-        const section = node("section", "spec-module-difficulty");
-        section.append(node("h3", "spec-module-difficulty-title", value(difficulty, ["label"], "团本表现")), block);
-        container.append(section);
+      const entries = difficulties.map((difficulty) => ({
+        label: value(difficulty, ["label"], "团本表现"),
+        block: renderRaid({ zone_groups: difficulty?.zone_groups }),
+      }));
+      const container = node("div", "spec-module-raid-tabs");
+      const tabList = node("div", "spec-module-raid-tablist");
+      tabList.setAttribute("role", "tablist");
+      tabList.setAttribute("aria-label", "团本难度");
+      const panels = node("div", "spec-module-raid-panels");
+      const tabs = [];
+      const panelsByIndex = [];
+      const activateTab = (activeIndex) => {
+        tabs.forEach((tab, index) => {
+          const active = index === activeIndex;
+          tab.setAttribute("aria-selected", String(active));
+          tab.tabIndex = active ? 0 : -1;
+          tab.classList.toggle("is-active", active);
+          panelsByIndex[index].hidden = !active;
+        });
+      };
+      entries.forEach((entry, index) => {
+        const tabId = `raid-tab-${index}`;
+        const panelId = `raid-panel-${index}`;
+        const button = node("button", "spec-module-raid-tab", entry.label);
+        button.type = "button";
+        button.id = tabId;
+        button.setAttribute("role", "tab");
+        button.setAttribute("aria-controls", panelId);
+        button.addEventListener("click", () => activateTab(index));
+        const panel = node("div", "spec-module-raid-panel");
+        panel.id = panelId;
+        panel.setAttribute("role", "tabpanel");
+        panel.setAttribute("aria-labelledby", tabId);
+        panel.append(entry.block || node("p", "spec-module-raid-empty", "暂无数据"));
+        tabs.push(button);
+        panelsByIndex.push(panel);
+        tabList.append(button);
+        panels.append(panel);
       });
-      return container.childElementCount ? container : null;
+      container.append(tabList, panels);
+      activateTab(0);
+      return container;
     }
     const zones = firstArray(payload, ["zone_groups"]);
     const bosses = firstArray(payload, ["bosses", "items"]);
