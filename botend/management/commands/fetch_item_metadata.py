@@ -236,7 +236,8 @@ class Command(BaseCommand):
             row = existing.get(int(item_id))
             needs_cn = not (row and _has_cjk(row.name_zh) and _has_cjk(row.description_zh) and not _is_wowhead_seo_description(row.description_zh))
             needs_en = not (row and row.description and not _is_wowhead_seo_description(row.description))
-            has_complete_row = row and not needs_cn and not needs_en
+            needs_icon = not (row and _norm_icon(row.icon) and _norm_icon(row.icon) != 'inv_misc_questionmark')
+            has_complete_row = row and not needs_cn and not needs_en and not needs_icon
             if has_complete_row and not opts['force']:
                 skipped += 1
                 continue
