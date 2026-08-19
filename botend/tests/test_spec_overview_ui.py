@@ -127,6 +127,31 @@ class SpecOverviewIntegrationTests(TestCase):
             {'zone_id': 22, 'bosses': []},
         ])
 
+    def test_stats_endpoints_reject_stale_season_projection(self):
+        with tempfile.TemporaryDirectory() as media_root:
+            season_id = 99
+            base = Path(media_root) / 'aggregated' / str(season_id) / 'Mage' / 'Fire'
+            base.mkdir(parents=True)
+            (base / 'dungeon.json').write_text(json.dumps({
+                'dungeons': [{'dungeon_id': 1, 'dungeon_name': 'Season one dungeon'}],
+            }), encoding='utf-8')
+            (base / 'raid.json').write_text(json.dumps({
+                'zone_groups': [{'zone_id': 1, 'bosses': [{'boss_id': 2, 'boss_name': 'Season one boss'}]}],
+            }), encoding='utf-8')
+            cache.clear()
+            active_season = SimpleNamespace(
+                id=season_id, season_name='Test season', season_key='test-season',
+                mplus_encounters=[{'id': 3, 'name': 'Season two dungeon'}],
+                raid_encounters=[{'id': 4, 'name': 'Season two boss'}],
+            )
+            with override_settings(MEDIA_ROOT=media_root), patch(
+                'botend.services.spec_overview_service.SpecStatsService.get_active_season',
+                return_value=active_season,
+            ):
+                endpoints = self._rendered_endpoints()
+                self.assertEqual(self.client.get(endpoints['mythic-plus']).json()['dungeons'], [])
+                self.assertEqual(self.client.get(endpoints['raid']).json()['zone_groups'], [])
+
     def test_stats_endpoints_prefer_aggregate_files_and_cache_each_module(self):
         with tempfile.TemporaryDirectory() as media_root:
             season_id = 99

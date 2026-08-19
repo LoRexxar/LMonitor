@@ -39,21 +39,55 @@ class SpecOverviewService:
         visit(value)
         return max(timestamps, key=lambda item: str(item)) if timestamps else None
 
+    @staticmethod
+    def _projection_ids(module, payload):
+        if not isinstance(payload, dict):
+            return set()
+        if module == 'mythic-plus':
+            return {
+                dungeon.get('dungeon_id')
+                for dungeon in (payload.get('dungeons') or [])
+                if isinstance(dungeon, dict) and dungeon.get('dungeon_id') is not None
+            }
+        if module == 'raid':
+            return {
+                boss.get('boss_id')
+                for zone in (payload.get('zone_groups') or [])
+                if isinstance(zone, dict)
+                for boss in (zone.get('bosses') or [])
+                if isinstance(boss, dict) and boss.get('boss_id') is not None
+            }
+        return set()
+
+    @staticmethod
+    def _season_projection_ids(module, season):
+        encounter_key = 'mplus_encounters' if module == 'mythic-plus' else 'raid_encounters'
+        return {
+            encounter.get('id')
+            for encounter in (getattr(season, encounter_key, None) or [])
+            if isinstance(encounter, dict) and encounter.get('id') is not None
+        }
+
     @classmethod
     def _aggregate(cls, module, class_name, spec_name):
         season = SpecStatsService.get_active_season()
         if season is None:
             return {}, None
+        expected_ids = cls._season_projection_ids(module, season)
         media_root = Path(getattr(settings, 'MEDIA_ROOT', '') or 'media')
         path = media_root / 'aggregated' / str(season.id) / class_name / spec_name / cls.FILES[module]
-        key = f'spec-overview:{module}:{season.id}:{class_name}:{spec_name}'
+        key = f'spec-overview:{module}:{season.id}:{tuple(sorted(expected_ids))}:{class_name}:{spec_name}'
         cached = cache.get(key)
         if cached is not None:
             return cached
         try:
             with path.open(encoding='utf-8') as stream:
                 payload = json.load(stream)
-            mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
+            if expected_ids and cls._projection_ids(module, payload) != expected_ids:
+                payload = {}
+                mtime = None
+            else:
+                mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
         except (OSError, ValueError, TypeError):
             payload, mtime = {}, None
         result = (payload if isinstance(payload, dict) else {}, mtime)
