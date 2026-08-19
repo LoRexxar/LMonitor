@@ -607,6 +607,7 @@
             Number(floor.map_width || 1000),
         );
         els.mapContent.style.setProperty('--map-layout-width', `${mapWidth * state.zoom}px`);
+        els.mapContent.style.setProperty('--map-zoom', String(state.zoom));
     }
 
     function renderMap() {
@@ -665,13 +666,17 @@
         return baseMarkerSize + 1;
     }
 
+    function scaledSpawnMarkerSize(spawn) {
+        return spawnMarkerSize(spawn) * state.zoom;
+    }
+
     function pointDistance(left, right) {
         return Math.hypot(right.x - left.x, right.y - left.y);
     }
 
     function spawnOutlineRadius(spawn) {
         return (
-            spawnMarkerSize(spawn) / 2
+            scaledSpawnMarkerSize(spawn) / 2
             + PULL_AREA_SELECTED_RING_PX
             + PULL_AREA_PADDING_PX
         );
@@ -844,7 +849,8 @@
             const poiType = String(poi.type || 'note');
             const typeClass = poiType.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
             const rawSize = Number(poi.size);
-            const size = Number.isFinite(rawSize) ? clamp(rawSize, 12, 30) : 20;
+            const displayScale = state.zoom;
+            const size = (Number.isFinite(rawSize) ? clamp(rawSize, 12, 30) : 20) * displayScale;
             const typeLabel = POI_TYPE_LABELS[poiType] || poiType;
             const title = [poi.label || typeLabel, poi.spell_id ? `Spell ${poi.spell_id}` : '']
                 .filter(Boolean)
@@ -895,7 +901,8 @@
             const pull = pullForUid(spawn.uid);
             const patrol = Array.isArray(spawn.patrol) && spawn.patrol.length > 0;
             const markerInitial = initials(enemy.display_name);
-            const markerSize = spawnMarkerSize(spawn);
+            const displayScale = state.zoom;
+            const markerSize = spawnMarkerSize(spawn) * displayScale;
             const baseMarkerSize = markerSize - 1;
             const markerFontSize = clamp(baseMarkerSize * 0.55, 4, 13) + 1;
             const markerWideFontSize = clamp(baseMarkerSize * 0.36, 3.25, 9) + 1;
@@ -1154,6 +1161,9 @@
 
     function renderViewTransform() {
         renderMapLayout();
+        renderPois();
+        renderSpawns();
+        renderAnnotations();
         renderPullArea();
         els.mapContent.style.transform = `translate(-50%, -50%) translate(${state.panX}px, ${state.panY}px)`;
         els.zoomOutput.textContent = `${Math.round(state.zoom * 100)}%`;
