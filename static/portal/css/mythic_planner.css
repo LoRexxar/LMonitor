@@ -163,7 +163,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
     position: absolute;
     left: 50%;
     top: 50%;
-    width: min(100%, 1200px);
+    width: var(--map-layout-width);
     aspect-ratio: 1.54 / 1;
     transform-origin: center;
     will-change: transform;

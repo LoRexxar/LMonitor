@@ -599,10 +599,20 @@
         return state.dungeon?.floors?.find((floor) => floor.key === state.floorKey) || state.dungeon?.floors?.[0] || null;
     }
 
+    function renderMapLayout() {
+        const floor = currentFloor();
+        if (!floor) return;
+        const mapWidth = Math.min(
+            els.mapViewport.clientWidth || Number(floor.map_width || 1000),
+            Number(floor.map_width || 1000),
+        );
+        els.mapContent.style.setProperty('--map-layout-width', `${mapWidth * state.zoom}px`);
+    }
+
     function renderMap() {
         const floor = currentFloor();
         if (!floor) return;
-        els.mapContent.style.width = `min(100%, ${Number(floor.map_width || 1000)}px)`;
+        renderMapLayout();
         els.mapContent.style.aspectRatio = `${Number(floor.map_width || 1000)} / ${Number(floor.map_height || 700)}`;
         els.mapContent.style.backgroundColor = floor.background_color || '#66533f';
         const texture = $('.mdt-map-texture', els.mapContent);
@@ -1143,7 +1153,9 @@
     }
 
     function renderViewTransform() {
-        els.mapContent.style.transform = `translate(-50%, -50%) translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+        renderMapLayout();
+        renderPullArea();
+        els.mapContent.style.transform = `translate(-50%, -50%) translate(${state.panX}px, ${state.panY}px)`;
         els.zoomOutput.textContent = `${Math.round(state.zoom * 100)}%`;
         els.mapViewport.classList.toggle('is-zoomed', state.zoom > 1);
     }
@@ -2104,7 +2116,7 @@
                 renderAnnotations();
             }
         });
-        window.addEventListener('resize', renderPullArea);
+        window.addEventListener('resize', renderViewTransform);
         window.addEventListener('beforeunload', persistRoute);
     }
 

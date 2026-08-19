@@ -3964,7 +3964,7 @@ class MythicPlannerPageContractTests(SimpleTestCase):
             'function roundedPolygonPath',
             'function pullAreaMarkup',
             'function renderPullArea',
-            "window.addEventListener('resize', renderPullArea)",
+            "window.addEventListener('resize', renderViewTransform)",
         ):
             self.assertIn(token, portal_js)
         self.assertIn('const PULL_AREA_PADDING_PX = 1', portal_js)
@@ -4031,6 +4031,14 @@ class MythicPlannerPageContractTests(SimpleTestCase):
         )
         self.assertIn('const markerSize = spawnMarkerSize(spawn)', portal_js)
         self.assertIn('clamp(baseMarkerSize * 0.55, 4, 13) + 1', portal_js)
+        view_transform = portal_js[
+            portal_js.index('function renderViewTransform'):
+            portal_js.index('function setTool')
+        ]
+        self.assertIn('function renderMapLayout', portal_js)
+        self.assertIn('renderMapLayout();', view_transform)
+        self.assertNotIn('scale(${state.zoom})', view_transform)
+        self.assertIn('width: var(--map-layout-width);', planner_css)
         self.assertNotIn('data-pull-action="up"', portal_js)
         self.assertNotIn('data-pull-action="down"', portal_js)
         self.assertNotIn('data-pull-action="rename"', portal_js)
