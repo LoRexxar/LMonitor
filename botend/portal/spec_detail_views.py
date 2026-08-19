@@ -134,9 +134,6 @@ class SpecDetailPlayerView(View):
     def get(self, request, class_name, spec_name):
         _validate_spec(class_name, spec_name)
         ctx = _base_context(class_name, spec_name)
-        ctx['simc_dimensions'] = SpecOverviewService.discover_simc_dimensions(
-            class_name, spec_name,
-        )
         # The shell never performs request-time aggregation. Each module loads its
         # own cached aggregate-file projection through the JSON endpoints below.
         ctx['players'] = []

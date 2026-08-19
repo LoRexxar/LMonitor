@@ -40,25 +40,6 @@
     return Number.isFinite(numeric) ? `${numberFormat.format(numeric)}${suffix}` : String(raw ?? "—");
   }
 
-  const simcReasons = {
-    panel_not_public: "基准面板未公开",
-    dimension_not_configured: "该专精或场景尚未配置",
-    no_comparable_baseline_results: "暂无满足同一冻结条件的基准结果",
-    incomplete_frozen_identity: "结果缺少完整冻结身份，暂不参与排名",
-  };
-
-  function simcAudit(entry) {
-    const versions = entry?.resource_versions || entry?.audit || {};
-    const identity = [
-      ["Profile", versions.profile || versions.profile_identity],
-      ["Template", versions.template || versions.template_identity],
-      ["Backend", versions.backend || versions.backend_version],
-      ["APL", versions.apl || versions.apl_identity || versions.apl_label],
-    ].filter((item) => item[1]).map((item) => `${item[0]} ${String(item[1]).slice(0, 12)}`);
-    const source = entry?.source_result_id ? `结果 #${entry.source_result_id}` : "来源结果未提供";
-    return [source, ...identity].join(" · ");
-  }
-
   function rankingList(rows, describe, { ranked = true } = {}) {
     const list = node(ranked ? "ol" : "ul", "spec-module-list");
     rows.slice(0, 20).forEach((row, index) => {
@@ -148,56 +129,11 @@
     return container.childElementCount ? container : null;
   }
 
-  function renderSimc(payload) {
-    const rows = firstArray(payload, ["rankings", "items"]);
-    if (!rows.length) return null;
-    const section = node("section", "simc-baseline-results");
-    section.append(node("h3", "simc-baseline-title", "四个基线任务"));
-    section.append(node("p", "simc-baseline-note", "本专精所有公开基线任务，按 DPS 排名；结果为冻结数据。"));
-    const list = node("div", "simc-baseline-list");
-    rows.forEach((entry) => {
-      const row = node("article", "simc-baseline-row");
-      const identity = node("div", "simc-baseline-identity");
-      identity.append(node("strong", "simc-baseline-rank", `第 ${value(entry, ["rank"], "—")} 名`));
-      identity.append(node("h4", "", value(entry, ["labels.scenario", "scenario_label", "scenario_key"], "未命名场景")));
-      const profileLink = node("a", "simc-baseline-profile", value(entry, ["labels.profile", "profile_label", "profile_key"], "查看 Profile"));
-      const profileId = entry?.profile_detail?.profile_id;
-      if (profileId) {
-        profileLink.href = `/portal/spec/${encodeURIComponent(root.dataset.className || "")}/${encodeURIComponent(root.dataset.specName || "")}/simc-profile/${encodeURIComponent(String(profileId))}/`;
-        profileLink.target = "_blank";
-        profileLink.rel = "noopener noreferrer";
-      }
-      identity.append(profileLink);
-      identity.append(node("small", "simc-baseline-condition", formatSimcParams(entry?.scenario_detail)));
-      row.append(identity);
-      const result = node("div", "simc-baseline-result");
-      result.append(node("strong", "simc-baseline-dps", metric(entry?.dps, " DPS")));
-      result.append(node("small", "simc-baseline-frozen", "冻结结果"));
-      row.append(result);
-      const audit = node("details", "simc-baseline-audit");
-      audit.append(node("summary", "", "查看冻结身份"), node("small", "", simcAudit(entry)));
-      row.append(audit);
-      list.append(row);
-    });
-    section.append(list);
-    return section;
-  }
-
   const renderers = {
     "players": renderPlayers,
     "mythic-plus": renderMythicPlus,
     "raid": renderRaid,
-    "simc": renderSimc,
   };
-
-
-  function formatSimcParams(params) {
-    const values = params && typeof params === "object" ? params : {};
-    const targets = positiveNumber(values.desired_targets) || 1;
-    const seconds = positiveNumber(values.max_time) || 300;
-    return `${numberFormat.format(targets)} 目标 · ${numberFormat.format(seconds)} 秒`;
-  }
-
 
   function updatedAt(payload) {
     const raw = payload?.updated_at || payload?.data?.updated_at || payload?.result_updated_at;
@@ -220,40 +156,22 @@
     state.setAttribute("role", "status");
     state.textContent = "加载中…";
     try {
-      let payload;
-      if (card.dataset.specModule === "simc") {
-        const response = await fetch(endpoint, {
-          credentials: "same-origin", headers: { Accept: "application/json" }, signal: controller.signal,
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        payload = await response.json();
-        if (payload?.status === "not_ready") {
-          card.setAttribute("data-state", "empty");
-          state.hidden = false;
-          state.textContent = simcReasons[payload.reason] || "暂无数据";
-          content.replaceChildren();
-          content.hidden = true;
-          updated.textContent = "冻结结果";
-          return;
-        }
-      } else {
-        const response = await fetch(endpoint, {
-          credentials: "same-origin", headers: { Accept: "application/json" }, signal: controller.signal,
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        payload = await response.json();
-      }
+      const response = await fetch(endpoint, {
+        credentials: "same-origin", headers: { Accept: "application/json" }, signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = await response.json();
       if (payload?.status === "not_ready") {
         card.setAttribute("data-state", "empty");
         state.hidden = false;
-        state.textContent = simcReasons[payload.reason] || "暂无数据";
+        state.textContent = "暂无数据";
         content.replaceChildren();
         content.hidden = true;
         updated.textContent = updatedAt(payload);
         return;
       }
       const rendered = renderers[card.dataset.specModule]?.(payload);
-      updated.textContent = card.dataset.specModule === "simc" ? "冻结结果" : updatedAt(payload);
+      updated.textContent = updatedAt(payload);
       if (!rendered) {
         card.setAttribute("data-state", "empty");
         state.textContent = "暂无数据";

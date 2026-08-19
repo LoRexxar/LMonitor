@@ -65,20 +65,6 @@
 .spec-module-card[data-state="error"] .spec-module-state { background: #fff1f2; color: #be123c; }
 .spec-module-card[data-state="empty"] .spec-module-state { background: #f8fafc; color: #64748b; }
 .spec-module-card[data-state="ready"] .spec-module-state { display: none; }
-.spec-module-card--simc .spec-module-content { padding: 1rem; }
-.simc-conclusion { display: grid; gap: 1rem; }
-.simc-conclusion-hero { background: #f1f8f5; border: 1px solid #cfe8dc; border-radius: .7rem; padding: 1rem 1.1rem; }
-.simc-conclusion-kicker { color: #08735f; font-size: .65rem; font-weight: 800; margin: 0 0 .25rem; text-transform: uppercase; }
-.simc-conclusion-hero h3 { color: #12332c; font-size: 1.1rem; margin: 0; }
-.simc-conclusion-apl { color: #47645b; font-size: .75rem; margin: .45rem 0 .8rem; }
-.simc-conclusion-dps { color: #08735f; display: block; font-size: 1.65rem; font-variant-numeric: tabular-nums; line-height: 1; }
-.simc-conclusion-rank { color: #47645b; display: block; font-size: .7rem; margin-top: .55rem; }
-.simc-secondary { border-top: 1px solid #e6ece9; padding-top: .85rem; }
-.simc-secondary h3 { color: #263c36; font-size: .78rem; margin: 0 0 .45rem; }
-.simc-secondary-context { color: #71817b; font-size: .68rem; margin: 0 0 .55rem; }
-.simc-peer-strip { display: flex; flex-wrap: wrap; gap: .4rem; }
-.simc-peer { background: #f5f7f6; border: 1px solid #e0e7e3; border-radius: .35rem; color: #52615c; font-size: .68rem; padding: .4rem .5rem; }
-.simc-peer--current { background: #e5f4ee; border-color: #a7d7c5; color: #08735f; font-weight: 750; }
 .spec-fallback-list { display: grid; gap: .35rem; padding: 1rem; }
 .spec-fallback-list a { color: #2563eb; text-decoration: none; }
 @keyframes spec-pulse { 50% { opacity: .5; } }
@@ -105,10 +91,6 @@
 .simc-profile-equipment { display: grid; gap: .4rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
 .simc-profile-equipment div { border-bottom: 1px solid #e5e7eb; display: flex; gap: .75rem; justify-content: space-between; padding: .45rem 0; }
 .simc-profile-code { overflow-wrap: anywhere; white-space: pre-wrap; }
-@media (max-width: 760px) {
-  .simc-baseline-row { grid-template-columns: 1fr auto; }
-  .simc-baseline-audit { grid-column: 1 / -1; }
-}
 @media (max-width: 760px) {
   .spec-overview { padding: 1rem; }
   .spec-overview-hero { align-items: flex-start; flex-direction: column; padding: 1.1rem; }

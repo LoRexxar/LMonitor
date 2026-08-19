@@ -7,8 +7,6 @@ from django.conf import settings
 from django.core.cache import cache
 from django.urls import reverse
 
-from botend.models import SimcBenchmarkScenario, SimcBenchmarkSpec
-from botend.services.simc_benchmark_config import benchmark_profile_key
 from botend.services.spec_stats_service import SpecStatsService
 
 
