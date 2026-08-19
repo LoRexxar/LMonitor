@@ -35,3 +35,6 @@ class PortalPeakSpecRankingsUIContractTests(unittest.TestCase):
         self.assertIn('href="${escapeHtml(aggregateHref)}"', renderer)
         self.assertNotIn('profile_url', renderer)
         self.assertNotIn('target="_blank"', renderer)
+        self.assertIn('const top3 = filtered.slice(0, 3);', renderer)
+        self.assertIn('const rows = top3.map((x) => {', renderer)
+        self.assertNotIn('filtered.slice(0, 20)', renderer)
