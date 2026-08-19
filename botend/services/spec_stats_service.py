@@ -1262,10 +1262,10 @@ def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
     first_seen_order = {}
 
     for record in _valid_talent_records(records):
-        build_code = TalentBuildCodeService.extract_build_code(
-            record.get('talent_build_code', ''),
-            record.get('talents_json') or [],
-        )
+        # Ranking sources expose selected nodes, but not a frozen Blizzard import
+        # string.  Only aggregate a code explicitly supplied by the ranking row;
+        # deriving one from node data fabricates a partial/hybrid import string.
+        build_code = str(record.get('talent_build_code') or '').strip()
         if not build_code:
             continue
         total += 1

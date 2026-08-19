@@ -3164,6 +3164,19 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
             ['TemplateTwo', 'TemplateOne'],
         )
 
+    def test_talent_build_popularity_does_not_treat_structured_nodes_as_an_import_string(self):
+        result = _compute_talent_build_popularity(
+            [{
+                'talent_build_code': '',
+                'talents_json': [{'build_code': 'PARTIAL_OR_DERIVED_CODE', 'points': 1}],
+            }],
+            'Monk',
+            'Windwalker',
+        )
+
+        self.assertEqual(result['total'], 0)
+        self.assertEqual(result['builds'], [])
+
     @patch('botend.services.spec_stats_service.WowTalentNodeMetadata.objects.filter')
     @patch('botend.services.spec_stats_service.TalentMetadataProvider')
     def test_talent_build_popularity_uses_a_separate_template_for_each_hero_tree(self, mock_provider_cls, mock_anchor_filter):
