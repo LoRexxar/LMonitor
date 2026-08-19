@@ -559,6 +559,12 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             'divide-y', baseline_section.select_one('#simc-baseline-list').get('class', [])
         )
 
+        home_renderer_start = self.PORTAL_JS.index('async function loadPublicBaselines()')
+        home_renderer_end = self.PORTAL_JS.index('async function loadTools()', home_renderer_start)
+        home_renderer = self.PORTAL_JS[home_renderer_start:home_renderer_end]
+        self.assertIn('renderPortalMarkdownDescription', home_renderer)
+        self.assertNotIn('truncate text-xs text-slate-500">${description}', home_renderer)
+
         for contract in (
             'loadPublicBaselines',
             '/portal/api/simc-benchmarks/panels/',

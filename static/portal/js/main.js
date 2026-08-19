@@ -321,6 +321,52 @@ function formatPortalDateTime(value) {
   }).format(date);
 }
 
+function renderPortalInlineMarkdown(markdown) {
+  const source = String(markdown || "");
+  const tokens = /(`[^`]+`|\[([^\]]+)\]\(([^)]+)\)|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*]+)\*|_([^_]+)_)/g;
+  let cursor = 0;
+  let html = "";
+  for (const match of source.matchAll(tokens)) {
+    html += escapeHtml(source.slice(cursor, match.index));
+    if (match[0].startsWith("`")) html += `<code>${escapeHtml(match[0].slice(1, -1))}</code>`;
+    else if (match[2] !== undefined) {
+      const href = sanitizeHref(match[3]);
+      const label = escapeHtml(match[2]);
+      html += href
+        ? `<a class="text-indigo-600 hover:text-indigo-800 hover:underline" href="${escapeHtml(href)}"${/^https?:\/\//.test(href) ? ' target="_blank" rel="noopener noreferrer"' : ""}>${label}</a>`
+        : label;
+    } else if (match[4] !== undefined || match[5] !== undefined) html += `<strong>${escapeHtml(match[4] ?? match[5])}</strong>`;
+    else html += `<em>${escapeHtml(match[6] ?? match[7])}</em>`;
+    cursor = match.index + match[0].length;
+  }
+  return html + escapeHtml(source.slice(cursor));
+}
+
+function renderPortalMarkdownDescription(markdown) {
+  const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
+  const blocks = [];
+  let paragraph = [];
+  let list = [];
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    blocks.push(`<p>${paragraph.map(renderPortalInlineMarkdown).join("<br>")}</p>`);
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (!list.length) return;
+    blocks.push(`<ul class="list-disc space-y-0.5 pl-4">${list.map((item) => `<li>${renderPortalInlineMarkdown(item)}</li>`).join("")}</ul>`);
+    list = [];
+  };
+  lines.forEach((line) => {
+    const bullet = line.match(/^\s*[-*+]\s+(.+)$/);
+    if (bullet) { flushParagraph(); list.push(bullet[1]); return; }
+    if (!line.trim()) { flushParagraph(); flushList(); return; }
+    flushList(); paragraph.push(line);
+  });
+  flushParagraph(); flushList();
+  return blocks.join("") || `<p>${renderPortalInlineMarkdown(markdown)}</p>`;
+}
+
 async function loadPublicBaselines() {
   const el = document.getElementById("simc-baseline-list");
   if (!el) return;
@@ -336,18 +382,18 @@ async function loadPublicBaselines() {
       if (!Number.isInteger(panelId) || panelId <= 0) return "";
       const href = `/portal/simc-benchmarks/${encodeURIComponent(String(panel.id))}/`;
       const name = escapeHtml(panel?.name || "未命名基线任务");
-      const description = escapeHtml(panel?.description || "查看各职业专精的基线模拟结果");
+      const description = renderPortalMarkdownDescription(panel?.description || "查看各职业专精的基线模拟结果");
       const updatedAt = escapeHtml(formatPortalDateTime(panel?.result_updated_at));
-      return `<a href="${href}" class="group flex flex-col gap-2 py-3 transition hover:bg-indigo-50/50 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-2">
+      return `<article class="group flex flex-col gap-2 py-3 transition hover:bg-indigo-50/50 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-2">
         <div class="min-w-0">
-          <div class="font-semibold text-slate-900 group-hover:text-indigo-700">${name}</div>
-          <div class="mt-0.5 truncate text-xs text-slate-500">${description}</div>
+          <a href="${href}" class="font-semibold text-slate-900 hover:text-indigo-700">${name}</a>
+          <div class="mt-0.5 text-xs leading-5 text-slate-500">${description}</div>
         </div>
         <div class="flex shrink-0 items-center gap-4 text-xs text-slate-500">
           <span>更新于 <time>${updatedAt}</time></span>
-          <span class="text-indigo-600" aria-hidden="true">→</span>
+          <a href="${href}" class="text-indigo-600" aria-label="查看 ${name} 的模拟结果">→</a>
         </div>
-      </a>`;
+      </article>`;
     }).join("");
   } catch (e) {
     el.innerHTML = '<div class="text-slate-500 md:col-span-2">基线任务加载失败</div>';
