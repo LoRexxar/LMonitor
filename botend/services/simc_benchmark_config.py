@@ -54,17 +54,17 @@ def benchmark_profile_key(profile_id, talent_string_id=None):
 # SimulationCraft commit 32ceb18d81557965afa5e240dc32b8659549c53d,
 # engine/util/util.cpp::parse_fight_style(). Keep values byte-for-byte identical.
 SIMC_FIGHT_STYLES = (
-    ('Patchwerk', 'Patchwerk（木桩）'),
-    ('CastingPatchwerk', 'CastingPatchwerk（施法木桩）'),
-    ('HecticAddCleave', 'HecticAddCleave（高频小怪顺劈）'),
-    ('DungeonSlice', 'DungeonSlice（地下城切片）'),
-    ('DungeonRoute', 'DungeonRoute（地下城路线）'),
-    ('CleaveAdd', 'CleaveAdd（周期小怪顺劈）'),
-    ('LightMovement', 'LightMovement（轻度移动）'),
-    ('HeavyMovement', 'HeavyMovement（重度移动）'),
-    ('beastlord', 'beastlord（兽王达玛克）'),
-    ('HelterSkelter', 'HelterSkelter（混乱战斗）'),
-    ('Ultraxion', 'Ultraxion（奥卓克希昂）'),
+    ('Patchwerk', '木桩战（Patchwerk）'),
+    ('CastingPatchwerk', '施法木桩战（CastingPatchwerk）'),
+    ('HecticAddCleave', '高频小怪顺劈（HecticAddCleave）'),
+    ('DungeonSlice', '地下城切片（DungeonSlice）'),
+    ('DungeonRoute', '地下城路线（DungeonRoute）'),
+    ('CleaveAdd', '周期小怪顺劈（CleaveAdd）'),
+    ('LightMovement', '轻度移动战（LightMovement）'),
+    ('HeavyMovement', '重度移动战（HeavyMovement）'),
+    ('beastlord', '兽王达玛克（beastlord）'),
+    ('HelterSkelter', '混乱战斗（HelterSkelter）'),
+    ('Ultraxion', '奥卓克希昂（Ultraxion）'),
 )
 SIMC_FIGHT_STYLE_VALUES = frozenset(value for value, _label in SIMC_FIGHT_STYLES)
 

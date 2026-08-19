@@ -153,7 +153,28 @@ class SimcBenchmarkOptionsApiTests(TestCase):
             'DungeonRoute', 'CleaveAdd', 'LightMovement', 'HeavyMovement',
             'beastlord', 'HelterSkelter', 'Ultraxion',
         ])
-        self.assertEqual(data['fight_styles'][0]['label'], 'Patchwerk（木桩）')
+        self.assertEqual(data['fight_styles'][0]['label'], '木桩战（Patchwerk）')
+
+    def test_regular_simulation_options_publish_the_same_complete_localized_fight_style_catalog(self):
+        response = self.client.get('/api/simc-fight-styles/options/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {
+            'success': True,
+            'data': [
+                {'value': 'Patchwerk', 'label': '木桩战（Patchwerk）'},
+                {'value': 'CastingPatchwerk', 'label': '施法木桩战（CastingPatchwerk）'},
+                {'value': 'HecticAddCleave', 'label': '高频小怪顺劈（HecticAddCleave）'},
+                {'value': 'DungeonSlice', 'label': '地下城切片（DungeonSlice）'},
+                {'value': 'DungeonRoute', 'label': '地下城路线（DungeonRoute）'},
+                {'value': 'CleaveAdd', 'label': '周期小怪顺劈（CleaveAdd）'},
+                {'value': 'LightMovement', 'label': '轻度移动战（LightMovement）'},
+                {'value': 'HeavyMovement', 'label': '重度移动战（HeavyMovement）'},
+                {'value': 'beastlord', 'label': '兽王达玛克（beastlord）'},
+                {'value': 'HelterSkelter', 'label': '混乱战斗（HelterSkelter）'},
+                {'value': 'Ultraxion', 'label': '奥卓克希昂（Ultraxion）'},
+            ],
+        })
 
     def test_options_publish_server_owned_raid_buff_catalog(self):
         data = self.client.get('/api/simc-benchmarks/options/').json()['data']

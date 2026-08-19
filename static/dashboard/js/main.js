@@ -4243,6 +4243,26 @@ async function loadSimcBackendOptions() {
     if (!backends.length) select.innerHTML = '<option value="">暂无可用后端</option>';
 }
 
+async function loadSimcFightStyleOptions() {
+    const select = document.getElementById('simc-sim-fight-style');
+    if (!select) return;
+    const selected = select.value || 'Patchwerk';
+    const response = await fetch('/api/simc-fight-styles/options/');
+    const payload = await response.json();
+    if (!response.ok || !payload.success) throw new Error(payload.error || '加载 SimC 战斗模型失败');
+    const styles = Array.isArray(payload.data) ? payload.data : [];
+    select.replaceChildren();
+    styles.forEach(style => {
+        const option = document.createElement('option');
+        option.value = String(style.value || '');
+        option.textContent = String(style.label || style.value || '');
+        select.append(option);
+    });
+    select.disabled = styles.length === 0;
+    if (!styles.length) select.append(new Option('暂无可用战斗模型', ''));
+    else if (styles.some(style => String(style.value) === selected)) select.value = selected;
+}
+
 function setSimcRerunValue(id, value) {
     const input = document.getElementById(id);
     if (input && value !== undefined && value !== null) input.value = String(value);
@@ -4400,6 +4420,11 @@ function bindSimcWorkbenchSimulationControls() {
     loadSimcExtraOptions().catch(error => {
         const host = document.getElementById('simc-sim-extra-options');
         if (host) host.textContent = String(error.message || error);
+    });
+    loadSimcFightStyleOptions().catch(error => {
+        const select = document.getElementById('simc-sim-fight-style');
+        if (select) select.innerHTML = '<option value="">加载战斗模型失败</option>';
+        showMessage(String(error.message || error), 'error');
     });
     loadSimcConsumableOptions().catch(error => showMessage(String(error.message || error), 'error'));
     loadSimcBackendOptions().catch(error => showMessage(String(error.message || error), 'error'));

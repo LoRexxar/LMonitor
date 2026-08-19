@@ -41,7 +41,7 @@ from botend.dashboard.api import (
     SimcBenchmarkCaseRerunAPIView,
     SimcBenchmarkExecutionCancelAPIView, SimcBenchmarkExecutionReconcileAPIView,
     SimcBenchmarkOptionsAPIView, SimcBenchmarkPanelOptionsAPIView, SimcBenchmarkItemLookupAPIView,
-    SimcRaidBuffOptionsAPIView, SimcExtraOptionsAPIView, SimcConsumableOptionsAPIView,
+    SimcFightStyleOptionsAPIView, SimcRaidBuffOptionsAPIView, SimcExtraOptionsAPIView, SimcConsumableOptionsAPIView,
 )
 from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, ChangePasswordView
 from botend.dashboard.user_management import (
@@ -204,6 +204,7 @@ urlpatterns = [
     path('api/apl-storage/', AplStorageAPIView.as_view(), name="apl_storage"),
     path('api/apl-storage/<int:apl_id>/', AplDetailAPIView.as_view(), name="apl_detail"),
     path('api/simc-task/', SimcTaskAPIView.as_view(), name="simc_task"),
+    path('api/simc-fight-styles/options/', SimcFightStyleOptionsAPIView.as_view(), name='simc_fight_style_options'),
     path('api/simc-raid-buffs/options/', SimcRaidBuffOptionsAPIView.as_view(), name='simc_raid_buff_options'),
     path('api/simc-profile/consumable-options/', SimcConsumableOptionsAPIView.as_view(), name='simc_consumable_options'),
     path('api/simc-task/comparison/', SimcComparisonTaskAPIView.as_view(), name="simc_task_comparison"),

@@ -10504,6 +10504,16 @@ class SimcBenchmarkOptionsAPIView(_SimcOptionsAPIView):
 
 
 @method_decorator(login_required, name='dispatch')
+class SimcFightStyleOptionsAPIView(View):
+    """Authoritative localized SimC fight-style catalog for every task surface."""
+
+    def get(self, request):
+        return JsonResponse({'success': True, 'data': [
+            {'value': value, 'label': label} for value, label in SIMC_FIGHT_STYLES
+        ]})
+
+
+@method_decorator(login_required, name='dispatch')
 class SimcRaidBuffOptionsAPIView(View):
     """Small shared catalog for regular simulations and benchmark configuration."""
 

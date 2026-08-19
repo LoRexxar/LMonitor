@@ -108,6 +108,16 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn('type="radio"', loader)
         self.assertIn("selectedSimcReferenceValue('#simc-sim-apl-list')", MAIN)
 
+    def test_regular_simulation_fight_styles_use_the_shared_localized_catalog(self):
+        workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
+        select = BeautifulSoup(workflow, "html.parser").select_one('#simc-sim-fight-style')
+        self.assertIsNotNone(select)
+        self.assertEqual([(option.get('value'), option.get_text(strip=True)) for option in select.select('option')], [
+            ('', '正在加载战斗模型…'),
+        ])
+        self.assertIn("fetch('/api/simc-fight-styles/options/')", SIMC_MAIN)
+        self.assertIn('loadSimcFightStyleOptions()', SIMC_MAIN)
+
     def test_combat_advanced_raid_buffs_use_server_catalog_and_explicit_three_state_payload(self):
         workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
         self.assertIn('id="simc-sim-combat-advanced"', workflow)
