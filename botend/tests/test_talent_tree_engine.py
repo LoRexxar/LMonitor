@@ -3667,6 +3667,9 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         rendered_choice = tree['render_model']['trees'][0]['nodes'][0]
         self.assertEqual(rendered_choice['name'], '选项 B')
         self.assertEqual(rendered_choice['spell_id'], 1002)
+        self.assertEqual(rendered_choice['count'], 2)
+        self.assertEqual(rendered_choice['usage_pct'], 66.7)
+        self.assertEqual(rendered_choice['pct'], 66.7)
         self.assertEqual(
             [(option['name'], option['count'], option['usage_pct']) for option in rendered_choice['choice_options']],
             [('选项 B', 2, 66.7), ('选项 A', 1, 33.3)],

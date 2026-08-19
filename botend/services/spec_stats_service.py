@@ -1782,6 +1782,9 @@ def _attach_usage_to_render_model(render_model, usage_map, highlighted_keys):
                     'description', 'description_zh',
                 ):
                     node_payload[field_name] = preferred_option.get(field_name) or node_payload.get(field_name)
+                # 外层节点与图标已投影为该 option，展示概率和人数也必须使用同一事实。
+                for field_name in ('count', 'usage_pct', 'pct', 'top_players'):
+                    node_payload[field_name] = preferred_option.get(field_name)
         return node_payload
 
     for node in render_model.get('nodes', []):
