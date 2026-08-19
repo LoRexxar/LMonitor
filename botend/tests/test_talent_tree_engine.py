@@ -4240,9 +4240,10 @@ class SpecStatsTalentBuildDiffTooltipTemplateTests(SimpleTestCase):
             self.assertIn('talent-build-player-tooltip', html)
             self.assertIn('使用该字符串 Top5', html)
             self.assertIn(
-                '/portal/talents/?class=Monk&amp;spec=Windwalker&amp;version=retail-12.0.7&amp;code=CODE_B',
+                '/portal/talents/?class=Monk&amp;spec=Windwalker&amp;code=CODE_B',
                 html,
             )
+            self.assertNotIn('version=retail-12.0.7', html)
             self.assertIn('打开天赋模拟器', html)
             self.assertIn('class="talent-build-actions"', html)
             self.assertNotIn('选取该天赋 Top5', html)

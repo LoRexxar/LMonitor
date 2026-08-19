@@ -12,7 +12,6 @@ from django.db import transaction
 from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
 from botend.models import SeasonMeta, SpecDungeonRanking, SpecRaidRanking
 from botend.constants.wow import CLASS_SPEC_MAP
-from botend.wow.talents.service import TalentBuildCodeService
 
 from utils.log import logger
 
@@ -158,11 +157,11 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                                     medal=r.get('medal', ''),
                                     affixes=r.get('affixes', []),
                                     talents_json=talents_payload,
-                                    talent_build_code=TalentBuildCodeService.encode_build_code_from_nodes(
-                                        talents_json=talents_payload,
-                                        class_name=class_name,
-                                        spec_name=spec_name,
-                                    ),
+                                    # WCL ranking payload only provides structured selected nodes,
+                                    # not Blizzard's frozen import string.  Do not synthesize a
+                                    # share code from an unrelated profile reference: it can omit
+                                    # selections and imports as a different build.
+                                    talent_build_code='',
                                     gear_json=self.parse_wcl_gear(r.get('gear', [])),
                                     faction=r.get('faction'),
                                     guild_name=guild.get('name', ''),
@@ -316,11 +315,11 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                                 dps=r.get('amount', 0),
                                 kill_time=r.get('duration'),
                                 talents_json=talents_payload,
-                                talent_build_code=TalentBuildCodeService.encode_build_code_from_nodes(
-                                    talents_json=talents_payload,
-                                    class_name=class_name,
-                                    spec_name=spec_name,
-                                ),
+                                # WCL ranking payload only provides structured selected nodes,
+                                # not Blizzard's frozen import string.  Do not synthesize a
+                                # share code from an unrelated profile reference: it can omit
+                                # selections and imports as a different build.
+                                talent_build_code='',
                                 gear_json=self.parse_wcl_gear(r.get('gear', [])),
                                 faction=r.get('faction'),
                                 guild_name=guild.get('name', ''),
