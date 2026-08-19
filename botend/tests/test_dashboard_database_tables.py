@@ -298,3 +298,10 @@ class DashboardDatabaseFrontendContractTests(TestCase):
         self.assertIn('if (currentTableCapabilities.can_update)', self.javascript)
         self.assertIn('if (currentTableCapabilities.can_delete)', self.javascript)
         self.assertNotIn('disableAdd:', self.javascript)
+
+    def test_monitor_task_has_a_dedicated_sidebar_entry_that_opens_its_editable_table(self):
+        template = (ROOT / 'templates/dashboard/index.html').read_text(encoding='utf-8')
+        self.assertIn('data-dashboard-table="MonitorTask"', template)
+        self.assertIn('监控任务', template)
+        self.assertIn("const dashboardTable = this.getAttribute('data-dashboard-table');", self.javascript)
+        self.assertIn('openDashboardTable(dashboardTable, this.querySelector(\'a\')?.textContent);', self.javascript)

@@ -377,6 +377,25 @@ function syncDashboardLocation({ section = '', tool = '', table = '' } = {}) {
     }
 }
 
+function openDashboardTable(tableName, tableTitle = '') {
+    currentTableDisplayName = String(tableTitle || '').trim();
+    document.querySelectorAll('.content-section').forEach(section => {
+        section.style.display = 'none';
+        section.classList.remove('active');
+    });
+    const databaseTablesSection = document.getElementById('database-tables');
+    if (!databaseTablesSection) return;
+
+    databaseTablesSection.style.display = 'block';
+    databaseTablesSection.classList.add('active');
+    const selectedTableName = document.getElementById('selected-table-name');
+    if (selectedTableName) {
+        selectedTableName.textContent = currentTableDisplayName || tableName;
+    }
+    fetchTableData(tableName);
+    syncDashboardLocation({ table: tableName });
+}
+
 /**
  * 从站内独立子页面返回 Dashboard 时，恢复用户点击的原侧栏目标。
  */
@@ -388,8 +407,8 @@ function activateDashboardLocation() {
     let target = null;
 
     if (table) {
-        target = Array.from(document.querySelectorAll('.submenu-item[data-table]'))
-            .find(item => item.dataset.table === table);
+        target = Array.from(document.querySelectorAll('.submenu-item[data-table], .nav-item[data-dashboard-table]'))
+            .find(item => (item.dataset.table || item.dataset.dashboardTable) === table);
     } else if (tool) {
         target = Array.from(document.querySelectorAll('.submenu-item[data-tool]'))
             .find(item => item.dataset.tool === tool);
@@ -478,6 +497,26 @@ function initNavigation() {
             }
 
             e.preventDefault();
+
+            const dashboardTable = this.getAttribute('data-dashboard-table');
+            if (dashboardTable) {
+                navItems.forEach(i => {
+                    i.classList.remove('active');
+                    const link = i.querySelector('a');
+                    if (link) {
+                        link.classList.remove('bg-blue-50', 'text-blue-600', 'font-medium');
+                        link.classList.add('text-gray-700');
+                    }
+                });
+                this.classList.add('active');
+                const currentLink = this.querySelector('a');
+                if (currentLink) {
+                    currentLink.classList.add('bg-blue-50', 'text-blue-600', 'font-medium');
+                    currentLink.classList.remove('text-gray-700');
+                }
+                openDashboardTable(dashboardTable, this.querySelector('a')?.textContent);
+                return;
+            }
 
             // 移除所有导航项的active类和样式
             navItems.forEach(i => {
@@ -637,28 +676,7 @@ function initNavigation() {
             } else if (tableName) {
                 // 处理数据库表菜单项
                 const tableTitle = this.querySelector('a').textContent;
-                currentTableDisplayName = String(tableTitle || '').trim();
-
-                    // 显示数据库表内容区域
-                    contentSections.forEach(section => {
-                        section.style.display = 'none';
-                        section.classList.remove('active');
-                    });
-                    const databaseTablesSection = document.getElementById('database-tables');
-                    if (databaseTablesSection) {
-                        databaseTablesSection.style.display = 'block';
-                        databaseTablesSection.classList.add('active');
-
-                        // 更新选中的表名显示
-                        const selectedTableName = document.getElementById('selected-table-name');
-                        if (selectedTableName) {
-                            selectedTableName.textContent = currentTableDisplayName || tableName;
-                        }
-
-                        // 获取表数据
-                        fetchTableData(tableName);
-                        syncDashboardLocation({ table: tableName });
-                    }
+                openDashboardTable(tableName, tableTitle);
             }
         });
     });
