@@ -23,7 +23,7 @@
         pencil: '自由绘制：在地图上按住鼠标绘制路线',
         line: '直线工具：拖动绘制直线',
         arrow: '箭头工具：拖动绘制方向箭头',
-        note: '文字工具：点击地图添加文字标注',
+        note: '文字工具：点击地图添加文字标注；双击已有文字可编辑',
         erase: '擦除工具：点击标注附近将其删除',
     };
     const TRAIT_LABELS = {
@@ -948,6 +948,8 @@
                         class="mdt-map-note"
                         data-annotation-id="${escapeHtml(annotation.id)}"
                         style="left:${Number(annotation.x)}%;top:${Number(annotation.y)}%;--note-color:${escapeHtml(color)}"
+                        tabindex="0"
+                        title="选择工具下拖动调整位置；双击编辑文字"
                     >${escapeHtml(annotation.text || '')}</div>
                 `);
                 continue;
@@ -1389,6 +1391,27 @@
         );
     }
 
+    function editNote(annotationId) {
+        const annotation = (state.route.annotations || []).find((item) => item.id === annotationId && item.type === 'note');
+        if (!annotation) return;
+        const text = window.prompt('编辑地图文字标注：', annotation.text || '');
+        if (text === null) return;
+        const nextText = text.trim().slice(0, 300);
+        if (!nextText) return toast('文字标注不能为空。', true);
+        if (nextText === annotation.text) return;
+        mutateRoute((route) => {
+            const target = route.annotations.find((item) => item.id === annotationId && item.type === 'note');
+            if (target) target.text = nextText;
+        });
+    }
+
+    function renderDraggedNote(annotationId, point) {
+        const note = $(`[data-annotation-id="${annotationId}"]`, els.annotationNotes);
+        if (!note) return;
+        note.style.left = `${point.x}%`;
+        note.style.top = `${point.y}%`;
+    }
+
     function nearestAnnotation(point) {
         let best = null;
         let bestDistance = 4;
@@ -1415,6 +1438,28 @@
     function onMapPointerDown(event) {
         if (event.button !== 0) return;
         if (event.target.closest('.mdt-spawn')) return;
+        const note = event.target.closest('.mdt-map-note');
+        if (note) {
+            const annotationId = note.dataset.annotationId;
+            if (state.tool === 'note') {
+                event.preventDefault();
+                editNote(annotationId);
+                return;
+            }
+            if (state.tool === 'select') {
+                const start = eventToMapPoint(event);
+                state.interaction = {
+                    type: 'move-note',
+                    annotationId,
+                    start,
+                    end: start,
+                    moved: false,
+                };
+                els.mapViewport.setPointerCapture(event.pointerId);
+                event.preventDefault();
+                return;
+            }
+        }
         const mapPoint = eventToMapPoint(event);
         const viewportPoint = eventToViewportPoint(event);
         if (shouldStartMapPan()) {
@@ -1476,6 +1521,12 @@
             return;
         }
         const point = eventToMapPoint(event);
+        if (interaction.type === 'move-note') {
+            interaction.end = point;
+            interaction.moved = interaction.moved || Math.hypot(point.x - interaction.start.x, point.y - interaction.start.y) > 0.1;
+            renderDraggedNote(interaction.annotationId, point);
+            return;
+        }
         if (interaction.type === 'box') {
             interaction.end = point;
             setSelectionRect(interaction.start, interaction.end);
@@ -1499,7 +1550,18 @@
         if (els.mapViewport.hasPointerCapture(event.pointerId)) {
             els.mapViewport.releasePointerCapture(event.pointerId);
         }
-        if (interaction.type === 'box') {
+        if (interaction.type === 'move-note') {
+            if (!interaction.moved) return;
+            mutateRoute((route) => {
+                const note = route.annotations.find((annotation) => (
+                    annotation.id === interaction.annotationId && annotation.type === 'note'
+                ));
+                if (note) {
+                    note.x = interaction.end.x;
+                    note.y = interaction.end.y;
+                }
+            });
+        } else if (interaction.type === 'box') {
             els.selectionBox.hidden = true;
             selectBox(interaction.start, interaction.end);
         } else if (['line', 'arrow', 'pencil'].includes(interaction.type)) {
@@ -1521,6 +1583,13 @@
                 renderAnnotations();
             }
         }
+    }
+
+    function onMapDoubleClick(event) {
+        const note = event.target.closest('.mdt-map-note');
+        if (!note) return;
+        event.preventDefault();
+        editNote(note.dataset.annotationId);
     }
 
     function zoomBy(delta) {
@@ -1818,7 +1887,7 @@
                     <div><strong>选择怪物：</strong>左键怪物会按编队加入当前拉怪组；按住 <kbd>Ctrl</kbd> 左键只操作单个刷新点；右键打开怪物详情。</div>
                     <div><strong>拉怪组：</strong>右侧点击某一波设为当前组，可新增、改名、删除和调整顺序。</div>
                     <div><strong>地图操作：</strong>鼠标滚轮缩放；选择手掌工具拖动画布；框选工具可一次加入多个怪物。</div>
-                    <div><strong>路线标注：</strong>支持自由笔、直线、箭头、文字与擦除；标注按楼层保存。</div>
+                    <div><strong>路线标注：</strong>支持自由笔、直线、箭头、文字与擦除；文字在选择工具下可直接拖动，双击即可二次编辑；标注按楼层保存。</div>
                     <div><strong>分享：</strong>可复制 MDT 6.2.2 使用的 <kbd>!~MDT2~</kbd> 暴雪编码路线字符串，也可生成无需登录的站内短链接；两者都包含拉怪组和地图标注。</div>
                     <div><strong>实时协作：</strong>开启后，同一浏览器的多个标签页会通过 BroadcastChannel 同步当前路线。</div>
                     <div><strong>快捷键：</strong><kbd>V</kbd> 选择、<kbd>H</kbd> 拖动、<kbd>B</kbd> 框选、<kbd>P</kbd> 画笔、<kbd>L</kbd> 直线、<kbd>A</kbd> 箭头、<kbd>N</kbd> 文字、<kbd>E</kbd> 擦除、<kbd>Ctrl+Z</kbd> 撤销。</div>
@@ -2023,6 +2092,7 @@
         els.mapViewport.addEventListener('pointermove', onMapPointerMove);
         els.mapViewport.addEventListener('pointerup', onMapPointerUp);
         els.mapViewport.addEventListener('pointercancel', onMapPointerUp);
+        els.mapViewport.addEventListener('dblclick', onMapDoubleClick);
         els.mapViewport.addEventListener('wheel', (event) => {
             event.preventDefault();
             zoomBy(event.deltaY < 0 ? 0.1 : -0.1);

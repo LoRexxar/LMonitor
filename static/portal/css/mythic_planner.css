@@ -487,6 +487,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 }
 
 .mdt-map-note {
+    pointer-events: auto;
     position: absolute;
     max-width: 160px;
     transform: translate(-50%, -50%);
@@ -498,6 +499,8 @@ button:disabled { cursor: not-allowed; opacity: .45; }
     font-size: calc(9px * var(--map-zoom, 1));
     line-height: 1.25;
     white-space: pre-wrap;
+    cursor: move;
+    touch-action: none;
 }
 
 .mdt-selection-box {

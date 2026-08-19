@@ -4051,6 +4051,10 @@ class MythicPlannerPageContractTests(SimpleTestCase):
             portal_js.index('function zoomBy('):portal_js.index('function resetView(', portal_js.index('function zoomBy('))
         ]
         self.assertIn('renderScaledMapLayers();', zoom_by)
+        self.assertIn('function editNote(', portal_js)
+        self.assertIn("type: 'move-note'", portal_js)
+        self.assertIn("els.mapViewport.addEventListener('dblclick'", portal_js)
+        self.assertIn('.mdt-map-note {\n    pointer-events: auto;', planner_css)
         self.assertNotIn('data-pull-action="up"', portal_js)
         self.assertNotIn('data-pull-action="down"', portal_js)
         self.assertNotIn('data-pull-action="rename"', portal_js)
