@@ -252,6 +252,30 @@ class SpecOverviewDOMContractTests(TestCase):
         self.assertIn('panel.setAttribute("role", "tabpanel")', js)
         self.assertIn('button.addEventListener("click", () => activateTab(index))', js)
 
+    @patch('botend.portal.spec_detail_views._load_json')
+    @patch('botend.portal.spec_detail_views._base_context')
+    def test_raid_detail_uses_the_selected_heroic_aggregate_and_keeps_its_difficulty_in_boss_links(
+        self, base_context, load_json,
+    ):
+        base_context.return_value = {
+            'season': SimpleNamespace(id=99, raid_encounters=[{'id': 33}]),
+            'nav': SimpleNamespace(class_cn='法师', spec_cn='火焰', icon=''),
+            'class_name': 'Mage', 'spec_name': 'Fire', 'all_specs': [],
+        }
+        load_json.return_value = {
+            'zone_groups': [{'zone_id': 1, 'bosses': [{'boss_id': 33, 'boss_name': '史诗首领'}]}],
+            'difficulties': [
+                {'difficulty': 5, 'label': '史诗团本表现', 'zone_groups': [{'zone_id': 1, 'bosses': [{'boss_id': 33, 'boss_name': '史诗首领'}]}]},
+                {'difficulty': 4, 'label': '英雄团本表现', 'zone_groups': [{'zone_id': 1, 'bosses': [{'boss_id': 33, 'boss_name': '英雄首领'}]}]},
+            ],
+        }
+
+        response = self.client.get('/portal/spec/Mage/Fire/raid/?difficulty=4')
+
+        self.assertContains(response, '英雄团本表现')
+        self.assertContains(response, '英雄首领')
+        self.assertContains(response, 'boss_id=33&amp;difficulty=4')
+
     def test_overview_assets_keep_cache_query_outside_static_path(self):
         response = self.client.get('/portal/spec/Mage/Fire/')
         content = response.content.decode()

@@ -70,11 +70,13 @@
     return [...extras.filter(Boolean), count ? `样本 n=${numberFormat.format(count)}` : "样本未提供", count && count < 20 ? "样本有限" : ""].filter(Boolean).join(" · ");
   }
 
-  function overviewDetailUrl(kind, id) {
+  function overviewDetailUrl(kind, id, difficulty = null) {
     const className = root.dataset.className;
     const specName = root.dataset.specName;
     if (!className || !specName || !id) return "";
-    return `/portal/spec/${encodeURIComponent(className)}/${encodeURIComponent(specName)}/${kind}/?${kind === "dungeons" ? "dungeon_id" : "boss_id"}=${encodeURIComponent(id)}`;
+    const params = new URLSearchParams({ [kind === "dungeons" ? "dungeon_id" : "boss_id"]: id });
+    if (kind === "raid" && difficulty !== null) params.set("difficulty", difficulty);
+    return `/portal/spec/${encodeURIComponent(className)}/${encodeURIComponent(specName)}/${kind}/?${params}`;
   }
 
   function renderPlayers(payload) {
@@ -106,12 +108,12 @@
     }), { ranked: false });
   }
 
-  function renderRaid(payload) {
+  function renderRaid(payload, difficulty = null) {
     const difficulties = asArray(payload?.difficulties);
     if (difficulties.length) {
       const entries = difficulties.map((difficulty) => ({
         label: value(difficulty, ["label"], "团本表现"),
-        block: renderRaid({ zone_groups: difficulty?.zone_groups }),
+        block: renderRaid({ zone_groups: difficulty?.zone_groups }, difficulty?.difficulty),
       }));
       const container = node("div", "spec-module-raid-tabs");
       const tabList = node("div", "spec-module-raid-tablist");
@@ -167,7 +169,7 @@
         title: value(boss, ["boss_name", "name"]),
         detail: sampleDetail(boss, [value(boss?.kill_time, ["median_fmt"], "")]),
         metric: `中位 DPS ${metric(value(boss?.dps, ["median", "avg"], "—"))}`,
-        detail_url: overviewDetailUrl("raid", boss.boss_id),
+        detail_url: overviewDetailUrl("raid", boss.boss_id, difficulty),
       }), { ranked: false }));
       container.append(group);
     });

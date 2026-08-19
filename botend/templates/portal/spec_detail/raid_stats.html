@@ -12,13 +12,19 @@
 <div class="spec-detail-page">
     {% include "portal/spec_detail/_overview_identity_and_tabs.html" with active_tab="raid" %}
 
+    <nav class="raid-difficulty-tabs" aria-label="团本难度">
+        {% for option in raid_difficulties %}
+        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/raid/?{% if selected_boss_id %}boss_id={{ selected_boss_id }}&amp;{% endif %}difficulty={{ option.difficulty }}"{% if option.difficulty == selected_raid_difficulty %} aria-current="page"{% endif %}>{{ option.label }}</a>
+        {% endfor %}
+    </nav>
+
     {% if boss_detail %}
     <!-- Boss 详情 -->
     <div class="detail-section">
-        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/raid/" class="back-link">← 返回 Boss 列表</a>
+        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/raid/?difficulty={{ selected_raid_difficulty }}" class="back-link">← 返回 Boss 列表</a>
         <h2>{{ boss_detail.boss_name }}</h2>
         {% if boss_detail.raid_zone_cn %}<p class="text-muted" style="margin-bottom:4px;">{{ boss_detail.raid_zone_cn }} ({{ boss_detail.raid_zone_name }})</p>{% endif %}
-        <p class="text-muted">样本量: {{ boss_detail.sample_size }} · 仅限史诗难度</p>
+        <p class="text-muted">样本量: {{ boss_detail.sample_size }} · {% if selected_raid_difficulty == 5 %}史诗难度{% else %}英雄难度{% endif %}</p>
 
         {% if boss_detail.dps %}
         <div class="stat-cards stat-strip">
@@ -532,7 +538,7 @@
     {% endif %}
     <div class="dungeon-list">
     {% for b in zone.bosses %}
-        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/raid/?boss_id={{ b.boss_id }}" class="dungeon-card-link">
+        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/raid/?boss_id={{ b.boss_id }}&amp;difficulty={{ selected_raid_difficulty }}" class="dungeon-card-link">
             <div class="dungeon-card">
                 <h3 class="dungeon-name">{{ b.boss_name }}</h3>
                 <div class="dungeon-meta">
@@ -574,6 +580,9 @@
 .spec-nav a.active { color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 12px; margin-bottom: -12px; }
 .back-link { color: #2563eb; text-decoration: none; font-size: 0.9em; display: inline-block; margin-bottom: 12px; }
 .back-link:hover { text-decoration: underline; }
+.raid-difficulty-tabs { display: flex; gap: 8px; margin: 0 0 18px; }
+.raid-difficulty-tabs a { border: 1px solid #cbd5e1; border-radius: 999px; color: #475569; padding: 8px 14px; text-decoration: none; font-weight: 700; }
+.raid-difficulty-tabs a[aria-current="page"] { background: #2563eb; border-color: #2563eb; color: #fff; }
 
 /* ===== Dungeon/Boss List (Single Column) ===== */
 .dungeon-list { display: flex; flex-direction: column; gap: 12px; }

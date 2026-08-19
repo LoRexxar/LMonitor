@@ -278,13 +278,35 @@ class SpecDetailRaidView(View):
         ctx = _base_context(class_name, spec_name)
         season_id = ctx['season'].id if ctx['season'] else None
         boss_id = request.GET.get('boss_id')
+        difficulty = 4 if request.GET.get('difficulty') == '4' else 5
+        ctx['selected_raid_difficulty'] = difficulty
+        ctx['selected_boss_id'] = boss_id
+        ctx['raid_difficulties'] = [
+            {'difficulty': 5, 'label': '史诗团本表现', 'zone_groups': []},
+            {'difficulty': 4, 'label': '英雄团本表现', 'zone_groups': []},
+        ]
 
         if season_id:
             data = _load_json(season_id, class_name, spec_name, 'raid.json')
             if data:
-                zone_groups = data.get('zone_groups', [])
+                for aggregated in data.get('difficulties', []):
+                    if not isinstance(aggregated, dict) or aggregated.get('difficulty') not in (4, 5):
+                        continue
+                    for option in ctx['raid_difficulties']:
+                        if option['difficulty'] == aggregated['difficulty']:
+                            option['label'] = aggregated.get('label') or option['label']
+                            option['zone_groups'] = aggregated.get('zone_groups') or []
+                            break
+                zone_groups = next(
+                    (option['zone_groups'] for option in ctx['raid_difficulties'] if option['difficulty'] == difficulty),
+                    data.get('zone_groups', []),
+                )
+                if not data.get('difficulties') and difficulty == 5:
+                    zone_groups = data.get('zone_groups', [])
                 if _raid_overview_json_is_stale(ctx['season'], zone_groups):
-                    zone_groups = SpecStatsService.get_raid_overview(class_name, spec_name, season_id)
+                    zone_groups = SpecStatsService.get_raid_overview(
+                        class_name, spec_name, season_id, difficulty=difficulty,
+                    )
                 if boss_id:
                     bid = int(boss_id)
                     detail = None
@@ -303,7 +325,9 @@ class SpecDetailRaidView(View):
                             or (not _talent_build_popularity_has_builds(detail))
                             or _detail_item_metadata_is_stale(detail)
                         ):
-                            detail = SpecStatsService.get_raid_detail(bid, class_name, spec_name) or detail
+                            detail = SpecStatsService.get_raid_detail(
+                                bid, class_name, spec_name, difficulty=difficulty,
+                            ) or detail
                         ctx['boss_detail'] = detail
                     else:
                         ctx['zone_groups'] = zone_groups

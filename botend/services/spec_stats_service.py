@@ -547,8 +547,8 @@ class SpecStatsService:
     # ========== 团本统计 ==========
 
     @staticmethod
-    def get_raid_overview(class_name, spec_name, season_id=None):
-        """该专精在团本各 Boss 的统计概览"""
+    def get_raid_overview(class_name, spec_name, season_id=None, difficulty=5):
+        """该专精在指定团本难度各 Boss 的统计概览。"""
         if not season_id:
             season = SeasonMeta.objects.filter(is_active=True).first()
             if not season:
@@ -566,7 +566,7 @@ class SpecStatsService:
                 for enc in rz.get('encounters', []):
                     cn_name = RAID_BOSS_CN.get(enc['name'], enc['name'])
                     stats = SpecStatsService._compute_raid_stats(
-                        season_id, enc['id'], cn_name, class_name, spec_name
+                        season_id, enc['id'], cn_name, class_name, spec_name, difficulty=difficulty
                     )
                     zone_bosses.append(stats)
                 if zone_bosses:
@@ -583,7 +583,7 @@ class SpecStatsService:
             for enc in season.raid_encounters:
                 cn_name = RAID_BOSS_CN.get(enc['name'], enc['name'])
                 stats = SpecStatsService._compute_raid_stats(
-                    season_id, enc['id'], cn_name, class_name, spec_name
+                    season_id, enc['id'], cn_name, class_name, spec_name, difficulty=difficulty
                 )
                 bosses.append(stats)
             return [{'zone_id': 0, 'zone_name': '', 'zone_cn': '', 'bosses': bosses}]
