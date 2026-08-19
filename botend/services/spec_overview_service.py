@@ -61,6 +61,8 @@ class SpecOverviewService:
 
     @staticmethod
     def _season_projection_ids(module, season):
+        if module == 'players':
+            return set()
         encounter_key = 'mplus_encounters' if module == 'mythic-plus' else 'raid_encounters'
         return {
             encounter.get('id')
@@ -171,9 +173,17 @@ class SpecOverviewService:
         data, mtime = cls._aggregate('raid', class_name, spec_name)
         zone_groups = data.get('zone_groups') or []
         zone_groups = zone_groups if isinstance(zone_groups, list) else []
+        difficulties = data.get('difficulties') or []
+        difficulties = difficulties if isinstance(difficulties, list) else []
         return {'source': cls.SOURCES['raid'],
                 'updated_at': data.get('updated_at') or cls._latest_timestamp(zone_groups) or mtime,
-                'zone_groups': [cls._raid_summary(zone) for zone in zone_groups if isinstance(zone, dict)]}
+                'zone_groups': [cls._raid_summary(zone) for zone in zone_groups if isinstance(zone, dict)],
+                'difficulties': [{
+                    'difficulty': item.get('difficulty'),
+                    'label': item.get('label'),
+                    'zone_groups': [cls._raid_summary(zone) for zone in (item.get('zone_groups') or [])
+                                    if isinstance(zone, dict)],
+                } for item in difficulties if isinstance(item, dict)]}
 
     @staticmethod
     def discover_simc_dimensions(class_name, spec_name):

@@ -60,6 +60,7 @@ class SpecOverviewIntegrationTests(TestCase):
         self.assertIn('updated_at', mythic)
         self.assertEqual(raid['source'], 'Warcraft Logs')
         self.assertEqual(raid['zone_groups'], [{'zone_id': 22, 'bosses': []}])
+        self.assertEqual(raid['difficulties'], [])
         self.assertIn('updated_at', raid)
 
     @patch('botend.services.spec_overview_service.SpecOverviewService._aggregate')
@@ -152,6 +153,26 @@ class SpecOverviewIntegrationTests(TestCase):
                 self.assertEqual(self.client.get(endpoints['mythic-plus']).json()['dungeons'], [])
                 self.assertEqual(self.client.get(endpoints['raid']).json()['zone_groups'], [])
 
+    def test_players_aggregate_is_not_rejected_by_raid_encounter_projection(self):
+        with tempfile.TemporaryDirectory() as media_root:
+            season_id = 99
+            base = Path(media_root) / 'aggregated' / str(season_id) / 'Mage' / 'Fire'
+            base.mkdir(parents=True)
+            (base / 'leaderboard.json').write_text(json.dumps({
+                'players': [{'id': 7, 'rank': 1, 'character_name': 'Ranked'}], 'total': 1,
+            }), encoding='utf-8')
+            cache.clear()
+            active_season = SimpleNamespace(
+                id=season_id, season_name='Test season', season_key='test-season',
+                raid_encounters=[{'id': 4, 'name': 'Raid boss'}],
+            )
+            with override_settings(MEDIA_ROOT=media_root), patch(
+                'botend.services.spec_overview_service.SpecStatsService.get_active_season',
+                return_value=active_season,
+            ):
+                endpoint = self._rendered_endpoints()['players']
+                self.assertEqual(self.client.get(endpoint).json()['players'][0]['character_name'], 'Ranked')
+
     def test_stats_endpoints_prefer_aggregate_files_and_cache_each_module(self):
         with tempfile.TemporaryDirectory() as media_root:
             season_id = 99
@@ -219,7 +240,7 @@ class SpecOverviewDOMContractTests(TestCase):
         content = response.content.decode()
 
         self.assertIn('<link rel="stylesheet" href="/static/portal/css/spec-overview.css?v=20260809">', content)
-        self.assertIn('<script src="/static/portal/js/spec-overview.js?v=20260810" defer></script>', content)
+        self.assertIn('<script src="/static/portal/js/spec-overview.js?v=20260819" defer></script>', content)
         self.assertNotIn('spec-overview.js%3Fv', content)
         self.assertNotIn('spec-overview.css%3Fv', content)
 

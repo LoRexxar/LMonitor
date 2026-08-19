@@ -107,6 +107,18 @@
   }
 
   function renderRaid(payload) {
+    const difficulties = asArray(payload?.difficulties);
+    if (difficulties.length) {
+      const container = node("div", "spec-module-difficulty-list");
+      difficulties.forEach((difficulty) => {
+        const block = renderRaid({ zone_groups: difficulty?.zone_groups });
+        if (!block) return;
+        const section = node("section", "spec-module-difficulty");
+        section.append(node("h3", "spec-module-difficulty-title", value(difficulty, ["label"], "团本表现")), block);
+        container.append(section);
+      });
+      return container.childElementCount ? container : null;
+    }
     const zones = firstArray(payload, ["zone_groups"]);
     const bosses = firstArray(payload, ["bosses", "items"]);
     if (!zones.length && !bosses.length) return null;

@@ -91,44 +91,55 @@ class SpecDetailAggregationMonitor(BaseScan):
 
         path = os.path.join(spec_dir, 'dungeon.json')
         atomic_dump_json(path, {'dungeons': dungeons}, cls=DecimalEncoder, ensure_ascii=False)
-
     def _aggregate_raid(self, season, class_name, spec_name, spec_dir):
         if not season.raid_encounters:
             return
 
-        if season.raid_zones:
-            zone_groups = []
-            for rz in season.raid_zones:
-                zone_cn = RAID_ZONE_CN.get(rz.get('name', ''), rz.get('name', ''))
-                zone_bosses = []
-                for enc in rz.get('encounters', []):
-                    cn_name = RAID_BOSS_CN.get(enc['name'], enc['name'])
-                    stats = SpecStatsService._compute_raid_stats(
-                        season.id, enc['id'], cn_name, class_name, spec_name, full=True
-                    )
-                    stats['raid_zone_id'] = rz.get('id')
-                    stats['raid_zone_name'] = rz.get('name', '')
-                    stats['raid_zone_cn'] = zone_cn
-                    zone_bosses.append(stats)
-                if zone_bosses:
-                    zone_groups.append({
-                        'zone_id': rz.get('id'),
-                        'zone_name': rz.get('name', ''),
-                        'zone_cn': zone_cn,
-                        'bosses': zone_bosses,
-                    })
-        else:
+        def aggregate_difficulty(difficulty):
+            if season.raid_zones:
+                zone_groups = []
+                for rz in season.raid_zones:
+                    zone_cn = RAID_ZONE_CN.get(rz.get('name', ''), rz.get('name', ''))
+                    zone_bosses = []
+                    for enc in rz.get('encounters', []):
+                        cn_name = RAID_BOSS_CN.get(enc['name'], enc['name'])
+                        stats = SpecStatsService._compute_raid_stats(
+                            season.id, enc['id'], cn_name, class_name, spec_name, full=True,
+                            difficulty=difficulty,
+                        )
+                        stats['raid_zone_id'] = rz.get('id')
+                        stats['raid_zone_name'] = rz.get('name', '')
+                        stats['raid_zone_cn'] = zone_cn
+                        zone_bosses.append(stats)
+                    if zone_bosses:
+                        zone_groups.append({
+                            'zone_id': rz.get('id'),
+                            'zone_name': rz.get('name', ''),
+                            'zone_cn': zone_cn,
+                            'bosses': zone_bosses,
+                        })
+                return zone_groups
+
             bosses = []
             for enc in season.raid_encounters:
                 cn_name = RAID_BOSS_CN.get(enc['name'], enc['name'])
-                stats = SpecStatsService._compute_raid_stats(
-                    season.id, enc['id'], cn_name, class_name, spec_name, full=True
-                )
-                bosses.append(stats)
-            zone_groups = [{'zone_id': 0, 'zone_name': '', 'zone_cn': '', 'bosses': bosses}]
+                bosses.append(SpecStatsService._compute_raid_stats(
+                    season.id, enc['id'], cn_name, class_name, spec_name, full=True,
+                    difficulty=difficulty,
+                ))
+            return [{'zone_id': 0, 'zone_name': '', 'zone_cn': '', 'bosses': bosses}]
+
+        mythic_zones = aggregate_difficulty(5)
+        heroic_zones = aggregate_difficulty(4)
 
         path = os.path.join(spec_dir, 'raid.json')
-        atomic_dump_json(path, {'zone_groups': zone_groups}, cls=DecimalEncoder, ensure_ascii=False)
+        atomic_dump_json(path, {
+            'zone_groups': mythic_zones,
+            'difficulties': [
+                {'difficulty': 5, 'label': '史诗团本表现', 'zone_groups': mythic_zones},
+                {'difficulty': 4, 'label': '英雄团本表现', 'zone_groups': heroic_zones},
+            ],
+        }, cls=DecimalEncoder, ensure_ascii=False)
 
     def _aggregate_leaderboard(self, class_name, spec_name, spec_dir):
         result = SpecStatsService.get_player_list(
