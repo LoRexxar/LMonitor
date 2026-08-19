@@ -912,6 +912,7 @@ function renderPeakSpecGrid(containerId, payload) {
     const className = spec?.class_name || classSlug;
     const specName = spec?.spec_name || spec?.spec_slug || "";
     const specSlug = spec?.spec_slug || "";
+    const aggregateHref = `/portal/spec/${encodeURIComponent(classSlug)}/${encodeURIComponent(specSlug)}/dungeons/`;
     const top = Array.isArray(spec?.items) ? spec.items : [];
 
     const titleColor = classColor(classSlug);
@@ -933,12 +934,9 @@ function renderPeakSpecGrid(containerId, payload) {
       const realm = String(x?.realm_name || "").trim();
       const region = String(x?.rio_region_slug || "").trim().toUpperCase();
       const server = escapeHtml([realm, region].filter(Boolean).join(" "));
-      const href = sanitizeHref(x?.profile_url || "");
       const dotBorder = classSlug === "priest" ? "border-slate-400" : "border-slate-200";
       const dot = `<span class="inline-block w-2 h-2 rounded-full border ${dotBorder}" style="background:${titleColor}"></span>`;
-      const linkText = href
-        ? `<a class="text-slate-900 hover:underline font-semibold" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${name}</a>`
-        : `<span class="text-slate-900 font-semibold">${name}</span>`;
+      const linkText = `<a class="text-slate-900 hover:underline font-semibold" href="${escapeHtml(aggregateHref)}">${name}</a>`;
       const link = `<span class="inline-flex items-center gap-1.5">${dot}${linkText}</span>`;
       const left = server ? `<div class="text-xs text-slate-900 truncate">${link} <span class="text-slate-300">·</span> <span class="text-slate-500 font-medium">${server}</span></div>` : `<div class="text-xs text-slate-900 truncate">${link}</div>`;
       return `<div class="flex items-center justify-between gap-2 py-0.5">
