@@ -120,14 +120,16 @@ DUNGEON_CN = {
     "seat-of-the-triumvirate": "执政团之座",
     "skyreach": "通天峰",
     "windrunner-spire": "风行者之塔",
+    # Wago Map DB2 build 12.1.0.69283, locale=zhCN:
+    # 2993 / 2825 / 1762 / 2813 / 2521 / 1877 / 2859 / 2923.
     "altar-of-fangs": "毒牙祭坛",
-    "den-of-nalorakk": "纳洛拉克之巢",
+    "den-of-nalorakk": "纳洛拉克的洞穴",
     "kings-rest": "诸王之眠",
-    "murder-row": "谋杀街",
+    "murder-row": "密谋小径",
     "ruby-life-pools": "红玉新生法池",
     "temple-of-sethraliss": "塞塔里斯神庙",
-    "the-blinding-vale": "致盲谷",
-    "voidscar-arena": "虚痕竞技场",
+    "the-blinding-vale": "夺目谷",
+    "voidscar-arena": "虚空之痕竞技场",
 }
 
 

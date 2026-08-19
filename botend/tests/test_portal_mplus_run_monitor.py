@@ -5,6 +5,7 @@ from django.test import SimpleTestCase
 
 from botend.controller.plugins.portal.PortalMplusRunMonitor import PortalMplusRunMonitor
 from botend.portal.api import _mplus_to_dict
+from botend.wow_i18n import cn_dungeon_from_slug
 
 
 class PortalMplusRunMonitorSeasonTests(SimpleTestCase):
@@ -34,4 +35,29 @@ class PortalMplusRunMonitorSeasonTests(SimpleTestCase):
             region='world',
         )
 
-        self.assertEqual(_mplus_to_dict(run)['dungeon_cn'], '虚痕竞技场')
+        self.assertEqual(_mplus_to_dict(run)['dungeon_cn'], '虚空之痕竞技场')
+        self.assertEqual(
+            {
+                slug: cn_dungeon_from_slug(slug, english)
+                for slug, english in {
+                    'altar-of-fangs': 'Altar of Fangs',
+                    'den-of-nalorakk': 'Den of Nalorakk',
+                    'kings-rest': "Kings' Rest",
+                    'murder-row': 'Murder Row',
+                    'ruby-life-pools': 'Ruby Life Pools',
+                    'temple-of-sethraliss': 'Temple of Sethraliss',
+                    'the-blinding-vale': 'The Blinding Vale',
+                    'voidscar-arena': 'Voidscar Arena',
+                }.items()
+            },
+            {
+                'altar-of-fangs': '毒牙祭坛',
+                'den-of-nalorakk': '纳洛拉克的洞穴',
+                'kings-rest': '诸王之眠',
+                'murder-row': '密谋小径',
+                'ruby-life-pools': '红玉新生法池',
+                'temple-of-sethraliss': '塞塔里斯神庙',
+                'the-blinding-vale': '夺目谷',
+                'voidscar-arena': '虚空之痕竞技场',
+            },
+        )
