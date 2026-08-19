@@ -3567,14 +3567,24 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         ]
 
         talent_tree = _compute_talent_popularity_tree(
-            records=[{
-                'talents_json': [
-                    {'node_id': 101, 'talent_id': 101, 'spell_id': 1001, 'name': '二选一B', 'tree_type': 'spec', 'row': 4, 'column': 5, 'points': 1},
-                    {'node_id': 200, 'talent_id': 200, 'spell_id': 2000, 'name': '普通节点', 'tree_type': 'spec', 'row': 5, 'column': 5, 'points': 1},
-                ],
-                'gear_json': [],
-                'faction': 'Alliance',
-            }],
+            records=[
+                {
+                    'talents_json': [
+                        {'node_id': 100, 'talent_id': 100, 'spell_id': 1000, 'name': '二选一A', 'tree_type': 'spec', 'row': 4, 'column': 5, 'points': 1},
+                        {'node_id': 200, 'talent_id': 200, 'spell_id': 2000, 'name': '普通节点', 'tree_type': 'spec', 'row': 5, 'column': 5, 'points': 1},
+                    ],
+                    'gear_json': [],
+                    'faction': 'Alliance',
+                },
+                {
+                    'talents_json': [
+                        {'node_id': 101, 'talent_id': 101, 'spell_id': 1001, 'name': '二选一B', 'tree_type': 'spec', 'row': 4, 'column': 5, 'points': 1},
+                        {'node_id': 200, 'talent_id': 200, 'spell_id': 2000, 'name': '普通节点', 'tree_type': 'spec', 'row': 5, 'column': 5, 'points': 1},
+                    ],
+                    'gear_json': [],
+                    'faction': 'Alliance',
+                },
+            ],
             class_name='Monk',
             spec_name='Windwalker',
             top_n=10,
@@ -3588,8 +3598,62 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         self.assertEqual(len(choice_node['choice_options']), 2)
         self.assertTrue(all('description' in option for option in choice_node['choice_options']))
         self.assertTrue(all('description_zh' in option for option in choice_node['choice_options']))
-        self.assertEqual(choice_node['name'], '二选一B')
-        self.assertEqual(choice_node['usage_pct'], 100.0)
+        self.assertEqual(choice_node['name'], '二选一A')
+        self.assertEqual(choice_node['usage_pct'], 50.0)
+        self.assertEqual(
+            [option['usage_pct'] for option in choice_node['choice_options']],
+            [50.0, 50.0],
+        )
+        rendered_choice_node = next(
+            node
+            for tree in talent_tree['render_model']['trees']
+            for node in tree['nodes']
+            if node.get('row') == 4 and node.get('column') == 5
+        )
+        self.assertEqual(rendered_choice_node['usage_pct'], 50.0)
+        self.assertEqual(
+            [option['usage_pct'] for option in rendered_choice_node['choice_options']],
+            [50.0, 50.0],
+        )
+
+    @patch('botend.services.spec_stats_service.TalentBuildCodeDecoder.decode_node_states')
+    @patch('botend.services.spec_stats_service.TalentMetadataProvider')
+    def test_popularity_tree_decodes_embedded_choice_options_from_build_code(self, mock_provider_cls, mock_decode):
+        choice_node = {
+            'node_id': 100,
+            'talent_id': 10,
+            'spell_id': 1000,
+            'name': '二选一天赋',
+            'tree_type': 'class',
+            'row': 4,
+            'column': 5,
+            'is_choice_node': True,
+            'choice_options': [
+                {'node_id': 101, 'talent_id': 11, 'spell_id': 1001, 'name': '选项 A'},
+                {'node_id': 102, 'talent_id': 12, 'spell_id': 1002, 'name': '选项 B'},
+            ],
+        }
+        provider = mock_provider_cls.return_value
+        provider.merge_into_node.side_effect = lambda node, class_name='', spec_name='': node
+        provider.get_full_tree_nodes.return_value = [choice_node]
+        provider.get_decoder_node_list.return_value = [choice_node]
+        mock_decode.return_value = {
+            'class:100': {'selected': True, 'is_choice_node': True, 'choice_selection': 1, 'points': 1},
+        }
+
+        tree = _compute_talent_popularity_tree(
+            records=[{
+                'talent_build_code': 'frozen-build-code',
+                'talents_json': [{'node_id': 100, 'talent_id': 100, 'spell_id': 100, 'tree_type': 'class', 'points': 1}],
+            }],
+            class_name='Warrior', spec_name='Fury', top_n=10,
+        )
+
+        rendered_choice = tree['render_model']['trees'][0]['nodes'][0]
+        self.assertEqual(
+            [(option['name'], option['count'], option['usage_pct']) for option in rendered_choice['choice_options']],
+            [('选项 A', 0, 0), ('选项 B', 1, 100.0)],
+        )
 
     @patch('botend.services.spec_stats_service.TalentMetadataProvider')
     def test_popularity_tree_does_not_mark_duplicate_source_rows_as_choice(self, mock_provider_cls):

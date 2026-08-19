@@ -15,6 +15,7 @@ from botend.models import (
 from botend.constants.hero_talents import hero_subtree_name_zh
 from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON, SPEC_ROLE, DUNGEON_CN, RAID_BOSS_CN, RAID_ZONE_CN, SLOT_CN, RACE_CN, ENCHANT_CN, GEM_STAT_CN, QUALITY_CN
 from botend.wow.talents.parser import normalize_talent_payload
+from botend.wow.talents.build_code import TalentBuildCodeDecoder
 from botend.wow.talents.metadata import TalentMetadataProvider, dedupe_talent_option_nodes, normalize_talent_option_spell_id
 from botend.wow.talents.versioning import TalentVersionResolver
 from botend.wow.talents.models import TREE_COLUMNS, TalentBuildStateModel, TalentNodeModel, TalentTreeModel, TalentTreeSetModel
@@ -954,11 +955,58 @@ def _valid_talent_records(records):
     return [record for record in (records or []) if _has_valid_talent_payload(record)]
 
 
+def _build_decoder_node_key(node):
+    tree_type = (node or {}).get('tree_type') or 'spec'
+    node_id = _coerce_positive_int((node or {}).get('node_id'))
+    return f'{tree_type}:{node_id}' if node_id else ''
+
+
+def _add_selected_choice_options_from_build_code(record_nodes, build_code, decoder_nodes, decoder_nodes_by_key):
+    """Add the actual alternative selected in a WCL ranking build code.
+
+    WCL's structured talent payload only identifies a choice node itself, not
+    its selected DB2 entry.  The row's frozen import string has the choice bit.
+    Never use it unless the same base node was present in the WCL payload.
+    """
+    if not build_code or not decoder_nodes or not record_nodes:
+        return
+    decoded_states = TalentBuildCodeDecoder.decode_node_states(build_code, decoder_nodes)
+    for base_key, state in decoded_states.items():
+        if not state.get('selected') or not state.get('is_choice_node') or base_key not in record_nodes:
+            continue
+        base_node = decoder_nodes_by_key.get(base_key) or {}
+        options = base_node.get('choice_options') or []
+        try:
+            choice_index = int(state.get('choice_selection'))
+        except (TypeError, ValueError):
+            continue
+        if choice_index < 0 or choice_index >= len(options):
+            continue
+        selected_option = options[choice_index]
+        if not isinstance(selected_option, dict):
+            continue
+        option_node = TalentNodeModel.from_raw({
+            **selected_option,
+            'tree_type': base_node.get('tree_type') or 'spec',
+            'points': state.get('points') or 1,
+            'selected': True,
+        })
+        option_key = _build_talent_node_key(option_node)
+        if option_key:
+            record_nodes[option_key] = option_node
+
+
 def _build_talent_usage_snapshot(records, class_name, spec_name):
     """聚合统计页热门天赋所需的节点、使用率、玩家样本与父子连线。"""
     records = _valid_talent_records(records)
     total = len(records)
     provider = TalentMetadataProvider(usage=TalentVersionResolver.USAGE_STATS)
+    decoder_nodes = provider.get_decoder_node_list(class_name)
+    decoder_nodes_by_key = {
+        _build_decoder_node_key(node): node
+        for node in decoder_nodes
+        if _build_decoder_node_key(node)
+    }
     usage = {}
     canonical_nodes = {}
     parent_edges = defaultdict(Counter)
@@ -978,6 +1026,13 @@ def _build_talent_usage_snapshot(records, class_name, spec_name):
             existing = record_nodes.get(node_key)
             if existing is None or _score_talent_node(node) >= _score_talent_node(existing):
                 record_nodes[node_key] = node
+
+        _add_selected_choice_options_from_build_code(
+            record_nodes,
+            record.get('talent_build_code'),
+            decoder_nodes,
+            decoder_nodes_by_key,
+        )
 
         selected_hero_subtrees = {
             node.db2_subtree_id
@@ -1698,6 +1753,16 @@ def _attach_usage_to_render_model(render_model, usage_map, highlighted_keys):
         node_payload['pct'] = usage_item.get('usage_pct', fallback_pct)
         node_payload['top_players'] = usage_item.get('top_players', node_payload.get('top_players') or [])
         node_payload['is_highlighted'] = node_payload.get('node_key') in highlighted_set or bool(node_payload.get('selected'))
+        for option in node_payload.get('choice_options') or []:
+            option_usage = _best_talent_usage_item(
+                _talent_usage_candidate_keys(node_payload.get('tree_type') or 'spec', option),
+                usage_map,
+            )
+            option['count'] = option_usage.get('count', 0)
+            option['usage_pct'] = option_usage.get('usage_pct', 0)
+            option['pct'] = option_usage.get('usage_pct', 0)
+            option['top_players'] = option_usage.get('top_players') or []
+            option['is_active'] = option['count'] > 0
         return node_payload
 
     for node in render_model.get('nodes', []):
