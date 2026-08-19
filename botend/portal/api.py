@@ -12,6 +12,7 @@ from datetime import timedelta
 from botend.models import PortalEvent, PortalMplusRun, PortalMplusSeasonCutoff, PortalMythicstatsDpsRow, PortalPeakSpecRankRow, PortalToolLink, PortalVideo, SeasonMeta, WowArticle, WowDailyReport, WowSkillDiffReport, WowHotfixReport, WowWagoMonitorState
 from botend.services.article_content_service import loads_blocks
 from botend.controller.plugins.wow.wago_regions import wago_region_name
+from botend.wow_i18n import cn_dungeon_from_slug
 from botend.portal.mythicstats import (
     fetch_current_season_slug,
     fetch_mythicstats_dps,
@@ -231,16 +232,6 @@ def _tool_to_dict(t):
 
 
 def _mplus_to_dict(r):
-    dungeon_map = {
-        "algethar-academy": "艾杰斯亚学院",
-        "magisters-terrace": "魔导师平台",
-        "maisara-caverns": "迈萨拉洞窟",
-        "nexuspoint-xenas": "节点希纳斯",
-        "pit-of-saron": "萨隆矿坑",
-        "seat-of-the-triumvirate": "执政团之座",
-        "skyreach": "通天峰",
-        "windrunner-spire": "风行者之塔",
-    }
     party = []
     if getattr(r, 'party_json', None):
         try:
@@ -259,7 +250,7 @@ def _mplus_to_dict(r):
         'rank': r.rank,
         'dungeon': r.dungeon,
         'dungeon_slug': getattr(r, 'dungeon_slug', '') or '',
-        'dungeon_cn': dungeon_map.get(getattr(r, 'dungeon_slug', '') or '', r.dungeon),
+        'dungeon_cn': cn_dungeon_from_slug(getattr(r, 'dungeon_slug', '') or '', r.dungeon),
         'level': r.level,
         'time_seconds': r.time_seconds,
         'score': r.score,
@@ -799,7 +790,10 @@ class PortalMplusRankingsAPIView(View):
             .exclude(dungeon_slug__isnull=True).exclude(dungeon_slug='')
             .values('dungeon_slug', 'dungeon').order_by('dungeon_slug').distinct()
         )
-        dungeons = [{'slug': x['dungeon_slug'], 'name_cn': x['dungeon']} for x in dungeon_rows]
+        dungeons = [
+            {'slug': x['dungeon_slug'], 'name_cn': cn_dungeon_from_slug(x['dungeon_slug'], x['dungeon'])}
+            for x in dungeon_rows
+        ]
         dungeon_name_map = {d['slug']: d['name_cn'] for d in dungeons}
 
         qs = PortalMplusRun.objects.filter(is_active=True, season=season, region=region)

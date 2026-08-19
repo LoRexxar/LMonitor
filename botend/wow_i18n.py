@@ -120,6 +120,14 @@ DUNGEON_CN = {
     "seat-of-the-triumvirate": "执政团之座",
     "skyreach": "通天峰",
     "windrunner-spire": "风行者之塔",
+    "altar-of-fangs": "毒牙祭坛",
+    "den-of-nalorakk": "纳洛拉克之巢",
+    "kings-rest": "诸王之眠",
+    "murder-row": "谋杀街",
+    "ruby-life-pools": "红玉新生法池",
+    "temple-of-sethraliss": "塞塔里斯神庙",
+    "the-blinding-vale": "致盲谷",
+    "voidscar-arena": "虚痕竞技场",
 }
 
 
