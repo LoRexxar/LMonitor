@@ -1522,8 +1522,17 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
                     'is_active': option_usage_count > 0,
                 })
 
-        # 若 option 数 > 1，设置 is_choice_node=True
+        # 二选一节点在树上优先展示实际选择人数最多的选项；同票保留元数据原顺序。
+        # 共同 node_id 的 WCL 记录本身没有 option spell_id，不能继续以共同节点的图标/链接代表选择结果。
         if len(choice_options) > 1:
+            choice_options.sort(key=lambda option: option.get('count') or 0, reverse=True)
+            preferred_option = choice_options[0]
+            if preferred_option.get('count'):
+                for field_name in (
+                    'talent_id', 'spell_id', 'display_spell_id', 'name', 'icon',
+                    'description', 'description_zh',
+                ):
+                    setattr(node, field_name, preferred_option.get(field_name) or getattr(node, field_name))
             node.is_choice_node = True
             node.choice_options = choice_options
 
@@ -1753,7 +1762,8 @@ def _attach_usage_to_render_model(render_model, usage_map, highlighted_keys):
         node_payload['pct'] = usage_item.get('usage_pct', fallback_pct)
         node_payload['top_players'] = usage_item.get('top_players', node_payload.get('top_players') or [])
         node_payload['is_highlighted'] = node_payload.get('node_key') in highlighted_set or bool(node_payload.get('selected'))
-        for option in node_payload.get('choice_options') or []:
+        choice_options = node_payload.get('choice_options') or []
+        for option in choice_options:
             option_usage = _best_talent_usage_item(
                 _talent_usage_candidate_keys(node_payload.get('tree_type') or 'spec', option),
                 usage_map,
@@ -1763,6 +1773,15 @@ def _attach_usage_to_render_model(render_model, usage_map, highlighted_keys):
             option['pct'] = option_usage.get('usage_pct', 0)
             option['top_players'] = option_usage.get('top_players') or []
             option['is_active'] = option['count'] > 0
+        if len(choice_options) > 1:
+            choice_options.sort(key=lambda option: option.get('count') or 0, reverse=True)
+            preferred_option = choice_options[0]
+            if preferred_option.get('count'):
+                for field_name in (
+                    'talent_id', 'spell_id', 'display_spell_id', 'name', 'icon',
+                    'description', 'description_zh',
+                ):
+                    node_payload[field_name] = preferred_option.get(field_name) or node_payload.get(field_name)
         return node_payload
 
     for node in render_model.get('nodes', []):

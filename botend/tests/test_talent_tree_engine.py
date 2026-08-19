@@ -3637,22 +3637,39 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         provider.merge_into_node.side_effect = lambda node, class_name='', spec_name='': node
         provider.get_full_tree_nodes.return_value = [choice_node]
         provider.get_decoder_node_list.return_value = [choice_node]
-        mock_decode.return_value = {
-            'class:100': {'selected': True, 'is_choice_node': True, 'choice_selection': 1, 'points': 1},
+        mock_decode.side_effect = lambda build_code, decoder_nodes: {
+            'class:100': {
+                'selected': True,
+                'is_choice_node': True,
+                'choice_selection': 0 if build_code == 'build-a' else 1,
+                'points': 1,
+            },
         }
 
         tree = _compute_talent_popularity_tree(
-            records=[{
-                'talent_build_code': 'frozen-build-code',
-                'talents_json': [{'node_id': 100, 'talent_id': 100, 'spell_id': 100, 'tree_type': 'class', 'points': 1}],
-            }],
+            records=[
+                {
+                    'talent_build_code': 'build-a',
+                    'talents_json': [{'node_id': 100, 'talent_id': 100, 'spell_id': 100, 'tree_type': 'class', 'points': 1}],
+                },
+                {
+                    'talent_build_code': 'build-b',
+                    'talents_json': [{'node_id': 100, 'talent_id': 100, 'spell_id': 100, 'tree_type': 'class', 'points': 1}],
+                },
+                {
+                    'talent_build_code': 'build-b',
+                    'talents_json': [{'node_id': 100, 'talent_id': 100, 'spell_id': 100, 'tree_type': 'class', 'points': 1}],
+                },
+            ],
             class_name='Warrior', spec_name='Fury', top_n=10,
         )
 
         rendered_choice = tree['render_model']['trees'][0]['nodes'][0]
+        self.assertEqual(rendered_choice['name'], '选项 B')
+        self.assertEqual(rendered_choice['spell_id'], 1002)
         self.assertEqual(
             [(option['name'], option['count'], option['usage_pct']) for option in rendered_choice['choice_options']],
-            [('选项 A', 0, 0), ('选项 B', 1, 100.0)],
+            [('选项 B', 2, 66.7), ('选项 A', 1, 33.3)],
         )
 
     @patch('botend.services.spec_stats_service.TalentMetadataProvider')
