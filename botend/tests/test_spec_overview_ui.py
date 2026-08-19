@@ -305,6 +305,14 @@ class SpecOverviewDOMContractTests(TestCase):
         self.assertNotIn('renderSimc', js)
         self.assertNotIn('simc-benchmarks', js)
 
+    def test_popularity_gem_icons_use_cdn_supported_small_variant(self):
+        template_dir = Path(__file__).resolve().parents[1] / 'templates/portal/spec_detail'
+        for template_name in ('dungeon_stats.html', 'raid_stats.html'):
+            with self.subTest(template=template_name):
+                content = (template_dir / template_name).read_text()
+                self.assertIn("{% wow_icon gem.icon 'small' %}", content)
+                self.assertNotIn("{% wow_icon gem.icon 'tiny' %}", content)
+
     def test_all_spec_stat_pages_share_the_overview_identity_and_tabs(self):
         template_dir = Path(__file__).resolve().parents[1] / 'templates/portal/spec_detail'
         expected_tabs = {

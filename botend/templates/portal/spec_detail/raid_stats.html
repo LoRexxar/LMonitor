@@ -439,7 +439,7 @@
             {% for gem in boss_detail.gem_popularity %}
             <a class="popularity-mini-card popularity-mini-card--link" href="{% if gem.wowhead_url %}{{ gem.wowhead_url }}{% else %}https://www.wowhead.com/cn/item={{ gem.id }}{% endif %}" target="_blank">
                 {% if gem.icon %}
-                <img src="{% wow_icon gem.icon 'tiny' %}" class="popularity-icon popularity-icon--round" alt="{{ gem.display_name|default:gem.name|default:gem.id }}">
+                <img src="{% wow_icon gem.icon 'small' %}" class="popularity-icon popularity-icon--round" alt="{{ gem.display_name|default:gem.name|default:gem.id }}">
                 {% endif %}
                 <div class="popularity-mini-main">
                     <div class="popularity-rank">#{{ forloop.counter }}</div>
