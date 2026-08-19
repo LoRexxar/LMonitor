@@ -63,6 +63,28 @@ class SpecDetailRankingMonitorDifferentialUpdateTests(TestCase):
         self.assertFalse(SpecRaidRanking.objects.filter(report_code='stale').exists())
         self.assertTrue(SpecRaidRanking.objects.filter(report_code='new').exists())
 
+    def test_sync_mythic_does_not_delete_heroic_records_for_the_same_boss(self):
+        now = timezone.now()
+        heroic = self._record(report_code='heroic', fight_id=1, dps=100, last_updated=now)
+        heroic.difficulty = 4
+        SpecRaidRanking.objects.bulk_create([heroic])
+
+        mythic = self._record(report_code='mythic', fight_id=2, dps=200, last_updated=now)
+        mythic.difficulty = 5
+        result = SpecDetailRankingMonitor._sync_ranking_records(
+            model=SpecRaidRanking,
+            filters={'season_id': 1, 'boss_id': 100, 'difficulty': 5},
+            records=[mythic],
+            key_fields=SpecDetailRankingMonitor.RAID_KEY_FIELDS,
+            update_fields=SpecDetailRankingMonitor.RAID_UPDATE_FIELDS,
+        )
+
+        self.assertEqual(result, {'created': 1, 'updated': 0, 'deleted': 0, 'unchanged': 0})
+        self.assertEqual(
+            list(SpecRaidRanking.objects.order_by('difficulty').values_list('difficulty', 'report_code')),
+            [(4, 'heroic'), (5, 'mythic')],
+        )
+
     def test_sync_ranking_records_merges_duplicate_named_player_from_wcl_pages(self):
         now = timezone.now()
         duplicate_records = [

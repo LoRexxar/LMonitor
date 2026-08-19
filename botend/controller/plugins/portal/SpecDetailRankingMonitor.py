@@ -64,7 +64,9 @@ class SpecDetailRankingMonitor(SpecDetailBase):
 
         # 团本排名
         if season.raid_encounters:
-            if not self._collect_raid_rankings(season):
+            mythic_ok = self._collect_raid_rankings(season, difficulty=5, difficulty_name='Mythic')
+            heroic_ok = self._collect_raid_rankings(season, difficulty=4, difficulty_name='Heroic')
+            if not mythic_ok or not heroic_ok:
                 ok = False
         else:
             logger.warning("[SpecDetailRanking] 无团本数据")
@@ -251,9 +253,9 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                 return combatant
         return None
 
-    def _collect_raid_rankings(self, season):
-        """采集团本排名（Mythic only），每个 boss 独立事务 + bulk_create"""
-        logger.info(f"[SpecDetailRanking] 采集团本排名: {len(season.raid_encounters)} Boss x {sum(len(v) for v in CLASS_SPEC_MAP.values())} 专精")
+    def _collect_raid_rankings(self, season, difficulty, difficulty_name):
+        """采集一个团本难度；各难度拥有完全隔离的同步范围。"""
+        logger.info(f"[SpecDetailRanking] 采集团本 {difficulty_name} 排名: {len(season.raid_encounters)} Boss x {sum(len(v) for v in CLASS_SPEC_MAP.values())} 专精")
 
         total = 0
         now = timezone.now()
@@ -281,7 +283,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
             for class_name, specs in CLASS_SPEC_MAP.items():
                 for spec_name in specs:
                     rankings = self._fetch_rankings_with_retry(
-                        enc_id, class_name, spec_name, 'dps', difficulty=5
+                        enc_id, class_name, spec_name, 'dps', difficulty=difficulty
                     )
                     if rankings is None:
                         encounter_failed = True
@@ -303,6 +305,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                                 season_id=season.id,
                                 boss_id=enc_id,
                                 boss_name=enc_name,
+                                difficulty=difficulty,
                                 raid_zone_id=zone_info.get('zone_id'),
                                 raid_zone_name=zone_info.get('zone_name', ''),
                                 class_name=class_name,
@@ -339,14 +342,14 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                     with transaction.atomic():
                         result = self._sync_ranking_records(
                             model=SpecRaidRanking,
-                            filters={'season_id': season.id, 'boss_id': enc_id},
+                            filters={'season_id': season.id, 'boss_id': enc_id, 'difficulty': difficulty},
                             records=records,
                             key_fields=self.RAID_KEY_FIELDS,
                             update_fields=self.RAID_UPDATE_FIELDS,
                         )
                     total += len(records)
                     logger.info(
-                        f"[SpecDetailRanking] Boss {enc_id} ({enc_name}): "
+                        f"[SpecDetailRanking] Boss {enc_id} ({enc_name})/{difficulty_name}: "
                         f"新增 {result['created']} / 更新 {result['updated']} / "
                         f"删除 {result['deleted']} / 未变化 {result['unchanged']}"
                     )

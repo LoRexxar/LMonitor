@@ -2258,10 +2258,11 @@ class SpecDungeonRanking(models.Model):
 
 
 class SpecRaidRanking(models.Model):
-    """团本排名原始数据，每条=一个玩家在某 Boss 某专精的一次排名记录，来自 WCL API，Mythic only"""
+    """团本排名原始数据，每条=一个玩家在某 Boss、难度、专精的一次排名记录，来自 WCL API。"""
     season_id = models.IntegerField("赛季ID", help_text="赛季 ID（SeasonMeta.id）")
     boss_id = models.IntegerField("BossID", help_text="WCL encounter ID")
     boss_name = models.CharField("Boss名称", max_length=100, help_text="Boss 名称")
+    difficulty = models.PositiveSmallIntegerField("难度", default=5, help_text="WCL difficulty：4=Heroic，5=Mythic")
     raid_zone_id = models.IntegerField("团本区域ID", null=True, blank=True)
     raid_zone_name = models.CharField("团本区域名称", max_length=100, default='', blank=True)
     class_name = models.CharField("职业", max_length=30, help_text="职业名")
@@ -2296,7 +2297,7 @@ class SpecRaidRanking(models.Model):
         verbose_name = '团本排名'
         verbose_name_plural = '团本排名'
         indexes = [
-            models.Index(fields=['season_id', 'boss_id', 'class_name', 'spec_name'], name='idx_boss_spec'),
+            models.Index(fields=['season_id', 'boss_id', 'difficulty', 'class_name', 'spec_name'], name='idx_boss_diff_spec'),
             models.Index(fields=['class_name', 'spec_name', 'season_id', 'dps'], name='idx_raid_spec_dps'),
         ]
 

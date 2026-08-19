@@ -589,8 +589,8 @@ class SpecStatsService:
             return [{'zone_id': 0, 'zone_name': '', 'zone_cn': '', 'bosses': bosses}]
 
     @staticmethod
-    def get_raid_detail(boss_id, class_name, spec_name, season_id=None):
-        """单 Boss 详情"""
+    def get_raid_detail(boss_id, class_name, spec_name, season_id=None, difficulty=5):
+        """单 Boss 详情；默认只读 Mythic，绝不混合 Heroic。"""
         if not season_id:
             season = SeasonMeta.objects.filter(is_active=True).first()
             if not season:
@@ -599,7 +599,7 @@ class SpecStatsService:
 
         qs = SpecRaidRanking.objects.filter(
             season_id=season_id, boss_id=boss_id,
-            class_name=class_name, spec_name=spec_name
+            class_name=class_name, spec_name=spec_name, difficulty=difficulty
         )
         if not qs.exists():
             return None
@@ -607,7 +607,7 @@ class SpecStatsService:
         boss_name = qs.first().boss_name
         cn_name = RAID_BOSS_CN.get(boss_name, boss_name)
         stats = SpecStatsService._compute_raid_stats(
-            season_id, boss_id, cn_name, class_name, spec_name, full=True
+            season_id, boss_id, cn_name, class_name, spec_name, full=True, difficulty=difficulty
         )
         # Add zone info if available
         zone_rec = qs.first()
@@ -618,11 +618,11 @@ class SpecStatsService:
         return stats
 
     @staticmethod
-    def _compute_raid_stats(season_id, boss_id, boss_name, class_name, spec_name, full=False):
+    def _compute_raid_stats(season_id, boss_id, boss_name, class_name, spec_name, full=False, difficulty=5):
         """从原始数据计算团本统计"""
         qs = SpecRaidRanking.objects.filter(
             season_id=season_id, boss_id=boss_id,
-            class_name=class_name, spec_name=spec_name
+            class_name=class_name, spec_name=spec_name, difficulty=difficulty
         )
 
         stats = {
