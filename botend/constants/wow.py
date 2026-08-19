@@ -284,6 +284,15 @@ DUNGEON_CN = {
     "Seat of the Triumvirate": "执政团之座",
     "Skyreach": "通天峰",
     "Windrunner Spire": "风行者之塔",
+    # 午夜 S2（Wago Map DB2, build 12.1.0.69283）
+    "Altar of Fangs": "毒牙祭坛",
+    "Den of Nalorakk": "纳洛拉克的洞穴",
+    "Kings' Rest": "诸王之眠",
+    "Murder Row": "密谋小径",
+    "Ruby Life Pools": "红玉新生法池",
+    "Temple of Sethraliss": "塞塔里斯神庙",
+    "The Blinding Vale": "夺目谷",
+    "Voidscar Arena": "虚空之痕竞技场",
     # 其他可能复用的副本
     "Mechagon Workshop": "麦卡贡车间",
     "Tazavesh, Veiled Market": "塔扎维什·帷纱集市",
@@ -301,6 +310,8 @@ RAID_ZONE_CN = {
     "Nerub-ar Palace": "尼鲁巴尔王宫",
     "Liberation of Undermine": "安德麦解放战",
     "Manaforge Omega": "法力熔炉：欧米伽",
+    # MN S2（Wago Map / JournalInstance DB2, build 12.1.0.69283）
+    "The Venomous Abyss": "烈毒之渊",
     # MN S1
     "VS / DR / MQD": "虚影尖塔 / 梦境裂隙 / 进攻奎尔丹纳斯",
     "Sporefall": "腐沼幽境",
@@ -344,6 +355,16 @@ RAID_BOSS_CN = {
     "Chimaerus, the Undreamt God": "奇美鲁斯",
     "Belo'ren, Child of Al'ar": "贝洛朗",
     "Midnight Falls": "至暗之夜降临",
+    # MN S2 - The Venomous Abyss（Wago JournalEncounter DB2, build 12.1.0.69283）
+    "Nek'zali the Soulcoiler": "盘魂者内克扎莉",
+    "Entombed Sentinels": "陵寝哨兵",
+    "Vashnik the Malignant": "万毒邪祟者瓦什尼克",
+    "The Lost Explorers": "迷失的探险者",
+    "Sszorak": "斯索拉克",
+    "The Twin Fangs": "双子毒牙",
+    "The Coiled Altar": "盘卷祭坛",
+    "Ula'tek": "乌拉特克",
+    "Nymrissa Wavecaller": "尼姆瑞莎·唤波者",
     # Sporefall (腐沼幽境)
     "Rotmire": "腐沼",
 }
