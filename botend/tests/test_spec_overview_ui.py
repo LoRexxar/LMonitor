@@ -173,7 +173,7 @@ class SpecOverviewIntegrationTests(TestCase):
                 endpoint = self._rendered_endpoints()['players']
                 self.assertEqual(self.client.get(endpoint).json()['players'][0]['character_name'], 'Ranked')
 
-    def test_stats_endpoints_prefer_aggregate_files_and_cache_each_module(self):
+    def test_stats_endpoints_prefer_aggregate_files_and_refresh_after_atomic_projection_replace(self):
         with tempfile.TemporaryDirectory() as media_root:
             season_id = 99
             base = Path(media_root) / 'aggregated' / str(season_id) / 'Mage' / 'Fire'
@@ -204,8 +204,16 @@ class SpecOverviewIntegrationTests(TestCase):
                 players = self.client.get(endpoints['players']).json()
                 mythic = self.client.get(endpoints['mythic-plus']).json()
                 raid = self.client.get(endpoints['raid']).json()
-                os.unlink(base / 'dungeon.json')
-                self.assertEqual(self.client.get(endpoints['mythic-plus']).json(), mythic)
+                replacement = base / 'dungeon.next.json'
+                replacement.write_text(json.dumps({
+                    'dungeons': [{'dungeon_id': 3, 'sample_size': 42}], 'updated_at': 'replacement-time',
+                }), encoding='utf-8')
+                current_mtime = (base / 'dungeon.json').stat().st_mtime_ns
+                os.utime(replacement, ns=(current_mtime + 1, current_mtime + 1))
+                os.replace(replacement, base / 'dungeon.json')
+                self.assertEqual(
+                    self.client.get(endpoints['mythic-plus']).json()['updated_at'], 'replacement-time'
+                )
             live_players.assert_not_called()
             live_dungeons.assert_not_called()
             live_raid.assert_not_called()

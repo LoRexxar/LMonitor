@@ -78,7 +78,14 @@ class SpecOverviewService:
         expected_ids = cls._season_projection_ids(module, season)
         media_root = Path(getattr(settings, 'MEDIA_ROOT', '') or 'media')
         path = media_root / 'aggregated' / str(season.id) / class_name / spec_name / cls.FILES[module]
-        key = f'spec-overview:{module}:{season.id}:{tuple(sorted(expected_ids))}:{class_name}:{spec_name}'
+        try:
+            projection_version = path.stat().st_mtime_ns
+        except OSError:
+            projection_version = 0
+        key = (
+            f'spec-overview:{module}:{season.id}:{tuple(sorted(expected_ids))}:'
+            f'{class_name}:{spec_name}:{projection_version}'
+        )
         cached = cache.get(key)
         if cached is not None:
             return cached
