@@ -4042,7 +4042,15 @@ class MythicPlannerPageContractTests(SimpleTestCase):
         self.assertIn('const displayScale = state.zoom;', portal_js)
         self.assertIn('--map-zoom', portal_js)
         self.assertIn('calc(8px * var(--map-zoom, 1))', planner_css)
-        self.assertIn('calc(9px * var(--map-zoom, 1))', planner_css)
+        view_transform = portal_js[
+            portal_js.index('function renderViewTransform()'):portal_js.index('function setTool(', portal_js.index('function renderViewTransform()'))
+        ]
+        self.assertNotIn('renderSpawns();', view_transform)
+        self.assertNotIn('renderPois();', view_transform)
+        zoom_by = portal_js[
+            portal_js.index('function zoomBy('):portal_js.index('function resetView(', portal_js.index('function zoomBy('))
+        ]
+        self.assertIn('renderScaledMapLayers();', zoom_by)
         self.assertNotIn('data-pull-action="up"', portal_js)
         self.assertNotIn('data-pull-action="down"', portal_js)
         self.assertNotIn('data-pull-action="rename"', portal_js)

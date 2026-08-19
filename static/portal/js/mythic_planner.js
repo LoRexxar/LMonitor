@@ -628,6 +628,10 @@
         }
         renderPatrols();
         renderPullArea();
+        renderScaledMapLayers();
+    }
+
+    function renderScaledMapLayers() {
         renderPois();
         renderSpawns();
         renderAnnotations();
@@ -1161,9 +1165,6 @@
 
     function renderViewTransform() {
         renderMapLayout();
-        renderPois();
-        renderSpawns();
-        renderAnnotations();
         renderPullArea();
         els.mapContent.style.transform = `translate(-50%, -50%) translate(${state.panX}px, ${state.panY}px)`;
         els.zoomOutput.textContent = `${Math.round(state.zoom * 100)}%`;
@@ -1523,14 +1524,19 @@
     }
 
     function zoomBy(delta) {
-        state.zoom = clamp(state.zoom + delta, 0.55, 2.8);
+        const nextZoom = clamp(state.zoom + delta, 0.55, 2.8);
+        if (nextZoom === state.zoom) return;
+        state.zoom = nextZoom;
+        renderScaledMapLayers();
         renderViewTransform();
     }
 
     function resetView() {
+        const zoomChanged = state.zoom !== 1;
         state.zoom = 1;
         state.panX = 0;
         state.panY = 0;
+        if (zoomChanged) renderScaledMapLayers();
         renderViewTransform();
     }
 
