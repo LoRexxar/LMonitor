@@ -11,28 +11,7 @@
 {% block content %}
 <main id="spec-overview" class="spec-overview"
       data-class-name="{{ class_name }}" data-spec-name="{{ spec_name }}">
-    <header class="spec-overview-hero">
-        <div class="spec-overview-identity">
-            <img src="{% wow_icon nav.spec_icon "small" %}" alt="" class="spec-overview-icon" width="56" height="56">
-            <div>
-                <p class="spec-overview-eyebrow">WoW 专精总览</p>
-                <h1>{{ nav.class_cn }} {{ nav.spec_cn }}</h1>
-                <p>人物、大秘境与团本数据按各自数据口径展示；各模块口径独立，不计算综合分。</p>
-            </div>
-        </div>
-        <dl class="spec-overview-season">
-            <dt>当前赛季</dt>
-            <dd>{% if season %}{% firstof season.season_name season.season_key "未配置" %}{% else %}未配置{% endif %}</dd>
-        </dl>
-    </header>
-
-    <nav class="spec-overview-links" aria-label="专精详情入口">
-        <a href="#module-players" aria-current="page">人物榜</a>
-        <a href="#module-mythic-plus">大秘境</a>
-        <a href="#module-raid">团本</a>
-        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/dungeons/">M+ 详细统计</a>
-        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/raid/">团本详细统计</a>
-    </nav>
+    {% include "portal/spec_detail/_overview_identity_and_tabs.html" with active_tab="overview" %}
 
     <p class="spec-overview-methodology">
         真实角色与 M+ 来源为 Raider.IO；团本来源为 Warcraft Logs 聚合。

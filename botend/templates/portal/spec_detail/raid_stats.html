@@ -4,20 +4,13 @@
 
 {% block title %}{{ nav.class_cn }} {{ nav.spec_cn }} - 团本统计{% endblock %}
 
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'portal/css/spec-overview.css' %}?v=20260820">
+{% endblock %}
+
 {% block content %}
 <div class="spec-detail-page">
-    <div class="spec-header">
-        <img src="{% wow_icon nav.spec_icon "small" %}" alt="{{ nav.spec_name }}" class="spec-icon" width="48" height="48">
-        <div class="spec-title">
-            <h1>{{ nav.class_cn }} {{ nav.spec_cn }}</h1>
-        </div>
-    </div>
-
-    <nav class="spec-nav">
-        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/">人物榜</a>
-        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/dungeons/">大秘境</a>
-        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/raid/" class="active">团本统计</a>
-    </nav>
+    {% include "portal/spec_detail/_overview_identity_and_tabs.html" with active_tab="raid" %}
 
     {% if boss_detail %}
     <!-- Boss 详情 -->

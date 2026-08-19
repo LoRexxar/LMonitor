@@ -280,3 +280,17 @@ class SpecOverviewDOMContractTests(TestCase):
         self.assertIn('boss_id', js)
         self.assertNotIn('renderSimc', js)
         self.assertNotIn('simc-benchmarks', js)
+
+    def test_all_spec_stat_pages_share_the_overview_identity_and_tabs(self):
+        template_dir = Path(__file__).resolve().parents[1] / 'templates/portal/spec_detail'
+        expected_tabs = {
+            'player_list.html': 'overview',
+            'dungeon_stats.html': 'dungeons',
+            'raid_stats.html': 'raid',
+        }
+        for template_name, active_tab in expected_tabs.items():
+            with self.subTest(template=template_name):
+                content = (template_dir / template_name).read_text()
+                self.assertIn("portal/spec_detail/_overview_identity_and_tabs.html", content)
+                self.assertIn('spec-overview.css', content)
+                self.assertIn(f'active_tab="{active_tab}"', content)
