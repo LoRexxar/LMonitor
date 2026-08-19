@@ -912,7 +912,7 @@ function renderPeakSpecGrid(containerId, payload) {
     const className = spec?.class_name || classSlug;
     const specName = spec?.spec_name || spec?.spec_slug || "";
     const specSlug = spec?.spec_slug || "";
-    const aggregateHref = `/portal/spec/${encodeURIComponent(classSlug)}/${encodeURIComponent(specSlug)}/dungeons/`;
+    const aggregateHref = sanitizeHref(spec?.aggregate_url || "");
     const top = Array.isArray(spec?.items) ? spec.items : [];
 
     const titleColor = classColor(classSlug);

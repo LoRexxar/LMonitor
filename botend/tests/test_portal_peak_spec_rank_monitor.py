@@ -3,9 +3,21 @@ from unittest.mock import Mock, patch
 from django.test import SimpleTestCase
 
 from botend.controller.plugins.portal.PortalPeakSpecRankMonitor import PortalPeakSpecRankMonitor
+from botend.constants.wow import canonical_class_spec
 
 
 class PortalPeakSpecRankMonitorSeasonTests(SimpleTestCase):
+    def test_all_peak_rank_source_slugs_resolve_to_canonical_spec_identities(self):
+        monitor = PortalPeakSpecRankMonitor(Mock(), Mock())
+
+        unresolved = [
+            (item['class_slug'], item['spec_slug'])
+            for item in monitor._spec_list()
+            if canonical_class_spec(item['class_slug'], item['spec_slug']) is None
+        ]
+
+        self.assertEqual(unresolved, [])
+
     @patch('botend.controller.plugins.portal.PortalPeakSpecRankMonitor.SeasonMeta.objects.filter')
     def test_resolve_season_uses_active_season_metadata_rio_season(self, season_filter):
         season_filter.return_value.first.return_value = Mock(rio_season='season-mn-2')

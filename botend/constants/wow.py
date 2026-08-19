@@ -21,6 +21,27 @@ CLASS_SPEC_MAP = {
 }
 
 # Blizzard 职业颜色；Dashboard 的职业视觉标识统一从这里读取。
+def canonical_class_spec(class_value, spec_value):
+    """将外部职业/专精名称或 slug 归一为本站 canonical identity。
+
+    外部来源允许使用空格、连字符、下划线及任意大小写；返回值始终来自
+    CLASS_SPEC_MAP，无法确认时返回 ``None``，调用者不得臆造内部路由。
+    """
+    def _compact(value):
+        return ''.join(ch for ch in str(value or '').lower() if ch.isalnum())
+
+    class_key = _compact(class_value)
+    spec_key = _compact(spec_value)
+    for class_name, specs in CLASS_SPEC_MAP.items():
+        if _compact(class_name) != class_key:
+            continue
+        for spec_name in specs:
+            if _compact(spec_name) == spec_key:
+                return class_name, spec_name
+    return None
+
+
+# Blizzard 职业颜色；Dashboard 的职业视觉标识统一从这里读取。
 CLASS_COLOR = {
     "DeathKnight": "#C41F3B",
     "DemonHunter": "#A330C9",

@@ -13,6 +13,7 @@ from botend.models import PortalEvent, PortalMplusRun, PortalMplusSeasonCutoff, 
 from botend.services.article_content_service import loads_blocks
 from botend.controller.plugins.wow.wago_regions import wago_region_name
 from botend.wow_i18n import cn_dungeon_from_slug
+from botend.constants.wow import canonical_class_spec
 from botend.portal.mythicstats import (
     fetch_current_season_slug,
     fetch_mythicstats_dps,
@@ -266,16 +267,20 @@ def _mplus_to_dict(r):
 
 
 def _peak_row_to_dict(r):
-    profile = (getattr(r, "character_path", "") or "").strip()
-    profile_url = ""
-    if profile:
-        profile_url = "https://raider.io" + (profile if profile.startswith("/") else f"/{profile}")
+    identity = canonical_class_spec(
+        getattr(r, "class_slug", ""),
+        getattr(r, "spec_slug", ""),
+    )
+    aggregate_url = ""
+    if identity:
+        class_name, spec_name = identity
+        aggregate_url = f"/portal/spec/{class_name}/{spec_name}/dungeons/"
     return {
         "rank": int(getattr(r, "rank", 0) or 0),
         "name": (getattr(r, "character_name", "") or "").strip(),
         "score": getattr(r, "score", None),
         "score_color": (getattr(r, "score_color", "") or "").strip(),
-        "profile_url": profile_url,
+        "aggregate_url": aggregate_url,
         "realm_name": (getattr(r, "realm_name", "") or "").strip(),
         "rio_region_slug": (getattr(r, "rio_region_slug", "") or "").strip(),
     }
@@ -836,12 +841,20 @@ class PortalPeakSpecRankingsAPIView(View):
         groups = {}
         for r in rows:
             key = ((getattr(r, "class_slug", "") or "").strip(), (getattr(r, "spec_slug", "") or "").strip())
+            identity = canonical_class_spec(*key)
+            aggregate_url = ""
+            canonical_class_name = (getattr(r, "class_name", "") or "").strip()
+            canonical_spec_name = (getattr(r, "spec_name", "") or "").strip()
+            if identity:
+                canonical_class_name, canonical_spec_name = identity
+                aggregate_url = f"/portal/spec/{canonical_class_name}/{canonical_spec_name}/dungeons/"
             if key not in groups:
                 groups[key] = {
                     "class_slug": key[0],
-                    "class_name": (getattr(r, "class_name", "") or "").strip(),
+                    "class_name": canonical_class_name,
                     "spec_slug": key[1],
-                    "spec_name": (getattr(r, "spec_name", "") or "").strip(),
+                    "spec_name": canonical_spec_name,
+                    "aggregate_url": aggregate_url,
                     "spec_role": (getattr(r, "spec_role", "") or "").strip(),
                     "items": [],
                     "updated_at": _fmt_dt(getattr(r, "updated_at", None)),
