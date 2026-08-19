@@ -338,14 +338,20 @@
 
         <div class="section-block talent-build-section">
             <h4>天赋字符串使用率</h4>
-            <div class="popularity-section-note">按当前样本的原始天赋导入字符串聚合；最多人使用的字符串作为模板，其他字符串展示与模板相比多选/少选的天赋。</div>
-            {% if dungeon_detail.talent_build_popularity.builds %}
+            <div class="popularity-section-note">按当前样本的原始天赋导入字符串聚合；每个英雄天赋树独立选取使用人数最多的基准字符串，并仅展示该英雄天赋树内的多选/少选差异。</div>
+            {% if dungeon_detail.talent_build_popularity.hero_groups %}
             <div class="talent-build-summary">
                 <span>有效样本：<strong>{{ dungeon_detail.talent_build_popularity.total }}</strong> 人</span>
-                <span>模板使用：<strong>{{ dungeon_detail.talent_build_popularity.template_count }}</strong> 人</span>
+                <span>英雄天赋分组：<strong>{{ dungeon_detail.talent_build_popularity.hero_groups|length }}</strong> 个</span>
             </div>
-            <div class="talent-build-list">
-                {% for build in dungeon_detail.talent_build_popularity.builds %}
+            {% for hero_group in dungeon_detail.talent_build_popularity.hero_groups %}
+            <div class="talent-build-hero-group">
+                <div class="talent-build-hero-group-head">
+                    <strong>{{ hero_group.hero_talent_name }}</strong>
+                    <span>有效样本 {{ hero_group.total }} 人 · 基准使用 {{ hero_group.template_count }} 人</span>
+                </div>
+                <div class="talent-build-list">
+                {% for build in hero_group.builds %}
                 <div class="talent-build-card{% if build.is_template %} is-template{% endif %}">
                     <div class="talent-build-head">
                         <div class="talent-build-rank">#{{ build.rank }}</div>
@@ -407,7 +413,9 @@
                     {% endif %}
                 </div>
                 {% endfor %}
+                </div>
             </div>
+            {% endfor %}
             {% else %}
             <div class="aggregation-pending">⏳ 数据等待聚合</div>
             {% endif %}
@@ -1328,6 +1336,22 @@
     font-weight: 700;
 }
 .talent-build-summary strong { color: #1d4ed8; }
+.talent-build-hero-group {
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid #e2e8f0;
+}
+.talent-build-hero-group-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+    color: #1e3a8a;
+}
+.talent-build-hero-group-head strong { font-size: 1rem; }
+.talent-build-hero-group-head span { color: #64748b; font-size: .85em; }
 .talent-build-list {
     display: grid;
     gap: 12px;

@@ -1291,16 +1291,33 @@ def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
             'total': 0,
             'template_code': '',
             'template_count': 0,
+            'hero_groups': [],
             'builds': [],
         }
 
-    ordered = sorted(build_counter.items(), key=lambda item: (-item[1], first_seen_order.get(item[0], 0)))[:top_n]
-    template_code, template_count = ordered[0]
-    template_state = build_states.get(template_code) or {'keys': set(), 'nodes': {}}
-    template_keys = template_state.get('keys') or set()
-    template_nodes = template_state.get('nodes') or {}
+    def _hero_group(state):
+        heroes = state.get('hero_talent_summary') or []
+        if not heroes:
+            return ('unknown',), '未解析英雄天赋'
+        return (
+            tuple(hero.get('subtree_id') or hero.get('name') or 'unknown' for hero in heroes),
+            ' · '.join(hero.get('name') or '未解析英雄天赋' for hero in heroes),
+        )
 
-    def _node_payload(node_map, node_key, build_code_for_players):
+    grouped_codes = {}
+    for build_code, count in build_counter.items():
+        state = build_states.get(build_code) or {}
+        group_key, hero_talent_name = _hero_group(state)
+        group = grouped_codes.setdefault(group_key, {
+            'hero_talent_name': hero_talent_name,
+            'hero_talent_summary': state.get('hero_talent_summary') or [],
+            'codes': [],
+            'first_seen_order': first_seen_order.get(build_code, 0),
+        })
+        group['codes'].append((build_code, count))
+        group['first_seen_order'] = min(group['first_seen_order'], first_seen_order.get(build_code, 0))
+
+    def _node_payload(node_map, node_key, build_code_for_players, template_nodes):
         payload = dict(node_map.get(node_key) or template_nodes.get(node_key) or {'node_key': node_key, 'name': node_key, 'icon': ''})
         players = list((build_players_by_key.get(build_code_for_players, {}).get(node_key) or {}).values())
         top_players = sorted(
@@ -1314,39 +1331,61 @@ def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
         ]
         return payload
 
-    builds = []
-    for index, (build_code, count) in enumerate(ordered, start=1):
-        state = build_states.get(build_code) or {'keys': set(), 'nodes': {}}
-        keys = state.get('keys') or set()
-        nodes = state.get('nodes') or {}
-        build_top_players = sorted(
-            (build_players.get(build_code) or {}).values(),
-            key=lambda player: (player.get('sort_score') or 0, player.get('dps') or 0),
-            reverse=True,
-        )[:5]
-        added_keys = sorted(keys - template_keys, key=lambda key: (nodes.get(key, {}).get('tree_type', ''), nodes.get(key, {}).get('name', key)))
-        missing_keys = sorted(template_keys - keys, key=lambda key: (template_nodes.get(key, {}).get('tree_type', ''), template_nodes.get(key, {}).get('name', key)))
-        builds.append({
-            'rank': index,
-            'code': build_code,
-            'count': count,
-            'pct': round(count / total * 100, 1) if total else 0,
-            'is_template': build_code == template_code,
-            'top_players': [
-                {key: value for key, value in player.items() if key not in {'player_key', 'sort_score'}}
-                for player in build_top_players
-            ],
-            'hero_talent_summary': state.get('hero_talent_summary') or [],
-            'diff_count': len(added_keys) + len(missing_keys),
-            'added_talents': [_node_payload(nodes, key, build_code) for key in added_keys],
-            'missing_talents': [_node_payload(template_nodes, key, template_code) for key in missing_keys],
+    hero_groups = []
+    for group in sorted(grouped_codes.values(), key=lambda item: item['first_seen_order']):
+        ordered = sorted(
+            group['codes'],
+            key=lambda item: (-item[1], first_seen_order.get(item[0], 0)),
+        )[:top_n]
+        template_code, template_count = ordered[0]
+        template_state = build_states.get(template_code) or {'keys': set(), 'nodes': {}}
+        template_keys = template_state.get('keys') or set()
+        template_nodes = template_state.get('nodes') or {}
+        group_total = sum(count for _, count in group['codes'])
+        builds = []
+        for index, (build_code, count) in enumerate(ordered, start=1):
+            state = build_states.get(build_code) or {'keys': set(), 'nodes': {}}
+            keys = state.get('keys') or set()
+            nodes = state.get('nodes') or {}
+            build_top_players = sorted(
+                (build_players.get(build_code) or {}).values(),
+                key=lambda player: (player.get('sort_score') or 0, player.get('dps') or 0),
+                reverse=True,
+            )[:5]
+            added_keys = sorted(keys - template_keys, key=lambda key: (nodes.get(key, {}).get('tree_type', ''), nodes.get(key, {}).get('name', key)))
+            missing_keys = sorted(template_keys - keys, key=lambda key: (template_nodes.get(key, {}).get('tree_type', ''), template_nodes.get(key, {}).get('name', key)))
+            builds.append({
+                'rank': index,
+                'code': build_code,
+                'count': count,
+                'pct': round(count / group_total * 100, 1) if group_total else 0,
+                'is_template': build_code == template_code,
+                'top_players': [
+                    {key: value for key, value in player.items() if key not in {'player_key', 'sort_score'}}
+                    for player in build_top_players
+                ],
+                'hero_talent_summary': state.get('hero_talent_summary') or [],
+                'diff_count': len(added_keys) + len(missing_keys),
+                'added_talents': [_node_payload(nodes, key, build_code, template_nodes) for key in added_keys],
+                'missing_talents': [_node_payload(template_nodes, key, template_code, template_nodes) for key in missing_keys],
+            })
+        hero_groups.append({
+            'hero_talent_name': group['hero_talent_name'],
+            'hero_talent_summary': group['hero_talent_summary'],
+            'total': group_total,
+            'template_code': template_code,
+            'template_count': template_count,
+            'builds': builds,
         })
 
+    first_group = hero_groups[0]
     return {
         'total': total,
-        'template_code': template_code,
-        'template_count': template_count,
-        'builds': builds,
+        'template_code': first_group['template_code'],
+        'template_count': first_group['template_count'],
+        'hero_groups': hero_groups,
+        # 保留扁平投影，兼容仍消费旧字段的调用方；页面应使用 hero_groups 独立比较。
+        'builds': [build for group in hero_groups for build in group['builds']],
     }
 
 

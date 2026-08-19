@@ -3166,6 +3166,47 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
 
     @patch('botend.services.spec_stats_service.WowTalentNodeMetadata.objects.filter')
     @patch('botend.services.spec_stats_service.TalentMetadataProvider')
+    def test_talent_build_popularity_uses_a_separate_template_for_each_hero_tree(self, mock_provider_cls, mock_anchor_filter):
+        mock_provider_cls.return_value.merge_into_node.side_effect = (
+            lambda node, class_name='', spec_name='': node
+        )
+        mock_anchor_filter.return_value.exclude.return_value.values.return_value = [
+            {'db2_subtree_id': 11, 'name': 'Colossus', 'name_zh': '山丘之王'},
+            {'db2_subtree_id': 12, 'name': 'Slayer', 'name_zh': '屠戮者'},
+        ]
+        records = [
+            {'talent_build_code': 'HILL_BASE', 'talents_json': [
+                {'node_id': 1, 'spell_id': 101, 'name': '共同天赋', 'tree_type': 'spec', 'points': 1},
+                {'node_id': 11, 'spell_id': 201, 'name': '山丘英雄天赋', 'tree_type': 'hero', 'db2_subtree_id': 11, 'points': 1},
+            ]},
+            {'talent_build_code': 'HILL_BASE', 'talents_json': [
+                {'node_id': 1, 'spell_id': 101, 'name': '共同天赋', 'tree_type': 'spec', 'points': 1},
+                {'node_id': 11, 'spell_id': 201, 'name': '山丘英雄天赋', 'tree_type': 'hero', 'db2_subtree_id': 11, 'points': 1},
+            ]},
+            {'talent_build_code': 'HILL_VARIANT', 'talents_json': [
+                {'node_id': 2, 'spell_id': 102, 'name': '山丘变体', 'tree_type': 'spec', 'points': 1},
+                {'node_id': 11, 'spell_id': 201, 'name': '山丘英雄天赋', 'tree_type': 'hero', 'db2_subtree_id': 11, 'points': 1},
+            ]},
+            {'talent_build_code': 'SLAYER_BASE', 'talents_json': [
+                {'node_id': 3, 'spell_id': 103, 'name': '屠戮基准', 'tree_type': 'spec', 'points': 1},
+                {'node_id': 12, 'spell_id': 202, 'name': '屠戮英雄天赋', 'tree_type': 'hero', 'db2_subtree_id': 12, 'points': 1},
+            ]},
+        ]
+
+        result = _compute_talent_build_popularity(records, 'Warrior', 'Fury', top_n=10)
+
+        groups = {group['hero_talent_name']: group for group in result['hero_groups']}
+        self.assertEqual(groups['山丘之王']['total'], 3)
+        self.assertEqual(groups['山丘之王']['template_code'], 'HILL_BASE')
+        self.assertEqual([build['code'] for build in groups['山丘之王']['builds']], ['HILL_BASE', 'HILL_VARIANT'])
+        self.assertEqual(groups['山丘之王']['builds'][1]['pct'], 33.3)
+        self.assertEqual(groups['山丘之王']['builds'][1]['diff_count'], 2)
+        self.assertEqual(groups['屠戮者']['total'], 1)
+        self.assertEqual(groups['屠戮者']['template_code'], 'SLAYER_BASE')
+        self.assertEqual(groups['屠戮者']['builds'][0]['diff_count'], 0)
+
+    @patch('botend.services.spec_stats_service.WowTalentNodeMetadata.objects.filter')
+    @patch('botend.services.spec_stats_service.TalentMetadataProvider')
     def test_talent_build_popularity_summarizes_hero_choice_without_diff(self, mock_provider_cls, mock_anchor_filter):
         mock_provider_cls.return_value.merge_into_node.side_effect = (
             lambda node, class_name='', spec_name='': node
@@ -4132,7 +4173,12 @@ class SpecStatsTalentBuildDiffTooltipTemplateTests(SimpleTestCase):
             'total': 3,
             'template_code': 'CODE_A',
             'template_count': 2,
-            'builds': [
+            'hero_groups': [
+                {
+                    'hero_talent_name': '山丘之王',
+                    'total': 3,
+                    'template_count': 2,
+                    'builds': [
                 {
                     'rank': 1,
                     'code': 'CODE_B',
@@ -4158,6 +4204,8 @@ class SpecStatsTalentBuildDiffTooltipTemplateTests(SimpleTestCase):
                             'icon': '',
                             'top_players': [{'name': 'TemplateTwo', 'realm': 'RealmA', 'dps_fmt': '2,000'}],
                         },
+                    ],
+                    },
                     ],
                 },
             ],
