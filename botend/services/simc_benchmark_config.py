@@ -1349,6 +1349,7 @@ def duplicate_panel_config(panel, user_id):
         for profile in spec['profiles']:
             profile.pop('id', None)
             profile.pop('profile_name', None)
+            profile.pop('talent_string_name', None)
             apl = profile.pop('apl', None)
             if apl and not apl.get('inherited'):
                 profile['apl_id'] = apl['id']

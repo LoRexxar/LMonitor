@@ -12,7 +12,7 @@ from botend.models import (
     DashboardUserGroupMembership,
     SimcApl, SimcBackendBinary, SimcBenchmarkCase, SimcBenchmarkExecution,
     SimcBenchmarkPanel, SimcBenchmarkResult, SimcContentTemplate, SimcProfile, SimcTask,
-    SimcTaskArtifact, SimulationRun,
+    SimcTaskArtifact, SimcTalentString, SimulationRun,
 )
 from botend.services.simc_benchmark_config import build_execution_plan
 from botend.services.simc_benchmark_execution import BenchmarkExecutionConflict
@@ -141,6 +141,10 @@ class SimcBenchmarkDashboardApiTests(TestCase):
             'schedule_enabled': True,
             'next_run_at': timezone.now().isoformat(),
         })
+        payload['specs'][0]['profiles'][0]['talent_string_id'] = SimcTalentString.objects.create(
+            name='Fury talents', spec='warrior_fury', talent='Cabc',
+            owner_user_id=self.staff.id, is_active=True, is_selectable=True,
+        ).id
         payload['scenarios'][0]['simulation_params'] = {
             'iterations': 2000,
             'desired_targets': 2,
