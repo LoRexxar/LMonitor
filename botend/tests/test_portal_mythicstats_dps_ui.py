@@ -19,8 +19,9 @@ class PortalMythicstatsDpsUiContractsTests(SimpleTestCase):
         self.assertNotIn('mythicstatsHexToRgba(color, 0.92)', source)
 
         css = (Path(__file__).resolve().parents[2] / 'static/portal/css/portal.css').read_text(encoding='utf-8')
-        self.assertIn('.mythicstats-panel-dark', css)
-        self.assertIn('background: #111827 !important;', css)
+        self.assertIn('.mythicstats-panel-contrast', css)
+        self.assertIn('background: #e4ded5 !important;', css)
+        self.assertNotIn('background: #111827 !important;', css)
         self.assertIn('.mythicstats-row:hover', css)
 
     def test_landing_page_cache_busts_portal_stylesheet(self):

@@ -1365,7 +1365,7 @@ function renderMythicstatsTable(role, items) {
     </div>`;
 
     const specAccentBg = mythicstatsHexToRgba(mutedColor, isPriest ? 0.2 : 0.16);
-    const specCell = `<div class="relative overflow-hidden rounded-md px-2 py-1" style="background:linear-gradient(90deg, ${specAccentBg} 0%, rgba(15,23,42,0) 72%);">
+    const specCell = `<div class="relative overflow-hidden rounded-md px-2 py-1" style="background:linear-gradient(90deg, ${specAccentBg} 0%, rgba(255,254,251,0) 72%);">
       <div class="absolute left-0 top-0 bottom-0 w-1" style="background:${escapeHtml(mutedColor)}"></div>
       <div class="relative">
         <a class="font-semibold truncate mythicstats-spec-link block" href="${url}" target="_blank" rel="noreferrer">${name}</a>
