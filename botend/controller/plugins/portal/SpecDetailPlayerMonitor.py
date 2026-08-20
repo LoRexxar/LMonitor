@@ -70,7 +70,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
                 with transaction.atomic():
                     existing_qs = PlayerSpecTopPlayer.objects.filter(
-                        season_id=season.id, spec_name=spec_name
+                        season_id=season.id, class_name=class_name, spec_name=spec_name
                     )
                     existing_map = {
                         self._profile_identity_key(row.region, row.realm, row.character_name): row
@@ -212,6 +212,126 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
         all_players.sort(key=lambda p: p.get('score', 0) or 0, reverse=True)
         return all_players[:self.PLAYER_RANKING_LIMIT]
+
+    def preload_peak_rankings(self, *, rio_season, class_name, spec_name, rankings):
+        """消费高频巅峰榜：原子应用排名快照，只初始化待初始化占位。"""
+        season = SeasonMeta.objects.filter(is_active=True, rio_season=rio_season).first()
+        if not season:
+            logger.warning(f"[SpecDetailPlayer] 预载跳过，无匹配赛季: {rio_season}")
+            return {'new': 0, 'updated': 0, 'departed': 0}
+
+        pending_profile_ids = set()
+        initialized = 0
+        updated = 0
+        departed = 0
+        with transaction.atomic():
+            existing_rows = list(PlayerSpecTopPlayer.objects.select_for_update().filter(
+                season_id=season.id,
+                class_name=class_name,
+                spec_name=spec_name,
+            ))
+            existing_map = {
+                self._profile_identity_key(row.region, row.realm, row.character_name): row
+                for row in existing_rows
+            }
+            existing_map.pop(None, None)
+
+            current_keys = set()
+            for index, ranking in enumerate((rankings or [])[:self.PLAYER_RANKING_LIMIT]):
+                player = self._build_player_from_ranking(class_name, spec_name, ranking)
+                if not player:
+                    continue
+                key = self._profile_identity_key(player.get('region'), player.get('realm'), player.get('name'))
+                if not key or key in current_keys:
+                    continue
+                current_keys.add(key)
+                rank = index + 1
+                profile = existing_map.get(key)
+                if profile:
+                    updated += int(self._save_changed_profile(profile, {
+                        'rank': rank,
+                        'score': player.get('score'),
+                    }))
+                else:
+                    profile, created = PlayerSpecTopPlayer.objects.get_or_create(
+                        season_id=season.id,
+                        region=(player.get('region') or '').strip().lower(),
+                        realm=(player.get('realm') or '').strip(),
+                        character_name=(player.get('name') or '').strip(),
+                        spec_name=spec_name,
+                        defaults={
+                            'class_name': class_name,
+                            'rank': rank,
+                            'score': player.get('score'),
+                            'faction': player.get('faction'),
+                            'race': player.get('race'),
+                            'gender': player.get('gender'),
+                            'guild_name': player.get('guild_name'),
+                            'realm_rank': player.get('realm_rank'),
+                            'avatar_url': player.get('avatar_url'),
+                            'profile_url': player.get('profile_url'),
+                            'achievement_points': player.get('achievement_points'),
+                            'item_level': player.get('item_level'),
+                            'stats_crawl_status': 0,
+                            'last_updated': None,
+                        },
+                    )
+                    if created:
+                        initialized += 1
+                    else:
+                        light_updates = {
+                            'rank': rank,
+                            'score': player.get('score'),
+                        }
+                        # 数据库唯一键不含职业；只修正 canonical 身份，不覆盖人物内容。
+                        if profile.class_name != class_name:
+                            light_updates['class_name'] = class_name
+                        updated += int(self._save_changed_profile(profile, light_updates))
+
+                # last_updated=None 是专用于新玩家初始化失败重试的占位状态。
+                if profile.last_updated is None:
+                    pending_profile_ids.add(profile.id)
+
+            for key, profile in existing_map.items():
+                if key in current_keys or profile.rank is None:
+                    continue
+                profile.rank = None
+                profile.save(update_fields=['rank'])
+                departed += 1
+
+        initialization_success = 0
+        for profile in PlayerSpecTopPlayer.objects.filter(id__in=pending_profile_ids):
+            try:
+                if not self._enrich_profile_model_from_raiderio(profile):
+                    continue
+                profile.save(update_fields=[
+                    'faction', 'race', 'avatar_url', 'profile_url', 'achievement_points',
+                    'item_level', 'gear_json', 'talents_json', 'talent_build_code',
+                ])
+                stats_initialized = self._crawl_battlenet_stats_for_profile(profile)
+                if not stats_initialized and profile.stats_crawl_status != -2 and (profile.region or '').lower() != 'cn':
+                    # 临时属性初始化失败时保留占位状态，下一个10分钟周期继续补齐。
+                    continue
+                profile.last_updated = timezone.now()
+                profile.save(update_fields=['last_updated'])
+                initialization_success += 1
+            except Exception as exc:
+                logger.warning(
+                    f"[SpecDetailPlayer] 新入榜人物初始化失败 "
+                    f"{class_name}/{spec_name}/{profile.character_name}: {exc}"
+                )
+
+        logger.info(
+            f"[SpecDetailPlayer] 巅峰榜预载 {class_name}/{spec_name}: "
+            f"new={initialized}, initialized={initialization_success}, "
+            f"updated={updated}, departed={departed}"
+        )
+        return {
+            'new': initialized,
+            'initialized': initialization_success,
+            'updated': updated,
+            'departed': departed,
+        }
 
     def _backfill_ranking_sample_profiles(self, season_id, class_name, spec_name, limit=100):
         """按当前 ranking 样本定向补齐人物资料缓存，避免盲目扩大人物榜采集。"""
@@ -866,6 +986,27 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             time.sleep(0.1)
 
         logger.info(f"[SpecDetailPlayer] Battle.net 属性补充: 成功 {success}, 失败 {fail}")
+
+    def _crawl_battlenet_stats_for_profile(self, player):
+        """只初始化一个新入榜人物，绝不顺带刷新旧人物内容。"""
+        if (player.region or '').lower() == 'cn':
+            return False
+        if not self._get_battlenet_token():
+            player.stats_crawl_status = -2
+            player.save(update_fields=['stats_crawl_status'])
+            return False
+
+        data = self.fetch_battlenet_stats(player.realm, player.character_name, player.region)
+        stats = self.parse_battlenet_stats(data) if data else None
+        if stats:
+            player.stats_json = stats
+            player.stats_crawl_status = 1
+            player.save(update_fields=['stats_json', 'stats_crawl_status'])
+            return True
+
+        player.stats_crawl_status = -1
+        player.save(update_fields=['stats_crawl_status'])
+        return False
 
     @staticmethod
     def _normalize_icon_name(icon_name):

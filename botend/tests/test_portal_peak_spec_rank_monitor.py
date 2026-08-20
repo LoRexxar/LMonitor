@@ -1,12 +1,14 @@
 from unittest.mock import Mock, patch
 
-from django.test import SimpleTestCase
+from django.test import TestCase
+from django.utils import timezone
 
 from botend.controller.plugins.portal.PortalPeakSpecRankMonitor import PortalPeakSpecRankMonitor
 from botend.constants.wow import canonical_class_spec
+from botend.models import PlayerSpecTopPlayer, SeasonMeta
 
 
-class PortalPeakSpecRankMonitorSeasonTests(SimpleTestCase):
+class PortalPeakSpecRankMonitorSeasonTests(TestCase):
     def test_all_peak_rank_source_slugs_resolve_to_canonical_spec_identities(self):
         monitor = PortalPeakSpecRankMonitor(Mock(), Mock())
 
@@ -55,6 +57,28 @@ class PortalPeakSpecRankMonitorSeasonTests(SimpleTestCase):
         self.assertFalse(ok)
         objects.filter.assert_not_called()
 
+    def test_duplicate_top_twenty_identity_is_failure_and_preserves_snapshot(self):
+        monitor = PortalPeakSpecRankMonitor(Mock(), Mock())
+        duplicate = {
+            'score': 3000,
+            'character': {
+                'name': 'Duplicate',
+                'realm': {'name': 'Test', 'slug': 'test'},
+                'region': {'slug': 'us'},
+            },
+        }
+        response = Mock(status_code=200)
+        response.json.return_value = {'rankings': {'rankedCharacters': [duplicate] * 20}}
+
+        with patch('botend.controller.plugins.portal.PortalPeakSpecRankMonitor.requests.get', return_value=response), \
+                patch.object(monitor, '_persist_rank_snapshot') as persist:
+            ok = monitor._fetch_and_upsert(
+                season='season-mn-1', region='world', class_slug='mage', spec_slug='arcane'
+            )
+
+        self.assertFalse(ok)
+        persist.assert_not_called()
+
     def test_fetch_and_upsert_persists_raiderio_top_twenty(self):
         monitor = PortalPeakSpecRankMonitor(Mock(), Mock())
         rankings = [
@@ -77,7 +101,8 @@ class PortalPeakSpecRankMonitorSeasonTests(SimpleTestCase):
         response.json.return_value = {'rankings': {'rankedCharacters': rankings}}
 
         with patch('botend.controller.plugins.portal.PortalPeakSpecRankMonitor.requests.get', return_value=response), \
-                patch('botend.controller.plugins.portal.PortalPeakSpecRankMonitor.PortalPeakSpecRankRow.objects') as objects:
+                patch('botend.controller.plugins.portal.PortalPeakSpecRankMonitor.PortalPeakSpecRankRow.objects') as objects, \
+                patch('botend.controller.plugins.portal.SpecDetailPlayerMonitor.SpecDetailPlayerMonitor.preload_peak_rankings'):
             ok = monitor._fetch_and_upsert(
                 season='season-mn-2', region='world', class_slug='mage', spec_slug='arcane'
             )
@@ -88,3 +113,97 @@ class PortalPeakSpecRankMonitorSeasonTests(SimpleTestCase):
             [call.kwargs['rank'] for call in objects.update_or_create.call_args_list],
             list(range(1, 21)),
         )
+
+
+class PortalPeakSpecRankPreloadTests(TestCase):
+    def test_peak_refresh_initializes_only_new_players_and_lightly_updates_existing_players(self):
+        season = SeasonMeta.objects.create(
+            season_key='mn-s2', season_name='MN S2', rio_season='season-mn-2',
+            mplus_zone_id=1, raid_zone_id=1,
+        )
+        existing = PlayerSpecTopPlayer.objects.create(
+            season_id=season.id, region='us', realm='test', character_name='Existing',
+            class_name='Mage', spec_name='Arcane', rank=9, score=2900,
+            gear_json=[{'id': 123, 'name': '保留的旧装备'}],
+            talent_build_code='OLD-TALENT', stats_json={'critical_strike': 42},
+            stats_crawl_status=1, last_updated=timezone.now(),
+        )
+        existing_content_updated_at = existing.last_updated
+        misclassified = PlayerSpecTopPlayer.objects.create(
+            season_id=season.id, region='us', realm='Test', character_name='NewPlayer2',
+            class_name='Warlock', spec_name='Arcane', rank=5, score=2500,
+            gear_json=[{'id': 789, 'name': '错误职业记录的旧装备'}],
+            talent_build_code='MISCLASSIFIED-TALENT', stats_crawl_status=1,
+            last_updated=timezone.now(),
+        )
+        rankings = [
+            {
+                'score': 4000 - index,
+                'scoreColor': '#ffffff',
+                'character': {
+                    'name': 'Existing' if index == 0 else f'NewPlayer{index}',
+                    'path': f"/characters/us/test/{'Existing' if index == 0 else f'NewPlayer{index}'}",
+                    'class': {'name': 'Mage'},
+                    'spec': {'name': 'Arcane', 'role': 'dps'},
+                    'realm': {'slug': 'test', 'name': 'Test'},
+                    'region': {'slug': 'us'},
+                },
+            }
+            for index in range(20)
+        ]
+        response = Mock(status_code=200)
+        response.json.return_value = {'rankings': {'rankedCharacters': rankings}}
+        monitor = PortalPeakSpecRankMonitor(Mock(), Mock())
+
+        attempts = {}
+        stats_attempts = {}
+
+        def initialize_new_player(profile):
+            attempts[profile.character_name] = attempts.get(profile.character_name, 0) + 1
+            profile.gear_json = [{'id': 456, 'name': '新玩家初始化装备', 'slot': 'head'}]
+            profile.talent_build_code = 'NEW-TALENT'
+            return True
+
+        def initialize_new_player_stats(profile):
+            stats_attempts[profile.character_name] = stats_attempts.get(profile.character_name, 0) + 1
+            if profile.character_name == 'NewPlayer1' and stats_attempts[profile.character_name] == 1:
+                profile.stats_crawl_status = -1
+                profile.save(update_fields=['stats_crawl_status'])
+                return False
+            profile.stats_crawl_status = 1
+            profile.save(update_fields=['stats_crawl_status'])
+            return True
+
+        with patch('botend.controller.plugins.portal.PortalPeakSpecRankMonitor.requests.get', return_value=response), \
+                patch('botend.controller.plugins.portal.SpecDetailPlayerMonitor.SpecDetailPlayerMonitor._enrich_profile_model_from_raiderio', side_effect=initialize_new_player) as enrich, \
+                patch('botend.controller.plugins.portal.SpecDetailPlayerMonitor.SpecDetailPlayerMonitor._crawl_battlenet_stats_for_profile', side_effect=initialize_new_player_stats) as crawl_stats:
+            self.assertTrue(monitor._fetch_and_upsert(
+                season='season-mn-2', region='world', class_slug='mage', spec_slug='arcane'
+            ))
+            # 初始化失败的占位人物应在下一次轻量榜单刷新中继续初始化。
+            self.assertTrue(monitor._fetch_and_upsert(
+                season='season-mn-2', region='world', class_slug='mage', spec_slug='arcane'
+            ))
+
+        existing.refresh_from_db()
+        self.assertEqual((existing.rank, existing.score), (1, 4000))
+        self.assertEqual(existing.gear_json, [{'id': 123, 'name': '保留的旧装备'}])
+        self.assertEqual(existing.talent_build_code, 'OLD-TALENT')
+        self.assertEqual(existing.stats_json, {'critical_strike': 42})
+        self.assertEqual(existing.last_updated, existing_content_updated_at)
+        misclassified.refresh_from_db()
+        self.assertEqual((misclassified.class_name, misclassified.rank, misclassified.score), ('Mage', 3, 3998))
+        self.assertEqual(misclassified.gear_json, [{'id': 789, 'name': '错误职业记录的旧装备'}])
+        self.assertEqual(misclassified.talent_build_code, 'MISCLASSIFIED-TALENT')
+        self.assertEqual(enrich.call_count, 19)
+        self.assertEqual(attempts['NewPlayer1'], 2)
+        self.assertNotIn('NewPlayer2', attempts)
+        self.assertTrue(all(attempts[f'NewPlayer{index}'] == 1 for index in range(3, 20)))
+        self.assertEqual(crawl_stats.call_count, 19)
+        self.assertEqual(stats_attempts['NewPlayer1'], 2)
+        initialized = PlayerSpecTopPlayer.objects.get(character_name='NewPlayer1')
+        self.assertEqual((initialized.rank, initialized.score), (2, 3999))
+        self.assertEqual(initialized.gear_json[0]['id'], 456)
+        self.assertEqual(initialized.gear_json[0]['name'], '新玩家初始化装备')
+        self.assertEqual(initialized.gear_json[0]['slot'], 'head')
+        self.assertEqual(initialized.talent_build_code, 'NEW-TALENT')

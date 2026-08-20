@@ -10,10 +10,10 @@ from botend.models import MonitorTask
 
 
 PORTAL_DATA_SCHEDULE_HOURS_BY_TASK = {
-    # Top20 人物原始数据先跑，完整排名随后，聚合投影最后生成。
-    "SpecDetailPlayerMonitor": (2, 14),
-    "SpecDetailRankingMonitor": (3, 15),
-    "SpecDetailAggregationMonitor": (6, 18),
+    # 每日大更新：人物内容先重抓，完整排名随后，聚合投影最后生成。
+    "SpecDetailPlayerMonitor": (2,),
+    "SpecDetailRankingMonitor": (3,),
+    "SpecDetailAggregationMonitor": (6,),
 }
 PORTAL_DATA_SCHEDULED_TASKS = frozenset(PORTAL_DATA_SCHEDULE_HOURS_BY_TASK)
 PORTAL_DATA_TIMEZONE = ZoneInfo("Asia/Shanghai")
@@ -30,7 +30,7 @@ PORTAL_MONITOR_TASK_PRIORITY = {
 
 def monitor_default_wait_time(name):
     if name == "PortalPeakSpecRankMonitor":
-        return 1800  # 30m，巅峰榜变化更频繁
+        return 600  # 10m，仅轻量刷新榜单；新入榜人物按需初始化
     if name == "PortalMplusCutoffMonitor":
         return 3600
     if name == "WagoSkillDiffMonitor":
@@ -38,7 +38,7 @@ def monitor_default_wait_time(name):
     if name == "SpecDetailSeasonMonitor":
         return 86400  # 24h
     if name in PORTAL_DATA_SCHEDULED_TASKS:
-        return 43200  # 由 portal_data_task_is_due 固定在凌晨/下午两个窗口执行
+        return 86400  # 每日固定窗口由 portal_data_task_is_due 判定
     return 600
 
 

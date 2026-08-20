@@ -1,8 +1,10 @@
 import time
 
 import requests
+from django.db import transaction
 
 from botend.controller.BaseScan import BaseScan
+from botend.constants.wow import canonical_class_spec
 from botend.models import PortalPeakSpecRankRow, SeasonMeta
 from utils.log import logger
 
@@ -121,60 +123,96 @@ class PortalPeakSpecRankMonitor(BaseScan):
 
         if len(top_rows) < TOP_RANK_LIMIT:
             logger.warning(f"[PortalPeakSpecRankMonitor] not enough rows: {class_slug}/{spec_slug} rows={len(top_rows)}")
-            return True
+            return False
 
-        PortalPeakSpecRankRow.objects.filter(
+        top_rows = top_rows[:TOP_RANK_LIMIT]
+        if not self._has_complete_unique_player_identities(top_rows):
+            logger.warning(
+                f"[PortalPeakSpecRankMonitor] invalid player identities: "
+                f"{class_slug}/{spec_slug}"
+            )
+            return False
+
+        self._persist_rank_snapshot(
             season=season,
             region=region,
             class_slug=class_slug,
             spec_slug=spec_slug,
-            is_active=True,
-        ).update(is_active=False)
+            rows=top_rows,
+        )
 
-        for idx, row in enumerate(top_rows[:TOP_RANK_LIMIT]):
-            rank = idx + 1
+        canonical_identity = canonical_class_spec(class_slug, spec_slug)
+        if canonical_identity:
+            try:
+                from botend.controller.plugins.portal.SpecDetailPlayerMonitor import SpecDetailPlayerMonitor
+                class_name, spec_name = canonical_identity
+                SpecDetailPlayerMonitor(self.req, self.task).preload_peak_rankings(
+                    rio_season=season,
+                    class_name=class_name,
+                    spec_name=spec_name,
+                    rankings=top_rows,
+                )
+            except Exception as exc:
+                # 人物预载是榜单写入后的附加动作；失败不能回滚已经刷新的榜单。
+                logger.warning(
+                    f"[PortalPeakSpecRankMonitor] player preload failed: "
+                    f"{class_slug}/{spec_slug} err={exc}"
+                )
+        return True
 
-            score = row.get("score")
-            score_color = (row.get("scoreColor") or "").strip()
+    @staticmethod
+    def _has_complete_unique_player_identities(rows):
+        identities = set()
+        for row in rows:
+            character = (row or {}).get("character") or {}
+            region = (character.get("region") or {}).get("slug") or ""
+            realm = (character.get("realm") or {}).get("name") or ""
+            name = character.get("name") or ""
+            identity = tuple(str(value).strip().casefold() for value in (region, realm, name))
+            if not all(identity) or identity in identities:
+                return False
+            identities.add(identity)
+        return len(identities) == TOP_RANK_LIMIT
 
-            char = row.get("character") or {}
-            char_name = (char.get("name") or "").strip()
-            char_path = (char.get("path") or "").strip()
-
-            class_obj = char.get("class") or {}
-            spec_obj = char.get("spec") or {}
-            realm_obj = char.get("realm") or {}
-            rio_region_obj = char.get("region") or {}
-
-            cur_class_name = (class_obj.get("name") or "").strip()
-            cur_spec_name = (spec_obj.get("name") or "").strip()
-            cur_spec_role = (spec_obj.get("role") or "").strip().lower()
-
-            rio_region_slug = (rio_region_obj.get("slug") or "").strip()
-            realm_slug = (realm_obj.get("slug") or "").strip()
-            realm_name = (realm_obj.get("name") or "").strip()
-
-            PortalPeakSpecRankRow.objects.update_or_create(
+    def _persist_rank_snapshot(self, *, season, region, class_slug, spec_slug, rows):
+        """将一个专精的有效 Top20 作为单个数据库快照写入。"""
+        with transaction.atomic():
+            PortalPeakSpecRankRow.objects.filter(
                 season=season,
                 region=region,
                 class_slug=class_slug,
                 spec_slug=spec_slug,
-                rank=rank,
-                defaults={
-                    "class_name": cur_class_name,
-                    "spec_name": cur_spec_name,
-                    "spec_role": cur_spec_role,
-                    "character_name": char_name,
-                    "character_path": char_path,
-                    "score": score,
-                    "score_color": score_color,
-                    "rio_region_slug": rio_region_slug,
-                    "realm_slug": realm_slug,
-                    "realm_name": realm_name,
-                    "is_active": True,
-                },
-            )
-        return True
+                is_active=True,
+            ).update(is_active=False)
+
+            for idx, row in enumerate(rows):
+                rank = idx + 1
+                char = row.get("character") or {}
+                class_obj = char.get("class") or {}
+                spec_obj = char.get("spec") or {}
+                realm_obj = char.get("realm") or {}
+                rio_region_obj = char.get("region") or {}
+
+                PortalPeakSpecRankRow.objects.update_or_create(
+                    season=season,
+                    region=region,
+                    class_slug=class_slug,
+                    spec_slug=spec_slug,
+                    rank=rank,
+                    defaults={
+                        "class_name": (class_obj.get("name") or "").strip(),
+                        "spec_name": (spec_obj.get("name") or "").strip(),
+                        "spec_role": (spec_obj.get("role") or "").strip().lower(),
+                        "character_name": (char.get("name") or "").strip(),
+                        "character_path": (char.get("path") or "").strip(),
+                        "score": row.get("score"),
+                        "score_color": (row.get("scoreColor") or "").strip(),
+                        "rio_region_slug": (rio_region_obj.get("slug") or "").strip(),
+                        "realm_slug": (realm_obj.get("slug") or "").strip(),
+                        "realm_name": (realm_obj.get("name") or "").strip(),
+                        "is_active": True,
+                    },
+                )
 
     def _spec_list(self):
         return [
