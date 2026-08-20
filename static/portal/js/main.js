@@ -1351,11 +1351,11 @@ function renderMythicstatsTable(role, items) {
     const topPct = Math.max(0, Math.min(100, (topVal / maxTop) * 100));
     const relativeToLeader = (avgVal / leaderAvg) * 100;
     const leaderGap = Math.max(0, 100 - relativeToLeader);
-    const relativeLabel = rankValue === 1 ? "榜首 · 100%" : `距榜首 -${leaderGap.toFixed(1)}%`;
+    const relativeLabel = rankValue === 1 ? "" : `距榜首 -${leaderGap.toFixed(1)}%`;
     const accentDeep = mythicstatsHexToRgba(color, 0.95);
     const accent = mythicstatsHexToRgba(color, 0.72);
     const barStyle = `--mythicstats-accent-deep:${accentDeep};--mythicstats-accent:${accent};`;
-    const bar = `<div class="relative h-4 w-full rounded bg-slate-100 overflow-hidden border border-slate-300/80" style="${barStyle}" aria-label="平均 DPS ${avg}，${relativeLabel}">
+    const bar = `<div class="relative h-4 w-full rounded bg-slate-100 overflow-hidden border border-slate-300/80" style="${barStyle}" aria-label="平均 DPS ${avg}${relativeLabel ? `，${relativeLabel}` : ""}">
       <div class="mythicstats-dps-bar-average absolute inset-y-0 left-0" style="width:${avgPct.toFixed(1)}%"></div>
       <span class="mythicstats-dps-peak-marker absolute inset-y-0" style="left:${topPct.toFixed(1)}%" aria-label="峰值 DPS ${top}"></span>
       <div class="absolute inset-y-0 left-0 w-1" style="background:${escapeHtml(color)}"></div>
@@ -1376,7 +1376,7 @@ function renderMythicstatsTable(role, items) {
           ${specCell}
           <div class="text-right">${tierBadge}</div>
           <div class="text-right text-[11px] ${diffCls} font-semibold">${escapeHtml(diffRaw || "0")}</div>
-          <div class="text-right leading-tight"><div class="text-[11px] font-bold text-slate-900">${avg}</div><div class="text-[10px] font-medium text-slate-500">${escapeHtml(relativeLabel)}</div></div>
+          <div class="text-right leading-tight"><div class="text-[11px] font-bold text-slate-900">${avg}</div>${relativeLabel ? `<div class="text-[10px] font-medium text-slate-500">${escapeHtml(relativeLabel)}</div>` : ""}</div>
           <div class="text-right text-[11px] font-semibold text-slate-500">${top}</div>
           <div class="text-right text-[11px] text-slate-500">${runs}</div>
         </div>

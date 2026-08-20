@@ -10,6 +10,8 @@ class PortalMythicstatsDpsUiContractsTests(SimpleTestCase):
         self.assertIn('const relativeToLeader = (avgVal / leaderAvg) * 100;', source)
         self.assertIn('mythicstats-rank ${rankClass}', source)
         self.assertIn('距榜首', source)
+        self.assertNotIn('榜首 · 100%', source)
+        self.assertIn('${relativeLabel ? `<div class="text-[10px] font-medium text-slate-500">${escapeHtml(relativeLabel)}</div>` : ""}', source)
         self.assertIn('mythicstats-dps-bar-average', source)
         self.assertIn('mythicstats-dps-peak-marker', source)
         self.assertIn('--mythicstats-accent-deep', source)
