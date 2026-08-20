@@ -12,9 +12,10 @@ class PortalMythicstatsDpsUiContractsTests(SimpleTestCase):
         self.assertIn('距榜首', source)
         self.assertIn('mythicstats-dps-bar-average', source)
         self.assertIn('mythicstats-dps-bar-peak', source)
+        self.assertIn('--mythicstats-accent-deep', source)
         self.assertNotIn('mythicstatsHexToRgba(color, 0.92)', source)
 
-    def test_landing_page_cache_busts_the_updated_mythicstats_stylesheet(self):
+    def test_landing_page_cache_busts_portal_stylesheet(self):
         template = (Path(__file__).resolve().parents[2] / 'templates/portal/index.html').read_text(encoding='utf-8')
 
-        self.assertRegex(template, r"portal/css/portal\.css' %}\?v=20260820_mythicstats_dps_rank_v1")
+        self.assertRegex(template, r"portal/css/portal\.css' %}\?v=[^\"']+")

@@ -1352,7 +1352,11 @@ function renderMythicstatsTable(role, items) {
     const relativeToLeader = (avgVal / leaderAvg) * 100;
     const leaderGap = Math.max(0, 100 - relativeToLeader);
     const relativeLabel = rankValue === 1 ? "榜首 · 100%" : `距榜首 -${leaderGap.toFixed(1)}%`;
-    const bar = `<div class="relative h-4 w-full rounded bg-slate-100 overflow-hidden border border-slate-300/80" aria-label="平均 DPS ${avg}，${relativeLabel}">
+    const accentDeep = mythicstatsHexToRgba(color, 0.95);
+    const accent = mythicstatsHexToRgba(color, 0.72);
+    const accentPeak = mythicstatsHexToRgba(color, 0.3);
+    const barStyle = `--mythicstats-accent-deep:${accentDeep};--mythicstats-accent:${accent};--mythicstats-accent-peak:${accentPeak};`;
+    const bar = `<div class="relative h-4 w-full rounded bg-slate-100 overflow-hidden border border-slate-300/80" style="${barStyle}" aria-label="平均 DPS ${avg}，${relativeLabel}">
       <div class="mythicstats-dps-bar-peak absolute inset-y-0 left-0" style="width:${topPct.toFixed(1)}%"></div>
       <div class="mythicstats-dps-bar-average absolute inset-y-0 left-0" style="width:${avgPct.toFixed(1)}%"></div>
       <div class="absolute inset-y-0 left-0 w-1" style="background:${escapeHtml(color)}"></div>
