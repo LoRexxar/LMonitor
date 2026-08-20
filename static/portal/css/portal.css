@@ -1040,12 +1040,34 @@ body {
 }
 
 .mythicstats-spec-link {
-    text-shadow:
-        0 0 0.8px rgba(255, 255, 255, 0.28),
-        -0.4px 0 rgba(0, 0, 0, 0.45),
-        0.4px 0 rgba(0, 0, 0, 0.45),
-        0 -0.4px rgba(0, 0, 0, 0.45),
-        0 0.4px rgba(0, 0, 0, 0.45);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+}
+
+.mythicstats-rank {
+    display: inline-flex;
+    width: 1.5rem;
+    height: 1.5rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 0.75rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+}
+
+.mythicstats-rank-1 { background: #1e293b; color: #fef3c7; box-shadow: 0 0 0 2px #fcd34d; }
+.mythicstats-rank-2 { background: #475569; color: #f8fafc; }
+.mythicstats-rank-3 { background: #9a5b32; color: #fff7ed; }
+
+.mythicstats-dps-bar-peak {
+    background: #cbd5e1;
+}
+
+.mythicstats-dps-bar-average {
+    background: linear-gradient(90deg, #0f172a, #334155);
 }
 
 .nga-tooltip {

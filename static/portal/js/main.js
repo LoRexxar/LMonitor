@@ -1320,11 +1320,14 @@ function renderMythicstatsTable(role, items) {
     return `<div class="text-slate-500">${q ? "无匹配结果" : "暂无数据"}</div>`;
   }
   const maxTop = Math.max(1, ...filtered.map((x) => (Number.isFinite(Number(x.top_value)) ? Number(x.top_value) : 0)));
+  const leaderAvg = Math.max(1, ...filtered.map((x) => (Number.isFinite(Number(x.avg_value)) ? Number(x.avg_value) : 0)));
   const rows = filtered.slice(0, 60).map((it) => {
     const color = getMythicstatsColor(it);
     const cls = getMythicstatsClassFromSlug(String(it?.spec_slug || "").trim());
     const isPriest = cls === "priest";
+    const rankValue = Number(it.rank);
     const rank = escapeHtml(it.rank);
+    const rankClass = rankValue >= 1 && rankValue <= 3 ? `mythicstats-rank-${rankValue}` : "";
     const diffRaw = String(it.diff_raw || "").trim();
     const diffVal = Number(it.diff_value);
     let diffCls = "text-slate-500";
@@ -1346,17 +1349,13 @@ function renderMythicstatsTable(role, items) {
     const top = escapeHtml(it.top || "");
     const avgPct = Math.max(0, Math.min(100, (avgVal / maxTop) * 100));
     const topPct = Math.max(0, Math.min(100, (topVal / maxTop) * 100));
-
-    const topBg = isPriest
-      ? "repeating-linear-gradient(135deg, rgba(71,85,105,0.14) 0 6px, rgba(255,255,255,0.32) 6px 12px)"
-      : mythicstatsHexToRgba(color, 0.22);
-    const avgBg = isPriest
-      ? "repeating-linear-gradient(135deg, rgba(71,85,105,0.24) 0 6px, rgba(255,255,255,0.96) 6px 12px)"
-      : mythicstatsHexToRgba(color, 0.92);
-    const fillShadow = "";
-    const bar = `<div class="relative h-3 w-full rounded bg-slate-200/70 overflow-hidden shadow-inner border border-slate-300/70">
-      <div class="absolute inset-y-0 left-0" style="width:${topPct.toFixed(1)}%;background:${topBg};${fillShadow}"></div>
-      <div class="absolute inset-y-0 left-0" style="width:${avgPct.toFixed(1)}%;background:${avgBg};${fillShadow}"></div>
+    const relativeToLeader = (avgVal / leaderAvg) * 100;
+    const leaderGap = Math.max(0, 100 - relativeToLeader);
+    const relativeLabel = rankValue === 1 ? "榜首 · 100%" : `距榜首 -${leaderGap.toFixed(1)}%`;
+    const bar = `<div class="relative h-4 w-full rounded bg-slate-100 overflow-hidden border border-slate-300/80" aria-label="平均 DPS ${avg}，${relativeLabel}">
+      <div class="mythicstats-dps-bar-peak absolute inset-y-0 left-0" style="width:${topPct.toFixed(1)}%"></div>
+      <div class="mythicstats-dps-bar-average absolute inset-y-0 left-0" style="width:${avgPct.toFixed(1)}%"></div>
+      <div class="absolute inset-y-0 left-0 w-1" style="background:${escapeHtml(color)}"></div>
     </div>`;
 
     const specAccentBg = mythicstatsHexToRgba(color, isPriest ? 0.2 : 0.14);
@@ -1369,12 +1368,12 @@ function renderMythicstatsTable(role, items) {
 
     return `<div class="py-1.5">
       <div class="flex items-center gap-3">
-        <div class="w-8 text-xs font-semibold text-slate-500">${rank}</div>
-        <div class="w-[372px] min-w-[372px] grid grid-cols-[72px_36px_44px_56px_56px_44px] items-center gap-1">
+        <div class="w-8"><span class="mythicstats-rank ${rankClass}">${rank}</span></div>
+        <div class="w-[400px] min-w-[400px] grid grid-cols-[72px_36px_44px_84px_56px_44px] items-center gap-1">
           ${specCell}
           <div class="text-right">${tierBadge}</div>
           <div class="text-right text-[11px] ${diffCls} font-semibold">${escapeHtml(diffRaw || "0")}</div>
-          <div class="text-right text-[11px] font-semibold text-slate-700">${avg}</div>
+          <div class="text-right leading-tight"><div class="text-[11px] font-bold text-slate-900">${avg}</div><div class="text-[10px] font-medium text-slate-500">${escapeHtml(relativeLabel)}</div></div>
           <div class="text-right text-[11px] font-semibold text-slate-500">${top}</div>
           <div class="text-right text-[11px] text-slate-500">${runs}</div>
         </div>
@@ -1385,15 +1384,15 @@ function renderMythicstatsTable(role, items) {
   const header = `<div class="py-1 text-xs text-slate-500 font-semibold">
     <div class="flex items-center gap-3">
       <div class="w-8 text-right">#</div>
-      <div class="w-[372px] min-w-[372px] grid grid-cols-[72px_36px_44px_56px_56px_44px] items-center gap-1">
+      <div class="w-[400px] min-w-[400px] grid grid-cols-[72px_36px_44px_84px_56px_44px] items-center gap-1">
         <div>专精</div>
         <div class="text-right">Tier</div>
         <div class="text-right">Diff</div>
-        <div class="text-right">Avg</div>
+        <div class="text-right">Avg / 距榜首</div>
         <div class="text-right">Top</div>
         <div class="text-right">Runs</div>
       </div>
-      <div class="flex-1 min-w-0 text-right">对比</div>
+      <div class="flex-1 min-w-0 text-right">平均 DPS（深色）/ 峰值（浅色）</div>
     </div>
   </div>`;
   return `<div>${header}<div class="divide-y divide-slate-100">${rows.join("")}</div></div>`;
