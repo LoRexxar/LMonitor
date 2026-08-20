@@ -321,6 +321,11 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                     f"{class_name}/{spec_name}/{profile.character_name}: {exc}"
                 )
 
+        from botend.controller.plugins.portal.SpecDetailAggregationMonitor import SpecDetailAggregationMonitor
+        SpecDetailAggregationMonitor.refresh_leaderboard_projection(
+            season.id, class_name, spec_name,
+        )
+
         logger.info(
             f"[SpecDetailPlayer] 巅峰榜预载 {class_name}/{spec_name}: "
             f"new={initialized}, initialized={initialization_success}, "

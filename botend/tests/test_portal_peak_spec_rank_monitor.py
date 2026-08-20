@@ -1,9 +1,13 @@
+import json
+import tempfile
+from pathlib import Path
 from unittest.mock import Mock, patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from botend.controller.plugins.portal.PortalPeakSpecRankMonitor import PortalPeakSpecRankMonitor
+from botend.controller.plugins.portal.SpecDetailPlayerMonitor import SpecDetailPlayerMonitor
 from botend.constants.wow import canonical_class_spec
 from botend.models import PlayerSpecTopPlayer, SeasonMeta
 
@@ -116,6 +120,40 @@ class PortalPeakSpecRankMonitorSeasonTests(TestCase):
 
 
 class PortalPeakSpecRankPreloadTests(TestCase):
+    def test_peak_refresh_immediately_rebuilds_the_public_leaderboard_projection(self):
+        season = SeasonMeta.objects.create(
+            season_key='mn-s2', season_name='MN S2', rio_season='season-mn-2',
+            mplus_zone_id=1, raid_zone_id=1, is_active=True,
+        )
+        content_updated_at = timezone.now()
+        player = PlayerSpecTopPlayer.objects.create(
+            season_id=season.id, region='us', realm='Test', character_name='Noxiv',
+            class_name='Warrior', spec_name='Fury', rank=9, score=2900,
+            gear_json=[{'id': 123}], stats_crawl_status=1, last_updated=content_updated_at,
+        )
+        rankings = [{
+            'score': 3147.92,
+            'character': {
+                'name': 'Noxiv',
+                'class': {'name': 'Warrior'},
+                'spec': {'name': 'Fury', 'role': 'dps'},
+                'realm': {'slug': 'test', 'name': 'Test'},
+                'region': {'slug': 'us'},
+            },
+        }]
+
+        with tempfile.TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+            SpecDetailPlayerMonitor(Mock(), Mock()).preload_peak_rankings(
+                rio_season='season-mn-2', class_name='Warrior', spec_name='Fury', rankings=rankings,
+            )
+            projection = Path(media_root) / 'aggregated' / str(season.id) / 'Warrior' / 'Fury' / 'leaderboard.json'
+            payload = json.loads(projection.read_text(encoding='utf-8'))
+
+        player.refresh_from_db()
+        self.assertEqual(payload['players'][0]['score'], 3147.92)
+        self.assertIsNotNone(payload['updated_at'])
+        self.assertEqual(player.last_updated, content_updated_at)
+
     def test_peak_refresh_initializes_only_new_players_and_lightly_updates_existing_players(self):
         season = SeasonMeta.objects.create(
             season_key='mn-s2', season_name='MN S2', rio_season='season-mn-2',

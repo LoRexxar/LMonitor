@@ -9,6 +9,9 @@ import os
 import tempfile
 from decimal import Decimal
 
+from django.conf import settings
+from django.utils import timezone
+
 from botend.controller.BaseScan import BaseScan
 from botend.models import SeasonMeta
 from botend.constants.wow import CLASS_SPEC_MAP, RAID_BOSS_CN, RAID_ZONE_CN
@@ -70,7 +73,7 @@ class SpecDetailAggregationMonitor(BaseScan):
 
                 self._aggregate_dungeon(season, class_name, spec_name, spec_dir)
                 self._aggregate_raid(season, class_name, spec_name, spec_dir)
-                self._aggregate_leaderboard(class_name, spec_name, spec_dir)
+                self._aggregate_leaderboard(season.id, class_name, spec_name, spec_dir)
 
                 total_files += 3
 
@@ -141,10 +144,23 @@ class SpecDetailAggregationMonitor(BaseScan):
             ],
         }, cls=DecimalEncoder, ensure_ascii=False)
 
-    def _aggregate_leaderboard(self, class_name, spec_name, spec_dir):
-        result = SpecStatsService.get_player_list(
-            class_name, spec_name, page=1, page_size=20
+    @staticmethod
+    def refresh_leaderboard_projection(season_id, class_name, spec_name):
+        """只刷新人物榜投影；供10分钟巅峰榜轻量更新复用。"""
+        media_root = getattr(settings, 'MEDIA_ROOT', '') or 'media'
+        spec_dir = os.path.join(media_root, 'aggregated', str(season_id), class_name, spec_name)
+        return SpecDetailAggregationMonitor._aggregate_leaderboard(
+            season_id, class_name, spec_name, spec_dir,
         )
+
+    @staticmethod
+    def _aggregate_leaderboard(season_id, class_name, spec_name, spec_dir):
+        result = SpecStatsService.get_player_list(
+            class_name, spec_name, season_id=season_id, page=1, page_size=20
+        )
+        # last_updated 是人物内容时间；榜单投影必须展示本次排名刷新时间。
+        result['updated_at'] = timezone.now().isoformat()
 
         path = os.path.join(spec_dir, 'leaderboard.json')
         atomic_dump_json(path, result, cls=DecimalEncoder, ensure_ascii=False, default=str)
+        return path
