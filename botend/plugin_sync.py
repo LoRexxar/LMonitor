@@ -1,8 +1,59 @@
+from datetime import timedelta
+from zoneinfo import ZoneInfo
+
 from django.db import transaction
+from django.utils import timezone
 
 from utils.log import logger
 
 from botend.models import MonitorTask
+
+
+PORTAL_DATA_SCHEDULED_TASKS = frozenset({
+    "SpecDetailPlayerMonitor",
+    "SpecDetailRankingMonitor",
+    "SpecDetailAggregationMonitor",
+})
+PORTAL_DATA_SCHEDULE_HOURS = (3, 15)
+PORTAL_DATA_TIMEZONE = ZoneInfo("Asia/Shanghai")
+
+
+def monitor_default_wait_time(name):
+    if name == "PortalPeakSpecRankMonitor":
+        return 1800  # 30m，巅峰榜变化更频繁
+    if name == "PortalMplusCutoffMonitor":
+        return 3600
+    if name == "WagoSkillDiffMonitor":
+        return 3600  # 1h，Wago build/hotfix 变更不需要 10 分钟级轮询
+    if name == "SpecDetailSeasonMonitor":
+        return 86400  # 24h
+    if name in PORTAL_DATA_SCHEDULED_TASKS:
+        return 43200  # 由 portal_data_task_is_due 固定在凌晨/下午两个窗口执行
+    return 600
+
+
+def portal_data_task_is_due(task, now=None):
+    """Return whether a portal raw/aggregate task still owes the latest fixed slot."""
+    if getattr(task, "name", "") not in PORTAL_DATA_SCHEDULED_TASKS:
+        return None
+
+    now = now or timezone.now()
+    if timezone.is_naive(now):
+        now = timezone.make_aware(now, PORTAL_DATA_TIMEZONE)
+    local_now = now.astimezone(PORTAL_DATA_TIMEZONE)
+    today_slots = [
+        local_now.replace(hour=hour, minute=0, second=0, microsecond=0)
+        for hour in PORTAL_DATA_SCHEDULE_HOURS
+    ]
+    completed_slots = [slot for slot in today_slots if slot <= local_now]
+    latest_slot = completed_slots[-1] if completed_slots else today_slots[-1] - timedelta(days=1)
+
+    last_scan_time = getattr(task, "last_scan_time", None)
+    if last_scan_time is None:
+        return True
+    if timezone.is_naive(last_scan_time):
+        last_scan_time = timezone.make_aware(last_scan_time, PORTAL_DATA_TIMEZONE)
+    return last_scan_time < latest_slot
 
 
 def sync_monitortasks_from_plugin_list(
@@ -35,6 +86,9 @@ def sync_monitortasks_from_plugin_list(
                 cur = 0
             if cur != int(desired):
                 to_fix.append((int(t.id), int(desired)))
+            desired_wait_time = monitor_default_wait_time(t.name)
+            if t.wait_time != desired_wait_time:
+                MonitorTask.objects.filter(id=t.id).update(wait_time=desired_wait_time)
 
         for tid, _desired in to_fix:
             MonitorTask.objects.filter(id=tid).update(type=-tid)
@@ -53,17 +107,7 @@ def sync_monitortasks_from_plugin_list(
                 continue
 
             name = getattr(plugin_cls, "__name__", None) or f"PluginType{idx}"
-            wait_time = 600
-            if name in {"PortalPeakSpecRankMonitor", "PortalMplusCutoffMonitor"}:
-                wait_time = 3600
-            elif name == "WagoSkillDiffMonitor":
-                wait_time = 3600  # 1h，Wago build/hotfix 变更不需要 10 分钟级轮询
-            elif name == "SpecDetailSeasonMonitor":
-                wait_time = 86400  # 24h
-            elif name in {"SpecDetailPlayerMonitor", "SpecDetailRankingMonitor"}:
-                wait_time = 43200  # 12h
-            elif name == "SpecDetailAggregationMonitor":
-                wait_time = 43200  # 12h，跟在采集后执行
+            wait_time = monitor_default_wait_time(name)
             MonitorTask.objects.create(
                 name=name,
                 target=default_target,

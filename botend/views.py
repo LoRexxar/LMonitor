@@ -17,7 +17,7 @@ from core.threadingpool import ThreadPool
 from botend.alerting import upsert_system_alert
 from botend.models import MonitorTask, MonitorWebhook
 from botend.monitor_env import filter_runnable_tasks
-from botend.plugin_sync import sync_monitortasks_from_plugin_list
+from botend.plugin_sync import portal_data_task_is_due, sync_monitortasks_from_plugin_list
 from LMonitor.config import Monitor_Type_BaseObject_List
 
 THREAD_LIMIT_NUM = int(getattr(django_settings, 'THREAD_LIMIT_NUM', 10))
@@ -147,7 +147,11 @@ class LMonitorCore:
                     tasks = filter_runnable_tasks(MonitorTask.objects.filter(is_active=1)).order_by('last_scan_time')
 
                     for task in tasks:
-                        if (timezone.now() - task.last_scan_time).total_seconds() < task.wait_time:
+                        now = timezone.now()
+                        scheduled_due = portal_data_task_is_due(task, now=now)
+                        if scheduled_due is False:
+                            continue
+                        if scheduled_due is None and (now - task.last_scan_time).total_seconds() < task.wait_time:
                             continue
 
                         logger.info("[Main] New Task {} start...".format(task.name))
