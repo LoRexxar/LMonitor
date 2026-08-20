@@ -11,7 +11,7 @@ class PortalMythicstatsDpsUiContractsTests(SimpleTestCase):
         self.assertIn('mythicstats-rank ${rankClass}', source)
         self.assertIn('距榜首', source)
         self.assertIn('mythicstats-dps-bar-average', source)
-        self.assertIn('mythicstats-dps-bar-peak', source)
+        self.assertIn('mythicstats-dps-peak-marker', source)
         self.assertIn('--mythicstats-accent-deep', source)
         self.assertNotIn('mythicstatsHexToRgba(color, 0.92)', source)
 

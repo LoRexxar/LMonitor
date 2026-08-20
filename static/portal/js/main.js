@@ -1354,11 +1354,10 @@ function renderMythicstatsTable(role, items) {
     const relativeLabel = rankValue === 1 ? "榜首 · 100%" : `距榜首 -${leaderGap.toFixed(1)}%`;
     const accentDeep = mythicstatsHexToRgba(color, 0.95);
     const accent = mythicstatsHexToRgba(color, 0.72);
-    const accentPeak = mythicstatsHexToRgba(color, 0.3);
-    const barStyle = `--mythicstats-accent-deep:${accentDeep};--mythicstats-accent:${accent};--mythicstats-accent-peak:${accentPeak};`;
+    const barStyle = `--mythicstats-accent-deep:${accentDeep};--mythicstats-accent:${accent};`;
     const bar = `<div class="relative h-4 w-full rounded bg-slate-100 overflow-hidden border border-slate-300/80" style="${barStyle}" aria-label="平均 DPS ${avg}，${relativeLabel}">
-      <div class="mythicstats-dps-bar-peak absolute inset-y-0 left-0" style="width:${topPct.toFixed(1)}%"></div>
       <div class="mythicstats-dps-bar-average absolute inset-y-0 left-0" style="width:${avgPct.toFixed(1)}%"></div>
+      <span class="mythicstats-dps-peak-marker absolute inset-y-0" style="left:${topPct.toFixed(1)}%" aria-label="峰值 DPS ${top}"></span>
       <div class="absolute inset-y-0 left-0 w-1" style="background:${escapeHtml(color)}"></div>
     </div>`;
 
@@ -1396,7 +1395,7 @@ function renderMythicstatsTable(role, items) {
         <div class="text-right">Top</div>
         <div class="text-right">Runs</div>
       </div>
-      <div class="flex-1 min-w-0 text-right">平均 DPS（深色）/ 峰值（浅色）</div>
+      <div class="flex-1 min-w-0 text-right">平均 DPS（职业色）/ 峰值（刻度）</div>
     </div>
   </div>`;
   return `<div>${header}<div class="divide-y divide-slate-100">${rows.join("")}</div></div>`;
