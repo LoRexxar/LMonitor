@@ -9,13 +9,23 @@ from utils.log import logger
 from botend.models import MonitorTask
 
 
-PORTAL_DATA_SCHEDULED_TASKS = frozenset({
-    "SpecDetailPlayerMonitor",
-    "SpecDetailRankingMonitor",
-    "SpecDetailAggregationMonitor",
-})
-PORTAL_DATA_SCHEDULE_HOURS = (3, 15)
+PORTAL_DATA_SCHEDULE_HOURS_BY_TASK = {
+    # Top20 人物原始数据先跑，完整排名随后，聚合投影最后生成。
+    "SpecDetailPlayerMonitor": (2, 14),
+    "SpecDetailRankingMonitor": (3, 15),
+    "SpecDetailAggregationMonitor": (6, 18),
+}
+PORTAL_DATA_SCHEDULED_TASKS = frozenset(PORTAL_DATA_SCHEDULE_HOURS_BY_TASK)
 PORTAL_DATA_TIMEZONE = ZoneInfo("Asia/Shanghai")
+
+PORTAL_MONITOR_TASK_PRIORITY = {
+    # 巅峰榜 Top20 是快速任务；长任务结束后必须先补它，避免按旧
+    # last_scan_time 排序时被人物、排名和聚合任务连续阻塞。
+    "PortalPeakSpecRankMonitor": 0,
+    "SpecDetailPlayerMonitor": 10,
+    "SpecDetailRankingMonitor": 20,
+    "SpecDetailAggregationMonitor": 30,
+}
 
 
 def monitor_default_wait_time(name):
@@ -32,6 +42,10 @@ def monitor_default_wait_time(name):
     return 600
 
 
+def portal_monitor_task_priority(task):
+    return PORTAL_MONITOR_TASK_PRIORITY.get(getattr(task, "name", ""), 100)
+
+
 def portal_data_task_is_due(task, now=None):
     """Return whether a portal raw/aggregate task still owes the latest fixed slot."""
     if getattr(task, "name", "") not in PORTAL_DATA_SCHEDULED_TASKS:
@@ -43,7 +57,7 @@ def portal_data_task_is_due(task, now=None):
     local_now = now.astimezone(PORTAL_DATA_TIMEZONE)
     today_slots = [
         local_now.replace(hour=hour, minute=0, second=0, microsecond=0)
-        for hour in PORTAL_DATA_SCHEDULE_HOURS
+        for hour in PORTAL_DATA_SCHEDULE_HOURS_BY_TASK[task.name]
     ]
     completed_slots = [slot for slot in today_slots if slot <= local_now]
     latest_slot = completed_slots[-1] if completed_slots else today_slots[-1] - timedelta(days=1)

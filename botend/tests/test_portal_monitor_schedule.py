@@ -4,24 +4,40 @@ from zoneinfo import ZoneInfo
 
 from django.test import SimpleTestCase
 
-from botend.plugin_sync import portal_data_task_is_due
+from botend.plugin_sync import portal_data_task_is_due, portal_monitor_task_priority
 
 
 class PortalMonitorScheduleTests(SimpleTestCase):
     def _task(self, name, last_scan_time):
         return SimpleNamespace(name=name, last_scan_time=last_scan_time)
 
-    def test_portal_data_tasks_run_once_for_each_early_morning_and_afternoon_slot(self):
+    def test_portal_data_tasks_use_staggered_slots_and_fast_top20_priority(self):
         shanghai = ZoneInfo('Asia/Shanghai')
-        task = self._task(
-            'SpecDetailAggregationMonitor',
+        player = self._task(
+            'SpecDetailPlayerMonitor',
+            datetime(2026, 8, 20, 2, 10, tzinfo=shanghai),
+        )
+        ranking = self._task(
+            'SpecDetailRankingMonitor',
             datetime(2026, 8, 20, 3, 10, tzinfo=shanghai),
         )
+        aggregation = self._task(
+            'SpecDetailAggregationMonitor',
+            datetime(2026, 8, 20, 6, 10, tzinfo=shanghai),
+        )
+        peak = self._task(
+            'PortalPeakSpecRankMonitor',
+            datetime(2026, 8, 20, 14, 0, tzinfo=shanghai),
+        )
 
-        self.assertTrue(portal_data_task_is_due(task, datetime(2026, 8, 20, 15, 0, tzinfo=shanghai)))
-        task.last_scan_time = datetime(2026, 8, 20, 15, 20, tzinfo=shanghai)
-        self.assertFalse(portal_data_task_is_due(task, datetime(2026, 8, 20, 16, 0, tzinfo=shanghai)))
-        self.assertTrue(portal_data_task_is_due(task, datetime(2026, 8, 21, 3, 0, tzinfo=shanghai)))
+        afternoon = datetime(2026, 8, 20, 15, 0, tzinfo=shanghai)
+        self.assertTrue(portal_data_task_is_due(player, afternoon))
+        self.assertTrue(portal_data_task_is_due(ranking, afternoon))
+        self.assertFalse(portal_data_task_is_due(aggregation, afternoon))
+        self.assertTrue(portal_data_task_is_due(aggregation, datetime(2026, 8, 20, 18, 0, tzinfo=shanghai)))
+        self.assertLess(portal_monitor_task_priority(peak), portal_monitor_task_priority(player))
+        self.assertLess(portal_monitor_task_priority(player), portal_monitor_task_priority(ranking))
+        self.assertLess(portal_monitor_task_priority(ranking), portal_monitor_task_priority(aggregation))
 
     def test_portal_data_task_missed_slot_runs_later_without_waiting_for_next_slot(self):
         shanghai = ZoneInfo('Asia/Shanghai')
