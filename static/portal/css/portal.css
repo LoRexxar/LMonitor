@@ -935,11 +935,178 @@ body {
     color: inherit;
 }
 
+.mythicstats-spec-link:hover {
+  color: #4338ca !important;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .md-content a {
     color: rgb(67, 56, 202);
     text-decoration: underline;
     text-underline-offset: 3px;
 }
+
+/* MythicStats: isolated dark ranking surface. */
+.mythicstats-panel-dark {
+  background: #111827;
+  border-color: #273449 !important;
+  color: #cbd5e1;
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.2);
+}
+
+.mythicstats-panel-dark::before {
+  background: #475569;
+  opacity: 0.85;
+}
+
+.mythicstats-panel-dark > .text-slate-900,
+.mythicstats-panel-dark > div:first-child {
+  color: #f8fafc !important;
+}
+
+.mythicstats-panel-dark #mythicstats-controls .text-slate-600,
+.mythicstats-panel-dark #mythicstats-controls .text-slate-500 {
+  color: #a8b3c5 !important;
+}
+
+.mythicstats-panel-dark #mythicstats-controls select {
+  background: #1e293b !important;
+  border-color: #3b4a61 !important;
+  color: #e5e7eb;
+  color-scheme: dark;
+}
+
+.mythicstats-panel-dark #mythicstats-controls select:focus {
+  border-color: #64748b !important;
+  --tw-ring-color: rgba(148, 163, 184, 0.35) !important;
+}
+
+.mythicstats-panel-dark #mythicstats-controls .bg-red-50 {
+  background: rgba(127, 29, 29, 0.18) !important;
+  border-color: rgba(248, 113, 113, 0.3) !important;
+  color: #fca5a5 !important;
+}
+
+.mythicstats-panel-dark #mythicstats-controls a {
+  color: #c4b5fd !important;
+}
+
+.mythicstats-section-title {
+  color: #f1f5f9;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.mythicstats-table-header {
+  color: #94a3b8;
+  border-bottom: 1px solid #334155;
+  padding-inline: 0.375rem;
+}
+
+.mythicstats-row {
+  background: rgba(30, 41, 59, 0.42);
+  border-bottom: 1px solid rgba(71, 85, 105, 0.48);
+  transition: background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.mythicstats-row:first-child {
+  border-radius: 0.5rem 0.5rem 0 0;
+}
+
+.mythicstats-row:last-child {
+  border-bottom: 0;
+  border-radius: 0 0 0.5rem 0.5rem;
+}
+
+.mythicstats-row:hover {
+  background: #253248;
+  box-shadow: inset 3px 0 0 rgba(148, 163, 184, 0.42);
+}
+
+.mythicstats-panel-dark .mythicstats-spec-link {
+  color: #f1f5f9 !important;
+}
+
+.mythicstats-panel-dark .mythicstats-spec-link:hover {
+  color: #ffffff !important;
+}
+
+.mythicstats-panel-dark #mythicstats-table .text-slate-900 {
+  color: #f8fafc !important;
+}
+
+.mythicstats-panel-dark #mythicstats-table .text-slate-500 {
+  color: #94a3b8 !important;
+}
+
+.mythicstats-panel-dark #mythicstats-table .text-emerald-700 {
+  color: #6ee7b7 !important;
+}
+
+.mythicstats-panel-dark #mythicstats-table .text-rose-700 {
+  color: #fb7185 !important;
+}
+
+.mythicstats-dps-track {
+  background: #1b2535;
+  border: 1px solid #3a4659;
+}
+
+.mythicstats-panel-dark .mythicstats-dps-bar-average {
+  background: linear-gradient(90deg, var(--mythicstats-accent-deep), var(--mythicstats-accent));
+}
+
+.mythicstats-panel-dark .mythicstats-dps-peak-marker {
+  background: rgba(241, 245, 249, 0.86);
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.5);
+}
+
+.mythicstats-panel-dark .mythicstats-rank {
+  background: #263246;
+  border-color: #45546b;
+  color: #cbd5e1;
+}
+
+.mythicstats-panel-dark .mythicstats-rank-1 {
+  background: #332b1c;
+  border-color: #b89247;
+  color: #fde68a;
+}
+
+.mythicstats-panel-dark .mythicstats-rank-2 {
+  background: #293548;
+  border-color: #8290a7;
+  color: #e2e8f0;
+}
+
+.mythicstats-panel-dark .mythicstats-rank-3 {
+  background: #38271f;
+  border-color: #a86f52;
+  color: #fdba8c;
+}
+
+.mythicstats-tier {
+  display: inline-flex;
+  min-width: 1.75rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid;
+  border-radius: 999px;
+  padding: 0.125rem 0.45rem;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.mythicstats-tier-s { background: rgba(16, 185, 129, 0.12); border-color: rgba(52, 211, 153, 0.36); color: #6ee7b7; }
+.mythicstats-tier-a { background: rgba(14, 165, 233, 0.12); border-color: rgba(56, 189, 248, 0.36); color: #7dd3fc; }
+.mythicstats-tier-b { background: rgba(99, 102, 241, 0.14); border-color: rgba(129, 140, 248, 0.38); color: #a5b4fc; }
+.mythicstats-tier-c { background: rgba(245, 158, 11, 0.12); border-color: rgba(251, 191, 36, 0.34); color: #fcd34d; }
+.mythicstats-tier-d { background: rgba(249, 115, 22, 0.12); border-color: rgba(251, 146, 60, 0.34); color: #fdba74; }
+.mythicstats-tier-f { background: rgba(244, 63, 94, 0.12); border-color: rgba(251, 113, 133, 0.34); color: #fda4af; }
+.mythicstats-tier-default { background: rgba(100, 116, 139, 0.14); border-color: #475569; color: #cbd5e1; }
 
 .md-content blockquote {
     margin: 0.8rem 0;

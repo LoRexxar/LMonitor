@@ -1277,6 +1277,16 @@ function mythicstatsHexToRgba(hex, alpha) {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
+function mythicstatsShadeHex(hex, factor = 0.7) {
+  const h = String(hex || "").replace("#", "").trim();
+  if (h.length !== 6) return "#64748b";
+  const shaded = [0, 2, 4].map((start) => {
+    const value = Math.max(0, Math.min(255, Math.round(parseInt(h.slice(start, start + 2), 16) * factor)));
+    return value.toString(16).padStart(2, "0");
+  });
+  return `#${shaded.join("")}`;
+}
+
 function getMythicstatsClassFromSlug(slug) {
   const s = String(slug || "").trim();
   if (!s) return "";
@@ -1294,17 +1304,9 @@ function getMythicstatsColor(it) {
 
 function renderMythicstatsTierBadge(tierRaw) {
   const t = String(tierRaw || "").trim().toUpperCase();
-  const styles = {
-    S: "bg-emerald-100 text-emerald-800 border-emerald-200",
-    A: "bg-sky-100 text-sky-800 border-sky-200",
-    B: "bg-indigo-100 text-indigo-800 border-indigo-200",
-    C: "bg-amber-100 text-amber-800 border-amber-200",
-    D: "bg-orange-100 text-orange-800 border-orange-200",
-    F: "bg-rose-100 text-rose-800 border-rose-200",
-  };
-  const cls = styles[t] || "bg-slate-100 text-slate-700 border-slate-200";
   const label = t || "-";
-  return `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${cls}">${escapeHtml(label)}</span>`;
+  const cls = /^[SABCDF]$/.test(t) ? `mythicstats-tier-${t.toLowerCase()}` : "mythicstats-tier-default";
+  return `<span class="mythicstats-tier ${cls}">${escapeHtml(label)}</span>`;
 }
 
 function renderMythicstatsTable(role, items) {
@@ -1352,24 +1354,25 @@ function renderMythicstatsTable(role, items) {
     const relativeToLeader = (avgVal / leaderAvg) * 100;
     const leaderGap = Math.max(0, 100 - relativeToLeader);
     const relativeLabel = rankValue === 1 ? "榜首 · 100%" : `距榜首 -${leaderGap.toFixed(1)}%`;
-    const accentDeep = mythicstatsHexToRgba(color, 0.95);
-    const accent = mythicstatsHexToRgba(color, 0.72);
+    const mutedColor = mythicstatsShadeHex(color, isPriest ? 0.62 : 0.7);
+    const accentDeep = mythicstatsHexToRgba(mutedColor, 0.96);
+    const accent = mythicstatsHexToRgba(mutedColor, 0.72);
     const barStyle = `--mythicstats-accent-deep:${accentDeep};--mythicstats-accent:${accent};`;
-    const bar = `<div class="relative h-4 w-full rounded bg-slate-100 overflow-hidden border border-slate-300/80" style="${barStyle}" aria-label="平均 DPS ${avg}，${relativeLabel}">
+    const bar = `<div class="mythicstats-dps-track relative h-4 w-full rounded overflow-hidden" style="${barStyle}" aria-label="平均 DPS ${avg}，${relativeLabel}">
       <div class="mythicstats-dps-bar-average absolute inset-y-0 left-0" style="width:${avgPct.toFixed(1)}%"></div>
       <span class="mythicstats-dps-peak-marker absolute inset-y-0" style="left:${topPct.toFixed(1)}%" aria-label="峰值 DPS ${top}"></span>
-      <div class="absolute inset-y-0 left-0 w-1" style="background:${escapeHtml(color)}"></div>
+      <div class="absolute inset-y-0 left-0 w-1" style="background:${escapeHtml(mutedColor)}"></div>
     </div>`;
 
-    const specAccentBg = mythicstatsHexToRgba(color, isPriest ? 0.2 : 0.14);
-    const specCell = `<div class="relative overflow-hidden rounded-md px-2 py-1" style="background:linear-gradient(90deg, ${specAccentBg} 0%, rgba(255,255,255,0) 68%);">
-      <div class="absolute left-0 top-0 bottom-0 w-1" style="background:${escapeHtml(color)}"></div>
+    const specAccentBg = mythicstatsHexToRgba(mutedColor, isPriest ? 0.2 : 0.16);
+    const specCell = `<div class="relative overflow-hidden rounded-md px-2 py-1" style="background:linear-gradient(90deg, ${specAccentBg} 0%, rgba(15,23,42,0) 72%);">
+      <div class="absolute left-0 top-0 bottom-0 w-1" style="background:${escapeHtml(mutedColor)}"></div>
       <div class="relative">
-        <a class="font-semibold truncate mythicstats-spec-link block" style="color:#0f172a" href="${url}" target="_blank" rel="noreferrer">${name}</a>
+        <a class="font-semibold truncate mythicstats-spec-link block" href="${url}" target="_blank" rel="noreferrer">${name}</a>
       </div>
     </div>`;
 
-    return `<div class="py-1.5">
+    return `<div class="mythicstats-row py-1.5 px-1.5">
       <div class="flex items-center gap-3">
         <div class="w-8"><span class="mythicstats-rank ${rankClass}">${rank}</span></div>
         <div class="w-[400px] min-w-[400px] grid grid-cols-[72px_36px_44px_84px_56px_44px] items-center gap-1">
@@ -1384,7 +1387,7 @@ function renderMythicstatsTable(role, items) {
       </div>
     </div>`;
   });
-  const header = `<div class="py-1 text-xs text-slate-500 font-semibold">
+  const header = `<div class="mythicstats-table-header py-1 text-xs font-semibold">
     <div class="flex items-center gap-3">
       <div class="w-8 text-right">#</div>
       <div class="w-[400px] min-w-[400px] grid grid-cols-[72px_36px_44px_84px_56px_44px] items-center gap-1">
@@ -1398,7 +1401,7 @@ function renderMythicstatsTable(role, items) {
       <div class="flex-1 min-w-0 text-right">平均 DPS（职业色）/ 峰值（刻度）</div>
     </div>
   </div>`;
-  return `<div>${header}<div class="divide-y divide-slate-100">${rows.join("")}</div></div>`;
+  return `<div>${header}<div class="mythicstats-rows">${rows.join("")}</div></div>`;
 }
 
 function renderMythicstatsTables() {
@@ -1418,15 +1421,15 @@ function renderMythicstatsTables() {
   el.innerHTML = `
     <div class="space-y-6">
       <div>
-        <div class="text-xs font-semibold text-slate-700">DPS</div>
+        <div class="mythicstats-section-title">DPS</div>
         <div class="mt-2">${renderMythicstatsTable("damage", damage)}</div>
       </div>
       <div>
-        <div class="text-xs font-semibold text-slate-700">坦克</div>
+        <div class="mythicstats-section-title">坦克</div>
         <div class="mt-2">${renderMythicstatsTable("tank", tank)}</div>
       </div>
       <div>
-        <div class="text-xs font-semibold text-slate-700">治疗</div>
+        <div class="mythicstats-section-title">治疗</div>
         <div class="mt-2">${renderMythicstatsTable("healer", healer)}</div>
       </div>
     </div>
