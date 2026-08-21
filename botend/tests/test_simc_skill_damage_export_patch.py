@@ -87,6 +87,11 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         self.assertIn("action.player->reset()", self.text)
         self.assertNotIn("reset_skill_damage_state", self.text)
 
+    def test_non_finite_runtime_amounts_are_valid_json_nulls_with_evidence(self):
+        self.assertIn("std::isfinite", self.text)
+        self.assertIn("runtime_non_finite_amount", self.text)
+        self.assertIn("write_skill_damage_json_number", self.text)
+
     def test_changed_scenarios_crashes_and_identity_are_explicit(self):
         self.assertIn("skill_damage_amount_changed", self.text)
         self.assertIn("runtime_snapshot_probe", self.text)
