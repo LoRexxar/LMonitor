@@ -48,7 +48,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
             self.assertEqual(command._resolve_wow_build(), '12.1.0.69299')
 
     @override_settings(SIMC_CONFIG={})
-    def test_wow_build_resolution_rejects_binary_build_without_matching_dbc(self):
+    def test_wow_build_resolution_trusts_new_binary_identity_when_stored_dbc_lags(self):
         from botend.management.commands.update_simc_binary import Command
 
         command = Command()
@@ -71,8 +71,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
             'botend.management.commands.update_simc_binary.WowTalentVersion.objects',
             talent_versions,
         ), mock.patch.object(command, '_probe_binary', return_value=(probe_result, probe_output)):
-            with self.assertRaisesRegex(CommandError, '12.1.0.70000 没有对应 DBC 数据'):
-                command._resolve_wow_build()
+            self.assertEqual(command._resolve_wow_build(), '12.1.0.70000')
 
     def test_fetch_fails_fast_while_reset_keeps_long_timeout(self):
         from botend.management.commands.update_simc_binary import Command

@@ -270,12 +270,7 @@ class Command(BaseCommand):
         except (OSError, subprocess.SubprocessError):
             binary_build = ''
         if binary_build:
-            if binary_build in candidates:
-                return binary_build
-            raise CommandError(
-                f'当前 SimC game build {binary_build} 没有对应 DBC 数据；'
-                f'可用候选: {sorted(candidates)}'
-            )
+            return binary_build
         if len(candidates) == 1:
             return candidates.pop()
         detail = '未找到' if not candidates else f'存在多个候选: {sorted(candidates)}'
