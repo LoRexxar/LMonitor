@@ -476,7 +476,7 @@
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260821_skill_damage_expected_v2"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260821_skill_damage_hero_tree"></script>
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806c" defer></script>
     <script src="{% static 'dashboard/js/simc-result-report.js' %}?v=20260817_result_config_panel"></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260818_task_compare_selection"></script>
@@ -1757,7 +1757,7 @@
                                     <div>
                                         <div class="text-xs font-bold uppercase tracking-wider text-stone-500">DBC VERSION SNAPSHOT</div>
                                         <h3 class="mt-1 text-xl font-semibold text-gray-900">技能数学期望伤害对照</h3>
-                                        <p class="mt-1 text-sm text-gray-600">默认读取最新 SimC；每次 DBC Build 更新后自动生成新快照。统一属性预制：AP/SP 100.00、暴击 20.00%、精通 50.00%。数值由 SimC 职业模块按真实 HIT/CRIT 路径计算。</p>
+                                        <p class="mt-1 text-sm text-gray-600">默认读取最新 SimC；每次 DBC Build 更新后自动生成新快照。固定预制面板仅为 AP/SP 100.00、全局暴击 20.00%、精通 50.00%。计算只包含当前角色天赋与技能本身，不启用任何团队或职业增益；技能自身实际暴击率在每行独立展示。</p>
                                         <div id="simc-skill-damage-identity" class="mt-3 text-xs font-mono text-stone-600">尚未加载快照</div>
                                     </div>
                                     <div class="flex flex-wrap items-center gap-2">
@@ -1766,16 +1766,17 @@
                                     </div>
                                 </div>
                                 <div id="simc-skill-damage-status" class="mt-4 rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-700">正在读取最近成功快照…</div>
-                                <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,240px)_minmax(0,1fr)]">
-                                    <select id="simc-skill-damage-spec" class="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-gray-800"><option value="">全部专精</option></select>
+                                <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,220px)_minmax(0,220px)_minmax(0,1fr)]">
+                                    <select id="simc-skill-damage-spec" class="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-gray-800"><option value="">请选择专精</option></select>
+                                    <select id="simc-skill-damage-hero-tree" disabled class="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-gray-800 disabled:bg-stone-100"><option value="">请选择英雄天赋树</option></select>
                                     <input id="simc-skill-damage-search" type="search" class="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-gray-800" placeholder="搜索技能 token、名称或 spell ID">
                                 </div>
                                 <div class="simc-skill-damage-table mt-4 overflow-x-auto rounded-xl border border-stone-300 bg-stone-50">
                                     <table class="min-w-full border-collapse text-sm">
                                         <thead class="bg-stone-200 text-left text-xs font-bold uppercase tracking-wide text-stone-700">
-                                            <tr><th class="px-3 py-3">职业 / 专精</th><th class="px-3 py-3">属性预制值</th><th class="px-3 py-3">技能</th><th class="px-3 py-3">无 Buff 数学期望伤害</th><th class="px-3 py-3">职业 Buff 场景</th></tr>
+                                            <tr><th class="px-3 py-3">技能</th><th class="px-3 py-3">HIT</th><th class="px-3 py-3">CRIT</th><th class="px-3 py-3">技能暴击率</th><th class="px-3 py-3"><button id="simc-skill-damage-sort-expected" type="button" data-direction="desc" class="font-bold text-blue-900 hover:underline">归一化伤害期望 ↓</button></th></tr>
                                         </thead>
-                                        <tbody id="simc-skill-damage-body" class="divide-y divide-stone-300 bg-white"><tr><td colspan="5" class="px-4 py-8 text-center text-stone-500">暂无快照</td></tr></tbody>
+                                        <tbody id="simc-skill-damage-body" class="divide-y divide-stone-300 bg-white"><tr><td colspan="5" class="px-4 py-8 text-center text-stone-500">请先选择专精和英雄天赋树</td></tr></tbody>
                                     </table>
                                 </div>
                             </section>

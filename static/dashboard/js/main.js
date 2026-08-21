@@ -5788,24 +5788,21 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         if (!hasFiniteSimcSkillDamageNumber(value)) return '-';
         return value.toFixed(2);
     };
-    const renderSimcSkillDamageAmount = (amount, label) => {
+    const componentValues = (baseline, field) => ['direct', 'tick'].map(component => {
+        const amount = baseline && baseline[component];
         if (!amount || typeof amount !== 'object') return '';
-        const expected = amount.expected;
-        return `<div class="rounded-lg border border-stone-300 bg-white p-2"><div class="flex items-baseline justify-between gap-4"><span class="font-semibold text-stone-700">${escapeHtml(label)}</span><span class="font-mono text-base font-bold text-blue-900">${formatSimcSkillDamageNumber(expected)}</span></div><div class="mt-1 font-mono text-[11px] text-stone-600">HIT ${formatSimcSkillDamageNumber(amount.hit)} · CRIT ${formatSimcSkillDamageNumber(amount.crit)} · 暴击率 ${formatSimcSkillDamageNumber(amount.crit_chance * 100)}%</div></div>`;
-    };
-    const renderSimcSkillDamageAmounts = amount => {
-        const item = amount && typeof amount === 'object' ? amount : {};
-        const parts = [
-            renderSimcSkillDamageAmount(item.direct, 'Direct 期望'),
-            renderSimcSkillDamageAmount(item.tick, 'Tick 期望'),
-        ].filter(Boolean);
-        return parts.length ? `<div class="space-y-2">${parts.join('')}</div>` : '-';
-    };
+        const label = component === 'direct' ? 'Direct' : 'Tick';
+        const value = field === 'crit_chance' ? amount.crit_chance * 100 : amount[field];
+        const suffix = field === 'crit_chance' && hasFiniteSimcSkillDamageNumber(value) ? '%' : '';
+        return `<div><span class="mr-2 text-[10px] font-bold uppercase text-stone-500">${label}</span>${formatSimcSkillDamageNumber(value)}${suffix}</div>`;
+    }).filter(Boolean).join('');
     const body = document.getElementById('simc-skill-damage-body');
     const identityEl = document.getElementById('simc-skill-damage-identity');
     const specSelect = document.getElementById('simc-skill-damage-spec');
+    const heroTreeSelect = document.getElementById('simc-skill-damage-hero-tree');
     const searchInput = document.getElementById('simc-skill-damage-search');
-    if (!body || !identityEl || !specSelect || !searchInput) return;
+    const sortButton = document.getElementById('simc-skill-damage-sort-expected');
+    if (!body || !identityEl || !specSelect || !heroTreeSelect || !searchInput || !sortButton) return;
 
     const identity = snapshot && snapshot.identity ? snapshot.identity : {};
     identityEl.textContent = snapshot
@@ -5815,42 +5812,71 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         ? snapshot.actors.filter(item => item && typeof item === 'object')
         : [];
     const previousSpec = specSelect.value;
-    const specs = actors.map(actor => `${actor.class || ''}:${actor.specialization || ''}`);
-    specSelect.innerHTML = '<option value="">全部专精</option>' + specs.map((key, index) => {
-        const actor = actors[index];
-        return `<option value="${escapeHtml(key)}">${escapeHtml(actor.class || '-')} / ${escapeHtml(actor.specialization || '-')}</option>`;
-    }).join('');
-    if (specs.includes(previousSpec)) specSelect.value = previousSpec;
+    const specRows = [];
+    const seenSpecs = new Set();
+    actors.forEach(actor => {
+        const key = `${actor.class || ''}:${actor.specialization || ''}`;
+        if (seenSpecs.has(key)) return;
+        seenSpecs.add(key);
+        specRows.push({key, label: `${actor.class || '-'} / ${actor.specialization || '-'}`});
+    });
+    specSelect.innerHTML = '<option value="">请选择专精</option>' + specRows.map(row => (
+        `<option value="${escapeHtml(row.key)}">${escapeHtml(row.label)}</option>`
+    )).join('');
+    if (seenSpecs.has(previousSpec)) specSelect.value = previousSpec;
 
     const selectedSpec = specSelect.value;
+    const previousHeroTree = heroTreeSelect.value;
+    const heroTrees = [...new Set(actors.filter(actor => (
+        `${actor.class || ''}:${actor.specialization || ''}` === selectedSpec
+    )).map(actor => String(actor.hero_talent_tree || '')).filter(Boolean))];
+    heroTreeSelect.innerHTML = '<option value="">请选择英雄天赋树</option>' + heroTrees.map(name => (
+        `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`
+    )).join('');
+    heroTreeSelect.disabled = !selectedSpec;
+    if (heroTrees.includes(previousHeroTree)) heroTreeSelect.value = previousHeroTree;
+
+    const selectedHeroTree = heroTreeSelect.value;
     const query = String(searchInput.value || '').trim().toLowerCase();
+    const sortDirection = sortButton.dataset.direction === 'asc' ? 'asc' : 'desc';
+    sortButton.textContent = `归一化伤害期望 ${sortDirection === 'asc' ? '↑' : '↓'}`;
+    if (!selectedSpec || !selectedHeroTree) {
+        body.innerHTML = '<tr><td colspan="5" class="px-4 py-8 text-center text-stone-500">请先选择专精和英雄天赋树</td></tr>';
+        return;
+    }
+
     const rows = [];
-    actors.forEach(actor => {
-        const actorKey = `${actor.class || ''}:${actor.specialization || ''}`;
-        if (selectedSpec && selectedSpec !== actorKey) return;
-        const attributesHtml = '<div class="space-y-1 font-mono text-xs text-stone-700"><div>AP/SP 100.00</div><div>暴击 20.00%</div><div>精通 50.00%</div></div>';
+    actors.filter(actor => (
+        `${actor.class || ''}:${actor.specialization || ''}` === selectedSpec
+        && String(actor.hero_talent_tree || '') === selectedHeroTree
+    )).forEach(actor => {
         const actions = Array.isArray(actor.actions) ? actor.actions.filter(item => item && typeof item === 'object') : [];
         actions.forEach(action => {
             const haystack = `${action.token || ''} ${action.name || ''} ${action.spell_id || ''}`.toLowerCase();
             if (query && !haystack.includes(query)) return;
-            const baseline = action.baseline || {};
-            const scenarios = Array.isArray(action.scenarios)
-                ? action.scenarios.filter(item => item && typeof item === 'object')
-                : [];
-            const scenarioHtml = scenarios.length ? `<details><summary class="cursor-pointer font-semibold text-blue-800">${scenarios.length} 个场景</summary><div class="mt-2 space-y-2">${scenarios.map(scenario => {
-                const scenarioBuffs = Array.isArray(scenario.buffs) ? scenario.buffs.filter(item => item && typeof item === 'object') : [];
-                const buffs = scenarioBuffs.map(buff => `${escapeHtml(buff.token)} ×${formatSimcSkillDamageNumber(buff.stacks == null ? 1 : buff.stacks)}`).join(' + ') || '无';
-                const values = scenario.values && typeof scenario.values === 'object' ? scenario.values : {};
-                return `<div class="rounded border border-stone-300 bg-stone-50 p-2"><div class="mb-2 font-semibold text-stone-700">${buffs}</div>${renderSimcSkillDamageAmounts(values)}<div class="mt-1 font-mono text-xs text-stone-600">Δ ${formatSimcSkillDamageNumber(scenario.delta_pct)}%</div></div>`;
-            }).join('')}</div></details>` : '<span class="text-stone-500">无职业 Buff 场景</span>';
-            const unsupportedReason = action.supported === false ? (action.unsupported_reason || 'unsupported') : '';
-            const baselineHtml = unsupportedReason
-                ? `<div class="rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-800">暂不支持：${escapeHtml(unsupportedReason)}</div>`
-                : renderSimcSkillDamageAmounts(baseline);
-            rows.push(`<tr class="align-top hover:bg-stone-50"><td class="px-3 py-3 font-semibold text-stone-800">${escapeHtml(actor.class || '-')}<div class="text-xs font-normal text-stone-500">${escapeHtml(actor.specialization || '-')}</div></td><td class="min-w-[150px] px-3 py-3">${attributesHtml}</td><td class="px-3 py-3"><div class="font-semibold text-gray-900">${escapeHtml(action.name || action.token || '-')}</div><div class="font-mono text-xs text-stone-600">${escapeHtml(action.token || '-')} · #${escapeHtml(action.spell_id || 0)}</div>${action.parent_token ? `<div class="mt-1 text-xs text-stone-500">组件：${escapeHtml(action.parent_token)}</div>` : ''}</td><td class="min-w-[270px] px-3 py-3 text-xs text-stone-700">${baselineHtml}${baseline.unresolved_reason ? `<div class="mt-1 text-red-700">${escapeHtml(baseline.unresolved_reason)}</div>` : ''}</td><td class="min-w-[280px] px-3 py-3 text-xs text-stone-700">${scenarioHtml}</td></tr>`);
+            const baseline = action.baseline && typeof action.baseline === 'object' ? action.baseline : {};
+            const expectedValues = [baseline.direct, baseline.tick]
+                .filter(amount => amount && typeof amount === 'object')
+                .map(amount => amount.expected)
+                .filter(hasFiniteSimcSkillDamageNumber);
+            const expectedSortValue = expectedValues.length ? Math.max(...expectedValues) : Number.NEGATIVE_INFINITY;
+            rows.push({actor, action, baseline, expectedSortValue});
         });
     });
-    body.innerHTML = rows.length ? rows.join('') : '<tr><td colspan="5" class="px-4 py-8 text-center text-stone-500">没有符合条件的技能</td></tr>';
+    rows.sort((left, right) => {
+        const delta = left.expectedSortValue - right.expectedSortValue;
+        if (delta) return sortDirection === 'asc' ? delta : -delta;
+        return String(left.action.name || left.action.token || '').localeCompare(String(right.action.name || right.action.token || ''));
+    });
+    body.innerHTML = rows.length ? rows.map(({actor, action, baseline}) => {
+        const unsupportedReason = action.supported === false ? (action.unsupported_reason || 'unsupported') : '';
+        const unresolvedReason = baseline.unresolved_reason || '';
+        const skillMeta = `<div class="font-semibold text-gray-900">${escapeHtml(action.name || action.token || '-')}</div><div class="font-mono text-xs text-stone-600">${escapeHtml(action.token || '-')} · #${escapeHtml(action.spell_id || 0)}</div><div class="mt-1 text-xs text-stone-500">${escapeHtml(actor.hero_talent_tree)} · ${escapeHtml(actor.talent_name || '-')}</div>`;
+        if (unsupportedReason) {
+            return `<tr class="align-top hover:bg-stone-50"><td class="px-3 py-3">${skillMeta}<div class="mt-1 text-amber-700">暂不支持：${escapeHtml(unsupportedReason)}</div></td><td colspan="4" class="px-3 py-3 text-stone-500">-</td></tr>`;
+        }
+        return `<tr class="align-top hover:bg-stone-50"><td class="min-w-[240px] px-3 py-3">${skillMeta}${unresolvedReason ? `<div class="mt-1 text-red-700">${escapeHtml(unresolvedReason)}</div>` : ''}</td><td class="px-3 py-3 font-mono">${componentValues(baseline, 'hit') || '-'}</td><td class="px-3 py-3 font-mono">${componentValues(baseline, 'crit') || '-'}</td><td class="px-3 py-3 font-mono">${componentValues(baseline, 'crit_chance') || '-'}</td><td class="px-3 py-3 font-mono font-bold text-blue-900">${componentValues(baseline, 'expected') || '-'}</td></tr>`;
+    }).join('') : '<tr><td colspan="5" class="px-4 py-8 text-center text-stone-500">没有符合条件的技能</td></tr>';
 }
 
 function initSimcSkillDamagePanel() {
@@ -5860,7 +5886,9 @@ function initSimcSkillDamagePanel() {
     const generateBtn = document.getElementById('simc-skill-damage-generate');
     const refreshBtn = document.getElementById('simc-skill-damage-refresh');
     const specSelect = document.getElementById('simc-skill-damage-spec');
+    const heroTreeSelect = document.getElementById('simc-skill-damage-hero-tree');
     const searchInput = document.getElementById('simc-skill-damage-search');
+    const sortButton = document.getElementById('simc-skill-damage-sort-expected');
     let currentSnapshot = null;
     let pollTimer = null;
 
@@ -5885,8 +5913,16 @@ function initSimcSkillDamagePanel() {
     };
 
     refreshBtn.addEventListener('click', () => load().catch(error => showMessage(error.message, 'error')));
-    specSelect.addEventListener('change', () => renderSimcSkillDamageSnapshot(currentSnapshot));
+    specSelect.addEventListener('change', () => {
+        heroTreeSelect.value = '';
+        renderSimcSkillDamageSnapshot(currentSnapshot);
+    });
+    heroTreeSelect.addEventListener('change', () => renderSimcSkillDamageSnapshot(currentSnapshot));
     searchInput.addEventListener('input', () => renderSimcSkillDamageSnapshot(currentSnapshot));
+    sortButton.addEventListener('click', () => {
+        sortButton.dataset.direction = sortButton.dataset.direction === 'asc' ? 'desc' : 'asc';
+        renderSimcSkillDamageSnapshot(currentSnapshot);
+    });
     generateBtn.addEventListener('click', async () => {
         generateBtn.disabled = true;
         try {

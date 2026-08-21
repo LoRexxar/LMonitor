@@ -1,3 +1,4 @@
+import copy
 import json
 import math
 import os
@@ -9,8 +10,11 @@ from django.conf import settings
 from django.db import close_old_connections
 from django.utils import timezone
 
-from botend.models import SimcBackendBinary, SimcProfile, SimcSkillDamageSnapshot
+from botend.models import (
+    SimcBackendBinary, SimcProfile, SimcSkillDamageSnapshot, SimcTalentString,
+)
 from botend.services.simc_composer import SimcComposer
+from botend.services.simc_hero_talents import HeroTalentAnalysisError, resolve_hero_talent_names
 
 
 class SimcSkillDamageSnapshotService:
@@ -64,12 +68,18 @@ class SimcSkillDamageSnapshotService:
             schema_revision=cls.EXPORTER_SCHEMA_REVISION,
             defaults={'requested_by_id': requested_by_id},
         )
-        if not created and snapshot.status in (
-            SimcSkillDamageSnapshot.STATUS_RUNNING,
-            SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
-        ):
-            raise ValueError('该 SimC/DBC/exporter 版本已生成或正在生成。')
         if not created:
+            actors = (snapshot.payload or {}).get('actors') or []
+            has_hero_tree_data = bool(actors) and all(
+                str(actor.get('hero_talent_tree') or '').strip()
+                for actor in actors
+                if isinstance(actor, dict)
+            )
+            if snapshot.status == SimcSkillDamageSnapshot.STATUS_RUNNING or (
+                snapshot.status == SimcSkillDamageSnapshot.STATUS_SUCCEEDED
+                and has_hero_tree_data
+            ):
+                raise ValueError('该 SimC/DBC/exporter 版本已生成或正在生成。')
             snapshot.status = SimcSkillDamageSnapshot.STATUS_PENDING
             snapshot.error_text = ''
             snapshot.requested_by_id = requested_by_id
@@ -94,6 +104,61 @@ class SimcSkillDamageSnapshotService:
             raise ValueError('没有可用于初始化职业模块的 active SimC 上游 Profile。')
         return selected
 
+    def _talents(self):
+        return list(SimcTalentString.objects.filter(
+            is_active=True,
+            is_selectable=True,
+            is_system=True,
+        ).exclude(talent='').order_by('spec', '-modified_at', '-id'))
+
+    def _baselines(self):
+        """Choose one server-owned talent build for every actual spec/hero-tree pair."""
+        profiles = {str(row.spec or '').lower(): row for row in self._profiles()}
+        candidates = {}
+        for talent in self._talents():
+            spec = str(talent.spec or '').lower()
+            profile = profiles.get(spec)
+            if not profile:
+                continue
+            stored_names = [
+                str(name or '').strip()
+                for name in (getattr(talent, 'hero_talent_names', None) or [])
+                if str(name or '').strip()
+            ]
+            provisional_names = stored_names or [f'__unlabeled__:{talent.pk}']
+            rank = (
+                str(getattr(talent, 'system_key', '') or '') == f'simc_upstream:{spec}',
+                talent.modified_at,
+                talent.pk,
+            )
+            for provisional_name in provisional_names:
+                key = (spec, provisional_name)
+                previous = candidates.get(key)
+                if previous is None or rank > previous[0]:
+                    candidates[key] = (rank, profile, talent)
+
+        selected = {}
+        for rank, profile, talent in candidates.values():
+            spec = str(talent.spec or '').lower()
+            try:
+                names = resolve_hero_talent_names(talent.talent, spec)
+            except HeroTalentAnalysisError:
+                continue
+            if len(names) != 1:
+                continue
+            hero_tree = str(names[0] or '').strip()
+            if not hero_tree:
+                continue
+            key = (spec, hero_tree)
+            previous = selected.get(key)
+            if previous is None or rank > previous[0]:
+                selected[key] = (rank, profile, talent, hero_tree)
+        baselines = [value[1:] for value in selected.values()]
+        baselines.sort(key=lambda row: (str(row[0].spec or '').lower(), row[2]))
+        if not baselines:
+            raise ValueError('没有可用于技能伤害快照的专精/英雄天赋树基线。')
+        return baselines
+
     def _binary_path(self):
         config = getattr(settings, 'SIMC_CONFIG', {}) or {}
         configured = str(config.get('simc_path') or '')
@@ -102,8 +167,10 @@ class SimcSkillDamageSnapshotService:
             raise ValueError('SimC exporter 二进制不可执行。')
         return path
 
-    def _run_profile_export(self, profile):
-        simc_input = SimcComposer(None).compose_validation_input(profile, '')
+    def _run_profile_export(self, profile, talent):
+        baseline_profile = copy.copy(profile)
+        baseline_profile.talent = talent.talent
+        simc_input = SimcComposer(None).compose_validation_input(baseline_profile, '')
         with tempfile.TemporaryDirectory(prefix='simc-skill-damage-') as tmp:
             input_path = Path(tmp) / 'actor.simc'
             output_path = Path(tmp) / 'export.json'
@@ -192,13 +259,15 @@ class SimcSkillDamageSnapshotService:
         try:
             actors = []
             unresolved = []
-            for profile in self._profiles():
-                exported = self._run_profile_export(profile)
+            for profile, talent, hero_tree in self._baselines():
+                exported = self._run_profile_export(profile, talent)
                 for actor in exported.get('actors', []):
                     actor = dict(actor)
                     actor.pop('name', None)
                     if 'specialization' not in actor and actor.get('spec'):
                         actor['specialization'] = actor.pop('spec')
+                    actor['hero_talent_tree'] = hero_tree
+                    actor['talent_name'] = talent.name
                     actors.append(actor)
                 unresolved.extend(exported.get('unresolved', []))
             payload = {
