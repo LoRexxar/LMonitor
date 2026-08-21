@@ -18,6 +18,29 @@ from botend.tests.simc_apl_symbol_test_utils import create_symbol_scope
 
 
 class UpdateSimcBinaryCommandTests(TestCase):
+    def test_recover_interrupted_simc_update_releases_only_active_production_claim(self):
+        production, _ = SimcBackendBinary.objects.update_or_create(
+            identifier='production',
+            defaults={
+                'name': '正式服', 'platform': 'linux', 'is_updating': True,
+                'update_progress': 60, 'update_status': '编译 SimC (-j2)', 'last_error': '',
+            },
+        )
+        other = SimcBackendBinary.objects.create(
+            identifier='oss-e2e', name='测试', platform='linux',
+            is_updating=True, update_progress=20, update_status='测试更新',
+        )
+
+        call_command('recover_interrupted_simc_update')
+
+        production.refresh_from_db()
+        other.refresh_from_db()
+        self.assertFalse(production.is_updating)
+        self.assertEqual(production.update_status, '部署重启已中断 SimC 更新')
+        self.assertEqual(production.last_error, '部署重启中断了进程内 SimC 更新，请重新触发')
+        self.assertTrue(other.is_updating)
+        self.assertEqual(other.update_status, '测试更新')
+
     def test_discard_managed_commits_allows_lazy_clone_reset_to_fetch_blobs(self):
         """A partial-clone reset may fetch many blobs and must not inherit a 120s timeout."""
         from botend.management.commands.update_simc_binary import Command
