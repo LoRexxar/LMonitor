@@ -8,6 +8,7 @@ from io import StringIO
 from pathlib import Path
 from unittest import mock
 
+from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
@@ -18,6 +19,14 @@ from botend.tests.simc_apl_symbol_test_utils import create_symbol_scope
 
 
 class UpdateSimcBinaryCommandTests(TestCase):
+    def test_deploy_recovers_interrupted_simc_update_after_service_restarts(self):
+        deploy_script = (Path(settings.BASE_DIR) / 'deploy.sh').read_text(encoding='utf-8')
+        recover_index = deploy_script.index('manage.py recover_interrupted_simc_update')
+        simc_restart_index = deploy_script.index('manage.py simc_worker')
+        health_check_index = deploy_script.index('=== 8. 检查服务状态 ===')
+        self.assertGreater(recover_index, simc_restart_index)
+        self.assertLess(recover_index, health_check_index)
+
     def test_recover_interrupted_simc_update_releases_only_active_production_claim(self):
         production, _ = SimcBackendBinary.objects.update_or_create(
             identifier='production',

@@ -49,7 +49,6 @@ echo "=== 5. 重启 lmweb ==="
 screen -S lmweb -X quit 2>/dev/null || true
 kill_processes 'manage.py runserver 0.0.0.0:18000'
 sleep 2
-"$PYTHON_BIN" manage.py recover_interrupted_simc_update
 screen -dmS lmweb bash -lc "cd ~/LMonitor && $PYTHON_BIN manage.py runserver 0.0.0.0:18000 --noreload"
 
 echo "=== 6. 重启 lmback ==="
@@ -63,6 +62,8 @@ screen -S lmsimc -X quit 2>/dev/null || true
 kill_processes 'manage.py simc_worker'
 sleep 2
 screen -dmS lmsimc bash -lc "cd ~/LMonitor && $PYTHON_BIN manage.py simc_worker"
+
+"$PYTHON_BIN" manage.py recover_interrupted_simc_update
 
 echo "=== 8. 检查服务状态 ==="
 for session in lmweb lmback lmsimc; do
