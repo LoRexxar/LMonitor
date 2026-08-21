@@ -5878,9 +5878,12 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const unresolvedReason = baseline.unresolved_reason || '';
         const skillMeta = renderSimcSkillIdentity(action);
         if (unsupportedReason) {
-            return `<tr class="align-top hover:bg-stone-50"><td class="px-3 py-3">${skillMeta}<div class="mt-1 text-amber-700">暂不支持：${escapeHtml(unsupportedReason)}</div></td><td colspan="4" class="px-3 py-3 text-stone-500">-</td></tr>`;
+            return `<tr class="align-top hover:bg-stone-50"><td class="px-3 py-3">${skillMeta}</td><td colspan="4" class="px-3 py-3 text-amber-700">暂不支持：${escapeHtml(unsupportedReason)}</td></tr>`;
         }
-        return `<tr class="align-top hover:bg-stone-50"><td class="min-w-[240px] px-3 py-3">${skillMeta}${unresolvedReason ? `<div class="mt-1 text-red-700">${escapeHtml(unresolvedReason)}</div>` : ''}</td><td class="px-3 py-3 font-mono">${componentValues(baseline, 'hit') || '-'}</td><td class="px-3 py-3 font-mono">${componentValues(baseline, 'crit') || '-'}</td><td class="px-3 py-3 font-mono">${componentValues(baseline, 'crit_chance') || '-'}</td><td class="px-3 py-3 font-mono font-bold text-blue-900">${componentValues(baseline, 'expected') || '-'}</td></tr>`;
+        const expectedCell = unresolvedReason
+            ? `<span class="text-red-700">${escapeHtml(unresolvedReason)}</span>`
+            : (componentValues(baseline, 'expected') || '-');
+        return `<tr class="align-top hover:bg-stone-50"><td class="min-w-[240px] px-3 py-3">${skillMeta}</td><td class="px-3 py-3 font-mono">${componentValues(baseline, 'hit') || '-'}</td><td class="px-3 py-3 font-mono">${componentValues(baseline, 'crit') || '-'}</td><td class="px-3 py-3 font-mono">${componentValues(baseline, 'crit_chance') || '-'}</td><td class="px-3 py-3 font-mono font-bold text-blue-900">${expectedCell}</td></tr>`;
     }).join('') : '<tr><td colspan="5" class="px-4 py-8 text-center text-stone-500">没有符合条件的技能</td></tr>';
 }
 

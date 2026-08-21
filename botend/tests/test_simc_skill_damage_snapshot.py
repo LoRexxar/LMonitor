@@ -296,6 +296,10 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         self.assertNotIn('action.token', identity_renderer)
         self.assertNotIn('hero_talent_tree', identity_renderer)
         self.assertNotIn('talent_name', identity_renderer)
+        damage_renderer = script.split('function renderSimcSkillDamageSnapshot(snapshot) {', 1)[1].split(
+            'function initSimcSkillDamagePanel() {', 1,
+        )[0]
+        self.assertNotIn('${skillMeta}<div', damage_renderer)
 
     def test_post_requires_staff(self):
         request = self.factory.post('/api/simc-skill-damage/', data='{}', content_type='application/json')
