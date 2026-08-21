@@ -7,6 +7,7 @@ from django.test import SimpleTestCase
 PATCH_DIR = Path(__file__).resolve().parents[2] / "simc_patches"
 PATCH = PATCH_DIR / "0006-skill-damage-state-export.patch"
 NON_FINITE_PATCH = PATCH_DIR / "0007-skill-damage-non-finite-json.patch"
+DBC_UNIVERSE_PATCH = PATCH_DIR / "0008-skill-damage-dbc-universe.patch"
 
 
 class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
@@ -15,6 +16,7 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         super().setUpClass()
         cls.text = PATCH.read_text(encoding="utf-8")
         cls.non_finite_text = NON_FINITE_PATCH.read_text(encoding="utf-8")
+        cls.dbc_universe_text = DBC_UNIVERSE_PATCH.read_text(encoding="utf-8")
 
     def test_cli_controls_and_early_initialized_export(self):
         for token in (
@@ -118,3 +120,23 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         self.assertIn("unresolved_reason", self.text)
         self.assertIn("exported_actions.emplace", self.text)
         self.assertIn("immutable scenario key", self.text)
+
+    def test_action_universe_comes_from_dbc_and_selected_traits_not_apl(self):
+        for token in (
+            "active_class_spell_t::data",
+            "specialization_spell_entry_t::data",
+            "player_traits",
+            "trait_data_t::find",
+            "action_names_from_spell_id",
+            "create_action",
+            "skill_damage_dbc_candidates",
+            "dbc_candidate_source",
+            "dbc_spellbook_selected_traits_and_derived_actions",
+        ):
+            self.assertIn(token, self.dbc_universe_text)
+        self.assertIn("unresolved_reason", self.dbc_universe_text)
+        self.assertIn("std::vector<action_t*> actions", self.dbc_universe_text)
+        self.assertIn("std::any_of", self.dbc_universe_text)
+        self.assertNotIn("candidate.action = action;\n+          break;", self.dbc_universe_text)
+        self.assertIn("INIT_ACTOR_CREATE_ACTIONS + 90", self.dbc_universe_text)
+        self.assertNotIn("action_priority_list", self.dbc_universe_text)

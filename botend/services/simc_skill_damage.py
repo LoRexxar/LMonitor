@@ -136,10 +136,18 @@ class SimcSkillDamageSnapshotService:
         game_build = str(backend.game_build or '').strip()
         latest = SimcSkillDamageSnapshot.latest_success()
         revision = str(backend.current_version or '').strip().lower()
+        latest_actors = (latest.payload or {}).get('actors') or [] if latest else []
+        latest_has_complete_actor_data = bool(latest_actors) and all(
+            isinstance(actor, dict)
+            and str(actor.get('hero_talent_tree') or '').strip()
+            and actor.get('action_universe') == 'dbc_spellbook_selected_traits_and_derived_actions'
+            for actor in latest_actors
+        )
         if latest and (
             latest.simc_revision == revision
             and latest.game_build == game_build
             and latest.schema_revision == cls.EXPORTER_SCHEMA_REVISION
+            and latest_has_complete_actor_data
         ):
             return None
         service = cls.create_for_current_backend()
@@ -165,14 +173,15 @@ class SimcSkillDamageSnapshotService:
         )
         if not created:
             actors = (snapshot.payload or {}).get('actors') or []
-            has_hero_tree_data = bool(actors) and all(
-                str(actor.get('hero_talent_tree') or '').strip()
+            has_complete_actor_data = bool(actors) and all(
+                isinstance(actor, dict)
+                and str(actor.get('hero_talent_tree') or '').strip()
+                and actor.get('action_universe') == 'dbc_spellbook_selected_traits_and_derived_actions'
                 for actor in actors
-                if isinstance(actor, dict)
             )
             if snapshot.status == SimcSkillDamageSnapshot.STATUS_RUNNING or (
                 snapshot.status == SimcSkillDamageSnapshot.STATUS_SUCCEEDED
-                and has_hero_tree_data
+                and has_complete_actor_data
             ):
                 raise ValueError('该 SimC/DBC/exporter 版本已生成或正在生成。')
             snapshot.status = SimcSkillDamageSnapshot.STATUS_PENDING
@@ -209,32 +218,17 @@ class SimcSkillDamageSnapshotService:
     def _baselines(self):
         """Choose one server-owned talent build for every actual spec/hero-tree pair."""
         profiles = {str(row.spec or '').lower(): row for row in self._profiles()}
-        candidates = {}
+        grouped = {}
         for talent in self._talents():
             spec = str(talent.spec or '').lower()
             profile = profiles.get(spec)
             if not profile:
                 continue
-            stored_names = [
-                str(name or '').strip()
-                for name in (getattr(talent, 'hero_talent_names', None) or [])
-                if str(name or '').strip()
-            ]
-            provisional_names = stored_names or [f'__unlabeled__:{talent.pk}']
             rank = (
                 str(getattr(talent, 'system_key', '') or '') == f'simc_upstream:{spec}',
                 talent.modified_at,
                 talent.pk,
             )
-            for provisional_name in provisional_names:
-                key = (spec, provisional_name)
-                previous = candidates.get(key)
-                if previous is None or rank > previous[0]:
-                    candidates[key] = (rank, profile, talent)
-
-        selected = {}
-        for rank, profile, talent in candidates.values():
-            spec = str(talent.spec or '').lower()
             try:
                 names = resolve_hero_talent_names(talent.talent, spec)
             except HeroTalentAnalysisError:
@@ -244,15 +238,26 @@ class SimcSkillDamageSnapshotService:
             hero_tree = str(names[0] or '').strip()
             if not hero_tree:
                 continue
-            key = (spec, hero_tree)
-            previous = selected.get(key)
-            if previous is None or rank > previous[0]:
-                selected[key] = (rank, profile, talent, hero_tree)
-        baselines = [value[1:] for value in selected.values()]
+            grouped.setdefault((spec, hero_tree), []).append((rank, profile, talent, hero_tree))
+
+        baselines = []
+        self._baseline_fallback_map = {}
+        for key, rows in grouped.items():
+            rows.sort(key=lambda row: row[0], reverse=True)
+            _rank, profile, selected_talent, hero_tree = rows[0]
+            baselines.append((profile, selected_talent, hero_tree))
+            self._baseline_fallback_map[key] = [row[2] for row in rows[1:]]
         baselines.sort(key=lambda row: (str(row[0].spec or '').lower(), row[2]))
         if not baselines:
             raise ValueError('没有可用于技能伤害快照的专精/英雄天赋树基线。')
         return baselines
+
+    def _fallback_talents(self, profile, talent, hero_tree):
+        key = (str(getattr(profile, 'spec', '') or '').lower(), str(hero_tree or '').strip())
+        return [
+            candidate for candidate in getattr(self, '_baseline_fallback_map', {}).get(key, [])
+            if candidate.pk != talent.pk
+        ]
 
     def _binary_path(self):
         config = getattr(settings, 'SIMC_CONFIG', {}) or {}
@@ -355,14 +360,28 @@ class SimcSkillDamageSnapshotService:
             actors = []
             unresolved = []
             for profile, talent, hero_tree in self._baselines():
-                try:
-                    exported = self._run_profile_export(profile, talent)
-                except RuntimeError as exc:
+                exported = None
+                selected_talent = None
+                attempts = [talent, *self._fallback_talents(profile, talent, hero_tree)]
+                errors = []
+                seen_talent_ids = set()
+                for candidate in attempts:
+                    if candidate.pk in seen_talent_ids:
+                        continue
+                    seen_talent_ids.add(candidate.pk)
+                    try:
+                        exported = self._run_profile_export(profile, candidate)
+                    except RuntimeError as exc:
+                        errors.append((candidate.pk, str(exc)[-2000:]))
+                        continue
+                    selected_talent = candidate
+                    break
+                if exported is None:
                     unresolved.append({
                         'specialization': str(profile.spec or ''),
                         'hero_talent_tree': hero_tree,
                         'talent_id': talent.pk,
-                        'reason': str(exc)[-2000:],
+                        'reason': errors[-1][1] if errors else '没有可执行的同英雄树天赋候选。',
                     })
                     continue
                 for actor in exported.get('actors', []):
@@ -371,7 +390,7 @@ class SimcSkillDamageSnapshotService:
                     if 'specialization' not in actor and actor.get('spec'):
                         actor['specialization'] = actor.pop('spec')
                     actor['hero_talent_tree'] = hero_tree
-                    actor['talent_name'] = talent.name
+                    actor['talent_name'] = selected_talent.name
                     actors.append(actor)
                 unresolved.extend(exported.get('unresolved', []))
             payload = {

@@ -70,7 +70,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             ],
         )
 
-    def test_existing_schema_two_snapshot_without_hero_tree_can_refresh_in_place(self):
+    def test_existing_schema_two_snapshot_without_dbc_universe_can_refresh_in_place(self):
         backend, _ = SimcBackendBinary.objects.update_or_create(
             identifier='production',
             defaults={
@@ -84,7 +84,11 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             game_build='12.1.0.69300',
             schema_revision=2,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
-            payload={'actors': [{'specialization': 'fury', 'actions': []}]},
+            payload={'actors': [{
+                'specialization': 'fury',
+                'hero_talent_tree': '屠戮者',
+                'actions': [],
+            }]},
         )
 
         service = SimcSkillDamageSnapshotService.create_for_current_backend()
@@ -169,6 +173,35 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             'reason': 'choice node index invalid',
         }])
 
+    def test_generate_falls_back_within_same_hero_tree_after_stale_talent_fails(self):
+        snapshot = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='c' * 40, game_build='12.1.0.69299', schema_revision=2,
+        )
+        profile = SimpleNamespace(spec='warrior_fury')
+        stale = SimpleNamespace(name='Upstream Fury', pk=192)
+        valid = SimpleNamespace(name='Fury Slayer', pk=95)
+        valid_output = {
+            'actors': [{'class': 'warrior', 'specialization': 'fury', 'actions': []}],
+            'unresolved': [],
+        }
+        service = SimcSkillDamageSnapshotService(snapshot)
+        with mock.patch.object(
+            service, '_baselines', return_value=[(profile, stale, '屠戮者')],
+        ), mock.patch.object(
+            service, '_fallback_talents', return_value=[valid],
+        ), mock.patch.object(
+            service,
+            '_run_profile_export',
+            side_effect=[RuntimeError('selected node is not available'), valid_output],
+        ) as run:
+            result = service.generate()
+
+        self.assertEqual(run.call_args_list, [mock.call(profile, stale), mock.call(profile, valid)])
+        self.assertEqual(len(result['actors']), 1)
+        self.assertEqual(result['actors'][0]['hero_talent_tree'], '屠戮者')
+        self.assertEqual(result['actors'][0]['talent_name'], 'Fury Slayer')
+        self.assertEqual(result['unresolved'], [])
+
     def test_schema_two_requires_exported_mathematical_expectation(self):
         snapshot = SimcSkillDamageSnapshot(
             simc_revision='c' * 40, game_build='12.1.0.69299', schema_revision=2,
@@ -218,6 +251,12 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         SimcSkillDamageSnapshot.objects.create(
             simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=2,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+            payload={'actors': [{
+                'specialization': 'fury',
+                'hero_talent_tree': '屠戮者',
+                'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
+                'actions': [],
+            }]},
         )
 
         with mock.patch.object(SimcSkillDamageSnapshotService, 'generate') as generate:
