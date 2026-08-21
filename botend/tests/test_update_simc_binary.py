@@ -90,6 +90,44 @@ class UpdateSimcBinaryCommandTests(TestCase):
 
         self.assertEqual(run.call_args_list[0].kwargs['timeout'], 300)
 
+    def test_ninja_compile_allows_slow_production_build_to_finish(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_dir = Path(tmpdir) / 'simc'
+            build_dir = source_dir / 'build-cli'
+            build_dir.mkdir(parents=True)
+            binary_path = build_dir / 'simc'
+            binary_path.write_text('binary', encoding='utf-8')
+
+            command = Command()
+            command.simc_source_dir = str(source_dir)
+            command.simc_build_dir = str(build_dir)
+            command.simc_binary_path = str(binary_path)
+            command.row = mock.Mock(
+                simc_path='', current_version='', latest_version='', last_error='',
+                is_updating=True, update_progress=1, update_status='',
+            )
+            command._set_status = mock.Mock()
+            command._get_git_hash = mock.Mock(return_value='a' * 40)
+            command._get_git_version = mock.Mock(return_value='test-version')
+            command._probe_binary = mock.Mock(return_value=(
+                subprocess.CompletedProcess([], 0),
+                'SimulationCraft 1210-01 for World of Warcraft 12.1.0.69404 Live',
+            ))
+            command._sync_generated_inputs = mock.Mock()
+            command._stored_simc_path = mock.Mock(return_value=str(binary_path))
+            command._refresh_skill_damage_after_dbc_update = mock.Mock()
+            command._run = mock.Mock()
+
+            command._update_binary(do_pull=False, threads=2, apply_patches=False)
+
+            ninja_call = next(
+                call for call in command._run.call_args_list
+                if call.args and call.args[0][0] == 'ninja'
+            )
+            self.assertGreaterEqual(ninja_call.kwargs['timeout'], 3600)
+
     def test_deploy_recovers_interrupted_simc_update_after_service_restarts(self):
         deploy_script = (Path(settings.BASE_DIR) / 'deploy.sh').read_text(encoding='utf-8')
         recover_index = deploy_script.index('manage.py recover_interrupted_simc_update')
