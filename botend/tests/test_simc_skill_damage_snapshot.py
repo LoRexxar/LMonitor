@@ -140,15 +140,29 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn('默认读取最新 SimC；每次 DBC Build 更新后自动生成新快照', template)
         self.assertIn('AP/SP 归一化为 1', template)
         self.assertIn('simc-skill-damage-table', template)
-        self.assertLess(
-            template.index('id="simc-workbench-backend-panel"'),
-            template.index('id="simc-skill-damage-panel"'),
-        )
-        self.assertLess(
-            template.index('id="simc-skill-damage-panel"'),
-            template.index('id="simc-workbench-rules-panel"'),
-        )
+        self.assertIn('data-dashboard-section="simc-skill-damage"', template)
+        self.assertIn('id="simc-skill-damage"', template)
+        self.assertIn("'skill-damage': 'simc-skill-damage'", script)
         self.assertIn('/api/simc-skill-damage/', script)
         self.assertIn('renderSimcSkillDamageSnapshot', script)
         self.assertIn('initSimcSkillDamagePanel();', script)
         self.assertNotIn('bg-gray-900 simc-skill-damage', template)
+
+    def test_dashboard_normalizes_baseline_to_100_and_shows_two_decimal_attribute_preset(self):
+        template = Path('templates/dashboard/index.html').read_text(encoding='utf-8')
+        script = Path('static/dashboard/js/main.js').read_text(encoding='utf-8')
+        renderer = script.split('function renderSimcSkillDamageSnapshot(snapshot) {', 1)[1].split(
+            'function initSimcSkillDamagePanel()', 1,
+        )[0]
+
+        self.assertIn('属性预制值', template)
+        self.assertIn('基础伤害归一值（100.00）', template)
+        self.assertIn('formatSimcSkillDamageNumber', renderer)
+        self.assertIn('hasFiniteSimcSkillDamageNumber', renderer)
+        self.assertIn("typeof value === 'number' && Number.isFinite(value)", renderer)
+        self.assertIn('multiplier * 100', renderer)
+        self.assertIn("filter(item => item && typeof item === 'object')", renderer)
+        for field in ('primary_attribute', 'attack_power', 'spell_power', 'crit', 'haste', 'mastery', 'versatility'):
+            self.assertIn(field, renderer)
+        self.assertNotRegex(renderer, r'\.toFixed\((?!2\))')
+        self.assertIn('html[data-dashboard-theme="dark"] #simc-skill-damage-panel', template)

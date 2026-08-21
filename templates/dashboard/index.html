@@ -454,6 +454,18 @@
         html[data-dashboard-theme="dark"] .main-content [class*="hover:bg-gray-"],
         html[data-dashboard-theme="dark"] #sidebar [class*="hover:bg-gray-"] { --tw-bg-opacity: 1; }
 
+        /* 技能伤害快照按产品约定始终使用浅色对照表，不随 Dashboard 深色主题反转。 */
+        html[data-dashboard-theme="dark"] #simc-skill-damage { color: #292b2f; color-scheme: light; }
+        html[data-dashboard-theme="dark"] #simc-skill-damage-panel,
+        html[data-dashboard-theme="dark"] #simc-skill-damage [class~="bg-white"] { background-color: #fcfbf8 !important; }
+        html[data-dashboard-theme="dark"] #simc-skill-damage [class~="bg-stone-50"] { background-color: #f4f1ec !important; }
+        html[data-dashboard-theme="dark"] #simc-skill-damage [class~="bg-stone-200"] { background-color: #e7e2da !important; }
+        html[data-dashboard-theme="dark"] #simc-skill-damage [class*="border-stone-"] { border-color: #d6d0c7 !important; }
+        html[data-dashboard-theme="dark"] #simc-skill-damage [class*="text-gray-"],
+        html[data-dashboard-theme="dark"] #simc-skill-damage [class*="text-stone-"] { color: #3f4145 !important; }
+        html[data-dashboard-theme="dark"] #simc-skill-damage input,
+        html[data-dashboard-theme="dark"] #simc-skill-damage select { background-color: #fff !important; border-color: #d6d0c7 !important; color: #292b2f !important; }
+
     </style>
     {% block dashboard_extra_head %}{% endblock %}
     {% if page_name == 'dashboard' %}
@@ -464,7 +476,7 @@
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260821_skill_damage_snapshot"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260821_skill_damage_normalized"></script>
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806c" defer></script>
     <script src="{% static 'dashboard/js/simc-result-report.js' %}?v=20260817_result_config_panel"></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260818_task_compare_selection"></script>
@@ -1745,7 +1757,7 @@
                                     <div>
                                         <div class="text-xs font-bold uppercase tracking-wider text-stone-500">DBC VERSION SNAPSHOT</div>
                                         <h3 class="mt-1 text-xl font-semibold text-gray-900">技能基础伤害对照</h3>
-                                        <p class="mt-1 text-sm text-gray-600">默认读取最新 SimC；每次 DBC Build 更新后自动生成新快照。AP/SP 归一化为 1。</p>
+                                        <p class="mt-1 text-sm text-gray-600">默认读取最新 SimC；每次 DBC Build 更新后自动生成新快照。AP/SP 归一化为 1.00，技能基础伤害统一显示为 100.00。</p>
                                         <div id="simc-skill-damage-identity" class="mt-3 text-xs font-mono text-stone-600">尚未加载快照</div>
                                     </div>
                                     <div class="flex flex-wrap items-center gap-2">
@@ -1761,9 +1773,9 @@
                                 <div class="simc-skill-damage-table mt-4 overflow-x-auto rounded-xl border border-stone-300 bg-stone-50">
                                     <table class="min-w-full border-collapse text-sm">
                                         <thead class="bg-stone-200 text-left text-xs font-bold uppercase tracking-wide text-stone-700">
-                                            <tr><th class="px-3 py-3">职业 / 专精</th><th class="px-3 py-3">技能包</th><th class="px-3 py-3">DBC 归一化值</th><th class="px-3 py-3">Runtime baseline</th><th class="px-3 py-3">职业 Buff 场景</th></tr>
+                                            <tr><th class="px-3 py-3">职业 / 专精</th><th class="px-3 py-3">属性预制值</th><th class="px-3 py-3">技能包</th><th class="px-3 py-3">DBC 归一化值</th><th class="px-3 py-3">基础伤害归一值（100.00）</th><th class="px-3 py-3">职业 Buff 场景</th></tr>
                                         </thead>
-                                        <tbody id="simc-skill-damage-body" class="divide-y divide-stone-300 bg-white"><tr><td colspan="5" class="px-4 py-8 text-center text-stone-500">暂无快照</td></tr></tbody>
+                                        <tbody id="simc-skill-damage-body" class="divide-y divide-stone-300 bg-white"><tr><td colspan="6" class="px-4 py-8 text-center text-stone-500">暂无快照</td></tr></tbody>
                                     </table>
                                 </div>
                             </section>
