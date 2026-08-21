@@ -113,6 +113,14 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn('技能基础伤害对照', template)
         self.assertIn('AP/SP 归一化为 1', template)
         self.assertIn('simc-skill-damage-table', template)
+        self.assertLess(
+            template.index('id="simc-workbench-backend-panel"'),
+            template.index('id="simc-skill-damage-panel"'),
+        )
+        self.assertLess(
+            template.index('id="simc-skill-damage-panel"'),
+            template.index('id="simc-workbench-rules-panel"'),
+        )
         self.assertIn('/api/simc-skill-damage/', script)
         self.assertIn('renderSimcSkillDamageSnapshot', script)
         self.assertIn('initSimcSkillDamagePanel();', script)
