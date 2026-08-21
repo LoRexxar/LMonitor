@@ -241,8 +241,13 @@ class Command(BaseCommand):
         source_dir = os.path.join(self.simc_source_dir, 'ActionPriorityLists', 'default')
         call_command('import_simc_apl', source_dir=source_dir, sync_version=git_hash, strict=True)
 
+    @staticmethod
+    def _parse_game_build(output):
+        match = re.search(r'World of Warcraft\s+(\d+\.\d+\.\d+\.\d+)', str(output or ''))
+        return match.group(1) if match else ''
+
     def _resolve_wow_build(self, override=''):
-        """Resolve one authoritative build: CLI, config, then agreeing current DB state."""
+        """Resolve one authoritative build: CLI/config, then the current binary identity."""
         explicit = str(override or '').strip()
         if explicit:
             return explicit
@@ -256,10 +261,27 @@ class Command(BaseCommand):
             is_active=True, is_default_simulator=True).exclude(current_build='')
                           .values_list('current_build', flat=True))
         candidates = {str(value).strip() for value in candidates if str(value).strip()}
+
+        binary_build = ''
+        try:
+            result, output = self._probe_binary()
+            if result.returncode == 0 and 'SimulationCraft' in output:
+                binary_build = self._parse_game_build(output)
+        except (OSError, subprocess.SubprocessError):
+            binary_build = ''
+        if binary_build:
+            if binary_build in candidates:
+                return binary_build
+            raise CommandError(
+                f'当前 SimC game build {binary_build} 没有对应 DBC 数据；'
+                f'可用候选: {sorted(candidates)}'
+            )
         if len(candidates) == 1:
             return candidates.pop()
         detail = '未找到' if not candidates else f'存在多个候选: {sorted(candidates)}'
-        raise CommandError(f'无法唯一解析 wow_build（{detail}）；请传 --wow-build')
+        raise CommandError(
+            f'无法从当前 SimC 二进制解析 wow_build，且数据库{detail}；请传 --wow-build'
+        )
 
     def _validate_system_apl(self, apl, baseline, git_hash, binary_path, binary_revision):
         """Run one staged upstream APL against its same-revision MID1 baseline."""

@@ -19,6 +19,61 @@ from botend.tests.simc_apl_symbol_test_utils import create_symbol_scope
 
 
 class UpdateSimcBinaryCommandTests(TestCase):
+    @override_settings(SIMC_CONFIG={})
+    def test_wow_build_resolution_uses_new_binary_identity_among_multiple_candidates(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        command = Command()
+        command.simc_binary_path = '/tmp/simc'
+        spell_states = mock.Mock()
+        spell_states.filter.return_value.exclude.return_value.values_list.return_value = [
+            '12.1.0.69214', '12.1.0.69283',
+        ]
+        talent_versions = mock.Mock()
+        talent_versions.filter.return_value.exclude.return_value.values_list.return_value = [
+            '12.1.0.69299',
+        ]
+        probe_result = subprocess.CompletedProcess([], 0, stdout='', stderr='')
+        probe_output = (
+            'Nothing to sim! SimulationCraft 1210-01 for World of Warcraft '
+            '12.1.0.69299 Live (hotfix 2026-08-14/69299)'
+        )
+        with mock.patch(
+            'botend.management.commands.update_simc_binary.WowSpellSnapshotState.objects',
+            spell_states,
+        ), mock.patch(
+            'botend.management.commands.update_simc_binary.WowTalentVersion.objects',
+            talent_versions,
+        ), mock.patch.object(command, '_probe_binary', return_value=(probe_result, probe_output)):
+            self.assertEqual(command._resolve_wow_build(), '12.1.0.69299')
+
+    @override_settings(SIMC_CONFIG={})
+    def test_wow_build_resolution_rejects_binary_build_without_matching_dbc(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        command = Command()
+        command.simc_binary_path = '/tmp/simc'
+        spell_states = mock.Mock()
+        spell_states.filter.return_value.exclude.return_value.values_list.return_value = [
+            '12.1.0.69283', '12.1.0.69299',
+        ]
+        talent_versions = mock.Mock()
+        talent_versions.filter.return_value.exclude.return_value.values_list.return_value = []
+        probe_result = subprocess.CompletedProcess([], 0, stdout='', stderr='')
+        probe_output = (
+            'SimulationCraft 1210-01 for World of Warcraft '
+            '12.1.0.70000 Live'
+        )
+        with mock.patch(
+            'botend.management.commands.update_simc_binary.WowSpellSnapshotState.objects',
+            spell_states,
+        ), mock.patch(
+            'botend.management.commands.update_simc_binary.WowTalentVersion.objects',
+            talent_versions,
+        ), mock.patch.object(command, '_probe_binary', return_value=(probe_result, probe_output)):
+            with self.assertRaisesRegex(CommandError, '12.1.0.70000 没有对应 DBC 数据'):
+                command._resolve_wow_build()
+
     def test_fetch_fails_fast_while_reset_keeps_long_timeout(self):
         from botend.management.commands.update_simc_binary import Command
 
