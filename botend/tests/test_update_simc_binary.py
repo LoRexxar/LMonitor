@@ -126,7 +126,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
                 call for call in command._run.call_args_list
                 if call.args and call.args[0][0] == 'ninja'
             )
-            self.assertGreaterEqual(ninja_call.kwargs['timeout'], 3600)
+            self.assertGreaterEqual(ninja_call.kwargs['timeout'], 7200)
 
     def test_deploy_recovers_interrupted_simc_update_after_service_restarts(self):
         deploy_script = (Path(settings.BASE_DIR) / 'deploy.sh').read_text(encoding='utf-8')

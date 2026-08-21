@@ -1159,7 +1159,7 @@ class Command(BaseCommand):
             self._run(
                 ['ninja', f'-j{threads}'],
                 cwd=self.simc_build_dir,
-                timeout=3600,
+                timeout=7200,
                 status=f'编译 SimC (-j{threads})',
                 progress=60,
             )
