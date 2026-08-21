@@ -7,14 +7,109 @@ import tempfile
 from pathlib import Path
 
 from django.conf import settings
-from django.db import close_old_connections
+from django.db import close_old_connections, models
 from django.utils import timezone
 
 from botend.models import (
-    SimcBackendBinary, SimcProfile, SimcSkillDamageSnapshot, SimcTalentString,
+    SimcAplSymbol, SimcAplSymbolScope, SimcBackendBinary, SimcProfile,
+    SimcSkillDamageSnapshot, SimcTalentString, WowTalentNodeMetadata,
 )
 from botend.services.simc_composer import SimcComposer
 from botend.services.simc_hero_talents import HeroTalentAnalysisError, resolve_hero_talent_names
+
+
+def _text_key(value):
+    return str(value or '').strip().casefold()
+
+
+def _single_top_name(rows, rank):
+    ranked = [(rank(row), str(row.get('name_zh') or '').strip()) for row in rows]
+    ranked = [(item_rank, name) for item_rank, name in ranked if item_rank >= 0 and name]
+    if not ranked:
+        return ''
+    top_rank = max(item_rank for item_rank, _name in ranked)
+    names = {name for item_rank, name in ranked if item_rank == top_rank}
+    return next(iter(names)) if len(names) == 1 else ''
+
+
+def localize_skill_damage_payload(payload):
+    """Add read-time Chinese action labels without changing the exporter snapshot."""
+    result = copy.deepcopy(payload or {})
+    actors = [row for row in (result.get('actors') or []) if isinstance(row, dict)]
+    spell_ids = {
+        action.get('spell_id')
+        for actor in actors for action in (actor.get('actions') or [])
+        if isinstance(action, dict) and isinstance(action.get('spell_id'), int)
+    }
+    tokens = {
+        _text_key(action.get('token'))
+        for actor in actors for action in (actor.get('actions') or [])
+        if isinstance(action, dict) and _text_key(action.get('token'))
+    }
+    talent_rows = list(
+        WowTalentNodeMetadata.objects.filter(
+            talent_version__is_active=True,
+            name_zh__gt='',
+        ).filter(
+            models.Q(spell_id__in=spell_ids) | models.Q(display_spell_id__in=spell_ids)
+        ).values(
+            'spell_id', 'display_spell_id', 'class_name', 'spec_name', 'name_zh',
+        )
+    ) if spell_ids else []
+    apl_rows = list(
+        SimcAplSymbolScope.objects.filter(
+            is_active=True,
+            symbol__is_active=True,
+            symbol__symbol_kind=SimcAplSymbol.KIND_ACTION,
+            name_zh__gt='',
+        ).filter(
+            models.Q(symbol__token__in=tokens) | models.Q(spell_id__in=spell_ids)
+        ).values(
+            'symbol__token', 'spell_id', 'class_name', 'spec', 'hero_tree', 'name_zh',
+        )
+    ) if tokens or spell_ids else []
+
+    for actor in actors:
+        class_key = _text_key(actor.get('class'))
+        spec_key = _text_key(actor.get('specialization'))
+        hero_key = _text_key(actor.get('hero_talent_tree'))
+
+        def scope_rank(row, *, talent=False):
+            row_class = _text_key(row.get('class_name'))
+            row_spec = _text_key(row.get('spec_name') if talent else row.get('spec'))
+            row_hero = '' if talent else _text_key(row.get('hero_tree'))
+            if row_class and row_class != class_key:
+                return -1
+            if row_spec and row_spec != spec_key:
+                return -1
+            if row_hero and row_hero != hero_key:
+                return -1
+            return (4 if row_hero else 0) + (2 if row_spec else 0) + (1 if row_class else 0)
+
+        for action in actor.get('actions') or []:
+            if not isinstance(action, dict):
+                continue
+            token = _text_key(action.get('token'))
+            spell_id = action.get('spell_id')
+            apl_token_name = _single_top_name(
+                [row for row in apl_rows if _text_key(row.get('symbol__token')) == token],
+                scope_rank,
+            ) if token else ''
+            talent_name = _single_top_name(
+                [row for row in talent_rows if spell_id in (
+                    row.get('spell_id'), row.get('display_spell_id'),
+                )],
+                lambda row: scope_rank(row, talent=True),
+            ) if isinstance(spell_id, int) else ''
+            apl_spell_name = _single_top_name(
+                [row for row in apl_rows if row.get('spell_id') == spell_id],
+                scope_rank,
+            ) if isinstance(spell_id, int) else ''
+            action['display_name'] = (
+                apl_token_name or talent_name or apl_spell_name
+                or str(action.get('name') or action.get('token') or '未命名技能')
+            )
+    return result
 
 
 class SimcSkillDamageSnapshotService:

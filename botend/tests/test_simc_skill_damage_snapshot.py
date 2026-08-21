@@ -8,7 +8,10 @@ from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.test import RequestFactory, TestCase, override_settings
 
-from botend.models import SimcBackendBinary, SimcSkillDamageSnapshot
+from botend.models import (
+    SimcAplSymbol, SimcAplSymbolScope, SimcBackendBinary,
+    SimcSkillDamageSnapshot, WowTalentNodeMetadata, WowTalentVersion,
+)
 from botend.services.simc_skill_damage import SimcSkillDamageSnapshotService
 from botend.dashboard.api import SimcSkillDamageSnapshotAPIView
 
@@ -250,6 +253,49 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         self.assertEqual(body['data']['snapshot']['identity']['game_build'], '12.1.0.69299')
         self.assertNotIn('profile_id', body['data'])
         self.assertFalse(body['data']['can_generate'])
+
+    def test_get_localizes_skill_identity_and_left_cell_only_shows_name_and_spell_id(self):
+        version = WowTalentVersion.objects.create(key='current', is_active=True)
+        WowTalentNodeMetadata.objects.create(
+            talent_version=version, class_name='Warrior', spec_name='Fury',
+            node_id=1, spell_id=1001, display_spell_id=1001, name_zh='天赋中文技能',
+        )
+        symbol = SimcAplSymbol.objects.create(token='apl_action', symbol_kind='action')
+        SimcAplSymbolScope.objects.create(
+            symbol=symbol, class_name='warrior', spec='fury', spell_id=2002,
+            name_zh='APL中文技能',
+        )
+        SimcSkillDamageSnapshot.objects.create(
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=2,
+            status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+            payload={'actors': [{
+                'class': 'warrior', 'specialization': 'fury',
+                'hero_talent_tree': '屠戮者', 'talent_name': 'Fury Slayer',
+                'actions': [
+                    {'name': 'talent_action', 'token': 'talent_action', 'spell_id': 1001},
+                    {'name': 'apl_action', 'token': 'apl_action', 'spell_id': 2002},
+                ],
+            }]},
+        )
+        request = self.factory.get('/api/simc-skill-damage/')
+        request.user = self.user
+
+        response = SimcSkillDamageSnapshotAPIView.as_view()(request)
+        actions = json.loads(response.content)['data']['snapshot']['actors'][0]['actions']
+        self.assertEqual(
+            [(row['display_name'], row['spell_id']) for row in actions],
+            [('天赋中文技能', 1001), ('APL中文技能', 2002)],
+        )
+
+        script = Path('static/dashboard/js/main.js').read_text(encoding='utf-8')
+        identity_renderer = script.split('function renderSimcSkillIdentity(action) {', 1)[1].split(
+            'function renderSimcSkillDamageSnapshot(snapshot) {', 1,
+        )[0]
+        self.assertIn('action.display_name', identity_renderer)
+        self.assertIn('action.spell_id', identity_renderer)
+        self.assertNotIn('action.token', identity_renderer)
+        self.assertNotIn('hero_talent_tree', identity_renderer)
+        self.assertNotIn('talent_name', identity_renderer)
 
     def test_post_requires_staff(self):
         request = self.factory.post('/api/simc-skill-damage/', data='{}', content_type='application/json')

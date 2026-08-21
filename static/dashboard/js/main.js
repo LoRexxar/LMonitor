@@ -5780,6 +5780,12 @@ function initSystemAlerts() {
     fetchUnreadSystemAlerts();
 }
 
+function renderSimcSkillIdentity(action) {
+    const name = action.display_name || action.name || '未命名技能';
+    const spellId = action.spell_id || '-';
+    return `<div class="font-semibold text-gray-900">${escapeHtml(name)}</div><div class="font-mono text-xs text-stone-600">技能 ID：${escapeHtml(spellId)}</div>`;
+}
+
 function renderSimcSkillDamageSnapshot(snapshot) {
     const hasFiniteSimcSkillDamageNumber = value => (
         typeof value === 'number' && Number.isFinite(value)
@@ -5851,7 +5857,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     )).forEach(actor => {
         const actions = Array.isArray(actor.actions) ? actor.actions.filter(item => item && typeof item === 'object') : [];
         actions.forEach(action => {
-            const haystack = `${action.token || ''} ${action.name || ''} ${action.spell_id || ''}`.toLowerCase();
+            const haystack = `${action.display_name || ''} ${action.name || ''} ${action.token || ''} ${action.spell_id || ''}`.toLowerCase();
             if (query && !haystack.includes(query)) return;
             const baseline = action.baseline && typeof action.baseline === 'object' ? action.baseline : {};
             const expectedValues = [baseline.direct, baseline.tick]
@@ -5859,18 +5865,18 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 .map(amount => amount.expected)
                 .filter(hasFiniteSimcSkillDamageNumber);
             const expectedSortValue = expectedValues.length ? Math.max(...expectedValues) : Number.NEGATIVE_INFINITY;
-            rows.push({actor, action, baseline, expectedSortValue});
+            rows.push({action, baseline, expectedSortValue});
         });
     });
     rows.sort((left, right) => {
         const delta = left.expectedSortValue - right.expectedSortValue;
         if (delta) return sortDirection === 'asc' ? delta : -delta;
-        return String(left.action.name || left.action.token || '').localeCompare(String(right.action.name || right.action.token || ''));
+        return String(left.action.display_name || left.action.name || '').localeCompare(String(right.action.display_name || right.action.name || ''));
     });
-    body.innerHTML = rows.length ? rows.map(({actor, action, baseline}) => {
+    body.innerHTML = rows.length ? rows.map(({action, baseline}) => {
         const unsupportedReason = action.supported === false ? (action.unsupported_reason || 'unsupported') : '';
         const unresolvedReason = baseline.unresolved_reason || '';
-        const skillMeta = `<div class="font-semibold text-gray-900">${escapeHtml(action.name || action.token || '-')}</div><div class="font-mono text-xs text-stone-600">${escapeHtml(action.token || '-')} · #${escapeHtml(action.spell_id || 0)}</div><div class="mt-1 text-xs text-stone-500">${escapeHtml(actor.hero_talent_tree)} · ${escapeHtml(actor.talent_name || '-')}</div>`;
+        const skillMeta = renderSimcSkillIdentity(action);
         if (unsupportedReason) {
             return `<tr class="align-top hover:bg-stone-50"><td class="px-3 py-3">${skillMeta}<div class="mt-1 text-amber-700">暂不支持：${escapeHtml(unsupportedReason)}</div></td><td colspan="4" class="px-3 py-3 text-stone-500">-</td></tr>`;
         }
