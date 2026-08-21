@@ -1,0 +1,450 @@
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+index a4e1257..51cc69b 100644
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -14,6 +14,7 @@
+ #include "player/action_priority_list.hpp"
+ #include "player/unique_gear.hpp"
+ #include "action/action.hpp"
++#include "action/action_state.hpp"
+ #include "action/dot.hpp"
+ #include "buff/buff.hpp"
+ #include "dbc/trait_data.hpp"
+@@ -31,11 +32,15 @@
+ #include <locale>
+ #include <cctype>
+ #include <cerrno>
++#include <cstdint>
+ #include <cstdio>
++#include <cstring>
+ #include <fcntl.h>
+ #include <fstream>
++#include <iostream>
+ #include <regex>
+ #include <set>
++#include <sys/wait.h>
+ #include <unistd.h>
+ 
+ #ifdef SC_SIGACTION
+@@ -513,6 +518,378 @@ void export_apl_metadata( const sim_t& sim )
+   { std::remove( temporary.c_str() ); throw std::runtime_error( "Unable to atomically replace APL metadata export file" ); }
+ }
+ 
++// A deliberately bounded runtime probe. Scenario sources are initialized APL
++// co-occurrence sets plus singleton buffs; never a powerset.
++struct skill_damage_amount_t
++{
++  double direct_min = 0.0, direct_max = 0.0, tick = 0.0;
++  bool direct = false, periodic = false;
++  std::string unresolved_reason;
++};
++
++bool skill_damage_amount_changed( const skill_damage_amount_t& a, const skill_damage_amount_t& b )
++{
++  const auto changed = []( double x, double y ) { return std::abs( x - y ) > std::max( 1.0, std::abs( x ) ) * 1.0e-8; };
++  return changed( a.direct_min, b.direct_min ) || changed( a.direct_max, b.direct_max ) || changed( a.tick, b.tick );
++}
++
++skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
++{
++  skill_damage_amount_t amount;
++  action_state_t* state = action.get_state();
++  if ( !state ) { amount.unresolved_reason = "runtime_state_allocation_failed"; return amount; }
++  state->target = action.target;
++  state->n_targets = 1;
++  state->chain_target = 0;
++  state->result = RESULT_HIT;
++  if ( !state->target )
++  {
++    amount.unresolved_reason = "runtime_target_unavailable";
++    action_state_t::release( state );
++    return amount;
++  }
++  try
++  {
++    // Values are runtime snapshot equivalents. The probe forces average_range,
++    // therefore direct_min/direct_max are equal when only a randomized range
++    // is available through calculate_direct_amount.
++    if ( action.does_direct_damage() )
++    {
++      action.snapshot_state( state, result_amount_type::DMG_DIRECT );
++      amount.direct_min = amount.direct_max = action.calculate_direct_amount( state );
++      amount.direct = true;
++    }
++    if ( action.does_periodic_damage() )
++    {
++      state->initialize(); state->target = action.target;
++      state->n_targets = 1; state->chain_target = 0; state->result = RESULT_HIT;
++      action.snapshot_state( state, result_amount_type::DMG_OVER_TIME );
++      amount.tick = action.calculate_tick_amount( state, 1.0 );
++      amount.periodic = true;
++    }
++  }
++  catch ( const std::exception& e ) { amount.unresolved_reason = std::string( "runtime_snapshot_failed: " ) + e.what(); }
++  catch ( ... ) { amount.unresolved_reason = "runtime_snapshot_failed: unknown_exception"; }
++  action_state_t::release( state );
++  return amount;
++}
++
++// Fixed POD child/parent protocol. Children deliberately use _exit so neither
++// actor reset nor SimC destruction can corrupt the pristine parent snapshot.
++struct skill_damage_pipe_result_t
++{
++  uint32_t magic = 0;
++  double direct_min = 0.0, direct_max = 0.0, tick = 0.0;
++  uint8_t direct = 0, periodic = 0, success = 0;
++};
++
++constexpr uint32_t SKILL_DAMAGE_PIPE_MAGIC = 0x53444d47U; // "SDMG"
++
++bool skill_damage_write_all( int fd, const void* data, size_t size )
++{
++  const char* p = static_cast<const char*>( data );
++  while ( size )
++  {
++    const ssize_t n = ::write( fd, p, size );
++    if ( n < 0 && errno == EINTR ) continue;
++    if ( n <= 0 ) return false;
++    p += n; size -= static_cast<size_t>( n );
++  }
++  return true;
++}
++
++bool skill_damage_read_all( int fd, void* data, size_t size )
++{
++  char* p = static_cast<char*>( data );
++  while ( size )
++  {
++    const ssize_t n = ::read( fd, p, size );
++    if ( n < 0 && errno == EINTR ) continue;
++    if ( n <= 0 ) return false;
++    p += n; size -= static_cast<size_t>( n );
++  }
++  return true;
++}
++
++skill_damage_amount_t skill_damage_fork_snapshot( action_t& action,
++                                                   const std::vector<buff_t*>& buffs )
++{
++  skill_damage_amount_t amount;
++  int fds[ 2 ];
++  if ( ::pipe( fds ) != 0 )
++  {
++    amount.unresolved_reason = std::string( "snapshot_pipe_failed: " ) + std::strerror( errno );
++    return amount;
++  }
++  const pid_t pid = ::fork();
++  if ( pid < 0 )
++  {
++    const int error = errno;
++    ::close( fds[ 0 ] ); ::close( fds[ 1 ] );
++    amount.unresolved_reason = std::string( "snapshot_fork_failed: " ) + std::strerror( error );
++    return amount;
++  }
++  if ( pid == 0 )
++  {
++    ::close( fds[ 0 ] );
++#ifdef SC_SIGACTION
++    // SimC's process-wide SIGSEGV handler calls exit(), which would run static
++    // destructors in the probe child. Restore fatal defaults so waitpid reports
++    // the crash and the kernel closes the pipe without touching actor teardown.
++    ::signal( SIGSEGV, SIG_DFL );
++    ::signal( SIGABRT, SIG_DFL );
++    ::signal( SIGBUS, SIG_DFL );
++    ::signal( SIGFPE, SIG_DFL );
++    ::signal( SIGILL, SIG_DFL );
++#endif
++    skill_damage_pipe_result_t result;
++    // reset() is confined to this disposable process. It primes action state
++    // exactly as a simulation iteration does, while the parent actor remains
++    // pristine and no reset ever follows an overridden buff on this actor.
++    action.player->reset();
++    for ( buff_t* buff : buffs )
++      buff->override_buff( std::max( 1, buff->max_stack() ) );
++    const skill_damage_amount_t child_amount = skill_damage_runtime_amount( action );
++    result.magic = SKILL_DAMAGE_PIPE_MAGIC;
++    result.direct_min = child_amount.direct_min;
++    result.direct_max = child_amount.direct_max;
++    result.tick = child_amount.tick;
++    result.direct = child_amount.direct;
++    result.periodic = child_amount.periodic;
++    result.success = child_amount.unresolved_reason.empty();
++    const bool written = skill_damage_write_all( fds[ 1 ], &result, sizeof( result ) );
++    ::close( fds[ 1 ] );
++    ::_exit( written ? 0 : 2 );
++  }
++
++  ::close( fds[ 1 ] );
++  skill_damage_pipe_result_t result;
++  const bool received = skill_damage_read_all( fds[ 0 ], &result, sizeof( result ) );
++  ::close( fds[ 0 ] );
++  int status = 0;
++  pid_t waited;
++  do { waited = ::waitpid( pid, &status, 0 ); } while ( waited < 0 && errno == EINTR );
++  if ( waited < 0 )
++  {
++    amount.unresolved_reason = std::string( "snapshot_waitpid_failed: " ) + std::strerror( errno );
++    return amount;
++  }
++  if ( WIFSIGNALED( status ) )
++  {
++    amount.unresolved_reason = "snapshot_child_signal_" + std::to_string( WTERMSIG( status ) );
++    return amount;
++  }
++  if ( !WIFEXITED( status ) || WEXITSTATUS( status ) != 0 || !received ||
++       result.magic != SKILL_DAMAGE_PIPE_MAGIC )
++  {
++    amount.unresolved_reason = "snapshot_child_failed";
++    return amount;
++  }
++  if ( !result.success )
++  {
++    amount.unresolved_reason = "runtime_snapshot_failed_in_child";
++    return amount;
++  }
++  amount.direct_min = result.direct_min;
++  amount.direct_max = result.direct_max;
++  amount.tick = result.tick;
++  amount.direct = result.direct;
++  amount.periodic = result.periodic;
++  return amount;
++}
++
++std::set<std::set<std::string>> skill_damage_scenario_keys( const player_t& player )
++{
++  std::set<std::set<std::string>> scenario_keys;
++  static const std::regex buff_ref( R"(buff\.([A-Za-z0-9_]+))" );
++  for ( const action_priority_list_t* apl : player.action_priority_list )
++    for ( const auto& entry : apl->action_list )
++    {
++      std::set<std::string> key;
++      std::string text = entry.action_;
++      for ( auto it = std::sregex_iterator( text.begin(), text.end(), buff_ref ); it != std::sregex_iterator(); ++it )
++        key.insert( ( *it )[ 1 ].str() );
++      if ( !key.empty() ) scenario_keys.insert( std::move( key ) );
++    }
++  for ( const buff_t* buff : player.buff_list ) if ( buff ) scenario_keys.insert( { buff->name_str } );
++  return scenario_keys;
++}
++
++buff_t* skill_damage_owned_buff( player_t& player, const std::string& token )
++{
++  static const std::set<std::string> external = { "bloodlust", "arcane_intellect", "power_word_fortitude" };
++  if ( external.count( token ) ) return nullptr;
++  const int player_class_family = dbc::get_class_spell_family( player.type );
++  for ( buff_t* buff : player.buff_list )
++  {
++    if ( !buff || buff->name_str != token || buff->source != &player ) continue; // source != &player is external
++    if ( !buff->data().ok() ) continue;
++    if ( as<int>( buff->data().class_family() ) == player_class_family ) return buff;
++  }
++  return nullptr;
++}
++
++void write_skill_damage_amount( std::ostream& out, const skill_damage_amount_t& a )
++{
++  out << "{\"direct_min\":"; if ( a.direct ) out << a.direct_min; else out << "null";
++  out << ",\"direct_max\":"; if ( a.direct ) out << a.direct_max; else out << "null";
++  out << ",\"tick\":"; if ( a.periodic ) out << a.tick; else out << "null";
++  out << ",\"unresolved_reason\":";
++  if ( a.unresolved_reason.empty() ) out << "null"; else apl_metadata_json_string( out, a.unresolved_reason );
++  out << '}';
++}
++
++void export_skill_damage( sim_t& sim )
++{
++  const bool valid_revision = sim.skill_damage_revision.size() == 40 &&
++    std::all_of( sim.skill_damage_revision.begin(), sim.skill_damage_revision.end(),
++                 []( unsigned char c ) { return std::isxdigit( c ); } );
++  if ( !valid_revision ) throw std::runtime_error( "skill_damage_revision must be a 40-character hexadecimal git SHA" );
++
++  const bool saved_average_range = sim.average_range;
++  sim.average_range = true;
++  const std::string target = sim.skill_damage_export_file;
++  const std::string temporary = target + ".tmp." + std::to_string( static_cast<long long>( getpid() ) );
++  std::ofstream out( temporary, std::ios::binary | std::ios::trunc );
++  if ( !out ) throw std::runtime_error( "Unable to open temporary skill damage export file" );
++  out << "{\"schema_version\":1,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
++  out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
++  // DBC/action scaling is reported at attack_power = 1 and spell_power = 1.
++  // Runtime actor attributes below are evidence for conditional multipliers only.
++  out << ",\"normalization_basis\":{\"attack_power\":1,\"spell_power\":1}";
++  out << ",\"probe\":\"runtime_snapshot_probe\",\"state_isolation\":\"fork_pipe_per_action_scenario\",\"actors\":[";
++  bool first_actor = true;
++  for ( player_t* player : sim.player_no_pet_list )
++  {
++    if ( !first_actor ) out << ',';
++    first_actor = false;
++    const stat_e primary_stat = player->convert_hybrid_stat( STAT_STR_AGI_INT );
++    attribute_e primary_attr = ATTRIBUTE_NONE;
++    if ( primary_stat == STAT_STRENGTH ) primary_attr = ATTR_STRENGTH;
++    else if ( primary_stat == STAT_AGILITY ) primary_attr = ATTR_AGILITY;
++    else if ( primary_stat == STAT_INTELLECT ) primary_attr = ATTR_INTELLECT;
++    out << "{\"class\":"; apl_metadata_json_string( out, util::player_type_string( player->type ) );
++    out << ",\"spec\":"; apl_metadata_json_string( out, util::tokenize_fn( dbc::specialization_string( player->specialization() ) ) );
++    out << ",\"name\":"; apl_metadata_json_string( out, player->name() );
++    out << ",\"attributes\":{\"primary_attribute\":{";
++    out << "\"name\":"; if ( primary_attr == ATTRIBUTE_NONE ) out << "null"; else apl_metadata_json_string( out, util::attribute_type_string( primary_attr ) );
++    out << ",\"value\":"; if ( primary_attr == ATTRIBUTE_NONE ) out << "null"; else out << player->composite_attribute( primary_attr );
++    out << "},\"attack_power\":" << player->composite_melee_attack_power();
++    out << ",\"spell_power\":" << player->composite_total_spell_power( SCHOOL_MAX );
++    out << ",\"crit\":{\"rating\":" << player->composite_spell_crit_rating() << ",\"percent\":" << player->composite_spell_crit_chance() * 100.0 << '}';
++    out << ",\"haste\":{\"rating\":" << player->composite_rating( RATING_SPELL_HASTE ) << ",\"percent\":" << ( 1.0 / player->composite_spell_haste() - 1.0 ) * 100.0 << '}';
++    out << ",\"mastery\":{\"rating\":" << player->composite_rating( RATING_MASTERY ) << ",\"percent\":" << player->composite_mastery() * 100.0 << '}';
++    out << ",\"versatility\":{\"rating\":" << player->composite_damage_versatility_rating() << ",\"percent\":" << player->composite_damage_versatility() * 100.0 << "}},\"actions\":[";
++
++    const auto scenario_keys = skill_damage_scenario_keys( *player );
++    std::set<std::pair<std::string, unsigned>> exported_actions;
++    bool first_action = true;
++    for ( action_t* action : player->action_list )
++    {
++      if ( !action || ( !action->does_direct_damage() && !action->does_periodic_damage() ) ) continue;
++      const unsigned spell_id = apl_metadata_action_spell_id( *action );
++      if ( !exported_actions.emplace( action->name_str, spell_id ).second ) continue;
++
++      // Parent remains exactly as produced by sim.init(). Every calculation,
++      // including baseline, runs against a private copy-on-write actor.
++      const skill_damage_amount_t baseline = skill_damage_fork_snapshot( *action, {} );
++      if ( !first_action ) out << ',';
++      first_action = false;
++      out << "{\"token\":"; apl_metadata_json_string( out, action->name_str );
++      out << ",\"name\":"; apl_metadata_json_string( out, action->name_str_reporting.empty() ? action->name_str : action->name_str_reporting );
++      out << ",\"spell_id\":" << spell_id;
++      out << ",\"background\":" << ( action->background ? "true" : "false" ) << ",\"harmful\":" << ( action->harmful ? "true" : "false" );
++      const bool requires_weapon_data = action->weapon != nullptr && action->weapon_multiplier != 0.0;
++      out << ",\"parent_token\":null,\"dbc_scaling\":{";
++      out << "\"attack_power_coefficient\":{\"direct\":" << action->attack_power_mod.direct
++          << ",\"tick\":" << action->attack_power_mod.tick << "}";
++      out << ",\"spell_power_coefficient\":{\"direct\":" << action->spell_power_mod.direct
++          << ",\"tick\":" << action->spell_power_mod.tick << "}";
++      out << ",\"weapon_multiplier\":" << action->weapon_multiplier;
++      out << ",\"requires_weapon_data\":" << ( requires_weapon_data ? "true" : "false" );
++      out << ",\"normalized_base\":{\"direct_min\":"
++          << action->base_dd_min + action->attack_power_mod.direct + action->spell_power_mod.direct;
++      out << ",\"direct_max\":"
++          << action->base_dd_max + action->attack_power_mod.direct + action->spell_power_mod.direct;
++      out << ",\"tick\":"
++          << action->base_td + action->attack_power_mod.tick + action->spell_power_mod.tick << "}}";
++      out << ",\"baseline\":"; write_skill_damage_amount( out, baseline );
++      out << ",\"scenarios\":[";
++      bool first_scenario = true;
++      for ( const auto& key : scenario_keys )
++      {
++        std::vector<buff_t*> active;
++        bool valid = true;
++        for ( const auto& token : key )
++        {
++          buff_t* buff = skill_damage_owned_buff( *player, token );
++          if ( !buff ) { valid = false; break; }
++          active.push_back( buff );
++        }
++        if ( !valid ) continue;
++
++        const skill_damage_amount_t changed = skill_damage_fork_snapshot( *action, active );
++        // Successful no-op scenarios are omitted. Failed/crashed scenarios are
++        // retained so isolation failures are explicit rather than fabricated.
++        if ( changed.unresolved_reason.empty() && !baseline.unresolved_reason.empty() )
++        {
++          // With no baseline there is no truthful delta, but the scenario value
++          // remains useful and is retained below.
++        }
++        else if ( changed.unresolved_reason.empty() && !skill_damage_amount_changed( baseline, changed ) ) continue;
++
++        if ( !first_scenario ) out << ',';
++        first_scenario = false;
++        out << "{\"buffs\":[";
++        bool first_buff = true;
++        size_t index = 0;
++        for ( const auto& token : key )
++        {
++          buff_t* buff = active[ index++ ];
++          if ( !first_buff ) out << ',';
++          first_buff = false;
++          out << "{\"token\":";
++          // token is the immutable scenario key; override_buff may rename the
++          // child buff to "***" and must never define exported identity.
++          apl_metadata_json_string( out, token );
++          out << ",\"spell_id\":" << ( buff->data().ok() ? buff->data().id() : 0 )
++              << ",\"class_family\":" << ( buff->data().ok() ? buff->data().class_family() : 0 )
++              << ",\"stacks\":" << std::max( 1, buff->max_stack() ) << '}';
++        }
++        out << "],\"values\":"; write_skill_damage_amount( out, changed );
++        out << ",\"direct_multiplier\":";
++        if ( baseline.unresolved_reason.empty() && changed.unresolved_reason.empty() &&
++             baseline.direct && changed.direct && baseline.direct_min != 0.0 )
++          out << changed.direct_min / baseline.direct_min;
++        else out << "null";
++        out << ",\"tick_multiplier\":";
++        if ( baseline.unresolved_reason.empty() && changed.unresolved_reason.empty() &&
++             baseline.periodic && changed.periodic && baseline.tick != 0.0 )
++          out << changed.tick / baseline.tick;
++        else out << "null";
++        const double base = baseline.direct ? baseline.direct_min : baseline.tick;
++        const double value = changed.direct ? changed.direct_min : changed.tick;
++        out << ",\"delta_pct\":";
++        if ( baseline.unresolved_reason.empty() && changed.unresolved_reason.empty() && base != 0.0 )
++          out << ( value / base - 1.0 ) * 100.0;
++        else out << "null";
++        out << '}';
++      }
++      out << "]}";
++    }
++    out << "]}";
++  }
++  out << "]}\n";
++  sim.average_range = saved_average_range;
++  out.flush();
++  if ( !out ) { std::remove( temporary.c_str() ); throw std::runtime_error( "Unable to write skill damage export file" ); }
++  out.close();
++  int fd = ::open( temporary.c_str(), O_RDONLY );
++  if ( fd < 0 || ::fsync( fd ) != 0 ) { if ( fd >= 0 ) ::close( fd ); std::remove( temporary.c_str() ); throw std::runtime_error( "Unable to fsync skill damage export file" ); }
++  ::close( fd );
++  if ( std::rename( temporary.c_str(), target.c_str() ) != 0 ) { std::remove( temporary.c_str() ); throw std::runtime_error( "Unable to atomically replace skill damage export file" ); }
++}
++
+ [[maybe_unused]] sim_signal_handler_t handler;
+ 
+ // need_to_save_profiles ====================================================
+@@ -672,6 +1049,13 @@ int sim_t::main( const std::vector<std::string>& args )
+       return 0;
+     }
+ 
++    if ( !skill_damage_export_file.empty() )
++    {
++      init();
++      export_skill_damage( *this );
++      return 0;
++    }
++
+     // print version info if it hasn't been displayed already
+     print_version_info( *dbc );
+ 
+diff --git a/engine/sim/sim.cpp b/engine/sim/sim.cpp
+index e80ca3e..590f522 100644
+--- a/engine/sim/sim.cpp
++++ b/engine/sim/sim.cpp
+@@ -3862,6 +3862,9 @@ void sim_t::create_options()
+   add_option( opt_string( "apl_metadata_export", apl_metadata_export_file ) );
+   add_option( opt_string( "apl_metadata_revision", apl_metadata_revision ) );
+   add_option( opt_string( "apl_metadata_game_build", apl_metadata_game_build ) );
++  add_option( opt_string( "skill_damage_export", skill_damage_export_file ) );
++  add_option( opt_string( "skill_damage_revision", skill_damage_revision ) );
++  add_option( opt_string( "skill_damage_game_build", skill_damage_game_build ) );
+   add_option( opt_bool( "save_raid_summary", save_raid_summary ) );
+   add_option( opt_bool( "save_gear_comments", save_gear_comments ) );
+   add_option( opt_bool( "buff_uptime_timeline", buff_uptime_timeline ) );
+diff --git a/engine/sim/sim.hpp b/engine/sim/sim.hpp
+index 443ae67..176d6a6 100644
+--- a/engine/sim/sim.hpp
++++ b/engine/sim/sim.hpp
+@@ -93,6 +93,10 @@ struct sim_t : private sc_thread_t
+   std::string apl_metadata_export_file;
+   std::string apl_metadata_revision;
+   std::string apl_metadata_game_build;
++  // Runtime skill damage probe mode. Actors initialize, but no simulation executes.
++  std::string skill_damage_export_file;
++  std::string skill_damage_revision;
++  std::string skill_damage_game_build;
+ 
+   // Iteration Controls
+   timespan_t max_time, expected_iteration_time;

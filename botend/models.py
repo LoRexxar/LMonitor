@@ -1551,6 +1551,54 @@ class SimcContentTemplate(models.Model):
         return self.name or self.spec or f'基础模板 {self.pk}'
 
 
+class SimcSkillDamageSnapshot(models.Model):
+    """One immutable skill-damage dataset per SimC/DBC/exporter identity."""
+
+    STATUS_PENDING = 'pending'
+    STATUS_RUNNING = 'running'
+    STATUS_SUCCEEDED = 'succeeded'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = (
+        (STATUS_PENDING, '待生成'),
+        (STATUS_RUNNING, '生成中'),
+        (STATUS_SUCCEEDED, '已完成'),
+        (STATUS_FAILED, '失败'),
+    )
+
+    simc_revision = models.CharField(max_length=40)
+    game_build = models.CharField(max_length=64)
+    schema_revision = models.PositiveIntegerField(default=1)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    payload = models.JSONField(default=dict, blank=True)
+    error_text = models.TextField(default='', blank=True)
+    generated_spec_count = models.PositiveIntegerField(default=0)
+    generated_action_count = models.PositiveIntegerField(default=0)
+    requested_by_id = models.BigIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'simc_skill_damage_snapshot'
+        ordering = ['-created_at', '-id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['simc_revision', 'game_build', 'schema_revision'],
+                name='simc_skill_damage_dataset_identity_uniq',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['status', 'completed_at'],
+                name='simc_skill_status_9a7808_idx',
+            ),
+        ]
+
+    @classmethod
+    def latest_success(cls):
+        return cls.objects.filter(status=cls.STATUS_SUCCEEDED).order_by('-completed_at', '-id').first()
+
+
 class SimcBackendBinary(models.Model):
     identifier = models.SlugField(max_length=64, unique=True, help_text="稳定标识，如 production/ptr")
     name = models.CharField(max_length=100, help_text="展示名称，如 正式服/PTR")

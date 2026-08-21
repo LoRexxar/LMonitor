@@ -33,7 +33,7 @@ from django.template.loader import render_to_string
 
 from django.conf import settings
 from utils.log import logger
-from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcApl, SimcAplSymbol, SimcAplSymbolScope, SimcTask, SimcTaskFavorite, SimulationRun, SimcTaskArtifact, SimcProfile, SimcTalentString, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, SimcAgent, SimcAgentMaintenanceTask, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState, WowSpellSnapshot, WowTalentNodeMetadata, WowTalentVersion, WowItemSnapshot, SimcResourceVersion
+from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRow, SimcApl, SimcAplSymbol, SimcAplSymbolScope, SimcTask, SimcTaskFavorite, SimulationRun, SimcTaskArtifact, SimcProfile, SimcTalentString, SimcSecondaryStatRule, SimcMasteryCoefficient, SimcContentTemplate, SimcBackendBinary, SimcSkillDamageSnapshot, SimcAgent, SimcAgentMaintenanceTask, WclAnalysisTask, SystemAlert, WowDailyReport, WowHotfixReport, WowWagoHotfixEvent, WowWagoMonitorState, WowSpellSnapshot, WowTalentNodeMetadata, WowTalentVersion, WowItemSnapshot, SimcResourceVersion
 from botend.alerting import upsert_system_alert
 from botend.dashboard.permissions import DashboardPermissionRequiredMixin, has_dashboard_permission
 from django.db import IntegrityError, models, transaction
@@ -56,6 +56,7 @@ from botend.services.simc_player_config import (
     SUPPORTED_SIMC_SPEC_IDENTITIES,
 )
 from botend.services.simc_composer import SimcComposer, validate_simulation_options
+from botend.services.simc_skill_damage import SimcSkillDamageSnapshotService
 from botend.wow.talents.service import TalentBuildCodeService
 from botend.services.simc_hero_talents import resolve_hero_talent_names
 from botend.services.simc_consumables import simc_consumable_option
@@ -8177,6 +8178,84 @@ class SimcArtifactPreviewAPIView(View):
         response = FileResponse(open(full_path, 'rb'), content_type=content_type)
         response['Content-Security-Policy'] = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; sandbox allow-scripts; frame-ancestors 'self'"
         return response
+
+
+@method_decorator(login_required, name='dispatch')
+class SimcSkillDamageSnapshotAPIView(View):
+    """Read the latest successful DBC snapshot and explicitly trigger generation."""
+
+    @staticmethod
+    def _job_data(row):
+        if not row:
+            return None
+        return {
+            'id': row.pk,
+            'identity': {
+                'simc_revision': row.simc_revision,
+                'game_build': row.game_build,
+                'schema_revision': row.schema_revision,
+            },
+            'status': row.status,
+            'spec_count': row.generated_spec_count,
+            'action_count': row.generated_action_count,
+            'has_error': bool(row.error_text),
+            'created_at': _fmt_dt(row.created_at),
+            'completed_at': _fmt_dt(row.completed_at),
+        }
+
+    def get(self, request):
+        latest = SimcSkillDamageSnapshot.latest_success()
+        job = SimcSkillDamageSnapshot.objects.order_by('-created_at', '-id').first()
+        snapshot = None
+        if latest:
+            snapshot = dict(latest.payload or {})
+            snapshot['identity'] = {
+                'simc_revision': latest.simc_revision,
+                'game_build': latest.game_build,
+                'schema_revision': latest.schema_revision,
+            }
+            snapshot['id'] = latest.pk
+            snapshot['status'] = latest.status
+            snapshot['completed_at'] = _fmt_dt(latest.completed_at)
+            snapshot['spec_count'] = latest.generated_spec_count
+            snapshot['action_count'] = latest.generated_action_count
+        return JsonResponse({
+            'success': True,
+            'data': {
+                'snapshot': snapshot,
+                'job': self._job_data(job),
+                'can_generate': bool(request.user.is_staff),
+            },
+        })
+
+    def post(self, request):
+        if not request.user.is_staff:
+            return JsonResponse({'success': False, 'error': '仅管理员可生成技能伤害快照'}, status=403)
+        try:
+            service = SimcSkillDamageSnapshotService.create_for_current_backend(request.user.id)
+        except ValueError as exc:
+            return JsonResponse({'success': False, 'error': str(exc)}, status=409)
+
+        snapshot_id = service.snapshot.pk
+
+        def _run():
+            from django.db import close_old_connections
+            try:
+                SimcSkillDamageSnapshotService(
+                    SimcSkillDamageSnapshot.objects.get(pk=snapshot_id),
+                    backend=service.backend,
+                ).generate()
+            except Exception:
+                logger.error(f"生成 SimC 技能伤害快照失败\n{traceback.format_exc()}")
+            finally:
+                close_old_connections()
+
+        threading.Thread(target=_run, daemon=True).start()
+        return JsonResponse({
+            'success': True,
+            'message': '已开始生成当前 SimC/DBC 版本的技能伤害快照',
+            'data': {'job': self._job_data(service.snapshot)},
+        }, status=202)
 
 
 @method_decorator(login_required, name='dispatch')

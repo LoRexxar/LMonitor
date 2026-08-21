@@ -93,6 +93,7 @@ document.addEventListener('DOMContentLoaded', function() {
     initUserMenu();
     initSystemAlerts();
     initSimcBackendUploadTool();
+    initSimcSkillDamagePanel();
     initSimcWorkbench();
 
     // 显示服务端选择的第一个可访问页面
@@ -5776,6 +5777,105 @@ function initSystemAlerts() {
     }
 
     fetchUnreadSystemAlerts();
+}
+
+function renderSimcSkillDamageSnapshot(snapshot) {
+    const body = document.getElementById('simc-skill-damage-body');
+    const identityEl = document.getElementById('simc-skill-damage-identity');
+    const specSelect = document.getElementById('simc-skill-damage-spec');
+    const searchInput = document.getElementById('simc-skill-damage-search');
+    if (!body || !identityEl || !specSelect || !searchInput) return;
+
+    const identity = snapshot && snapshot.identity ? snapshot.identity : {};
+    identityEl.textContent = snapshot
+        ? `SimC ${identity.simc_revision || '-'} · DBC ${identity.game_build || '-'} · schema r${identity.schema_revision || '-'}`
+        : '尚无成功快照';
+    const actors = snapshot && Array.isArray(snapshot.actors) ? snapshot.actors : [];
+    const previousSpec = specSelect.value;
+    const specs = actors.map(actor => `${actor.class || ''}:${actor.specialization || ''}`);
+    specSelect.innerHTML = '<option value="">全部专精</option>' + specs.map((key, index) => {
+        const actor = actors[index];
+        return `<option value="${escapeHtml(key)}">${escapeHtml(actor.class || '-')} / ${escapeHtml(actor.specialization || '-')}</option>`;
+    }).join('');
+    if (specs.includes(previousSpec)) specSelect.value = previousSpec;
+
+    const selectedSpec = specSelect.value;
+    const query = String(searchInput.value || '').trim().toLowerCase();
+    const rows = [];
+    actors.forEach(actor => {
+        const actorKey = `${actor.class || ''}:${actor.specialization || ''}`;
+        if (selectedSpec && selectedSpec !== actorKey) return;
+        (actor.actions || []).forEach(action => {
+            const haystack = `${action.token || ''} ${action.name || ''} ${action.spell_id || ''}`.toLowerCase();
+            if (query && !haystack.includes(query)) return;
+            const normalized = action.dbc_scaling && action.dbc_scaling.normalized_base ? action.dbc_scaling.normalized_base : {};
+            const baseline = action.baseline || {};
+            const scenarios = Array.isArray(action.scenarios) ? action.scenarios : [];
+            const scenarioHtml = scenarios.length ? `<details><summary class="cursor-pointer font-semibold text-blue-800">${scenarios.length} 个场景</summary><div class="mt-2 space-y-2">${scenarios.map(scenario => {
+                const buffs = (scenario.buffs || []).map(buff => `${escapeHtml(buff.token)} ×${Number(buff.stacks || 1)}`).join(' + ') || '无';
+                const multiplier = scenario.direct_multiplier == null ? scenario.tick_multiplier : scenario.direct_multiplier;
+                return `<div class="rounded border border-stone-200 bg-stone-50 p-2"><div>${buffs}</div><div class="mt-1 font-mono text-xs text-stone-600">×${multiplier == null ? '-' : Number(multiplier).toFixed(4)} · Δ ${scenario.delta_pct == null ? '-' : Number(scenario.delta_pct).toFixed(2)}%</div></div>`;
+            }).join('')}</div></details>` : '<span class="text-stone-500">无职业 Buff 场景</span>';
+            const normalizedText = `direct ${normalized.direct_min == null ? '-' : Number(normalized.direct_min).toFixed(6)}–${normalized.direct_max == null ? '-' : Number(normalized.direct_max).toFixed(6)} / tick ${normalized.tick == null ? '-' : Number(normalized.tick).toFixed(6)}`;
+            const baselineText = `direct ${baseline.direct_min == null ? '-' : Number(baseline.direct_min).toFixed(3)}–${baseline.direct_max == null ? '-' : Number(baseline.direct_max).toFixed(3)} / tick ${baseline.tick == null ? '-' : Number(baseline.tick).toFixed(3)}`;
+            rows.push(`<tr class="align-top hover:bg-stone-50"><td class="px-3 py-3 font-semibold text-stone-800">${escapeHtml(actor.class || '-')}<div class="text-xs font-normal text-stone-500">${escapeHtml(actor.specialization || '-')}</div></td><td class="px-3 py-3"><div class="font-semibold text-gray-900">${escapeHtml(action.name || action.token || '-')}</div><div class="font-mono text-xs text-stone-600">${escapeHtml(action.token || '-')} · #${escapeHtml(action.spell_id || 0)}</div>${action.parent_token ? `<div class="mt-1 text-xs text-stone-500">组件：${escapeHtml(action.parent_token)}</div>` : ''}</td><td class="px-3 py-3 font-mono text-xs text-stone-800">${normalizedText}${action.dbc_scaling && action.dbc_scaling.requires_weapon_data ? '<div class="mt-1 font-sans text-amber-700">需武器模板</div>' : ''}</td><td class="px-3 py-3 font-mono text-xs text-stone-700">${baselineText}${baseline.unresolved_reason ? `<div class="mt-1 font-sans text-red-700">${escapeHtml(baseline.unresolved_reason)}</div>` : ''}</td><td class="min-w-[260px] px-3 py-3 text-xs text-stone-700">${scenarioHtml}</td></tr>`);
+        });
+    });
+    body.innerHTML = rows.length ? rows.join('') : '<tr><td colspan="5" class="px-4 py-8 text-center text-stone-500">没有符合条件的技能</td></tr>';
+}
+
+function initSimcSkillDamagePanel() {
+    const panel = document.getElementById('simc-skill-damage-panel');
+    if (!panel) return;
+    const statusEl = document.getElementById('simc-skill-damage-status');
+    const generateBtn = document.getElementById('simc-skill-damage-generate');
+    const refreshBtn = document.getElementById('simc-skill-damage-refresh');
+    const specSelect = document.getElementById('simc-skill-damage-spec');
+    const searchInput = document.getElementById('simc-skill-damage-search');
+    let currentSnapshot = null;
+    let pollTimer = null;
+
+    const load = async () => {
+        const response = await fetch('/api/simc-skill-damage/', { method: 'GET' });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.error || '加载技能伤害快照失败');
+        const data = payload.data || {};
+        currentSnapshot = data.snapshot || null;
+        renderSimcSkillDamageSnapshot(currentSnapshot);
+        generateBtn.classList.toggle('hidden', !data.can_generate);
+        const job = data.job;
+        const running = job && ['pending', 'running'].includes(job.status);
+        generateBtn.disabled = Boolean(running);
+        statusEl.textContent = running
+            ? `正在生成：${job.identity.game_build} · 已完成 ${job.spec_count || 0} 个专精`
+            : currentSnapshot
+                ? `最近成功：${currentSnapshot.spec_count || 0} 个专精、${currentSnapshot.action_count || 0} 个技能组件 · ${currentSnapshot.completed_at || ''}`
+                : (job && job.has_error ? '最近一次生成失败；旧成功快照不会被覆盖。' : '当前还没有成功快照。');
+        if (running && !pollTimer) pollTimer = setInterval(() => load().catch(() => {}), 3000);
+        if (!running && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    };
+
+    refreshBtn.addEventListener('click', () => load().catch(error => showMessage(error.message, 'error')));
+    specSelect.addEventListener('change', () => renderSimcSkillDamageSnapshot(currentSnapshot));
+    searchInput.addEventListener('input', () => renderSimcSkillDamageSnapshot(currentSnapshot));
+    generateBtn.addEventListener('click', async () => {
+        generateBtn.disabled = true;
+        try {
+            const response = await fetch('/api/simc-skill-damage/', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken()},
+                body: '{}'
+            });
+            const payload = await response.json();
+            if (!response.ok || !payload.success) throw new Error(payload.error || '触发生成失败');
+            showMessage(payload.message, 'success');
+            await load();
+        } catch (error) {
+            generateBtn.disabled = false;
+            showMessage(error.message, 'error');
+        }
+    });
+    load().catch(error => { statusEl.textContent = error.message; });
 }
 
 function initSimcBackendUploadTool() {
