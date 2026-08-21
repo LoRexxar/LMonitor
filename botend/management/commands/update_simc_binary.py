@@ -521,6 +521,23 @@ class Command(BaseCommand):
             cwd=self.simc_source_dir, timeout=1800,
             status='清理旧的 SimC 自动同步提交', progress=10,
         )
+        git_dir_result = subprocess.run(
+            ['git', 'rev-parse', '--git-dir'],
+            cwd=self.simc_source_dir, capture_output=True, text=True, timeout=30,
+        )
+        if git_dir_result.returncode != 0:
+            detail = (git_dir_result.stderr or git_dir_result.stdout or '').strip()[-1000:]
+            self._fail('清理旧的 SimC 补丁状态失败', detail or '无法定位 SimC git 目录', progress=10)
+        git_dir = git_dir_result.stdout.strip()
+        if not os.path.isabs(git_dir):
+            git_dir = os.path.join(self.simc_source_dir, git_dir)
+        ledger_path = os.path.join(git_dir, 'lmonitor-applied-patches.json')
+        try:
+            os.unlink(ledger_path)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            self._fail('清理旧的 SimC 补丁状态失败', str(exc), progress=10)
         return True
 
     def _pull_rebase(self):

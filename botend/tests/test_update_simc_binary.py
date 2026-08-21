@@ -22,23 +22,32 @@ class UpdateSimcBinaryCommandTests(TestCase):
         """A partial-clone reset may fetch many blobs and must not inherit a 120s timeout."""
         from botend.management.commands.update_simc_binary import Command
 
-        command = Command()
-        command.simc_source_dir = '/srv/simc'
-        with mock.patch(
-            'botend.management.commands.update_simc_binary.subprocess.run',
-            return_value=subprocess.CompletedProcess(
-                [], 0,
-                stdout='auto-save local changes before upstream sync (2026-08-21T02:28:09Z)\n',
-                stderr='',
-            ),
-        ), mock.patch.object(command, '_run') as run:
-            self.assertTrue(command._discard_managed_local_commits())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            git_dir = Path(tmpdir) / '.git'
+            git_dir.mkdir()
+            ledger_path = git_dir / 'lmonitor-applied-patches.json'
+            ledger_path.write_text('{"patches": [], "files": {}}', encoding='utf-8')
+            command = Command()
+            command.simc_source_dir = tmpdir
+            with mock.patch(
+                'botend.management.commands.update_simc_binary.subprocess.run',
+                side_effect=[
+                    subprocess.CompletedProcess(
+                        [], 0,
+                        stdout='auto-save local changes before upstream sync (2026-08-21T02:28:09Z)\n',
+                        stderr='',
+                    ),
+                    subprocess.CompletedProcess([], 0, stdout='.git\n', stderr=''),
+                ],
+            ), mock.patch.object(command, '_run') as run:
+                self.assertTrue(command._discard_managed_local_commits())
 
-        run.assert_called_once_with(
-            ['git', 'reset', '--hard', 'origin/midnight'],
-            cwd='/srv/simc', timeout=1800,
-            status='清理旧的 SimC 自动同步提交', progress=10,
-        )
+            run.assert_called_once_with(
+                ['git', 'reset', '--hard', 'origin/midnight'],
+                cwd=tmpdir, timeout=1800,
+                status='清理旧的 SimC 自动同步提交', progress=10,
+            )
+            self.assertFalse(ledger_path.exists())
 
     @override_settings(SIMC_CONFIG={'wow_build': '12.0.1.70000'})
     def test_symbol_sync_failure_rolls_back_same_revision_apl_import(self):
