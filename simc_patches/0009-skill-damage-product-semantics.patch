@@ -1,0 +1,176 @@
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+index f29b037..51a55b8 100644
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -526,13 +526,61 @@ struct skill_damage_amount_t
+ {
+   struct component_t
+   {
+-    double hit = 0.0, crit = 0.0, crit_chance = 0.0, expected = 0.0;
++    double hit = 0.0, crit = 0.0, crit_multiplier = 1.0, crit_chance = 0.0, expected = 0.0;
+     bool present = false;
+   } direct_amount, tick_amount;
+   bool direct = false, periodic = false;
+   std::string unresolved_reason;
+ };
+ 
++struct skill_damage_dbc_scaling_t
++{
++  struct component_t
++  {
++    double attack_power_coefficient = 0.0;
++    double spell_power_coefficient = 0.0;
++    std::vector<unsigned> effect_indexes;
++
++    bool present() const { return !effect_indexes.empty(); }
++    double normalized_base() const
++    { return 100.0 * ( attack_power_coefficient + spell_power_coefficient ); }
++  } direct, tick;
++};
++
++skill_damage_dbc_scaling_t skill_damage_dbc_scaling( const action_t& action )
++{
++  skill_damage_dbc_scaling_t scaling;
++  for ( const auto& effect : action.data().effects() )
++  {
++    skill_damage_dbc_scaling_t::component_t* component = nullptr;
++    if ( effect.type() == E_SCHOOL_DAMAGE )
++      component = &scaling.direct;
++    else if ( effect.type() == E_APPLY_AURA && effect.subtype() == A_PERIODIC_DAMAGE )
++      component = &scaling.tick;
++    if ( !component ) continue;
++    component->attack_power_coefficient += effect.ap_coeff();
++    component->spell_power_coefficient += effect.sp_coeff();
++    component->effect_indexes.push_back( effect.index() );
++  }
++  return scaling;
++}
++
++void write_skill_damage_dbc_component( std::ostream& out,
++                                       const skill_damage_dbc_scaling_t::component_t& component )
++{
++  if ( !component.present() ) { out << "null"; return; }
++  out << "{\"attack_power_coefficient\":" << component.attack_power_coefficient;
++  out << ",\"spell_power_coefficient\":" << component.spell_power_coefficient;
++  out << ",\"normalized_base\":" << component.normalized_base();
++  out << ",\"effect_indexes\":[";
++  for ( size_t i = 0; i < component.effect_indexes.size(); ++i )
++  {
++    if ( i ) out << ',';
++    out << component.effect_indexes[ i ];
++  }
++  out << "]}";
++}
++
+ bool skill_damage_amount_changed( const skill_damage_amount_t& a, const skill_damage_amount_t& b )
+ {
+   const auto changed = []( double x, double y ) { return std::abs( x - y ) > std::max( 1.0, std::abs( x ) ) * 1.0e-8; };
+@@ -569,6 +617,7 @@ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
+         state->result = RESULT_CRIT;
+         action.calculate_direct_amount( state );
+         amount.direct_amount.crit = action.calculate_crit_damage_bonus( state );
++        amount.direct_amount.crit_multiplier = 1.0 + state->result_crit_bonus;
+       }
+       else
+         amount.direct_amount.crit = amount.direct_amount.hit;
+@@ -590,6 +639,7 @@ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
+       {
+         state->result = RESULT_CRIT;
+         amount.tick_amount.crit = action.calculate_tick_amount( state, 1.0 );
++        amount.tick_amount.crit_multiplier = 1.0 + state->result_crit_bonus;
+       }
+       else
+         amount.tick_amount.crit = amount.tick_amount.hit;
+@@ -610,8 +660,10 @@ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
+ struct skill_damage_pipe_result_t
+ {
+   uint32_t magic = 0;
+-  double direct_hit = 0.0, direct_crit = 0.0, direct_crit_chance = 0.0, direct_expected = 0.0;
+-  double tick_hit = 0.0, tick_crit = 0.0, tick_crit_chance = 0.0, tick_expected = 0.0;
++  double direct_hit = 0.0, direct_crit = 0.0, direct_crit_multiplier = 1.0,
++         direct_crit_chance = 0.0, direct_expected = 0.0;
++  double tick_hit = 0.0, tick_crit = 0.0, tick_crit_multiplier = 1.0,
++         tick_crit_chance = 0.0, tick_expected = 0.0;
+   uint8_t direct = 0, periodic = 0, success = 0;
+ };
+ 
+@@ -701,10 +753,12 @@ skill_damage_amount_t skill_damage_fork_snapshot( action_t& action,
+     result.magic = SKILL_DAMAGE_PIPE_MAGIC;
+     result.direct_hit = child_amount.direct_amount.hit;
+     result.direct_crit = child_amount.direct_amount.crit;
++    result.direct_crit_multiplier = child_amount.direct_amount.crit_multiplier;
+     result.direct_crit_chance = child_amount.direct_amount.crit_chance;
+     result.direct_expected = child_amount.direct_amount.expected;
+     result.tick_hit = child_amount.tick_amount.hit;
+     result.tick_crit = child_amount.tick_amount.crit;
++    result.tick_crit_multiplier = child_amount.tick_amount.crit_multiplier;
+     result.tick_crit_chance = child_amount.tick_amount.crit_chance;
+     result.tick_expected = child_amount.tick_amount.expected;
+     result.direct = child_amount.direct;
+@@ -745,19 +799,23 @@ skill_damage_amount_t skill_damage_fork_snapshot( action_t& action,
+   }
+   amount.direct_amount.hit = result.direct_hit;
+   amount.direct_amount.crit = result.direct_crit;
++  amount.direct_amount.crit_multiplier = result.direct_crit_multiplier;
+   amount.direct_amount.crit_chance = result.direct_crit_chance;
+   amount.direct_amount.expected = result.direct_expected;
+   amount.direct_amount.present = result.direct;
+   amount.tick_amount.hit = result.tick_hit;
+   amount.tick_amount.crit = result.tick_crit;
++  amount.tick_amount.crit_multiplier = result.tick_crit_multiplier;
+   amount.tick_amount.crit_chance = result.tick_crit_chance;
+   amount.tick_amount.expected = result.tick_expected;
+   amount.tick_amount.present = result.periodic;
+   amount.direct = result.direct;
+   amount.periodic = result.periodic;
+   if ( ( amount.direct && ( !std::isfinite( amount.direct_amount.hit ) || !std::isfinite( amount.direct_amount.crit ) ||
++                            !std::isfinite( amount.direct_amount.crit_multiplier ) ||
+                             !std::isfinite( amount.direct_amount.crit_chance ) || !std::isfinite( amount.direct_amount.expected ) ) ) ||
+        ( amount.periodic && ( !std::isfinite( amount.tick_amount.hit ) || !std::isfinite( amount.tick_amount.crit ) ||
++                              !std::isfinite( amount.tick_amount.crit_multiplier ) ||
+                               !std::isfinite( amount.tick_amount.crit_chance ) || !std::isfinite( amount.tick_amount.expected ) ) ) )
+     amount.unresolved_reason = "runtime_non_finite_amount";
+   return amount;
+@@ -807,6 +865,7 @@ void write_skill_damage_amount( std::ostream& out, const skill_damage_amount_t&
+     if ( !present ) { out << "null"; return; }
+     out << "{\"hit\":"; write_skill_damage_json_number( out, c.hit );
+     out << ",\"crit\":"; write_skill_damage_json_number( out, c.crit );
++    out << ",\"crit_multiplier\":"; write_skill_damage_json_number( out, c.crit_multiplier );
+     out << ",\"crit_chance\":"; write_skill_damage_json_number( out, c.crit_chance );
+     out << ",\"expected\":"; write_skill_damage_json_number( out, c.expected );
+     out << '}';
+@@ -917,7 +976,7 @@ void export_skill_damage( sim_t& sim )
+   const std::string temporary = target + ".tmp." + std::to_string( static_cast<long long>( getpid() ) );
+   std::ofstream out( temporary, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open temporary skill damage export file" );
+-  out << "{\"schema_version\":2,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
++  out << "{\"schema_version\":3,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"normalization_basis\":{\"attack_power\":100,\"spell_power\":100,"
+          "\"crit_percent\":20,\"mastery_percent\":50}";
+@@ -970,19 +1029,13 @@ void export_skill_damage( sim_t& sim )
+       out << ",\"supported\":" << ( requires_weapon_data ? "false" : "true" );
+       out << ",\"unsupported_reason\":";
+       if ( requires_weapon_data ) apl_metadata_json_string( out, "weapon_dependent" ); else out << "null";
+-      out << ",\"parent_token\":null,\"dbc_scaling\":{";
+-      out << "\"attack_power_coefficient\":{\"direct\":" << action->attack_power_mod.direct
+-          << ",\"tick\":" << action->attack_power_mod.tick << "}";
+-      out << ",\"spell_power_coefficient\":{\"direct\":" << action->spell_power_mod.direct
+-          << ",\"tick\":" << action->spell_power_mod.tick << "}";
++      const auto dbc_scaling = skill_damage_dbc_scaling( *action );
++      out << ",\"parent_token\":null,\"dbc_scaling\":{\"source\":\"spell_effect\",\"direct\":";
++      write_skill_damage_dbc_component( out, dbc_scaling.direct );
++      out << ",\"tick\":";
++      write_skill_damage_dbc_component( out, dbc_scaling.tick );
+       out << ",\"weapon_multiplier\":" << action->weapon_multiplier;
+-      out << ",\"requires_weapon_data\":" << ( requires_weapon_data ? "true" : "false" );
+-      out << ",\"normalized_base\":{\"direct_min\":"
+-          << action->base_dd_min + action->attack_power_mod.direct + action->spell_power_mod.direct;
+-      out << ",\"direct_max\":"
+-          << action->base_dd_max + action->attack_power_mod.direct + action->spell_power_mod.direct;
+-      out << ",\"tick\":"
+-          << action->base_td + action->attack_power_mod.tick + action->spell_power_mod.tick << "}}";
++      out << ",\"requires_weapon_data\":" << ( requires_weapon_data ? "true" : "false" ) << '}';
+       out << ",\"baseline\":"; write_skill_damage_amount( out, baseline );
+       out << ",\"scenarios\":[";
+       bool first_scenario = true;

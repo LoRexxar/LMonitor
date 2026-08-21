@@ -58,6 +58,7 @@ from botend.services.simc_player_config import (
 from botend.services.simc_composer import SimcComposer, validate_simulation_options
 from botend.services.simc_skill_damage import (
     SimcSkillDamageSnapshotService, localize_skill_damage_payload,
+    project_skill_damage_product_payload,
 )
 from botend.wow.talents.service import TalentBuildCodeService
 from botend.services.simc_hero_talents import resolve_hero_talent_names
@@ -8210,7 +8211,9 @@ class SimcSkillDamageSnapshotAPIView(View):
         job = SimcSkillDamageSnapshot.objects.order_by('-created_at', '-id').first()
         snapshot = None
         if latest:
-            snapshot = localize_skill_damage_payload(latest.payload)
+            snapshot = project_skill_damage_product_payload(
+                localize_skill_damage_payload(latest.payload)
+            )
             snapshot['identity'] = {
                 'simc_revision': latest.simc_revision,
                 'game_build': latest.game_build,
@@ -8220,7 +8223,8 @@ class SimcSkillDamageSnapshotAPIView(View):
             snapshot['status'] = latest.status
             snapshot['completed_at'] = _fmt_dt(latest.completed_at)
             snapshot['spec_count'] = latest.generated_spec_count
-            snapshot['action_count'] = latest.generated_action_count
+            snapshot['action_count'] = snapshot.get('display_action_count', 0)
+            snapshot['raw_action_count'] = latest.generated_action_count
         return JsonResponse({
             'success': True,
             'data': {

@@ -1756,8 +1756,8 @@
                                 <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                                     <div>
                                         <div class="text-xs font-bold uppercase tracking-wider text-stone-500">DBC VERSION SNAPSHOT</div>
-                                        <h3 class="mt-1 text-xl font-semibold text-gray-900">技能数学期望伤害对照</h3>
-                                        <p class="mt-1 text-sm text-gray-600">默认读取最新 SimC；每次 DBC Build 更新后自动生成新快照。固定预制面板仅为 AP/SP 100.00、全局暴击 20.00%、精通 50.00%。计算只包含当前角色天赋与技能本身，不启用任何团队或职业增益；技能自身实际暴击率在每行独立展示。</p>
+                                        <h3 class="mt-1 text-xl font-semibold text-gray-900">技能归一化伤害</h3>
+                                        <p class="mt-1 text-sm text-gray-600">DBC 基础伤害直接读取技能 SpellEffect 的 AP/SP coefficient，并按 AP/SP 100.00 归一化；当前天赋伤害、技能实际暴击率、暴击总伤害与归一化期望均由 SimC 按所选完整天赋的 action 公式计算。全局暴击 20.00%、精通 50.00%，不启用团队或职业增益，不解析或自行维护天赋效果公式。</p>
                                         <div id="simc-skill-damage-identity" class="mt-3 text-xs font-mono text-stone-600">尚未加载快照</div>
                                     </div>
                                     <div class="flex flex-wrap items-center gap-2">
@@ -1769,14 +1769,14 @@
                                 <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,220px)_minmax(0,220px)_minmax(0,1fr)]">
                                     <select id="simc-skill-damage-spec" class="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-gray-800"><option value="">请选择专精</option></select>
                                     <select id="simc-skill-damage-hero-tree" disabled class="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-gray-800 disabled:bg-stone-100"><option value="">请选择英雄天赋树</option></select>
-                                    <input id="simc-skill-damage-search" type="search" class="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-gray-800" placeholder="搜索技能 token、名称或 spell ID">
+                                    <input id="simc-skill-damage-search" type="search" class="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-gray-800" placeholder="搜索技能名称或技能 ID">
                                 </div>
                                 <div class="simc-skill-damage-table mt-4 overflow-x-auto rounded-xl border border-stone-300 bg-stone-50">
                                     <table class="min-w-full border-collapse text-sm">
                                         <thead class="bg-stone-200 text-left text-xs font-bold uppercase tracking-wide text-stone-700">
-                                            <tr><th class="px-3 py-3">技能</th><th class="px-3 py-3">HIT</th><th class="px-3 py-3">CRIT</th><th class="px-3 py-3">技能暴击率</th><th class="px-3 py-3"><button id="simc-skill-damage-sort-expected" type="button" data-direction="desc" class="font-bold text-blue-900 hover:underline">归一化伤害期望 ↓</button></th></tr>
+                                            <tr><th class="px-3 py-3">技能</th><th class="px-3 py-3">分量</th><th class="px-3 py-3">DBC 基础伤害</th><th class="px-3 py-3">当前天赋基础伤害</th><th class="px-3 py-3">技能实际暴击率</th><th class="px-3 py-3"><button id="simc-skill-damage-sort-expected" type="button" data-direction="desc" class="font-bold text-blue-900 hover:underline">归一化伤害期望 ↓</button></th></tr>
                                         </thead>
-                                        <tbody id="simc-skill-damage-body" class="divide-y divide-stone-300 bg-white"><tr><td colspan="5" class="px-4 py-8 text-center text-stone-500">请先选择专精和英雄天赋树</td></tr></tbody>
+                                        <tbody id="simc-skill-damage-body" class="divide-y divide-stone-300 bg-white"><tr><td colspan="6" class="px-4 py-8 text-center text-stone-500">请先选择专精和英雄天赋树</td></tr></tbody>
                                     </table>
                                 </div>
                             </section>

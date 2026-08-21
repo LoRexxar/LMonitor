@@ -5794,13 +5794,11 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         if (!hasFiniteSimcSkillDamageNumber(value)) return '-';
         return value.toFixed(2);
     };
-    const componentValues = (baseline, field) => ['direct', 'tick'].map(component => {
-        const amount = baseline && baseline[component];
-        if (!amount || typeof amount !== 'object') return '';
-        const value = field === 'crit_chance' ? amount.crit_chance * 100 : amount[field];
-        const suffix = field === 'crit_chance' && hasFiniteSimcSkillDamageNumber(value) ? '%' : '';
-        return `<div>${formatSimcSkillDamageNumber(value)}${suffix}</div>`;
-    }).filter(Boolean).join('');
+    const formatSimcSkillDamagePercent = (value, signed = false) => {
+        if (!hasFiniteSimcSkillDamageNumber(value)) return '-';
+        const prefix = signed && value > 0 ? '+' : '';
+        return `${prefix}${value.toFixed(2)}%`;
+    };
     const body = document.getElementById('simc-skill-damage-body');
     const identityEl = document.getElementById('simc-skill-damage-identity');
     const specSelect = document.getElementById('simc-skill-damage-spec');
@@ -5846,7 +5844,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     const sortDirection = sortButton.dataset.direction === 'asc' ? 'asc' : 'desc';
     sortButton.textContent = `归一化伤害期望 ${sortDirection === 'asc' ? '↑' : '↓'}`;
     if (!selectedSpec || !selectedHeroTree) {
-        body.innerHTML = '<tr><td colspan="5" class="px-4 py-8 text-center text-stone-500">请先选择专精和英雄天赋树</td></tr>';
+        body.innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-stone-500">请先选择专精和英雄天赋树</td></tr>';
         return;
     }
 
@@ -5857,15 +5855,13 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     )).forEach(actor => {
         const actions = Array.isArray(actor.actions) ? actor.actions.filter(item => item && typeof item === 'object') : [];
         actions.forEach(action => {
-            const haystack = `${action.display_name || ''} ${action.name || ''} ${action.token || ''} ${action.spell_id || ''}`.toLowerCase();
+            const haystack = `${action.display_name || ''} ${action.name || ''} ${action.spell_id || ''}`.toLowerCase();
             if (query && !haystack.includes(query)) return;
-            const baseline = action.baseline && typeof action.baseline === 'object' ? action.baseline : {};
-            const expectedValues = [baseline.direct, baseline.tick]
-                .filter(amount => amount && typeof amount === 'object')
-                .map(amount => amount.expected)
-                .filter(hasFiniteSimcSkillDamageNumber);
-            const expectedSortValue = expectedValues.length ? Math.max(...expectedValues) : Number.NEGATIVE_INFINITY;
-            rows.push({action, baseline, expectedSortValue});
+            const product = action.product && typeof action.product === 'object' ? action.product : {};
+            const expectedSortValue = hasFiniteSimcSkillDamageNumber(product.normalized_expected)
+                ? product.normalized_expected
+                : Number.NEGATIVE_INFINITY;
+            rows.push({action, product, expectedSortValue});
         });
     });
     rows.sort((left, right) => {
@@ -5873,18 +5869,19 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         if (delta) return sortDirection === 'asc' ? delta : -delta;
         return String(left.action.display_name || left.action.name || '').localeCompare(String(right.action.display_name || right.action.name || ''));
     });
-    body.innerHTML = rows.length ? rows.map(({action, baseline}) => {
-        const unsupportedReason = action.supported === false ? (action.unsupported_reason || 'unsupported') : '';
-        const unresolvedReason = baseline.unresolved_reason || '';
+    body.innerHTML = rows.length ? rows.map(({action, product}) => {
         const skillMeta = renderSimcSkillIdentity(action);
-        if (unsupportedReason) {
-            return `<tr class="align-top hover:bg-stone-50"><td class="px-3 py-3">${skillMeta}</td><td colspan="4" class="px-3 py-3 text-amber-700">暂不支持：${escapeHtml(unsupportedReason)}</td></tr>`;
+        const componentLabel = action.component === 'tick' ? '每跳' : '直伤';
+        let dbcBaseCell = '<span class="text-stone-500">DBC 未解析</span>';
+        if (hasFiniteSimcSkillDamageNumber(product.dbc_base_damage_min)
+            && hasFiniteSimcSkillDamageNumber(product.dbc_base_damage_max)) {
+            const minimum = formatSimcSkillDamageNumber(product.dbc_base_damage_min);
+            const maximum = formatSimcSkillDamageNumber(product.dbc_base_damage_max);
+            dbcBaseCell = minimum === maximum ? minimum : `${minimum} – ${maximum}`;
         }
-        const expectedCell = unresolvedReason
-            ? `<span class="text-red-700">${escapeHtml(unresolvedReason)}</span>`
-            : (componentValues(baseline, 'expected') || '-');
-        return `<tr class="align-top hover:bg-stone-50"><td class="min-w-[240px] px-3 py-3">${skillMeta}</td><td class="px-3 py-3 font-mono">${componentValues(baseline, 'hit') || '-'}</td><td class="px-3 py-3 font-mono">${componentValues(baseline, 'crit') || '-'}</td><td class="px-3 py-3 font-mono">${componentValues(baseline, 'crit_chance') || '-'}</td><td class="px-3 py-3 font-mono font-bold text-blue-900">${expectedCell}</td></tr>`;
-    }).join('') : '<tr><td colspan="5" class="px-4 py-8 text-center text-stone-500">没有符合条件的技能</td></tr>';
+        const expectedEvidence = `暴击 ${formatSimcSkillDamageNumber(product.crit_damage)} · × ${formatSimcSkillDamageNumber(product.crit_multiplier)}`;
+        return `<tr class="align-top hover:bg-stone-50"><td class="min-w-[220px] px-3 py-3">${skillMeta}</td><td class="whitespace-nowrap px-3 py-3 font-medium text-stone-700">${componentLabel}</td><td class="px-3 py-3 font-mono">${dbcBaseCell}</td><td class="px-3 py-3 font-mono font-semibold">${formatSimcSkillDamageNumber(product.current_talent_damage)}</td><td class="px-3 py-3 font-mono">${formatSimcSkillDamagePercent(product.actual_crit_chance * 100)}</td><td class="px-3 py-3 font-mono font-bold text-blue-900">${formatSimcSkillDamageNumber(product.normalized_expected)}<div class="text-xs font-normal text-stone-500">${expectedEvidence}</div></td></tr>`;
+    }).join('') : '<tr><td colspan="6" class="px-4 py-8 text-center text-stone-500">没有符合条件的伤害技能</td></tr>';
 }
 
 function initSimcSkillDamagePanel() {

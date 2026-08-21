@@ -112,10 +112,100 @@ def localize_skill_damage_payload(payload):
     return result
 
 
+def _finite_number(value):
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    )
+
+
+def attach_runtime_product_metrics(actor):
+    """Combine raw DBC scaling with one fully-talented SimC runtime actor.
+
+    DBC coefficients are the pre-talent spell fact. Runtime hit/crit/expectation
+    already include the selected build through SimC's native action formulas.
+    """
+    for action in actor.get('actions') or []:
+        if not isinstance(action, dict) or action.get('supported') is not True:
+            continue
+        baseline = action.get('baseline')
+        if not isinstance(baseline, dict) or baseline.get('unresolved_reason'):
+            continue
+        dbc_scaling = action.get('dbc_scaling') or {}
+        for component_name in ('direct', 'tick'):
+            component = baseline.get(component_name)
+            if not isinstance(component, dict):
+                continue
+            dbc_component = dbc_scaling.get(component_name)
+            dbc_value = (
+                dbc_component.get('normalized_base')
+                if isinstance(dbc_component, dict)
+                else None
+            )
+            dbc_reason = ''
+            if not _finite_number(dbc_value):
+                dbc_value = None
+                dbc_reason = 'dbc_damage_effect_unresolved'
+            component['product'] = {
+                'dbc_base_damage_min': dbc_value,
+                'dbc_base_damage_max': dbc_value,
+                'current_talent_damage': component.get('hit'),
+                'crit_damage': component.get('crit'),
+                'crit_multiplier': component.get('crit_multiplier'),
+                'actual_crit_chance': component.get('crit_chance'),
+                'normalized_expected': component.get('expected'),
+                'dbc_unresolved_reason': dbc_reason,
+            }
+    return actor
+
+
+def project_skill_damage_product_payload(payload):
+    """Return the display read model while preserving raw snapshot diagnostics."""
+    result = copy.deepcopy(payload or {})
+    display_count = 0
+    required = (
+        'current_talent_damage', 'crit_damage', 'crit_multiplier',
+        'actual_crit_chance', 'normalized_expected',
+    )
+    actors = [actor for actor in (result.get('actors') or []) if isinstance(actor, dict)]
+    for actor in actors:
+        rows = []
+        for action in actor.get('actions') or []:
+            if not isinstance(action, dict) or action.get('supported') is not True:
+                continue
+            baseline = action.get('baseline')
+            if not isinstance(baseline, dict) or baseline.get('unresolved_reason'):
+                continue
+            for component_name in ('direct', 'tick'):
+                component = baseline.get(component_name)
+                product = component.get('product') if isinstance(component, dict) else None
+                if not isinstance(product, dict):
+                    continue
+                if any(not _finite_number(product.get(field)) for field in required):
+                    continue
+                chance = product['actual_crit_chance']
+                if not 0.0 <= chance <= 1.0 or product['crit_multiplier'] < 0.0:
+                    continue
+                row = {
+                    key: copy.deepcopy(value)
+                    for key, value in action.items()
+                    if key not in ('baseline', 'scenarios', 'unsupported_reason')
+                }
+                row['component'] = component_name
+                row['product'] = copy.deepcopy(product)
+                rows.append(row)
+        actor['actions'] = rows
+        display_count += len(rows)
+    result['actors'] = actors
+    result['display_action_count'] = display_count
+    return result
+
+
 class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
-    EXPORTER_SCHEMA_REVISION = 2
+    EXPORTER_SCHEMA_REVISION = 3
     FIXED_PRESET = {
         'attack_power': 100.0,
         'spell_power': 100.0,
@@ -267,9 +357,9 @@ class SimcSkillDamageSnapshotService:
             raise ValueError('SimC exporter 二进制不可执行。')
         return path
 
-    def _run_profile_export(self, profile, talent):
+    def _run_profile_export(self, profile, talent=None):
         baseline_profile = copy.copy(profile)
-        baseline_profile.talent = talent.talent
+        baseline_profile.talent = talent.talent if talent is not None else ''
         simc_input = SimcComposer(None).compose_validation_input(baseline_profile, '')
         with tempfile.TemporaryDirectory(prefix='simc-skill-damage-') as tmp:
             input_path = Path(tmp) / 'actor.simc'
@@ -286,10 +376,10 @@ class SimcSkillDamageSnapshotService:
                 diagnostic = (result.stderr or result.stdout or 'SimC exporter 未生成 JSON').strip()
                 raise RuntimeError(diagnostic[-2000:])
             payload = json.loads(output_path.read_text(encoding='utf-8'))
-        self._validate_export(payload)
+        self._validate_export(payload, profile=profile)
         return payload
 
-    def _validate_export(self, payload):
+    def _validate_export(self, payload, *, profile=None):
         if payload.get('schema_version') != self.snapshot.schema_revision:
             raise ValueError('exporter schema revision 不匹配。')
         if payload.get('simc_revision') != self.snapshot.simc_revision:
@@ -299,19 +389,87 @@ class SimcSkillDamageSnapshotService:
         normalization = payload.get('normalization_basis') or {}
         if normalization != self.FIXED_PRESET:
             raise ValueError('exporter 未按 AP/SP=100、暴击=20%、精通=50% 的固定预制生成。')
-        if not isinstance(payload.get('actors'), list):
+        actors = payload.get('actors')
+        if not isinstance(actors, list):
             raise ValueError('exporter actors 结构无效。')
-        required_amount_fields = ('hit', 'crit', 'crit_chance', 'expected')
-        for actor in payload['actors']:
+        if len(actors) != 1:
+            raise ValueError('每次完整天赋 exporter 必须恰好一个 actor。')
+        required_amount_fields = ('hit', 'crit', 'crit_multiplier', 'crit_chance', 'expected')
+        required_dbc_fields = (
+            'attack_power_coefficient', 'spell_power_coefficient',
+            'normalized_base', 'effect_indexes',
+        )
+        for actor in actors:
             if not isinstance(actor, dict) or not isinstance(actor.get('actions'), list):
                 raise ValueError('exporter actor/actions 结构无效。')
+            actor_class = actor.get('class')
+            actor_spec = actor.get('spec')
+            if (
+                not isinstance(actor_class, str) or not actor_class.strip()
+                or not isinstance(actor_spec, str) or not actor_spec.strip()
+                or actor.get('action_universe')
+                != 'dbc_spellbook_selected_traits_and_derived_actions'
+            ):
+                raise ValueError('exporter actor 身份或 action universe 无效。')
+            if profile is not None:
+                expected_class = str(getattr(profile, 'class_name', '') or '').strip().lower()
+                expected_spec = str(getattr(profile, 'spec', '') or '').strip().lower()
+                prefix = f'{expected_class}_'
+                if expected_class and expected_spec.startswith(prefix):
+                    expected_spec = expected_spec[len(prefix):]
+                if (
+                    expected_class and actor_class.strip().lower() != expected_class
+                    or expected_spec and actor_spec.strip().lower() != expected_spec
+                ):
+                    raise ValueError('exporter actor 身份与请求 Profile 不匹配。')
             for action in actor['actions']:
                 if not isinstance(action, dict):
                     raise ValueError('exporter action 结构无效。')
-                if action.get('supported') is False:
+                if not isinstance(action.get('supported'), bool):
+                    raise ValueError('exporter action supported 必须为布尔值。')
+                if action['supported'] is False:
                     if not action.get('unsupported_reason'):
                         raise ValueError('exporter unsupported action 缺少原因。')
                     continue
+                dbc_scaling = action.get('dbc_scaling')
+                if (
+                    not isinstance(dbc_scaling, dict)
+                    or dbc_scaling.get('source') != 'spell_effect'
+                    or not isinstance(dbc_scaling.get('requires_weapon_data'), bool)
+                ):
+                    raise ValueError('exporter action 缺少有效的 DBC SpellEffect scaling。')
+                for component_name in ('direct', 'tick'):
+                    component = dbc_scaling.get(component_name)
+                    if component is None:
+                        continue
+                    if not isinstance(component, dict) or any(
+                        field not in component for field in required_dbc_fields
+                    ):
+                        raise ValueError('exporter DBC SpellEffect 组件结构无效。')
+                    coefficients = [
+                        component['attack_power_coefficient'],
+                        component['spell_power_coefficient'],
+                        component['normalized_base'],
+                    ]
+                    indexes = component['effect_indexes']
+                    if (
+                        not all(
+                            isinstance(value, (int, float))
+                            and not isinstance(value, bool)
+                            and math.isfinite(value)
+                            for value in coefficients
+                        )
+                        or not isinstance(indexes, list)
+                        or not indexes
+                        or not all(
+                            isinstance(index, int) and not isinstance(index, bool) and index >= 0
+                            for index in indexes
+                        )
+                    ):
+                        raise ValueError('exporter DBC SpellEffect 组件数值无效。')
+                    expected_base = 100.0 * (coefficients[0] + coefficients[1])
+                    if not math.isclose(coefficients[2], expected_base, rel_tol=1e-9, abs_tol=1e-6):
+                        raise ValueError('exporter DBC SpellEffect 归一化基础伤害无效。')
                 baseline = action.get('baseline')
                 if not isinstance(baseline, dict):
                     raise ValueError('exporter action 缺少 baseline 数学期望。')
@@ -384,13 +542,19 @@ class SimcSkillDamageSnapshotService:
                         'reason': errors[-1][1] if errors else '没有可执行的同英雄树天赋候选。',
                     })
                     continue
-                for actor in exported.get('actors', []):
-                    actor = dict(actor)
+                selected_actors = [
+                    actor for actor in exported.get('actors', [])
+                    if isinstance(actor, dict)
+                ]
+                for exported_actor in selected_actors:
+                    actor = copy.deepcopy(exported_actor)
                     actor.pop('name', None)
                     if 'specialization' not in actor and actor.get('spec'):
                         actor['specialization'] = actor.pop('spec')
                     actor['hero_talent_tree'] = hero_tree
                     actor['talent_name'] = selected_talent.name
+                    actor['base_damage_basis'] = 'dbc_spell_effect_ap_sp_coefficients_at_100'
+                    attach_runtime_product_metrics(actor)
                     actors.append(actor)
                 unresolved.extend(exported.get('unresolved', []))
             payload = {

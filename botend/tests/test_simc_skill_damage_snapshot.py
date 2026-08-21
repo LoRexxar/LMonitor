@@ -12,7 +12,11 @@ from botend.models import (
     SimcAplSymbol, SimcAplSymbolScope, SimcBackendBinary,
     SimcSkillDamageSnapshot, WowTalentNodeMetadata, WowTalentVersion,
 )
-from botend.services.simc_skill_damage import SimcSkillDamageSnapshotService
+from botend.services.simc_skill_damage import (
+    SimcSkillDamageSnapshotService,
+    attach_runtime_product_metrics,
+    project_skill_damage_product_payload,
+)
 from botend.dashboard.api import SimcSkillDamageSnapshotAPIView
 
 
@@ -41,6 +45,64 @@ class SimcSkillDamageSnapshotModelTests(TestCase):
 
 
 class SimcSkillDamageSnapshotServiceTests(TestCase):
+    def test_product_metrics_combine_dbc_base_with_selected_talent_runtime(self):
+        selected = {'actions': [
+            {
+                'token': 'bloodthirst', 'spell_id': 23881, 'supported': True,
+                'dbc_scaling': {
+                    'source': 'spell_effect',
+                    'direct': {
+                        'attack_power_coefficient': 2.0,
+                        'spell_power_coefficient': 0.0,
+                        'normalized_base': 200.0,
+                        'effect_indexes': [1],
+                    },
+                    'tick': None,
+                    'requires_weapon_data': False,
+                },
+                'baseline': {
+                    'direct': {'hit': 220.0, 'crit': 484.0, 'crit_multiplier': 2.2,
+                               'crit_chance': 0.2, 'expected': 272.8},
+                },
+            },
+        ]}
+
+        attach_runtime_product_metrics(selected)
+
+        bloodthirst = selected['actions'][0]['baseline']['direct']['product']
+        self.assertEqual(bloodthirst, {
+            'dbc_base_damage_min': 200.0,
+            'dbc_base_damage_max': 200.0,
+            'current_talent_damage': 220.0,
+            'crit_damage': 484.0,
+            'crit_multiplier': 2.2,
+            'actual_crit_chance': 0.2,
+            'normalized_expected': 272.8,
+            'dbc_unresolved_reason': '',
+        })
+        self.assertNotIn('talent_gain_pct', bloodthirst)
+
+    def test_product_projection_only_returns_valid_damage_components_without_mutating_raw_payload(self):
+        payload = {'actors': [{'actions': [
+            {'token': 'valid', 'spell_id': 1, 'supported': True, 'baseline': {'direct': {
+                'product': {'dbc_base_damage_min': 100.0, 'dbc_base_damage_max': 100.0,
+                            'current_talent_damage': 120.0, 'crit_damage': 240.0,
+                            'crit_multiplier': 2.0, 'actual_crit_chance': 0.2,
+                            'normalized_expected': 144.0,
+                            'dbc_unresolved_reason': ''}}}},
+            {'token': 'unsupported', 'spell_id': 2, 'supported': False,
+             'unsupported_reason': 'action_has_no_damage_component'},
+            {'token': 'unresolved', 'spell_id': 3, 'supported': True,
+             'baseline': {'unresolved_reason': 'snapshot_child_signal_11'}},
+        ]}]}
+        original = json.loads(json.dumps(payload))
+
+        projected = project_skill_damage_product_payload(payload)
+
+        self.assertEqual(payload, original)
+        self.assertEqual(len(projected['actors'][0]['actions']), 1)
+        self.assertEqual(projected['actors'][0]['actions'][0]['component'], 'direct')
+
     def test_baselines_are_unique_per_spec_and_actual_hero_tree(self):
         profile = SimpleNamespace(pk=1, spec='warrior_fury', class_name='warrior')
         talents = [
@@ -70,7 +132,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             ],
         )
 
-    def test_existing_schema_two_snapshot_without_dbc_universe_can_refresh_in_place(self):
+    def test_existing_schema_two_snapshot_creates_new_schema_three_identity(self):
         backend, _ = SimcBackendBinary.objects.update_or_create(
             identifier='production',
             defaults={
@@ -93,7 +155,8 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         service = SimcSkillDamageSnapshotService.create_for_current_backend()
 
-        self.assertEqual(service.snapshot.pk, existing.pk)
+        self.assertNotEqual(service.snapshot.pk, existing.pk)
+        self.assertEqual(service.snapshot.schema_revision, 3)
         self.assertEqual(service.snapshot.status, SimcSkillDamageSnapshot.STATUS_PENDING)
         self.assertEqual(service.backend.pk, backend.pk)
 
@@ -110,15 +173,15 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
     def test_generate_merges_actor_outputs_and_preserves_dataset_identity(self):
         snapshot = SimcSkillDamageSnapshot.objects.create(
-            simc_revision='c' * 40, game_build='12.1.0.69299', schema_revision=2,
+            simc_revision='c' * 40, game_build='12.1.0.69299', schema_revision=3,
         )
         profiles = [mock.Mock(pk=1, spec='fury'), mock.Mock(pk=2, spec='arcane')]
         outputs = [
-            {'schema_version': 2, 'simc_revision': 'c' * 40, 'game_build': '12.1.0.69299',
+            {'schema_version': 3, 'simc_revision': 'c' * 40, 'game_build': '12.1.0.69299',
              'normalization_basis': {'attack_power': 100.0, 'spell_power': 100.0,
                                      'crit_percent': 20.0, 'mastery_percent': 50.0},
              'actors': [{'spec': 'fury', 'actions': []}]},
-            {'schema_version': 2, 'simc_revision': 'c' * 40, 'game_build': '12.1.0.69299',
+            {'schema_version': 3, 'simc_revision': 'c' * 40, 'game_build': '12.1.0.69299',
              'normalization_basis': {'attack_power': 100.0, 'spell_power': 100.0,
                                      'crit_percent': 20.0, 'mastery_percent': 50.0},
              'actors': [{'spec': 'arcane', 'actions': []}]},
@@ -138,7 +201,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertEqual(result['identity'], {
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
-            'schema_revision': 2,
+            'schema_revision': 3,
         })
         self.assertNotIn('profile_id', result['identity'])
         self.assertNotIn('talent', result['identity'])
@@ -202,20 +265,35 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertEqual(result['actors'][0]['talent_name'], 'Fury Slayer')
         self.assertEqual(result['unresolved'], [])
 
-    def test_schema_two_requires_exported_mathematical_expectation(self):
+    def test_schema_three_requires_exported_runtime_crit_multiplier_and_expectation(self):
         snapshot = SimcSkillDamageSnapshot(
-            simc_revision='c' * 40, game_build='12.1.0.69299', schema_revision=2,
+            simc_revision='c' * 40, game_build='12.1.0.69299', schema_revision=3,
         )
         service = SimcSkillDamageSnapshotService(snapshot)
         payload = {
-            'schema_version': 2,
+            'schema_version': 3,
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
-            'actors': [{'actions': [{
+            'actors': [{
+                'class': 'warrior',
+                'spec': 'fury',
+                'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
+                'actions': [{
                 'supported': True,
+                'dbc_scaling': {
+                    'source': 'spell_effect',
+                    'direct': {
+                        'attack_power_coefficient': 4.242,
+                        'spell_power_coefficient': 0.0,
+                        'normalized_base': 424.2,
+                        'effect_indexes': [0],
+                    },
+                    'tick': None,
+                    'requires_weapon_data': False,
+                },
                 'baseline': {'direct': {
-                    'hit': 424.2, 'crit': 848.4,
+                    'hit': 424.2, 'crit': 848.4, 'crit_multiplier': 2.0,
                     'crit_chance': 0.2, 'expected': 509.04,
                 }, 'tick': None},
             }]}],
@@ -239,6 +317,88 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         }
         service._validate_export(payload)
 
+    def test_schema_three_rejects_missing_or_malformed_dbc_spell_effect_scaling(self):
+        snapshot = SimcSkillDamageSnapshot(
+            simc_revision='c' * 40, game_build='12.1.0.69299', schema_revision=3,
+        )
+        service = SimcSkillDamageSnapshotService(snapshot)
+        payload = {
+            'schema_version': 3,
+            'simc_revision': 'c' * 40,
+            'game_build': '12.1.0.69299',
+            'normalization_basis': dict(service.FIXED_PRESET),
+            'actors': [{
+                'class': 'warrior',
+                'spec': 'fury',
+                'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
+                'actions': [{
+                'supported': True,
+                'baseline': {
+                    'direct': {'hit': 220.0, 'crit': 440.0, 'crit_multiplier': 2.0,
+                               'crit_chance': 0.2, 'expected': 264.0},
+                    'tick': None,
+                },
+            }]}],
+        }
+
+        with self.assertRaisesRegex(ValueError, 'DBC SpellEffect'):
+            service._validate_export(payload)
+
+        payload['actors'][0]['actions'][0]['dbc_scaling'] = {
+            'source': 'spell_effect',
+            'direct': {
+                'attack_power_coefficient': 2.0,
+                'spell_power_coefficient': 0.0,
+                'normalized_base': float('nan'),
+                'effect_indexes': [0],
+            },
+            'tick': None,
+            'requires_weapon_data': False,
+        }
+        with self.assertRaisesRegex(ValueError, 'DBC SpellEffect'):
+            service._validate_export(payload)
+
+    def test_schema_three_requires_exactly_one_actor_per_full_talent_export(self):
+        snapshot = SimcSkillDamageSnapshot(
+            simc_revision='c' * 40, game_build='12.1.0.69299', schema_revision=3,
+        )
+        service = SimcSkillDamageSnapshotService(snapshot)
+        base = {
+            'schema_version': 3,
+            'simc_revision': 'c' * 40,
+            'game_build': '12.1.0.69299',
+            'normalization_basis': dict(service.FIXED_PRESET),
+        }
+        for actors in ([], [{'actions': []}, {'actions': []}]):
+            with self.subTest(actor_count=len(actors)):
+                with self.assertRaisesRegex(ValueError, '恰好一个 actor'):
+                    service._validate_export({**base, 'actors': actors})
+
+    def test_schema_three_rejects_incomplete_actor_identity_and_non_boolean_supported(self):
+        snapshot = SimcSkillDamageSnapshot(
+            simc_revision='c' * 40, game_build='12.1.0.69299', schema_revision=3,
+        )
+        service = SimcSkillDamageSnapshotService(snapshot)
+        base = {
+            'schema_version': 3,
+            'simc_revision': 'c' * 40,
+            'game_build': '12.1.0.69299',
+            'normalization_basis': dict(service.FIXED_PRESET),
+        }
+        invalid_actors = [
+            {'actions': []},
+            {'class': 'warrior', 'spec': 'fury', 'action_universe': 'wrong', 'actions': []},
+            {
+                'class': 'warrior', 'spec': 'fury',
+                'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
+                'actions': [{'supported': None}],
+            },
+        ]
+        for actor in invalid_actors:
+            with self.subTest(actor=actor):
+                with self.assertRaisesRegex(ValueError, 'actor 身份|supported'):
+                    service._validate_export({**base, 'actors': [actor]})
+
     def test_dbc_refresh_uses_latest_backend_revision_and_only_runs_for_new_build(self):
         backend, _ = SimcBackendBinary.objects.update_or_create(
             identifier='production',
@@ -249,7 +409,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             },
         )
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=2,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=3,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{
                 'specialization': 'fury',
@@ -305,14 +465,33 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
             name_zh='APL中文技能',
         )
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=2,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=3,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{
                 'class': 'warrior', 'specialization': 'fury',
                 'hero_talent_tree': '屠戮者', 'talent_name': 'Fury Slayer',
                 'actions': [
-                    {'name': 'talent_action', 'token': 'talent_action', 'spell_id': 1001},
-                    {'name': 'apl_action', 'token': 'apl_action', 'spell_id': 2002},
+                    {
+                        'name': 'talent_action', 'token': 'talent_action', 'spell_id': 1001,
+                        'supported': True,
+                        'baseline': {'direct': {'product': {
+                            'dbc_base_damage_min': 90.0, 'dbc_base_damage_max': 90.0,
+                            'current_talent_damage': 100.0,
+                            'crit_damage': 200.0, 'crit_multiplier': 2.0,
+                            'actual_crit_chance': 0.2, 'normalized_expected': 120.0,
+                        }}, 'tick': None},
+                    },
+                    {
+                        'name': 'apl_action', 'token': 'apl_action', 'spell_id': 2002,
+                        'supported': True,
+                        'baseline': {'direct': {'product': {
+                            'dbc_base_damage_min': None, 'dbc_base_damage_max': None,
+                            'dbc_unresolved_reason': 'dbc_damage_effect_unresolved',
+                            'current_talent_damage': 50.0,
+                            'crit_damage': 100.0, 'crit_multiplier': 2.0,
+                            'actual_crit_chance': 0.2, 'normalized_expected': 60.0,
+                        }}, 'tick': None},
+                    },
                 ],
             }]},
         )
@@ -352,8 +531,9 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         template = Path('templates/dashboard/index.html').read_text(encoding='utf-8')
         script = Path('static/dashboard/js/main.js').read_text(encoding='utf-8')
         self.assertIn('id="simc-skill-damage-panel"', template)
-        self.assertIn('技能数学期望伤害对照', template)
-        self.assertIn('默认读取最新 SimC；每次 DBC Build 更新后自动生成新快照', template)
+        self.assertIn('技能归一化伤害', template)
+        self.assertIn('DBC 基础伤害直接读取技能 SpellEffect', template)
+        self.assertNotIn('独立无可选天赋 actor', template)
         self.assertNotIn('AP/SP 归一化为 1', template)
         self.assertIn('simc-skill-damage-table', template)
         self.assertIn('data-dashboard-section="simc-skill-damage"', template)
@@ -364,7 +544,7 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn('initSimcSkillDamagePanel();', script)
         self.assertNotIn('bg-gray-900 simc-skill-damage', template)
 
-    def test_dashboard_shows_fixed_preset_and_exported_mathematical_expectation(self):
+    def test_dashboard_shows_runtime_product_semantics_without_frontend_damage_math(self):
         template = Path('templates/dashboard/index.html').read_text(encoding='utf-8')
         script = Path('static/dashboard/js/main.js').read_text(encoding='utf-8')
         renderer = script.split('function renderSimcSkillDamageSnapshot(snapshot) {', 1)[1].split(
@@ -372,18 +552,20 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         )[0]
 
         self.assertIn('AP/SP 100.00', template)
-        self.assertIn('暴击 20.00%', template)
+        self.assertIn('全局暴击 20.00%', template)
         self.assertIn('精通 50.00%', template)
-        self.assertIn('数学期望伤害', template)
-        self.assertIn('formatSimcSkillDamageNumber', renderer)
-        self.assertIn('hasFiniteSimcSkillDamageNumber', renderer)
-        self.assertIn("typeof value === 'number' && Number.isFinite(value)", renderer)
-        self.assertIn('amount.expected', renderer)
-        self.assertIn("filter(item => item && typeof item === 'object')", renderer)
-        for field in ('hit', 'crit', 'crit_chance', 'expected'):
+        for label in ('DBC 基础伤害', '当前天赋基础伤害', '技能实际暴击率', '归一化伤害期望'):
+            self.assertIn(label, template)
+        for field in (
+            'dbc_base_damage_min', 'dbc_base_damage_max', 'current_talent_damage',
+            'crit_damage', 'crit_multiplier', 'actual_crit_chance',
+            'normalized_expected',
+        ):
             self.assertIn(field, renderer)
+        for removed_field in ('pre_talent_base', 'talent_gain_pct', 'selected_talent_expected'):
+            self.assertNotIn(removed_field, renderer)
+        self.assertNotIn('amount.expected', renderer)
         self.assertNotIn('multiplier * 100', renderer)
-        self.assertNotIn("direct ${hasDirectBaseline ? '100.00'", renderer)
         self.assertNotRegex(renderer, r'\.toFixed\((?!2\))')
         self.assertIn('html[data-dashboard-theme="dark"] #simc-skill-damage-panel', template)
 
@@ -399,7 +581,8 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn('请选择英雄天赋树', template)
         self.assertIn('id="simc-skill-damage-sort-expected"', template)
         self.assertIn('归一化伤害期望', template)
-        self.assertIn('技能暴击率', template)
+        self.assertNotIn('当前天赋伤害期望', template)
+        self.assertIn('技能实际暴击率', template)
         self.assertIn('selectedHeroTree', renderer)
         self.assertIn('sortDirection', renderer)
         self.assertIn('expectedSortValue', renderer)

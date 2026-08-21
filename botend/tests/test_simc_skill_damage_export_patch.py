@@ -8,6 +8,7 @@ PATCH_DIR = Path(__file__).resolve().parents[2] / "simc_patches"
 PATCH = PATCH_DIR / "0006-skill-damage-state-export.patch"
 NON_FINITE_PATCH = PATCH_DIR / "0007-skill-damage-non-finite-json.patch"
 DBC_UNIVERSE_PATCH = PATCH_DIR / "0008-skill-damage-dbc-universe.patch"
+PRODUCT_SEMANTICS_PATCH = PATCH_DIR / "0009-skill-damage-product-semantics.patch"
 
 
 class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
@@ -17,6 +18,7 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         cls.text = PATCH.read_text(encoding="utf-8")
         cls.non_finite_text = NON_FINITE_PATCH.read_text(encoding="utf-8")
         cls.dbc_universe_text = DBC_UNIVERSE_PATCH.read_text(encoding="utf-8")
+        cls.product_semantics_text = PRODUCT_SEMANTICS_PATCH.read_text(encoding="utf-8")
 
     def test_cli_controls_and_early_initialized_export(self):
         for token in (
@@ -140,3 +142,31 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         self.assertNotIn("candidate.action = action;\n+          break;", self.dbc_universe_text)
         self.assertIn("INIT_ACTOR_CREATE_ACTIONS + 90", self.dbc_universe_text)
         self.assertNotIn("action_priority_list", self.dbc_universe_text)
+
+    def test_product_semantics_patch_is_incremental_after_existing_exporter_patches(self):
+        added_lines = [
+            line for line in self.product_semantics_text.splitlines()
+            if line.startswith('+') and not line.startswith('+++')
+        ]
+        self.assertLess(len(added_lines), 100)
+        self.assertNotIn('+void export_skill_damage( sim_t& sim )', added_lines)
+        self.assertNotIn('+#include "action/action.hpp"', added_lines)
+
+    def test_product_semantics_export_simc_native_crit_and_raw_dbc_spell_effect_scaling(self):
+        added_lines = '\n'.join(
+            line[1:] for line in self.product_semantics_text.splitlines()
+            if line.startswith('+') and not line.startswith('+++')
+        )
+        self.assertIn('"schema_version\\\":3', self.product_semantics_text)
+        self.assertIn('crit_multiplier', added_lines)
+        self.assertIn('1.0 + state->result_crit_bonus', added_lines)
+        self.assertIn('calculate_crit_damage_bonus', self.text)
+        self.assertNotIn('crit / hit', added_lines)
+        self.assertIn('action.data().effects()', added_lines)
+        self.assertIn('effect.type() == E_SCHOOL_DAMAGE', added_lines)
+        self.assertIn('effect.subtype() == A_PERIODIC_DAMAGE', added_lines)
+        self.assertIn('effect.ap_coeff()', added_lines)
+        self.assertIn('effect.sp_coeff()', added_lines)
+        self.assertIn('\\"spell_effect\\"', added_lines)
+        self.assertNotIn('action->attack_power_mod', added_lines)
+        self.assertNotIn('action->spell_power_mod', added_lines)
