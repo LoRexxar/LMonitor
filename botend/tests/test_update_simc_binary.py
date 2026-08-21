@@ -19,6 +19,23 @@ from botend.tests.simc_apl_symbol_test_utils import create_symbol_scope
 
 
 class UpdateSimcBinaryCommandTests(TestCase):
+    def test_fetch_fails_fast_while_reset_keeps_long_timeout(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        command = Command()
+        command.simc_source_dir = '/tmp/simc'
+        command._set_status = mock.Mock()
+        command._discard_managed_local_commits = mock.Mock(return_value=True)
+        completed_text = subprocess.CompletedProcess([], 0, stdout='', stderr='')
+        completed_bytes = subprocess.CompletedProcess([], 0, stdout=b'', stderr=b'')
+        with mock.patch(
+            'botend.management.commands.update_simc_binary.subprocess.run',
+            side_effect=[completed_text, completed_bytes, completed_bytes],
+        ) as run:
+            command._pull_rebase()
+
+        self.assertEqual(run.call_args_list[0].kwargs['timeout'], 300)
+
     def test_deploy_recovers_interrupted_simc_update_after_service_restarts(self):
         deploy_script = (Path(settings.BASE_DIR) / 'deploy.sh').read_text(encoding='utf-8')
         recover_index = deploy_script.index('manage.py recover_interrupted_simc_update')

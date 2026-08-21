@@ -546,7 +546,7 @@ class Command(BaseCommand):
         try:
             fetch = subprocess.run(
                 ['git', 'fetch', '--prune', 'origin', 'midnight'],
-                cwd=self.simc_source_dir, capture_output=True, text=True, timeout=1800,
+                cwd=self.simc_source_dir, capture_output=True, text=True, timeout=300,
             )
         except subprocess.TimeoutExpired as exc:
             self._fail('拉取 SimC 源码超时', f'拉取 SimC 源码超时: {exc}', progress=10)
