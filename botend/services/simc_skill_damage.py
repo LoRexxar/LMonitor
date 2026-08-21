@@ -260,7 +260,16 @@ class SimcSkillDamageSnapshotService:
             actors = []
             unresolved = []
             for profile, talent, hero_tree in self._baselines():
-                exported = self._run_profile_export(profile, talent)
+                try:
+                    exported = self._run_profile_export(profile, talent)
+                except RuntimeError as exc:
+                    unresolved.append({
+                        'specialization': str(profile.spec or ''),
+                        'hero_talent_tree': hero_tree,
+                        'talent_id': talent.pk,
+                        'reason': str(exc)[-2000:],
+                    })
+                    continue
                 for actor in exported.get('actors', []):
                     actor = dict(actor)
                     actor.pop('name', None)

@@ -136,6 +136,36 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertNotIn('profile_id', result['identity'])
         self.assertNotIn('talent', result['identity'])
 
+    def test_generate_skips_one_invalid_talent_baseline_without_failing_snapshot(self):
+        snapshot = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='c' * 40, game_build='12.1.0.69299', schema_revision=2,
+        )
+        profiles = [SimpleNamespace(spec='paladin_retribution'), SimpleNamespace(spec='warrior_fury')]
+        talents = [SimpleNamespace(name='Invalid', pk=1), SimpleNamespace(name='Valid', pk=2)]
+        valid_output = {
+            'actors': [{'class': 'warrior', 'specialization': 'fury', 'actions': []}],
+            'unresolved': [],
+        }
+        service = SimcSkillDamageSnapshotService(snapshot)
+        with mock.patch.object(service, '_baselines', return_value=[
+            (profiles[0], talents[0], '圣殿骑士'),
+            (profiles[1], talents[1], '屠戮者'),
+        ]), mock.patch.object(
+            service, '_run_profile_export', side_effect=[RuntimeError('choice node index invalid'), valid_output],
+        ):
+            result = service.generate()
+
+        snapshot.refresh_from_db()
+        self.assertEqual(snapshot.status, snapshot.STATUS_SUCCEEDED)
+        self.assertEqual(len(result['actors']), 1)
+        self.assertEqual(result['actors'][0]['hero_talent_tree'], '屠戮者')
+        self.assertEqual(result['unresolved'], [{
+            'specialization': 'paladin_retribution',
+            'hero_talent_tree': '圣殿骑士',
+            'talent_id': 1,
+            'reason': 'choice node index invalid',
+        }])
+
     def test_schema_two_requires_exported_mathematical_expectation(self):
         snapshot = SimcSkillDamageSnapshot(
             simc_revision='c' * 40, game_build='12.1.0.69299', schema_revision=2,
