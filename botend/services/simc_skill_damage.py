@@ -71,7 +71,7 @@ class SimcSkillDamageSnapshotService:
     def _binary_path(self):
         config = getattr(settings, 'SIMC_CONFIG', {}) or {}
         configured = str(config.get('simc_path') or '')
-        path = str(getattr(self.backend, 'simc_path', '') or configured)
+        path = str(configured or getattr(self.backend, 'simc_path', '') or '')
         if not path or not os.path.isfile(path) or not os.access(path, os.X_OK):
             raise ValueError('SimC exporter 二进制不可执行。')
         return path

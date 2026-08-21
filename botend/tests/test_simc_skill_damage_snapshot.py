@@ -1,10 +1,11 @@
 import json
+import sys
 from pathlib import Path
 from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
-from django.test import RequestFactory, TestCase
+from django.test import RequestFactory, TestCase, override_settings
 
 from botend.models import SimcSkillDamageSnapshot
 from botend.services.simc_skill_damage import SimcSkillDamageSnapshotService
@@ -36,6 +37,17 @@ class SimcSkillDamageSnapshotModelTests(TestCase):
 
 
 class SimcSkillDamageSnapshotServiceTests(TestCase):
+    @override_settings(SIMC_CONFIG={'simc_path': sys.executable})
+    def test_configured_runtime_binary_overrides_stale_backend_path(self):
+        snapshot = SimcSkillDamageSnapshot(
+            simc_revision='c' * 40, game_build='12.1.0.69299', schema_revision=1,
+        )
+        service = SimcSkillDamageSnapshotService(
+            snapshot,
+            backend=mock.Mock(simc_path='/stale/machine/simc'),
+        )
+        self.assertEqual(service._binary_path(), sys.executable)
+
     def test_generate_merges_actor_outputs_and_preserves_dataset_identity(self):
         snapshot = SimcSkillDamageSnapshot.objects.create(
             simc_revision='c' * 40, game_build='12.1.0.69299', schema_revision=1,
