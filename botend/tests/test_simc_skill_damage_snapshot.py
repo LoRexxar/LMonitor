@@ -7,7 +7,7 @@ from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.test import RequestFactory, TestCase, override_settings
 
-from botend.models import SimcSkillDamageSnapshot
+from botend.models import SimcBackendBinary, SimcSkillDamageSnapshot
 from botend.services.simc_skill_damage import SimcSkillDamageSnapshotService
 from botend.dashboard.api import SimcSkillDamageSnapshotAPIView
 
@@ -76,6 +76,32 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertNotIn('profile_id', result['identity'])
         self.assertNotIn('talent', result['identity'])
 
+    def test_dbc_refresh_uses_latest_backend_revision_and_only_runs_for_new_build(self):
+        backend, _ = SimcBackendBinary.objects.update_or_create(
+            identifier='production',
+            defaults={
+                'name': '正式服', 'is_active': True,
+                'current_version': 'e' * 40, 'latest_version': 'e' * 40,
+                'game_build': '12.1.0.69300', 'simc_path': sys.executable,
+            },
+        )
+        SimcSkillDamageSnapshot.objects.create(
+            simc_revision='d' * 40, game_build='12.1.0.69300', schema_revision=1,
+            status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+        )
+
+        with mock.patch.object(SimcSkillDamageSnapshotService, 'generate') as generate:
+            self.assertIsNone(SimcSkillDamageSnapshotService.refresh_after_dbc_update())
+            generate.assert_not_called()
+
+            backend.game_build = '12.1.0.69301'
+            backend.save(update_fields=['game_build'])
+            snapshot = SimcSkillDamageSnapshotService.refresh_after_dbc_update()
+
+        self.assertEqual(snapshot.simc_revision, 'e' * 40)
+        self.assertEqual(snapshot.game_build, '12.1.0.69301')
+        generate.assert_called_once_with()
+
 
 class SimcSkillDamageSnapshotAPITests(TestCase):
     def setUp(self):
@@ -111,6 +137,7 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         script = Path('static/dashboard/js/main.js').read_text(encoding='utf-8')
         self.assertIn('id="simc-skill-damage-panel"', template)
         self.assertIn('技能基础伤害对照', template)
+        self.assertIn('默认读取最新 SimC；每次 DBC Build 更新后自动生成新快照', template)
         self.assertIn('AP/SP 归一化为 1', template)
         self.assertIn('simc-skill-damage-table', template)
         self.assertLess(

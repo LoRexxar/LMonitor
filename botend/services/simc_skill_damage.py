@@ -22,6 +22,20 @@ class SimcSkillDamageSnapshotService:
         self.backend = backend or SimcBackendBinary.objects.filter(identifier='production').first()
 
     @classmethod
+    def refresh_after_dbc_update(cls):
+        """Generate the latest runtime dataset once when the backend DBC build changes."""
+        backend = SimcBackendBinary.objects.filter(identifier='production', is_active=True).first()
+        if not backend:
+            raise ValueError('未配置正式服 SimC 后端。')
+        game_build = str(backend.game_build or '').strip()
+        latest = SimcSkillDamageSnapshot.latest_success()
+        if latest and latest.game_build == game_build:
+            return None
+        service = cls.create_for_current_backend()
+        service.generate()
+        return service.snapshot
+
+    @classmethod
     def create_for_current_backend(cls, requested_by_id=None):
         backend = SimcBackendBinary.objects.filter(identifier='production', is_active=True).first()
         if not backend:

@@ -32,6 +32,7 @@ from botend.services.simc_apl.publish import content_hash
 from botend.services.simc_apl.validation import validate_payload
 from botend.services.simc_composer import SimcComposer
 from botend.services.simc_player_config import canonical_simc_spec_identity
+from botend.services.simc_skill_damage import SimcSkillDamageSnapshotService
 
 
 DEFAULT_SIMC_SOURCE_DIR = '/home/lighthouse/simc'
@@ -1158,11 +1159,28 @@ class Command(BaseCommand):
                 'simc_path', 'current_version', 'latest_version', 'last_error', 'is_updating',
                 'update_progress', 'update_status', 'last_checked_at', 'last_updated_at'
             ])
+            self._refresh_skill_damage_after_dbc_update()
             self.stdout.write(self.style.SUCCESS(f'编译完成！版本: {version}, 路径: {self.simc_binary_path}'))
         except CommandError:
             raise
         except Exception as exc:
             self._fail('SimC 更新失败', str(exc), progress=0)
+
+    def _refresh_skill_damage_after_dbc_update(self):
+        try:
+            snapshot = SimcSkillDamageSnapshotService.refresh_after_dbc_update()
+        except Exception as exc:
+            self.stderr.write(self.style.WARNING(f'技能伤害 DBC 快照刷新失败: {exc}'))
+            return None
+        if snapshot:
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f'技能伤害 DBC 快照已刷新: {snapshot.game_build} / {snapshot.simc_revision}'
+                )
+            )
+        else:
+            self.stdout.write('技能伤害 DBC 未变化，无需刷新快照')
+        return snapshot
 
     @staticmethod
     def _revision_matches_git_hash(current_version, git_hash):
