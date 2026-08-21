@@ -1,16 +1,20 @@
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+index 358bb05206..08be8b5387 100644
 --- a/engine/sc_main.cpp
 +++ b/engine/sc_main.cpp
-@@ -695,6 +695,9 @@
-   amount.tick = result.tick;
+@@ -753,6 +753,11 @@ skill_damage_amount_t skill_damage_fork_snapshot( action_t& action,
+   amount.tick_amount.present = result.periodic;
    amount.direct = result.direct;
    amount.periodic = result.periodic;
-+  if ( ( amount.direct && ( !std::isfinite( amount.direct_min ) || !std::isfinite( amount.direct_max ) ) ) ||
-+       ( amount.periodic && !std::isfinite( amount.tick ) ) )
++  if ( ( amount.direct && ( !std::isfinite( amount.direct_amount.hit ) || !std::isfinite( amount.direct_amount.crit ) ||
++                            !std::isfinite( amount.direct_amount.crit_chance ) || !std::isfinite( amount.direct_amount.expected ) ) ) ||
++       ( amount.periodic && ( !std::isfinite( amount.tick_amount.hit ) || !std::isfinite( amount.tick_amount.crit ) ||
++                              !std::isfinite( amount.tick_amount.crit_chance ) || !std::isfinite( amount.tick_amount.expected ) ) ) )
 +    amount.unresolved_reason = "runtime_non_finite_amount";
    return amount;
  }
  
-@@ -729,11 +732,17 @@
+@@ -787,15 +792,21 @@ buff_t* skill_damage_owned_buff( player_t& player, const std::string& token )
    return nullptr;
  }
  
@@ -22,12 +26,39 @@
 +
  void write_skill_damage_amount( std::ostream& out, const skill_damage_amount_t& a )
  {
--  out << "{\"direct_min\":"; if ( a.direct ) out << a.direct_min; else out << "null";
--  out << ",\"direct_max\":"; if ( a.direct ) out << a.direct_max; else out << "null";
--  out << ",\"tick\":"; if ( a.periodic ) out << a.tick; else out << "null";
-+  out << "{\"direct_min\":"; if ( a.direct ) write_skill_damage_json_number( out, a.direct_min ); else out << "null";
-+  out << ",\"direct_max\":"; if ( a.direct ) write_skill_damage_json_number( out, a.direct_max ); else out << "null";
-+  out << ",\"tick\":"; if ( a.periodic ) write_skill_damage_json_number( out, a.tick ); else out << "null";
-   out << ",\"unresolved_reason\":";
-   if ( a.unresolved_reason.empty() ) out << "null"; else apl_metadata_json_string( out, a.unresolved_reason );
-   out << '}';
+   const auto write_component = [&out]( const skill_damage_amount_t::component_t& c, bool present )
+   {
+     if ( !present ) { out << "null"; return; }
+-    out << "{\"hit\":" << c.hit;
+-    out << ",\"crit\":" << c.crit;
+-    out << ",\"crit_chance\":" << c.crit_chance;
+-    out << ",\"expected\":" << c.expected;
++    out << "{\"hit\":"; write_skill_damage_json_number( out, c.hit );
++    out << ",\"crit\":"; write_skill_damage_json_number( out, c.crit );
++    out << ",\"crit_chance\":"; write_skill_damage_json_number( out, c.crit_chance );
++    out << ",\"expected\":"; write_skill_damage_json_number( out, c.expected );
+     out << '}';
+   };
+   out << "{\"direct\":"; write_component( a.direct_amount, a.direct );
+@@ -932,18 +943,18 @@ void export_skill_damage( sim_t& sim )
+         out << ",\"direct_multiplier\":";
+         if ( baseline.unresolved_reason.empty() && changed.unresolved_reason.empty() &&
+              baseline.direct && changed.direct && baseline.direct_amount.expected != 0.0 )
+-          out << changed.direct_amount.expected / baseline.direct_amount.expected;
++          write_skill_damage_json_number( out, changed.direct_amount.expected / baseline.direct_amount.expected );
+         else out << "null";
+         out << ",\"tick_multiplier\":";
+         if ( baseline.unresolved_reason.empty() && changed.unresolved_reason.empty() &&
+              baseline.periodic && changed.periodic && baseline.tick_amount.expected != 0.0 )
+-          out << changed.tick_amount.expected / baseline.tick_amount.expected;
++          write_skill_damage_json_number( out, changed.tick_amount.expected / baseline.tick_amount.expected );
+         else out << "null";
+         const double base = baseline.direct ? baseline.direct_amount.expected : baseline.tick_amount.expected;
+         const double value = changed.direct ? changed.direct_amount.expected : changed.tick_amount.expected;
+         out << ",\"delta_pct\":";
+         if ( baseline.unresolved_reason.empty() && changed.unresolved_reason.empty() && base != 0.0 )
+-          out << ( value / base - 1.0 ) * 100.0;
++          write_skill_damage_json_number( out, ( value / base - 1.0 ) * 100.0 );
+         else out << "null";
+         out << '}';
+       }

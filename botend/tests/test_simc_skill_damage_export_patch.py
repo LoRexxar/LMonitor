@@ -90,6 +90,20 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         self.assertIn("action.player->reset()", self.text)
         self.assertNotIn("reset_skill_damage_state", self.text)
 
+    def test_export_outputs_fixed_preset_mathematical_expectation(self):
+        self.assertIn('"schema_version\\\":2', self.text)
+        self.assertIn('"attack_power\\\":100', self.text)
+        self.assertIn('"spell_power\\\":100', self.text)
+        self.assertIn('"crit_percent\\\":20', self.text)
+        self.assertIn('"mastery_percent\\\":50', self.text)
+        self.assertIn('state->attack_power = 100.0', self.text)
+        self.assertIn('state->spell_power = 100.0', self.text)
+        self.assertIn('action.calculate_crit_damage_bonus', self.text)
+        self.assertIn('action.may_crit', self.text)
+        self.assertIn('action.tick_may_crit', self.text)
+        self.assertIn('expected', self.text)
+        self.assertIn('weapon_dependent', self.text)
+
     def test_non_finite_runtime_amounts_are_valid_json_nulls_with_evidence(self):
         self.assertIn("std::isfinite", self.non_finite_text)
         self.assertIn("runtime_non_finite_amount", self.non_finite_text)

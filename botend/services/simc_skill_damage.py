@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import subprocess
 import tempfile
@@ -15,7 +16,13 @@ from botend.services.simc_composer import SimcComposer
 class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
-    EXPORTER_SCHEMA_REVISION = 1
+    EXPORTER_SCHEMA_REVISION = 2
+    FIXED_PRESET = {
+        'attack_power': 100.0,
+        'spell_power': 100.0,
+        'crit_percent': 20.0,
+        'mastery_percent': 50.0,
+    }
 
     def __init__(self, snapshot, *, backend=None):
         self.snapshot = snapshot
@@ -29,7 +36,12 @@ class SimcSkillDamageSnapshotService:
             raise ValueError('未配置正式服 SimC 后端。')
         game_build = str(backend.game_build or '').strip()
         latest = SimcSkillDamageSnapshot.latest_success()
-        if latest and latest.game_build == game_build:
+        revision = str(backend.current_version or '').strip().lower()
+        if latest and (
+            latest.simc_revision == revision
+            and latest.game_build == game_build
+            and latest.schema_revision == cls.EXPORTER_SCHEMA_REVISION
+        ):
             return None
         service = cls.create_for_current_backend()
         service.generate()
@@ -117,11 +129,54 @@ class SimcSkillDamageSnapshotService:
             raise ValueError('exporter SimC revision 不匹配。')
         if payload.get('game_build') != self.snapshot.game_build:
             raise ValueError('exporter game build 不匹配。')
-        normalization = payload.get('normalization_basis') or payload.get('normalization') or {}
-        if normalization.get('attack_power') != 1.0 or normalization.get('spell_power') != 1.0:
-            raise ValueError('exporter 未按 AP/SP=1 归一化。')
+        normalization = payload.get('normalization_basis') or {}
+        if normalization != self.FIXED_PRESET:
+            raise ValueError('exporter 未按 AP/SP=100、暴击=20%、精通=50% 的固定预制生成。')
         if not isinstance(payload.get('actors'), list):
             raise ValueError('exporter actors 结构无效。')
+        required_amount_fields = ('hit', 'crit', 'crit_chance', 'expected')
+        for actor in payload['actors']:
+            if not isinstance(actor, dict) or not isinstance(actor.get('actions'), list):
+                raise ValueError('exporter actor/actions 结构无效。')
+            for action in actor['actions']:
+                if not isinstance(action, dict):
+                    raise ValueError('exporter action 结构无效。')
+                if action.get('supported') is False:
+                    if not action.get('unsupported_reason'):
+                        raise ValueError('exporter unsupported action 缺少原因。')
+                    continue
+                baseline = action.get('baseline')
+                if not isinstance(baseline, dict):
+                    raise ValueError('exporter action 缺少 baseline 数学期望。')
+                components = [baseline.get('direct'), baseline.get('tick')]
+                present = [component for component in components if component is not None]
+                if not present:
+                    raise ValueError('exporter action 没有可展示的伤害组件。')
+                unresolved_reason = baseline.get('unresolved_reason')
+                for component in present:
+                    if not isinstance(component, dict) or any(
+                        field not in component for field in required_amount_fields
+                    ):
+                        raise ValueError('exporter 数学期望字段无效。')
+                    values = [component[field] for field in required_amount_fields]
+                    if unresolved_reason:
+                        valid = all(
+                            value is None or (
+                                isinstance(value, (int, float))
+                                and not isinstance(value, bool)
+                                and math.isfinite(value)
+                            )
+                            for value in values
+                        )
+                    else:
+                        valid = all(
+                            isinstance(value, (int, float))
+                            and not isinstance(value, bool)
+                            and math.isfinite(value)
+                            for value in values
+                        )
+                    if not valid:
+                        raise ValueError('exporter 数学期望字段无效。')
 
     def generate(self):
         now = timezone.now()
@@ -150,7 +205,7 @@ class SimcSkillDamageSnapshotService:
                     'game_build': self.snapshot.game_build,
                     'schema_revision': self.snapshot.schema_revision,
                 },
-                'normalization': {'attack_power': 1.0, 'spell_power': 1.0},
+                'preset': dict(self.FIXED_PRESET),
                 'actors': actors,
                 'unresolved': unresolved,
             }

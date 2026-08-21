@@ -476,7 +476,7 @@
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260821_skill_damage_normalized"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260821_skill_damage_expected_v2"></script>
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806c" defer></script>
     <script src="{% static 'dashboard/js/simc-result-report.js' %}?v=20260817_result_config_panel"></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260818_task_compare_selection"></script>
@@ -1756,8 +1756,8 @@
                                 <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                                     <div>
                                         <div class="text-xs font-bold uppercase tracking-wider text-stone-500">DBC VERSION SNAPSHOT</div>
-                                        <h3 class="mt-1 text-xl font-semibold text-gray-900">技能基础伤害对照</h3>
-                                        <p class="mt-1 text-sm text-gray-600">默认读取最新 SimC；每次 DBC Build 更新后自动生成新快照。AP/SP 归一化为 1.00，技能基础伤害统一显示为 100.00。</p>
+                                        <h3 class="mt-1 text-xl font-semibold text-gray-900">技能数学期望伤害对照</h3>
+                                        <p class="mt-1 text-sm text-gray-600">默认读取最新 SimC；每次 DBC Build 更新后自动生成新快照。统一属性预制：AP/SP 100.00、暴击 20.00%、精通 50.00%。数值由 SimC 职业模块按真实 HIT/CRIT 路径计算。</p>
                                         <div id="simc-skill-damage-identity" class="mt-3 text-xs font-mono text-stone-600">尚未加载快照</div>
                                     </div>
                                     <div class="flex flex-wrap items-center gap-2">
@@ -1773,9 +1773,9 @@
                                 <div class="simc-skill-damage-table mt-4 overflow-x-auto rounded-xl border border-stone-300 bg-stone-50">
                                     <table class="min-w-full border-collapse text-sm">
                                         <thead class="bg-stone-200 text-left text-xs font-bold uppercase tracking-wide text-stone-700">
-                                            <tr><th class="px-3 py-3">职业 / 专精</th><th class="px-3 py-3">属性预制值</th><th class="px-3 py-3">技能包</th><th class="px-3 py-3">DBC 归一化值</th><th class="px-3 py-3">基础伤害归一值（100.00）</th><th class="px-3 py-3">职业 Buff 场景</th></tr>
+                                            <tr><th class="px-3 py-3">职业 / 专精</th><th class="px-3 py-3">属性预制值</th><th class="px-3 py-3">技能</th><th class="px-3 py-3">无 Buff 数学期望伤害</th><th class="px-3 py-3">职业 Buff 场景</th></tr>
                                         </thead>
-                                        <tbody id="simc-skill-damage-body" class="divide-y divide-stone-300 bg-white"><tr><td colspan="6" class="px-4 py-8 text-center text-stone-500">暂无快照</td></tr></tbody>
+                                        <tbody id="simc-skill-damage-body" class="divide-y divide-stone-300 bg-white"><tr><td colspan="5" class="px-4 py-8 text-center text-stone-500">暂无快照</td></tr></tbody>
                                     </table>
                                 </div>
                             </section>

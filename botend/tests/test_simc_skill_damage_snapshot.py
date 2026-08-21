@@ -50,15 +50,17 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
     def test_generate_merges_actor_outputs_and_preserves_dataset_identity(self):
         snapshot = SimcSkillDamageSnapshot.objects.create(
-            simc_revision='c' * 40, game_build='12.1.0.69299', schema_revision=1,
+            simc_revision='c' * 40, game_build='12.1.0.69299', schema_revision=2,
         )
         profiles = [mock.Mock(pk=1, spec='fury'), mock.Mock(pk=2, spec='arcane')]
         outputs = [
-            {'schema_version': 1, 'simc_revision': 'c' * 40, 'game_build': '12.1.0.69299',
-             'normalization_basis': {'attack_power': 1.0, 'spell_power': 1.0},
+            {'schema_version': 2, 'simc_revision': 'c' * 40, 'game_build': '12.1.0.69299',
+             'normalization_basis': {'attack_power': 100.0, 'spell_power': 100.0,
+                                     'crit_percent': 20.0, 'mastery_percent': 50.0},
              'actors': [{'spec': 'fury', 'actions': []}]},
-            {'schema_version': 1, 'simc_revision': 'c' * 40, 'game_build': '12.1.0.69299',
-             'normalization_basis': {'attack_power': 1.0, 'spell_power': 1.0},
+            {'schema_version': 2, 'simc_revision': 'c' * 40, 'game_build': '12.1.0.69299',
+             'normalization_basis': {'attack_power': 100.0, 'spell_power': 100.0,
+                                     'crit_percent': 20.0, 'mastery_percent': 50.0},
              'actors': [{'spec': 'arcane', 'actions': []}]},
         ]
         service = SimcSkillDamageSnapshotService(snapshot)
@@ -71,10 +73,40 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertEqual(result['identity'], {
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
-            'schema_revision': 1,
+            'schema_revision': 2,
         })
         self.assertNotIn('profile_id', result['identity'])
         self.assertNotIn('talent', result['identity'])
+
+    def test_schema_two_requires_exported_mathematical_expectation(self):
+        snapshot = SimcSkillDamageSnapshot(
+            simc_revision='c' * 40, game_build='12.1.0.69299', schema_revision=2,
+        )
+        service = SimcSkillDamageSnapshotService(snapshot)
+        payload = {
+            'schema_version': 2,
+            'simc_revision': 'c' * 40,
+            'game_build': '12.1.0.69299',
+            'normalization_basis': dict(service.FIXED_PRESET),
+            'actors': [{'actions': [{
+                'supported': True,
+                'baseline': {'direct': {
+                    'hit': 424.2, 'crit': 848.4,
+                    'crit_chance': 0.2, 'expected': 509.04,
+                }, 'tick': None},
+            }]}],
+        }
+        service._validate_export(payload)
+        direct = payload['actors'][0]['actions'][0]['baseline']['direct']
+        del direct['expected']
+        with self.assertRaisesRegex(ValueError, '数学期望字段无效'):
+            service._validate_export(payload)
+
+        direct['expected'] = None
+        direct['hit'] = None
+        direct['crit'] = None
+        payload['actors'][0]['actions'][0]['baseline']['unresolved_reason'] = 'runtime_non_finite_amount'
+        service._validate_export(payload)
 
     def test_dbc_refresh_uses_latest_backend_revision_and_only_runs_for_new_build(self):
         backend, _ = SimcBackendBinary.objects.update_or_create(
@@ -86,7 +118,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             },
         )
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='d' * 40, game_build='12.1.0.69300', schema_revision=1,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=2,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
         )
 
@@ -136,9 +168,9 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         template = Path('templates/dashboard/index.html').read_text(encoding='utf-8')
         script = Path('static/dashboard/js/main.js').read_text(encoding='utf-8')
         self.assertIn('id="simc-skill-damage-panel"', template)
-        self.assertIn('技能基础伤害对照', template)
+        self.assertIn('技能数学期望伤害对照', template)
         self.assertIn('默认读取最新 SimC；每次 DBC Build 更新后自动生成新快照', template)
-        self.assertIn('AP/SP 归一化为 1', template)
+        self.assertNotIn('AP/SP 归一化为 1', template)
         self.assertIn('simc-skill-damage-table', template)
         self.assertIn('data-dashboard-section="simc-skill-damage"', template)
         self.assertIn('id="simc-skill-damage"', template)
@@ -148,21 +180,25 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn('initSimcSkillDamagePanel();', script)
         self.assertNotIn('bg-gray-900 simc-skill-damage', template)
 
-    def test_dashboard_normalizes_baseline_to_100_and_shows_two_decimal_attribute_preset(self):
+    def test_dashboard_shows_fixed_preset_and_exported_mathematical_expectation(self):
         template = Path('templates/dashboard/index.html').read_text(encoding='utf-8')
         script = Path('static/dashboard/js/main.js').read_text(encoding='utf-8')
         renderer = script.split('function renderSimcSkillDamageSnapshot(snapshot) {', 1)[1].split(
             'function initSimcSkillDamagePanel()', 1,
         )[0]
 
-        self.assertIn('属性预制值', template)
-        self.assertIn('基础伤害归一值（100.00）', template)
+        self.assertIn('AP/SP 100.00', template)
+        self.assertIn('暴击 20.00%', template)
+        self.assertIn('精通 50.00%', template)
+        self.assertIn('数学期望伤害', template)
         self.assertIn('formatSimcSkillDamageNumber', renderer)
         self.assertIn('hasFiniteSimcSkillDamageNumber', renderer)
         self.assertIn("typeof value === 'number' && Number.isFinite(value)", renderer)
-        self.assertIn('multiplier * 100', renderer)
+        self.assertIn('amount.expected', renderer)
         self.assertIn("filter(item => item && typeof item === 'object')", renderer)
-        for field in ('primary_attribute', 'attack_power', 'spell_power', 'crit', 'haste', 'mastery', 'versatility'):
+        for field in ('hit', 'crit', 'crit_chance', 'expected'):
             self.assertIn(field, renderer)
+        self.assertNotIn('multiplier * 100', renderer)
+        self.assertNotIn("direct ${hasDirectBaseline ? '100.00'", renderer)
         self.assertNotRegex(renderer, r'\.toFixed\((?!2\))')
         self.assertIn('html[data-dashboard-theme="dark"] #simc-skill-damage-panel', template)

@@ -1,5 +1,5 @@
 diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
-index a4e1257..51cc69b 100644
+index a4e1257165..358bb05206 100644
 --- a/engine/sc_main.cpp
 +++ b/engine/sc_main.cpp
 @@ -14,6 +14,7 @@
@@ -26,7 +26,7 @@ index a4e1257..51cc69b 100644
  #include <unistd.h>
  
  #ifdef SC_SIGACTION
-@@ -513,6 +518,378 @@ void export_apl_metadata( const sim_t& sim )
+@@ -513,6 +518,450 @@ void export_apl_metadata( const sim_t& sim )
    { std::remove( temporary.c_str() ); throw std::runtime_error( "Unable to atomically replace APL metadata export file" ); }
  }
  
@@ -34,7 +34,11 @@ index a4e1257..51cc69b 100644
 +// co-occurrence sets plus singleton buffs; never a powerset.
 +struct skill_damage_amount_t
 +{
-+  double direct_min = 0.0, direct_max = 0.0, tick = 0.0;
++  struct component_t
++  {
++    double hit = 0.0, crit = 0.0, crit_chance = 0.0, expected = 0.0;
++    bool present = false;
++  } direct_amount, tick_amount;
 +  bool direct = false, periodic = false;
 +  std::string unresolved_reason;
 +};
@@ -42,7 +46,8 @@ index a4e1257..51cc69b 100644
 +bool skill_damage_amount_changed( const skill_damage_amount_t& a, const skill_damage_amount_t& b )
 +{
 +  const auto changed = []( double x, double y ) { return std::abs( x - y ) > std::max( 1.0, std::abs( x ) ) * 1.0e-8; };
-+  return changed( a.direct_min, b.direct_min ) || changed( a.direct_max, b.direct_max ) || changed( a.tick, b.tick );
++  return changed( a.direct_amount.expected, b.direct_amount.expected ) ||
++         changed( a.tick_amount.expected, b.tick_amount.expected );
 +}
 +
 +skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
@@ -53,7 +58,6 @@ index a4e1257..51cc69b 100644
 +  state->target = action.target;
 +  state->n_targets = 1;
 +  state->chain_target = 0;
-+  state->result = RESULT_HIT;
 +  if ( !state->target )
 +  {
 +    amount.unresolved_reason = "runtime_target_unavailable";
@@ -62,13 +66,25 @@ index a4e1257..51cc69b 100644
 +  }
 +  try
 +  {
-+    // Values are runtime snapshot equivalents. The probe forces average_range,
-+    // therefore direct_min/direct_max are equal when only a randomized range
-+    // is available through calculate_direct_amount.
 +    if ( action.does_direct_damage() )
 +    {
++      state->result = RESULT_HIT;
 +      action.snapshot_state( state, result_amount_type::DMG_DIRECT );
-+      amount.direct_min = amount.direct_max = action.calculate_direct_amount( state );
++      state->attack_power = 100.0;
++      state->spell_power = 100.0;
++      amount.direct_amount.hit = action.calculate_direct_amount( state );
++      amount.direct_amount.crit_chance = action.may_crit ? std::clamp( state->composite_crit_chance(), 0.0, 1.0 ) : 0.0;
++      if ( action.may_crit )
++      {
++        state->result = RESULT_CRIT;
++        action.calculate_direct_amount( state );
++        amount.direct_amount.crit = action.calculate_crit_damage_bonus( state );
++      }
++      else
++        amount.direct_amount.crit = amount.direct_amount.hit;
++      amount.direct_amount.expected = amount.direct_amount.hit * ( 1.0 - amount.direct_amount.crit_chance ) +
++                                      amount.direct_amount.crit * amount.direct_amount.crit_chance;
++      amount.direct_amount.present = true;
 +      amount.direct = true;
 +    }
 +    if ( action.does_periodic_damage() )
@@ -76,7 +92,20 @@ index a4e1257..51cc69b 100644
 +      state->initialize(); state->target = action.target;
 +      state->n_targets = 1; state->chain_target = 0; state->result = RESULT_HIT;
 +      action.snapshot_state( state, result_amount_type::DMG_OVER_TIME );
-+      amount.tick = action.calculate_tick_amount( state, 1.0 );
++      state->attack_power = 100.0;
++      state->spell_power = 100.0;
++      amount.tick_amount.hit = action.calculate_tick_amount( state, 1.0 );
++      amount.tick_amount.crit_chance = action.tick_may_crit ? std::clamp( state->composite_crit_chance(), 0.0, 1.0 ) : 0.0;
++      if ( action.tick_may_crit )
++      {
++        state->result = RESULT_CRIT;
++        amount.tick_amount.crit = action.calculate_tick_amount( state, 1.0 );
++      }
++      else
++        amount.tick_amount.crit = amount.tick_amount.hit;
++      amount.tick_amount.expected = amount.tick_amount.hit * ( 1.0 - amount.tick_amount.crit_chance ) +
++                                    amount.tick_amount.crit * amount.tick_amount.crit_chance;
++      amount.tick_amount.present = true;
 +      amount.periodic = true;
 +    }
 +  }
@@ -91,7 +120,8 @@ index a4e1257..51cc69b 100644
 +struct skill_damage_pipe_result_t
 +{
 +  uint32_t magic = 0;
-+  double direct_min = 0.0, direct_max = 0.0, tick = 0.0;
++  double direct_hit = 0.0, direct_crit = 0.0, direct_crit_chance = 0.0, direct_expected = 0.0;
++  double tick_hit = 0.0, tick_crit = 0.0, tick_crit_chance = 0.0, tick_expected = 0.0;
 +  uint8_t direct = 0, periodic = 0, success = 0;
 +};
 +
@@ -159,13 +189,34 @@ index a4e1257..51cc69b 100644
 +    // exactly as a simulation iteration does, while the parent actor remains
 +    // pristine and no reset ever follows an overridden buff on this actor.
 +    action.player->reset();
++    // Normalize the actor caches before applying scenario buffs. current.* is
++    // adjusted by the observed cache delta so class/racial passive crit remains
++    // represented while the resulting unbuffed cache is exactly 20%.
++    action.player->current.attack_crit_chance += 0.20 - action.player->cache.attack_crit_chance();
++    action.player->current.spell_crit_chance += 0.20 - action.player->cache.spell_crit_chance();
++    action.player->invalidate_cache( CACHE_ATTACK_CRIT_CHANCE );
++    action.player->invalidate_cache( CACHE_SPELL_CRIT_CHANCE );
++    const double old_mastery_value = action.player->cache.mastery_value();
++    const double old_mastery = action.player->current.mastery;
++    action.player->current.mastery = old_mastery + 1.0;
++    action.player->invalidate_cache( CACHE_MASTERY );
++    const double mastery_slope = action.player->cache.mastery_value() - old_mastery_value;
++    action.player->current.mastery = std::abs( mastery_slope ) > 1.0e-12
++      ? old_mastery + ( 0.50 - old_mastery_value ) / mastery_slope
++      : old_mastery;
++    action.player->invalidate_cache( CACHE_MASTERY );
 +    for ( buff_t* buff : buffs )
 +      buff->override_buff( std::max( 1, buff->max_stack() ) );
 +    const skill_damage_amount_t child_amount = skill_damage_runtime_amount( action );
 +    result.magic = SKILL_DAMAGE_PIPE_MAGIC;
-+    result.direct_min = child_amount.direct_min;
-+    result.direct_max = child_amount.direct_max;
-+    result.tick = child_amount.tick;
++    result.direct_hit = child_amount.direct_amount.hit;
++    result.direct_crit = child_amount.direct_amount.crit;
++    result.direct_crit_chance = child_amount.direct_amount.crit_chance;
++    result.direct_expected = child_amount.direct_amount.expected;
++    result.tick_hit = child_amount.tick_amount.hit;
++    result.tick_crit = child_amount.tick_amount.crit;
++    result.tick_crit_chance = child_amount.tick_amount.crit_chance;
++    result.tick_expected = child_amount.tick_amount.expected;
 +    result.direct = child_amount.direct;
 +    result.periodic = child_amount.periodic;
 +    result.success = child_amount.unresolved_reason.empty();
@@ -202,9 +253,16 @@ index a4e1257..51cc69b 100644
 +    amount.unresolved_reason = "runtime_snapshot_failed_in_child";
 +    return amount;
 +  }
-+  amount.direct_min = result.direct_min;
-+  amount.direct_max = result.direct_max;
-+  amount.tick = result.tick;
++  amount.direct_amount.hit = result.direct_hit;
++  amount.direct_amount.crit = result.direct_crit;
++  amount.direct_amount.crit_chance = result.direct_crit_chance;
++  amount.direct_amount.expected = result.direct_expected;
++  amount.direct_amount.present = result.direct;
++  amount.tick_amount.hit = result.tick_hit;
++  amount.tick_amount.crit = result.tick_crit;
++  amount.tick_amount.crit_chance = result.tick_crit_chance;
++  amount.tick_amount.expected = result.tick_expected;
++  amount.tick_amount.present = result.periodic;
 +  amount.direct = result.direct;
 +  amount.periodic = result.periodic;
 +  return amount;
@@ -243,9 +301,17 @@ index a4e1257..51cc69b 100644
 +
 +void write_skill_damage_amount( std::ostream& out, const skill_damage_amount_t& a )
 +{
-+  out << "{\"direct_min\":"; if ( a.direct ) out << a.direct_min; else out << "null";
-+  out << ",\"direct_max\":"; if ( a.direct ) out << a.direct_max; else out << "null";
-+  out << ",\"tick\":"; if ( a.periodic ) out << a.tick; else out << "null";
++  const auto write_component = [&out]( const skill_damage_amount_t::component_t& c, bool present )
++  {
++    if ( !present ) { out << "null"; return; }
++    out << "{\"hit\":" << c.hit;
++    out << ",\"crit\":" << c.crit;
++    out << ",\"crit_chance\":" << c.crit_chance;
++    out << ",\"expected\":" << c.expected;
++    out << '}';
++  };
++  out << "{\"direct\":"; write_component( a.direct_amount, a.direct );
++  out << ",\"tick\":"; write_component( a.tick_amount, a.periodic );
 +  out << ",\"unresolved_reason\":";
 +  if ( a.unresolved_reason.empty() ) out << "null"; else apl_metadata_json_string( out, a.unresolved_reason );
 +  out << '}';
@@ -264,11 +330,10 @@ index a4e1257..51cc69b 100644
 +  const std::string temporary = target + ".tmp." + std::to_string( static_cast<long long>( getpid() ) );
 +  std::ofstream out( temporary, std::ios::binary | std::ios::trunc );
 +  if ( !out ) throw std::runtime_error( "Unable to open temporary skill damage export file" );
-+  out << "{\"schema_version\":1,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
++  out << "{\"schema_version\":2,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
 +  out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
-+  // DBC/action scaling is reported at attack_power = 1 and spell_power = 1.
-+  // Runtime actor attributes below are evidence for conditional multipliers only.
-+  out << ",\"normalization_basis\":{\"attack_power\":1,\"spell_power\":1}";
++  out << ",\"normalization_basis\":{\"attack_power\":100,\"spell_power\":100,"
++         "\"crit_percent\":20,\"mastery_percent\":50}";
 +  out << ",\"probe\":\"runtime_snapshot_probe\",\"state_isolation\":\"fork_pipe_per_action_scenario\",\"actors\":[";
 +  bool first_actor = true;
 +  for ( player_t* player : sim.player_no_pet_list )
@@ -302,16 +367,21 @@ index a4e1257..51cc69b 100644
 +      const unsigned spell_id = apl_metadata_action_spell_id( *action );
 +      if ( !exported_actions.emplace( action->name_str, spell_id ).second ) continue;
 +
++      const bool requires_weapon_data = action->weapon != nullptr && action->weapon_multiplier != 0.0;
 +      // Parent remains exactly as produced by sim.init(). Every calculation,
 +      // including baseline, runs against a private copy-on-write actor.
-+      const skill_damage_amount_t baseline = skill_damage_fork_snapshot( *action, {} );
++      skill_damage_amount_t baseline;
++      if ( requires_weapon_data ) baseline.unresolved_reason = "weapon_dependent";
++      else baseline = skill_damage_fork_snapshot( *action, {} );
 +      if ( !first_action ) out << ',';
 +      first_action = false;
 +      out << "{\"token\":"; apl_metadata_json_string( out, action->name_str );
 +      out << ",\"name\":"; apl_metadata_json_string( out, action->name_str_reporting.empty() ? action->name_str : action->name_str_reporting );
 +      out << ",\"spell_id\":" << spell_id;
 +      out << ",\"background\":" << ( action->background ? "true" : "false" ) << ",\"harmful\":" << ( action->harmful ? "true" : "false" );
-+      const bool requires_weapon_data = action->weapon != nullptr && action->weapon_multiplier != 0.0;
++      out << ",\"supported\":" << ( requires_weapon_data ? "false" : "true" );
++      out << ",\"unsupported_reason\":";
++      if ( requires_weapon_data ) apl_metadata_json_string( out, "weapon_dependent" ); else out << "null";
 +      out << ",\"parent_token\":null,\"dbc_scaling\":{";
 +      out << "\"attack_power_coefficient\":{\"direct\":" << action->attack_power_mod.direct
 +          << ",\"tick\":" << action->attack_power_mod.tick << "}";
@@ -340,7 +410,9 @@ index a4e1257..51cc69b 100644
 +        }
 +        if ( !valid ) continue;
 +
-+        const skill_damage_amount_t changed = skill_damage_fork_snapshot( *action, active );
++        skill_damage_amount_t changed;
++        if ( requires_weapon_data ) changed.unresolved_reason = "weapon_dependent";
++        else changed = skill_damage_fork_snapshot( *action, active );
 +        // Successful no-op scenarios are omitted. Failed/crashed scenarios are
 +        // retained so isolation failures are explicit rather than fabricated.
 +        if ( changed.unresolved_reason.empty() && !baseline.unresolved_reason.empty() )
@@ -371,16 +443,16 @@ index a4e1257..51cc69b 100644
 +        out << "],\"values\":"; write_skill_damage_amount( out, changed );
 +        out << ",\"direct_multiplier\":";
 +        if ( baseline.unresolved_reason.empty() && changed.unresolved_reason.empty() &&
-+             baseline.direct && changed.direct && baseline.direct_min != 0.0 )
-+          out << changed.direct_min / baseline.direct_min;
++             baseline.direct && changed.direct && baseline.direct_amount.expected != 0.0 )
++          out << changed.direct_amount.expected / baseline.direct_amount.expected;
 +        else out << "null";
 +        out << ",\"tick_multiplier\":";
 +        if ( baseline.unresolved_reason.empty() && changed.unresolved_reason.empty() &&
-+             baseline.periodic && changed.periodic && baseline.tick != 0.0 )
-+          out << changed.tick / baseline.tick;
++             baseline.periodic && changed.periodic && baseline.tick_amount.expected != 0.0 )
++          out << changed.tick_amount.expected / baseline.tick_amount.expected;
 +        else out << "null";
-+        const double base = baseline.direct ? baseline.direct_min : baseline.tick;
-+        const double value = changed.direct ? changed.direct_min : changed.tick;
++        const double base = baseline.direct ? baseline.direct_amount.expected : baseline.tick_amount.expected;
++        const double value = changed.direct ? changed.direct_amount.expected : changed.tick_amount.expected;
 +        out << ",\"delta_pct\":";
 +        if ( baseline.unresolved_reason.empty() && changed.unresolved_reason.empty() && base != 0.0 )
 +          out << ( value / base - 1.0 ) * 100.0;
@@ -405,7 +477,7 @@ index a4e1257..51cc69b 100644
  [[maybe_unused]] sim_signal_handler_t handler;
  
  // need_to_save_profiles ====================================================
-@@ -672,6 +1049,13 @@ int sim_t::main( const std::vector<std::string>& args )
+@@ -672,6 +1121,13 @@ int sim_t::main( const std::vector<std::string>& args )
        return 0;
      }
  
@@ -420,10 +492,10 @@ index a4e1257..51cc69b 100644
      print_version_info( *dbc );
  
 diff --git a/engine/sim/sim.cpp b/engine/sim/sim.cpp
-index e80ca3e..590f522 100644
+index dc46345d43..a86e8b3b45 100644
 --- a/engine/sim/sim.cpp
 +++ b/engine/sim/sim.cpp
-@@ -3862,6 +3862,9 @@ void sim_t::create_options()
+@@ -3856,6 +3856,9 @@ void sim_t::create_options()
    add_option( opt_string( "apl_metadata_export", apl_metadata_export_file ) );
    add_option( opt_string( "apl_metadata_revision", apl_metadata_revision ) );
    add_option( opt_string( "apl_metadata_game_build", apl_metadata_game_build ) );
@@ -434,7 +506,7 @@ index e80ca3e..590f522 100644
    add_option( opt_bool( "save_gear_comments", save_gear_comments ) );
    add_option( opt_bool( "buff_uptime_timeline", buff_uptime_timeline ) );
 diff --git a/engine/sim/sim.hpp b/engine/sim/sim.hpp
-index 443ae67..176d6a6 100644
+index a429814426..194e27401a 100644
 --- a/engine/sim/sim.hpp
 +++ b/engine/sim/sim.hpp
 @@ -93,6 +93,10 @@ struct sim_t : private sc_thread_t
