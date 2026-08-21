@@ -1,0 +1,33 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -695,6 +695,9 @@
+   amount.tick = result.tick;
+   amount.direct = result.direct;
+   amount.periodic = result.periodic;
++  if ( ( amount.direct && ( !std::isfinite( amount.direct_min ) || !std::isfinite( amount.direct_max ) ) ) ||
++       ( amount.periodic && !std::isfinite( amount.tick ) ) )
++    amount.unresolved_reason = "runtime_non_finite_amount";
+   return amount;
+ }
+ 
+@@ -729,11 +732,17 @@
+   return nullptr;
+ }
+ 
++void write_skill_damage_json_number( std::ostream& out, double value )
++{
++  if ( std::isfinite( value ) ) out << value;
++  else out << "null";
++}
++
+ void write_skill_damage_amount( std::ostream& out, const skill_damage_amount_t& a )
+ {
+-  out << "{\"direct_min\":"; if ( a.direct ) out << a.direct_min; else out << "null";
+-  out << ",\"direct_max\":"; if ( a.direct ) out << a.direct_max; else out << "null";
+-  out << ",\"tick\":"; if ( a.periodic ) out << a.tick; else out << "null";
++  out << "{\"direct_min\":"; if ( a.direct ) write_skill_damage_json_number( out, a.direct_min ); else out << "null";
++  out << ",\"direct_max\":"; if ( a.direct ) write_skill_damage_json_number( out, a.direct_max ); else out << "null";
++  out << ",\"tick\":"; if ( a.periodic ) write_skill_damage_json_number( out, a.tick ); else out << "null";
+   out << ",\"unresolved_reason\":";
+   if ( a.unresolved_reason.empty() ) out << "null"; else apl_metadata_json_string( out, a.unresolved_reason );
+   out << '}';

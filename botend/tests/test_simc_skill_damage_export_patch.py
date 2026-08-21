@@ -4,7 +4,9 @@ import re
 from django.test import SimpleTestCase
 
 
-PATCH = Path(__file__).resolve().parents[2] / "simc_patches" / "0006-skill-damage-state-export.patch"
+PATCH_DIR = Path(__file__).resolve().parents[2] / "simc_patches"
+PATCH = PATCH_DIR / "0006-skill-damage-state-export.patch"
+NON_FINITE_PATCH = PATCH_DIR / "0007-skill-damage-non-finite-json.patch"
 
 
 class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
@@ -12,6 +14,7 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
     def setUpClass(cls):
         super().setUpClass()
         cls.text = PATCH.read_text(encoding="utf-8")
+        cls.non_finite_text = NON_FINITE_PATCH.read_text(encoding="utf-8")
 
     def test_cli_controls_and_early_initialized_export(self):
         for token in (
@@ -88,9 +91,10 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         self.assertNotIn("reset_skill_damage_state", self.text)
 
     def test_non_finite_runtime_amounts_are_valid_json_nulls_with_evidence(self):
-        self.assertIn("std::isfinite", self.text)
-        self.assertIn("runtime_non_finite_amount", self.text)
-        self.assertIn("write_skill_damage_json_number", self.text)
+        self.assertIn("std::isfinite", self.non_finite_text)
+        self.assertIn("runtime_non_finite_amount", self.non_finite_text)
+        self.assertIn("write_skill_damage_json_number", self.non_finite_text)
+        self.assertNotIn("runtime_non_finite_amount", self.text)
 
     def test_changed_scenarios_crashes_and_identity_are_explicit(self):
         self.assertIn("skill_damage_amount_changed", self.text)
