@@ -133,11 +133,12 @@ class ImportSimcAplCommandTests(TestCase):
         upsert.assert_not_called()
         save.assert_not_called()
 
-    def test_strict_import_normalizes_upstream_double_ampersand(self):
+    def test_strict_import_normalizes_known_upstream_havoc_typos(self):
         revision = 'a' * 40
         with tempfile.TemporaryDirectory() as tmpdir:
             Path(tmpdir, 'demonhunter_havoc.simc').write_text(
-                'actions=/metamorphosis,if=cooldown.eye_beam.remains>5&&equipped.algethar_puzzle_box\n',
+                'actions=/metamorphosis,if=cooldown.eye_beam.remains>5&&equipped.algethar_puzzle_box\n'
+                'actions+=/immolation_aura,,if=action.immolation_aura.demonsurge_available\n',
                 encoding='utf-8',
             )
             call_command(
@@ -147,4 +148,9 @@ class ImportSimcAplCommandTests(TestCase):
         content = SimcApl.objects.get(spec='demonhunter_havoc').content
         self.assertIn(
             'cooldown.eye_beam.remains>5&equipped.algethar_puzzle_box', content)
+        self.assertIn(
+            'actions+=/immolation_aura,if=action.immolation_aura.demonsurge_available',
+            content,
+        )
         self.assertNotIn('&&', content)
+        self.assertNotIn('immolation_aura,,if=', content)

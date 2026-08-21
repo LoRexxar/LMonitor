@@ -218,12 +218,16 @@ class Command(BaseCommand):
             content = content.replace('talent.slayers_dominance', 'hero_tree.slayer')
             content = content.replace('talent.lightning_strikes', 'hero_tree.mountain_thane')
         elif spec_key == 'demonhunter_havoc':
-            # Upstream revision 62ababb contains one accidental C-style
-            # conjunction. SimC APL uses a single '&'; normalize that exact
-            # source typo before structural validation and persistence.
+            # Upstream currently carries two source typos that SimC tolerates
+            # while the Dashboard APL parser correctly rejects their syntax.
+            # Normalize only those exact known fragments before validation.
             content = content.replace(
                 'cooldown.eye_beam.remains>5&&equipped.algethar_puzzle_box',
                 'cooldown.eye_beam.remains>5&equipped.algethar_puzzle_box',
+            )
+            content = content.replace(
+                'actions+=/immolation_aura,,if=',
+                'actions+=/immolation_aura,if=',
             )
 
         if strict:
