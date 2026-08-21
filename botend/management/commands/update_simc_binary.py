@@ -518,7 +518,7 @@ class Command(BaseCommand):
             return False
         self._run(
             ['git', 'reset', '--hard', 'origin/midnight'],
-            cwd=self.simc_source_dir, timeout=120,
+            cwd=self.simc_source_dir, timeout=1800,
             status='清理旧的 SimC 自动同步提交', progress=10,
         )
         return True

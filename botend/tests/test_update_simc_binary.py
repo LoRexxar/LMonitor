@@ -18,6 +18,28 @@ from botend.tests.simc_apl_symbol_test_utils import create_symbol_scope
 
 
 class UpdateSimcBinaryCommandTests(TestCase):
+    def test_discard_managed_commits_allows_lazy_clone_reset_to_fetch_blobs(self):
+        """A partial-clone reset may fetch many blobs and must not inherit a 120s timeout."""
+        from botend.management.commands.update_simc_binary import Command
+
+        command = Command()
+        command.simc_source_dir = '/srv/simc'
+        with mock.patch(
+            'botend.management.commands.update_simc_binary.subprocess.run',
+            return_value=subprocess.CompletedProcess(
+                [], 0,
+                stdout='auto-save local changes before upstream sync (2026-08-21T02:28:09Z)\n',
+                stderr='',
+            ),
+        ), mock.patch.object(command, '_run') as run:
+            self.assertTrue(command._discard_managed_local_commits())
+
+        run.assert_called_once_with(
+            ['git', 'reset', '--hard', 'origin/midnight'],
+            cwd='/srv/simc', timeout=1800,
+            status='清理旧的 SimC 自动同步提交', progress=10,
+        )
+
     @override_settings(SIMC_CONFIG={'wow_build': '12.0.1.70000'})
     def test_symbol_sync_failure_rolls_back_same_revision_apl_import(self):
         from django.core.management import call_command as real_call_command
