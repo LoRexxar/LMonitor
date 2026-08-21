@@ -150,9 +150,11 @@ class SimcSkillDamageSnapshotService:
                     raise ValueError('exporter action 缺少 baseline 数学期望。')
                 components = [baseline.get('direct'), baseline.get('tick')]
                 present = [component for component in components if component is not None]
-                if not present:
-                    raise ValueError('exporter action 没有可展示的伤害组件。')
                 unresolved_reason = baseline.get('unresolved_reason')
+                if not present:
+                    if unresolved_reason:
+                        continue
+                    raise ValueError('exporter action 没有可展示的伤害组件。')
                 for component in present:
                     if not isinstance(component, dict) or any(
                         field not in component for field in required_amount_fields

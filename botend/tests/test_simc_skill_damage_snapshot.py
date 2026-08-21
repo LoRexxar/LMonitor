@@ -108,6 +108,13 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         payload['actors'][0]['actions'][0]['baseline']['unresolved_reason'] = 'runtime_non_finite_amount'
         service._validate_export(payload)
 
+        payload['actors'][0]['actions'][0]['baseline'] = {
+            'direct': None,
+            'tick': None,
+            'unresolved_reason': 'snapshot_child_signal_11',
+        }
+        service._validate_export(payload)
+
     def test_dbc_refresh_uses_latest_backend_revision_and_only_runs_for_new_build(self):
         backend, _ = SimcBackendBinary.objects.update_or_create(
             identifier='production',
