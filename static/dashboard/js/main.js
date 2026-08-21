@@ -459,6 +459,7 @@ const SIMC_DASHBOARD_SECTIONS = Object.freeze({
     workflow: 'simc-workflow',
     history: 'simc-history',
     advanced: 'simc-advanced',
+    'skill-damage': 'simc-skill-damage',
 });
 
 function isSimcDashboardSection(sectionId) {

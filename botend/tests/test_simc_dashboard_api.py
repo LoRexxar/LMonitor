@@ -3624,6 +3624,26 @@ class SimcNewConfigModeTests(TestCase):
             self.assertIsNotNone(section, section_id)
             self.assertIs(getattr(section, 'parent', None), workbench, section_id)
 
+    def test_skill_damage_snapshot_has_dedicated_simc_sidebar_page(self):
+        from bs4 import BeautifulSoup
+
+        template = (Path(__file__).resolve().parents[2] / 'templates/dashboard/index.html').read_text(encoding='utf-8')
+        soup = BeautifulSoup(template, 'html.parser')
+        sidebar_entry = soup.select_one('#simc-sidebar-submenu > [data-dashboard-section="simc-skill-damage"]')
+        page = soup.select_one('#simc-skill-damage.content-section[data-simc-page="skill-damage"]')
+        panel = soup.select_one('#simc-skill-damage-panel')
+        backend_panel = soup.select_one('#simc-workbench-backend-panel')
+
+        self.assertIsNotNone(sidebar_entry)
+        self.assertIn('技能伤害快照', sidebar_entry.get_text(' ', strip=True))
+        self.assertIsNotNone(page)
+        self.assertIsNotNone(panel)
+        self.assertIn(page, panel.parents)
+        self.assertNotIn(backend_panel, panel.parents)
+
+        main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
+        self.assertIn("'skill-damage': 'simc-skill-damage'", main_js)
+
     def test_simc_workbench_panels_are_grouped_by_l1_information_architecture(self):
         from bs4 import BeautifulSoup
 
