@@ -316,4 +316,6 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn('expectedSortValue', renderer)
         self.assertNotIn('全部专精', renderer)
         self.assertNotIn('scenario', renderer.lower())
+        self.assertNotIn("component === 'direct' ? 'Direct' : 'Tick'", renderer)
+        self.assertNotIn('font-bold uppercase text-stone-500', renderer)
         self.assertNotIn('职业 Buff', template)

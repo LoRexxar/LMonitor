@@ -5791,10 +5791,9 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     const componentValues = (baseline, field) => ['direct', 'tick'].map(component => {
         const amount = baseline && baseline[component];
         if (!amount || typeof amount !== 'object') return '';
-        const label = component === 'direct' ? 'Direct' : 'Tick';
         const value = field === 'crit_chance' ? amount.crit_chance * 100 : amount[field];
         const suffix = field === 'crit_chance' && hasFiniteSimcSkillDamageNumber(value) ? '%' : '';
-        return `<div><span class="mr-2 text-[10px] font-bold uppercase text-stone-500">${label}</span>${formatSimcSkillDamageNumber(value)}${suffix}</div>`;
+        return `<div>${formatSimcSkillDamageNumber(value)}${suffix}</div>`;
     }).filter(Boolean).join('');
     const body = document.getElementById('simc-skill-damage-body');
     const identityEl = document.getElementById('simc-skill-damage-identity');
