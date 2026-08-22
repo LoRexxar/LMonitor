@@ -16,6 +16,7 @@ from botend.models import (
     SimcSkillDamageSnapshot, WowTalentNodeMetadata,
 )
 from botend.services.simc_composer import SimcComposer
+from botend.services.simc_player_config import canonical_simc_profile_identity, simc_spec_slug
 
 
 def _text_key(value):
@@ -447,6 +448,7 @@ class SimcSkillDamageSnapshotService:
 
     EXPORTER_SCHEMA_REVISION = 3
     DATASET_SCHEMA_REVISION = 4
+    TALENT_BATCH_SIZE = 25
     FIXED_PRESET = {
         'attack_power': 100.0,
         'spell_power': 100.0,
@@ -540,21 +542,20 @@ class SimcSkillDamageSnapshotService:
         return selected
 
     def _talent_entries(self, profile):
-        class_name = str(getattr(profile, 'class_name', '') or '').strip()
-        spec_name = str(getattr(profile, 'spec', '') or '').strip()
-        prefix = f'{class_name}_'.lower()
-        if spec_name.lower().startswith(prefix):
-            spec_name = spec_name[len(prefix):]
+        class_name, spec_name = canonical_simc_profile_identity(
+            getattr(profile, 'spec', ''), getattr(profile, 'class_name', ''),
+        )
         rows = WowTalentNodeMetadata.objects.filter(
             talent_version__is_active=True,
             class_name__iexact=class_name,
-            spec_name__iexact=spec_name,
             tree_type__in=('class', 'spec', 'hero'),
             node_id__isnull=False,
         ).order_by('tree_type', 'row', 'column', 'node_id', 'id')
         selected = []
         seen = set()
         for row in rows:
+            if simc_spec_slug(row.spec_name) != spec_name:
+                continue
             key = (str(row.tree_type or '').lower(), row.node_id)
             if not isinstance(row.node_id, int) or row.node_id <= 0 or key in seen:
                 continue
@@ -778,44 +779,57 @@ class SimcSkillDamageSnapshotService:
         try:
             actors = []
             unresolved = []
+            unresolved_keys = set()
             for profile in self._profiles():
                 all_talents = self._talent_entries(profile)
                 scaffold_talents = self._spec_root_scaffold(all_talents)
-                # A root remains an explicit possible variant even when it is
-                # also selected to initialize the baseline actor's actions.
                 talents = all_talents
-                try:
+                high_actors = {}
+                low_actors = {}
+                base_high = None
+                base_low = None
+                for start in range(0, len(talents), self.TALENT_BATCH_SIZE):
+                    batch = talents[start:start + self.TALENT_BATCH_SIZE]
                     high_export = self._run_profile_export(
-                        profile, talents, scaffold_talents=scaffold_talents, target_health=100,
+                        profile, batch, scaffold_talents=scaffold_talents, target_health=100,
                     )
                     low_export = self._run_profile_export(
-                        profile, talents, scaffold_talents=scaffold_talents, target_health=34,
+                        profile, batch, scaffold_talents=scaffold_talents, target_health=34,
                     )
-                except RuntimeError as exc:
-                    unresolved.append({
-                        'specialization': str(profile.spec or ''),
-                        'reason': str(exc)[-2000:],
-                    })
-                    continue
+                    batch_high = {
+                        str(actor.get('name') or ''): actor
+                        for actor in (high_export.get('actors') or [])
+                        if isinstance(actor, dict)
+                    }
+                    batch_low = {
+                        str(actor.get('name') or ''): actor
+                        for actor in (low_export.get('actors') or [])
+                        if isinstance(actor, dict)
+                    }
+                    current_base_high = batch_high.pop('skill_damage_base', None)
+                    current_base_low = batch_low.pop('skill_damage_base', None)
+                    if not current_base_high or not current_base_low:
+                        raise ValueError(f'{profile.spec} exporter 缺少单项天赋基线 actor。')
+                    if base_high is None:
+                        base_high = current_base_high
+                        base_low = current_base_low
+                    elif current_base_high != base_high or current_base_low != base_low:
+                        raise ValueError(f'{profile.spec} 分块 exporter 基线 actor 不一致。')
+                    duplicate_high = set(high_actors).intersection(batch_high)
+                    duplicate_low = set(low_actors).intersection(batch_low)
+                    if duplicate_high or duplicate_low:
+                        raise ValueError(f'{profile.spec} 分块 exporter 包含重复天赋 actor。')
+                    high_actors.update(batch_high)
+                    low_actors.update(batch_low)
+                    for row in (high_export.get('unresolved') or []) + (low_export.get('unresolved') or []):
+                        key = json.dumps(row, ensure_ascii=False, sort_keys=True)
+                        if key not in unresolved_keys:
+                            unresolved_keys.add(key)
+                            unresolved.append(row)
 
-                high_actors = {
-                    str(actor.get('name') or ''): actor
-                    for actor in (high_export.get('actors') or [])
-                    if isinstance(actor, dict)
-                }
-                low_actors = {
-                    str(actor.get('name') or ''): actor
-                    for actor in (low_export.get('actors') or [])
-                    if isinstance(actor, dict)
-                }
-                base_high = high_actors.get('skill_damage_base')
-                base_low = low_actors.get('skill_damage_base')
-                if not base_high or not base_low:
-                    unresolved.append({
-                        'specialization': str(profile.spec or ''),
-                        'reason': 'SimC exporter 缺少单项天赋基线 actor。',
-                    })
-                    continue
+                expected_actor_names = {f'skill_damage_talent_{talent.pk}' for talent in talents}
+                if set(high_actors) != expected_actor_names or set(low_actors) != expected_actor_names:
+                    raise ValueError(f'{profile.spec} 分块 exporter 天赋 actor 集合不完整。')
 
                 variants = []
                 for talent in talents:
@@ -852,8 +866,6 @@ class SimcSkillDamageSnapshotService:
                 actor['base_damage_basis'] = 'dbc_spell_effect_ap_sp_coefficients_at_100'
                 actor['actions'] = flatten_single_talent_damage_variants(base_high, base_low, variants)
                 actors.append(actor)
-                unresolved.extend(high_export.get('unresolved', []))
-                unresolved.extend(low_export.get('unresolved', []))
             payload = {
                 'identity': {
                     'simc_revision': self.snapshot.simc_revision,

@@ -222,18 +222,18 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertEqual(len(projected['actors'][0]['actions']), 1)
         self.assertEqual(projected['actors'][0]['actions'][0]['component'], 'direct')
 
-    def test_talent_entries_come_from_active_metadata_without_talent_strings(self):
+    def test_talent_entries_use_canonical_profile_identity_for_active_metadata(self):
         active = WowTalentVersion.objects.create(key='active', is_active=True)
         inactive = WowTalentVersion.objects.create(key='inactive', is_active=False)
         expected = WowTalentNodeMetadata.objects.create(
-            talent_version=active, class_name='Warrior', spec_name='Fury', tree_type='spec',
-            node_id=136454, spell_id=1265355, name='Scent of Blood', max_points=1,
+            talent_version=active, class_name='Hunter', spec_name='BeastMastery', tree_type='spec',
+            node_id=136454, spell_id=1265355, name='Barbed Shot', max_points=1,
         )
         WowTalentNodeMetadata.objects.create(
-            talent_version=inactive, class_name='Warrior', spec_name='Fury', tree_type='spec',
-            node_id=136448, spell_id=383885, name='Stale Vicious Contempt', max_points=1,
+            talent_version=inactive, class_name='Hunter', spec_name='BeastMastery', tree_type='spec',
+            node_id=136448, spell_id=383885, name='Stale Talent', max_points=1,
         )
-        profile = SimpleNamespace(spec='warrior_fury', class_name='warrior')
+        profile = SimpleNamespace(spec='hunter_beast_mastery', class_name='hunter')
 
         rows = SimcSkillDamageSnapshotService(mock.Mock())._talent_entries(profile)
 
@@ -278,39 +278,39 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         self.assertEqual(service._binary_path(), sys.executable)
 
-    def test_generate_merges_single_talent_actor_outputs_and_preserves_dataset_identity(self):
+    def test_generate_batches_all_single_talent_actors_and_preserves_dataset_identity(self):
         snapshot = SimcSkillDamageSnapshot.objects.create(
             simc_revision='c' * 40, game_build='12.1.0.69299', schema_revision=4,
         )
         profile = SimpleNamespace(pk=1, spec='warrior_fury', class_name='warrior')
-        talent = SimpleNamespace(
-            pk=11, node_id=136454, tree_type='spec', name='Scent of Blood',
-            name_zh='血之气息', description='', description_zh='',
-        )
-        outputs = [
-            {'actors': [
-                {'name': 'skill_damage_base', 'class': 'warrior', 'spec': 'fury',
-                 'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions', 'actions': []},
-                {'name': 'skill_damage_talent_11', 'class': 'warrior', 'spec': 'fury',
-                 'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions', 'actions': []},
-            ], 'unresolved': []},
-            {'actors': [
-                {'name': 'skill_damage_base', 'class': 'warrior', 'spec': 'fury',
-                 'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions', 'actions': []},
-                {'name': 'skill_damage_talent_11', 'class': 'warrior', 'spec': 'fury',
-                 'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions', 'actions': []},
-            ], 'unresolved': []},
-        ]
+        talents = [SimpleNamespace(
+            pk=11 + index, node_id=136454 + index, tree_type='spec', name=f'Talent {index}',
+            name_zh=f'天赋 {index}', description='', description_zh='',
+        ) for index in range(26)]
+
+        def export_batch(_profile, batch, *, scaffold_talents, target_health):
+            actors = [{
+                'name': 'skill_damage_base', 'class': 'warrior', 'spec': 'fury',
+                'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions', 'actions': [],
+            }]
+            actors.extend({
+                'name': f'skill_damage_talent_{talent.pk}', 'class': 'warrior', 'spec': 'fury',
+                'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions', 'actions': [],
+            } for talent in batch)
+            return {'actors': actors, 'unresolved': []}
+
         service = SimcSkillDamageSnapshotService(snapshot)
         with mock.patch.object(service, '_profiles', return_value=[profile]), \
-             mock.patch.object(service, '_talent_entries', return_value=[talent]), \
-             mock.patch.object(service, '_run_profile_export', side_effect=outputs) as run:
+             mock.patch.object(service, '_talent_entries', return_value=talents), \
+             mock.patch.object(service, '_run_profile_export', side_effect=export_batch) as run:
             result = service.generate()
 
         snapshot.refresh_from_db()
         self.assertEqual(run.call_args_list, [
-            mock.call(profile, [talent], scaffold_talents=[], target_health=100),
-            mock.call(profile, [talent], scaffold_talents=[], target_health=34),
+            mock.call(profile, talents[:25], scaffold_talents=[], target_health=100),
+            mock.call(profile, talents[:25], scaffold_talents=[], target_health=34),
+            mock.call(profile, talents[25:], scaffold_talents=[], target_health=100),
+            mock.call(profile, talents[25:], scaffold_talents=[], target_health=34),
         ])
         self.assertEqual(snapshot.status, snapshot.STATUS_SUCCEEDED)
         self.assertEqual(result['actors'][0]['specialization'], 'fury')

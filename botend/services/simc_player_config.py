@@ -78,7 +78,7 @@ SUPPORTED_ACTORS = {
 }
 
 
-def _simc_spec_slug(value):
+def simc_spec_slug(value):
     """Convert display tokens such as BeastMastery to SimC's beast_mastery."""
     return re.sub(r'(?<!^)(?=[A-Z])', '_', str(value or '')).lower()
 
@@ -86,7 +86,7 @@ def _simc_spec_slug(value):
 # Single legal specialization set derived from the maintained product catalog.
 # The normalization helper remains permissive for legacy stored values.
 SUPPORTED_SIMC_SPEC_IDENTITIES = frozenset(
-    (class_name.lower(), _simc_spec_slug(spec_name))
+    (class_name.lower(), simc_spec_slug(spec_name))
     for class_name, spec_names in CLASS_SPEC_MAP.items()
     for spec_name in spec_names
 )
