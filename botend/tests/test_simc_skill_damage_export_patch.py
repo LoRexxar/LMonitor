@@ -9,6 +9,7 @@ PATCH = PATCH_DIR / "0006-skill-damage-state-export.patch"
 NON_FINITE_PATCH = PATCH_DIR / "0007-skill-damage-non-finite-json.patch"
 DBC_UNIVERSE_PATCH = PATCH_DIR / "0008-skill-damage-dbc-universe.patch"
 PRODUCT_SEMANTICS_PATCH = PATCH_DIR / "0009-skill-damage-product-semantics.patch"
+RUNTIME_CONDITIONS_PATCH = PATCH_DIR / "0010-single-talent-runtime-conditions.patch"
 
 
 class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
@@ -19,6 +20,7 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         cls.non_finite_text = NON_FINITE_PATCH.read_text(encoding="utf-8")
         cls.dbc_universe_text = DBC_UNIVERSE_PATCH.read_text(encoding="utf-8")
         cls.product_semantics_text = PRODUCT_SEMANTICS_PATCH.read_text(encoding="utf-8")
+        cls.runtime_conditions_text = RUNTIME_CONDITIONS_PATCH.read_text(encoding="utf-8")
 
     def test_cli_controls_and_early_initialized_export(self):
         for token in (
@@ -92,6 +94,10 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         self.assertIn("fork_pipe_per_action_scenario", self.text)
         self.assertIn("Parent remains exactly as produced by sim.init()", self.text)
         self.assertIn("action.player->reset()", self.text)
+        self.assertIn("action.sim->fixed_time = false", self.runtime_conditions_text)
+        self.assertIn("action.target->resources.base[ RESOURCE_HEALTH ] = 100.0", self.runtime_conditions_text)
+        self.assertIn("action.target->resources.current[ RESOURCE_HEALTH ]", self.runtime_conditions_text)
+        self.assertIn("selected_trait_tokens", self.runtime_conditions_text)
         self.assertNotIn("reset_skill_damage_state", self.text)
 
     def test_export_outputs_fixed_preset_mathematical_expectation(self):

@@ -1,0 +1,104 @@
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+index 1cedd7d..f59a10d 100644
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -731,6 +731,17 @@ skill_damage_amount_t skill_damage_fork_snapshot( action_t& action,
+     // exactly as a simulation iteration does, while the parent actor remains
+     // pristine and no reset ever follows an overridden buff on this actor.
+     action.player->reset();
++    if ( action.target )
++    {
++      // enemy_t::health_percentage() derives health from iteration time when
++      // base == 0 or fixed_time is enabled. Export probes run before an iteration,
++      // so make the injected resource state authoritative in this fork child.
++      action.sim->fixed_time = false;
++      action.target->resources.base[ RESOURCE_HEALTH ] = 100.0;
++      action.target->resources.max[ RESOURCE_HEALTH ] = 100.0;
++      action.target->resources.current[ RESOURCE_HEALTH ] =
++        action.sim->skill_damage_target_health_percentage;
++    }
+     // Normalize the actor caches before applying scenario buffs. current.* is
+     // adjusted by the observed cache delta so class/racial passive crit remains
+     // represented while the resulting unbuffed cache is exactly 20%.
+@@ -824,17 +835,31 @@ std::set<std::set<std::string>> skill_damage_scenario_keys( const player_t& player )
+-std::set<std::set<std::string>> skill_damage_scenario_keys( const player_t& player )
++std::set<std::set<std::string>> skill_damage_scenario_keys( const player_t& player,
++                                                              std::string_view action_name )
+ {
+   std::set<std::set<std::string>> scenario_keys;
+   static const std::regex buff_ref( R"(buff\.([A-Za-z0-9_]+))" );
+   for ( const action_priority_list_t* apl : player.action_priority_list )
+     for ( const auto& entry : apl->action_list )
+     {
++      const std::string text = entry.action_;
++      const size_t comma = text.find( ',' );
++      if ( std::string_view( text ).substr( 0, comma ) != action_name ) continue;
+       std::set<std::string> key;
+-      std::string text = entry.action_;
+       for ( auto it = std::sregex_iterator( text.begin(), text.end(), buff_ref ); it != std::sregex_iterator(); ++it )
+         key.insert( ( *it )[ 1 ].str() );
+       if ( !key.empty() ) scenario_keys.insert( std::move( key ) );
+     }
++  std::set<std::string> selected_trait_tokens;
++  for ( const auto& player_trait : player.player_traits )
++  {
++    if ( !std::get<2>( player_trait ) ) continue;
++    const auto* trait = trait_data_t::find( std::get<1>( player_trait ), player.is_ptr() );
++    if ( trait && trait->name && *trait->name )
++      selected_trait_tokens.insert( util::tokenize_fn( trait->name ) );
++  }
+-  for ( const buff_t* buff : player.buff_list ) if ( buff ) scenario_keys.insert( { buff->name_str } );
++  for ( const buff_t* buff : player.buff_list )
++    if ( buff && ( buff->name_str.rfind( "talents_", 0 ) == 0 ||
++                   selected_trait_tokens.count( buff->name_str ) ) )
++      scenario_keys.insert( { buff->name_str } );
+   return scenario_keys;
+ }
+ 
+@@ -951,4 +976,3 @@ void export_skill_damage( sim_t& sim )
+-    const auto scenario_keys = skill_damage_scenario_keys( *player );
+     std::set<std::pair<std::string, unsigned>> exported_actions;
+     bool first_action = true;
+     for ( action_t* action : player->action_list )
+@@ -959,6 +983,7 @@ void export_skill_damage( sim_t& sim )
+       if ( !action || ( !action->does_direct_damage() && !action->does_periodic_damage() ) ) continue;
+       const unsigned spell_id = apl_metadata_action_spell_id( *action );
+       if ( !exported_actions.emplace( action->name_str, spell_id ).second ) continue;
++      const auto scenario_keys = skill_damage_scenario_keys( *player, action->name_str );
+ 
+       const bool requires_weapon_data = action->weapon != nullptr && action->weapon_multiplier != 0.0;
+       // Parent remains exactly as produced by sim.init(). Every calculation,
+@@ -973,6 +998,9 @@ void export_skill_damage( sim_t& sim )
+     std::all_of( sim.skill_damage_revision.begin(), sim.skill_damage_revision.end(),
+                  []( unsigned char c ) { return std::isxdigit( c ); } );
+   if ( !valid_revision ) throw std::runtime_error( "skill_damage_revision must be a 40-character hexadecimal git SHA" );
++  if ( sim.skill_damage_target_health_percentage <= 0.0 ||
++       sim.skill_damage_target_health_percentage > 100.0 )
++    throw std::runtime_error( "skill_damage_target_health_percentage must be in (0, 100]" );
+ 
+   const bool saved_average_range = sim.average_range;
+   sim.average_range = true;
+diff --git a/engine/sim/sim.cpp b/engine/sim/sim.cpp
+index 590f522..0015b8a 100644
+--- a/engine/sim/sim.cpp
++++ b/engine/sim/sim.cpp
+@@ -3865,6 +3865,7 @@ void sim_t::create_options()
+   add_option( opt_string( "skill_damage_export", skill_damage_export_file ) );
+   add_option( opt_string( "skill_damage_revision", skill_damage_revision ) );
+   add_option( opt_string( "skill_damage_game_build", skill_damage_game_build ) );
++  add_option( opt_float( "skill_damage_target_health_percentage", skill_damage_target_health_percentage ) );
+   add_option( opt_bool( "save_raid_summary", save_raid_summary ) );
+   add_option( opt_bool( "save_gear_comments", save_gear_comments ) );
+   add_option( opt_bool( "buff_uptime_timeline", buff_uptime_timeline ) );
+diff --git a/engine/sim/sim.hpp b/engine/sim/sim.hpp
+index 176d6a6..87055c6 100644
+--- a/engine/sim/sim.hpp
++++ b/engine/sim/sim.hpp
+@@ -97,6 +97,7 @@ struct sim_t : private sc_thread_t
+   std::string skill_damage_export_file;
+   std::string skill_damage_revision;
+   std::string skill_damage_game_build;
++  double skill_damage_target_health_percentage = 100.0;
+ 
+   // Iteration Controls
+   timespan_t max_time, expected_iteration_time;

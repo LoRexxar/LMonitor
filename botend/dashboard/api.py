@@ -8207,7 +8207,11 @@ class SimcSkillDamageSnapshotAPIView(View):
         }
 
     def get(self, request):
-        latest = SimcSkillDamageSnapshot.latest_success()
+        latest = SimcSkillDamageSnapshot.objects.filter(
+            status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+            schema_revision=SimcSkillDamageSnapshotService.DATASET_SCHEMA_REVISION,
+        ).order_by('-completed_at', '-id').first()
+        legacy_latest = SimcSkillDamageSnapshot.latest_success() if latest is None else None
         job = SimcSkillDamageSnapshot.objects.order_by('-created_at', '-id').first()
         snapshot = None
         if latest:
@@ -8229,6 +8233,10 @@ class SimcSkillDamageSnapshotAPIView(View):
             'success': True,
             'data': {
                 'snapshot': snapshot,
+                'snapshot_unavailable_reason': (
+                    '最新成功快照不是 schema 4 单项天赋运行时数据，请生成新快照。'
+                    if legacy_latest else None
+                ),
                 'job': self._job_data(job),
                 'can_generate': bool(request.user.is_staff),
             },

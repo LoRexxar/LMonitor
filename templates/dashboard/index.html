@@ -1766,17 +1766,16 @@
                                     </div>
                                 </div>
                                 <div id="simc-skill-damage-status" class="mt-4 rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-700">正在读取最近成功快照…</div>
-                                <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,220px)_minmax(0,220px)_minmax(0,1fr)]">
+                                <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
                                     <select id="simc-skill-damage-spec" class="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-gray-800"><option value="">请选择专精</option></select>
-                                    <select id="simc-skill-damage-hero-tree" disabled class="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-gray-800 disabled:bg-stone-100"><option value="">请选择英雄天赋树</option></select>
-                                    <input id="simc-skill-damage-search" type="search" class="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-gray-800" placeholder="搜索技能名称或技能 ID">
+                                    <input id="simc-skill-damage-search" type="search" class="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-gray-800" placeholder="搜索技能名称、技能 ID 或单项天赋">
                                 </div>
                                 <div class="simc-skill-damage-table mt-4 overflow-x-auto rounded-xl border border-stone-300 bg-stone-50">
                                     <table class="min-w-full border-collapse text-sm">
                                         <thead class="bg-stone-200 text-left text-xs font-bold uppercase tracking-wide text-stone-700">
-                                            <tr><th class="px-3 py-3">技能</th><th class="px-3 py-3">分量</th><th class="px-3 py-3">DBC 基础伤害</th><th class="px-3 py-3">当前天赋基础伤害</th><th class="px-3 py-3">技能实际暴击率</th><th class="px-3 py-3"><button id="simc-skill-damage-sort-expected" type="button" data-direction="desc" class="font-bold text-blue-900 hover:underline">归一化伤害期望 ↓</button></th></tr>
+                                            <tr><th class="px-3 py-3">技能</th><th class="px-3 py-3">单项天赋条件</th><th class="px-3 py-3">分量</th><th class="px-3 py-3">DBC 基础伤害</th><th class="px-3 py-3">该条件实际伤害</th><th class="px-3 py-3">技能实际暴击率</th><th class="px-3 py-3"><button id="simc-skill-damage-sort-expected" type="button" data-direction="desc" class="font-bold text-blue-900 hover:underline">归一化伤害期望 ↓</button></th></tr>
                                         </thead>
-                                        <tbody id="simc-skill-damage-body" class="divide-y divide-stone-300 bg-white"><tr><td colspan="6" class="px-4 py-8 text-center text-stone-500">请先选择专精和英雄天赋树</td></tr></tbody>
+                                        <tbody id="simc-skill-damage-body" class="divide-y divide-stone-300 bg-white"><tr><td colspan="7" class="px-4 py-8 text-center text-stone-500">请先选择专精</td></tr></tbody>
                                     </table>
                                 </div>
                             </section>

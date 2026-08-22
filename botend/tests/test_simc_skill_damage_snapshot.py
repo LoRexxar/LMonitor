@@ -15,6 +15,8 @@ from botend.models import (
 from botend.services.simc_skill_damage import (
     SimcSkillDamageSnapshotService,
     attach_runtime_product_metrics,
+    build_single_talent_actor_input,
+    flatten_single_talent_damage_variants,
     project_skill_damage_product_payload,
 )
 from botend.dashboard.api import SimcSkillDamageSnapshotAPIView
@@ -45,6 +47,123 @@ class SimcSkillDamageSnapshotModelTests(TestCase):
 
 
 class SimcSkillDamageSnapshotServiceTests(TestCase):
+    def test_single_talent_input_uses_one_baseline_actor_and_trait_entry_actors_only(self):
+        profile_input = (
+            'warrior="Fury Reference"\n'
+            'spec=fury\n'
+            'talents=FULL_PRESET_BUILD\n'
+            'class_talents=old:1\n'
+            'head=,id=1\n'
+        )
+        talents = [
+            SimpleNamespace(pk=1, tree_type='spec', node_id=136454, max_points=1),
+            SimpleNamespace(pk=2, tree_type='hero', node_id=117404, max_points=1),
+        ]
+
+        generated = build_single_talent_actor_input(profile_input, 'warrior', talents)
+
+        self.assertNotIn('talents=FULL_PRESET_BUILD', generated)
+        self.assertNotIn('class_talents=old:1', generated)
+        self.assertEqual(generated.count('warrior="skill_damage_'), 3)
+        self.assertIn('warrior="skill_damage_base"', generated)
+        self.assertIn('warrior="skill_damage_talent_1"', generated)
+        self.assertIn('spec_talents=136454:1', generated)
+        self.assertIn('warrior="skill_damage_talent_2"', generated)
+        self.assertIn('hero_talents=117404:1', generated)
+
+    def test_single_talent_input_applies_generated_spec_root_scaffold_to_every_actor(self):
+        root = SimpleNamespace(pk=74850, tree_type='spec', node_id=112261, max_points=1)
+        scent = SimpleNamespace(pk=74957, tree_type='spec', node_id=136454, max_points=1)
+
+        generated = build_single_talent_actor_input(
+            'warrior="Fury Reference"\nspec=fury\ntalents=legacy\n',
+            'warrior',
+            [scent],
+            scaffold_talents=[root],
+        )
+
+        self.assertEqual(generated.count('spec_talents=112261:1'), 2)
+        self.assertEqual(generated.count('spec_talents=112261:1/136454:1'), 1)
+        self.assertNotIn('talents=legacy', generated)
+
+    def test_bloodthirst_is_flattened_to_base_and_each_runtime_single_talent_condition(self):
+        def action(hit, *, scenario=None):
+            amount = {
+                'direct': {
+                    'hit': hit, 'crit': hit * 2, 'crit_multiplier': 2.0,
+                    'crit_chance': 0.2, 'expected': hit * 1.2,
+                },
+                'tick': None,
+            }
+            row = {
+                'name': 'bloodthirst', 'token': 'bloodthirst', 'spell_id': 23881,
+                'supported': True,
+                'dbc_scaling': {
+                    'source': 'spell_effect',
+                    'direct': {'attack_power_coefficient': 2.0, 'spell_power_coefficient': 0.0,
+                               'normalized_base': 200.0, 'effect_indexes': [0]},
+                    'tick': None, 'requires_weapon_data': False,
+                },
+                'baseline': amount,
+                'scenarios': [],
+            }
+            if scenario:
+                row['scenarios'].append({'active_buffs': [scenario], 'amount': amount})
+            return row
+
+        base_high = {'actions': [action(200.0)]}
+        base_low = {'actions': [action(200.0)]}
+        base_high['actions'][0]['scenarios'] = [
+            {'active_buffs': ['defensive_stance'], 'amount': action(180.0)['baseline']},
+        ]
+        base_low['actions'][0]['scenarios'] = [
+            {'active_buffs': ['defensive_stance'], 'amount': action(180.0)['baseline']},
+        ]
+        variants = [
+            {
+                'talent': {'id': 11, 'name': 'Scent of Blood', 'name_zh': '血之气息'},
+                'high': {'actions': [action(200.0, scenario='bloodcraze')]},
+                'low': {'actions': [action(200.0)]},
+                'scenario_amounts': {'bloodcraze': 240.0},
+            },
+            {
+                'talent': {'id': 12, 'name': 'Vicious Contempt', 'name_zh': '恶毒蔑视'},
+                'high': {'actions': [action(200.0)]},
+                'low': {'actions': [action(300.0)]},
+            },
+            {
+                'talent': {'id': 13, 'name': 'Burst of Power', 'name_zh': '能量爆发'},
+                'high': {'actions': [action(200.0, scenario='burst_of_power')]},
+                'low': {'actions': [action(200.0)]},
+                'scenario_amounts': {'burst_of_power': 220.0},
+            },
+        ]
+        variants[1]['high']['actions'][0]['scenarios'] = [
+            {'active_buffs': ['defensive_stance'], 'amount': action(180.0)['baseline']},
+        ]
+        variants[1]['low']['actions'][0]['scenarios'] = [
+            {'active_buffs': ['defensive_stance'], 'amount': action(270.0)['baseline']},
+        ]
+        # Replace scenario values with independently exported SimC values.
+        for variant in variants:
+            for scenario in variant['high']['actions'][0]['scenarios']:
+                hit = variant.get('scenario_amounts', {}).get(scenario['active_buffs'][0])
+                if hit is not None:
+                    scenario['amount'] = action(hit)['baseline']
+
+        rows = flatten_single_talent_damage_variants(base_high, base_low, variants)
+
+        self.assertEqual(
+            [(row['variant']['talent_name_zh'], row['variant']['runtime_condition'],
+              row['baseline']['direct']['hit']) for row in rows],
+            [
+                ('', '无单项增伤天赋', 200.0),
+                ('血之气息', '需要 bloodcraze buff 激活', 240.0),
+                ('恶毒蔑视', '目标生命值低于 35%', 300.0),
+                ('能量爆发', '需要 burst_of_power buff 激活', 220.0),
+            ],
+        )
+
     def test_product_metrics_combine_dbc_base_with_selected_talent_runtime(self):
         selected = {'actions': [
             {
@@ -103,36 +222,24 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertEqual(len(projected['actors'][0]['actions']), 1)
         self.assertEqual(projected['actors'][0]['actions'][0]['component'], 'direct')
 
-    def test_baselines_are_unique_per_spec_and_actual_hero_tree(self):
-        profile = SimpleNamespace(pk=1, spec='warrior_fury', class_name='warrior')
-        talents = [
-            SimpleNamespace(pk=10, spec='warrior_fury', talent='SLAYER', modified_at=3, system_key='', hero_talent_names=[]),
-            SimpleNamespace(pk=11, spec='warrior_fury', talent='MOUNTAIN_OLD', modified_at=1, system_key='', hero_talent_names=[]),
-            SimpleNamespace(pk=12, spec='warrior_fury', talent='MOUNTAIN_NEW', modified_at=2, system_key='', hero_talent_names=[]),
-        ]
-        service = SimcSkillDamageSnapshotService(mock.Mock())
-        resolved = {
-            'SLAYER': ['屠戮者'],
-            'MOUNTAIN_OLD': ['山丘领主'],
-            'MOUNTAIN_NEW': ['山丘领主'],
-        }
-        with mock.patch.object(service, '_profiles', return_value=[profile]), \
-             mock.patch.object(service, '_talents', return_value=talents), \
-             mock.patch(
-                 'botend.services.simc_skill_damage.resolve_hero_talent_names',
-                 side_effect=lambda talent, _spec: resolved[talent],
-             ):
-            baselines = service._baselines()
-
-        self.assertEqual(
-            [(row[0].spec, row[2], row[1].talent) for row in baselines],
-            [
-                ('warrior_fury', '屠戮者', 'SLAYER'),
-                ('warrior_fury', '山丘领主', 'MOUNTAIN_NEW'),
-            ],
+    def test_talent_entries_come_from_active_metadata_without_talent_strings(self):
+        active = WowTalentVersion.objects.create(key='active', is_active=True)
+        inactive = WowTalentVersion.objects.create(key='inactive', is_active=False)
+        expected = WowTalentNodeMetadata.objects.create(
+            talent_version=active, class_name='Warrior', spec_name='Fury', tree_type='spec',
+            node_id=136454, spell_id=1265355, name='Scent of Blood', max_points=1,
         )
+        WowTalentNodeMetadata.objects.create(
+            talent_version=inactive, class_name='Warrior', spec_name='Fury', tree_type='spec',
+            node_id=136448, spell_id=383885, name='Stale Vicious Contempt', max_points=1,
+        )
+        profile = SimpleNamespace(spec='warrior_fury', class_name='warrior')
 
-    def test_existing_schema_two_snapshot_creates_new_schema_three_identity(self):
+        rows = SimcSkillDamageSnapshotService(mock.Mock())._talent_entries(profile)
+
+        self.assertEqual([row.pk for row in rows], [expected.pk])
+
+    def test_existing_schema_three_snapshot_creates_new_schema_four_identity(self):
         backend, _ = SimcBackendBinary.objects.update_or_create(
             identifier='production',
             defaults={
@@ -144,7 +251,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         existing = SimcSkillDamageSnapshot.objects.create(
             simc_revision='f' * 40,
             game_build='12.1.0.69300',
-            schema_revision=2,
+            schema_revision=3,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{
                 'specialization': 'fury',
@@ -156,7 +263,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         service = SimcSkillDamageSnapshotService.create_for_current_backend()
 
         self.assertNotEqual(service.snapshot.pk, existing.pk)
-        self.assertEqual(service.snapshot.schema_revision, 3)
+        self.assertEqual(service.snapshot.schema_revision, 4)
         self.assertEqual(service.snapshot.status, SimcSkillDamageSnapshot.STATUS_PENDING)
         self.assertEqual(service.backend.pk, backend.pk)
 
@@ -171,99 +278,49 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         self.assertEqual(service._binary_path(), sys.executable)
 
-    def test_generate_merges_actor_outputs_and_preserves_dataset_identity(self):
+    def test_generate_merges_single_talent_actor_outputs_and_preserves_dataset_identity(self):
         snapshot = SimcSkillDamageSnapshot.objects.create(
-            simc_revision='c' * 40, game_build='12.1.0.69299', schema_revision=3,
+            simc_revision='c' * 40, game_build='12.1.0.69299', schema_revision=4,
         )
-        profiles = [mock.Mock(pk=1, spec='fury'), mock.Mock(pk=2, spec='arcane')]
+        profile = SimpleNamespace(pk=1, spec='warrior_fury', class_name='warrior')
+        talent = SimpleNamespace(
+            pk=11, node_id=136454, tree_type='spec', name='Scent of Blood',
+            name_zh='血之气息', description='', description_zh='',
+        )
         outputs = [
-            {'schema_version': 3, 'simc_revision': 'c' * 40, 'game_build': '12.1.0.69299',
-             'normalization_basis': {'attack_power': 100.0, 'spell_power': 100.0,
-                                     'crit_percent': 20.0, 'mastery_percent': 50.0},
-             'actors': [{'spec': 'fury', 'actions': []}]},
-            {'schema_version': 3, 'simc_revision': 'c' * 40, 'game_build': '12.1.0.69299',
-             'normalization_basis': {'attack_power': 100.0, 'spell_power': 100.0,
-                                     'crit_percent': 20.0, 'mastery_percent': 50.0},
-             'actors': [{'spec': 'arcane', 'actions': []}]},
+            {'actors': [
+                {'name': 'skill_damage_base', 'class': 'warrior', 'spec': 'fury',
+                 'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions', 'actions': []},
+                {'name': 'skill_damage_talent_11', 'class': 'warrior', 'spec': 'fury',
+                 'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions', 'actions': []},
+            ], 'unresolved': []},
+            {'actors': [
+                {'name': 'skill_damage_base', 'class': 'warrior', 'spec': 'fury',
+                 'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions', 'actions': []},
+                {'name': 'skill_damage_talent_11', 'class': 'warrior', 'spec': 'fury',
+                 'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions', 'actions': []},
+            ], 'unresolved': []},
         ]
-        talents = [SimpleNamespace(pk=11, name='Fury Slayer'), SimpleNamespace(pk=12, name='Arcane Spellslinger')]
         service = SimcSkillDamageSnapshotService(snapshot)
-        with mock.patch.object(service, '_baselines', return_value=[
-                 (profiles[0], talents[0], '屠戮者'),
-                 (profiles[1], talents[1], '法术连击'),
-             ]), mock.patch.object(service, '_run_profile_export', side_effect=outputs):
+        with mock.patch.object(service, '_profiles', return_value=[profile]), \
+             mock.patch.object(service, '_talent_entries', return_value=[talent]), \
+             mock.patch.object(service, '_run_profile_export', side_effect=outputs) as run:
             result = service.generate()
+
         snapshot.refresh_from_db()
+        self.assertEqual(run.call_args_list, [
+            mock.call(profile, [talent], scaffold_talents=[], target_health=100),
+            mock.call(profile, [talent], scaffold_talents=[], target_health=34),
+        ])
         self.assertEqual(snapshot.status, snapshot.STATUS_SUCCEEDED)
-        self.assertEqual([a['specialization'] for a in result['actors']], ['fury', 'arcane'])
-        self.assertEqual([a['hero_talent_tree'] for a in result['actors']], ['屠戮者', '法术连击'])
-        self.assertEqual([a['talent_name'] for a in result['actors']], ['Fury Slayer', 'Arcane Spellslinger'])
+        self.assertEqual(result['actors'][0]['specialization'], 'fury')
+        self.assertEqual(result['actors'][0]['variant_model'], 'single_talent_runtime')
         self.assertEqual(result['identity'], {
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
-            'schema_revision': 3,
+            'schema_revision': 4,
         })
-        self.assertNotIn('profile_id', result['identity'])
         self.assertNotIn('talent', result['identity'])
-
-    def test_generate_skips_one_invalid_talent_baseline_without_failing_snapshot(self):
-        snapshot = SimcSkillDamageSnapshot.objects.create(
-            simc_revision='c' * 40, game_build='12.1.0.69299', schema_revision=2,
-        )
-        profiles = [SimpleNamespace(spec='paladin_retribution'), SimpleNamespace(spec='warrior_fury')]
-        talents = [SimpleNamespace(name='Invalid', pk=1), SimpleNamespace(name='Valid', pk=2)]
-        valid_output = {
-            'actors': [{'class': 'warrior', 'specialization': 'fury', 'actions': []}],
-            'unresolved': [],
-        }
-        service = SimcSkillDamageSnapshotService(snapshot)
-        with mock.patch.object(service, '_baselines', return_value=[
-            (profiles[0], talents[0], '圣殿骑士'),
-            (profiles[1], talents[1], '屠戮者'),
-        ]), mock.patch.object(
-            service, '_run_profile_export', side_effect=[RuntimeError('choice node index invalid'), valid_output],
-        ):
-            result = service.generate()
-
-        snapshot.refresh_from_db()
-        self.assertEqual(snapshot.status, snapshot.STATUS_SUCCEEDED)
-        self.assertEqual(len(result['actors']), 1)
-        self.assertEqual(result['actors'][0]['hero_talent_tree'], '屠戮者')
-        self.assertEqual(result['unresolved'], [{
-            'specialization': 'paladin_retribution',
-            'hero_talent_tree': '圣殿骑士',
-            'talent_id': 1,
-            'reason': 'choice node index invalid',
-        }])
-
-    def test_generate_falls_back_within_same_hero_tree_after_stale_talent_fails(self):
-        snapshot = SimcSkillDamageSnapshot.objects.create(
-            simc_revision='c' * 40, game_build='12.1.0.69299', schema_revision=2,
-        )
-        profile = SimpleNamespace(spec='warrior_fury')
-        stale = SimpleNamespace(name='Upstream Fury', pk=192)
-        valid = SimpleNamespace(name='Fury Slayer', pk=95)
-        valid_output = {
-            'actors': [{'class': 'warrior', 'specialization': 'fury', 'actions': []}],
-            'unresolved': [],
-        }
-        service = SimcSkillDamageSnapshotService(snapshot)
-        with mock.patch.object(
-            service, '_baselines', return_value=[(profile, stale, '屠戮者')],
-        ), mock.patch.object(
-            service, '_fallback_talents', return_value=[valid],
-        ), mock.patch.object(
-            service,
-            '_run_profile_export',
-            side_effect=[RuntimeError('selected node is not available'), valid_output],
-        ) as run:
-            result = service.generate()
-
-        self.assertEqual(run.call_args_list, [mock.call(profile, stale), mock.call(profile, valid)])
-        self.assertEqual(len(result['actors']), 1)
-        self.assertEqual(result['actors'][0]['hero_talent_tree'], '屠戮者')
-        self.assertEqual(result['actors'][0]['talent_name'], 'Fury Slayer')
-        self.assertEqual(result['unresolved'], [])
 
     def test_schema_three_requires_exported_runtime_crit_multiplier_and_expectation(self):
         snapshot = SimcSkillDamageSnapshot(
@@ -358,9 +415,9 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         with self.assertRaisesRegex(ValueError, 'DBC SpellEffect'):
             service._validate_export(payload)
 
-    def test_schema_three_requires_exactly_one_actor_per_full_talent_export(self):
+    def test_schema_three_requires_baseline_plus_every_single_talent_actor(self):
         snapshot = SimcSkillDamageSnapshot(
-            simc_revision='c' * 40, game_build='12.1.0.69299', schema_revision=3,
+            simc_revision='c' * 40, game_build='12.1.0.69299', schema_revision=4,
         )
         service = SimcSkillDamageSnapshotService(snapshot)
         base = {
@@ -369,10 +426,10 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
         }
-        for actors in ([], [{'actions': []}, {'actions': []}]):
+        for actors in ([], [{'actions': []}], [{'actions': []}, {'actions': []}, {'actions': []}]):
             with self.subTest(actor_count=len(actors)):
-                with self.assertRaisesRegex(ValueError, '恰好一个 actor'):
-                    service._validate_export({**base, 'actors': actors})
+                with self.assertRaisesRegex(ValueError, '期望 2'):
+                    service._validate_export({**base, 'actors': actors}, expected_actor_count=2)
 
     def test_schema_three_rejects_incomplete_actor_identity_and_non_boolean_supported(self):
         snapshot = SimcSkillDamageSnapshot(
@@ -409,11 +466,11 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             },
         )
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=3,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=4,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{
                 'specialization': 'fury',
-                'hero_talent_tree': '屠戮者',
+                'variant_model': 'single_talent_runtime',
                 'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
                 'actions': [],
             }]},
@@ -438,9 +495,9 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         self.user = get_user_model().objects.create_user(username='viewer', password='x')
         self.staff = get_user_model().objects.create_user(username='staff', password='x', is_staff=True)
 
-    def test_get_returns_latest_success_without_profile_filters(self):
+    def test_get_returns_latest_schema_four_success_without_profile_filters(self):
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=1,
+            simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=4,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{'specialization': 'fury'}]},
         )
@@ -452,6 +509,22 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         self.assertEqual(body['data']['snapshot']['identity']['game_build'], '12.1.0.69299')
         self.assertNotIn('profile_id', body['data'])
         self.assertFalse(body['data']['can_generate'])
+
+    def test_get_does_not_render_legacy_schema_as_single_talent_rows(self):
+        SimcSkillDamageSnapshot.objects.create(
+            simc_revision='c' * 40, game_build='12.1.0.69298', schema_revision=3,
+            status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+            payload={'actors': [{'specialization': 'fury', 'actions': []}]},
+        )
+        request = self.factory.get('/api/simc-skill-damage/')
+        request.user = self.user
+
+        response = SimcSkillDamageSnapshotAPIView.as_view()(request)
+        body = json.loads(response.content)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(body['data']['snapshot'])
+        self.assertIn('schema 4', body['data']['snapshot_unavailable_reason'])
 
     def test_get_localizes_skill_identity_and_left_cell_only_shows_name_and_spell_id(self):
         version = WowTalentVersion.objects.create(key='current', is_active=True)
@@ -465,7 +538,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
             name_zh='APL中文技能',
         )
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=3,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=4,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{
                 'class': 'warrior', 'specialization': 'fury',
@@ -554,7 +627,7 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn('AP/SP 100.00', template)
         self.assertIn('全局暴击 20.00%', template)
         self.assertIn('精通 50.00%', template)
-        for label in ('DBC 基础伤害', '当前天赋基础伤害', '技能实际暴击率', '归一化伤害期望'):
+        for label in ('DBC 基础伤害', '该条件实际伤害', '技能实际暴击率', '归一化伤害期望'):
             self.assertIn(label, template)
         for field in (
             'dbc_base_damage_min', 'dbc_base_damage_max', 'current_talent_damage',
@@ -569,25 +642,25 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertNotRegex(renderer, r'\.toFixed\((?!2\))')
         self.assertIn('html[data-dashboard-theme="dark"] #simc-skill-damage-panel', template)
 
-    def test_dashboard_requires_spec_and_hero_tree_then_sorts_independent_expectation_column(self):
+    def test_dashboard_requires_only_spec_and_renders_single_talent_runtime_conditions(self):
         template = Path('templates/dashboard/index.html').read_text(encoding='utf-8')
         script = Path('static/dashboard/js/main.js').read_text(encoding='utf-8')
         renderer = script.split('function renderSimcSkillDamageSnapshot(snapshot) {', 1)[1].split(
             'function initSimcSkillDamagePanel()', 1,
         )[0]
 
-        self.assertIn('id="simc-skill-damage-hero-tree"', template)
+        self.assertNotIn('id="simc-skill-damage-hero-tree"', template)
         self.assertIn('请选择专精', template)
-        self.assertIn('请选择英雄天赋树', template)
+        self.assertIn('单项天赋条件', template)
         self.assertIn('id="simc-skill-damage-sort-expected"', template)
         self.assertIn('归一化伤害期望', template)
-        self.assertNotIn('当前天赋伤害期望', template)
         self.assertIn('技能实际暴击率', template)
-        self.assertIn('selectedHeroTree', renderer)
+        self.assertNotIn('selectedHeroTree', renderer)
+        self.assertIn('variant.runtime_condition', renderer)
+        self.assertIn('variant.talent_name_zh', renderer)
         self.assertIn('sortDirection', renderer)
         self.assertIn('expectedSortValue', renderer)
         self.assertNotIn('全部专精', renderer)
-        self.assertNotIn('scenario', renderer.lower())
         self.assertNotIn("component === 'direct' ? 'Direct' : 'Tick'", renderer)
         self.assertNotIn('font-bold uppercase text-stone-500', renderer)
         self.assertNotIn('职业 Buff', template)
