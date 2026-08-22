@@ -5801,15 +5801,37 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     };
     const body = document.getElementById('simc-skill-damage-body');
     const identityEl = document.getElementById('simc-skill-damage-identity');
+    const unresolvedEl = document.getElementById('simc-skill-damage-unresolved');
     const specSelect = document.getElementById('simc-skill-damage-spec');
     const searchInput = document.getElementById('simc-skill-damage-search');
     const sortButton = document.getElementById('simc-skill-damage-sort-expected');
-    if (!body || !identityEl || !specSelect || !searchInput || !sortButton) return;
+    if (!body || !identityEl || !unresolvedEl || !specSelect || !searchInput || !sortButton) return;
 
     const identity = snapshot && snapshot.identity ? snapshot.identity : {};
     identityEl.textContent = snapshot
         ? `SimC ${identity.simc_revision || '-'} · DBC ${identity.game_build || '-'} · schema r${identity.schema_revision || '-'}`
         : '尚无成功快照';
+    const unresolved = snapshot && Array.isArray(snapshot.unresolved)
+        ? snapshot.unresolved.filter(item => item && typeof item === 'object')
+        : [];
+    if (unresolved.length) {
+        const visibleUnresolved = unresolved.slice(0, 50);
+        const details = visibleUnresolved.map(item => {
+            const talent = item.talent && typeof item.talent === 'object' ? item.talent : {};
+            const talentLabel = talent.name_zh || talent.name || talent.id || '未知天赋';
+            const profileLabel = `${item.class || '-'} / ${item.specialization || '-'}`;
+            const targetLabel = item.target_health_percentage == null ? '-' : `${item.target_health_percentage}%`;
+            return `<li>${escapeHtml(profileLabel)} · ${escapeHtml(talentLabel)} · 目标血量 ${escapeHtml(targetLabel)} · ${escapeHtml(item.reason || 'runtime_unresolved')}</li>`;
+        }).join('');
+        const omittedLabel = unresolved.length > visibleUnresolved.length
+            ? `<div class="mt-2 text-xs">仅展示前 ${visibleUnresolved.length} 项；完整总数以标题为准。</div>`
+            : '';
+        unresolvedEl.innerHTML = `<div class="font-semibold">未解析 ${unresolved.length} 项：这些条目未生成伤害数值</div><details class="mt-2"><summary class="cursor-pointer font-medium">查看明细</summary><ul class="mt-2 list-disc space-y-1 pl-5 text-xs">${details}</ul>${omittedLabel}</details>`;
+        unresolvedEl.classList.remove('hidden');
+    } else {
+        unresolvedEl.innerHTML = '';
+        unresolvedEl.classList.add('hidden');
+    }
     const actors = snapshot && Array.isArray(snapshot.actors)
         ? snapshot.actors.filter(item => item && typeof item === 'object')
         : [];

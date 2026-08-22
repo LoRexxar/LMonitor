@@ -172,15 +172,21 @@ def _action_identity(action):
 
 def _scenario_tokens(scenario):
     if isinstance(scenario.get('active_buffs'), list):
-        return tuple(str(token) for token in scenario['active_buffs'] if token)
-    return tuple(
-        str(buff.get('token') or '')
-        for buff in (scenario.get('buffs') or [])
-        if isinstance(buff, dict) and buff.get('token')
-    )
+        tokens = scenario['active_buffs']
+    else:
+        tokens = [
+            buff.get('token')
+            for buff in (scenario.get('buffs') or [])
+            if isinstance(buff, dict)
+        ]
+    return tuple(sorted({str(token).strip() for token in tokens if str(token or '').strip()}))
+
+
+_AMOUNT_COMPONENT_FIELDS = ('hit', 'crit', 'crit_multiplier', 'crit_chance', 'expected')
 
 
 def _amount_expected(amount):
+    """Return a display-only aggregate; never use it to decide whether facts differ."""
     if not isinstance(amount, dict) or amount.get('unresolved_reason'):
         return None
     values = []
@@ -191,42 +197,98 @@ def _amount_expected(amount):
     return sum(values) if values else None
 
 
-def _amount_changed(left, right):
-    left_value = _amount_expected(left)
-    right_value = _amount_expected(right)
-    if left_value is None or right_value is None:
+def _amount_state(amount):
+    if not isinstance(amount, dict):
+        return ('absent', '')
+    if amount.get('unresolved_reason'):
+        return ('unresolved', str(amount.get('unresolved_reason') or 'unknown'))
+    return ('resolved', '')
+
+
+def _amount_signature(amount):
+    state = _amount_state(amount)
+    if state[0] != 'resolved':
+        return state
+    components = []
+    for component_name in ('direct', 'tick'):
+        component = amount.get(component_name)
+        if not isinstance(component, dict):
+            components.append((component_name, 'absent'))
+            continue
+        components.append((
+            component_name,
+            'values',
+            tuple((field, component.get(field)) for field in _AMOUNT_COMPONENT_FIELDS),
+        ))
+    return ('resolved', tuple(components))
+
+
+def _effect_delta(reference, current):
+    """Keep component values when facts are introduced, and deltas otherwise."""
+    reference_state = _amount_state(reference)
+    current_state = _amount_state(current)
+    if reference_state[0] != 'resolved' or current_state[0] != 'resolved':
+        return ('state', _amount_signature(reference), _amount_signature(current))
+
+    components = []
+    for component_name in ('direct', 'tick'):
+        left = reference.get(component_name)
+        right = current.get(component_name)
+        if not isinstance(left, dict) or not isinstance(right, dict):
+            components.append((component_name, 'state', isinstance(left, dict), isinstance(right, dict)))
+            continue
+        fields = []
+        for field in _AMOUNT_COMPONENT_FIELDS:
+            left_value = left.get(field)
+            right_value = right.get(field)
+            if _finite_number(left_value) and _finite_number(right_value):
+                fields.append((field, 'delta', float(right_value) - float(left_value)))
+            else:
+                fields.append((field, 'value', left_value, right_value))
+        components.append((component_name, 'values', tuple(fields)))
+    return ('resolved', tuple(components))
+
+
+def _fact_equal(left, right):
+    if _finite_number(left) and _finite_number(right):
+        return math.isclose(float(left), float(right), rel_tol=1e-8, abs_tol=1e-8)
+    if type(left) is not type(right):
         return False
-    return not math.isclose(left_value, right_value, rel_tol=1e-8, abs_tol=1e-8)
-
-
-def _effect_signature(reference, current):
-    """Describe an exported effect without treating an absent action as zero."""
-    reference_value = _amount_expected(reference)
-    current_value = _amount_expected(current)
-    if reference_value is None and current_value is None:
-        return ('absent', 0.0)
-    if reference_value is None:
-        return ('introduced', current_value)
-    if current_value is None:
-        return ('removed', reference_value)
-    return ('delta', current_value - reference_value)
+    if isinstance(left, (tuple, list)):
+        return len(left) == len(right) and all(_fact_equal(a, b) for a, b in zip(left, right))
+    return left == right
 
 
 def _effect_changed(reference, current):
-    kind, value = _effect_signature(reference, current)
-    return kind != 'delta' or not math.isclose(value, 0.0, rel_tol=1e-8, abs_tol=1e-8)
+    return not _fact_equal(_effect_delta(reference, current), _effect_delta(reference, reference))
 
 
 def _paired_effect_changed(high_reference, high_current, low_reference, low_current):
-    high_kind, high_value = _effect_signature(high_reference, high_current)
-    low_kind, low_value = _effect_signature(low_reference, low_current)
-    return high_kind != low_kind or not math.isclose(
-        high_value, low_value, rel_tol=1e-8, abs_tol=1e-8,
+    return not _fact_equal(
+        _effect_delta(high_reference, high_current),
+        _effect_delta(low_reference, low_current),
     )
 
 
+def _scenario_amounts(action):
+    amounts = {}
+    for scenario in ((action or {}).get('scenarios') or []):
+        if not isinstance(scenario, dict):
+            continue
+        tokens = _scenario_tokens(scenario)
+        if not tokens:
+            continue
+        amount = scenario.get('values') or scenario.get('amount')
+        if tokens in amounts and not _fact_equal(
+            _amount_signature(amounts[tokens]), _amount_signature(amount),
+        ):
+            raise ValueError(f'exporter 同一 scenario tokens 返回冲突数值：{" + ".join(tokens)}')
+        amounts.setdefault(tokens, amount)
+    return amounts
+
+
 def flatten_single_talent_damage_variants(base_high, base_low, variants):
-    """Flatten paired SimC facts without calculating damage or percentages in Django."""
+    """Flatten every independently exported SimC fact without recalculating damage."""
     base_high_actions = {
         _action_identity(action): action
         for action in (base_high.get('actions') or [])
@@ -238,23 +300,51 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants):
         if isinstance(action, dict) and action.get('supported') is True
     }
     rows = []
-    for identity in dict.fromkeys([*base_high_actions, *base_low_actions]):
-        action = base_high_actions.get(identity) or base_low_actions[identity]
-        baseline = action.get('baseline')
-        if not isinstance(baseline, dict) or baseline.get('unresolved_reason'):
-            continue
+
+    def append_row(action, amount, *, talent, condition, comparison, scenario_tokens=()):
+        if not isinstance(action, dict) or _amount_state(amount)[0] != 'resolved':
+            return
         row = copy.deepcopy(action)
+        row['baseline'] = copy.deepcopy(amount)
         row['scenarios'] = []
+        reference_state = _amount_state(comparison)
         row['variant'] = {
-            'talent_id': None, 'talent_name': '', 'talent_name_zh': '',
-            'tree_type': '', 'trait_entry_id': None,
-            'runtime_condition': (
-                '无单项增伤天赋' if identity in base_high_actions
-                else '目标生命值低于 35%'
-            ),
-            'reference_available': True,
+            'talent_id': talent.get('id'),
+            'talent_name': str(talent.get('name') or ''),
+            'talent_name_zh': str(talent.get('name_zh') or ''),
+            'tree_type': str(talent.get('tree_type') or ''),
+            'trait_entry_id': talent.get('node_id'),
+            'runtime_condition': condition,
+            'scenario_tokens': list(scenario_tokens),
+            'reference_available': reference_state[0] == 'resolved',
         }
+        if reference_state[0] == 'absent':
+            row['variant']['reference_unavailable_reason'] = 'action_absent_in_reference_actor'
+        elif reference_state[0] == 'unresolved':
+            row['variant']['reference_unavailable_reason'] = (
+                f'reference_runtime_unresolved:{reference_state[1]}'
+            )
         rows.append(row)
+
+    no_talent = {'id': None, 'name': '', 'name_zh': '', 'tree_type': '', 'node_id': None}
+    for identity in dict.fromkeys([*base_high_actions, *base_low_actions]):
+        high_action = base_high_actions.get(identity)
+        low_action = base_low_actions.get(identity)
+        high_amount = high_action.get('baseline') if high_action else None
+        low_amount = low_action.get('baseline') if low_action else None
+        if _amount_state(high_amount)[0] == 'resolved':
+            append_row(
+                high_action, high_amount, talent=no_talent,
+                condition='无单项增伤天赋', comparison=high_amount,
+            )
+        if _amount_state(low_amount)[0] == 'resolved' and (
+            _amount_state(high_amount)[0] != 'resolved' or _effect_changed(high_amount, low_amount)
+        ):
+            append_row(
+                low_action, low_amount, talent=no_talent,
+                condition='目标生命值低于 35%（无单项增伤天赋）',
+                comparison=low_amount,
+            )
 
     for item in variants:
         talent = item.get('talent') or {}
@@ -278,85 +368,59 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants):
             base_high_amount = base_high_action.get('baseline') if base_high_action else None
             base_low_amount = base_low_action.get('baseline') if base_low_action else None
             candidates = []
-            if _amount_expected(high_amount) is not None and _effect_changed(base_high_amount, high_amount):
-                candidates.append((0, '选择该天赋后常驻生效', high_amount, base_high_amount))
 
-            base_high_scenarios = {
-                _scenario_tokens(scenario): scenario.get('values') or scenario.get('amount')
-                for scenario in ((base_high_action or {}).get('scenarios') or [])
-                if isinstance(scenario, dict)
-            }
-            high_scenarios = {
-                _scenario_tokens(scenario): scenario.get('values') or scenario.get('amount')
-                for scenario in ((high_action or {}).get('scenarios') or [])
-                if isinstance(scenario, dict) and _scenario_tokens(scenario)
-            }
-            base_low_scenarios = {
-                _scenario_tokens(scenario): scenario.get('values') or scenario.get('amount')
-                for scenario in ((base_low_action or {}).get('scenarios') or [])
-                if isinstance(scenario, dict)
-            }
-            low_scenarios = {
-                _scenario_tokens(scenario): scenario.get('values') or scenario.get('amount')
-                for scenario in ((low_action or {}).get('scenarios') or [])
-                if isinstance(scenario, dict) and _scenario_tokens(scenario)
-            }
+            if _amount_state(high_amount)[0] == 'resolved' and _effect_changed(base_high_amount, high_amount):
+                candidates.append((
+                    high_action, high_amount, base_high_amount,
+                    '单项天赋常驻', (),
+                ))
+
+            base_high_scenarios = _scenario_amounts(base_high_action)
+            high_scenarios = _scenario_amounts(high_action)
+            base_low_scenarios = _scenario_amounts(base_low_action)
+            low_scenarios = _scenario_amounts(low_action)
+
             for tokens, amount in high_scenarios.items():
-                if tokens in base_high_scenarios or tokens in base_low_scenarios:
-                    continue
                 reference = base_high_scenarios.get(tokens, base_high_amount)
-                if _amount_expected(amount) is not None and _effect_changed(reference, amount):
-                    candidates.append((1, f'需要 {" + ".join(tokens)} buff 激活', amount, reference))
+                if _amount_state(amount)[0] == 'resolved' and _effect_changed(reference, amount):
+                    candidates.append((
+                        high_action, amount, reference,
+                        f'探针条件：启用 {" + ".join(tokens)} buff', tokens,
+                    ))
 
-            # Low health is classified from the difference between paired talent
-            # effects. A baseline health change alone is not a talent condition.
-            if _amount_expected(low_amount) is not None and _paired_effect_changed(
+            if _amount_state(low_amount)[0] == 'resolved' and _paired_effect_changed(
                 base_high_amount, high_amount, base_low_amount, low_amount,
             ):
-                candidates.append((2, '目标生命值低于 35%', low_amount, base_low_amount))
+                candidates.append((
+                    low_action, low_amount, base_low_amount,
+                    '目标生命值低于 35%', (),
+                ))
+
             for tokens, amount in low_scenarios.items():
-                if tokens in base_high_scenarios or tokens in base_low_scenarios:
-                    continue
                 low_reference = base_low_scenarios.get(tokens, base_low_amount)
                 high_current = high_scenarios.get(tokens, high_amount)
                 high_reference = base_high_scenarios.get(tokens, base_high_amount)
-                if _amount_expected(amount) is not None and _paired_effect_changed(
+                if _amount_state(amount)[0] == 'resolved' and _paired_effect_changed(
                     high_reference, high_current, low_reference, amount,
                 ):
                     candidates.append((
-                        3, f'目标生命值低于 35% + 需要 {" + ".join(tokens)} buff 激活',
-                        amount, low_reference,
+                        low_action, amount, low_reference,
+                        f'目标生命值低于 35% + 探针启用 {" + ".join(tokens)} buff', tokens,
                     ))
-                elif (_amount_expected(amount) is not None and tokens not in high_scenarios
-                      and _effect_changed(low_reference, amount)):
-                    candidates.append((1, f'需要 {" + ".join(tokens)} buff 激活', amount, low_reference))
-            if not candidates:
-                continue
 
-            def delta(candidate):
-                current = _amount_expected(candidate[2])
-                reference = _amount_expected(candidate[3])
-                # An absent reference stays absent; it is never converted to zero.
-                return abs(current - reference) if current is not None and reference is not None else 0.0
-
-            _priority, condition, selected_amount, comparison = max(
-                candidates, key=lambda candidate: (candidate[0], delta(candidate)),
-            )
-            row = copy.deepcopy(high_action or low_action)
-            row['baseline'] = copy.deepcopy(selected_amount)
-            row['scenarios'] = []
-            row['variant'] = {
-                'talent_id': talent.get('id'),
-                'talent_name': str(talent.get('name') or ''),
-                'talent_name_zh': str(talent.get('name_zh') or ''),
-                'tree_type': str(talent.get('tree_type') or ''),
-                'trait_entry_id': talent.get('node_id'),
-                'runtime_condition': condition,
-                'reference_available': _amount_expected(comparison) is not None,
-            }
-            if row['variant']['reference_available'] is False:
-                row['variant']['reference_unavailable_reason'] = 'action_absent_in_reference_actor'
-            rows.append(row)
+            seen_candidates = set()
+            for source_action, amount, comparison, condition, tokens in candidates:
+                identity_key = (
+                    condition,
+                    json.dumps(amount, ensure_ascii=False, sort_keys=True, separators=(',', ':')),
+                )
+                if identity_key in seen_candidates:
+                    continue
+                seen_candidates.add(identity_key)
+                append_row(
+                    source_action, amount, talent=talent, condition=condition,
+                    comparison=comparison, scenario_tokens=tokens,
+                )
     attach_runtime_product_metrics({'actions': rows})
     return rows
 
@@ -767,6 +831,77 @@ class SimcSkillDamageSnapshotService:
                     if not valid:
                         raise ValueError('exporter 数学期望字段无效。')
 
+    def _run_profile_target_resilient(self, profile, talents, *, scaffold_talents, target_health):
+        """Export all actors while isolating a SimC process crash to the smallest talent input."""
+        baseline_export = self._run_profile_export(
+            profile, [], scaffold_talents=scaffold_talents, target_health=target_health,
+        )
+        baseline_map = {
+            str(actor.get('name') or ''): actor
+            for actor in (baseline_export.get('actors') or [])
+            if isinstance(actor, dict)
+        }
+        baseline = baseline_map.get('skill_damage_base')
+        if baseline is None or set(baseline_map) != {'skill_damage_base'}:
+            raise ValueError(f'{profile.spec} exporter 缺少独立基线 actor。')
+
+        exported_actors = {}
+        unresolved = list(baseline_export.get('unresolved') or [])
+        _class_name, specialization = canonical_simc_profile_identity(
+            getattr(profile, 'spec', ''), getattr(profile, 'class_name', ''),
+        )
+
+        def export_batch(batch):
+            try:
+                payload = self._run_profile_export(
+                    profile, batch,
+                    scaffold_talents=scaffold_talents,
+                    target_health=target_health,
+                )
+            except RuntimeError as exc:
+                diagnostic = str(exc)
+                if not re.match(r'^sim_signal_handler: Segmentation fault!(?:\s|$)', diagnostic):
+                    raise
+                if len(batch) > 1:
+                    middle = len(batch) // 2
+                    export_batch(batch[:middle])
+                    export_batch(batch[middle:])
+                    return
+                talent = batch[0]
+                unresolved.append({
+                    'class': str(getattr(profile, 'class_name', '') or ''),
+                    'specialization': specialization,
+                    'target_health_percentage': target_health,
+                    'talent': {
+                        'id': talent.node_id,
+                        'metadata_id': talent.pk,
+                        'name': str(talent.name or ''),
+                        'name_zh': str(talent.name_zh or ''),
+                        'tree_type': str(talent.tree_type or ''),
+                    },
+                    'reason': 'simc_actor_initialization_failed',
+                    'diagnostic': str(exc)[-2000:],
+                })
+                return
+
+            actor_map = {
+                str(actor.get('name') or ''): actor
+                for actor in (payload.get('actors') or [])
+                if isinstance(actor, dict)
+            }
+            current_baseline = actor_map.pop('skill_damage_base', None)
+            if current_baseline != baseline:
+                raise ValueError(f'{profile.spec} 分块 exporter 基线 actor 不一致。')
+            duplicate_names = set(exported_actors).intersection(actor_map)
+            if duplicate_names:
+                raise ValueError(f'{profile.spec} 分块 exporter 包含重复天赋 actor。')
+            exported_actors.update(actor_map)
+            unresolved.extend(payload.get('unresolved') or [])
+
+        for start in range(0, len(talents), self.TALENT_BATCH_SIZE):
+            export_batch(talents[start:start + self.TALENT_BATCH_SIZE])
+        return baseline, exported_actors, unresolved
+
     def generate(self):
         now = timezone.now()
         SimcSkillDamageSnapshot.objects.filter(pk=self.snapshot.pk).update(
@@ -784,65 +919,25 @@ class SimcSkillDamageSnapshotService:
                 all_talents = self._talent_entries(profile)
                 scaffold_talents = self._spec_root_scaffold(all_talents)
                 talents = all_talents
-                high_actors = {}
-                low_actors = {}
-                base_high = None
-                base_low = None
-                for start in range(0, len(talents), self.TALENT_BATCH_SIZE):
-                    batch = talents[start:start + self.TALENT_BATCH_SIZE]
-                    high_export = self._run_profile_export(
-                        profile, batch, scaffold_talents=scaffold_talents, target_health=100,
-                    )
-                    low_export = self._run_profile_export(
-                        profile, batch, scaffold_talents=scaffold_talents, target_health=34,
-                    )
-                    batch_high = {
-                        str(actor.get('name') or ''): actor
-                        for actor in (high_export.get('actors') or [])
-                        if isinstance(actor, dict)
-                    }
-                    batch_low = {
-                        str(actor.get('name') or ''): actor
-                        for actor in (low_export.get('actors') or [])
-                        if isinstance(actor, dict)
-                    }
-                    current_base_high = batch_high.pop('skill_damage_base', None)
-                    current_base_low = batch_low.pop('skill_damage_base', None)
-                    if not current_base_high or not current_base_low:
-                        raise ValueError(f'{profile.spec} exporter 缺少单项天赋基线 actor。')
-                    if base_high is None:
-                        base_high = current_base_high
-                        base_low = current_base_low
-                    elif current_base_high != base_high or current_base_low != base_low:
-                        raise ValueError(f'{profile.spec} 分块 exporter 基线 actor 不一致。')
-                    duplicate_high = set(high_actors).intersection(batch_high)
-                    duplicate_low = set(low_actors).intersection(batch_low)
-                    if duplicate_high or duplicate_low:
-                        raise ValueError(f'{profile.spec} 分块 exporter 包含重复天赋 actor。')
-                    high_actors.update(batch_high)
-                    low_actors.update(batch_low)
-                    for row in (high_export.get('unresolved') or []) + (low_export.get('unresolved') or []):
-                        key = json.dumps(row, ensure_ascii=False, sort_keys=True)
-                        if key not in unresolved_keys:
-                            unresolved_keys.add(key)
-                            unresolved.append(row)
-
-                expected_actor_names = {f'skill_damage_talent_{talent.pk}' for talent in talents}
-                if set(high_actors) != expected_actor_names or set(low_actors) != expected_actor_names:
-                    raise ValueError(f'{profile.spec} 分块 exporter 天赋 actor 集合不完整。')
+                base_high, high_actors, high_unresolved = self._run_profile_target_resilient(
+                    profile, talents, scaffold_talents=scaffold_talents, target_health=100,
+                )
+                base_low, low_actors, low_unresolved = self._run_profile_target_resilient(
+                    profile, talents, scaffold_talents=scaffold_talents, target_health=34,
+                )
+                for row in [*high_unresolved, *low_unresolved]:
+                    key = json.dumps(row, ensure_ascii=False, sort_keys=True)
+                    if key not in unresolved_keys:
+                        unresolved_keys.add(key)
+                        unresolved.append(row)
 
                 variants = []
                 for talent in talents:
                     actor_name = f'skill_damage_talent_{talent.pk}'
                     high_actor = high_actors.get(actor_name)
                     low_actor = low_actors.get(actor_name)
-                    if not high_actor or not low_actor:
-                        unresolved.append({
-                            'specialization': str(profile.spec or ''),
-                            'talent_metadata_id': talent.pk,
-                            'trait_entry_id': talent.node_id,
-                            'reason': 'SimC exporter 缺少单项天赋 actor。',
-                        })
+                    if not high_actor and not low_actor:
+                        # Both target-specific failures are already preserved in unresolved.
                         continue
                     variants.append({
                         'talent': {

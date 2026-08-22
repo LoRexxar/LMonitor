@@ -1757,8 +1757,9 @@
                                     <div>
                                         <div class="text-xs font-bold uppercase tracking-wider text-stone-500">DBC VERSION SNAPSHOT</div>
                                         <h3 class="mt-1 text-xl font-semibold text-gray-900">技能归一化伤害</h3>
-                                        <p class="mt-1 text-sm text-gray-600">DBC 基础伤害直接读取技能 SpellEffect 的 AP/SP coefficient，并按 AP/SP 100.00 归一化；当前天赋伤害、技能实际暴击率、暴击总伤害与归一化期望均由 SimC 按所选完整天赋的 action 公式计算。全局暴击 20.00%、精通 50.00%，不启用团队或职业增益，不解析或自行维护天赋效果公式。</p>
+                                        <p class="mt-1 text-sm text-gray-600">DBC 基础伤害直接读取技能 SpellEffect 的 AP/SP coefficient，并按 AP/SP 100.00 归一化；系统为每个技能分别加载单个相关天赋，与无单项天赋基线进行成对 SimC runtime 探针。技能实际暴击率、暴击总伤害与归一化期望均直接使用 SimC action 结果。全局暴击 20.00%、精通 50.00%，不启用团队或职业增益，不解析或自行维护天赋效果公式；无法安全初始化的单项天赋会明确标记为 unresolved，不生成猜测数值。</p>
                                         <div id="simc-skill-damage-identity" class="mt-3 text-xs font-mono text-stone-600">尚未加载快照</div>
+                                        <div id="simc-skill-damage-unresolved" class="mt-3 hidden rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950" role="status"></div>
                                     </div>
                                     <div class="flex flex-wrap items-center gap-2">
                                         <button id="simc-skill-damage-refresh" type="button" class="rounded-lg border border-stone-300 bg-stone-50 px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">刷新</button>

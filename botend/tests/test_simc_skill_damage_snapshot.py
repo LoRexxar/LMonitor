@@ -158,11 +158,134 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
               row['baseline']['direct']['hit']) for row in rows],
             [
                 ('', '无单项增伤天赋', 200.0),
-                ('血之气息', '需要 bloodcraze buff 激活', 240.0),
+                ('血之气息', '探针条件：启用 bloodcraze buff', 240.0),
                 ('恶毒蔑视', '目标生命值低于 35%', 300.0),
-                ('能量爆发', '需要 burst_of_power buff 激活', 220.0),
+                ('恶毒蔑视', '目标生命值低于 35% + 探针启用 defensive_stance buff', 270.0),
+                ('能量爆发', '探针条件：启用 burst_of_power buff', 220.0),
             ],
         )
+
+    def test_flatten_preserves_component_changes_same_token_scenarios_and_each_health_condition(self):
+        def amount(direct, tick):
+            return {
+                'direct': {
+                    'hit': direct, 'crit': direct * 2, 'crit_multiplier': 2.0,
+                    'crit_chance': 0.2, 'expected': direct,
+                },
+                'tick': {
+                    'hit': tick, 'crit': tick * 2, 'crit_multiplier': 2.0,
+                    'crit_chance': 0.2, 'expected': tick,
+                },
+            }
+
+        def action(direct, tick, scenarios=()):
+            return {
+                'name': 'test_action', 'token': 'test_action', 'spell_id': 42,
+                'supported': True,
+                'dbc_scaling': {
+                    'source': 'spell_effect',
+                    'direct': {'attack_power_coefficient': 1.0, 'spell_power_coefficient': 0.0,
+                               'normalized_base': 100.0, 'effect_indexes': [1]},
+                    'tick': {'attack_power_coefficient': 1.0, 'spell_power_coefficient': 0.0,
+                             'normalized_base': 100.0, 'effect_indexes': [2]},
+                    'requires_weapon_data': False,
+                },
+                'baseline': amount(direct, tick),
+                'scenarios': [
+                    {'active_buffs': list(tokens), 'amount': amount(scenario_direct, scenario_tick)}
+                    for tokens, scenario_direct, scenario_tick in scenarios
+                ],
+            }
+
+        base_high = {'actions': [action(100, 100, [(('foo',), 110, 100)])]}
+        base_low = {'actions': [action(80, 100, [(('foo',), 90, 100)])]}
+        variants = [{
+            'talent': {'id': 7, 'name': 'Truthful Talent', 'name_zh': '真实天赋'},
+            'high': {'actions': [action(110, 90, [
+                (('foo',), 150, 100),
+                (('bar',), 140, 100),
+            ])]},
+            'low': {'actions': [action(130, 90, [
+                (('foo',), 170, 100),
+                (('bar',), 160, 100),
+            ])]},
+        }]
+
+        rows = flatten_single_talent_damage_variants(base_high, base_low, variants)
+        observed = [
+            (
+                row['variant']['runtime_condition'],
+                row['baseline']['direct']['hit'],
+                row['baseline']['tick']['hit'],
+            )
+            for row in rows
+        ]
+        self.assertEqual(observed, [
+            ('无单项增伤天赋', 100, 100),
+            ('目标生命值低于 35%（无单项增伤天赋）', 80, 100),
+            ('单项天赋常驻', 110, 90),
+            ('探针条件：启用 foo buff', 150, 100),
+            ('探针条件：启用 bar buff', 140, 100),
+            ('目标生命值低于 35%', 130, 90),
+            ('目标生命值低于 35% + 探针启用 foo buff', 170, 100),
+            ('目标生命值低于 35% + 探针启用 bar buff', 160, 100),
+        ])
+
+    def test_flatten_keeps_health_difference_for_action_introduced_by_talent(self):
+        def amount(hit):
+            return {
+                'direct': {
+                    'hit': hit, 'crit': hit * 2, 'crit_multiplier': 2.0,
+                    'crit_chance': 0.2, 'expected': hit,
+                },
+                'tick': None,
+            }
+
+        def action(hit):
+            return {
+                'name': 'introduced_action', 'spell_id': 42, 'supported': True,
+                'baseline': amount(hit), 'scenarios': [],
+                'dbc': {'resolved': True, 'scaling_type': 'ap', 'coefficient': 1.0,
+                        'base_value_min': 100.0, 'base_value_max': 100.0},
+            }
+
+        rows = flatten_single_talent_damage_variants(
+            {'actions': []}, {'actions': []}, [{
+                'talent': {'id': 1, 'name': 'Introducer', 'name_zh': '引入技能'},
+                'high': {'actions': [action(100.0)]},
+                'low': {'actions': [action(130.0)]},
+            }],
+        )
+        self.assertEqual(
+            [(row['variant']['runtime_condition'], row['baseline']['direct']['hit']) for row in rows],
+            [('单项天赋常驻', 100.0), ('目标生命值低于 35%', 130.0)],
+        )
+
+    def test_flatten_rejects_conflicting_duplicate_scenario_tokens(self):
+        def amount(hit):
+            return {
+                'direct': {'hit': hit, 'crit': hit * 2, 'crit_multiplier': 2.0,
+                           'crit_chance': 0.2, 'expected': hit},
+                'tick': None,
+            }
+
+        action = {
+            'name': 'conflict', 'spell_id': 43, 'supported': True,
+            'baseline': amount(100.0),
+            'scenarios': [
+                {'active_buffs': ['foo', 'bar'], 'amount': amount(120.0)},
+                {'active_buffs': ['bar', 'foo'], 'amount': amount(140.0)},
+            ],
+            'dbc': {'resolved': True, 'scaling_type': 'ap', 'coefficient': 1.0,
+                    'base_value_min': 100.0, 'base_value_max': 100.0},
+        }
+        with self.assertRaisesRegex(ValueError, '同一 scenario tokens 返回冲突数值'):
+            flatten_single_talent_damage_variants(
+                {'actions': []}, {'actions': []}, [{
+                    'talent': {'id': 1, 'name': 'Conflict'},
+                    'high': {'actions': [action]}, 'low': {'actions': []},
+                }],
+            )
 
     def test_product_metrics_combine_dbc_base_with_selected_talent_runtime(self):
         selected = {'actions': [
@@ -307,9 +430,11 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         snapshot.refresh_from_db()
         self.assertEqual(run.call_args_list, [
+            mock.call(profile, [], scaffold_talents=[], target_health=100),
             mock.call(profile, talents[:25], scaffold_talents=[], target_health=100),
-            mock.call(profile, talents[:25], scaffold_talents=[], target_health=34),
             mock.call(profile, talents[25:], scaffold_talents=[], target_health=100),
+            mock.call(profile, [], scaffold_talents=[], target_health=34),
+            mock.call(profile, talents[:25], scaffold_talents=[], target_health=34),
             mock.call(profile, talents[25:], scaffold_talents=[], target_health=34),
         ])
         self.assertEqual(snapshot.status, snapshot.STATUS_SUCCEEDED)
@@ -321,6 +446,118 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             'schema_revision': 4,
         })
         self.assertNotIn('talent', result['identity'])
+
+    def test_generate_isolates_crashing_talent_actor_and_publishes_explicit_unresolved(self):
+        snapshot = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=4,
+        )
+        profile = SimpleNamespace(pk=1, spec='druid_guardian', class_name='druid')
+        bad = SimpleNamespace(
+            pk=11, node_id=137059, tree_type='spec', name='Wild Guardian',
+            name_zh='荒野守护者', description='', description_zh='',
+        )
+        good = SimpleNamespace(
+            pk=12, node_id=137060, tree_type='spec', name='Good Talent',
+            name_zh='正常天赋', description='', description_zh='',
+        )
+
+        def export_batch(_profile, batch, *, scaffold_talents, target_health):
+            if bad in batch:
+                raise RuntimeError('sim_signal_handler: Segmentation fault! signal_11')
+            actors = [{
+                'name': 'skill_damage_base', 'class': 'druid', 'spec': 'guardian',
+                'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions', 'actions': [],
+            }]
+            actors.extend({
+                'name': f'skill_damage_talent_{talent.pk}', 'class': 'druid', 'spec': 'guardian',
+                'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions', 'actions': [],
+            } for talent in batch)
+            return {'actors': actors, 'unresolved': []}
+
+        service = SimcSkillDamageSnapshotService(snapshot)
+        with mock.patch.object(service, '_profiles', return_value=[profile]), \
+             mock.patch.object(service, '_talent_entries', return_value=[bad, good]), \
+             mock.patch.object(service, '_run_profile_export', side_effect=export_batch):
+            result = service.generate()
+
+        snapshot.refresh_from_db()
+        self.assertEqual(snapshot.status, snapshot.STATUS_SUCCEEDED)
+        self.assertEqual(len(result['unresolved']), 2)
+        self.assertEqual(
+            [(row['specialization'], row['talent']['id'], row['target_health_percentage'], row['reason'])
+             for row in result['unresolved']],
+            [
+                ('guardian', 137059, 100, 'simc_actor_initialization_failed'),
+                ('guardian', 137059, 34, 'simc_actor_initialization_failed'),
+            ],
+        )
+        self.assertIn('signal_11', result['unresolved'][0]['diagnostic'])
+
+    def test_resilient_export_does_not_swallow_unknown_runtime_failure(self):
+        snapshot = SimpleNamespace(simc_revision='e' * 40, game_build='12.1.0.69299')
+        profile = SimpleNamespace(pk=1, spec='druid_guardian', class_name='druid')
+        talent = SimpleNamespace(
+            pk=11, node_id=137059, tree_type='spec', name='Wild Guardian', name_zh='荒野守护者',
+        )
+        baseline = {
+            'actors': [{'name': 'skill_damage_base', 'class': 'druid', 'spec': 'guardian',
+                        'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions', 'actions': []}],
+            'unresolved': [],
+        }
+
+        def export_batch(_profile, batch, *, scaffold_talents, target_health):
+            if batch:
+                raise RuntimeError(
+                    "configuration failed: expected marker "
+                    "'sim_signal_handler: Segmentation fault!' was absent"
+                )
+            return baseline
+
+        service = SimcSkillDamageSnapshotService(snapshot)
+        with mock.patch.object(service, '_run_profile_export', side_effect=export_batch):
+            with self.assertRaisesRegex(RuntimeError, 'configuration failed'):
+                service._run_profile_target_resilient(
+                    profile, [talent], scaffold_talents=[], target_health=100,
+                )
+
+    def test_generate_keeps_successful_target_when_other_target_actor_crashes(self):
+        snapshot = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='f' * 40, game_build='12.1.0.69299', schema_revision=4,
+        )
+        profile = SimpleNamespace(pk=1, spec='druid_guardian', class_name='druid')
+        talent = SimpleNamespace(
+            pk=11, node_id=137059, tree_type='spec', name='Wild Guardian',
+            name_zh='荒野守护者', description='', description_zh='',
+        )
+
+        def export_batch(_profile, batch, *, scaffold_talents, target_health):
+            if batch and target_health == 34:
+                raise RuntimeError('sim_signal_handler: Segmentation fault! signal_11')
+            actors = [{
+                'name': 'skill_damage_base', 'class': 'druid', 'spec': 'guardian',
+                'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions', 'actions': [],
+            }]
+            actors.extend({
+                'name': f'skill_damage_talent_{row.pk}', 'class': 'druid', 'spec': 'guardian',
+                'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions', 'actions': [],
+            } for row in batch)
+            return {'actors': actors, 'unresolved': []}
+
+        service = SimcSkillDamageSnapshotService(snapshot)
+        with mock.patch.object(service, '_profiles', return_value=[profile]), \
+             mock.patch.object(service, '_talent_entries', return_value=[talent]), \
+             mock.patch.object(service, '_run_profile_export', side_effect=export_batch), \
+             mock.patch('botend.services.simc_skill_damage.flatten_single_talent_damage_variants', return_value=[]) as flatten:
+            result = service.generate()
+
+        variants = flatten.call_args.args[2]
+        self.assertEqual(len(variants), 1)
+        self.assertEqual(variants[0]['high']['name'], 'skill_damage_talent_11')
+        self.assertIsNone(variants[0]['low'])
+        self.assertEqual(
+            [(row['talent']['id'], row['target_health_percentage']) for row in result['unresolved']],
+            [(137059, 34)],
+        )
 
     def test_schema_three_requires_exported_runtime_crit_multiplier_and_expectation(self):
         snapshot = SimcSkillDamageSnapshot(
@@ -606,9 +843,15 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn('id="simc-skill-damage-panel"', template)
         self.assertIn('技能归一化伤害', template)
         self.assertIn('DBC 基础伤害直接读取技能 SpellEffect', template)
+        self.assertIn('分别加载单个相关天赋', template)
+        self.assertNotIn('所选完整天赋', template)
         self.assertNotIn('独立无可选天赋 actor', template)
         self.assertNotIn('AP/SP 归一化为 1', template)
         self.assertIn('simc-skill-damage-table', template)
+        self.assertIn('id="simc-skill-damage-unresolved"', template)
+        self.assertIn('snapshot.unresolved', script)
+        self.assertIn('unresolved.slice(0, 50)', script)
+        self.assertIn('未解析', script)
         self.assertIn('data-dashboard-section="simc-skill-damage"', template)
         self.assertIn('id="simc-skill-damage"', template)
         self.assertIn("'skill-damage': 'simc-skill-damage'", script)
