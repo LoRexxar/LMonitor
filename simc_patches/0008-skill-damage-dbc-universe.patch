@@ -11,7 +11,7 @@ diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
  #include "dbc/spell_query/spell_data_expr.hpp"
  #include "interfaces/bcp_api.hpp"
  #include "interfaces/sc_http.hpp"
-@@ -816,6 +818,92 @@
+@@ -816,6 +818,102 @@
    out << '}';
  }
  
@@ -78,8 +78,16 @@ diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
 +    }
 +
 +    bool creation_failed = false;
++    bool ignored_non_damage_utility = false;
++    bool has_non_ignored_mapping = false;
 +    for ( const auto& action_name : action_names )
 +    {
++      if ( action_name == "dismiss_pet" )
++      {
++        ignored_non_damage_utility = true;
++        continue;
++      }
++      has_non_ignored_mapping = true;
 +      try
 +      {
 +        action_t* action = player->find_action( action_name );
@@ -93,6 +101,8 @@ diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
 +        creation_failed = true;
 +      }
 +    }
++    if ( candidate.actions.empty() && ignored_non_damage_utility && !has_non_ignored_mapping && !creation_failed )
++      continue;
 +    if ( candidate.actions.empty() )
 +      candidate.unresolved_reason = creation_failed
 +        ? "dbc_action_creation_failed"
@@ -104,7 +114,7 @@ diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
  void export_skill_damage( sim_t& sim )
  {
    const bool valid_revision = sim.skill_damage_revision.size() == 40 &&
-@@ -847,6 +935,7 @@
+@@ -847,6 +945,7 @@
      out << "{\"class\":"; apl_metadata_json_string( out, util::player_type_string( player->type ) );
      out << ",\"spec\":"; apl_metadata_json_string( out, util::tokenize_fn( dbc::specialization_string( player->specialization() ) ) );
      out << ",\"name\":"; apl_metadata_json_string( out, player->name() );
@@ -112,7 +122,7 @@ diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
      out << ",\"attributes\":{\"primary_attribute\":{";
      out << "\"name\":"; if ( primary_attr == ATTRIBUTE_NONE ) out << "null"; else apl_metadata_json_string( out, util::attribute_type_string( primary_attr ) );
      out << ",\"value\":"; if ( primary_attr == ATTRIBUTE_NONE ) out << "null"; else out << player->composite_attribute( primary_attr );
-@@ -960,6 +1049,43 @@
+@@ -960,6 +1059,43 @@
        }
        out << "]}";
      }
@@ -156,7 +166,7 @@ diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
      out << "]}";
    }
    out << "]}\n";
-@@ -1134,6 +1260,11 @@
+@@ -1134,6 +1270,11 @@
  
      if ( !skill_damage_export_file.empty() )
      {

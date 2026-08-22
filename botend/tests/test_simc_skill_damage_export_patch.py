@@ -147,6 +147,17 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         self.assertIn("std::any_of", self.dbc_universe_text)
         self.assertNotIn("candidate.action = action;\n+          break;", self.dbc_universe_text)
         self.assertIn("INIT_ACTOR_CREATE_ACTIONS + 90", self.dbc_universe_text)
+        self.assertIn("action_name == \"dismiss_pet\"", self.dbc_universe_text)
+        self.assertIn("ignored_non_damage_utility", self.dbc_universe_text)
+        self.assertIn("has_non_ignored_mapping", self.dbc_universe_text)
+        self.assertIn(
+            "ignored_non_damage_utility && !has_non_ignored_mapping && !creation_failed",
+            self.dbc_universe_text,
+        )
+        self.assertLess(
+            self.dbc_universe_text.index('action_name == "dismiss_pet"'),
+            self.dbc_universe_text.index('player->create_action( action_name, "" )'),
+        )
         self.assertNotIn("action_priority_list", self.dbc_universe_text)
 
     def test_product_semantics_patch_is_incremental_after_existing_exporter_patches(self):
