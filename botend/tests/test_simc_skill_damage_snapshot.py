@@ -47,6 +47,40 @@ class SimcSkillDamageSnapshotModelTests(TestCase):
 
 
 class SimcSkillDamageSnapshotServiceTests(TestCase):
+    def test_profile_export_normalizes_destruction_mastery_rng(self):
+        snapshot = SimpleNamespace(simc_revision='a' * 40, game_build='12.1.0.69404')
+        profile = SimpleNamespace(class_name='warlock', spec='warlock_destruction', talent='')
+        service = SimcSkillDamageSnapshotService(snapshot, backend=SimpleNamespace())
+
+        def run_export(command, **_kwargs):
+            output_path = next(
+                value.split('=', 1)[1]
+                for value in command
+                if value.startswith('skill_damage_export=')
+            )
+            Path(output_path).write_text(json.dumps({'actors': []}), encoding='utf-8')
+            return SimpleNamespace(returncode=0, stderr='', stdout='')
+
+        with mock.patch(
+            'botend.services.simc_skill_damage.SimcComposer.compose_validation_input',
+            return_value='warlock="reference"\nspec=destruction\n',
+        ), mock.patch(
+            'botend.services.simc_skill_damage.build_single_talent_actor_input',
+            return_value='warlock="skill_damage_base"\nspec=destruction\n',
+        ) as build, mock.patch.object(
+            service, '_binary_path', return_value='/tmp/simc',
+        ), mock.patch.object(
+            service, '_validate_export',
+        ), mock.patch(
+            'botend.services.simc_skill_damage.subprocess.run', side_effect=run_export,
+        ):
+            service._run_profile_export(profile, [])
+
+        self.assertIn(
+            'warlock.normalize_destruction_mastery=1',
+            build.call_args.args[0].splitlines(),
+        )
+
     def test_single_talent_input_uses_one_baseline_actor_and_trait_entry_actors_only(self):
         profile_input = (
             'warrior="Fury Reference"\n'

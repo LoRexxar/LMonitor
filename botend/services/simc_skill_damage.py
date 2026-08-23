@@ -663,6 +663,14 @@ class SimcSkillDamageSnapshotService:
         baseline_profile = copy.copy(profile)
         baseline_profile.talent = ''
         reference_input = SimcComposer(None).compose_validation_input(baseline_profile, '')
+        class_name, specialization = canonical_simc_profile_identity(
+            getattr(profile, 'spec', ''), getattr(profile, 'class_name', ''),
+        )
+        if class_name == 'warlock' and specialization == 'destruction':
+            reference_input = (
+                reference_input.rstrip()
+                + '\nwarlock.normalize_destruction_mastery=1\n'
+            )
         simc_input = build_single_talent_actor_input(
             reference_input, profile.class_name, talents,
             scaffold_talents=scaffold_talents,
