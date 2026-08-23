@@ -8234,7 +8234,7 @@ class SimcSkillDamageSnapshotAPIView(View):
             'data': {
                 'snapshot': snapshot,
                 'snapshot_unavailable_reason': (
-                    '最新成功快照不是 schema 4 单项天赋运行时数据，请生成新快照。'
+                    '最新成功快照不是 schema 5 前置成对单项天赋运行时数据，请生成新快照。'
                     if legacy_latest else None
                 ),
                 'job': self._job_data(job),

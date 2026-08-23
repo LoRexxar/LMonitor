@@ -121,8 +121,10 @@ def _finite_number(value):
     )
 
 
-def build_single_talent_actor_input(profile_input, class_name, talents, *, scaffold_talents=()):
-    """Expand one reference actor into a generated scaffold plus one actor per trait entry."""
+def build_single_talent_actor_input(
+    profile_input, class_name, talents, *, scaffold_talents=(), talent_prerequisites=None,
+):
+    """Expand one reference actor into prerequisite-vs-selected actor pairs."""
     lines = str(profile_input or '').splitlines()
     actor_pattern = re.compile(rf'^{re.escape(str(class_name or "").strip())}="[^"]*"$')
     actor_index = next((index for index, line in enumerate(lines) if actor_pattern.match(line.strip())), None)
@@ -135,12 +137,21 @@ def build_single_talent_actor_input(profile_input, class_name, talents, *, scaff
         and not re.match(r'^\s*html\s*=', line)
     ]
 
-    def actor_block(name, trait=None):
+    def actor_block(name, selected_talents=()):
         block = list(actor_lines)
         block[0] = f'{class_name}="{name}"'
-        selected = [*scaffold_talents]
-        if trait is not None:
-            selected.append(trait)
+        selected_talents = list(selected_talents)
+        replacement_talent_ids = {
+            getattr(trait, 'talent_id', None)
+            for trait in selected_talents
+            if isinstance(getattr(trait, 'talent_id', None), int)
+            and getattr(trait, 'talent_id', None) > 0
+        }
+        selected = [
+            trait for trait in scaffold_talents
+            if getattr(trait, 'talent_id', None) not in replacement_talent_ids
+        ]
+        selected.extend(selected_talents)
         entries_by_option = {'class_talents': [], 'spec_talents': [], 'hero_talents': []}
         seen = set()
         for selected_trait in selected:
@@ -160,9 +171,25 @@ def build_single_talent_actor_input(profile_input, class_name, talents, *, scaff
                 block.append(f'{option}={"/".join(entries)}')
         return block
 
+    talent_prerequisites = talent_prerequisites or {}
+    scaffold_identities = {
+        (
+            str(getattr(trait, 'tree_type', '') or '').strip().lower(),
+            getattr(trait, 'node_id', None),
+        )
+        for trait in scaffold_talents
+    }
     output = [*global_lines, *actor_block('skill_damage_base')]
     for trait in talents:
-        output.extend(actor_block(f'skill_damage_talent_{trait.pk}', trait))
+        identity = (
+            str(getattr(trait, 'tree_type', '') or '').strip().lower(),
+            getattr(trait, 'node_id', None),
+        )
+        if identity in scaffold_identities:
+            continue
+        prerequisites = list(talent_prerequisites.get(trait.pk) or [])
+        output.extend(actor_block(f'skill_damage_reference_{trait.pk}', prerequisites))
+        output.extend(actor_block(f'skill_damage_talent_{trait.pk}', [*prerequisites, trait]))
     return '\n'.join(output).rstrip() + '\n'
 
 
@@ -348,6 +375,16 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants):
 
     for item in variants:
         talent = item.get('talent') or {}
+        reference_high_actions = {
+            _action_identity(action): action
+            for action in ((item.get('reference_high') or {}).get('actions') or [])
+            if isinstance(action, dict) and action.get('supported') is True
+        }
+        reference_low_actions = {
+            _action_identity(action): action
+            for action in ((item.get('reference_low') or {}).get('actions') or [])
+            if isinstance(action, dict) and action.get('supported') is True
+        }
         high_actions = {
             _action_identity(action): action
             for action in ((item.get('high') or {}).get('actions') or [])
@@ -361,8 +398,8 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants):
         for identity in dict.fromkeys([*high_actions, *low_actions]):
             high_action = high_actions.get(identity)
             low_action = low_actions.get(identity)
-            base_high_action = base_high_actions.get(identity)
-            base_low_action = base_low_actions.get(identity)
+            base_high_action = reference_high_actions.get(identity)
+            base_low_action = reference_low_actions.get(identity)
             high_amount = high_action.get('baseline') if high_action else None
             low_amount = low_action.get('baseline') if low_action else None
             base_high_amount = base_high_action.get('baseline') if base_high_action else None
@@ -511,8 +548,8 @@ class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
     EXPORTER_SCHEMA_REVISION = 3
-    DATASET_SCHEMA_REVISION = 4
-    TALENT_BATCH_SIZE = 25
+    DATASET_SCHEMA_REVISION = 5
+    TALENT_BATCH_SIZE = 12
     FIXED_PRESET = {
         'attack_power': 100.0,
         'spell_power': 100.0,
@@ -651,6 +688,106 @@ class SimcSkillDamageSnapshotService:
             int(getattr(talent, 'pk', 0) or 0),
         ))]
 
+    @staticmethod
+    def _implicit_prerequisite_nodes(profile):
+        """Return non-selectable hero graph anchors needed to close metadata paths."""
+        class_name, spec_name = canonical_simc_profile_identity(
+            getattr(profile, 'spec', ''), getattr(profile, 'class_name', ''),
+        )
+        rows = WowTalentNodeMetadata.objects.filter(
+            talent_version__is_active=True,
+            class_name__iexact=class_name,
+            tree_type='hero_anchor',
+            node_id__isnull=False,
+        ).order_by('node_id', 'id')
+        selected = []
+        seen = set()
+        for row in rows:
+            if simc_spec_slug(row.spec_name) != spec_name or row.node_id in seen:
+                continue
+            seen.add(row.node_id)
+            selected.append(row)
+        return selected
+
+    @staticmethod
+    def _talent_prerequisite_map(talents, *, metadata_nodes=()):
+        """Resolve each trait's transitive selectable prerequisite closure."""
+        by_entry = {}
+        for talent in [*talents, *metadata_nodes]:
+            entry_id = getattr(talent, 'node_id', None)
+            if not isinstance(entry_id, int) or entry_id <= 0:
+                raise ValueError('单项天赋缺少有效 SimC trait entry。')
+            if entry_id in by_entry:
+                raise ValueError(f'天赋前置元数据包含重复 trait entry：{entry_id}')
+            by_entry[entry_id] = talent
+
+        resolved = {}
+        visiting = set()
+        selectable_tree_types = {'class', 'spec', 'hero'}
+
+        def is_implicit(talent):
+            tree_type = str(getattr(talent, 'tree_type', '') or '').lower()
+            return tree_type not in selectable_tree_types
+
+        def path_identity(path):
+            return tuple(
+                (str(getattr(item, 'tree_type', '') or '').lower(), item.node_id)
+                for item in path
+            )
+
+        def visit(talent):
+            if talent.pk in resolved:
+                return resolved[talent.pk]
+            if talent.pk in visiting:
+                raise ValueError(f'天赋前置元数据存在循环：{talent.node_id}')
+            visiting.add(talent.pk)
+            candidate_paths = []
+            path_errors = []
+            try:
+                for parent_id in (getattr(talent, 'parents_json', None) or []):
+                    try:
+                        if (
+                            not isinstance(parent_id, int)
+                            or parent_id <= 0
+                            or parent_id not in by_entry
+                        ):
+                            raise ValueError(
+                                f'天赋 {talent.node_id} 缺少有效前置 trait entry：{parent_id}'
+                            )
+                        parent = by_entry[parent_id]
+                        if is_implicit(parent):
+                            candidate_paths.append([])
+                            continue
+                        path = [*visit(parent), parent]
+                        deduplicated = []
+                        seen = set()
+                        for prerequisite in path:
+                            identity = (
+                                str(getattr(prerequisite, 'tree_type', '') or '').lower(),
+                                prerequisite.node_id,
+                            )
+                            if identity not in seen:
+                                seen.add(identity)
+                                deduplicated.append(prerequisite)
+                        candidate_paths.append(deduplicated)
+                    except ValueError as exc:
+                        path_errors.append(exc)
+            finally:
+                visiting.remove(talent.pk)
+            if not candidate_paths and path_errors:
+                raise ValueError(
+                    f'天赋 {talent.node_id} 没有有效前置路径：{path_errors[0]}'
+                ) from path_errors[0]
+            result = min(
+                candidate_paths,
+                key=lambda path: (len(path), path_identity(path)),
+                default=[],
+            )
+            resolved[talent.pk] = result
+            return result
+
+        return {talent.pk: visit(talent) for talent in talents}
+
     def _binary_path(self):
         config = getattr(settings, 'SIMC_CONFIG', {}) or {}
         configured = str(config.get('simc_path') or '')
@@ -659,7 +796,10 @@ class SimcSkillDamageSnapshotService:
             raise ValueError('SimC exporter 二进制不可执行。')
         return path
 
-    def _run_profile_export(self, profile, talents, *, scaffold_talents=(), target_health=100):
+    def _run_profile_export(
+        self, profile, talents, *, scaffold_talents=(), talent_prerequisites=None,
+        target_health=100,
+    ):
         baseline_profile = copy.copy(profile)
         baseline_profile.talent = ''
         reference_input = SimcComposer(None).compose_validation_input(baseline_profile, '')
@@ -674,6 +814,7 @@ class SimcSkillDamageSnapshotService:
         simc_input = build_single_talent_actor_input(
             reference_input, profile.class_name, talents,
             scaffold_talents=scaffold_talents,
+            talent_prerequisites=talent_prerequisites,
         )
         with tempfile.TemporaryDirectory(prefix='simc-skill-damage-') as tmp:
             input_path = Path(tmp) / 'actors.simc'
@@ -693,6 +834,7 @@ class SimcSkillDamageSnapshotService:
             payload = json.loads(output_path.read_text(encoding='utf-8'))
         expected_actor_names = {
             'skill_damage_base',
+            *(f'skill_damage_reference_{talent.pk}' for talent in talents),
             *(f'skill_damage_talent_{talent.pk}' for talent in talents),
         }
         self._validate_export(
@@ -839,7 +981,9 @@ class SimcSkillDamageSnapshotService:
                     if not valid:
                         raise ValueError('exporter 数学期望字段无效。')
 
-    def _run_profile_target_resilient(self, profile, talents, *, scaffold_talents, target_health):
+    def _run_profile_target_resilient(
+        self, profile, talents, *, scaffold_talents, talent_prerequisites, target_health,
+    ):
         """Export all actors while isolating a SimC process crash to the smallest talent input."""
         baseline_export = self._run_profile_export(
             profile, [], scaffold_talents=scaffold_talents, target_health=target_health,
@@ -864,6 +1008,7 @@ class SimcSkillDamageSnapshotService:
                 payload = self._run_profile_export(
                     profile, batch,
                     scaffold_talents=scaffold_talents,
+                    talent_prerequisites=talent_prerequisites,
                     target_health=target_health,
                 )
             except RuntimeError as exc:
@@ -926,12 +1071,31 @@ class SimcSkillDamageSnapshotService:
             for profile in self._profiles():
                 all_talents = self._talent_entries(profile)
                 scaffold_talents = self._spec_root_scaffold(all_talents)
-                talents = all_talents
+                talent_prerequisites = self._talent_prerequisite_map(
+                    all_talents,
+                    metadata_nodes=self._implicit_prerequisite_nodes(profile),
+                )
+                scaffold_identities = {
+                    (
+                        str(getattr(talent, 'tree_type', '') or '').strip().lower(),
+                        getattr(talent, 'node_id', None),
+                    )
+                    for talent in scaffold_talents
+                }
+                talents = [
+                    talent for talent in all_talents
+                    if (
+                        str(getattr(talent, 'tree_type', '') or '').strip().lower(),
+                        getattr(talent, 'node_id', None),
+                    ) not in scaffold_identities
+                ]
                 base_high, high_actors, high_unresolved = self._run_profile_target_resilient(
-                    profile, talents, scaffold_talents=scaffold_talents, target_health=100,
+                    profile, talents, scaffold_talents=scaffold_talents,
+                    talent_prerequisites=talent_prerequisites, target_health=100,
                 )
                 base_low, low_actors, low_unresolved = self._run_profile_target_resilient(
-                    profile, talents, scaffold_talents=scaffold_talents, target_health=34,
+                    profile, talents, scaffold_talents=scaffold_talents,
+                    talent_prerequisites=talent_prerequisites, target_health=34,
                 )
                 for row in [*high_unresolved, *low_unresolved]:
                     key = json.dumps(row, ensure_ascii=False, sort_keys=True)
@@ -942,11 +1106,16 @@ class SimcSkillDamageSnapshotService:
                 variants = []
                 for talent in talents:
                     actor_name = f'skill_damage_talent_{talent.pk}'
+                    reference_name = f'skill_damage_reference_{talent.pk}'
                     high_actor = high_actors.get(actor_name)
                     low_actor = low_actors.get(actor_name)
+                    reference_high = high_actors.get(reference_name)
+                    reference_low = low_actors.get(reference_name)
                     if not high_actor and not low_actor:
                         # Both target-specific failures are already preserved in unresolved.
                         continue
+                    if (high_actor and not reference_high) or (low_actor and not reference_low):
+                        raise ValueError(f'{profile.spec} 天赋 {talent.node_id} 缺少对应前置 runtime actor。')
                     variants.append({
                         'talent': {
                             'id': talent.pk,
@@ -957,6 +1126,8 @@ class SimcSkillDamageSnapshotService:
                             'description': talent.description,
                             'description_zh': talent.description_zh,
                         },
+                        'reference_high': reference_high,
+                        'reference_low': reference_low,
                         'high': high_actor,
                         'low': low_actor,
                     })
