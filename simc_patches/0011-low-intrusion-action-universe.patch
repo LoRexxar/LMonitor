@@ -1,0 +1,43 @@
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+index 2369605..b27a4bc 100644
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -964,7 +964,6 @@ void prepare_skill_damage_dbc_actions( player_t* player )
+       continue;
+     }
+ 
+-    bool creation_failed = false;
+     bool ignored_non_damage_utility = false;
+     bool has_non_ignored_mapping = false;
+     for ( const auto& action_name : action_names )
+@@ -975,25 +974,14 @@ void prepare_skill_damage_dbc_actions( player_t* player )
+         continue;
+       }
+       has_non_ignored_mapping = true;
+-      try
+-      {
+-        action_t* action = player->find_action( action_name );
+-        if ( !action )
+-          action = player->create_action( action_name, "" );
+-        if ( action && std::find( candidate.actions.begin(), candidate.actions.end(), action ) == candidate.actions.end() )
+-          candidate.actions.push_back( action );
+-      }
+-      catch ( const std::exception& )
+-      {
+-        creation_failed = true;
+-      }
++      action_t* action = player->find_action( action_name );
++      if ( action && std::find( candidate.actions.begin(), candidate.actions.end(), action ) == candidate.actions.end() )
++        candidate.actions.push_back( action );
+     }
+-    if ( candidate.actions.empty() && ignored_non_damage_utility && !has_non_ignored_mapping && !creation_failed )
++    if ( candidate.actions.empty() && ignored_non_damage_utility && !has_non_ignored_mapping )
+       continue;
+     if ( candidate.actions.empty() )
+-      candidate.unresolved_reason = creation_failed
+-        ? "dbc_action_creation_failed"
+-        : "dbc_action_not_implemented";
++      candidate.unresolved_reason = "dbc_action_not_initialized";
+     stored.push_back( std::move( candidate ) );
+   }
+ }

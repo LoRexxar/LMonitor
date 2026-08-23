@@ -10,6 +10,7 @@ NON_FINITE_PATCH = PATCH_DIR / "0007-skill-damage-non-finite-json.patch"
 DBC_UNIVERSE_PATCH = PATCH_DIR / "0008-skill-damage-dbc-universe.patch"
 PRODUCT_SEMANTICS_PATCH = PATCH_DIR / "0009-skill-damage-product-semantics.patch"
 RUNTIME_CONDITIONS_PATCH = PATCH_DIR / "0010-single-talent-runtime-conditions.patch"
+LOW_INTRUSION_PATCH = PATCH_DIR / "0011-low-intrusion-action-universe.patch"
 
 
 class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
@@ -21,6 +22,7 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         cls.dbc_universe_text = DBC_UNIVERSE_PATCH.read_text(encoding="utf-8")
         cls.product_semantics_text = PRODUCT_SEMANTICS_PATCH.read_text(encoding="utf-8")
         cls.runtime_conditions_text = RUNTIME_CONDITIONS_PATCH.read_text(encoding="utf-8")
+        cls.low_intrusion_text = LOW_INTRUSION_PATCH.read_text(encoding="utf-8")
 
     def test_cli_controls_and_early_initialized_export(self):
         for token in (
@@ -129,35 +131,44 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         self.assertIn("exported_actions.emplace", self.text)
         self.assertIn("immutable scenario key", self.text)
 
-    def test_action_universe_comes_from_dbc_and_selected_traits_not_apl(self):
+    def test_action_universe_reads_initialized_actions_without_forcing_native_construction(self):
         for token in (
             "active_class_spell_t::data",
             "specialization_spell_entry_t::data",
             "player_traits",
             "trait_data_t::find",
             "action_names_from_spell_id",
-            "create_action",
             "skill_damage_dbc_candidates",
             "dbc_candidate_source",
             "dbc_spellbook_selected_traits_and_derived_actions",
         ):
             self.assertIn(token, self.dbc_universe_text)
-        self.assertIn("unresolved_reason", self.dbc_universe_text)
+        added_lines = "\n".join(
+            line[1:] for line in self.low_intrusion_text.splitlines()
+            if line.startswith("+") and not line.startswith("+++")
+        )
+        removed_lines = "\n".join(
+            line[1:] for line in self.low_intrusion_text.splitlines()
+            if line.startswith("-") and not line.startswith("---")
+        )
+        self.assertIn('player->create_action( action_name, "" )', removed_lines)
+        self.assertIn("player->find_action( action_name )", added_lines)
+        self.assertIn("dbc_action_not_initialized", added_lines)
+        self.assertNotIn("create_action", added_lines)
+        self.assertIsNone(
+            re.search(r"\b(?:fork|pipe|waitpid|_exit)\s*\(", added_lines),
+            "low-intrusion patch must not add process-isolation calls",
+        )
+        for forbidden in (
+            "skill_damage_action_creation_failure", "WIFSIGNALED", "WNOHANG",
+        ):
+            self.assertNotIn(forbidden, added_lines)
         self.assertIn("std::vector<action_t*> actions", self.dbc_universe_text)
         self.assertIn("std::any_of", self.dbc_universe_text)
         self.assertNotIn("candidate.action = action;\n+          break;", self.dbc_universe_text)
         self.assertIn("INIT_ACTOR_CREATE_ACTIONS + 90", self.dbc_universe_text)
         self.assertIn("action_name == \"dismiss_pet\"", self.dbc_universe_text)
-        self.assertIn("ignored_non_damage_utility", self.dbc_universe_text)
-        self.assertIn("has_non_ignored_mapping", self.dbc_universe_text)
-        self.assertIn(
-            "ignored_non_damage_utility && !has_non_ignored_mapping && !creation_failed",
-            self.dbc_universe_text,
-        )
-        self.assertLess(
-            self.dbc_universe_text.index('action_name == "dismiss_pet"'),
-            self.dbc_universe_text.index('player->create_action( action_name, "" )'),
-        )
+        self.assertIn("ignored_non_damage_utility && !has_non_ignored_mapping", added_lines)
         self.assertNotIn("action_priority_list", self.dbc_universe_text)
 
     def test_product_semantics_patch_is_incremental_after_existing_exporter_patches(self):
