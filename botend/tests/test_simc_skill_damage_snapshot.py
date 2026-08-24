@@ -87,9 +87,11 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             'spec=fury\n'
             'talents=FULL_PRESET_BUILD\n'
             'class_talents=old:1\n'
-            'waist=scabrous_zombie_leather_belt,id=49810,bonus_id=1808/6652\n'
+            'waist = scabrous_zombie_leather_belt,id=49810,bonus_id=1808/6652\n'
             'shoulders=stale_shoulders,id=2\n'
             'wrists=stale_wrists,id=3\n'
+            'main_hand = stale_weapon_name,id=4,ilevel=289\n'
+            'off_hand=invalid_weapon_without_id\n'
             'iterations=100\n'
         )
         talents = [
@@ -102,13 +104,12 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertNotIn('talents=FULL_PRESET_BUILD', generated)
         self.assertNotIn('class_talents=old:1', generated)
         self.assertNotIn('scabrous_zombie_leather_belt', generated)
-        self.assertNotIn('stale_shoulders', generated)
-        self.assertNotIn('stale_wrists', generated)
-        self.assertEqual(
-            generated.count('waist=,id=49810,bonus_id=1808/6652'), 5,
-        )
-        self.assertEqual(generated.count('shoulders=,id=2'), 5)
-        self.assertEqual(generated.count('wrists=,id=3'), 5)
+        self.assertNotIn('waist', generated)
+        self.assertNotIn('shoulders=', generated)
+        self.assertNotIn('wrists=', generated)
+        self.assertNotIn('stale_weapon_name', generated)
+        self.assertNotIn('invalid_weapon_without_id', generated)
+        self.assertEqual(generated.count('main_hand=,id=4,ilevel=289'), 5)
         self.assertEqual(generated.count('iterations=100'), 5)
         self.assertEqual(generated.count('warrior="skill_damage_'), 5)
         self.assertIn('warrior="skill_damage_base"', generated)

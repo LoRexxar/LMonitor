@@ -157,10 +157,27 @@ def build_single_talent_actor_input(
         *(re.escape(slot) for slot in EQUIPMENT_SLOTS),
         *(re.escape(slot) for slot in EQUIPMENT_SLOT_ALIASES),
     }))
-    equipment_name_pattern = re.compile(
-        rf'^(\s*(?:{equipment_slots}))=[^,]+(,id=\d+.*)$'
-    )
-    actor_lines = [equipment_name_pattern.sub(r'\1=\2', line) for line in actor_lines]
+    equipment_line_pattern = re.compile(rf'^(\s*)({equipment_slots})\s*=\s*(.*)$')
+    equipment_id_pattern = re.compile(r'^(?:[^,]*,)?id=(\d+)(.*)$')
+    sanitized_actor_lines = []
+    for line in actor_lines:
+        equipment_match = equipment_line_pattern.match(line)
+        if not equipment_match:
+            sanitized_actor_lines.append(line)
+            continue
+        slot = EQUIPMENT_SLOT_ALIASES.get(equipment_match.group(2), equipment_match.group(2))
+        if slot not in {'main_hand', 'off_hand'}:
+            continue
+        item_value = equipment_match.group(3)
+        item_match = equipment_id_pattern.match(item_value)
+        if not item_match:
+            continue
+        line = (
+            f'{equipment_match.group(1)}{equipment_match.group(2)}='
+            f',id={item_match.group(1)}{item_match.group(2)}'
+        )
+        sanitized_actor_lines.append(line)
+    actor_lines = sanitized_actor_lines
 
     def actor_block(name, selected_talents=()):
         block = list(actor_lines)
