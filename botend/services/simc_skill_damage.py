@@ -19,7 +19,10 @@ from botend.models import (
     SimcSkillDamageSnapshot, WowSpellSnapshot, WowTalentNodeMetadata,
 )
 from botend.services.simc_composer import SimcComposer
-from botend.services.simc_player_config import canonical_simc_profile_identity, simc_spec_slug
+from botend.services.simc_player_config import (
+    EQUIPMENT_SLOT_ALIASES, EQUIPMENT_SLOTS, canonical_simc_profile_identity,
+    simc_spec_slug,
+)
 
 
 def _text_key(value):
@@ -150,6 +153,14 @@ def build_single_talent_actor_input(
         if not re.match(r'^\s*(?:talents|class_talents|spec_talents|hero_talents)\s*=', line)
         and not re.match(r'^\s*html\s*=', line)
     ]
+    equipment_slots = '|'.join(sorted({
+        *(re.escape(slot) for slot in EQUIPMENT_SLOTS),
+        *(re.escape(slot) for slot in EQUIPMENT_SLOT_ALIASES),
+    }))
+    equipment_name_pattern = re.compile(
+        rf'^(\s*(?:{equipment_slots}))=[^,]+(,id=\d+.*)$'
+    )
+    actor_lines = [equipment_name_pattern.sub(r'\1=\2', line) for line in actor_lines]
 
     def actor_block(name, selected_talents=()):
         block = list(actor_lines)

@@ -87,7 +87,10 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             'spec=fury\n'
             'talents=FULL_PRESET_BUILD\n'
             'class_talents=old:1\n'
-            'head=,id=1\n'
+            'waist=scabrous_zombie_leather_belt,id=49810,bonus_id=1808/6652\n'
+            'shoulders=stale_shoulders,id=2\n'
+            'wrists=stale_wrists,id=3\n'
+            'iterations=100\n'
         )
         talents = [
             SimpleNamespace(pk=1, tree_type='spec', node_id=136454, max_points=1),
@@ -98,6 +101,15 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         self.assertNotIn('talents=FULL_PRESET_BUILD', generated)
         self.assertNotIn('class_talents=old:1', generated)
+        self.assertNotIn('scabrous_zombie_leather_belt', generated)
+        self.assertNotIn('stale_shoulders', generated)
+        self.assertNotIn('stale_wrists', generated)
+        self.assertEqual(
+            generated.count('waist=,id=49810,bonus_id=1808/6652'), 5,
+        )
+        self.assertEqual(generated.count('shoulders=,id=2'), 5)
+        self.assertEqual(generated.count('wrists=,id=3'), 5)
+        self.assertEqual(generated.count('iterations=100'), 5)
         self.assertEqual(generated.count('warrior="skill_damage_'), 5)
         self.assertIn('warrior="skill_damage_base"', generated)
         self.assertIn('warrior="skill_damage_reference_1"', generated)
