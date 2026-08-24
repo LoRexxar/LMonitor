@@ -14,6 +14,7 @@ LOW_INTRUSION_PATCH = PATCH_DIR / "0011-low-intrusion-action-universe.patch"
 NO_NATIVE_FORK_PATCH = PATCH_DIR / "0012-remove-native-fork-skill-damage-probes.patch"
 EXTERNAL_RECIPIENT_PATCH = PATCH_DIR / "0013-exclude-external-recipient-actions.patch"
 RESIDUAL_ACTION_PATCH = PATCH_DIR / "0014-mark-residual-actions-trigger-dependent.patch"
+CHILD_ACTION_PATCH = PATCH_DIR / "0015-mark-child-actions-trigger-dependent.patch"
 
 
 class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
@@ -29,6 +30,7 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         cls.no_native_fork_text = NO_NATIVE_FORK_PATCH.read_text(encoding="utf-8")
         cls.external_recipient_text = EXTERNAL_RECIPIENT_PATCH.read_text(encoding="utf-8")
         cls.residual_action_text = RESIDUAL_ACTION_PATCH.read_text(encoding="utf-8")
+        cls.child_action_text = CHILD_ACTION_PATCH.read_text(encoding="utf-8")
 
     def test_cli_controls_and_early_initialized_export(self):
         for token in (
@@ -170,6 +172,47 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         )
         self.assertNotRegex(text, r'if \( residual_trigger_dependent \)[^\n]*continue')
         self.assertNotIn('action->name_str == "ignite"', text)
+
+    def test_child_actions_are_retained_but_not_standalone_probed(self):
+        text = self.child_action_text
+        self.assertRegex(
+            text,
+            r'std::set<const action_t\*> child_trigger_dependent_actions;[\s\S]*?'
+            r'for \( const action_t\* parent_action : player->action_list \)[\s\S]*?'
+            r'parent_action->child_action\.begin\(\), parent_action->child_action\.end\(\)',
+        )
+        self.assertRegex(
+            text,
+            r'const bool child_trigger_dependent = child_trigger_dependent_actions\.find\( action \) !=[\s\S]*?'
+            r'child_trigger_dependent_actions\.end\(\);',
+        )
+        self.assertEqual(
+            text.count(
+                'else if ( child_trigger_dependent ) '
+                'baseline.unresolved_reason = "child_trigger_dependent";'
+            ),
+            1,
+        )
+        self.assertEqual(
+            text.count(
+                'else if ( child_trigger_dependent ) '
+                'changed.unresolved_reason = "child_trigger_dependent";'
+            ),
+            1,
+        )
+        self.assertIn(
+            'requires_weapon_data || residual_trigger_dependent || child_trigger_dependent '
+            '? "false" : "true"',
+            text,
+        )
+        self.assertRegex(
+            text,
+            r'else if \( child_trigger_dependent \) '
+            r'apl_metadata_json_string\( out, "child_trigger_dependent" \);[\s\S]*?'
+            r'skill_damage_dbc_scaling\( \*action \)',
+        )
+        self.assertNotRegex(text, r'if \( child_trigger_dependent \)[^\n]*continue')
+        self.assertNotIn('action->name_str == "earthquake_damage"', text)
 
     def test_export_outputs_fixed_preset_mathematical_expectation(self):
         self.assertIn('"schema_version\\\":2', self.text)

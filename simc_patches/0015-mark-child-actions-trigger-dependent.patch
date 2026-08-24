@@ -1,0 +1,54 @@
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+index d48dcb85..5d6d0243 100644
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -920,6 +920,13 @@ void export_skill_damage( sim_t& sim )
+     out << ",\"versatility\":{\"rating\":" << player->composite_damage_versatility_rating() << ",\"percent\":" << player->composite_damage_versatility() * 100.0 << "}},\"actions\":[";
+ 
+     std::set<std::pair<std::string, unsigned>> exported_actions;
++    std::set<const action_t*> child_trigger_dependent_actions;
++    for ( const action_t* parent_action : player->action_list )
++    {
++      if ( !parent_action ) continue;
++      child_trigger_dependent_actions.insert(
++          parent_action->child_action.begin(), parent_action->child_action.end() );
++    }
+     bool first_action = true;
+     for ( action_t* action : player->action_list )
+     {
+@@ -931,11 +938,14 @@ void export_skill_damage( sim_t& sim )
+ 
+       const bool requires_weapon_data = action->weapon != nullptr && action->weapon_multiplier != 0.0;
+       const bool residual_trigger_dependent = skill_damage_residual_trigger_dependent( *action );
++      const bool child_trigger_dependent = child_trigger_dependent_actions.find( action ) !=
++                                           child_trigger_dependent_actions.end();
+       // Each calculation resets the normally initialized actor. Fatal probes are
+       // isolated by the caller through recursive actor-process splitting.
+       skill_damage_amount_t baseline;
+       if ( requires_weapon_data ) baseline.unresolved_reason = "weapon_dependent";
+       else if ( residual_trigger_dependent ) baseline.unresolved_reason = "residual_trigger_dependent";
++      else if ( child_trigger_dependent ) baseline.unresolved_reason = "child_trigger_dependent";
+       else baseline = skill_damage_snapshot( *action, {} );
+       if ( !first_action ) out << ',';
+       first_action = false;
+@@ -943,10 +953,11 @@ void export_skill_damage( sim_t& sim )
+       out << ",\"name\":"; apl_metadata_json_string( out, action->name_str_reporting.empty() ? action->name_str : action->name_str_reporting );
+       out << ",\"spell_id\":" << spell_id;
+       out << ",\"background\":" << ( action->background ? "true" : "false" ) << ",\"harmful\":" << ( action->harmful ? "true" : "false" );
+-      out << ",\"supported\":" << ( requires_weapon_data || residual_trigger_dependent ? "false" : "true" );
++      out << ",\"supported\":" << ( requires_weapon_data || residual_trigger_dependent || child_trigger_dependent ? "false" : "true" );
+       out << ",\"unsupported_reason\":";
+       if ( requires_weapon_data ) apl_metadata_json_string( out, "weapon_dependent" );
+       else if ( residual_trigger_dependent ) apl_metadata_json_string( out, "residual_trigger_dependent" );
++      else if ( child_trigger_dependent ) apl_metadata_json_string( out, "child_trigger_dependent" );
+       else out << "null";
+       const auto dbc_scaling = skill_damage_dbc_scaling( *action );
+       out << ",\"parent_token\":null,\"dbc_scaling\":{\"source\":\"spell_effect\",\"direct\":";
+@@ -973,6 +984,7 @@ void export_skill_damage( sim_t& sim )
+         skill_damage_amount_t changed;
+         if ( requires_weapon_data ) changed.unresolved_reason = "weapon_dependent";
+         else if ( residual_trigger_dependent ) changed.unresolved_reason = "residual_trigger_dependent";
++        else if ( child_trigger_dependent ) changed.unresolved_reason = "child_trigger_dependent";
+         else changed = skill_damage_snapshot( *action, active );
+         // Successful no-op scenarios are omitted. Process-level crashes are isolated
+         // by the caller and recorded against the minimal failing actor.
