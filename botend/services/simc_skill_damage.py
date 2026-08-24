@@ -593,7 +593,7 @@ class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
     EXPORTER_SCHEMA_REVISION = 3
-    DATASET_SCHEMA_REVISION = 6
+    DATASET_SCHEMA_REVISION = 7
     TALENT_BATCH_SIZE = 12
     FIXED_PRESET = {
         'attack_power': 100.0,
