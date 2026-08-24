@@ -11,6 +11,7 @@ DBC_UNIVERSE_PATCH = PATCH_DIR / "0008-skill-damage-dbc-universe.patch"
 PRODUCT_SEMANTICS_PATCH = PATCH_DIR / "0009-skill-damage-product-semantics.patch"
 RUNTIME_CONDITIONS_PATCH = PATCH_DIR / "0010-single-talent-runtime-conditions.patch"
 LOW_INTRUSION_PATCH = PATCH_DIR / "0011-low-intrusion-action-universe.patch"
+NO_NATIVE_FORK_PATCH = PATCH_DIR / "0012-remove-native-fork-skill-damage-probes.patch"
 
 
 class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
@@ -23,6 +24,7 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         cls.product_semantics_text = PRODUCT_SEMANTICS_PATCH.read_text(encoding="utf-8")
         cls.runtime_conditions_text = RUNTIME_CONDITIONS_PATCH.read_text(encoding="utf-8")
         cls.low_intrusion_text = LOW_INTRUSION_PATCH.read_text(encoding="utf-8")
+        cls.no_native_fork_text = NO_NATIVE_FORK_PATCH.read_text(encoding="utf-8")
 
     def test_cli_controls_and_early_initialized_export(self):
         for token in (
@@ -84,23 +86,34 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         self.assertIn("scenario_keys.insert", self.text)
         self.assertNotIn("1 << buffs.size", self.text)
 
-    def test_external_buffs_excluded_and_snapshots_are_process_isolated(self):
+    def test_external_buffs_excluded_and_snapshots_use_caller_process_isolation(self):
         for external in ("bloodlust", "arcane_intellect", "power_word_fortitude"):
             self.assertIn(external, self.text)
         self.assertIn("source != &player", self.text)
         self.assertIn("dbc::get_class_spell_family", self.text)
         self.assertIn("class_family()", self.text)
         self.assertIn('\\"class_family\\"', self.text)
+
+        removed_lines = "\n".join(
+            line[1:] for line in self.no_native_fork_text.splitlines()
+            if line.startswith("-") and not line.startswith("---")
+        )
+        added_lines = "\n".join(
+            line[1:] for line in self.no_native_fork_text.splitlines()
+            if line.startswith("+") and not line.startswith("+++")
+        )
         for token in ("::pipe", "::fork", "::waitpid", "::_exit"):
-            self.assertIn(token, self.text)
-        self.assertIn("fork_pipe_per_action_scenario", self.text)
-        self.assertIn("Parent remains exactly as produced by sim.init()", self.text)
-        self.assertIn("action.player->reset()", self.text)
+            self.assertIn(token, removed_lines)
+            self.assertNotIn(token, added_lines)
+        self.assertIn("fork_pipe_per_action_scenario", removed_lines)
+        self.assertIn("actor_process_recursive_isolation", added_lines)
+        self.assertIn("action.player->reset()", added_lines)
+        self.assertIn("buff->trigger", added_lines)
         self.assertIn("action.sim->fixed_time = false", self.runtime_conditions_text)
         self.assertIn("action.target->resources.base[ RESOURCE_HEALTH ] = 100.0", self.runtime_conditions_text)
         self.assertIn("action.target->resources.current[ RESOURCE_HEALTH ]", self.runtime_conditions_text)
         self.assertIn("selected_trait_tokens", self.runtime_conditions_text)
-        self.assertNotIn("reset_skill_damage_state", self.text)
+        self.assertNotIn("reset_skill_damage_state", added_lines)
 
     def test_export_outputs_fixed_preset_mathematical_expectation(self):
         self.assertIn('"schema_version\\\":2', self.text)
@@ -122,14 +135,14 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         self.assertIn("write_skill_damage_json_number", self.non_finite_text)
         self.assertNotIn("runtime_non_finite_amount", self.text)
 
-    def test_changed_scenarios_crashes_and_identity_are_explicit(self):
+    def test_changed_scenarios_and_identity_are_explicit(self):
         self.assertIn("skill_damage_amount_changed", self.text)
         self.assertIn("runtime_snapshot_probe", self.text)
-        self.assertIn("WIFSIGNALED", self.text)
-        self.assertIn("snapshot_child_signal_", self.text)
         self.assertIn("unresolved_reason", self.text)
         self.assertIn("exported_actions.emplace", self.text)
         self.assertIn("immutable scenario key", self.text)
+        self.assertIn("WIFSIGNALED", self.no_native_fork_text)
+        self.assertIn("snapshot_child_signal_", self.no_native_fork_text)
 
     def test_action_universe_reads_initialized_actions_without_forcing_native_construction(self):
         for token in (
