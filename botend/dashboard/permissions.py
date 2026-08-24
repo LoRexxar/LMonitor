@@ -20,6 +20,7 @@ DASHBOARD_PAGE_PERMISSIONS = OrderedDict((item['code'], item) for item in (
     {'code': 'simc.workflow', 'label': '工作流', 'section': 'simc-workflow', 'parent': 'SimC'},
     {'code': 'simc.history', 'label': '历史任务', 'section': 'simc-history', 'parent': 'SimC'},
     {'code': 'simc.advanced', 'label': '高级设置', 'section': 'simc-advanced', 'parent': 'SimC'},
+    {'code': 'simc.skill-damage', 'label': '技能伤害快照', 'section': 'simc-skill-damage', 'parent': 'SimC'},
     {'code': 'simc.benchmarks', 'label': '基准测试', 'section': 'simc-benchmarks', 'parent': 'SimC'},
     {'code': 'tools.wcl-analysis', 'label': 'WCL 分析', 'section': 'wcl-analysis-entry', 'parent': '工具箱'},
     {'code': 'tools.wago-rerun', 'label': 'Wago 指定版本重跑', 'section': 'wago-skill-diff-rerun', 'parent': '工具箱'},

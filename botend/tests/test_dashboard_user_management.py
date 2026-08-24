@@ -46,6 +46,14 @@ class DashboardPageAccessTests(TestCase):
         self.assertEqual(self.client.get('/dashboard/?section=news').status_code, 200)
         self.assertEqual(self.client.get('/dashboard/?section=database-tables').status_code, 403)
 
+    def test_superuser_can_open_skill_damage_section_directly(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.get('/dashboard/?section=simc-skill-damage')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['dashboard_default_section'], 'simc-skill-damage')
+
     def test_superuser_can_access_database_section_without_business_group(self):
         self.client.force_login(self.admin)
         self.assertEqual(self.client.get('/dashboard/?section=database-tables').status_code, 200)
