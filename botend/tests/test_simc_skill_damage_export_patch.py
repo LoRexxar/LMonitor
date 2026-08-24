@@ -12,6 +12,7 @@ PRODUCT_SEMANTICS_PATCH = PATCH_DIR / "0009-skill-damage-product-semantics.patch
 RUNTIME_CONDITIONS_PATCH = PATCH_DIR / "0010-single-talent-runtime-conditions.patch"
 LOW_INTRUSION_PATCH = PATCH_DIR / "0011-low-intrusion-action-universe.patch"
 NO_NATIVE_FORK_PATCH = PATCH_DIR / "0012-remove-native-fork-skill-damage-probes.patch"
+EXTERNAL_RECIPIENT_PATCH = PATCH_DIR / "0013-exclude-external-recipient-actions.patch"
 
 
 class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
@@ -25,6 +26,7 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         cls.runtime_conditions_text = RUNTIME_CONDITIONS_PATCH.read_text(encoding="utf-8")
         cls.low_intrusion_text = LOW_INTRUSION_PATCH.read_text(encoding="utf-8")
         cls.no_native_fork_text = NO_NATIVE_FORK_PATCH.read_text(encoding="utf-8")
+        cls.external_recipient_text = EXTERNAL_RECIPIENT_PATCH.read_text(encoding="utf-8")
 
     def test_cli_controls_and_early_initialized_export(self):
         for token in (
@@ -114,6 +116,22 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         self.assertIn("action.target->resources.current[ RESOURCE_HEALTH ]", self.runtime_conditions_text)
         self.assertIn("selected_trait_tokens", self.runtime_conditions_text)
         self.assertNotIn("reset_skill_damage_state", added_lines)
+
+    def test_external_recipient_actions_are_not_probed_as_player_damage(self):
+        self.assertIn("skill_damage_external_recipient_action", self.external_recipient_text)
+        for token in (
+            "infernos_blessing",
+            "blistering_scales_damage",
+            "fate_mirror_damage",
+            "fate_mirror_heal",
+            "breath_of_eons_damage",
+            "bombardments",
+        ):
+            self.assertIn(token, self.external_recipient_text)
+        self.assertIsNotNone(re.search(
+            r"skill_damage_external_recipient_action\( \*action \)[\s\S]*?continue",
+            self.external_recipient_text,
+        ))
 
     def test_export_outputs_fixed_preset_mathematical_expectation(self):
         self.assertIn('"schema_version\\\":2', self.text)

@@ -1,0 +1,38 @@
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+index 4b6834e..080c4e8 100644
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -847,6 +847,23 @@ void prepare_skill_damage_dbc_actions( player_t* player )
+   }
+ }
+ 
++bool skill_damage_external_recipient_action( const action_t& action )
++{
++  // The Evoker module creates these actions on every player whenever any Evoker
++  // is present. Their source Evoker is assigned only when an external-support
++  // callback fires, so they are recipient-side team effects rather than the
++  // actor's own skills or selected-talent damage.
++  static const std::set<std::string_view> external_recipient_actions = {
++    "infernos_blessing",
++    "blistering_scales_damage",
++    "fate_mirror_damage",
++    "fate_mirror_heal",
++    "breath_of_eons_damage",
++    "bombardments",
++  };
++  return external_recipient_actions.find( action.name_str ) != external_recipient_actions.end();
++}
++
+ void export_skill_damage( sim_t& sim )
+ {
+   const bool valid_revision = sim.skill_damage_revision.size() == 40 &&
+@@ -896,7 +913,8 @@ void export_skill_damage( sim_t& sim )
+     bool first_action = true;
+     for ( action_t* action : player->action_list )
+     {
+-      if ( !action || ( !action->does_direct_damage() && !action->does_periodic_damage() ) ) continue;
++      if ( !action || skill_damage_external_recipient_action( *action ) ||
++           ( !action->does_direct_damage() && !action->does_periodic_damage() ) ) continue;
+       const unsigned spell_id = apl_metadata_action_spell_id( *action );
+       if ( !exported_actions.emplace( action->name_str, spell_id ).second ) continue;
+       const auto scenario_keys = skill_damage_scenario_keys( *player, action->name_str );
