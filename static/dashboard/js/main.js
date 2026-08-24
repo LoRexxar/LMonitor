@@ -5867,8 +5867,11 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     }
     const selectedHeroTree = heroTreeSelect.value;
     const query = String(searchInput.value || '').trim().toLowerCase();
+    const sortMode = sortButton.dataset.sortMode === 'expected' ? 'expected' : 'name';
     const sortDirection = sortButton.dataset.direction === 'asc' ? 'asc' : 'desc';
-    sortButton.textContent = `归一化伤害期望 ${sortDirection === 'asc' ? '↑' : '↓'}`;
+    sortButton.textContent = sortMode === 'expected'
+        ? `归一化伤害期望 ${sortDirection === 'asc' ? '↑' : '↓'}`
+        : '按归一化伤害期望排序';
     if (!selectedSpec) {
         body.innerHTML = '<tr><td colspan="7" class="px-4 py-8 text-center text-stone-500">请先选择专精</td></tr>';
         return;
@@ -5894,9 +5897,23 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         });
     });
     rows.sort((left, right) => {
-        const delta = left.expectedSortValue - right.expectedSortValue;
-        if (delta) return sortDirection === 'asc' ? delta : -delta;
-        return String(left.action.display_name || left.action.name || '').localeCompare(String(right.action.display_name || right.action.name || ''));
+        const leftName = String(left.action.display_name || left.action.name || '');
+        const rightName = String(right.action.display_name || right.action.name || '');
+        const nameDelta = leftName.localeCompare(rightName);
+        if (sortMode === 'expected') {
+            const damageDelta = left.expectedSortValue - right.expectedSortValue;
+            if (damageDelta) return sortDirection === 'asc' ? damageDelta : -damageDelta;
+        }
+        if (nameDelta) return nameDelta;
+        const leftVariant = left.action.variant && typeof left.action.variant === 'object' ? left.action.variant : {};
+        const rightVariant = right.action.variant && typeof right.action.variant === 'object' ? right.action.variant : {};
+        const talentDelta = String(leftVariant.talent_name_zh || leftVariant.talent_name || '').localeCompare(
+            String(rightVariant.talent_name_zh || rightVariant.talent_name || '')
+        );
+        if (talentDelta) return talentDelta;
+        const componentDelta = String(left.action.component || '').localeCompare(String(right.action.component || ''));
+        if (componentDelta) return componentDelta;
+        return Number(left.action.spell_id || 0) - Number(right.action.spell_id || 0);
     });
     body.innerHTML = rows.length ? rows.map(({action, product}) => {
         const skillMeta = renderSimcSkillIdentity(action);
@@ -5961,7 +5978,12 @@ function initSimcSkillDamagePanel() {
     heroTreeSelect.addEventListener('change', () => renderSimcSkillDamageSnapshot(currentSnapshot));
     searchInput.addEventListener('input', () => renderSimcSkillDamageSnapshot(currentSnapshot));
     sortButton.addEventListener('click', () => {
-        sortButton.dataset.direction = sortButton.dataset.direction === 'asc' ? 'desc' : 'asc';
+        if (sortButton.dataset.sortMode !== 'expected') {
+            sortButton.dataset.sortMode = 'expected';
+            sortButton.dataset.direction = 'desc';
+        } else {
+            sortButton.dataset.direction = sortButton.dataset.direction === 'asc' ? 'desc' : 'asc';
+        }
         renderSimcSkillDamageSnapshot(currentSnapshot);
     });
     generateBtn.addEventListener('click', async () => {
