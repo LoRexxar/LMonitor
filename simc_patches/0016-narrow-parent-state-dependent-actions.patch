@@ -1,0 +1,60 @@
+diff --git a/engine/action/action.hpp b/engine/action/action.hpp
+--- a/engine/action/action.hpp
++++ b/engine/action/action.hpp
+@@ -632,6 +632,10 @@ public:
+   action_t( action_e type, util::string_view token, player_t* p );
+   action_t( action_e type, util::string_view token, player_t* p, const spell_data_t* s );
+ 
++  // Standalone skill-damage snapshots cannot probe actions whose implementation
++  // explicitly copies runtime state from a parent action's execute_state.
++  bool snapshot_state_requires_parent_execute_state = false;
++
+   virtual ~action_t();
+ 
+   void add_child( action_t* child );
+diff --git a/engine/class_modules/sc_shaman.cpp b/engine/class_modules/sc_shaman.cpp
+--- a/engine/class_modules/sc_shaman.cpp
++++ b/engine/class_modules/sc_shaman.cpp
+@@ -7784,6 +7784,7 @@ struct earthquake_damage_base_t : public shaman_spell_t
+   {
+     aoe        = -1;
+     ground_aoe = background = ignores_armor = true;
++    snapshot_state_requires_parent_execute_state = true;
+   }
+ 
+   // Snapshot base state from the parent to grab proper persistent multiplier for all damage
+@@ -9612,6 +9613,7 @@ struct primordial_storm_t : public shaman_spell_t
+       if ( is_variant( spell_variant::NORMAL ) )
+       {
+         mw_parent = parent;
++        snapshot_state_requires_parent_execute_state = true;
+       }
+     }
+   };
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -920,13 +920,6 @@ void export_skill_damage( sim_t& sim )
+     out << ",\"versatility\":{\"rating\":" << player->composite_damage_versatility_rating() << ",\"percent\":" << player->composite_damage_versatility() * 100.0 << "}},\"actions\":[";
+ 
+     std::set<std::pair<std::string, unsigned>> exported_actions;
+-    std::set<const action_t*> child_trigger_dependent_actions;
+-    for ( const action_t* parent_action : player->action_list )
+-    {
+-      if ( !parent_action ) continue;
+-      child_trigger_dependent_actions.insert(
+-          parent_action->child_action.begin(), parent_action->child_action.end() );
+-    }
+     bool first_action = true;
+     for ( action_t* action : player->action_list )
+     {
+@@ -938,8 +931,7 @@ void export_skill_damage( sim_t& sim )
+ 
+       const bool requires_weapon_data = action->weapon != nullptr && action->weapon_multiplier != 0.0;
+       const bool residual_trigger_dependent = skill_damage_residual_trigger_dependent( *action );
+-      const bool child_trigger_dependent = child_trigger_dependent_actions.find( action ) !=
+-                                           child_trigger_dependent_actions.end();
++      const bool child_trigger_dependent = action->snapshot_state_requires_parent_execute_state;
+       // Each calculation resets the normally initialized actor. Fatal probes are
+       // isolated by the caller through recursive actor-process splitting.
+       skill_damage_amount_t baseline;

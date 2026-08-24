@@ -15,6 +15,7 @@ NO_NATIVE_FORK_PATCH = PATCH_DIR / "0012-remove-native-fork-skill-damage-probes.
 EXTERNAL_RECIPIENT_PATCH = PATCH_DIR / "0013-exclude-external-recipient-actions.patch"
 RESIDUAL_ACTION_PATCH = PATCH_DIR / "0014-mark-residual-actions-trigger-dependent.patch"
 CHILD_ACTION_PATCH = PATCH_DIR / "0015-mark-child-actions-trigger-dependent.patch"
+PARENT_STATE_ACTION_PATCH = PATCH_DIR / "0016-narrow-parent-state-dependent-actions.patch"
 
 
 class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
@@ -31,6 +32,7 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         cls.external_recipient_text = EXTERNAL_RECIPIENT_PATCH.read_text(encoding="utf-8")
         cls.residual_action_text = RESIDUAL_ACTION_PATCH.read_text(encoding="utf-8")
         cls.child_action_text = CHILD_ACTION_PATCH.read_text(encoding="utf-8")
+        cls.parent_state_action_text = PARENT_STATE_ACTION_PATCH.read_text(encoding="utf-8")
 
     def test_cli_controls_and_early_initialized_export(self):
         for token in (
@@ -213,6 +215,33 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         )
         self.assertNotRegex(text, r'if \( child_trigger_dependent \)[^\n]*continue')
         self.assertNotIn('action->name_str == "earthquake_damage"', text)
+
+    def test_parent_state_filter_is_explicit_and_does_not_hide_all_child_damage(self):
+        text = self.parent_state_action_text
+        self.assertIn("snapshot_state_requires_parent_execute_state", text)
+        self.assertRegex(
+            text,
+            r"earthquake_damage_base_t[\s\S]*?snapshot_state_requires_parent_execute_state = true;",
+        )
+        self.assertRegex(
+            text,
+            r"primordial_storm_t[\s\S]*?mw_parent = parent;[\s\S]*?snapshot_state_requires_parent_execute_state = true;",
+        )
+        self.assertIn(
+            "const bool child_trigger_dependent = "
+            "action->snapshot_state_requires_parent_execute_state;",
+            text,
+        )
+        added_lines = "\n".join(
+            line[1:] for line in text.splitlines()
+            if line.startswith("+") and not line.startswith("+++")
+        )
+        self.assertNotIn("child_trigger_dependent_actions", added_lines)
+        for required_child in (
+            "rampage1", "rampage2", "rampage3", "rampage4",
+            "odyns_fury_mh", "odyns_fury_oh", "bladestorm_mh", "bladestorm_oh",
+        ):
+            self.assertNotIn(required_child, text)
 
     def test_export_outputs_fixed_preset_mathematical_expectation(self):
         self.assertIn('"schema_version\\\":2', self.text)
