@@ -1,6 +1,8 @@
 from django.test import SimpleTestCase
 
-from botend.constants.hero_talents import HERO_SUBTREE_NAME_ZH
+from botend.constants.hero_talents import (
+    HERO_SUBTREE_ID_TO_NAME, HERO_SUBTREE_NAME_ZH, spec_hero_subtree_names,
+)
 
 
 class HeroTalentNameTests(SimpleTestCase):
@@ -51,3 +53,20 @@ class HeroTalentNameTests(SimpleTestCase):
         }
 
         self.assertEqual(HERO_SUBTREE_NAME_ZH, expected)
+
+    def test_midnight_demon_hunter_subtrees_and_spec_relationships_are_authoritative(self):
+        # Wago TraitSubTree build 12.1.0.69404 and Wowhead 12.1.0 spec guides.
+        self.assertEqual(HERO_SUBTREE_ID_TO_NAME[124], 'Annihilator')
+        self.assertEqual(HERO_SUBTREE_ID_TO_NAME[126], 'Void-Scarred')
+        self.assertEqual(
+            spec_hero_subtree_names('DemonHunter', 'Havoc'),
+            ('Aldrachi Reaver', 'Fel-Scarred'),
+        )
+        self.assertEqual(
+            spec_hero_subtree_names('DemonHunter', 'Vengeance'),
+            ('Annihilator', 'Aldrachi Reaver'),
+        )
+        self.assertEqual(
+            spec_hero_subtree_names('DemonHunter', 'Devourer'),
+            ('Annihilator', 'Void-Scarred'),
+        )

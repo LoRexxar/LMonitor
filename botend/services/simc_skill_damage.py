@@ -11,9 +11,12 @@ from django.conf import settings
 from django.db import close_old_connections, models
 from django.utils import timezone
 
+from botend.constants.hero_talents import (
+    hero_subtree_name_by_id, hero_subtree_name_zh, spec_hero_subtree_names,
+)
 from botend.models import (
     SimcAplSymbol, SimcAplSymbolScope, SimcBackendBinary, SimcProfile,
-    SimcSkillDamageSnapshot, WowTalentNodeMetadata,
+    SimcSkillDamageSnapshot, WowSpellSnapshot, WowTalentNodeMetadata,
 )
 from botend.services.simc_composer import SimcComposer
 from botend.services.simc_player_config import canonical_simc_profile_identity, simc_spec_slug
@@ -47,6 +50,16 @@ def localize_skill_damage_payload(payload):
         for actor in actors for action in (actor.get('actions') or [])
         if isinstance(action, dict) and _text_key(action.get('token'))
     }
+    snapshot_build = str((payload.get('identity') or {}).get('game_build') or '').strip()
+    spell_query = WowSpellSnapshot.objects.filter(
+        branch='wow', locale='zhCN', spell_id__in=spell_ids, name_zh__gt='',
+    )
+    if snapshot_build:
+        spell_query = spell_query.filter(snapshot_build=snapshot_build)
+    spell_names = {
+        row['spell_id']: str(row['name_zh'] or '').strip()
+        for row in spell_query.values('spell_id', 'name_zh')
+    } if spell_ids else {}
     talent_rows = list(
         WowTalentNodeMetadata.objects.filter(
             talent_version__is_active=True,
@@ -107,7 +120,8 @@ def localize_skill_damage_payload(payload):
                 scope_rank,
             ) if isinstance(spell_id, int) else ''
             action['display_name'] = (
-                apl_token_name or talent_name or apl_spell_name
+                str(action.get('display_name') or '').strip()
+                or spell_names.get(spell_id) or apl_token_name or talent_name or apl_spell_name
                 or str(action.get('name') or action.get('token') or '未命名技能')
             )
     return result
@@ -340,6 +354,9 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants):
             'talent_name': str(talent.get('name') or ''),
             'talent_name_zh': str(talent.get('name_zh') or ''),
             'tree_type': str(talent.get('tree_type') or ''),
+            'hero_subtree_id': talent.get('hero_subtree_id'),
+            'hero_subtree_name': str(talent.get('hero_subtree_name') or ''),
+            'hero_subtree_name_zh': str(talent.get('hero_subtree_name_zh') or ''),
             'trait_entry_id': talent.get('node_id'),
             'runtime_condition': condition,
             'scenario_tokens': list(scenario_tokens),
@@ -548,7 +565,7 @@ class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
     EXPORTER_SCHEMA_REVISION = 3
-    DATASET_SCHEMA_REVISION = 5
+    DATASET_SCHEMA_REVISION = 6
     TALENT_BATCH_SIZE = 12
     FIXED_PRESET = {
         'attack_power': 100.0,
@@ -652,11 +669,18 @@ class SimcSkillDamageSnapshotService:
             tree_type__in=('class', 'spec', 'hero'),
             node_id__isnull=False,
         ).order_by('tree_type', 'row', 'column', 'node_id', 'id')
+        allowed_hero_subtrees = set(spec_hero_subtree_names(class_name, spec_name))
+        if not allowed_hero_subtrees:
+            raise ValueError(f'{profile.spec} 缺少权威英雄天赋树关系。')
         selected = []
         seen = set()
         for row in rows:
             if simc_spec_slug(row.spec_name) != spec_name:
                 continue
+            if str(row.tree_type or '').lower() == 'hero':
+                subtree_name = hero_subtree_name_by_id(row.db2_subtree_id)
+                if not subtree_name or subtree_name not in allowed_hero_subtrees:
+                    continue
             key = (str(row.tree_type or '').lower(), row.node_id)
             if not isinstance(row.node_id, int) or row.node_id <= 0 or key in seen:
                 continue
@@ -665,6 +689,32 @@ class SimcSkillDamageSnapshotService:
         if not selected:
             raise ValueError(f'{profile.spec} 缺少当前版本单项天赋 trait entry。')
         return selected
+
+    @staticmethod
+    def _hero_talent_trees(profile, talents):
+        class_name, spec_name = canonical_simc_profile_identity(
+            getattr(profile, 'spec', ''), getattr(profile, 'class_name', ''),
+        )
+        ordered_names = spec_hero_subtree_names(class_name, spec_name)
+        ids_by_name = {}
+        for talent in talents:
+            if str(getattr(talent, 'tree_type', '') or '').lower() != 'hero':
+                continue
+            subtree_id = getattr(talent, 'db2_subtree_id', None)
+            subtree_name = hero_subtree_name_by_id(subtree_id)
+            if subtree_name in ordered_names:
+                ids_by_name.setdefault(subtree_name, subtree_id)
+        missing = [name for name in ordered_names if name not in ids_by_name]
+        if missing:
+            raise ValueError(f'{profile.spec} 缺少英雄天赋子树元数据：{", ".join(missing)}。')
+        return [
+            {
+                'id': ids_by_name[name],
+                'name': name,
+                'name_zh': hero_subtree_name_zh(name),
+            }
+            for name in ordered_names
+        ]
 
     @staticmethod
     def _spec_root_scaffold(talents):
@@ -1070,6 +1120,7 @@ class SimcSkillDamageSnapshotService:
             unresolved_keys = set()
             for profile in self._profiles():
                 all_talents = self._talent_entries(profile)
+                hero_talent_trees = self._hero_talent_trees(profile, all_talents)
                 scaffold_talents = self._spec_root_scaffold(all_talents)
                 talent_prerequisites = self._talent_prerequisite_map(
                     all_talents,
@@ -1116,11 +1167,18 @@ class SimcSkillDamageSnapshotService:
                         continue
                     if (high_actor and not reference_high) or (low_actor and not reference_low):
                         raise ValueError(f'{profile.spec} 天赋 {talent.node_id} 缺少对应前置 runtime actor。')
+                    hero_subtree_id = (
+                        talent.db2_subtree_id if str(talent.tree_type or '').lower() == 'hero' else None
+                    )
+                    hero_subtree_name = hero_subtree_name_by_id(hero_subtree_id)
                     variants.append({
                         'talent': {
                             'id': talent.pk,
                             'node_id': talent.node_id,
                             'tree_type': talent.tree_type,
+                            'hero_subtree_id': hero_subtree_id,
+                            'hero_subtree_name': hero_subtree_name,
+                            'hero_subtree_name_zh': hero_subtree_name_zh(hero_subtree_name),
                             'name': talent.name,
                             'name_zh': talent.name_zh,
                             'description': talent.description,
@@ -1137,10 +1195,11 @@ class SimcSkillDamageSnapshotService:
                 if 'specialization' not in actor and actor.get('spec'):
                     actor['specialization'] = actor.pop('spec')
                 actor['variant_model'] = 'single_talent_runtime'
+                actor['hero_talent_trees'] = hero_talent_trees
                 actor['base_damage_basis'] = 'dbc_spell_effect_ap_sp_coefficients_at_100'
                 actor['actions'] = flatten_single_talent_damage_variants(base_high, base_low, variants)
                 actors.append(actor)
-            payload = {
+            payload = localize_skill_damage_payload({
                 'identity': {
                     'simc_revision': self.snapshot.simc_revision,
                     'game_build': self.snapshot.game_build,
@@ -1149,7 +1208,7 @@ class SimcSkillDamageSnapshotService:
                 'preset': dict(self.FIXED_PRESET),
                 'actors': actors,
                 'unresolved': unresolved,
-            }
+            })
             action_count = sum(len(actor.get('actions') or []) for actor in actors)
             self.snapshot.status = SimcSkillDamageSnapshot.STATUS_SUCCEEDED
             self.snapshot.payload = payload

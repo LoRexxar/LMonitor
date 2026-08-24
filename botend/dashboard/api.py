@@ -8215,14 +8215,15 @@ class SimcSkillDamageSnapshotAPIView(View):
         job = SimcSkillDamageSnapshot.objects.order_by('-created_at', '-id').first()
         snapshot = None
         if latest:
-            snapshot = project_skill_damage_product_payload(
-                localize_skill_damage_payload(latest.payload)
-            )
-            snapshot['identity'] = {
+            identity = {
                 'simc_revision': latest.simc_revision,
                 'game_build': latest.game_build,
                 'schema_revision': latest.schema_revision,
             }
+            snapshot = project_skill_damage_product_payload(
+                localize_skill_damage_payload({**(latest.payload or {}), 'identity': identity})
+            )
+            snapshot['identity'] = identity
             snapshot['id'] = latest.pk
             snapshot['status'] = latest.status
             snapshot['completed_at'] = _fmt_dt(latest.completed_at)
@@ -8234,7 +8235,7 @@ class SimcSkillDamageSnapshotAPIView(View):
             'data': {
                 'snapshot': snapshot,
                 'snapshot_unavailable_reason': (
-                    '最新成功快照不是 schema 5 前置成对单项天赋运行时数据，请生成新快照。'
+                    '最新成功快照不是 schema 6 英雄树划分的前置成对单项天赋运行时数据，请生成新快照。'
                     if legacy_latest else None
                 ),
                 'job': self._job_data(job),

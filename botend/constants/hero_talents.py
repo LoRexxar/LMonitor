@@ -59,7 +59,7 @@ _LEGACY_HERO_SUBTREE_NAME_ZH = {
     '法术投射者': '疾咒师',
 }
 
-# 当前 DB2 TraitSubTree.csv 中 18-66 为 The War Within 英雄天赋树。
+# 当前 DB2 TraitSubTree.csv 的英雄天赋树；Midnight 新增恶魔猎手子树 124/126。
 HERO_SUBTREE_ID_TO_NAME = {
     18: 'Voidweaver',
     19: 'Archon',
@@ -100,6 +100,8 @@ HERO_SUBTREE_ID_TO_NAME = {
     64: 'Conduit of the Celestials',
     65: 'Shado-Pan',
     66: 'Master of Harmony',
+    124: 'Annihilator',
+    126: 'Void-Scarred',
 }
 
 # 游戏内每个专精只能在两棵英雄天赋树中二选一；这里存英文 canonical 名称，
@@ -109,7 +111,8 @@ SPEC_HERO_SUBTREE_NAMES = {
     ('DeathKnight', 'Frost'): ('Deathbringer', 'Rider of the Apocalypse'),
     ('DeathKnight', 'Unholy'): ('Rider of the Apocalypse', "San'layn"),
     ('DemonHunter', 'Havoc'): ('Aldrachi Reaver', 'Fel-Scarred'),
-    ('DemonHunter', 'Vengeance'): ('Aldrachi Reaver', 'Fel-Scarred'),
+    ('DemonHunter', 'Vengeance'): ('Annihilator', 'Aldrachi Reaver'),
+    ('DemonHunter', 'Devourer'): ('Annihilator', 'Void-Scarred'),
     ('Druid', 'Balance'): ("Elune's Chosen", 'Keeper of the Grove'),
     ('Druid', 'Feral'): ('Druid of the Claw', 'Wildstalker'),
     ('Druid', 'Guardian'): ('Druid of the Claw', "Elune's Chosen"),
@@ -188,4 +191,15 @@ def hero_subtree_name_by_id(subtree_id):
 
 
 def spec_hero_subtree_names(class_name, spec_name):
-    return SPEC_HERO_SUBTREE_NAMES.get((class_name or '', spec_name or ''), ())
+    direct = SPEC_HERO_SUBTREE_NAMES.get((class_name or '', spec_name or ''))
+    if direct is not None:
+        return direct
+    class_key = str(class_name or '').strip().casefold()
+    spec_key = str(spec_name or '').strip().replace('_', '').casefold()
+    for (known_class, known_spec), names in SPEC_HERO_SUBTREE_NAMES.items():
+        if (
+            known_class.casefold() == class_key
+            and known_spec.replace('_', '').casefold() == spec_key
+        ):
+            return names
+    return ()

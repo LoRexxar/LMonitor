@@ -5803,9 +5803,10 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     const identityEl = document.getElementById('simc-skill-damage-identity');
     const unresolvedEl = document.getElementById('simc-skill-damage-unresolved');
     const specSelect = document.getElementById('simc-skill-damage-spec');
+    const heroTreeSelect = document.getElementById('simc-skill-damage-hero-tree');
     const searchInput = document.getElementById('simc-skill-damage-search');
     const sortButton = document.getElementById('simc-skill-damage-sort-expected');
-    if (!body || !identityEl || !unresolvedEl || !specSelect || !searchInput || !sortButton) return;
+    if (!body || !identityEl || !unresolvedEl || !specSelect || !heroTreeSelect || !searchInput || !sortButton) return;
 
     const identity = snapshot && snapshot.identity ? snapshot.identity : {};
     identityEl.textContent = snapshot
@@ -5850,6 +5851,21 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     if (seenSpecs.has(previousSpec)) specSelect.value = previousSpec;
 
     const selectedSpec = specSelect.value;
+    const previousHeroTree = heroTreeSelect.value;
+    const selectedActors = actors.filter(actor => (
+        `${actor.class || ''}:${actor.specialization || ''}` === selectedSpec
+    ));
+    const heroTalentTrees = selectedActors.length && Array.isArray(selectedActors[0].hero_talent_trees)
+        ? selectedActors[0].hero_talent_trees.filter(item => item && item.id != null)
+        : [];
+    heroTreeSelect.innerHTML = '<option value="">请选择英雄天赋</option>' + heroTalentTrees.map(tree => (
+        `<option value="${escapeHtml(String(tree.id))}">${escapeHtml(tree.name_zh || tree.name || tree.id)}</option>`
+    )).join('');
+    heroTreeSelect.disabled = !selectedSpec || !heroTalentTrees.length;
+    if (heroTalentTrees.some(tree => String(tree.id) === previousHeroTree)) {
+        heroTreeSelect.value = previousHeroTree;
+    }
+    const selectedHeroTree = heroTreeSelect.value;
     const query = String(searchInput.value || '').trim().toLowerCase();
     const sortDirection = sortButton.dataset.direction === 'asc' ? 'asc' : 'desc';
     sortButton.textContent = `归一化伤害期望 ${sortDirection === 'asc' ? '↑' : '↓'}`;
@@ -5857,14 +5873,17 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         body.innerHTML = '<tr><td colspan="7" class="px-4 py-8 text-center text-stone-500">请先选择专精</td></tr>';
         return;
     }
+    if (!selectedHeroTree) {
+        body.innerHTML = '<tr><td colspan="7" class="px-4 py-8 text-center text-stone-500">请选择英雄天赋</td></tr>';
+        return;
+    }
 
     const rows = [];
-    actors.filter(actor => (
-        `${actor.class || ''}:${actor.specialization || ''}` === selectedSpec
-    )).forEach(actor => {
+    selectedActors.forEach(actor => {
         const actions = Array.isArray(actor.actions) ? actor.actions.filter(item => item && typeof item === 'object') : [];
         actions.forEach(action => {
             const variant = action.variant && typeof action.variant === 'object' ? action.variant : {};
+            if (variant.hero_subtree_id != null && String(variant.hero_subtree_id) !== selectedHeroTree) return;
             const haystack = `${action.display_name || ''} ${action.name || ''} ${action.spell_id || ''} ${variant.talent_name || ''} ${variant.talent_name_zh || ''} ${variant.runtime_condition || ''}`.toLowerCase();
             if (query && !haystack.includes(query)) return;
             const product = action.product && typeof action.product === 'object' ? action.product : {};
@@ -5883,7 +5902,9 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const skillMeta = renderSimcSkillIdentity(action);
         const variant = action.variant && typeof action.variant === 'object' ? action.variant : {};
         const talentName = variant.talent_name_zh || variant.talent_name || '基础技能';
-        const treeLabel = {class: '职业天赋', spec: '专精天赋', hero: '英雄天赋'}[variant.tree_type] || '';
+        const treeLabel = variant.tree_type === 'hero'
+            ? `英雄天赋 · ${variant.hero_subtree_name_zh || variant.hero_subtree_name || ''}`
+            : ({class: '职业天赋', spec: '专精天赋'}[variant.tree_type] || '');
         const conditionLabel = variant.runtime_condition || '无单项增伤天赋';
         const variantCell = `<div class="font-semibold text-stone-900">${escapeHtml(talentName)}</div>${treeLabel ? `<div class="text-xs text-stone-500">${escapeHtml(treeLabel)}</div>` : ''}<div class="mt-1 text-xs text-amber-800">${escapeHtml(conditionLabel)}</div>`;
         const componentLabel = action.component === 'tick' ? '每跳' : '直伤';
@@ -5906,6 +5927,7 @@ function initSimcSkillDamagePanel() {
     const generateBtn = document.getElementById('simc-skill-damage-generate');
     const refreshBtn = document.getElementById('simc-skill-damage-refresh');
     const specSelect = document.getElementById('simc-skill-damage-spec');
+    const heroTreeSelect = document.getElementById('simc-skill-damage-hero-tree');
     const searchInput = document.getElementById('simc-skill-damage-search');
     const sortButton = document.getElementById('simc-skill-damage-sort-expected');
     let currentSnapshot = null;
@@ -5932,7 +5954,11 @@ function initSimcSkillDamagePanel() {
     };
 
     refreshBtn.addEventListener('click', () => load().catch(error => showMessage(error.message, 'error')));
-    specSelect.addEventListener('change', () => renderSimcSkillDamageSnapshot(currentSnapshot));
+    specSelect.addEventListener('change', () => {
+        heroTreeSelect.value = '';
+        renderSimcSkillDamageSnapshot(currentSnapshot);
+    });
+    heroTreeSelect.addEventListener('change', () => renderSimcSkillDamageSnapshot(currentSnapshot));
     searchInput.addEventListener('input', () => renderSimcSkillDamageSnapshot(currentSnapshot));
     sortButton.addEventListener('click', () => {
         sortButton.dataset.direction = sortButton.dataset.direction === 'asc' ? 'desc' : 'asc';
