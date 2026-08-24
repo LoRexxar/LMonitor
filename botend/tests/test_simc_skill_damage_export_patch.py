@@ -13,6 +13,7 @@ RUNTIME_CONDITIONS_PATCH = PATCH_DIR / "0010-single-talent-runtime-conditions.pa
 LOW_INTRUSION_PATCH = PATCH_DIR / "0011-low-intrusion-action-universe.patch"
 NO_NATIVE_FORK_PATCH = PATCH_DIR / "0012-remove-native-fork-skill-damage-probes.patch"
 EXTERNAL_RECIPIENT_PATCH = PATCH_DIR / "0013-exclude-external-recipient-actions.patch"
+RESIDUAL_ACTION_PATCH = PATCH_DIR / "0014-mark-residual-actions-trigger-dependent.patch"
 
 
 class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
@@ -27,6 +28,7 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         cls.low_intrusion_text = LOW_INTRUSION_PATCH.read_text(encoding="utf-8")
         cls.no_native_fork_text = NO_NATIVE_FORK_PATCH.read_text(encoding="utf-8")
         cls.external_recipient_text = EXTERNAL_RECIPIENT_PATCH.read_text(encoding="utf-8")
+        cls.residual_action_text = RESIDUAL_ACTION_PATCH.read_text(encoding="utf-8")
 
     def test_cli_controls_and_early_initialized_export(self):
         for token in (
@@ -132,6 +134,42 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
             r"skill_damage_external_recipient_action\( \*action \)[\s\S]*?continue",
             self.external_recipient_text,
         ))
+
+    def test_residual_actions_are_retained_but_not_standalone_probed(self):
+        text = self.residual_action_text
+        self.assertIn('action/residual_action.hpp', text)
+        self.assertRegex(
+            text,
+            r'action_state_t\* state = action\.get_state\(\);[\s\S]*?'
+            r'dynamic_cast<residual_action::residual_periodic_state_t\*>\( state \)[\s\S]*?'
+            r'action_state_t::release\( state \);[\s\S]*?return residual;',
+        )
+        self.assertEqual(
+            text.count(
+                'else if ( residual_trigger_dependent ) '
+                'baseline.unresolved_reason = "residual_trigger_dependent";'
+            ),
+            1,
+        )
+        self.assertEqual(
+            text.count(
+                'else if ( residual_trigger_dependent ) '
+                'changed.unresolved_reason = "residual_trigger_dependent";'
+            ),
+            1,
+        )
+        self.assertIn(
+            'requires_weapon_data || residual_trigger_dependent ? "false" : "true"',
+            text,
+        )
+        self.assertRegex(
+            text,
+            r'else if \( residual_trigger_dependent \) '
+            r'apl_metadata_json_string\( out, "residual_trigger_dependent" \);[\s\S]*?'
+            r'skill_damage_dbc_scaling\( \*action \)',
+        )
+        self.assertNotRegex(text, r'if \( residual_trigger_dependent \)[^\n]*continue')
+        self.assertNotIn('action->name_str == "ignite"', text)
 
     def test_export_outputs_fixed_preset_mathematical_expectation(self):
         self.assertIn('"schema_version\\\":2', self.text)

@@ -1,0 +1,61 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -18,6 +18,7 @@
+ #include "action/action.hpp"
+ #include "action/action_state.hpp"
+ #include "action/dot.hpp"
++#include "action/residual_action.hpp"
+ #include "buff/buff.hpp"
+ #include "dbc/trait_data.hpp"
+ #include "sim/cooldown.hpp"
+@@ -864,6 +865,15 @@
+   return external_recipient_actions.find( action.name_str ) != external_recipient_actions.end();
+ }
+ 
++bool skill_damage_residual_trigger_dependent( action_t& action )
++{
++  action_state_t* state = action.get_state();
++  const bool residual =
++    dynamic_cast<residual_action::residual_periodic_state_t*>( state ) != nullptr;
++  action_state_t::release( state );
++  return residual;
++}
++
+ void export_skill_damage( sim_t& sim )
+ {
+   const bool valid_revision = sim.skill_damage_revision.size() == 40 &&
+@@ -920,10 +930,12 @@
+       const auto scenario_keys = skill_damage_scenario_keys( *player, action->name_str );
+ 
+       const bool requires_weapon_data = action->weapon != nullptr && action->weapon_multiplier != 0.0;
++      const bool residual_trigger_dependent = skill_damage_residual_trigger_dependent( *action );
+       // Each calculation resets the normally initialized actor. Fatal probes are
+       // isolated by the caller through recursive actor-process splitting.
+       skill_damage_amount_t baseline;
+       if ( requires_weapon_data ) baseline.unresolved_reason = "weapon_dependent";
++      else if ( residual_trigger_dependent ) baseline.unresolved_reason = "residual_trigger_dependent";
+       else baseline = skill_damage_snapshot( *action, {} );
+       if ( !first_action ) out << ',';
+       first_action = false;
+@@ -931,9 +943,11 @@
+       out << ",\"name\":"; apl_metadata_json_string( out, action->name_str_reporting.empty() ? action->name_str : action->name_str_reporting );
+       out << ",\"spell_id\":" << spell_id;
+       out << ",\"background\":" << ( action->background ? "true" : "false" ) << ",\"harmful\":" << ( action->harmful ? "true" : "false" );
+-      out << ",\"supported\":" << ( requires_weapon_data ? "false" : "true" );
++      out << ",\"supported\":" << ( requires_weapon_data || residual_trigger_dependent ? "false" : "true" );
+       out << ",\"unsupported_reason\":";
+-      if ( requires_weapon_data ) apl_metadata_json_string( out, "weapon_dependent" ); else out << "null";
++      if ( requires_weapon_data ) apl_metadata_json_string( out, "weapon_dependent" );
++      else if ( residual_trigger_dependent ) apl_metadata_json_string( out, "residual_trigger_dependent" );
++      else out << "null";
+       const auto dbc_scaling = skill_damage_dbc_scaling( *action );
+       out << ",\"parent_token\":null,\"dbc_scaling\":{\"source\":\"spell_effect\",\"direct\":";
+       write_skill_damage_dbc_component( out, dbc_scaling.direct );
+@@ -958,6 +972,7 @@
+ 
+         skill_damage_amount_t changed;
+         if ( requires_weapon_data ) changed.unresolved_reason = "weapon_dependent";
++        else if ( residual_trigger_dependent ) changed.unresolved_reason = "residual_trigger_dependent";
+         else changed = skill_damage_snapshot( *action, active );
+         // Successful no-op scenarios are omitted. Process-level crashes are isolated
+         // by the caller and recorded against the minimal failing actor.
