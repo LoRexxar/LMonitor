@@ -150,12 +150,12 @@ class Command(BaseCommand):
     def _mysql_load_row(row):
         columns = (
             'branch', 'locale', 'spell_id', 'name', 'name_zh',
-            'description', 'aura_description', 'snapshot_build', 'updated_at',
+            'description', 'aura_description', 'icon', 'snapshot_build', 'updated_at',
         )
         updated_at = row.updated_at or timezone.now()
         values = (
             row.branch, row.locale, row.spell_id, row.name, row.name_zh,
-            row.description, row.aura_description, row.snapshot_build,
+            row.description, row.aura_description, row.icon, row.snapshot_build,
             updated_at.strftime('%Y-%m-%d %H:%M:%S.%f'),
         )
         return columns, values

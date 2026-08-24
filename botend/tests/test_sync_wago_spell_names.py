@@ -151,12 +151,12 @@ class SyncWagoSpellNamesTests(TestCase):
 
         self.assertEqual(columns, (
             'branch', 'locale', 'spell_id', 'name', 'name_zh',
-            'description', 'aura_description', 'snapshot_build', 'updated_at',
+            'description', 'aura_description', 'icon', 'snapshot_build', 'updated_at',
         ))
-        self.assertEqual(values[:8], (
-            'wow', 'zhCN', 100, 'Bloodthirst', '嗜血', '', '', '12.0.7.68453',
+        self.assertEqual(values[:9], (
+            'wow', 'zhCN', 100, 'Bloodthirst', '嗜血', '', '', '', '12.0.7.68453',
         ))
-        self.assertIsNotNone(values[8])
+        self.assertIsNotNone(values[9])
 
     @mock.patch('botend.management.commands.sync_wago_spell_names.requests.get')
     def test_downloads_both_locales_for_the_explicit_build(self, get):
