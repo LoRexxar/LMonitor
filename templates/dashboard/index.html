@@ -476,7 +476,7 @@
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260824_skill_damage_name_sort"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260824_skill_damage_formula"></script>
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806c" defer></script>
     <script src="{% static 'dashboard/js/simc-result-report.js' %}?v=20260817_result_config_panel"></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260818_task_compare_selection"></script>
@@ -1757,7 +1757,7 @@
                                     <div>
                                         <div class="text-xs font-bold uppercase tracking-wider text-stone-500">DBC VERSION SNAPSHOT</div>
                                         <h3 class="mt-1 text-xl font-semibold text-gray-900">技能归一化伤害</h3>
-                                        <p class="mt-1 text-sm text-gray-600">DBC 基础伤害直接读取技能 SpellEffect 的 AP/SP coefficient，并按 AP/SP 100.00 归一化；系统为每个相关单项天赋构造 S(T) 与 S(T)+T 成对 SimC runtime actor，将该天赋与其真实前置集合成对比较。技能实际暴击率、暴击总伤害与归一化期望均直接使用 SimC action 结果。全局暴击 20.00%、精通 50.00%，不启用团队或职业增益，不解析或自行维护天赋效果公式；无法安全初始化的单项天赋会明确标记为 unresolved，不生成猜测数值。</p>
+                                        <p class="mt-1 text-sm text-gray-600">DBC 基础伤害直接读取技能 SpellEffect 的 AP/SP coefficient，并按 AP/SP 100.00 归一化；系统为每个相关单项天赋构造 S(T) 与 S(T)+T 成对 SimC runtime actor，将该天赋与其真实前置集合成对比较。最终归一化伤害直接使用 SimC 非暴击 runtime hit；公式中的等效总倍率由最终伤害除以基础归一化伤害反推得到，不代表 SimC 输出了逐项乘区，也不解析或猜测天赋内部公式。无法安全初始化的单项天赋会明确标记为 unresolved，不生成猜测数值。</p>
                                         <div id="simc-skill-damage-identity" class="mt-3 text-xs font-mono text-stone-600">尚未加载快照</div>
                                         <div id="simc-skill-damage-unresolved" class="mt-3 hidden rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950" role="status"></div>
                                     </div>
@@ -1775,9 +1775,9 @@
                                 <div class="simc-skill-damage-table mt-4 overflow-x-auto rounded-xl border border-stone-300 bg-stone-50">
                                     <table class="min-w-full border-collapse text-sm">
                                         <thead class="bg-stone-200 text-left text-xs font-bold uppercase tracking-wide text-stone-700">
-                                            <tr><th class="px-3 py-3">技能</th><th class="px-3 py-3">单项天赋条件</th><th class="px-3 py-3">分量</th><th class="px-3 py-3">DBC 基础伤害</th><th class="px-3 py-3">该条件实际伤害</th><th class="px-3 py-3">技能实际暴击率</th><th class="px-3 py-3"><button id="simc-skill-damage-sort-expected" type="button" data-direction="desc" class="font-bold text-blue-900 hover:underline">归一化伤害期望 ↓</button></th></tr>
+                                            <tr><th class="px-3 py-3">技能</th><th class="px-3 py-3">单项天赋条件</th><th class="px-3 py-3">基础 AP/SP 伤害</th><th class="px-3 py-3">伤害公式</th><th class="px-3 py-3"><button id="simc-skill-damage-sort-final" type="button" data-direction="desc" class="font-bold text-blue-900 hover:underline">最终归一化伤害 ↓</button></th></tr>
                                         </thead>
-                                        <tbody id="simc-skill-damage-body" class="divide-y divide-stone-300 bg-white"><tr><td colspan="7" class="px-4 py-8 text-center text-stone-500">请先选择专精</td></tr></tbody>
+                                        <tbody id="simc-skill-damage-body" class="divide-y divide-stone-300 bg-white"><tr><td colspan="5" class="px-4 py-8 text-center text-stone-500">请先选择专精</td></tr></tbody>
                                     </table>
                                 </div>
                             </section>

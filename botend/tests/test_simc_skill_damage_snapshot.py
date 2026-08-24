@@ -550,7 +550,12 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
     def test_product_projection_only_returns_valid_damage_components_without_mutating_raw_payload(self):
         payload = {'actors': [{'actions': [
-            {'token': 'valid', 'spell_id': 1, 'supported': True, 'baseline': {'direct': {
+            {'token': 'valid', 'spell_id': 1, 'supported': True,
+             'dbc_scaling': {'direct': {
+                 'attack_power_coefficient': 0.75,
+                 'spell_power_coefficient': 0.25,
+             }},
+             'baseline': {'direct': {
                 'product': {'dbc_base_damage_min': 100.0, 'dbc_base_damage_max': 100.0,
                             'current_talent_damage': 120.0, 'crit_damage': 240.0,
                             'crit_multiplier': 2.0, 'actual_crit_chance': 0.2,
@@ -567,7 +572,13 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         self.assertEqual(payload, original)
         self.assertEqual(len(projected['actors'][0]['actions']), 1)
-        self.assertEqual(projected['actors'][0]['actions'][0]['component'], 'direct')
+        action = projected['actors'][0]['actions'][0]
+        self.assertEqual(action['component'], 'direct')
+        self.assertEqual(action['product']['attack_power_coefficient'], 0.75)
+        self.assertEqual(action['product']['spell_power_coefficient'], 0.25)
+        self.assertEqual(action['product']['normalized_base_damage'], 100.0)
+        self.assertEqual(action['product']['runtime_multiplier'], 1.2)
+        self.assertEqual(action['product']['final_normalized_damage'], 120.0)
 
     def test_talent_entries_use_canonical_profile_identity_for_active_metadata(self):
         active = WowTalentVersion.objects.create(key='active', is_active=True)
@@ -1182,29 +1193,29 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn('initSimcSkillDamagePanel();', script)
         self.assertNotIn('bg-gray-900 simc-skill-damage', template)
 
-    def test_dashboard_shows_runtime_product_semantics_without_frontend_damage_math(self):
+    def test_dashboard_shows_base_formula_and_final_normalized_damage_without_crit(self):
         template = Path('templates/dashboard/index.html').read_text(encoding='utf-8')
         script = Path('static/dashboard/js/main.js').read_text(encoding='utf-8')
         renderer = script.split('function renderSimcSkillDamageSnapshot(snapshot) {', 1)[1].split(
             'function initSimcSkillDamagePanel()', 1,
         )[0]
 
-        self.assertIn('AP/SP 100.00', template)
-        self.assertIn('全局暴击 20.00%', template)
-        self.assertIn('精通 50.00%', template)
-        for label in ('DBC 基础伤害', '该条件实际伤害', '技能实际暴击率', '归一化伤害期望'):
+        for label in ('基础 AP/SP 伤害', '伤害公式', '最终归一化伤害'):
             self.assertIn(label, template)
+        for removed_label in ('该条件实际伤害', '技能实际暴击率', '归一化伤害期望'):
+            self.assertNotIn(removed_label, template)
         for field in (
-            'dbc_base_damage_min', 'dbc_base_damage_max', 'current_talent_damage',
-            'crit_damage', 'crit_multiplier', 'actual_crit_chance',
-            'normalized_expected',
+            'attack_power_coefficient', 'spell_power_coefficient',
+            'normalized_base_damage', 'runtime_multiplier', 'final_normalized_damage',
         ):
             self.assertIn(field, renderer)
-        for removed_field in ('pre_talent_base', 'talent_gain_pct', 'selected_talent_expected'):
-            self.assertNotIn(removed_field, renderer)
-        self.assertNotIn('amount.expected', renderer)
-        self.assertNotIn('multiplier * 100', renderer)
-        self.assertNotRegex(renderer, r'\.toFixed\((?!2\))')
+        self.assertIn('formatSimcSkillDamageFactor', renderer)
+        self.assertIn('toFixed(6)', renderer)
+        self.assertIn('等效总倍率', renderer)
+        self.assertNotIn('SimC 总乘区', renderer)
+        for crit_field in ('crit_damage', 'crit_multiplier', 'actual_crit_chance', 'normalized_expected'):
+            self.assertNotIn(crit_field, renderer)
+        self.assertNotIn('全局暴击 20.00%', template)
         self.assertIn('html[data-dashboard-theme="dark"] #simc-skill-damage-panel', template)
 
     def test_dashboard_requires_spec_and_hero_tree_and_renders_single_talent_runtime_conditions(self):
@@ -1218,19 +1229,19 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn('请选择专精', template)
         self.assertIn('请选择英雄天赋', template)
         self.assertIn('单项天赋条件', template)
-        self.assertIn('id="simc-skill-damage-sort-expected"', template)
-        self.assertIn('归一化伤害期望', template)
-        self.assertIn('技能实际暴击率', template)
+        self.assertIn('id="simc-skill-damage-sort-final"', template)
+        self.assertIn('最终归一化伤害', template)
+        self.assertNotIn('技能实际暴击率', template)
         self.assertIn('selectedHeroTree', renderer)
         self.assertIn('hero_talent_trees', renderer)
         self.assertIn('variant.hero_subtree_id', renderer)
         self.assertIn('variant.runtime_condition', renderer)
         self.assertIn('variant.talent_name_zh', renderer)
-        self.assertIn("const sortMode = sortButton.dataset.sortMode === 'expected' ? 'expected' : 'name';", renderer)
-        self.assertIn("if (sortMode === 'expected')", renderer)
-        self.assertIn("sortButton.dataset.sortMode = 'expected';", script)
+        self.assertIn("const sortMode = sortButton.dataset.sortMode === 'final' ? 'final' : 'name';", renderer)
+        self.assertIn("if (sortMode === 'final')", renderer)
+        self.assertIn("sortButton.dataset.sortMode = 'final';", script)
         self.assertIn('sortDirection', renderer)
-        self.assertIn('expectedSortValue', renderer)
+        self.assertIn('finalSortValue', renderer)
         self.assertNotIn('全部专精', renderer)
         self.assertNotIn("component === 'direct' ? 'Direct' : 'Tick'", renderer)
         self.assertNotIn('font-bold uppercase text-stone-500', renderer)

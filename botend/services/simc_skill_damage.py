@@ -579,8 +579,36 @@ def project_skill_damage_product_payload(payload):
                     for key, value in action.items()
                     if key not in ('baseline', 'scenarios', 'unsupported_reason')
                 }
+                display_product = copy.deepcopy(product)
+                dbc_scaling = action.get('dbc_scaling') or {}
+                dbc_component = dbc_scaling.get(component_name)
+                if not isinstance(dbc_component, dict):
+                    dbc_component = {}
+                normalized_base = display_product.get('dbc_base_damage_min')
+                normalized_max = display_product.get('dbc_base_damage_max')
+                final_damage = display_product.get('current_talent_damage')
+                if not (
+                    _finite_number(normalized_base)
+                    and _finite_number(normalized_max)
+                    and normalized_base == normalized_max
+                ):
+                    normalized_base = None
+                runtime_multiplier = (
+                    final_damage / normalized_base
+                    if _finite_number(final_damage)
+                    and _finite_number(normalized_base)
+                    and normalized_base != 0
+                    else None
+                )
+                display_product.update({
+                    'attack_power_coefficient': dbc_component.get('attack_power_coefficient'),
+                    'spell_power_coefficient': dbc_component.get('spell_power_coefficient'),
+                    'normalized_base_damage': normalized_base,
+                    'runtime_multiplier': runtime_multiplier,
+                    'final_normalized_damage': final_damage,
+                })
                 row['component'] = component_name
-                row['product'] = copy.deepcopy(product)
+                row['product'] = display_product
                 rows.append(row)
         actor['actions'] = rows
         display_count += len(rows)

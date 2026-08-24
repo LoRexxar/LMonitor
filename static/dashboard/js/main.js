@@ -5794,6 +5794,10 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         if (!hasFiniteSimcSkillDamageNumber(value)) return '-';
         return value.toFixed(2);
     };
+    const formatSimcSkillDamageFactor = value => {
+        if (!hasFiniteSimcSkillDamageNumber(value)) return '-';
+        return value.toFixed(6).replace(/\.?0+$/, '');
+    };
     const formatSimcSkillDamagePercent = (value, signed = false) => {
         if (!hasFiniteSimcSkillDamageNumber(value)) return '-';
         const prefix = signed && value > 0 ? '+' : '';
@@ -5805,7 +5809,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     const specSelect = document.getElementById('simc-skill-damage-spec');
     const heroTreeSelect = document.getElementById('simc-skill-damage-hero-tree');
     const searchInput = document.getElementById('simc-skill-damage-search');
-    const sortButton = document.getElementById('simc-skill-damage-sort-expected');
+    const sortButton = document.getElementById('simc-skill-damage-sort-final');
     if (!body || !identityEl || !unresolvedEl || !specSelect || !heroTreeSelect || !searchInput || !sortButton) return;
 
     const identity = snapshot && snapshot.identity ? snapshot.identity : {};
@@ -5867,17 +5871,17 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     }
     const selectedHeroTree = heroTreeSelect.value;
     const query = String(searchInput.value || '').trim().toLowerCase();
-    const sortMode = sortButton.dataset.sortMode === 'expected' ? 'expected' : 'name';
+    const sortMode = sortButton.dataset.sortMode === 'final' ? 'final' : 'name';
     const sortDirection = sortButton.dataset.direction === 'asc' ? 'asc' : 'desc';
-    sortButton.textContent = sortMode === 'expected'
-        ? `归一化伤害期望 ${sortDirection === 'asc' ? '↑' : '↓'}`
-        : '按归一化伤害期望排序';
+    sortButton.textContent = sortMode === 'final'
+        ? `最终归一化伤害 ${sortDirection === 'asc' ? '↑' : '↓'}`
+        : '按最终归一化伤害排序';
     if (!selectedSpec) {
-        body.innerHTML = '<tr><td colspan="7" class="px-4 py-8 text-center text-stone-500">请先选择专精</td></tr>';
+        body.innerHTML = '<tr><td colspan="5" class="px-4 py-8 text-center text-stone-500">请先选择专精</td></tr>';
         return;
     }
     if (!selectedHeroTree) {
-        body.innerHTML = '<tr><td colspan="7" class="px-4 py-8 text-center text-stone-500">请选择英雄天赋</td></tr>';
+        body.innerHTML = '<tr><td colspan="5" class="px-4 py-8 text-center text-stone-500">请选择英雄天赋</td></tr>';
         return;
     }
 
@@ -5890,18 +5894,18 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             const haystack = `${action.display_name || ''} ${action.name || ''} ${action.spell_id || ''} ${variant.talent_name || ''} ${variant.talent_name_zh || ''} ${variant.runtime_condition || ''}`.toLowerCase();
             if (query && !haystack.includes(query)) return;
             const product = action.product && typeof action.product === 'object' ? action.product : {};
-            const expectedSortValue = hasFiniteSimcSkillDamageNumber(product.normalized_expected)
-                ? product.normalized_expected
+            const finalSortValue = hasFiniteSimcSkillDamageNumber(product.final_normalized_damage)
+                ? product.final_normalized_damage
                 : Number.NEGATIVE_INFINITY;
-            rows.push({action, product, expectedSortValue});
+            rows.push({action, product, finalSortValue});
         });
     });
     rows.sort((left, right) => {
         const leftName = String(left.action.display_name || left.action.name || '');
         const rightName = String(right.action.display_name || right.action.name || '');
         const nameDelta = leftName.localeCompare(rightName);
-        if (sortMode === 'expected') {
-            const damageDelta = left.expectedSortValue - right.expectedSortValue;
+        if (sortMode === 'final') {
+            const damageDelta = left.finalSortValue - right.finalSortValue;
             if (damageDelta) return sortDirection === 'asc' ? damageDelta : -damageDelta;
         }
         if (nameDelta) return nameDelta;
@@ -5925,16 +5929,30 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const conditionLabel = variant.runtime_condition || '无单项增伤天赋';
         const variantCell = `<div class="font-semibold text-stone-900">${escapeHtml(talentName)}</div>${treeLabel ? `<div class="text-xs text-stone-500">${escapeHtml(treeLabel)}</div>` : ''}<div class="mt-1 text-xs text-amber-800">${escapeHtml(conditionLabel)}</div>`;
         const componentLabel = action.component === 'tick' ? '每跳' : '直伤';
-        let dbcBaseCell = '<span class="text-stone-500">DBC 未解析</span>';
-        if (hasFiniteSimcSkillDamageNumber(product.dbc_base_damage_min)
-            && hasFiniteSimcSkillDamageNumber(product.dbc_base_damage_max)) {
-            const minimum = formatSimcSkillDamageNumber(product.dbc_base_damage_min);
-            const maximum = formatSimcSkillDamageNumber(product.dbc_base_damage_max);
-            dbcBaseCell = minimum === maximum ? minimum : `${minimum} – ${maximum}`;
+        const apCoefficient = product.attack_power_coefficient;
+        const spCoefficient = product.spell_power_coefficient;
+        const normalizedBase = product.normalized_base_damage;
+        const runtimeMultiplier = product.runtime_multiplier;
+        const finalDamage = product.final_normalized_damage;
+        let baseDamageCell = '<span class="text-stone-500">DBC 未解析</span>';
+        if (hasFiniteSimcSkillDamageNumber(normalizedBase)) {
+            const terms = [];
+            if (hasFiniteSimcSkillDamageNumber(apCoefficient) && apCoefficient !== 0) {
+                terms.push(`AP 100 × ${formatSimcSkillDamageFactor(apCoefficient)}`);
+            }
+            if (hasFiniteSimcSkillDamageNumber(spCoefficient) && spCoefficient !== 0) {
+                terms.push(`SP 100 × ${formatSimcSkillDamageFactor(spCoefficient)}`);
+            }
+            baseDamageCell = `<div>${terms.length ? terms.join(' + ') : '无 AP/SP 系数'}</div><div class="text-xs text-stone-500">≈ ${formatSimcSkillDamageFactor(normalizedBase)}</div>`;
         }
-        const expectedEvidence = `暴击 ${formatSimcSkillDamageNumber(product.crit_damage)} · × ${formatSimcSkillDamageNumber(product.crit_multiplier)}`;
-        return `<tr class="align-top hover:bg-stone-50"><td class="min-w-[220px] px-3 py-3">${skillMeta}</td><td class="min-w-[190px] px-3 py-3">${variantCell}</td><td class="whitespace-nowrap px-3 py-3 font-medium text-stone-700">${componentLabel}</td><td class="px-3 py-3 font-mono">${dbcBaseCell}</td><td class="px-3 py-3 font-mono font-semibold">${formatSimcSkillDamageNumber(product.current_talent_damage)}</td><td class="px-3 py-3 font-mono">${formatSimcSkillDamagePercent(product.actual_crit_chance * 100)}</td><td class="px-3 py-3 font-mono font-bold text-blue-900">${formatSimcSkillDamageNumber(product.normalized_expected)}<div class="text-xs font-normal text-stone-500">${expectedEvidence}</div></td></tr>`;
-    }).join('') : '<tr><td colspan="7" class="px-4 py-8 text-center text-stone-500">没有符合条件的伤害技能</td></tr>';
+        let formulaCell = '<span class="text-stone-500">公式未解析</span>';
+        if (hasFiniteSimcSkillDamageNumber(normalizedBase)
+            && hasFiniteSimcSkillDamageNumber(runtimeMultiplier)
+            && hasFiniteSimcSkillDamageNumber(finalDamage)) {
+            formulaCell = `<div class="text-xs font-semibold text-stone-500">${componentLabel}</div><div>${formatSimcSkillDamageFactor(normalizedBase)} × ${formatSimcSkillDamageFactor(runtimeMultiplier)} <span class="text-xs text-stone-500">（等效总倍率）</span> ≈ ${formatSimcSkillDamageFactor(finalDamage)}</div>`;
+        }
+        return `<tr class="align-top hover:bg-stone-50"><td class="min-w-[220px] px-3 py-3">${skillMeta}</td><td class="min-w-[190px] px-3 py-3">${variantCell}</td><td class="min-w-[180px] px-3 py-3 font-mono">${baseDamageCell}</td><td class="min-w-[260px] px-3 py-3 font-mono">${formulaCell}</td><td class="px-3 py-3 font-mono font-bold text-blue-900">${formatSimcSkillDamageNumber(finalDamage)}</td></tr>`;
+    }).join('') : '<tr><td colspan="5" class="px-4 py-8 text-center text-stone-500">没有符合条件的伤害技能</td></tr>';
 }
 
 function initSimcSkillDamagePanel() {
@@ -5946,7 +5964,7 @@ function initSimcSkillDamagePanel() {
     const specSelect = document.getElementById('simc-skill-damage-spec');
     const heroTreeSelect = document.getElementById('simc-skill-damage-hero-tree');
     const searchInput = document.getElementById('simc-skill-damage-search');
-    const sortButton = document.getElementById('simc-skill-damage-sort-expected');
+    const sortButton = document.getElementById('simc-skill-damage-sort-final');
     let currentSnapshot = null;
     let pollTimer = null;
 
@@ -5978,8 +5996,8 @@ function initSimcSkillDamagePanel() {
     heroTreeSelect.addEventListener('change', () => renderSimcSkillDamageSnapshot(currentSnapshot));
     searchInput.addEventListener('input', () => renderSimcSkillDamageSnapshot(currentSnapshot));
     sortButton.addEventListener('click', () => {
-        if (sortButton.dataset.sortMode !== 'expected') {
-            sortButton.dataset.sortMode = 'expected';
+        if (sortButton.dataset.sortMode !== 'final') {
+            sortButton.dataset.sortMode = 'final';
             sortButton.dataset.direction = 'desc';
         } else {
             sortButton.dataset.direction = sortButton.dataset.direction === 'asc' ? 'desc' : 'asc';
