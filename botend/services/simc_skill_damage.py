@@ -1063,7 +1063,12 @@ class SimcSkillDamageSnapshotService:
                 )
             except RuntimeError as exc:
                 diagnostic = str(exc)
-                if not re.match(r'^sim_signal_handler: Segmentation fault!(?:\s|$)', diagnostic):
+                if not re.search(
+                    r'(?:^|\r?\n)sim_signal_handler: Segmentation fault!'
+                    r'(?:[ \t]+(?:signal_\d+\b|Iteration=-?\d+\b)[^\r\n]*)?'
+                    r'(?:\r?\n|$)',
+                    diagnostic,
+                ):
                     raise
                 if len(batch) > 1:
                     middle = len(batch) // 2

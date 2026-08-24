@@ -717,7 +717,12 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             _profile, batch, *, scaffold_talents, talent_prerequisites=None, target_health,
         ):
             if bad in batch:
-                raise RuntimeError('sim_signal_handler: Segmentation fault! signal_11')
+                raise RuntimeError(
+                    'Severe: The precise proc chance of Frostbane is unknown. '
+                    'Results will be incorrect.\n'
+                    'sim_signal_handler: Segmentation fault! '
+                    'Iteration=-1 Seed=1506411349249261642 TargetHealth=0'
+                )
             actors = [{
                 'name': 'skill_damage_base', 'class': 'druid', 'spec': 'guardian',
                 'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions', 'actions': [],
@@ -753,7 +758,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 ('guardian', 137059, 34, 'simc_actor_initialization_failed'),
             ],
         )
-        self.assertIn('signal_11', result['unresolved'][0]['diagnostic'])
+        self.assertIn('Iteration=-1', result['unresolved'][0]['diagnostic'])
 
     def test_resilient_export_does_not_swallow_unknown_runtime_failure(self):
         snapshot = SimpleNamespace(simc_revision='e' * 40, game_build='12.1.0.69299')
@@ -772,8 +777,8 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         ):
             if batch:
                 raise RuntimeError(
-                    "configuration failed: expected marker "
-                    "'sim_signal_handler: Segmentation fault!' was absent"
+                    'configuration failed: expected marker was absent\n'
+                    'sim_signal_handler: Segmentation fault! was only quoted'
                 )
             return baseline
 
