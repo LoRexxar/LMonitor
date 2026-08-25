@@ -1,0 +1,152 @@
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+index 6116002a4e..1ae20751c4 100644
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -527,6 +527,7 @@ struct skill_damage_amount_t
+   struct component_t
+   {
+     double hit = 0.0, crit = 0.0, crit_multiplier = 1.0, crit_chance = 0.0, expected = 0.0;
++    double damage_equivalent_count = 1.0;
+     bool present = false;
+   } direct_amount, tick_amount;
+   bool direct = false, periodic = false;
+@@ -585,7 +586,8 @@ bool skill_damage_amount_changed( const skill_damage_amount_t& a, const skill_da
+ {
+   const auto changed = []( double x, double y ) { return std::abs( x - y ) > std::max( 1.0, std::abs( x ) ) * 1.0e-8; };
+   return changed( a.direct_amount.expected, b.direct_amount.expected ) ||
+-         changed( a.tick_amount.expected, b.tick_amount.expected );
++         changed( a.tick_amount.expected, b.tick_amount.expected ) ||
++         changed( a.tick_amount.damage_equivalent_count, b.tick_amount.damage_equivalent_count );
+ }
+ 
+ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
+@@ -631,6 +633,22 @@ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
+       state->initialize(); state->target = action.target;
+       state->n_targets = 1; state->chain_target = 0; state->result = RESULT_HIT;
+       action.snapshot_state( state, result_amount_type::DMG_OVER_TIME );
++      const timespan_t tick_duration = action.composite_dot_duration( state );
++      const timespan_t tick_period = action.tick_time( state );
++      if ( tick_duration <= 0_ms || tick_period <= 0_ms )
++      {
++        amount.unresolved_reason = "periodic_damage_count_unavailable";
++        action_state_t::release( state );
++        return amount;
++      }
++      const double tick_ratio = tick_duration / tick_period;
++      const int full_ticks = std::max( 0, static_cast<int>( std::floor( tick_ratio ) ) );
++      const timespan_t remainder = tick_duration - tick_period * full_ticks;
++      const double partial_tick = remainder > 0_ms
++        ? action.last_tick_factor( action.get_dot( state->target ), tick_period, remainder )
++        : 0.0;
++      const double immediate_tick = ( action.tick_zero || action.tick_on_application ) ? 1.0 : 0.0;
++      amount.tick_amount.damage_equivalent_count = full_ticks + partial_tick + immediate_tick;
+       state->attack_power = 100.0;
+       state->spell_power = 100.0;
+       amount.tick_amount.hit = action.calculate_tick_amount( state, 1.0 );
+@@ -651,6 +669,9 @@ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
+   }
+   catch ( const std::exception& e ) { amount.unresolved_reason = std::string( "runtime_snapshot_failed: " ) + e.what(); }
+   catch ( ... ) { amount.unresolved_reason = "runtime_snapshot_failed: unknown_exception"; }
++  if ( amount.periodic && ( !std::isfinite( amount.tick_amount.damage_equivalent_count ) ||
++                            amount.tick_amount.damage_equivalent_count <= 0.0 ) )
++    amount.unresolved_reason = "runtime_non_finite_amount";
+   action_state_t::release( state );
+   return amount;
+ }
+@@ -755,6 +776,7 @@ void write_skill_damage_amount( std::ostream& out, const skill_damage_amount_t&
+     out << ",\"crit_multiplier\":"; write_skill_damage_json_number( out, c.crit_multiplier );
+     out << ",\"crit_chance\":"; write_skill_damage_json_number( out, c.crit_chance );
+     out << ",\"expected\":"; write_skill_damage_json_number( out, c.expected );
++    out << ",\"damage_equivalent_count\":"; write_skill_damage_json_number( out, c.damage_equivalent_count );
+     out << '}';
+   };
+   out << "{\"direct\":"; write_component( a.direct_amount, a.direct );
+@@ -890,7 +912,7 @@ void export_skill_damage( sim_t& sim )
+   const std::string temporary = target + ".tmp." + std::to_string( static_cast<long long>( getpid() ) );
+   std::ofstream out( temporary, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open temporary skill damage export file" );
+-  out << "{\"schema_version\":3,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
++  out << "{\"schema_version\":4,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"normalization_basis\":{\"attack_power\":100,\"spell_power\":100,"
+          "\"crit_percent\":20,\"mastery_percent\":50}";
+@@ -919,6 +941,12 @@ void export_skill_damage( sim_t& sim )
+     out << ",\"mastery\":{\"rating\":" << player->composite_rating( RATING_MASTERY ) << ",\"percent\":" << player->composite_mastery() * 100.0 << '}';
+     out << ",\"versatility\":{\"rating\":" << player->composite_damage_versatility_rating() << ",\"percent\":" << player->composite_damage_versatility() * 100.0 << "}},\"actions\":[";
+ 
++    std::map<const action_t*, std::set<const action_t*>> action_parents;
++    for ( const action_t* candidate : player->action_list )
++      if ( candidate )
++        for ( const action_t* child : candidate->child_action )
++          if ( child ) action_parents[ child ].insert( candidate );
++
+     std::set<std::pair<std::string, unsigned>> exported_actions;
+     bool first_action = true;
+     for ( action_t* action : player->action_list )
+@@ -927,6 +955,40 @@ void export_skill_damage( sim_t& sim )
+            ( !action->does_direct_damage() && !action->does_periodic_damage() ) ) continue;
+       const unsigned spell_id = apl_metadata_action_spell_id( *action );
+       if ( !exported_actions.emplace( action->name_str, spell_id ).second ) continue;
++
++      const auto immediate_parents = action_parents.find( action );
++      const action_t* parent_action = immediate_parents != action_parents.end() && immediate_parents->second.size() == 1
++        ? *immediate_parents->second.begin() : nullptr;
++      const action_t* reporting_root_candidate = action;
++      std::set<const action_t*> visited_actions;
++      bool unambiguous_ancestry = true;
++      while ( true )
++      {
++        if ( !visited_actions.insert( reporting_root_candidate ).second )
++        {
++          unambiguous_ancestry = false;
++          break;
++        }
++        auto parent_it = action_parents.find( reporting_root_candidate );
++        if ( parent_it == action_parents.end() || parent_it->second.empty() ) break;
++        if ( parent_it->second.size() != 1 )
++        {
++          unambiguous_ancestry = false;
++          break;
++        }
++        reporting_root_candidate = *parent_it->second.begin();
++      }
++      bool trigger_proven = reporting_root_candidate == action;
++      if ( unambiguous_ancestry && reporting_root_candidate != action && spell_id && reporting_root_candidate->data().ok() )
++        for ( const spelleffect_data_t& effect : reporting_root_candidate->data().effects() )
++          if ( effect.trigger() && effect.trigger()->id() == spell_id )
++          {
++            trigger_proven = true;
++            break;
++          }
++      const action_t* reporting_root = unambiguous_ancestry && trigger_proven ? reporting_root_candidate : action;
++      const unsigned reporting_root_spell_id = apl_metadata_action_spell_id( *reporting_root );
++      const bool reporting_root_component = reporting_root == action || trigger_proven;
+       const auto scenario_keys = skill_damage_scenario_keys( *player, action->name_str );
+ 
+       const bool requires_weapon_data = action->weapon != nullptr && action->weapon_multiplier != 0.0;
+@@ -952,7 +1014,12 @@ void export_skill_damage( sim_t& sim )
+       else if ( child_trigger_dependent ) apl_metadata_json_string( out, "child_trigger_dependent" );
+       else out << "null";
+       const auto dbc_scaling = skill_damage_dbc_scaling( *action );
+-      out << ",\"parent_token\":null,\"dbc_scaling\":{\"source\":\"spell_effect\",\"direct\":";
++      out << ",\"parent_token\":";
++      if ( parent_action ) apl_metadata_json_string( out, parent_action->name_str ); else out << "null";
++      out << ",\"reporting_root_token\":"; apl_metadata_json_string( out, reporting_root->name_str );
++      out << ",\"reporting_root_spell_id\":" << reporting_root_spell_id;
++      out << ",\"reporting_root_component\":" << ( reporting_root_component ? "true" : "false" );
++      out << ",\"dbc_scaling\":{\"source\":\"spell_effect\",\"direct\":";
+       write_skill_damage_dbc_component( out, dbc_scaling.direct );
+       out << ",\"tick\":";
+       write_skill_damage_dbc_component( out, dbc_scaling.tick );
+@@ -1054,7 +1121,10 @@ void export_skill_damage( sim_t& sim )
+                    ? "dbc_action_has_no_damage_component"
+                    : candidate.unresolved_reason );
+         out << ",\"dbc_candidate_source\":"; apl_metadata_json_string( out, candidate.source );
+-        out << ",\"parent_token\":null,\"baseline\":{\"direct\":null,\"tick\":null,"
++        out << ",\"parent_token\":null,\"reporting_root_token\":";
++        apl_metadata_json_string( out, token );
++        out << ",\"reporting_root_spell_id\":" << candidate.spell_id;
++        out << ",\"reporting_root_component\":true,\"baseline\":{\"direct\":null,\"tick\":null,"
+                "\"unresolved_reason\":";
+         apl_metadata_json_string(
+             out, candidate.unresolved_reason.empty()

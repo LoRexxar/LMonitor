@@ -16,6 +16,7 @@ EXTERNAL_RECIPIENT_PATCH = PATCH_DIR / "0013-exclude-external-recipient-actions.
 RESIDUAL_ACTION_PATCH = PATCH_DIR / "0014-mark-residual-actions-trigger-dependent.patch"
 CHILD_ACTION_PATCH = PATCH_DIR / "0015-mark-child-actions-trigger-dependent.patch"
 PARENT_STATE_ACTION_PATCH = PATCH_DIR / "0016-narrow-parent-state-dependent-actions.patch"
+CAST_COMPONENT_PATCH = PATCH_DIR / "0017-skill-damage-cast-components.patch"
 
 
 class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
@@ -33,6 +34,7 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         cls.residual_action_text = RESIDUAL_ACTION_PATCH.read_text(encoding="utf-8")
         cls.child_action_text = CHILD_ACTION_PATCH.read_text(encoding="utf-8")
         cls.parent_state_action_text = PARENT_STATE_ACTION_PATCH.read_text(encoding="utf-8")
+        cls.cast_component_text = CAST_COMPONENT_PATCH.read_text(encoding="utf-8")
 
     def test_cli_controls_and_early_initialized_export(self):
         for token in (
@@ -242,6 +244,30 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
             "odyns_fury_mh", "odyns_fury_oh", "bladestorm_mh", "bladestorm_oh",
         ):
             self.assertNotIn(required_child, text)
+
+    def test_cast_component_patch_exports_reporting_root_and_periodic_total_count(self):
+        text = self.cast_component_text
+        for token in (
+            '\\"schema_version\\\":4', 'reporting_root_token',
+            'reporting_root_spell_id', 'reporting_root_component',
+            'damage_equivalent_count', 'composite_dot_duration',
+            'tick_time', 'last_tick_factor', 'tick_zero', 'tick_on_application',
+        ):
+            self.assertIn(token, text)
+        self.assertIn('effect.trigger()->id() == spell_id', text)
+        self.assertIn('std::map<const action_t*, std::set<const action_t*>> action_parents', text)
+        self.assertIn('action_parents[ child ].insert( candidate )', text)
+        self.assertIn('parent_it->second.size() != 1', text)
+        self.assertIn('unambiguous_ancestry && trigger_proven ? reporting_root_candidate : action', text)
+        self.assertNotIn('action_parents.emplace( child, candidate )', text)
+
+    def test_unresolved_dbc_candidates_export_standalone_reporting_root(self):
+        text = self.cast_component_text
+        self.assertGreaterEqual(text.count('reporting_root_token'), 2)
+        self.assertGreaterEqual(text.count('reporting_root_spell_id'), 2)
+        self.assertGreaterEqual(text.count('reporting_root_component'), 2)
+        self.assertIn('apl_metadata_json_string( out, token )', text)
+        self.assertIn('candidate.spell_id', text)
 
     def test_export_outputs_fixed_preset_mathematical_expectation(self):
         self.assertIn('"schema_version\\\":2', self.text)

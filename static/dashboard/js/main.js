@@ -5810,7 +5810,8 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     const heroTreeSelect = document.getElementById('simc-skill-damage-hero-tree');
     const searchInput = document.getElementById('simc-skill-damage-search');
     const sortButton = document.getElementById('simc-skill-damage-sort-final');
-    if (!body || !identityEl || !unresolvedEl || !specSelect || !heroTreeSelect || !searchInput || !sortButton) return;
+    const globalModifiersEl = document.getElementById('simc-skill-damage-global-modifiers');
+    if (!body || !identityEl || !unresolvedEl || !specSelect || !heroTreeSelect || !searchInput || !sortButton || !globalModifiersEl) return;
 
     const identity = snapshot && snapshot.identity ? snapshot.identity : {};
     identityEl.textContent = snapshot
@@ -5876,6 +5877,8 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     sortButton.textContent = sortMode === 'final'
         ? `最终归一化伤害 ${sortDirection === 'asc' ? '↑' : '↓'}`
         : '按最终归一化伤害排序';
+    globalModifiersEl.classList.add('hidden');
+    globalModifiersEl.innerHTML = '';
     if (!selectedSpec) {
         body.innerHTML = '<tr><td colspan="5" class="px-4 py-8 text-center text-stone-500">请先选择专精</td></tr>';
         return;
@@ -5883,6 +5886,28 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     if (!selectedHeroTree) {
         body.innerHTML = '<tr><td colspan="5" class="px-4 py-8 text-center text-stone-500">请选择英雄天赋</td></tr>';
         return;
+    }
+
+    const globalModifiers = [];
+    const seenGlobalModifiers = new Set();
+    selectedActors.forEach(actor => {
+        const modifiers = Array.isArray(actor.global_damage_modifiers) ? actor.global_damage_modifiers : [];
+        modifiers.forEach(modifier => {
+            if (!modifier || typeof modifier !== 'object') return;
+            if (modifier.hero_subtree_id != null && String(modifier.hero_subtree_id) !== selectedHeroTree) return;
+            const key = String(modifier.talent_id ?? `${modifier.talent_name || ''}:${modifier.damage_multiplier || ''}`);
+            if (seenGlobalModifiers.has(key)) return;
+            seenGlobalModifiers.add(key);
+            globalModifiers.push(modifier);
+        });
+    });
+    if (globalModifiers.length) {
+        const items = globalModifiers.map(modifier => {
+            const name = modifier.talent_name_zh || modifier.talent_name || modifier.talent_id || '未知天赋';
+            return `<div class="flex items-center justify-between gap-4 border-t border-indigo-200 py-2 first:border-t-0"><span class="font-semibold text-indigo-950">${escapeHtml(name)}</span><span class="font-mono text-indigo-900">${formatSimcSkillDamageFactor(modifier.damage_multiplier)} ×（${formatSimcSkillDamagePercent(modifier.damage_bonus_percent, true)}）</span></div>`;
+        }).join('');
+        globalModifiersEl.innerHTML = `<div class="mb-1 text-sm font-bold text-indigo-950">全技能伤害加成</div><div class="mb-2 text-xs text-indigo-700">仅列出经所有可比较伤害分量证明倍率完全一致的天赋；不计入下方技能公式。</div>${items}`;
+        globalModifiersEl.classList.remove('hidden');
     }
 
     const rows = [];
@@ -5926,9 +5951,11 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const treeLabel = variant.tree_type === 'hero'
             ? `英雄天赋 · ${variant.hero_subtree_name_zh || variant.hero_subtree_name || ''}`
             : ({class: '职业天赋', spec: '专精天赋'}[variant.tree_type] || '');
-        const conditionLabel = variant.runtime_condition || '无单项增伤天赋';
-        const variantCell = `<div class="font-semibold text-stone-900">${escapeHtml(talentName)}</div>${treeLabel ? `<div class="text-xs text-stone-500">${escapeHtml(treeLabel)}</div>` : ''}<div class="mt-1 text-xs text-amber-800">${escapeHtml(conditionLabel)}</div>`;
-        const componentLabel = action.component === 'tick' ? '每跳' : '直伤';
+        const conditionLabel = variant.runtime_condition || '';
+        const variantCell = `<div class="font-semibold text-stone-900">${escapeHtml(talentName)}</div>${treeLabel ? `<div class="text-xs text-stone-500">${escapeHtml(treeLabel)}</div>` : ''}${conditionLabel ? `<div class="mt-1 text-xs text-amber-800">${escapeHtml(conditionLabel)}</div>` : ''}`;
+        const componentLabel = Number(action.component_count || 0) > 1
+            ? `合并 ${action.component_count} 个施法分量`
+            : '单一施法分量';
         const apCoefficient = product.attack_power_coefficient;
         const spCoefficient = product.spell_power_coefficient;
         const normalizedBase = product.normalized_base_damage;

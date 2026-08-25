@@ -251,7 +251,10 @@ def _scenario_tokens(scenario):
     return tuple(sorted({str(token).strip() for token in tokens if str(token or '').strip()}))
 
 
-_AMOUNT_COMPONENT_FIELDS = ('hit', 'crit', 'crit_multiplier', 'crit_chance', 'expected')
+_AMOUNT_COMPONENT_FIELDS = (
+    'hit', 'crit', 'crit_multiplier', 'crit_chance', 'expected',
+    'damage_equivalent_count',
+)
 
 
 def _amount_expected(amount):
@@ -356,6 +359,155 @@ def _scenario_amounts(action):
     return amounts
 
 
+def _resolved_component_hits(actor):
+    hits = {}
+    for action in (actor or {}).get('actions') or []:
+        if not isinstance(action, dict) or action.get('supported') is not True:
+            continue
+        amount = action.get('baseline')
+        if _amount_state(amount)[0] != 'resolved':
+            continue
+        for component_name in ('direct', 'tick'):
+            component = amount.get(component_name) if isinstance(amount, dict) else None
+            hit = component.get('hit') if isinstance(component, dict) else None
+            if _finite_number(hit) and abs(hit) > 1.0e-12:
+                hits[(_action_identity(action), component_name)] = float(hit)
+    return hits
+
+
+def _uniform_amount_ratios(reference, selected):
+    """Return damage ratios only when the whole amount is a pure multiplier."""
+    if _amount_state(reference)[0] != 'resolved' or _amount_state(selected)[0] != 'resolved':
+        return None
+    ratios = []
+    present = False
+    for component_name in ('direct', 'tick'):
+        left = reference.get(component_name)
+        right = selected.get(component_name)
+        if isinstance(left, dict) != isinstance(right, dict):
+            return None
+        if not isinstance(left, dict):
+            continue
+        present = True
+        if any(
+            not _finite_number(side.get(field))
+            for side in (left, right)
+            for field in _AMOUNT_COMPONENT_FIELDS
+        ):
+            return None
+        if left['damage_equivalent_count'] <= 0 or right['damage_equivalent_count'] <= 0:
+            return None
+        for field in ('crit_multiplier', 'crit_chance', 'damage_equivalent_count'):
+            if not _fact_equal(left[field], right[field]):
+                return None
+        for field in ('hit', 'crit', 'expected'):
+            left_value = float(left[field])
+            right_value = float(right[field])
+            if abs(left_value) <= 1.0e-12:
+                if abs(right_value) > 1.0e-12:
+                    return None
+            else:
+                ratios.append(right_value / left_value)
+    return ratios if present else None
+
+
+def _uniform_actor_ratios(reference_actor, selected_actor):
+    """Fail closed unless all baselines and corresponding scenarios are uniform."""
+    if not isinstance(reference_actor, dict) or not isinstance(selected_actor, dict):
+        return None
+
+    def action_map(actor):
+        result = {}
+        for action in actor.get('actions') or []:
+            if not isinstance(action, dict) or action.get('supported') is not True:
+                continue
+            identity = _action_identity(action)
+            if identity in result:
+                return None
+            result[identity] = action
+        return result
+
+    reference_actions = action_map(reference_actor)
+    selected_actions = action_map(selected_actor)
+    if (
+        not reference_actions or selected_actions is None
+        or set(selected_actions) != set(reference_actions)
+    ):
+        return None
+    ratios = []
+    for identity, reference_action in reference_actions.items():
+        selected_action = selected_actions[identity]
+        amount_ratios = _uniform_amount_ratios(
+            reference_action.get('baseline'), selected_action.get('baseline'),
+        )
+        if amount_ratios is None:
+            return None
+        ratios.extend(amount_ratios)
+        try:
+            reference_scenarios = _scenario_amounts(reference_action)
+            selected_scenarios = _scenario_amounts(selected_action)
+        except ValueError:
+            return None
+        if set(selected_scenarios) != set(reference_scenarios):
+            return None
+        for tokens, reference_amount in reference_scenarios.items():
+            amount_ratios = _uniform_amount_ratios(
+                reference_amount, selected_scenarios[tokens],
+            )
+            if amount_ratios is None:
+                return None
+            ratios.extend(amount_ratios)
+    return ratios
+
+
+def classify_global_damage_modifiers(variants):
+    """Return talents proven to be pure uniform multipliers in every probe dataset."""
+    variants = list(variants or [])
+    talent_id_counts = {}
+    for item in variants:
+        talent_id = (item.get('talent') or {}).get('id') if isinstance(item, dict) else None
+        if isinstance(talent_id, int) and not isinstance(talent_id, bool) and talent_id > 0:
+            talent_id_counts[talent_id] = talent_id_counts.get(talent_id, 0) + 1
+    modifiers = []
+    for item in variants:
+        talent = item.get('talent') or {}
+        talent_id = talent.get('id')
+        if talent_id_counts.get(talent_id) != 1:
+            continue
+        ratios = []
+        proven = True
+        for reference_key, selected_key in (
+            ('reference_high', 'high'), ('reference_low', 'low'),
+        ):
+            dataset_ratios = _uniform_actor_ratios(
+                item.get(reference_key), item.get(selected_key),
+            )
+            if dataset_ratios is None:
+                proven = False
+                break
+            ratios.extend(dataset_ratios)
+        if not proven or not ratios:
+            continue
+        if any(abs(ratio - 1.0) <= 1.0e-8 for ratio in ratios):
+            continue
+        first = ratios[0]
+        if any(abs(ratio - first) > max(1.0, abs(first)) * 1.0e-7 for ratio in ratios[1:]):
+            continue
+        modifiers.append({
+            'talent_id': talent_id,
+            'talent_name': str(talent.get('name') or ''),
+            'talent_name_zh': str(talent.get('name_zh') or ''),
+            'tree_type': str(talent.get('tree_type') or ''),
+            'hero_subtree_id': talent.get('hero_subtree_id'),
+            'hero_subtree_name': str(talent.get('hero_subtree_name') or ''),
+            'hero_subtree_name_zh': str(talent.get('hero_subtree_name_zh') or ''),
+            'damage_multiplier': first,
+            'damage_bonus_percent': (first - 1.0) * 100.0,
+            'scope': 'all_resolved_damage_components',
+        })
+    return modifiers
+
+
 def flatten_single_talent_damage_variants(base_high, base_low, variants):
     """Flatten every independently exported SimC fact without recalculating damage."""
     base_high_actions = {
@@ -369,6 +521,9 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants):
         if isinstance(action, dict) and action.get('supported') is True
     }
     rows = []
+    global_talent_ids = {
+        modifier.get('talent_id') for modifier in classify_global_damage_modifiers(variants)
+    }
 
     def append_row(action, amount, *, talent, condition, comparison, scenario_tokens=()):
         if not isinstance(action, dict) or _amount_state(amount)[0] != 'resolved':
@@ -407,19 +562,21 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants):
         if _amount_state(high_amount)[0] == 'resolved':
             append_row(
                 high_action, high_amount, talent=no_talent,
-                condition='无单项增伤天赋', comparison=high_amount,
+                condition='', comparison=high_amount,
             )
         if _amount_state(low_amount)[0] == 'resolved' and (
             _amount_state(high_amount)[0] != 'resolved' or _effect_changed(high_amount, low_amount)
         ):
             append_row(
                 low_action, low_amount, talent=no_talent,
-                condition='目标生命值低于 35%（无单项增伤天赋）',
+                condition='目标生命值低于 35%',
                 comparison=low_amount,
             )
 
     for item in variants:
         talent = item.get('talent') or {}
+        if talent.get('id') in global_talent_ids:
+            continue
         reference_high_actions = {
             _action_identity(action): action
             for action in ((item.get('reference_high') or {}).get('actions') or [])
@@ -454,7 +611,7 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants):
             if _amount_state(high_amount)[0] == 'resolved' and _effect_changed(base_high_amount, high_amount):
                 candidates.append((
                     high_action, high_amount, base_high_amount,
-                    '单项天赋常驻', (),
+                    '', (),
                 ))
 
             base_high_scenarios = _scenario_amounts(base_high_action)
@@ -548,7 +705,7 @@ def attach_runtime_product_metrics(actor):
 
 
 def project_skill_damage_product_payload(payload):
-    """Return the display read model while preserving raw snapshot diagnostics."""
+    """Return one display row per proven SimC reporting-root cast."""
     result = copy.deepcopy(payload or {})
     display_count = 0
     required = (
@@ -557,7 +714,7 @@ def project_skill_damage_product_payload(payload):
     )
     actors = [actor for actor in (result.get('actors') or []) if isinstance(actor, dict)]
     for actor in actors:
-        rows = []
+        groups = {}
         for action in actor.get('actions') or []:
             if not isinstance(action, dict) or action.get('supported') is not True:
                 continue
@@ -574,42 +731,73 @@ def project_skill_damage_product_payload(payload):
                 chance = product['actual_crit_chance']
                 if not 0.0 <= chance <= 1.0 or product['crit_multiplier'] < 0.0:
                     continue
-                row = {
-                    key: copy.deepcopy(value)
-                    for key, value in action.items()
-                    if key not in ('baseline', 'scenarios', 'unsupported_reason')
-                }
-                display_product = copy.deepcopy(product)
+                count = component.get('damage_equivalent_count', 1.0)
+                if not _finite_number(count) or count <= 0:
+                    continue
                 dbc_scaling = action.get('dbc_scaling') or {}
                 dbc_component = dbc_scaling.get(component_name)
                 if not isinstance(dbc_component, dict):
-                    dbc_component = {}
-                normalized_base = display_product.get('dbc_base_damage_min')
-                normalized_max = display_product.get('dbc_base_damage_max')
-                final_damage = display_product.get('current_talent_damage')
+                    continue
+                normalized_base = product.get('dbc_base_damage_min')
+                normalized_max = product.get('dbc_base_damage_max')
+                final_damage = product.get('current_talent_damage')
+                ap_coeff = dbc_component.get('attack_power_coefficient')
+                sp_coeff = dbc_component.get('spell_power_coefficient')
                 if not (
-                    _finite_number(normalized_base)
-                    and _finite_number(normalized_max)
-                    and normalized_base == normalized_max
+                    _finite_number(normalized_base) and _finite_number(normalized_max)
+                    and normalized_base == normalized_max and _finite_number(final_damage)
+                    and _finite_number(ap_coeff) and _finite_number(sp_coeff)
                 ):
-                    normalized_base = None
-                runtime_multiplier = (
-                    final_damage / normalized_base
-                    if _finite_number(final_damage)
-                    and _finite_number(normalized_base)
-                    and normalized_base != 0
-                    else None
+                    continue
+                root_component = action.get('reporting_root_component') is True
+                root_token = action.get('reporting_root_token') if root_component else action.get('token')
+                root_spell_id = action.get('reporting_root_spell_id') if root_component else action.get('spell_id')
+                variant = action.get('variant') or {}
+                group_key = (
+                    str(root_token or ''), root_spell_id,
+                    json.dumps(variant, ensure_ascii=False, sort_keys=True, separators=(',', ':')),
                 )
-                display_product.update({
-                    'attack_power_coefficient': dbc_component.get('attack_power_coefficient'),
-                    'spell_power_coefficient': dbc_component.get('spell_power_coefficient'),
-                    'normalized_base_damage': normalized_base,
-                    'runtime_multiplier': runtime_multiplier,
-                    'final_normalized_damage': final_damage,
+                group = groups.get(group_key)
+                if group is None:
+                    row = {
+                        key: copy.deepcopy(value)
+                        for key, value in action.items()
+                        if key not in ('baseline', 'scenarios', 'unsupported_reason', 'dbc_scaling')
+                    }
+                    row['token'] = root_token
+                    row['spell_id'] = root_spell_id
+                    row['component'] = 'combined'
+                    row['component_count'] = 0
+                    row['components'] = []
+                    row['product'] = {
+                        'attack_power_coefficient': 0.0,
+                        'spell_power_coefficient': 0.0,
+                        'normalized_base_damage': 0.0,
+                        'final_normalized_damage': 0.0,
+                    }
+                    group = groups[group_key] = row
+                weighted_base = normalized_base * count
+                weighted_final = final_damage * count
+                group['component_count'] += 1
+                group['components'].append({
+                    'token': action.get('token'), 'spell_id': action.get('spell_id'),
+                    'component': component_name, 'damage_equivalent_count': count,
+                    'normalized_base_damage': weighted_base,
+                    'final_normalized_damage': weighted_final,
                 })
-                row['component'] = component_name
-                row['product'] = display_product
-                rows.append(row)
+                group['product']['attack_power_coefficient'] += ap_coeff * count
+                group['product']['spell_power_coefficient'] += sp_coeff * count
+                group['product']['normalized_base_damage'] += weighted_base
+                group['product']['final_normalized_damage'] += weighted_final
+        rows = []
+        for group in groups.values():
+            if group['component_count'] <= 0:
+                continue
+            product = group['product']
+            base = product['normalized_base_damage']
+            final = product['final_normalized_damage']
+            product['runtime_multiplier'] = final / base if base else None
+            rows.append(group)
         actor['actions'] = rows
         display_count += len(rows)
     result['actors'] = actors
@@ -620,8 +808,8 @@ def project_skill_damage_product_payload(payload):
 class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
-    EXPORTER_SCHEMA_REVISION = 3
-    DATASET_SCHEMA_REVISION = 7
+    EXPORTER_SCHEMA_REVISION = 4
+    DATASET_SCHEMA_REVISION = 8
     TALENT_BATCH_SIZE = 12
     FIXED_PRESET = {
         'attack_power': 100.0,
@@ -981,6 +1169,55 @@ class SimcSkillDamageSnapshotService:
             'attack_power_coefficient', 'spell_power_coefficient',
             'normalized_base', 'effect_indexes',
         )
+
+        def validate_amount(amount, *, context):
+            if not isinstance(amount, dict):
+                raise ValueError(f'exporter action 缺少 {context} 数学期望。')
+            present = [amount.get(name) for name in ('direct', 'tick') if amount.get(name) is not None]
+            unresolved_reason = amount.get('unresolved_reason')
+            if not present:
+                if unresolved_reason:
+                    return
+                raise ValueError(f'exporter action {context} 没有可展示的伤害组件。')
+            for component in present:
+                if not isinstance(component, dict) or any(
+                    field not in component for field in required_amount_fields
+                ):
+                    raise ValueError('exporter 数学期望字段无效。')
+                equivalent_count = component.get('damage_equivalent_count')
+                if not _finite_number(equivalent_count) or equivalent_count <= 0:
+                    raise ValueError('exporter damage equivalent count 无效。')
+                values = [component[field] for field in required_amount_fields]
+                valid = (
+                    all(value is None or _finite_number(value) for value in values)
+                    if unresolved_reason else all(_finite_number(value) for value in values)
+                )
+                if not valid:
+                    raise ValueError('exporter 数学期望字段无效。')
+
+        def validate_scenarios(scenarios):
+            if not isinstance(scenarios, list):
+                raise ValueError('exporter action scenarios 结构无效。')
+            scenario_identities = set()
+            for scenario in scenarios:
+                if not isinstance(scenario, dict) or not isinstance(scenario.get('buffs'), list):
+                    raise ValueError('exporter scenario 结构无效。')
+                buff_tokens = []
+                for buff in scenario['buffs']:
+                    buff_token = buff.get('token') if isinstance(buff, dict) else None
+                    if not isinstance(buff_token, str) or not buff_token.strip():
+                        raise ValueError('exporter scenario buff token identity 无效。')
+                    buff_tokens.append(buff_token.strip())
+                if not buff_tokens or len(buff_tokens) != len(set(buff_tokens)):
+                    raise ValueError('exporter scenario buff token identity 必须非空且唯一。')
+                scenario_identity = tuple(sorted(buff_tokens))
+                if scenario_identity in scenario_identities:
+                    raise ValueError('exporter scenario token identity 重复。')
+                scenario_identities.add(scenario_identity)
+                validate_amount(scenario.get('values'), context='scenario')
+
+        root_token_to_spell_id = {}
+        root_spell_id_to_token = {}
         for actor in actors:
             if not isinstance(actor, dict) or not isinstance(actor.get('actions'), list):
                 raise ValueError('exporter actor/actions 结构无效。')
@@ -1004,11 +1241,44 @@ class SimcSkillDamageSnapshotService:
                     or expected_spec and actor_spec.strip().lower() != expected_spec
                 ):
                     raise ValueError('exporter actor 身份与请求 Profile 不匹配。')
+            action_identities = set()
             for action in actor['actions']:
                 if not isinstance(action, dict):
                     raise ValueError('exporter action 结构无效。')
+                token = action.get('token')
+                spell_id = action.get('spell_id')
+                if (
+                    not isinstance(token, str) or not token.strip()
+                    or not isinstance(spell_id, int) or isinstance(spell_id, bool) or spell_id < 0
+                ):
+                    raise ValueError('exporter action token identity 无效。')
+                action_identity = (token.strip(), spell_id)
+                if action_identity in action_identities:
+                    raise ValueError('exporter action token identity 重复。')
+                action_identities.add(action_identity)
                 if not isinstance(action.get('supported'), bool):
                     raise ValueError('exporter action supported 必须为布尔值。')
+                if (
+                    not isinstance(action.get('reporting_root_token'), str)
+                    or not action['reporting_root_token'].strip()
+                    or not isinstance(action.get('reporting_root_spell_id'), int)
+                    or isinstance(action.get('reporting_root_spell_id'), bool)
+                    or action['reporting_root_spell_id'] < 0
+                    or not isinstance(action.get('reporting_root_component'), bool)
+                ):
+                    raise ValueError('exporter action reporting root 结构无效。')
+                root_token = action['reporting_root_token'].strip()
+                root_spell_id = action['reporting_root_spell_id']
+                if (
+                    root_token in root_token_to_spell_id
+                    and root_token_to_spell_id[root_token] != root_spell_id
+                    or root_spell_id in root_spell_id_to_token
+                    and root_spell_id_to_token[root_spell_id] != root_token
+                ):
+                    raise ValueError('exporter action reporting root token/spell identity 不一致。')
+                root_token_to_spell_id[root_token] = root_spell_id
+                root_spell_id_to_token[root_spell_id] = root_token
+                validate_scenarios(action.get('scenarios'))
                 if action['supported'] is False:
                     if not action.get('unsupported_reason'):
                         raise ValueError('exporter unsupported action 缺少原因。')
@@ -1052,40 +1322,7 @@ class SimcSkillDamageSnapshotService:
                     expected_base = 100.0 * (coefficients[0] + coefficients[1])
                     if not math.isclose(coefficients[2], expected_base, rel_tol=1e-9, abs_tol=1e-6):
                         raise ValueError('exporter DBC SpellEffect 归一化基础伤害无效。')
-                baseline = action.get('baseline')
-                if not isinstance(baseline, dict):
-                    raise ValueError('exporter action 缺少 baseline 数学期望。')
-                components = [baseline.get('direct'), baseline.get('tick')]
-                present = [component for component in components if component is not None]
-                unresolved_reason = baseline.get('unresolved_reason')
-                if not present:
-                    if unresolved_reason:
-                        continue
-                    raise ValueError('exporter action 没有可展示的伤害组件。')
-                for component in present:
-                    if not isinstance(component, dict) or any(
-                        field not in component for field in required_amount_fields
-                    ):
-                        raise ValueError('exporter 数学期望字段无效。')
-                    values = [component[field] for field in required_amount_fields]
-                    if unresolved_reason:
-                        valid = all(
-                            value is None or (
-                                isinstance(value, (int, float))
-                                and not isinstance(value, bool)
-                                and math.isfinite(value)
-                            )
-                            for value in values
-                        )
-                    else:
-                        valid = all(
-                            isinstance(value, (int, float))
-                            and not isinstance(value, bool)
-                            and math.isfinite(value)
-                            for value in values
-                        )
-                    if not valid:
-                        raise ValueError('exporter 数学期望字段无效。')
+                validate_amount(action.get('baseline'), context='baseline')
 
     def _run_profile_target_resilient(
         self, profile, talents, *, scaffold_talents, talent_prerequisites, target_health,
@@ -1258,6 +1495,7 @@ class SimcSkillDamageSnapshotService:
                 actor['variant_model'] = 'single_talent_runtime'
                 actor['hero_talent_trees'] = hero_talent_trees
                 actor['base_damage_basis'] = 'dbc_spell_effect_ap_sp_coefficients_at_100'
+                actor['global_damage_modifiers'] = classify_global_damage_modifiers(variants)
                 actor['actions'] = flatten_single_talent_damage_variants(base_high, base_low, variants)
                 actors.append(actor)
             payload = localize_skill_damage_payload({

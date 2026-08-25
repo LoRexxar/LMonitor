@@ -8235,7 +8235,8 @@ class SimcSkillDamageSnapshotAPIView(View):
             'data': {
                 'snapshot': snapshot,
                 'snapshot_unavailable_reason': (
-                    '最新成功快照不是 schema 6 英雄树划分的前置成对单项天赋运行时数据，请生成新快照。'
+                    f'最新成功快照不是 schema {SimcSkillDamageSnapshotService.DATASET_SCHEMA_REVISION} '
+                    '英雄树划分的前置成对单项天赋运行时数据，请生成新快照。'
                     if legacy_latest else None
                 ),
                 'job': self._job_data(job),
