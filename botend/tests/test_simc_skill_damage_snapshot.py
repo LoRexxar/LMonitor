@@ -1253,6 +1253,14 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         }
         service._validate_export(payload)
 
+        shared_root_spell = copy.deepcopy(payload)
+        second = action('blood_plague_heal', 2)
+        second['reporting_root_token'] = 'blood_plague_heal'
+        # SimC can expose distinct damage/heal action roots for one DBC spell ID.
+        second['reporting_root_spell_id'] = 9000
+        shared_root_spell['actors'][0]['actions'].append(second)
+        service._validate_export(shared_root_spell)
+
         duplicate_action = copy.deepcopy(payload)
         duplicate_action['actors'][0]['actions'].append(
             copy.deepcopy(duplicate_action['actors'][0]['actions'][0]),
