@@ -268,6 +268,10 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         self.assertGreaterEqual(text.count('reporting_root_component'), 2)
         self.assertIn('apl_metadata_json_string( out, token )', text)
         self.assertIn('candidate.spell_id', text)
+        self.assertIn(
+            'if ( exported_actions.find( { token, candidate.spell_id } ) != exported_actions.end() )\n+          continue;',
+            text,
+        )
 
     def test_export_outputs_fixed_preset_mathematical_expectation(self):
         self.assertIn('"schema_version\\\":2', self.text)
