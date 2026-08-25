@@ -1268,20 +1268,18 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         with self.assertRaisesRegex(ValueError, 'token identity 重复'):
             service._validate_export(duplicate_action)
 
-        inconsistent_root = copy.deepcopy(payload)
-        second = action('leaf_two', 2)
+        shared_root_token = copy.deepcopy(payload)
+        second = action('blood_death_knight_variant', 2)
         second['reporting_root_spell_id'] = 9001
-        inconsistent_root['actors'][0]['actions'].append(second)
-        with self.assertRaisesRegex(ValueError, 'reporting root token/spell identity 不一致'):
-            service._validate_export(inconsistent_root)
+        shared_root_token['actors'][0]['actions'].append(second)
+        service._validate_export(shared_root_token)
 
         cross_actor_root = copy.deepcopy(payload)
         second_actor = copy.deepcopy(cross_actor_root['actors'][0])
         second_actor['actions'][0] = action('other_leaf', 3)
         second_actor['actions'][0]['reporting_root_spell_id'] = 9001
         cross_actor_root['actors'].append(second_actor)
-        with self.assertRaisesRegex(ValueError, 'reporting root token/spell identity 不一致'):
-            service._validate_export(cross_actor_root, expected_actor_count=2)
+        service._validate_export(cross_actor_root, expected_actor_count=2)
 
         for mutate, message in (
             (lambda row: row['scenarios'].__setitem__(0, None), 'scenario 结构'),

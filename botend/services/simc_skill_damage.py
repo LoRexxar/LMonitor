@@ -1216,7 +1216,6 @@ class SimcSkillDamageSnapshotService:
                 scenario_identities.add(scenario_identity)
                 validate_amount(scenario.get('values'), context='scenario')
 
-        root_token_to_spell_id = {}
         for actor in actors:
             if not isinstance(actor, dict) or not isinstance(actor.get('actions'), list):
                 raise ValueError('exporter actor/actions 结构无效。')
@@ -1266,14 +1265,6 @@ class SimcSkillDamageSnapshotService:
                     or not isinstance(action.get('reporting_root_component'), bool)
                 ):
                     raise ValueError('exporter action reporting root 结构无效。')
-                root_token = action['reporting_root_token'].strip()
-                root_spell_id = action['reporting_root_spell_id']
-                if (
-                    root_token in root_token_to_spell_id
-                    and root_token_to_spell_id[root_token] != root_spell_id
-                ):
-                    raise ValueError('exporter action reporting root token/spell identity 不一致。')
-                root_token_to_spell_id[root_token] = root_spell_id
                 validate_scenarios(action.get('scenarios'))
                 if action['supported'] is False:
                     if not action.get('unsupported_reason'):
