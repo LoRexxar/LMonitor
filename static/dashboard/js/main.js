@@ -5904,9 +5904,10 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     if (globalModifiers.length) {
         const items = globalModifiers.map(modifier => {
             const name = modifier.talent_name_zh || modifier.talent_name || modifier.talent_id || '未知天赋';
-            return `<div class="flex items-center justify-between gap-4 border-t border-indigo-200 py-2 first:border-t-0"><span class="font-semibold text-indigo-950">${escapeHtml(name)}</span><span class="font-mono text-indigo-900">${formatSimcSkillDamageFactor(modifier.damage_multiplier)} ×（${formatSimcSkillDamagePercent(modifier.damage_bonus_percent, true)}）</span></div>`;
+            const condition = modifier.runtime_condition || '';
+            return `<div class="flex items-center justify-between gap-4 border-t border-indigo-200 py-2 first:border-t-0"><span><span class="font-semibold text-indigo-950">${escapeHtml(name)}</span>${condition ? `<span class="ml-2 text-xs text-amber-800">${escapeHtml(condition)}</span>` : ''}</span><span class="font-mono text-indigo-900">${formatSimcSkillDamageFactor(modifier.damage_multiplier)} ×（${formatSimcSkillDamagePercent(modifier.damage_bonus_percent, true)}）</span></div>`;
         }).join('');
-        globalModifiersEl.innerHTML = `<div class="mb-1 text-sm font-bold text-indigo-950">全技能伤害加成</div><div class="mb-2 text-xs text-indigo-700">仅列出经所有可比较伤害分量证明倍率完全一致的天赋；不计入下方技能公式。</div>${items}`;
+        globalModifiersEl.innerHTML = `<div class="mb-1 text-sm font-bold text-indigo-950">全技能伤害加成</div><div class="mb-2 text-xs text-indigo-700">仅列出权威描述明确声明全伤害，且高低血量下所有实际暴露对应状态的 SimC 分量倍率一致的天赋；不计入下方技能公式。</div>${items}`;
         globalModifiersEl.classList.remove('hidden');
     }
 

@@ -1,0 +1,13 @@
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -689,7 +689,8 @@ skill_damage_amount_t skill_damage_snapshot( action_t& action,
+     ? old_mastery + ( 0.50 - old_mastery_value ) / mastery_slope
+     : old_mastery;
+   action.player->invalidate_cache( CACHE_MASTERY );
+   for ( buff_t* buff : buffs )
+-    buff->trigger( std::max( 1, buff->max_stack() ) );
++    buff->execute( std::max( 1, buff->max_stack() ), buff_t::DEFAULT_VALUE(),
++                   timespan_t::from_seconds( 1.0 ) );
+   return skill_damage_runtime_amount( action );
+ }

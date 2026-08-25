@@ -744,7 +744,10 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 }]
             return row
 
-        talent = {'id': 9, 'name': 'Universal', 'name_zh': '全局增伤'}
+        talent = {
+            'id': 9, 'name': 'Universal', 'name_zh': '全局增伤',
+            'description': 'Increases all damage you deal by 10%.',
+        }
         reference_high = {
             'actions': [action('a', 100.0, scenario_hit=80.0), action('b', 200.0)],
         }
@@ -779,6 +782,94 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         high['actions'][0]['baseline']['direct']['damage_equivalent_count'] = 2.0
         self.assertEqual(classify(), [])
+
+    def test_global_modifier_accepts_selected_talent_buff_missing_from_reference_actor(self):
+        def amount(hit):
+            return {
+                'direct': {
+                    'hit': hit, 'crit': hit * 2.0, 'crit_multiplier': 2.0,
+                    'crit_chance': 0.2, 'expected': hit * 1.2,
+                    'damage_equivalent_count': 1.0,
+                },
+                'tick': None,
+                'unresolved_reason': None,
+            }
+
+        def action(token, hit, *, avatar_hit=None):
+            row = {
+                'token': token, 'spell_id': token, 'supported': True,
+                'baseline': amount(hit), 'scenarios': [],
+            }
+            if avatar_hit is not None:
+                row['scenarios'].append({
+                    'active_buffs': ['avatar'], 'amount': amount(avatar_hit),
+                })
+            return row
+
+        variant = {
+            'talent': {
+                'id': 90415, 'name': 'Avatar', 'name_zh': '天神下凡',
+                'tree_type': 'spec',
+                'description': 'Transform into a colossus, increasing all damage you deal by 20%.',
+                'description_zh': '化身为巨人，使你造成的所有伤害提高20%。',
+            },
+            'reference_high': {'actions': [
+                action('a', 100.0), action('b', 200.0, avatar_hit=240.0),
+            ]},
+            'high': {'actions': [
+                action('a', 100.0, avatar_hit=120.0),
+                action('b', 200.0, avatar_hit=240.0006),
+            ]},
+            'reference_low': {'actions': [
+                action('a', 90.0), action('b', 180.0, avatar_hit=216.0),
+            ]},
+            'low': {'actions': [
+                action('a', 90.0, avatar_hit=108.0),
+                action('b', 180.0, avatar_hit=216.0005),
+            ]},
+        }
+
+        description = variant['talent'].pop('description')
+        description_zh = variant['talent'].pop('description_zh')
+        self.assertEqual(classify_global_damage_modifiers([variant]), [])
+        variant['talent']['description'] = description
+        variant['talent']['description_zh'] = description_zh
+
+        modifiers = classify_global_damage_modifiers([variant])
+
+        self.assertEqual(len(modifiers), 1)
+        self.assertEqual(modifiers[0]['talent_id'], 90415)
+        self.assertAlmostEqual(modifiers[0]['damage_multiplier'], 1.2)
+        self.assertEqual(modifiers[0]['runtime_condition'], '探针条件：启用 avatar buff')
+        self.assertEqual(
+            flatten_single_talent_damage_variants({'actions': []}, {'actions': []}, [variant]),
+            [],
+        )
+
+        variant['high']['actions'][0]['scenarios'].append({
+            'active_buffs': ['focused'], 'amount': amount(130.0),
+        })
+        variant['low']['actions'][0]['scenarios'].append({
+            'active_buffs': ['focused'], 'amount': amount(117.0),
+        })
+        modifiers_with_focused = classify_global_damage_modifiers([variant])
+        self.assertEqual(len(modifiers_with_focused), 1)
+        focused_rows = flatten_single_talent_damage_variants(
+            {'actions': []}, {'actions': []}, [variant],
+        )
+        self.assertTrue(focused_rows)
+        self.assertTrue(all(
+            row['variant']['scenario_tokens'] == ['focused']
+            for row in focused_rows
+        ))
+        variant['high']['actions'][0]['scenarios'].pop()
+        variant['low']['actions'][0]['scenarios'].pop()
+
+        variant['high']['actions'][0]['scenarios'][0]['amount'] = amount(100.0005)
+        variant['high']['actions'][1]['scenarios'][0]['amount'] = amount(200.001)
+        variant['low']['actions'][0]['scenarios'][0]['amount'] = amount(90.00045)
+        variant['low']['actions'][1]['scenarios'][0]['amount'] = amount(180.0009)
+        self.assertEqual(classify_global_damage_modifiers([variant]), [])
 
     def test_global_modifier_fails_closed_without_low_target_proof(self):
         component = {
@@ -1579,6 +1670,7 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn('统一基础暴击率：20%', template)
         self.assertIn('id="simc-skill-damage-global-modifiers"', template)
         self.assertIn('全技能伤害加成', script)
+        self.assertIn('modifier.runtime_condition', script)
         self.assertNotIn('单项天赋常驻', script)
         self.assertNotIn('与无单项天赋基线进行成对', template)
         self.assertNotIn('所选完整天赋', template)

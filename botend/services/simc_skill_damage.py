@@ -460,6 +460,127 @@ def _uniform_actor_ratios(reference_actor, selected_actor):
     return ratios
 
 
+_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE = 1.0e-5
+
+
+def _talent_declares_all_damage_modifier(talent):
+    """Use authoritative talent text only to establish all-damage scope."""
+    if not isinstance(talent, dict):
+        return False
+    description = ' '.join((
+        str(talent.get('description') or ''),
+        str(talent.get('description_zh') or ''),
+    )).lower()
+    return any(phrase in description for phrase in (
+        'all damage you deal',
+        '造成的所有伤害',
+        '所有造成的伤害',
+    ))
+
+
+def _selected_only_global_scenario_ratios(reference_actor, selected_actor):
+    """Return runtime ratios for scenarios introduced by the selected talent."""
+    if not isinstance(reference_actor, dict) or not isinstance(selected_actor, dict):
+        return None
+
+    def action_map(actor):
+        result = {}
+        for action in actor.get('actions') or []:
+            if not isinstance(action, dict) or action.get('supported') is not True:
+                continue
+            identity = _action_identity(action)
+            if identity in result:
+                return None
+            result[identity] = action
+        return result
+
+    reference_actions = action_map(reference_actor)
+    selected_actions = action_map(selected_actor)
+    if (
+        not reference_actions or selected_actions is None
+        or set(selected_actions) != set(reference_actions)
+    ):
+        return None
+
+    introduced_tokens = set()
+    scenario_maps = {}
+    baseline_ratios = []
+    for identity, reference_action in reference_actions.items():
+        selected_action = selected_actions[identity]
+        ratios = _uniform_amount_ratios(
+            reference_action.get('baseline'), selected_action.get('baseline'),
+        )
+        if ratios is None:
+            return None
+        baseline_ratios.extend(ratios)
+        try:
+            reference_scenarios = _scenario_amounts(reference_action)
+            selected_scenarios = _scenario_amounts(selected_action)
+        except ValueError:
+            return None
+        introduced_tokens.update(set(selected_scenarios) - set(reference_scenarios))
+        scenario_maps[identity] = selected_scenarios
+    if not baseline_ratios or any(abs(ratio - 1.0) > 1.0e-8 for ratio in baseline_ratios):
+        return None
+
+    results = {}
+    for tokens in sorted(introduced_tokens):
+        ratios = []
+        for identity, reference_action in reference_actions.items():
+            selected_scenarios = scenario_maps[identity]
+            if tokens not in selected_scenarios:
+                continue
+            amount_ratios = _uniform_amount_ratios(
+                reference_action.get('baseline'), selected_scenarios[tokens],
+            )
+            if amount_ratios is None:
+                ratios = []
+                break
+            ratios.extend(amount_ratios)
+        if ratios:
+            results[tokens] = ratios
+    return results
+
+
+def _scenario_changes_explained_by_global_modifier(
+    reference_actor, selected_actor, accepted_tokens, expected_other_ratio,
+):
+    """Fail closed unless every non-accepted scenario change is fully explained."""
+    reference_actions = {
+        _action_identity(action): action
+        for action in (reference_actor or {}).get('actions') or []
+        if isinstance(action, dict) and action.get('supported') is True
+    }
+    selected_actions = {
+        _action_identity(action): action
+        for action in (selected_actor or {}).get('actions') or []
+        if isinstance(action, dict) and action.get('supported') is True
+    }
+    if not reference_actions or set(reference_actions) != set(selected_actions):
+        return False
+    for identity, reference_action in reference_actions.items():
+        try:
+            reference_scenarios = _scenario_amounts(reference_action)
+            selected_scenarios = _scenario_amounts(selected_actions[identity])
+        except ValueError:
+            return False
+        for tokens in set(reference_scenarios) | set(selected_scenarios):
+            if tokens == accepted_tokens:
+                continue
+            if tokens not in reference_scenarios or tokens not in selected_scenarios:
+                return False
+            ratios = _uniform_amount_ratios(
+                reference_scenarios[tokens], selected_scenarios[tokens],
+            )
+            if not ratios or any(
+                abs(ratio - expected_other_ratio)
+                > max(1.0, abs(expected_other_ratio)) * _GLOBAL_DAMAGE_RATIO_REL_TOLERANCE
+                for ratio in ratios
+            ):
+                return False
+    return True
+
+
 def classify_global_damage_modifiers(variants):
     """Return talents proven to be pure uniform multipliers in every probe dataset."""
     variants = list(variants or [])
@@ -474,8 +595,11 @@ def classify_global_damage_modifiers(variants):
         talent_id = talent.get('id')
         if talent_id_counts.get(talent_id) != 1:
             continue
+        if not _talent_declares_all_damage_modifier(talent):
+            continue
         ratios = []
         proven = True
+        runtime_condition = ''
         for reference_key, selected_key in (
             ('reference_high', 'high'), ('reference_low', 'low'),
         ):
@@ -486,13 +610,47 @@ def classify_global_damage_modifiers(variants):
                 proven = False
                 break
             ratios.extend(dataset_ratios)
-        if not proven or not ratios:
+        if proven and ratios:
+            candidate_sets = [((), ratios)]
+        else:
+            candidate_sets = []
+            high_scenarios = _selected_only_global_scenario_ratios(
+                item.get('reference_high'), item.get('high'),
+            )
+            low_scenarios = _selected_only_global_scenario_ratios(
+                item.get('reference_low'), item.get('low'),
+            )
+            if high_scenarios is not None and low_scenarios is not None:
+                for tokens in sorted(set(high_scenarios) & set(low_scenarios)):
+                    candidate_sets.append((tokens, high_scenarios[tokens] + low_scenarios[tokens]))
+        accepted = None
+        for tokens, candidate_ratios in candidate_sets:
+            if not candidate_ratios:
+                continue
+            first = candidate_ratios[0]
+            if any(ratio <= 1.0 + _GLOBAL_DAMAGE_RATIO_REL_TOLERANCE for ratio in candidate_ratios):
+                continue
+            if any(
+                abs(ratio - first) > max(1.0, abs(first)) * _GLOBAL_DAMAGE_RATIO_REL_TOLERANCE
+                for ratio in candidate_ratios[1:]
+            ):
+                continue
+            if not tokens and not all((
+                _scenario_changes_explained_by_global_modifier(
+                    item.get('reference_high'), item.get('high'), tokens, first,
+                ),
+                _scenario_changes_explained_by_global_modifier(
+                    item.get('reference_low'), item.get('low'), tokens, first,
+                ),
+            )):
+                continue
+            accepted = (tokens, first)
+            break
+        if accepted is None:
             continue
-        if any(abs(ratio - 1.0) <= 1.0e-8 for ratio in ratios):
-            continue
-        first = ratios[0]
-        if any(abs(ratio - first) > max(1.0, abs(first)) * 1.0e-7 for ratio in ratios[1:]):
-            continue
+        tokens, first = accepted
+        if tokens:
+            runtime_condition = f'探针条件：启用 {" + ".join(tokens)} buff'
         modifiers.append({
             'talent_id': talent_id,
             'talent_name': str(talent.get('name') or ''),
@@ -503,7 +661,9 @@ def classify_global_damage_modifiers(variants):
             'hero_subtree_name_zh': str(talent.get('hero_subtree_name_zh') or ''),
             'damage_multiplier': first,
             'damage_bonus_percent': (first - 1.0) * 100.0,
-            'scope': 'all_resolved_damage_components',
+            'runtime_condition': runtime_condition,
+            'scenario_tokens': list(tokens),
+            'scope': 'declared_all_damage_runtime_observed_components',
         })
     return modifiers
 
@@ -521,8 +681,9 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants):
         if isinstance(action, dict) and action.get('supported') is True
     }
     rows = []
-    global_talent_ids = {
-        modifier.get('talent_id') for modifier in classify_global_damage_modifiers(variants)
+    global_modifiers = {
+        modifier.get('talent_id'): modifier
+        for modifier in classify_global_damage_modifiers(variants)
     }
 
     def append_row(action, amount, *, talent, condition, comparison, scenario_tokens=()):
@@ -575,7 +736,9 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants):
 
     for item in variants:
         talent = item.get('talent') or {}
-        if talent.get('id') in global_talent_ids:
+        global_modifier = global_modifiers.get(talent.get('id'))
+        global_scenario_tokens = tuple((global_modifier or {}).get('scenario_tokens') or [])
+        if global_modifier and not global_scenario_tokens:
             continue
         reference_high_actions = {
             _action_identity(action): action
@@ -620,6 +783,8 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants):
             low_scenarios = _scenario_amounts(low_action)
 
             for tokens, amount in high_scenarios.items():
+                if tokens == global_scenario_tokens:
+                    continue
                 reference = base_high_scenarios.get(tokens, base_high_amount)
                 if _amount_state(amount)[0] == 'resolved' and _effect_changed(reference, amount):
                     candidates.append((
@@ -636,6 +801,8 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants):
                 ))
 
             for tokens, amount in low_scenarios.items():
+                if tokens == global_scenario_tokens:
+                    continue
                 low_reference = base_low_scenarios.get(tokens, base_low_amount)
                 high_current = high_scenarios.get(tokens, high_amount)
                 high_reference = base_high_scenarios.get(tokens, base_high_amount)

@@ -17,6 +17,7 @@ RESIDUAL_ACTION_PATCH = PATCH_DIR / "0014-mark-residual-actions-trigger-dependen
 CHILD_ACTION_PATCH = PATCH_DIR / "0015-mark-child-actions-trigger-dependent.patch"
 PARENT_STATE_ACTION_PATCH = PATCH_DIR / "0016-narrow-parent-state-dependent-actions.patch"
 CAST_COMPONENT_PATCH = PATCH_DIR / "0017-skill-damage-cast-components.patch"
+RUNTIME_BUFF_ACTIVATION_PATCH = PATCH_DIR / "0018-runtime-buff-activation.patch"
 
 
 class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
@@ -35,6 +36,7 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         cls.child_action_text = CHILD_ACTION_PATCH.read_text(encoding="utf-8")
         cls.parent_state_action_text = PARENT_STATE_ACTION_PATCH.read_text(encoding="utf-8")
         cls.cast_component_text = CAST_COMPONENT_PATCH.read_text(encoding="utf-8")
+        cls.runtime_buff_activation_text = RUNTIME_BUFF_ACTIVATION_PATCH.read_text(encoding="utf-8")
 
     def test_cli_controls_and_early_initialized_export(self):
         for token in (
@@ -244,6 +246,24 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
             "odyns_fury_mh", "odyns_fury_oh", "bladestorm_mh", "bladestorm_oh",
         ):
             self.assertNotIn(required_child, text)
+
+    def test_runtime_buff_activation_uses_observable_nonzero_duration_state(self):
+        text = self.runtime_buff_activation_text
+        added_lines = "\n".join(
+            line[1:] for line in text.splitlines()
+            if line.startswith("+") and not line.startswith("+++")
+        )
+        removed_lines = "\n".join(
+            line[1:] for line in text.splitlines()
+            if line.startswith("-") and not line.startswith("---")
+        )
+        self.assertIn("buff->trigger", removed_lines)
+        self.assertIn("buff->execute", added_lines)
+        self.assertIn("buff_t::DEFAULT_VALUE()", added_lines)
+        self.assertIn("timespan_t::from_seconds( 1.0 )", added_lines)
+        self.assertNotIn("override_buff", added_lines)
+        self.assertNotIn("SKILL_DAMAGE_AVATAR", text)
+        self.assertNotIn("std::fprintf", added_lines)
 
     def test_cast_component_patch_exports_reporting_root_and_periodic_total_count(self):
         text = self.cast_component_text
