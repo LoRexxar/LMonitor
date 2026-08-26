@@ -24,6 +24,7 @@ TALENT_EFFECTIVENESS_PATCH = PATCH_DIR / "0021-talent-effectiveness.patch"
 RUNTIME_LAYER_SCENARIO_CHANGE_PATCH = PATCH_DIR / "0022-runtime-layer-scenario-change.patch"
 TARGET_STATE_MATERIALIZATION_PATCH = PATCH_DIR / "0023-materialize-target-runtime-states.patch"
 GLOBAL_SKILL_EFFECT_EVIDENCE_PATCH = PATCH_DIR / "0024-global-skill-effect-evidence.patch"
+ACTIVE_PLAYER_SKILL_PATCH = PATCH_DIR / "0025-active-player-skill-identity.patch"
 
 
 class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
@@ -49,6 +50,17 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         cls.runtime_layer_scenario_change_text = RUNTIME_LAYER_SCENARIO_CHANGE_PATCH.read_text(encoding="utf-8")
         cls.target_state_materialization_text = TARGET_STATE_MATERIALIZATION_PATCH.read_text(encoding="utf-8")
         cls.global_skill_effect_evidence_text = GLOBAL_SKILL_EFFECT_EVIDENCE_PATCH.read_text(encoding="utf-8")
+        cls.active_player_skill_text = ACTIVE_PLAYER_SKILL_PATCH.read_text(encoding="utf-8")
+
+    def test_player_skill_identity_uses_current_actor_dbc_candidates(self):
+        text = self.active_player_skill_text
+        self.assertIn("skill_damage_dbc_candidates.find( &player )", text)
+        self.assertIn("candidate.actions", text)
+        self.assertIn("reporting_root", text)
+        self.assertNotIn("get_class_spell_family", '\n'.join(
+            line[1:] for line in text.splitlines()
+            if line.startswith('+') and not line.startswith('+++')
+        ))
 
     def test_global_skill_effect_evidence_exports_uncapped_crit_and_base_layers(self):
         text = self.global_skill_effect_evidence_text

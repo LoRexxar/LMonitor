@@ -1114,7 +1114,7 @@ def _talent_declares_all_damage_modifier(talent):
         return False
 
     english_patterns = (
-        r'\bincreas(?:e|es|ed|ing)\s+(?:all\s+)?damage\s+(?:you(?:\s+both)?\s+deal|dealt\s+by\s+you)(?:\s+to\s+[^,;.]*)?',
+        r'\bincreas(?:e|es|ed|ing)\s+(?:the\s+)?(?:all\s+)?damage\s+(?:you(?:\s+both)?\s+deal|dealt\s+by\s+you)(?:\s+to\s+[^,;.]*)?',
         r'\bincreas(?:e|es|ed|ing)\s+your\s+damage(?:\s+dealt)?(?:\s+to\s+[^,;.]*)?',
         r'\byour\s+damage(?:\s+dealt)?\s+(?:is\s+)?increased\b',
         r'\ball\s+damage\s+dealt\s+(?:is\s+)?increased\b',
@@ -1139,7 +1139,9 @@ def _talent_declares_all_damage_modifier(talent):
             if re.match(r'^(?:你的)?宠物造成的', clause) or re.search(r'目标[^，。；]*对你造成', clause):
                 continue
             if re.search(
-                r'\b(?:damage you deal|your damage(?: dealt)?)\s+with\b', clause,
+                r'\b(?:the\s+)?(?:damage you deal|your damage(?: dealt)?)\s+'
+                r'(?:(?:when\s+)?using|with|from)\b',
+                clause,
             ):
                 continue
             if any(re.search(pattern, clause) for pattern in english_patterns):

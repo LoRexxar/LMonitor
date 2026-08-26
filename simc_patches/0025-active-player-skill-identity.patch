@@ -1,0 +1,20 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -1055,9 +1055,14 @@
+ bool skill_damage_player_skill( const player_t& player, const action_t* reporting_root )
+ {
+   if ( !reporting_root || !reporting_root->data().ok() ) return false;
+-  const int player_class_family = dbc::get_class_spell_family( player.type );
+-  return player_class_family != 0 &&
+-         as<int>( reporting_root->data().class_family() ) == player_class_family;
++  const auto candidate_it = skill_damage_dbc_candidates.find( &player );
++  if ( candidate_it == skill_damage_dbc_candidates.end() ) return false;
++  return std::any_of(
++      candidate_it->second.begin(), candidate_it->second.end(),
++      [ reporting_root ]( const skill_damage_dbc_candidate_t& candidate ) {
++        return std::find( candidate.actions.begin(), candidate.actions.end(), reporting_root ) !=
++               candidate.actions.end();
++      } );
+ }
+ 
+ std::string skill_damage_talent_effectiveness( const player_t& player )

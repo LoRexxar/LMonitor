@@ -756,6 +756,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
     def test_all_damage_text_scope_requires_player_positive_unrestricted_damage(self):
         accepted = (
             'Increases all damage you deal by 20%.',
+            'Successfully interrupting an enemy increases the damage you deal to them by 5% for 10 sec.',
             'Your damage is increased by 10%.',
             'Enemies take 5% increased damage from you.',
             'Increases your damage dealt to the target by 10%.',
@@ -766,6 +767,11 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             'You heal for 10% of all damage you deal.',
             'Reduces all damage you take by 10%.',
             'All damage dealt by your pet is increased by 10%.',
+            'Your Fireball damage is increased by 10%.',
+            'Increases the damage you deal when using Fireball by 10%.',
+            'Increases the damage you deal using Fireball and Frostbolt by 10%.',
+            'Increases the damage you deal from Fireball and Frostbolt by 10%.',
+            'Increases damage you deal with Garrote, Rupture, and Deadly Poison by 10%.',
             'All damage you deal with Tempest and Lightning Bolt is copied.',
             'Reduces all damage you deal by 10%.',
             '你的宠物造成的所有伤害提高10%。',
