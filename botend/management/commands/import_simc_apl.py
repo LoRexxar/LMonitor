@@ -217,6 +217,13 @@ class Command(BaseCommand):
         if spec_key == 'warrior_fury':
             content = content.replace('talent.slayers_dominance', 'hero_tree.slayer')
             content = content.replace('talent.lightning_strikes', 'hero_tree.mountain_thane')
+        elif spec_key == 'monk_windwalker':
+            # Upstream source typo: an empty option before target_if. SimC
+            # tolerates it, but the Dashboard APL parser rejects it correctly.
+            content = content.replace(
+                'actions.big_coc+=/tiger_palm,,target_if=',
+                'actions.big_coc+=/tiger_palm,target_if=',
+            )
         elif spec_key == 'demonhunter_havoc':
             # Upstream currently carries two source typos that SimC tolerates
             # while the Dashboard APL parser correctly rejects their syntax.

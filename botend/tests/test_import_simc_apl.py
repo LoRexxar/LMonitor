@@ -154,3 +154,22 @@ class ImportSimcAplCommandTests(TestCase):
         )
         self.assertNotIn('&&', content)
         self.assertNotIn('immolation_aura,,if=', content)
+
+    def test_strict_import_normalizes_known_upstream_windwalker_tiger_palm_typo(self):
+        revision = 'a' * 40
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Path(tmpdir, 'monk_windwalker.simc').write_text(
+                'actions.big_coc+=/tiger_palm,,target_if=max:target.time_to_die,'
+                'if=buff.zenith.up&chi<2&combo_strike\n',
+                encoding='utf-8',
+            )
+            call_command(
+                'import_simc_apl', source_dir=tmpdir,
+                sync_version=revision, strict=True, stdout=StringIO())
+
+        content = SimcApl.objects.get(spec='monk_windwalker').content
+        self.assertIn(
+            'actions.big_coc+=/tiger_palm,target_if=max:target.time_to_die,',
+            content,
+        )
+        self.assertNotIn('/tiger_palm,,target_if=', content)
