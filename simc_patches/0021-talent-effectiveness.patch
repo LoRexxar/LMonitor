@@ -1,0 +1,52 @@
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+index 31050cd..fa7d079 100644
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -1004,6 +1004,29 @@ bool skill_damage_player_skill( const player_t& player, const action_t* reportin
+          as<int>( reporting_root->data().class_family() ) == player_class_family;
+ }
+ 
++std::string skill_damage_talent_effectiveness( const player_t& player )
++{
++  const std::string name = player.name();
++  const bool paired_actor = name.rfind( "skill_damage_reference_", 0 ) == 0 ||
++                            name.rfind( "skill_damage_talent_", 0 ) == 0;
++  const std::string marker = "_trait_";
++  const size_t marker_position = name.rfind( marker );
++  if ( !paired_actor || marker_position == std::string::npos ) return "unknown";
++
++  const std::string entry_text = name.substr( marker_position + marker.size() );
++  if ( entry_text.empty() || !std::all_of( entry_text.begin(), entry_text.end(),
++       []( unsigned char c ) { return std::isdigit( c ); } ) )
++    return "unknown";
++  const unsigned long parsed_entry = std::stoul( entry_text );
++  const unsigned target_entry = static_cast<unsigned>( parsed_entry );
++  if ( target_entry == 0 || target_entry != parsed_entry ) return "unknown";
++
++  for ( const auto& player_trait : player.player_traits )
++    if ( std::get<1>( player_trait ) == target_entry && std::get<2>( player_trait ) > 0 )
++      return "active";
++  return "inactive";
++}
++
+ void export_skill_damage( sim_t& sim )
+ {
+   const bool valid_revision = sim.skill_damage_revision.size() == 40 &&
+@@ -1020,7 +1043,7 @@ void export_skill_damage( sim_t& sim )
+   const std::string temporary = target + ".tmp." + std::to_string( static_cast<long long>( getpid() ) );
+   std::ofstream out( temporary, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open temporary skill damage export file" );
+-  out << "{\"schema_version\":5,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
++  out << "{\"schema_version\":6,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"normalization_basis\":{\"attack_power\":100,\"spell_power\":100,"
+          "\"crit_percent\":20,\"mastery_percent\":50}";
+@@ -1038,6 +1061,8 @@ void export_skill_damage( sim_t& sim )
+     out << "{\"class\":"; apl_metadata_json_string( out, util::player_type_string( player->type ) );
+     out << ",\"spec\":"; apl_metadata_json_string( out, util::tokenize_fn( dbc::specialization_string( player->specialization() ) ) );
+     out << ",\"name\":"; apl_metadata_json_string( out, player->name() );
++    out << ",\"talent_effectiveness\":";
++    apl_metadata_json_string( out, skill_damage_talent_effectiveness( *player ) );
+     out << ",\"action_universe\":\"dbc_spellbook_selected_traits_and_derived_actions\"";
+     out << ",\"attributes\":{\"primary_attribute\":{";
+     out << "\"name\":"; if ( primary_attr == ATTRIBUTE_NONE ) out << "null"; else apl_metadata_json_string( out, util::attribute_type_string( primary_attr ) );

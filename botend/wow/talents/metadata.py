@@ -157,6 +157,10 @@ class TalentMetadataProvider:
         self._choice_entry_order_cache[cache_key] = result
         return result
 
+    def get_choice_entry_order(self):
+        """Return exact-build TraitNodeEntry order for build consumers."""
+        return dict(self._choice_entry_order())
+
     def _order_choice_nodes(self, nodes):
         return order_talent_choice_nodes(nodes, self._choice_entry_order())
 
@@ -588,6 +592,11 @@ class TalentMetadataProvider:
             if (option or {}).get('talent_id')
         }
         return len(talent_ids) == 1
+
+    @staticmethod
+    def is_apex_entry_group(base_node, option_nodes):
+        """Public authority for identifying exact-build Apex entry pools."""
+        return TalentMetadataProvider._is_apex_entry_group(base_node, option_nodes)
 
     def _lookup_spell_snapshot(self, spell_id):
         if not spell_id:

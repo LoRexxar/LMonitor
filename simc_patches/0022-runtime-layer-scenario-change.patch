@@ -1,0 +1,28 @@
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -598,8 +598,23 @@ bool skill_damage_amount_changed( const skill_damage_amount_t& a, const skill_da
+ {
+   const auto changed = []( double x, double y ) { return std::abs( x - y ) > std::max( 1.0, std::abs( x ) ) * 1.0e-8; };
++  const auto layers_changed = [&changed]( const skill_damage_runtime_layers_t& x,
++                                          const skill_damage_runtime_layers_t& y ) {
++    return changed( x.action_multiplier, y.action_multiplier ) ||
++           changed( x.player_multiplier, y.player_multiplier ) ||
++           changed( x.versus_multiplier, y.versus_multiplier ) ||
++           changed( x.persistent_multiplier, y.persistent_multiplier ) ||
++           changed( x.target_multiplier, y.target_multiplier ) ||
++           changed( x.versatility, y.versatility ) ||
++           changed( x.pet_multiplier, y.pet_multiplier ) ||
++           changed( x.target_pet_multiplier, y.target_pet_multiplier );
++  };
+   return changed( a.direct_amount.expected, b.direct_amount.expected ) ||
+          changed( a.tick_amount.expected, b.tick_amount.expected ) ||
+-         changed( a.tick_amount.damage_equivalent_count, b.tick_amount.damage_equivalent_count );
++         changed( a.tick_amount.damage_equivalent_count, b.tick_amount.damage_equivalent_count ) ||
++         ( a.direct && b.direct &&
++           layers_changed( a.direct_amount.runtime_layers, b.direct_amount.runtime_layers ) ) ||
++         ( a.periodic && b.periodic &&
++           layers_changed( a.tick_amount.runtime_layers, b.tick_amount.runtime_layers ) );
+ }
+ 
+ skill_damage_runtime_layers_t skill_damage_runtime_layers( const action_state_t* state, bool periodic )

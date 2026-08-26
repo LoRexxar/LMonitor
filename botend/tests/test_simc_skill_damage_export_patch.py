@@ -18,6 +18,11 @@ CHILD_ACTION_PATCH = PATCH_DIR / "0015-mark-child-actions-trigger-dependent.patc
 PARENT_STATE_ACTION_PATCH = PATCH_DIR / "0016-narrow-parent-state-dependent-actions.patch"
 CAST_COMPONENT_PATCH = PATCH_DIR / "0017-skill-damage-cast-components.patch"
 RUNTIME_BUFF_ACTIVATION_PATCH = PATCH_DIR / "0018-runtime-buff-activation.patch"
+GLOBAL_DAMAGE_RUNTIME_PATCH = PATCH_DIR / "0019-global-damage-runtime-evidence.patch"
+OWNED_CONDITION_PATCH = PATCH_DIR / "0020-owned-runtime-conditions.patch"
+TALENT_EFFECTIVENESS_PATCH = PATCH_DIR / "0021-talent-effectiveness.patch"
+RUNTIME_LAYER_SCENARIO_CHANGE_PATCH = PATCH_DIR / "0022-runtime-layer-scenario-change.patch"
+TARGET_STATE_MATERIALIZATION_PATCH = PATCH_DIR / "0023-materialize-target-runtime-states.patch"
 
 
 class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
@@ -37,6 +42,24 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         cls.parent_state_action_text = PARENT_STATE_ACTION_PATCH.read_text(encoding="utf-8")
         cls.cast_component_text = CAST_COMPONENT_PATCH.read_text(encoding="utf-8")
         cls.runtime_buff_activation_text = RUNTIME_BUFF_ACTIVATION_PATCH.read_text(encoding="utf-8")
+        cls.global_damage_runtime_text = GLOBAL_DAMAGE_RUNTIME_PATCH.read_text(encoding="utf-8")
+        cls.owned_condition_text = OWNED_CONDITION_PATCH.read_text(encoding="utf-8")
+        cls.talent_effectiveness_text = TALENT_EFFECTIVENESS_PATCH.read_text(encoding="utf-8")
+        cls.runtime_layer_scenario_change_text = RUNTIME_LAYER_SCENARIO_CHANGE_PATCH.read_text(encoding="utf-8")
+        cls.target_state_materialization_text = TARGET_STATE_MATERIALIZATION_PATCH.read_text(encoding="utf-8")
+
+    def test_baseline_materializes_target_state_before_scenario_discovery(self):
+        text = self.target_state_materialization_text
+        self.assertIn("baseline = skill_damage_snapshot( *action, {} )", text)
+        self.assertIn("const auto scenarios = skill_damage_scenarios( *action )", text)
+        self.assertRegex(
+            text,
+            re.compile(
+                r'else baseline = skill_damage_snapshot\( \*action, \{\} \);\n'
+                r'\+      // Runtime multiplier evaluation materializes lazy actor_target_data_t states\.\n'
+                r'\+      const auto scenarios = skill_damage_scenarios\( \*action \);'
+            ),
+        )
 
     def test_cli_controls_and_early_initialized_export(self):
         for token in (
@@ -361,6 +384,119 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         self.assertIn("action_name == \"dismiss_pet\"", self.dbc_universe_text)
         self.assertIn("ignored_non_damage_utility && !has_non_ignored_mapping", added_lines)
         self.assertNotIn("action_priority_list", self.dbc_universe_text)
+
+    def test_scenario_change_detection_includes_all_runtime_layers(self):
+        text = self.runtime_layer_scenario_change_text
+        self.assertIn("layers_changed", text)
+        for field in (
+            "action_multiplier", "player_multiplier", "versus_multiplier",
+            "persistent_multiplier", "target_multiplier", "versatility",
+            "pet_multiplier", "target_pet_multiplier",
+        ):
+            self.assertIn(f"changed( x.{field}, y.{field} )", text)
+        self.assertIn("a.direct_amount.runtime_layers, b.direct_amount.runtime_layers", text)
+        self.assertIn("a.tick_amount.runtime_layers, b.tick_amount.runtime_layers", text)
+
+    def test_runtime_layer_components_fail_closed_on_non_positive_values(self):
+        text = self.owned_condition_text
+        self.assertIn("skill_damage_runtime_layers_valid", text)
+        for field in (
+            "action_multiplier", "player_multiplier", "versus_multiplier",
+            "persistent_multiplier", "target_multiplier", "versatility",
+            "pet_multiplier", "target_pet_multiplier",
+        ):
+            self.assertIn(f"positive( layers.{field} )", text)
+        self.assertGreaterEqual(text.count("runtime_layer_non_positive"), 2)
+        self.assertIn("amount.direct_amount.present = false", text)
+        self.assertIn("amount.direct = false", text)
+        self.assertIn("amount.tick_amount.present = false", text)
+        self.assertIn("amount.periodic = false", text)
+
+    def test_owned_runtime_conditions_cover_self_buffs_and_target_debuffs_without_name_guesses(self):
+        text = self.owned_condition_text
+        added_lines = '\n'.join(
+            line[1:] for line in text.splitlines()
+            if line.startswith('+') and not line.startswith('+++')
+        )
+        removed_lines = '\n'.join(
+            line[1:] for line in text.splitlines()
+            if line.startswith('-') and not line.startswith('---')
+        )
+        for token in (
+            'skill_damage_condition_t', 'skill_damage_condition_scope_e',
+            'action.player->buff_list', 'action.target->buff_list',
+            'buff->source != action.player', 'scope == skill_damage_condition_scope_e::TARGET',
+            'buff->player != action.target',
+        ):
+            self.assertIn(token, added_lines)
+        self.assertIn('skill_damage_amount_changed', self.text)
+        self.assertIn('selected_trait_tokens', removed_lines)
+        self.assertIn('talents_', removed_lines)
+        self.assertNotIn('bloodlust', added_lines)
+        self.assertNotIn('1 <<', added_lines)
+        self.assertNotIn('skill_damage_selected_trait_spell_graph', added_lines)
+        self.assertNotIn('selected_spell_ids.count', added_lines)
+        self.assertIn(
+            'action.player->find_action( action.name_str ) == &action',
+            added_lines,
+        )
+        self.assertIn(
+            'condition.buff->current_stack = std::max( 1, condition.buff->max_stack() )',
+            added_lines,
+        )
+        self.assertIn('condition.buff->current_value = condition.buff->default_value', added_lines)
+        self.assertIn('condition.buff->current_stack = 0', added_lines)
+        self.assertIn('condition.buff->current_value = 0.0', added_lines)
+        self.assertNotIn('condition.buff->execute(', added_lines)
+        self.assertNotIn('condition.buff->trigger(', added_lines)
+        self.assertNotIn('condition.buff->override_buff(', added_lines)
+        self.assertNotIn('condition.buff->expire()', added_lines)
+        self.assertNotIn('condition.buff->reset()', added_lines)
+
+    def test_global_damage_runtime_evidence_uses_generic_player_skill_action_layers(self):
+        text = self.global_damage_runtime_text
+        added_lines = "\n".join(
+            line[1:] for line in text.splitlines()
+            if line.startswith("+") and not line.startswith("+++")
+        )
+        for token in (
+            "player_skill",
+            "skill_damage_runtime_layers_t",
+            "runtime_layers",
+            "da_multiplier", "ta_multiplier", "player_multiplier",
+            "versus_multiplier", "persistent_multiplier", "versatility",
+            "target_da_multiplier", "target_ta_multiplier",
+            "skill_damage_player_skill",
+            "dbc::get_class_spell_family",
+            "reporting_root->data().class_family()",
+        ):
+            self.assertIn(token, added_lines)
+        self.assertNotRegex(
+            added_lines.lower(),
+            r"avatar|weapon_specialization|hunter|warrior|talent_id|spell_id\s*==",
+        )
+        self.assertNotIn("composite_player_multiplier", added_lines)
+        self.assertNotIn("composite_player_target_multiplier", added_lines)
+
+    def test_talent_effectiveness_is_exported_from_actor_protocol_and_runtime_traits(self):
+        text = self.talent_effectiveness_text
+        added_lines = "\n".join(
+            line[1:] for line in text.splitlines()
+            if line.startswith("+") and not line.startswith("+++")
+        )
+        self.assertIn('"schema_version\\\":6', text)
+        self.assertIn('skill_damage_talent_effectiveness', added_lines)
+        self.assertIn('skill_damage_reference_', added_lines)
+        self.assertIn('skill_damage_talent_', added_lines)
+        self.assertIn('_trait_', added_lines)
+        self.assertIn('player.player_traits', added_lines)
+        self.assertIn('std::get<1>( player_trait )', added_lines)
+        self.assertIn('std::get<2>( player_trait )', added_lines)
+        self.assertIn('\\"talent_effectiveness\\"', added_lines)
+        self.assertNotRegex(
+            added_lines.lower(),
+            r'avatar|haunt|warrior|warlock|talent_name|spell_id\s*==',
+        )
 
     def test_product_semantics_patch_is_incremental_after_existing_exporter_patches(self):
         added_lines = [

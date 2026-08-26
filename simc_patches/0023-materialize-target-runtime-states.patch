@@ -1,0 +1,32 @@
+From 4d3709c86d4bf630d3b92d981b8616ff5f78e735 Mon Sep 17 00:00:00 2001
+From: LMonitor <noreply@wowdaily.cn>
+Date: Wed, 26 Aug 2026 00:00:00 +0000
+Subject: [PATCH] Materialize target runtime states before scenario discovery
+
+---
+ engine/sc_main.cpp | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+index 6ff6f431e..ac30c340f 100644
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -1139,7 +1139,6 @@ void export_skill_damage( sim_t& sim )
+       const action_t* reporting_root = unambiguous_ancestry && trigger_proven ? reporting_root_candidate : action;
+       const unsigned reporting_root_spell_id = apl_metadata_action_spell_id( *reporting_root );
+       const bool reporting_root_component = reporting_root == action || trigger_proven;
+-      const auto scenarios = skill_damage_scenarios( *action );
+ 
+       const bool requires_weapon_data = action->weapon != nullptr && action->weapon_multiplier != 0.0;
+       const bool residual_trigger_dependent = skill_damage_residual_trigger_dependent( *action );
+@@ -1151,6 +1150,8 @@ void export_skill_damage( sim_t& sim )
+       else if ( residual_trigger_dependent ) baseline.unresolved_reason = "residual_trigger_dependent";
+       else if ( child_trigger_dependent ) baseline.unresolved_reason = "child_trigger_dependent";
+       else baseline = skill_damage_snapshot( *action, {} );
++      // Runtime multiplier evaluation materializes lazy actor_target_data_t states.
++      const auto scenarios = skill_damage_scenarios( *action );
+       if ( !first_action ) out << ',';
+       first_action = false;
+       out << "{\"token\":"; apl_metadata_json_string( out, action->name_str );
+-- 
+2.43.0

@@ -1,0 +1,143 @@
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+index 62064e8..d83173f 100644
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -522,12 +522,25 @@ void export_apl_metadata( const sim_t& sim )
+ 
+ // A deliberately bounded runtime probe. Scenario sources are initialized APL
+ // co-occurrence sets plus singleton buffs; never a powerset.
++struct skill_damage_runtime_layers_t
++{
++  double action_multiplier = 1.0;
++  double player_multiplier = 1.0;
++  double versus_multiplier = 1.0;
++  double persistent_multiplier = 1.0;
++  double target_multiplier = 1.0;
++  double versatility = 1.0;
++  double pet_multiplier = 1.0;
++  double target_pet_multiplier = 1.0;
++};
++
+ struct skill_damage_amount_t
+ {
+   struct component_t
+   {
+     double hit = 0.0, crit = 0.0, crit_multiplier = 1.0, crit_chance = 0.0, expected = 0.0;
+     double damage_equivalent_count = 1.0;
++    skill_damage_runtime_layers_t runtime_layers;
+     bool present = false;
+   } direct_amount, tick_amount;
+   bool direct = false, periodic = false;
+@@ -590,6 +603,20 @@ bool skill_damage_amount_changed( const skill_damage_amount_t& a, const skill_da
+          changed( a.tick_amount.damage_equivalent_count, b.tick_amount.damage_equivalent_count );
+ }
+ 
++skill_damage_runtime_layers_t skill_damage_runtime_layers( const action_state_t* state, bool periodic )
++{
++  skill_damage_runtime_layers_t layers;
++  layers.action_multiplier = periodic ? state->ta_multiplier : state->da_multiplier;
++  layers.player_multiplier = state->player_multiplier;
++  layers.versus_multiplier = state->versus_multiplier;
++  layers.persistent_multiplier = state->persistent_multiplier;
++  layers.target_multiplier = periodic ? state->target_ta_multiplier : state->target_da_multiplier;
++  layers.versatility = state->versatility;
++  layers.pet_multiplier = state->pet_multiplier;
++  layers.target_pet_multiplier = state->target_pet_multiplier;
++  return layers;
++}
++
+ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
+ {
+   skill_damage_amount_t amount;
+@@ -610,6 +637,7 @@ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
+     {
+       state->result = RESULT_HIT;
+       action.snapshot_state( state, result_amount_type::DMG_DIRECT );
++      amount.direct_amount.runtime_layers = skill_damage_runtime_layers( state, false );
+       state->attack_power = 100.0;
+       state->spell_power = 100.0;
+       amount.direct_amount.hit = action.calculate_direct_amount( state );
+@@ -633,6 +661,7 @@ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
+       state->initialize(); state->target = action.target;
+       state->n_targets = 1; state->chain_target = 0; state->result = RESULT_HIT;
+       action.snapshot_state( state, result_amount_type::DMG_OVER_TIME );
++      amount.tick_amount.runtime_layers = skill_damage_runtime_layers( state, true );
+       const timespan_t tick_duration = action.composite_dot_duration( state );
+       const timespan_t tick_period = action.tick_time( state );
+       if ( tick_duration <= 0_ms || tick_period <= 0_ms )
+@@ -769,7 +798,8 @@ void write_skill_damage_json_number( std::ostream& out, double value )
+ 
+ void write_skill_damage_amount( std::ostream& out, const skill_damage_amount_t& a )
+ {
+-  const auto write_component = [&out]( const skill_damage_amount_t::component_t& c, bool present )
++  const auto write_component = [&out]( const skill_damage_amount_t::component_t& c,
++                                       bool present, bool periodic )
+   {
+     if ( !present ) { out << "null"; return; }
+     out << "{\"hit\":"; write_skill_damage_json_number( out, c.hit );
+@@ -778,10 +808,21 @@ void write_skill_damage_amount( std::ostream& out, const skill_damage_amount_t&
+     out << ",\"crit_chance\":"; write_skill_damage_json_number( out, c.crit_chance );
+     out << ",\"expected\":"; write_skill_damage_json_number( out, c.expected );
+     out << ",\"damage_equivalent_count\":"; write_skill_damage_json_number( out, c.damage_equivalent_count );
+-    out << '}';
++    out << ",\"runtime_layers\":{";
++    out << ( periodic ? "\"ta_multiplier\":" : "\"da_multiplier\":" );
++    write_skill_damage_json_number( out, c.runtime_layers.action_multiplier );
++    out << ",\"player_multiplier\":"; write_skill_damage_json_number( out, c.runtime_layers.player_multiplier );
++    out << ",\"versus_multiplier\":"; write_skill_damage_json_number( out, c.runtime_layers.versus_multiplier );
++    out << ",\"persistent_multiplier\":"; write_skill_damage_json_number( out, c.runtime_layers.persistent_multiplier );
++    out << ( periodic ? ",\"target_ta_multiplier\":" : ",\"target_da_multiplier\":" );
++    write_skill_damage_json_number( out, c.runtime_layers.target_multiplier );
++    out << ",\"versatility\":"; write_skill_damage_json_number( out, c.runtime_layers.versatility );
++    out << ",\"pet_multiplier\":"; write_skill_damage_json_number( out, c.runtime_layers.pet_multiplier );
++    out << ",\"target_pet_multiplier\":"; write_skill_damage_json_number( out, c.runtime_layers.target_pet_multiplier );
++    out << "}}";
+   };
+-  out << "{\"direct\":"; write_component( a.direct_amount, a.direct );
+-  out << ",\"tick\":"; write_component( a.tick_amount, a.periodic );
++  out << "{\"direct\":"; write_component( a.direct_amount, a.direct, false );
++  out << ",\"tick\":"; write_component( a.tick_amount, a.periodic, true );
+   out << ",\"unresolved_reason\":";
+   if ( a.unresolved_reason.empty() ) out << "null"; else apl_metadata_json_string( out, a.unresolved_reason );
+   out << '}';
+@@ -897,6 +938,14 @@ bool skill_damage_residual_trigger_dependent( action_t& action )
+   return residual;
+ }
+ 
++bool skill_damage_player_skill( const player_t& player, const action_t* reporting_root )
++{
++  if ( !reporting_root || !reporting_root->data().ok() ) return false;
++  const int player_class_family = dbc::get_class_spell_family( player.type );
++  return player_class_family != 0 &&
++         as<int>( reporting_root->data().class_family() ) == player_class_family;
++}
++
+ void export_skill_damage( sim_t& sim )
+ {
+   const bool valid_revision = sim.skill_damage_revision.size() == 40 &&
+@@ -913,7 +962,7 @@ void export_skill_damage( sim_t& sim )
+   const std::string temporary = target + ".tmp." + std::to_string( static_cast<long long>( getpid() ) );
+   std::ofstream out( temporary, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open temporary skill damage export file" );
+-  out << "{\"schema_version\":4,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
++  out << "{\"schema_version\":5,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"normalization_basis\":{\"attack_power\":100,\"spell_power\":100,"
+          "\"crit_percent\":20,\"mastery_percent\":50}";
+@@ -1020,6 +1069,7 @@ void export_skill_damage( sim_t& sim )
+       out << ",\"reporting_root_token\":"; apl_metadata_json_string( out, reporting_root->name_str );
+       out << ",\"reporting_root_spell_id\":" << reporting_root_spell_id;
+       out << ",\"reporting_root_component\":" << ( reporting_root_component ? "true" : "false" );
++      out << ",\"player_skill\":" << ( skill_damage_player_skill( *player, reporting_root ) ? "true" : "false" );
+       out << ",\"dbc_scaling\":{\"source\":\"spell_effect\",\"direct\":";
+       write_skill_damage_dbc_component( out, dbc_scaling.direct );
+       out << ",\"tick\":";
+@@ -1127,7 +1177,7 @@ void export_skill_damage( sim_t& sim )
+         out << ",\"parent_token\":null,\"reporting_root_token\":";
+         apl_metadata_json_string( out, token );
+         out << ",\"reporting_root_spell_id\":" << candidate.spell_id;
+-        out << ",\"reporting_root_component\":true,\"baseline\":{\"direct\":null,\"tick\":null,"
++        out << ",\"reporting_root_component\":true,\"player_skill\":false,\"baseline\":{\"direct\":null,\"tick\":null,"
+                "\"unresolved_reason\":";
+         apl_metadata_json_string(
+             out, candidate.unresolved_reason.empty()

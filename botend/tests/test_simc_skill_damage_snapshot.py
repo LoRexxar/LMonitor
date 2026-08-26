@@ -15,6 +15,8 @@ from botend.models import (
 )
 from botend.services.simc_skill_damage import (
     SimcSkillDamageSnapshotService,
+    _player_skill_actions,
+    _talent_declares_all_damage_modifier,
     attach_runtime_product_metrics,
     build_single_talent_actor_input,
     classify_global_damage_modifiers,
@@ -49,6 +51,39 @@ class SimcSkillDamageSnapshotModelTests(TestCase):
 
 
 class SimcSkillDamageSnapshotServiceTests(TestCase):
+    def test_apex_entries_add_authoritative_stage_prerequisites(self):
+        stage_one = SimpleNamespace(
+            pk=1, node_id=101, talent_id=900, max_points=None,
+            parents_json=[],
+        )
+        stage_two = SimpleNamespace(
+            pk=2, node_id=102, talent_id=900, max_points=2,
+            parents_json=[],
+        )
+        stage_three = SimpleNamespace(
+            pk=3, node_id=103, talent_id=900, max_points=1,
+            parents_json=[],
+        )
+        ordinary_one = SimpleNamespace(
+            pk=4, node_id=201, talent_id=901, max_points=1,
+            parents_json=[],
+        )
+        ordinary_two = SimpleNamespace(
+            pk=5, node_id=202, talent_id=901, max_points=1,
+            parents_json=[],
+        )
+        prerequisite_map = SimcSkillDamageSnapshotService._talent_prerequisite_map(
+            [stage_three, ordinary_two, stage_one, ordinary_one, stage_two],
+            entry_order={101: 0, 102: 1, 103: 2, 201: 0, 202: 1},
+        )
+        self.assertEqual(prerequisite_map[stage_one.pk], [])
+        self.assertEqual(prerequisite_map[stage_two.pk], [stage_one])
+        self.assertEqual(
+            prerequisite_map[stage_three.pk], [stage_one, stage_two],
+        )
+        self.assertEqual(prerequisite_map[ordinary_one.pk], [])
+        self.assertEqual(prerequisite_map[ordinary_two.pk], [])
+
     def test_profile_export_normalizes_destruction_mastery_rng(self):
         snapshot = SimpleNamespace(simc_revision='a' * 40, game_build='12.1.0.69404')
         profile = SimpleNamespace(class_name='warlock', spec='warlock_destruction', talent='')
@@ -115,11 +150,11 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertEqual(generated.count('iterations=100'), 5)
         self.assertEqual(generated.count('warrior="skill_damage_'), 5)
         self.assertIn('warrior="skill_damage_base"', generated)
-        self.assertIn('warrior="skill_damage_reference_1"', generated)
-        self.assertIn('warrior="skill_damage_talent_1"', generated)
+        self.assertIn('warrior="skill_damage_reference_1_trait_136454"', generated)
+        self.assertIn('warrior="skill_damage_talent_1_trait_136454"', generated)
         self.assertIn('spec_talents=136454:1', generated)
-        self.assertIn('warrior="skill_damage_reference_2"', generated)
-        self.assertIn('warrior="skill_damage_talent_2"', generated)
+        self.assertIn('warrior="skill_damage_reference_2_trait_117404"', generated)
+        self.assertIn('warrior="skill_damage_talent_2_trait_117404"', generated)
         self.assertIn('hero_talents=117404:1', generated)
 
     def test_single_talent_input_builds_prerequisite_reference_and_selected_actor_pair(self):
@@ -137,10 +172,10 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             talent_prerequisites={relentless.pk: [slayer_root]},
         )
 
-        reference = generated.split('warrior="skill_damage_reference_74890"', 1)[1].split(
-            'warrior="skill_damage_talent_74890"', 1
+        reference = generated.split('warrior="skill_damage_reference_74890_trait_117392"', 1)[1].split(
+            'warrior="skill_damage_talent_74890_trait_117392"', 1
         )[0]
-        selected = generated.split('warrior="skill_damage_talent_74890"', 1)[1]
+        selected = generated.split('warrior="skill_damage_talent_74890_trait_117392"', 1)[1]
         self.assertIn('hero_talents=117411:1', reference)
         self.assertNotIn('117392:1', reference)
         self.assertIn('hero_talents=117411:1/117392:1', selected)
@@ -245,10 +280,10 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             scaffold_talents=[scaffold],
         )
 
-        reference = generated.split('warrior="skill_damage_reference_2"', 1)[1].split(
-            'warrior="skill_damage_talent_2"', 1
+        reference = generated.split('warrior="skill_damage_reference_2_trait_102"', 1)[1].split(
+            'warrior="skill_damage_talent_2_trait_102"', 1
         )[0]
-        selected = generated.split('warrior="skill_damage_talent_2"', 1)[1]
+        selected = generated.split('warrior="skill_damage_talent_2_trait_102"', 1)[1]
         self.assertIn('spec_talents=101:1', reference)
         self.assertNotIn('102:1', reference)
         self.assertIn('spec_talents=102:1', selected)
@@ -717,176 +752,583 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertEqual(action['product']['final_normalized_damage'], 348.0)
         self.assertEqual(action['product']['runtime_multiplier'], 1.2)
 
-    def test_global_modifier_requires_uniform_high_low_baselines_and_scenarios(self):
-        def amount(hit, *, count=1.0):
+    def test_all_damage_text_scope_requires_player_positive_unrestricted_damage(self):
+        accepted = (
+            'Increases all damage you deal by 20%.',
+            'Your damage is increased by 10%.',
+            'Enemies take 5% increased damage from you.',
+            'Increases your damage dealt to the target by 10%.',
+            '你造成的所有伤害提高20%。',
+            '目标受到来自你的伤害提高5%。',
+        )
+        rejected = (
+            'You heal for 10% of all damage you deal.',
+            'Reduces all damage you take by 10%.',
+            'All damage dealt by your pet is increased by 10%.',
+            'All damage you deal with Tempest and Lightning Bolt is copied.',
+            'Reduces all damage you deal by 10%.',
+            '你的宠物造成的所有伤害提高10%。',
+            '目标对你造成的所有伤害降低10%。',
+            '终结技造成的所有伤害提高10%。',
+            'Increases damage dealt by Agony and Corruption by 10%.',
+            "Increases damage dealt by Hand of Gul'dan to its main target by 10%.",
+            'Spending extra Energy on Ferocious Bite increases damage dealt by up to 25%.',
+            '你对目标施放的锁喉、割裂和致命药膏造成的伤害提高20%。',
+        )
+        for description in accepted:
+            with self.subTest(description=description):
+                self.assertTrue(_talent_declares_all_damage_modifier({
+                    'description': description,
+                }))
+        for description in rejected:
+            with self.subTest(description=description):
+                self.assertFalse(_talent_declares_all_damage_modifier({
+                    'description': description,
+                }))
+
+    def test_global_modifier_uses_authoritative_scope_and_cross_skill_runtime_layers(self):
+        direct_layers = (
+            'da_multiplier', 'player_multiplier', 'versus_multiplier',
+            'persistent_multiplier', 'target_da_multiplier', 'versatility',
+            'pet_multiplier', 'target_pet_multiplier',
+        )
+        tick_layers = (
+            'ta_multiplier', 'player_multiplier', 'versus_multiplier',
+            'persistent_multiplier', 'target_ta_multiplier', 'versatility',
+            'pet_multiplier', 'target_pet_multiplier',
+        )
+
+        def amount(multiplier=1.0, *, layer='da_multiplier', component='direct'):
+            layer_fields = direct_layers if component == 'direct' else tick_layers
+            runtime_layers = {name: 1.0 for name in layer_fields}
+            runtime_layers[layer] = multiplier
+            values = {
+                'hit': 100.0 * multiplier, 'crit': 200.0 * multiplier,
+                'crit_multiplier': 2.0, 'crit_chance': 0.2,
+                'expected': 120.0 * multiplier, 'damage_equivalent_count': 1.0,
+                'runtime_layers': runtime_layers,
+            }
             return {
-                'direct': {
-                    'hit': hit, 'crit': hit * 2.0, 'crit_multiplier': 2.0,
-                    'crit_chance': 0.2, 'expected': hit * 1.2,
-                    'damage_equivalent_count': count,
-                },
-                'tick': None,
+                'direct': values if component == 'direct' else None,
+                'tick': values if component == 'tick' else None,
                 'unresolved_reason': None,
             }
 
-        def action(token, hit, *, scenario_hit=None, count=1.0):
+        def action(token, *, baseline=1.0, scenario=None, layer='da_multiplier',
+                   component='direct', player_skill=True, harmful=True):
             row = {
                 'token': token, 'spell_id': token, 'supported': True,
-                'reporting_root_token': 'test_action',
-                'reporting_root_spell_id': 1,
+                'player_skill': player_skill, 'harmful': harmful,
+                'reporting_root_token': token, 'reporting_root_spell_id': token,
                 'reporting_root_component': True,
-                'baseline': amount(hit, count=count),
+                'baseline': amount(baseline, layer=layer, component=component),
                 'scenarios': [],
             }
-            if scenario_hit is not None:
-                row['scenarios'] = [{
-                    'active_buffs': ['probe'], 'amount': amount(scenario_hit, count=count),
-                }]
-            return row
-
-        talent = {
-            'id': 9, 'name': 'Universal', 'name_zh': '全局增伤',
-            'description': 'Increases all damage you deal by 10%.',
-        }
-        reference_high = {
-            'actions': [action('a', 100.0, scenario_hit=80.0), action('b', 200.0)],
-        }
-        high = {
-            'actions': [action('a', 110.0, scenario_hit=88.0), action('b', 220.0)],
-        }
-        reference_low = {
-            'actions': [action('a', 90.0, scenario_hit=70.0), action('b', 180.0)],
-        }
-        low = {
-            'actions': [action('a', 99.0, scenario_hit=77.0), action('b', 198.0)],
-        }
-
-        def classify():
-            return classify_global_damage_modifiers([{
-                'talent': talent,
-                'reference_high': reference_high, 'high': high,
-                'reference_low': reference_low, 'low': low,
-            }])
-
-        modifiers = classify()
-        self.assertEqual(modifiers[0]['talent_id'], 9)
-        self.assertAlmostEqual(modifiers[0]['damage_multiplier'], 1.1)
-
-        low['actions'][1]['baseline'] = amount(180.0)
-        self.assertEqual(classify(), [])
-        low['actions'][1]['baseline'] = amount(198.0)
-
-        high['actions'][0]['scenarios'][0]['amount'] = amount(90.0)
-        self.assertEqual(classify(), [])
-        high['actions'][0]['scenarios'][0]['amount'] = amount(88.0)
-
-        high['actions'][0]['baseline']['direct']['damage_equivalent_count'] = 2.0
-        self.assertEqual(classify(), [])
-
-    def test_global_modifier_accepts_selected_talent_buff_missing_from_reference_actor(self):
-        def amount(hit):
-            return {
-                'direct': {
-                    'hit': hit, 'crit': hit * 2.0, 'crit_multiplier': 2.0,
-                    'crit_chance': 0.2, 'expected': hit * 1.2,
-                    'damage_equivalent_count': 1.0,
-                },
-                'tick': None,
-                'unresolved_reason': None,
-            }
-
-        def action(token, hit, *, avatar_hit=None):
-            row = {
-                'token': token, 'spell_id': token, 'supported': True,
-                'baseline': amount(hit), 'scenarios': [],
-            }
-            if avatar_hit is not None:
+            if scenario is not None:
                 row['scenarios'].append({
-                    'active_buffs': ['avatar'], 'amount': amount(avatar_hit),
+                    'active_buffs': ['runtime_probe'],
+                    'amount': amount(scenario, layer=layer, component=component),
                 })
             return row
 
-        variant = {
-            'talent': {
-                'id': 90415, 'name': 'Avatar', 'name_zh': '天神下凡',
-                'tree_type': 'spec',
-                'description': 'Transform into a colossus, increasing all damage you deal by 20%.',
-                'description_zh': '化身为巨人，使你造成的所有伤害提高20%。',
-            },
-            'reference_high': {'actions': [
-                action('a', 100.0), action('b', 200.0, avatar_hit=240.0),
-            ]},
-            'high': {'actions': [
-                action('a', 100.0, avatar_hit=120.0),
-                action('b', 200.0, avatar_hit=240.0006),
-            ]},
-            'reference_low': {'actions': [
-                action('a', 90.0), action('b', 180.0, avatar_hit=216.0),
-            ]},
-            'low': {'actions': [
-                action('a', 90.0, avatar_hit=108.0),
-                action('b', 180.0, avatar_hit=216.0005),
-            ]},
+        def actor(*, baseline=1.0, scenario=None, layer='da_multiplier',
+                  component='direct', roots=('a', 'b'), effectiveness=None):
+            if effectiveness is None:
+                effectiveness = 'active' if baseline != 1.0 or scenario is not None else 'inactive'
+            return {'talent_effectiveness': effectiveness, 'actions': [
+                *(action(
+                    root, baseline=baseline, scenario=scenario,
+                    layer=layer, component=component,
+                ) for root in roots),
+                action('racial', baseline=1.0, player_skill=False),
+            ]}
+
+        talent = {
+            'id': 9, 'name': 'Universal', 'name_zh': '全局增伤',
+            'description': 'Increases all damage you deal.',
         }
+        cases = (
+            ('passive_da', 'direct', 'da_multiplier', 1.06, False),
+            ('buff_da', 'direct', 'da_multiplier', 1.20, True),
+            ('buff_ta', 'tick', 'ta_multiplier', 1.20, True),
+            ('buff_player', 'direct', 'player_multiplier', 1.12, True),
+            ('buff_versus', 'direct', 'versus_multiplier', 1.07, True),
+            ('buff_persistent', 'tick', 'persistent_multiplier', 1.09, True),
+            ('buff_target_da', 'direct', 'target_da_multiplier', 1.08, True),
+            ('buff_target_ta', 'tick', 'target_ta_multiplier', 1.08, True),
+            ('buff_versatility', 'direct', 'versatility', 1.05, True),
+            ('buff_pet', 'direct', 'pet_multiplier', 1.11, True),
+            ('buff_target_pet', 'tick', 'target_pet_multiplier', 1.04, True),
+        )
+        for name, component, layer, multiplier, conditional in cases:
+            with self.subTest(name=name):
+                reference = actor(layer=layer, component=component)
+                selected = actor(
+                    baseline=1.0 if conditional else multiplier,
+                    scenario=multiplier if conditional else None,
+                    layer=layer,
+                    component=component,
+                )
+                variant = {
+                    'talent': talent,
+                    'reference_high': copy.deepcopy(reference),
+                    'high': copy.deepcopy(selected),
+                    'reference_low': copy.deepcopy(reference),
+                    'low': copy.deepcopy(selected),
+                }
+                modifiers = classify_global_damage_modifiers([variant])
+                self.assertEqual(len(modifiers), 1)
+                self.assertAlmostEqual(modifiers[0]['damage_multiplier'], multiplier)
+                self.assertEqual(
+                    modifiers[0]['scenario_tokens'],
+                    ['runtime_probe'] if conditional else [],
+                )
+                self.assertEqual(modifiers[0]['evidence_root_count'], 2)
+                self.assertEqual(modifiers[0]['runtime_layer'], layer)
+                self.assertEqual(modifiers[0]['runtime_components'], [component])
+                self.assertEqual(
+                    {row['token'] for row in modifiers[0]['evidence_roots']},
+                    {'a', 'b'},
+                )
 
-        description = variant['talent'].pop('description')
-        description_zh = variant['talent'].pop('description_zh')
-        self.assertEqual(classify_global_damage_modifiers([variant]), [])
-        variant['talent']['description'] = description
-        variant['talent']['description_zh'] = description_zh
+        shared_reference_scenario = actor(scenario=1.0, effectiveness='inactive')
+        shared_selected_scenario = actor(scenario=1.20, effectiveness='active')
+        shared_runtime_token = {
+            'talent': talent,
+            'reference_high': copy.deepcopy(shared_reference_scenario),
+            'high': copy.deepcopy(shared_selected_scenario),
+            'reference_low': copy.deepcopy(shared_reference_scenario),
+            'low': copy.deepcopy(shared_selected_scenario),
+        }
+        shared_modifiers = classify_global_damage_modifiers([shared_runtime_token])
+        self.assertEqual(len(shared_modifiers), 1)
+        self.assertEqual(shared_modifiers[0]['scenario_tokens'], ['runtime_probe'])
 
-        modifiers = classify_global_damage_modifiers([variant])
-
-        self.assertEqual(len(modifiers), 1)
-        self.assertEqual(modifiers[0]['talent_id'], 90415)
-        self.assertAlmostEqual(modifiers[0]['damage_multiplier'], 1.2)
-        self.assertEqual(modifiers[0]['runtime_condition'], '探针条件：启用 avatar buff')
+        registered_reference = actor(scenario=1.20, effectiveness='inactive')
+        registered_selected = actor(scenario=1.20, effectiveness='active')
+        for registered_actor in (registered_reference, registered_selected):
+            for registered_action in registered_actor['actions']:
+                for scenario_row in registered_action.get('scenarios', []):
+                    scenario_row['active_buffs'] = ['buff.runtime_probe']
+        registered_selected['actions'].append({
+            'name': 'Runtime Probe', 'spell_id': 999,
+            'supported': False, 'player_skill': True, 'harmful': False,
+        })
+        registered_state_variant = {
+            'talent': talent,
+            'reference_high': copy.deepcopy(registered_reference),
+            'high': copy.deepcopy(registered_selected),
+            'reference_low': copy.deepcopy(registered_reference),
+            'low': copy.deepcopy(registered_selected),
+        }
+        registered_modifiers = classify_global_damage_modifiers(
+            [registered_state_variant],
+        )
+        self.assertEqual(len(registered_modifiers), 1)
         self.assertEqual(
-            flatten_single_talent_damage_variants({'actions': []}, {'actions': []}, [variant]),
+            registered_modifiers[0]['scenario_tokens'], ['buff.runtime_probe'],
+        )
+        self.assertAlmostEqual(registered_modifiers[0]['damage_multiplier'], 1.20)
+
+        damage_and_crit_variant = copy.deepcopy(registered_state_variant)
+        for actor_key in ('high', 'low'):
+            for action_row in damage_and_crit_variant[actor_key]['actions']:
+                for scenario_row in action_row.get('scenarios', []):
+                    component_row = scenario_row['amount'].get('direct')
+                    if not component_row:
+                        continue
+                    component_row['crit_chance'] = 0.30
+                    component_row['expected'] = 156.0
+        damage_and_crit_modifiers = classify_global_damage_modifiers(
+            [damage_and_crit_variant],
+        )
+        self.assertEqual(len(damage_and_crit_modifiers), 1)
+        self.assertAlmostEqual(
+            damage_and_crit_modifiers[0]['damage_multiplier'], 1.20,
+        )
+
+        sparse_reference_variant = {
+            'talent': talent,
+            'reference_high': actor(scenario=None, effectiveness='inactive'),
+            'high': actor(scenario=1.20, effectiveness='active'),
+            'reference_low': actor(scenario=None, effectiveness='inactive'),
+            'low': actor(scenario=1.20, effectiveness='active'),
+        }
+        for actor_row in (
+            sparse_reference_variant['high'], sparse_reference_variant['low'],
+        ):
+            for action_row in actor_row['actions']:
+                for scenario_row in action_row.get('scenarios', []):
+                    scenario_row['active_buffs'] = ['sparse_state']
+        sparse_reference_modifiers = classify_global_damage_modifiers([
+            sparse_reference_variant,
+        ])
+        self.assertEqual(len(sparse_reference_modifiers), 1)
+        self.assertAlmostEqual(
+            sparse_reference_modifiers[0]['damage_multiplier'], 1.20,
+        )
+
+        unresolved_actor = actor(scenario=1.0)
+        unresolved_action = action('unresolved', scenario=1.0)
+        unresolved_action['baseline']['unresolved_reason'] = (
+            'periodic_damage_count_unavailable'
+        )
+        unresolved_actor['actions'].append(unresolved_action)
+        evidence_actions = _player_skill_actions(unresolved_actor)
+        self.assertNotIn(('unresolved', 'unresolved'), evidence_actions)
+
+        zero_direct_variant = {
+            'talent': talent,
+            'reference_high': actor(component='tick', layer='ta_multiplier', scenario=1.0, effectiveness='inactive'),
+            'high': actor(component='tick', layer='ta_multiplier', scenario=1.20, effectiveness='active'),
+            'reference_low': actor(component='tick', layer='ta_multiplier', scenario=1.0, effectiveness='inactive'),
+            'low': actor(component='tick', layer='ta_multiplier', scenario=1.20, effectiveness='active'),
+        }
+        zero_direct = amount(1.0)['direct']
+        zero_direct.update({'hit': 0.0, 'crit': 0.0, 'expected': 0.0})
+        for actor_row in (
+            zero_direct_variant['reference_high'], zero_direct_variant['high'],
+            zero_direct_variant['reference_low'], zero_direct_variant['low'],
+        ):
+            for action_row in actor_row['actions']:
+                if action_row.get('player_skill') is not True:
+                    continue
+                action_row['baseline']['direct'] = copy.deepcopy(zero_direct)
+                for scenario_row in action_row.get('scenarios', []):
+                    scenario_row['amount']['direct'] = copy.deepcopy(zero_direct)
+        zero_direct_modifiers = classify_global_damage_modifiers(
+            [zero_direct_variant],
+        )
+        self.assertEqual(len(zero_direct_modifiers), 1)
+        self.assertAlmostEqual(
+            zero_direct_modifiers[0]['damage_multiplier'], 1.20,
+        )
+
+        unrelated_action_variant = copy.deepcopy(registered_state_variant)
+        for actor_key in ('high', 'low'):
+            unrelated_action_variant[actor_key]['actions'][-1]['name'] = 'Other Ability'
+        self.assertEqual(
+            classify_global_damage_modifiers([unrelated_action_variant]),
             [],
         )
 
-        variant['high']['actions'][0]['scenarios'].append({
-            'active_buffs': ['focused'], 'amount': amount(130.0),
-        })
-        variant['low']['actions'][0]['scenarios'].append({
-            'active_buffs': ['focused'], 'amount': amount(117.0),
-        })
-        modifiers_with_focused = classify_global_damage_modifiers([variant])
-        self.assertEqual(len(modifiers_with_focused), 1)
-        focused_rows = flatten_single_talent_damage_variants(
-            {'actions': []}, {'actions': []}, [variant],
+        marginal_reference = actor(scenario=1.10, effectiveness='inactive')
+        marginal_selected = actor(scenario=1.32, effectiveness='active')
+        for reference_action, selected_action in zip(
+            marginal_reference['actions'], marginal_selected['actions'], strict=True,
+        ):
+            if reference_action.get('player_skill') is not True:
+                continue
+            reference_action['scenarios'].append({
+                'active_buffs': ['unrelated_probe'],
+                'amount': amount(1.10),
+            })
+            selected_action['scenarios'].append({
+                'active_buffs': ['unrelated_probe'],
+                'amount': amount(1.10),
+            })
+        marginal_runtime_token = {
+            'talent': talent,
+            'reference_high': copy.deepcopy(marginal_reference),
+            'high': copy.deepcopy(marginal_selected),
+            'reference_low': copy.deepcopy(marginal_reference),
+            'low': copy.deepcopy(marginal_selected),
+        }
+        marginal_modifiers = classify_global_damage_modifiers([marginal_runtime_token])
+        self.assertEqual(len(marginal_modifiers), 1)
+        self.assertEqual(marginal_modifiers[0]['scenario_tokens'], ['runtime_probe'])
+        self.assertAlmostEqual(marginal_modifiers[0]['damage_multiplier'], 1.20)
+
+        active_ability_reference = actor(scenario=1.0, effectiveness='inactive')
+        active_ability_selected = actor(scenario=1.20, effectiveness='active')
+        active_ability_selected['actions'].insert(
+            -1,
+            action('talent_active_ability', baseline=1.0, scenario=1.20),
         )
-        self.assertTrue(focused_rows)
-        self.assertTrue(all(
-            row['variant']['scenario_tokens'] == ['focused']
-            for row in focused_rows
+        active_ability_variant = {
+            'talent': talent,
+            'reference_high': copy.deepcopy(active_ability_reference),
+            'high': copy.deepcopy(active_ability_selected),
+            'reference_low': copy.deepcopy(active_ability_reference),
+            'low': copy.deepcopy(active_ability_selected),
+        }
+        active_ability_modifiers = classify_global_damage_modifiers(
+            [active_ability_variant],
+        )
+        self.assertEqual(len(active_ability_modifiers), 1)
+        self.assertEqual(
+            active_ability_modifiers[0]['scenario_tokens'], ['runtime_probe'],
+        )
+        self.assertEqual(active_ability_modifiers[0]['evidence_root_count'], 2)
+
+        non_damage_action_variant = copy.deepcopy(shared_runtime_token)
+        for actor_key in ('reference_high', 'high', 'reference_low', 'low'):
+            non_damage_action_variant[actor_key]['actions'].extend((
+                action('healing_absorb', harmful=False),
+                action('zero_damage_trigger', baseline=0.0),
+            ))
+        non_damage_modifiers = classify_global_damage_modifiers(
+            [non_damage_action_variant],
+        )
+        self.assertEqual(len(non_damage_modifiers), 1)
+        self.assertEqual(
+            non_damage_modifiers[0]['scenario_tokens'], ['runtime_probe'],
+        )
+
+        sparse_reference = actor(scenario=1.0, effectiveness='inactive')
+        sparse_selected = actor(scenario=1.20, effectiveness='active')
+        sparse_reference['actions'].insert(-1, action('third_skill', scenario=1.0))
+        sparse_selected['actions'].insert(-1, action('third_skill', scenario=None))
+        sparse_runtime_token = {
+            'talent': talent,
+            'reference_high': copy.deepcopy(sparse_reference),
+            'high': copy.deepcopy(sparse_selected),
+            'reference_low': copy.deepcopy(sparse_reference),
+            'low': copy.deepcopy(sparse_selected),
+        }
+        sparse_modifiers = classify_global_damage_modifiers([sparse_runtime_token])
+        self.assertEqual(len(sparse_modifiers), 1)
+        self.assertEqual(sparse_modifiers[0]['evidence_root_count'], 2)
+
+        def target_layer_amount(component_name, multiplier):
+            result = amount(multiplier)
+            component = result.pop('direct')
+            layers = component['runtime_layers']
+            layers['da_multiplier'] = 1.0
+            layers['target_da_multiplier'] = multiplier
+            if component_name == 'tick':
+                layers['ta_multiplier'] = layers.pop('da_multiplier')
+                layers['target_ta_multiplier'] = layers.pop('target_da_multiplier')
+                result['tick'] = component
+            else:
+                result['direct'] = component
+            return result
+
+        split_layer_reference = actor(scenario=None, effectiveness='inactive')
+        split_layer_selected = actor(scenario=None, effectiveness='active')
+        for index, action_row in enumerate(split_layer_reference['actions'][:-1]):
+            component_name = 'direct' if index == 0 else 'tick'
+            action_row['baseline'] = target_layer_amount(component_name, 1.0)
+        for index, action_row in enumerate(split_layer_selected['actions'][:-1]):
+            component_name = 'direct' if index == 0 else 'tick'
+            action_row['baseline'] = target_layer_amount(component_name, 1.0)
+            action_row['scenarios'] = [{
+                'active_buffs': ['runtime_probe'],
+                'amount': target_layer_amount(component_name, 1.16),
+            }]
+        split_layer_runtime_token = {
+            'talent': talent,
+            'reference_high': copy.deepcopy(split_layer_reference),
+            'high': copy.deepcopy(split_layer_selected),
+            'reference_low': copy.deepcopy(split_layer_reference),
+            'low': copy.deepcopy(split_layer_selected),
+        }
+        split_layer_modifiers = classify_global_damage_modifiers(
+            [split_layer_runtime_token],
+        )
+        self.assertEqual(len(split_layer_modifiers), 1)
+        self.assertEqual(split_layer_modifiers[0]['evidence_root_count'], 2)
+        self.assertEqual(
+            split_layer_modifiers[0]['runtime_components'], ['direct', 'tick'],
+        )
+
+        unrelated_sparse_variant = copy.deepcopy(shared_runtime_token)
+        for actor_key in ('reference_high', 'high', 'reference_low', 'low'):
+            unrelated_sparse_variant[actor_key]['actions'][0]['scenarios'].append({
+                'active_buffs': ['unrelated_sparse_probe'],
+                'amount': amount(1.20),
+            })
+        unrelated_sparse_modifiers = classify_global_damage_modifiers(
+            [unrelated_sparse_variant],
+        )
+        self.assertEqual(len(unrelated_sparse_modifiers), 1)
+        self.assertEqual(
+            unrelated_sparse_modifiers[0]['scenario_tokens'], ['runtime_probe'],
+        )
+
+        wrong_effectiveness = copy.deepcopy(shared_runtime_token)
+        wrong_effectiveness['high']['talent_effectiveness'] = 'inactive'
+        self.assertEqual(classify_global_damage_modifiers([wrong_effectiveness]), [])
+
+        mixed_reference = actor(layer='da_multiplier')
+        mixed_selected = actor(baseline=1.20, layer='da_multiplier')
+        for selected_action in mixed_selected['actions']:
+            if selected_action['token'] == 'a':
+                selected_action['baseline']['direct']['runtime_layers']['player_multiplier'] = 1.10
+        mixed = {
+            'talent': talent,
+            'reference_high': copy.deepcopy(mixed_reference),
+            'high': copy.deepcopy(mixed_selected),
+            'reference_low': copy.deepcopy(mixed_reference),
+            'low': copy.deepcopy(mixed_selected),
+        }
+        self.assertEqual(classify_global_damage_modifiers([mixed]), [])
+        mixed_rows = flatten_single_talent_damage_variants(
+            {'actions': []}, {'actions': []}, [mixed],
+        )
+        self.assertTrue(mixed_rows)
+        self.assertEqual({row['variant']['talent_id'] for row in mixed_rows}, {talent['id']})
+
+        partially_affected_reference = actor(roots=('a', 'b', 'c'))
+        partially_affected_selected = actor(baseline=1.20, roots=('a', 'b', 'c'))
+        for selected_action in partially_affected_selected['actions']:
+            if selected_action['token'] == 'c':
+                selected_action['baseline'] = amount()
+        partially_affected = {
+            'talent': talent,
+            'reference_high': copy.deepcopy(partially_affected_reference),
+            'high': copy.deepcopy(partially_affected_selected),
+            'reference_low': copy.deepcopy(partially_affected_reference),
+            'low': copy.deepcopy(partially_affected_selected),
+        }
+        self.assertEqual(classify_global_damage_modifiers([partially_affected]), [])
+
+        negative_focused_selected = actor(baseline=1.20, layer='da_multiplier')
+        for selected_action in negative_focused_selected['actions']:
+            if selected_action['token'] == 'a':
+                selected_action['baseline']['direct']['runtime_layers']['player_multiplier'] = 0.80
+        negative_focused = {
+            'talent': talent,
+            'reference_high': actor(layer='da_multiplier'),
+            'high': copy.deepcopy(negative_focused_selected),
+            'reference_low': actor(layer='da_multiplier'),
+            'low': copy.deepcopy(negative_focused_selected),
+        }
+        self.assertEqual(classify_global_damage_modifiers([negative_focused]), [])
+        self.assertTrue(flatten_single_talent_damage_variants(
+            {'actions': []}, {'actions': []}, [negative_focused],
         ))
-        variant['high']['actions'][0]['scenarios'].pop()
-        variant['low']['actions'][0]['scenarios'].pop()
 
-        variant['high']['actions'][0]['scenarios'][0]['amount'] = amount(100.0005)
-        variant['high']['actions'][1]['scenarios'][0]['amount'] = amount(200.001)
-        variant['low']['actions'][0]['scenarios'][0]['amount'] = amount(90.00045)
-        variant['low']['actions'][1]['scenarios'][0]['amount'] = amount(180.0009)
-        self.assertEqual(classify_global_damage_modifiers([variant]), [])
+        passive_with_focused_scenario = {
+            'talent': talent,
+            'reference_high': actor(),
+            'high': actor(baseline=1.20),
+            'reference_low': actor(),
+            'low': actor(baseline=1.20),
+        }
+        for key in ('high', 'low'):
+            selected_action = passive_with_focused_scenario[key]['actions'][0]
+            focused_amount = amount(1.20)
+            focused_amount['direct']['runtime_layers']['player_multiplier'] = 1.10
+            selected_action['scenarios'].append({
+                'active_buffs': ['focused_probe'],
+                'amount': focused_amount,
+            })
+        self.assertEqual(
+            classify_global_damage_modifiers([passive_with_focused_scenario]), [],
+        )
+        self.assertTrue(flatten_single_talent_damage_variants(
+            {'actions': []}, {'actions': []}, [passive_with_focused_scenario],
+        ))
 
-    def test_global_modifier_fails_closed_without_low_target_proof(self):
-        component = {
-            'hit': 100.0, 'crit': 200.0, 'crit_multiplier': 2.0,
-            'crit_chance': 0.2, 'expected': 120.0, 'damage_equivalent_count': 1.0,
+        passive_with_focused_math = {
+            'talent': talent,
+            'reference_high': actor(),
+            'high': actor(baseline=1.20),
+            'reference_low': actor(),
+            'low': actor(baseline=1.20),
         }
-        action = {
-            'token': 'a', 'spell_id': 1, 'supported': True,
-            'baseline': {'direct': component, 'tick': None, 'unresolved_reason': None},
+        for key in ('high', 'low'):
+            passive_with_focused_math[key]['actions'][0]['baseline']['direct'][
+                'damage_equivalent_count'
+            ] = 2.0
+        self.assertEqual(
+            classify_global_damage_modifiers([passive_with_focused_math]), [],
+        )
+        self.assertTrue(flatten_single_talent_damage_variants(
+            {'actions': []}, {'actions': []}, [passive_with_focused_math],
+        ))
+
+        tiny_focused_math = copy.deepcopy(passive_with_focused_math)
+        for key in ('high', 'low'):
+            tiny_focused_math[key]['actions'][0]['baseline']['direct'][
+                'damage_equivalent_count'
+            ] = 1.000009
+        self.assertEqual(classify_global_damage_modifiers([tiny_focused_math]), [])
+
+        global_with_non_player_change = {
+            'talent': talent,
+            'reference_high': actor(),
+            'high': actor(baseline=1.20),
+            'reference_low': actor(),
+            'low': actor(baseline=1.20),
         }
-        selected = copy.deepcopy(action)
-        for field in ('hit', 'crit', 'expected'):
-            selected['baseline']['direct'][field] *= 1.1
-        self.assertEqual(classify_global_damage_modifiers([{
-            'talent': {'id': 9},
-            'reference_high': {'actions': [action]}, 'high': {'actions': [selected]},
-        }]), [])
+        for key in ('high', 'low'):
+            global_with_non_player_change[key]['actions'][-1]['baseline']['direct'][
+                'damage_equivalent_count'
+            ] = 2.0
+        non_player_modifiers = classify_global_damage_modifiers(
+            [global_with_non_player_change],
+        )
+        self.assertEqual(len(non_player_modifiers), 1)
+        non_player_rows = flatten_single_talent_damage_variants(
+            {'actions': []}, {'actions': []}, [global_with_non_player_change],
+        )
+        self.assertEqual([row['token'] for row in non_player_rows], ['racial'])
+
+        identity_drift = {
+            'talent': talent,
+            'reference_high': actor(roots=('a', 'b', 'c')),
+            'high': actor(baseline=1.20, roots=('a', 'b', 'c')),
+            'reference_low': actor(roots=('a', 'b', 'c')),
+            'low': actor(baseline=1.20, roots=('a', 'b', 'c')),
+        }
+        for key in ('high', 'low'):
+            drifted = identity_drift[key]['actions'][2]
+            drifted['token'] = 'changed_child_identity'
+            drifted['spell_id'] = 'changed_child_identity'
+        self.assertEqual(classify_global_damage_modifiers([identity_drift]), [])
+
+        restricted = {
+            'talent': {
+                **talent,
+                'description': 'Increases your damage with Fireball by 20%.',
+            },
+            'reference_high': actor(), 'high': actor(baseline=1.20),
+            'reference_low': actor(), 'low': actor(baseline=1.20),
+        }
+        self.assertEqual(classify_global_damage_modifiers([restricted]), [])
+
+        target_condition = {
+            'talent': {
+                **talent,
+                'description': 'Increases your damage against stunned targets by 10%.',
+            },
+            'reference_high': actor(), 'high': actor(baseline=1.10),
+            'reference_low': actor(), 'low': actor(baseline=1.10),
+        }
+        self.assertEqual(len(classify_global_damage_modifiers([target_condition])), 1)
+
+        focused = {
+            'talent': {
+                'id': 10, 'name': 'Focused',
+                'description': 'Increases one ability damage.',
+            },
+            'reference_high': actor(), 'high': actor(baseline=1.20),
+            'reference_low': actor(), 'low': actor(baseline=1.20),
+        }
+        self.assertEqual(classify_global_damage_modifiers([focused]), [])
+
+        one_root = copy.deepcopy(focused)
+        one_root['talent'] = talent
+        for key in ('reference_high', 'high', 'reference_low', 'low'):
+            one_root[key] = actor(
+                baseline=1.20 if key in ('high', 'low') else 1.0,
+                roots=('a',),
+            )
+        self.assertEqual(classify_global_damage_modifiers([one_root]), [])
+
+        inconsistent = copy.deepcopy(one_root)
+        inconsistent['reference_high'] = actor()
+        inconsistent['high'] = actor(baseline=1.20)
+        inconsistent['reference_low'] = actor()
+        inconsistent['low'] = actor(baseline=1.10)
+        self.assertEqual(classify_global_damage_modifiers([inconsistent]), [])
+
+        missing_low = copy.deepcopy(inconsistent)
+        missing_low.pop('reference_low')
+        missing_low.pop('low')
+        self.assertEqual(classify_global_damage_modifiers([missing_low]), [])
 
     def test_global_modifier_requires_positive_unique_talent_id_and_never_deletes_bad_ids(self):
         component = {
@@ -1009,7 +1451,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         service = SimcSkillDamageSnapshotService.create_for_current_backend()
 
         self.assertNotEqual(service.snapshot.pk, existing.pk)
-        self.assertEqual(service.snapshot.schema_revision, 9)
+        self.assertEqual(service.snapshot.schema_revision, 10)
         self.assertEqual(service.snapshot.status, SimcSkillDamageSnapshot.STATUS_PENDING)
         self.assertEqual(service.backend.pk, backend.pk)
 
@@ -1112,13 +1554,15 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 )
             actors = [{
                 'name': 'skill_damage_base', 'class': 'druid', 'spec': 'guardian',
+                'talent_effectiveness': 'unknown',
                 'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions', 'actions': [],
             }]
             for talent in batch:
                 for prefix in ('reference', 'talent'):
                     actors.append({
-                        'name': f'skill_damage_{prefix}_{talent.pk}',
+                        'name': f'skill_damage_{prefix}_{talent.pk}_trait_{talent.node_id}',
                         'class': 'druid', 'spec': 'guardian',
+                        'talent_effectiveness': 'inactive' if prefix == 'reference' else 'active',
                         'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
                         'actions': [],
                     })
@@ -1146,6 +1590,75 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             ],
         )
         self.assertIn('Iteration=-1', result['unresolved'][0]['diagnostic'])
+
+    def test_resilient_export_isolates_simc_assertion_failure(self):
+        snapshot = SimpleNamespace(simc_revision='e' * 40, game_build='12.1.0.69299')
+        profile = SimpleNamespace(pk=1, spec='druid_guardian', class_name='druid')
+        talent = SimpleNamespace(
+            pk=11, node_id=137059, tree_type='spec', name='Wild Guardian', name_zh='荒野守护者',
+        )
+        baseline = {
+            'actors': [{'name': 'skill_damage_base', 'class': 'druid', 'spec': 'guardian',
+                        'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions', 'actions': []}],
+            'unresolved': [],
+        }
+
+        def export_batch(
+            _profile, batch, *, scaffold_talents, talent_prerequisites=None, target_health,
+        ):
+            if batch:
+                raise RuntimeError(
+                    "simc: class_modules/sc_druid.cpp:5687: virtual void "
+                    "maul_base_t::snapshot_state(action_state_t*, result_amount_type): "
+                    "Assertion `p()->resources.current[ RESOURCE_RAGE ] >= cost()' failed."
+                )
+            return baseline
+
+        service = SimcSkillDamageSnapshotService(snapshot)
+        with mock.patch.object(service, '_run_profile_export', side_effect=export_batch):
+            _base, actors, unresolved = service._run_profile_target_resilient(
+                profile, [talent], scaffold_talents=[],
+                talent_prerequisites={talent.pk: []}, target_health=100,
+            )
+
+        self.assertEqual(actors, {})
+        self.assertEqual(len(unresolved), 1)
+        self.assertEqual(unresolved[0]['reason'], 'simc_actor_initialization_failed')
+        self.assertIn('Assertion `', unresolved[0]['diagnostic'])
+
+    def test_resilient_export_isolates_missing_action_spell_data(self):
+        snapshot = SimpleNamespace(simc_revision='e' * 40, game_build='12.1.0.69299')
+        profile = SimpleNamespace(pk=1, spec='death_knight_blood', class_name='death_knight')
+        talent = SimpleNamespace(
+            pk=22, node_id=68470, tree_type='spec', name='Boiling Point', name_zh='沸点',
+        )
+        baseline = {
+            'actors': [{'name': 'skill_damage_base', 'class': 'death_knight', 'spec': 'blood',
+                        'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions', 'actions': []}],
+            'unresolved': [],
+        }
+
+        def export_batch(
+            _profile, batch, *, scaffold_talents, talent_prerequisites=None, target_health,
+        ):
+            if batch:
+                raise RuntimeError(
+                    "Error: Player 'skill_damage_talent_22' could not find spell data "
+                    "for Action 'blood_boil_boiling_point' (0)."
+                )
+            return baseline
+
+        service = SimcSkillDamageSnapshotService(snapshot)
+        with mock.patch.object(service, '_run_profile_export', side_effect=export_batch):
+            _base, actors, unresolved = service._run_profile_target_resilient(
+                profile, [talent], scaffold_talents=[],
+                talent_prerequisites={talent.pk: []}, target_health=100,
+            )
+
+        self.assertEqual(actors, {})
+        self.assertEqual(len(unresolved), 1)
+        self.assertEqual(unresolved[0]['reason'], 'simc_actor_initialization_failed')
+        self.assertIn('blood_boil_boiling_point', unresolved[0]['diagnostic'])
 
     def test_resilient_export_does_not_swallow_unknown_runtime_failure(self):
         snapshot = SimpleNamespace(simc_revision='e' * 40, game_build='12.1.0.69299')
@@ -1194,13 +1707,15 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 raise RuntimeError('sim_signal_handler: Segmentation fault! signal_11')
             actors = [{
                 'name': 'skill_damage_base', 'class': 'druid', 'spec': 'guardian',
+                'talent_effectiveness': 'unknown',
                 'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions', 'actions': [],
             }]
             for row in batch:
                 for prefix in ('reference', 'talent'):
                     actors.append({
-                        'name': f'skill_damage_{prefix}_{row.pk}',
+                        'name': f'skill_damage_{prefix}_{row.pk}_trait_{row.node_id}',
                         'class': 'druid', 'spec': 'guardian',
+                        'talent_effectiveness': 'inactive' if prefix == 'reference' else 'active',
                         'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
                         'actions': [],
                     })
@@ -1219,31 +1734,43 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         variants = flatten.call_args.args[2]
         self.assertEqual(len(variants), 1)
-        self.assertEqual(variants[0]['high']['name'], 'skill_damage_talent_11')
+        self.assertEqual(variants[0]['high']['name'], 'skill_damage_talent_11_trait_137059')
         self.assertIsNone(variants[0]['low'])
         self.assertEqual(
             [(row['talent']['id'], row['target_health_percentage']) for row in result['unresolved']],
             [(137059, 34)],
         )
 
-    def test_schema_four_requires_exported_runtime_crit_multiplier_and_expectation(self):
+    def test_schema_five_requires_player_skill_and_complete_runtime_evidence(self):
         snapshot = SimcSkillDamageSnapshot(
-            simc_revision='c' * 40, game_build='12.1.0.69299', schema_revision=3,
+            simc_revision='c' * 40, game_build='12.1.0.69299', schema_revision=10,
         )
         service = SimcSkillDamageSnapshotService(snapshot)
+        direct_runtime_layers = {
+            'da_multiplier': 1.0,
+            'player_multiplier': 1.0,
+            'versus_multiplier': 1.0,
+            'persistent_multiplier': 1.0,
+            'target_da_multiplier': 1.0,
+            'versatility': 1.0,
+            'pet_multiplier': 1.0,
+            'target_pet_multiplier': 1.0,
+        }
         payload = {
-            'schema_version': 4,
+            'schema_version': 6,
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
             'actors': [{
                 'class': 'warrior',
                 'spec': 'fury',
+                'talent_effectiveness': 'unknown',
                 'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
                 'actions': [{
                 'token': 'test_action',
                 'spell_id': 1,
                 'supported': True,
+                'player_skill': True,
                 'reporting_root_token': 'test_action',
                 'reporting_root_spell_id': 1,
                 'reporting_root_component': True,
@@ -1262,12 +1789,58 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                     'hit': 424.2, 'crit': 848.4, 'crit_multiplier': 2.0,
                     'crit_chance': 0.2, 'expected': 509.04,
                     'damage_equivalent_count': 1.0,
+                    'runtime_layers': dict(direct_runtime_layers),
                 }, 'tick': None},
                 'scenarios': [],
             }]}],
         }
         service._validate_export(payload)
         action = payload['actors'][0]['actions'][0]
+
+        player_skill = action.pop('player_skill')
+        with self.assertRaisesRegex(ValueError, 'player skill'):
+            service._validate_export(payload)
+        action['player_skill'] = player_skill
+
+        direct = action['baseline']['direct']
+        runtime_layers = direct.pop('runtime_layers')
+        with self.assertRaisesRegex(ValueError, 'runtime layers'):
+            service._validate_export(payload)
+        direct['runtime_layers'] = runtime_layers
+
+        direct['runtime_layers']['da_multiplier'] = float('nan')
+        with self.assertRaisesRegex(ValueError, 'runtime layers'):
+            service._validate_export(payload)
+        direct['runtime_layers']['da_multiplier'] = 1.0
+
+        direct['runtime_layers']['unexpected'] = 1.0
+        with self.assertRaisesRegex(ValueError, 'runtime layers'):
+            service._validate_export(payload)
+        del direct['runtime_layers']['unexpected']
+
+        tick_payload = copy.deepcopy(payload)
+        tick_action = tick_payload['actors'][0]['actions'][0]
+        tick_action['baseline'] = {
+            'direct': None,
+            'tick': {
+                **copy.deepcopy(direct),
+                'runtime_layers': {
+                    'ta_multiplier': 1.0,
+                    'player_multiplier': 1.0,
+                    'versus_multiplier': 1.0,
+                    'persistent_multiplier': 1.0,
+                    'target_ta_multiplier': 1.0,
+                    'versatility': 1.0,
+                    'pet_multiplier': 1.0,
+                    'target_pet_multiplier': 1.0,
+                },
+            },
+        }
+        service._validate_export(tick_payload)
+        tick_action['baseline']['tick']['runtime_layers'].pop('target_ta_multiplier')
+        with self.assertRaisesRegex(ValueError, 'runtime layers'):
+            service._validate_export(tick_payload)
+
         reporting_root_token = action.pop('reporting_root_token')
         with self.assertRaisesRegex(ValueError, 'reporting root'):
             service._validate_export(payload)
@@ -1307,11 +1880,22 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 'hit': 100.0, 'crit': 200.0, 'crit_multiplier': 2.0,
                 'crit_chance': 0.2, 'expected': 120.0,
                 'damage_equivalent_count': 1.0,
+                'runtime_layers': {
+                    'da_multiplier': 1.0,
+                    'player_multiplier': 1.0,
+                    'versus_multiplier': 1.0,
+                    'persistent_multiplier': 1.0,
+                    'target_da_multiplier': 1.0,
+                    'versatility': 1.0,
+                    'pet_multiplier': 1.0,
+                    'target_pet_multiplier': 1.0,
+                },
             }, 'tick': None}
 
         def action(token, spell_id):
             return {
                 'token': token, 'spell_id': spell_id, 'supported': True,
+                'player_skill': True,
                 # A reporting root need not be one of the damaging exported actions.
                 'reporting_root_token': 'non_damaging_root',
                 'reporting_root_spell_id': 9000,
@@ -1327,17 +1911,18 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 },
                 'baseline': amount(),
                 'scenarios': [{
-                    'buffs': [{'token': 'probe'}],
+                    'buffs': [{'token': 'probe', 'scope': 'self'}],
                     'values': amount(),
                 }],
             }
 
         payload = {
-            'schema_version': 4, 'simc_revision': 'c' * 40,
+            'schema_version': 6, 'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
             'actors': [{
                 'class': 'warrior', 'spec': 'fury',
+                'talent_effectiveness': 'unknown',
                 'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
                 'actions': [action('leaf', 1)],
             }],
@@ -1374,8 +1959,10 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         for mutate, message in (
             (lambda row: row['scenarios'].__setitem__(0, None), 'scenario 结构'),
-            (lambda row: row['scenarios'][0]['buffs'].append({'token': 'probe'}),
+            (lambda row: row['scenarios'][0]['buffs'].append({'token': 'probe', 'scope': 'self'}),
              'buff token identity'),
+            (lambda row: row['scenarios'][0]['buffs'][0].__setitem__('scope', 'external'),
+             'buff scope'),
             (lambda row: row['scenarios'][0]['values']['direct'].__setitem__('hit', float('nan')),
              '数学期望字段'),
             (lambda row: row['scenarios'][0]['values']['direct'].__setitem__(
@@ -1392,18 +1979,20 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         service = SimcSkillDamageSnapshotService(snapshot)
         payload = {
-            'schema_version': 4,
+            'schema_version': 6,
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
             'actors': [{
                 'class': 'warrior',
                 'spec': 'fury',
+                'talent_effectiveness': 'unknown',
                 'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
                 'actions': [{
                 'token': 'test_action',
                 'spell_id': 1,
                 'supported': True,
+                'player_skill': True,
                 'reporting_root_token': 'test_action',
                 'reporting_root_spell_id': 1,
                 'reporting_root_component': True,
@@ -1440,7 +2029,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         service = SimcSkillDamageSnapshotService(snapshot)
         base = {
-            'schema_version': 4,
+            'schema_version': 6,
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
@@ -1456,16 +2045,18 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         service = SimcSkillDamageSnapshotService(snapshot)
         base = {
-            'schema_version': 4,
+            'schema_version': 6,
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
         }
         invalid_actors = [
-            {'actions': []},
-            {'class': 'warrior', 'spec': 'fury', 'action_universe': 'wrong', 'actions': []},
+            {'talent_effectiveness': 'unknown', 'actions': []},
+            {'class': 'warrior', 'spec': 'fury', 'talent_effectiveness': 'unknown',
+             'action_universe': 'wrong', 'actions': []},
             {
                 'class': 'warrior', 'spec': 'fury',
+                'talent_effectiveness': 'unknown',
                 'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
                 'actions': [{
                     'token': 'test_action', 'spell_id': 1, 'supported': None,
@@ -1489,7 +2080,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             },
         )
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=9,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=10,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{
                 'specialization': 'fury',
@@ -1520,7 +2111,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
 
     def test_get_returns_latest_schema_nine_success_without_profile_filters(self):
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=9,
+            simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=10,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{'specialization': 'fury'}]},
         )
@@ -1547,7 +2138,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(body['data']['snapshot'])
-        self.assertIn('schema 9', body['data']['snapshot_unavailable_reason'])
+        self.assertIn('schema 10', body['data']['snapshot_unavailable_reason'])
 
     def test_get_localizes_skill_identity_and_left_cell_only_shows_name_and_spell_id(self):
         version = WowTalentVersion.objects.create(key='current', is_active=True)
@@ -1574,7 +2165,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
             name='Stale Action', name_zh='过期版本中文名', snapshot_build='12.1.0.69299',
         )
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=9,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=10,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{
                 'class': 'warrior', 'specialization': 'fury',
