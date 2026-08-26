@@ -155,3 +155,4 @@ media/aggregated/
 /botend/data/mythic_planner/*
 !/botend/data/mythic_planner/mdt_6_2_1.json
 !/botend/data/mythic_planner/mdt_6_2_2.json
+!/botend/data/mythic_planner/mdt_6_2_5.json

@@ -1707,12 +1707,12 @@
         const sharing = mode === 'share';
         openModal({
             title: sharing ? '分享路线' : '导出路线',
-            subtitle: sharing ? 'MDT 路线字符串与站内短链接' : 'MythicDungeonTools 6.2.2 路线字符串',
+            subtitle: sharing ? 'MDT 路线字符串与站内短链接' : 'MythicDungeonTools 6.2.5 路线字符串',
             content: `
                 <label>路线分享字符串
                     <textarea id="route-code" readonly>${escapeHtml(shareCode)}</textarea>
                 </label>
-                <p>使用暴雪 CBOR、Deflate 和 Base64 编码，可直接导入 MythicDungeonTools 6.2.2。</p>
+                <p>使用暴雪 CBOR、Deflate 和 Base64 编码，可直接导入 MythicDungeonTools 6.2.5。</p>
                 ${shortUrl ? `
                     <label>站内短链接
                         <input id="public-route-link" readonly value="${escapeHtml(shortUrl)}">
@@ -1888,10 +1888,10 @@
                     <div><strong>拉怪组：</strong>右侧点击某一波设为当前组，可新增、改名、删除和调整顺序。</div>
                     <div><strong>地图操作：</strong>鼠标滚轮缩放；选择手掌工具拖动画布；框选工具可一次加入多个怪物。</div>
                     <div><strong>路线标注：</strong>支持自由笔、直线、箭头、文字与擦除；文字在选择工具下可直接拖动，双击即可二次编辑；标注按楼层保存。</div>
-                    <div><strong>分享：</strong>可复制 MDT 6.2.2 使用的 <kbd>!~MDT2~</kbd> 暴雪编码路线字符串，也可生成无需登录的站内短链接；两者都包含拉怪组和地图标注。</div>
+                    <div><strong>分享：</strong>可复制 MDT 6.2.5 使用的 <kbd>!~MDT2~</kbd> 暴雪编码路线字符串，也可生成无需登录的站内短链接；两者都包含拉怪组和地图标注。</div>
                     <div><strong>实时协作：</strong>开启后，同一浏览器的多个标签页会通过 BroadcastChannel 同步当前路线。</div>
                     <div><strong>快捷键：</strong><kbd>V</kbd> 选择、<kbd>H</kbd> 拖动、<kbd>B</kbd> 框选、<kbd>P</kbd> 画笔、<kbd>L</kbd> 直线、<kbd>A</kbd> 箭头、<kbd>N</kbd> 文字、<kbd>E</kbd> 擦除、<kbd>Ctrl+Z</kbd> 撤销。</div>
-                    <div><strong>数据来源：</strong>副本地图、怪物、刷新点、编队、进度、技能 ID、特性和 POI 直接转换自 <a href="https://github.com/Nnoggie/MythicDungeonTools/tree/6.2.2" target="_blank" rel="noopener noreferrer">MythicDungeonTools 6.2.2</a>，按 GPLv2 保留来源。</div>
+                    <div><strong>数据来源：</strong>副本地图、怪物、刷新点、编队、进度、技能 ID、特性和 POI 直接转换自 <a href="https://github.com/Nnoggie/MythicDungeonTools/tree/6.2.5" target="_blank" rel="noopener noreferrer">MythicDungeonTools 6.2.5</a>，按 GPLv2 保留来源。</div>
                     <div><strong>技能资料：</strong>技能名称、基础说明和图标来自固定客户端 build 的 <a href="https://wago.tools/" target="_blank" rel="noopener noreferrer">Wago DB2</a> 快照；完整中文数值说明由 <a href="https://www.wowhead.com/cn" target="_blank" rel="noopener noreferrer">Wowhead</a> 已渲染 Tooltip 补全，并记录来源 build。</div>
                 </div>
             `,

@@ -1,4 +1,4 @@
-"""MDT 6.2.2 Blizzard 路线字符串编解码与路线模型转换。"""
+"""MDT 6.2.5 Blizzard 路线字符串编解码与路线模型转换。"""
 
 import base64
 import math
