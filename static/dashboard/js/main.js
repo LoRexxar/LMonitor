@@ -5888,26 +5888,37 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         return;
     }
 
-    const globalModifiers = [];
-    const seenGlobalModifiers = new Set();
+    const globalEffects = [];
+    const seenGlobalEffects = new Set();
     selectedActors.forEach(actor => {
-        const modifiers = Array.isArray(actor.global_damage_modifiers) ? actor.global_damage_modifiers : [];
-        modifiers.forEach(modifier => {
-            if (!modifier || typeof modifier !== 'object') return;
-            if (modifier.hero_subtree_id != null && String(modifier.hero_subtree_id) !== selectedHeroTree) return;
-            const key = String(modifier.talent_id ?? `${modifier.talent_name || ''}:${modifier.damage_multiplier || ''}`);
-            if (seenGlobalModifiers.has(key)) return;
-            seenGlobalModifiers.add(key);
-            globalModifiers.push(modifier);
+        const effects = Array.isArray(actor.global_skill_effects) ? actor.global_skill_effects : [];
+        effects.forEach(effect => {
+            if (!effect || typeof effect !== 'object') return;
+            if (effect.hero_subtree_id != null && String(effect.hero_subtree_id) !== selectedHeroTree) return;
+            const key = String(effect.effect_id || '');
+            if (!key || seenGlobalEffects.has(key)) return;
+            seenGlobalEffects.add(key);
+            globalEffects.push(effect);
         });
     });
-    if (globalModifiers.length) {
-        const items = globalModifiers.map(modifier => {
-            const name = modifier.talent_name_zh || modifier.talent_name || modifier.talent_id || '未知天赋';
-            const condition = modifier.runtime_condition || '';
-            return `<div class="flex items-center justify-between gap-4 border-t border-indigo-200 py-2 first:border-t-0"><span><span class="font-semibold text-indigo-950">${escapeHtml(name)}</span>${condition ? `<span class="ml-2 text-xs text-amber-800">${escapeHtml(condition)}</span>` : ''}</span><span class="font-mono text-indigo-900">${formatSimcSkillDamageFactor(modifier.damage_multiplier)} ×（${formatSimcSkillDamagePercent(modifier.damage_bonus_percent, true)}）</span></div>`;
+    if (globalEffects.length) {
+        const items = globalEffects.map(effect => {
+            const name = effect.display_name || effect.talent_name_zh || effect.talent_name || effect.source_token || '未知全局效果';
+            const condition = effect.runtime_condition || '';
+            const projections = (Array.isArray(effect.projections) ? effect.projections : []).map(projection => {
+                if (!projection || typeof projection !== 'object') return '';
+                if (projection.kind === 'crit_chance') {
+                    return `<span class="whitespace-nowrap"><span class="text-xs text-indigo-700">暴击率</span> <span class="font-mono text-indigo-900">${formatSimcSkillDamagePercent(projection.percentage_points, true)}</span></span>`;
+                }
+                if (projection.kind === 'damage_multiplier') {
+                    const label = String(projection.evidence_layer || '').startsWith('base_damage.') ? '基础伤害' : '全局伤害';
+                    return `<span class="whitespace-nowrap"><span class="text-xs text-indigo-700">${label}</span> <span class="font-mono text-indigo-900">${formatSimcSkillDamageFactor(projection.value)} ×（${formatSimcSkillDamagePercent(projection.bonus_percent, true)}）</span></span>`;
+                }
+                return '';
+            }).filter(Boolean).join('<span class="text-indigo-300"> · </span>');
+            return `<div class="flex items-center justify-between gap-4 border-t border-indigo-200 py-2 first:border-t-0"><span><span class="font-semibold text-indigo-950">${escapeHtml(name)}</span>${condition ? `<span class="ml-2 text-xs text-amber-800">${escapeHtml(condition)}</span>` : ''}</span><span class="flex flex-wrap justify-end gap-2">${projections}</span></div>`;
         }).join('');
-        globalModifiersEl.innerHTML = `<div class="mb-1 text-sm font-bold text-indigo-950">全技能伤害加成</div><div class="mb-2 text-xs text-indigo-700">仅列出权威描述明确声明全伤害，且高低血量下所有实际暴露对应状态的 SimC 分量倍率一致的天赋；不计入下方技能公式。</div>${items}`;
+        globalModifiersEl.innerHTML = `<div class="mb-1 text-sm font-bold text-indigo-950">全局效果</div><div class="mb-2 text-xs text-indigo-700">统一列出跨技能成立的全局伤害、暴击和基础伤害层效果；对应条件场景及伤害行已从下方技能明细中剥离。</div>${items}`;
         globalModifiersEl.classList.remove('hidden');
     }
 

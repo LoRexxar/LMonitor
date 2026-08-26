@@ -23,6 +23,7 @@ OWNED_CONDITION_PATCH = PATCH_DIR / "0020-owned-runtime-conditions.patch"
 TALENT_EFFECTIVENESS_PATCH = PATCH_DIR / "0021-talent-effectiveness.patch"
 RUNTIME_LAYER_SCENARIO_CHANGE_PATCH = PATCH_DIR / "0022-runtime-layer-scenario-change.patch"
 TARGET_STATE_MATERIALIZATION_PATCH = PATCH_DIR / "0023-materialize-target-runtime-states.patch"
+GLOBAL_SKILL_EFFECT_EVIDENCE_PATCH = PATCH_DIR / "0024-global-skill-effect-evidence.patch"
 
 
 class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
@@ -47,6 +48,25 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         cls.talent_effectiveness_text = TALENT_EFFECTIVENESS_PATCH.read_text(encoding="utf-8")
         cls.runtime_layer_scenario_change_text = RUNTIME_LAYER_SCENARIO_CHANGE_PATCH.read_text(encoding="utf-8")
         cls.target_state_materialization_text = TARGET_STATE_MATERIALIZATION_PATCH.read_text(encoding="utf-8")
+        cls.global_skill_effect_evidence_text = GLOBAL_SKILL_EFFECT_EVIDENCE_PATCH.read_text(encoding="utf-8")
+
+    def test_global_skill_effect_evidence_exports_uncapped_crit_and_base_layers(self):
+        text = self.global_skill_effect_evidence_text
+        for token in (
+            '\\"schema_version\\\":7', 'crit_chance_uncapped', 'can_crit',
+            'base_damage_layers', 'base_multiplier', 'component_multiplier',
+            'action_da_multiplier()', 'action_ta_multiplier()',
+        ):
+            self.assertIn(token, text)
+        self.assertIn('skill_damage_amount_changed', text)
+        self.assertRegex(
+            text,
+            re.compile(
+                r'skill_damage_amount_changed[\s\S]*?'
+                r'a\.direct_amount\.can_crit != b\.direct_amount\.can_crit[\s\S]*?'
+                r'a\.tick_amount\.can_crit != b\.tick_amount\.can_crit'
+            ),
+        )
 
     def test_baseline_materializes_target_state_before_scenario_discovery(self):
         text = self.target_state_materialization_text

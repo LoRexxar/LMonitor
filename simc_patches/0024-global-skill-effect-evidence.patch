@@ -1,0 +1,126 @@
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+index 65d2033..f3f9e38 100644
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -538,10 +538,12 @@ struct skill_damage_amount_t
+ {
+   struct component_t
+   {
+-    double hit = 0.0, crit = 0.0, crit_multiplier = 1.0, crit_chance = 0.0, expected = 0.0;
++    double hit = 0.0, crit = 0.0, crit_multiplier = 1.0, crit_chance = 0.0;
++    double crit_chance_uncapped = 0.0, expected = 0.0;
++    double base_multiplier = 1.0, base_component_multiplier = 1.0;
+     double damage_equivalent_count = 1.0;
+     skill_damage_runtime_layers_t runtime_layers;
+-    bool present = false;
++    bool present = false, can_crit = false;
+   } direct_amount, tick_amount;
+   bool direct = false, periodic = false;
+   std::string unresolved_reason;
+@@ -613,9 +615,17 @@ bool skill_damage_amount_changed( const skill_damage_amount_t& a, const skill_da
+          changed( a.tick_amount.expected, b.tick_amount.expected ) ||
+          changed( a.tick_amount.damage_equivalent_count, b.tick_amount.damage_equivalent_count ) ||
++         ( a.direct && b.direct && a.direct_amount.can_crit != b.direct_amount.can_crit ) ||
++         ( a.periodic && b.periodic && a.tick_amount.can_crit != b.tick_amount.can_crit ) ||
+          ( a.direct && b.direct &&
+-           layers_changed( a.direct_amount.runtime_layers, b.direct_amount.runtime_layers ) ) ||
++           ( changed( a.direct_amount.crit_chance_uncapped, b.direct_amount.crit_chance_uncapped ) ||
++             changed( a.direct_amount.base_multiplier, b.direct_amount.base_multiplier ) ||
++             changed( a.direct_amount.base_component_multiplier, b.direct_amount.base_component_multiplier ) ||
++             layers_changed( a.direct_amount.runtime_layers, b.direct_amount.runtime_layers ) ) ) ||
+          ( a.periodic && b.periodic &&
+-           layers_changed( a.tick_amount.runtime_layers, b.tick_amount.runtime_layers ) );
++           ( changed( a.tick_amount.crit_chance_uncapped, b.tick_amount.crit_chance_uncapped ) ||
++             changed( a.tick_amount.base_multiplier, b.tick_amount.base_multiplier ) ||
++             changed( a.tick_amount.base_component_multiplier, b.tick_amount.base_component_multiplier ) ||
++             layers_changed( a.tick_amount.runtime_layers, b.tick_amount.runtime_layers ) ) );
+ }
+ 
+ skill_damage_runtime_layers_t skill_damage_runtime_layers( const action_state_t* state, bool periodic )
+@@ -662,10 +672,14 @@ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
+       state->result = RESULT_HIT;
+       action.snapshot_state( state, result_amount_type::DMG_DIRECT );
+       amount.direct_amount.runtime_layers = skill_damage_runtime_layers( state, false );
++      amount.direct_amount.base_multiplier = action.action_multiplier();
++      amount.direct_amount.base_component_multiplier = action.action_da_multiplier();
++      amount.direct_amount.can_crit = action.may_crit;
+       state->attack_power = 100.0;
+       state->spell_power = 100.0;
+       amount.direct_amount.hit = action.calculate_direct_amount( state );
+-      amount.direct_amount.crit_chance = action.may_crit ? std::clamp( state->composite_crit_chance(), 0.0, 1.0 ) : 0.0;
++      amount.direct_amount.crit_chance_uncapped = action.may_crit ? state->composite_crit_chance() : 0.0;
++      amount.direct_amount.crit_chance = std::clamp( amount.direct_amount.crit_chance_uncapped, 0.0, 1.0 );
+       if ( action.may_crit )
+       {
+         state->result = RESULT_CRIT;
+@@ -679,7 +693,11 @@ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
+                                       amount.direct_amount.crit * amount.direct_amount.crit_chance;
+       amount.direct_amount.present = true;
+       amount.direct = true;
+-      if ( !skill_damage_runtime_layers_valid( amount.direct_amount.runtime_layers ) )
++      if ( !skill_damage_runtime_layers_valid( amount.direct_amount.runtime_layers ) ||
++           !std::isfinite( amount.direct_amount.base_multiplier ) ||
++           !std::isfinite( amount.direct_amount.base_component_multiplier ) ||
++           amount.direct_amount.base_multiplier <= 0.0 ||
++           amount.direct_amount.base_component_multiplier <= 0.0 )
+       {
+         amount.direct_amount.present = false;
+         amount.direct = false;
+@@ -692,6 +710,9 @@ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
+       state->n_targets = 1; state->chain_target = 0; state->result = RESULT_HIT;
+       action.snapshot_state( state, result_amount_type::DMG_OVER_TIME );
+       amount.tick_amount.runtime_layers = skill_damage_runtime_layers( state, true );
++      amount.tick_amount.base_multiplier = action.action_multiplier();
++      amount.tick_amount.base_component_multiplier = action.action_ta_multiplier();
++      amount.tick_amount.can_crit = action.tick_may_crit;
+       const timespan_t tick_duration = action.composite_dot_duration( state );
+       const timespan_t tick_period = action.tick_time( state );
+       if ( tick_duration <= 0_ms || tick_period <= 0_ms )
+@@ -711,7 +732,8 @@ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
+       state->attack_power = 100.0;
+       state->spell_power = 100.0;
+       amount.tick_amount.hit = action.calculate_tick_amount( state, 1.0 );
+-      amount.tick_amount.crit_chance = action.tick_may_crit ? std::clamp( state->composite_crit_chance(), 0.0, 1.0 ) : 0.0;
++      amount.tick_amount.crit_chance_uncapped = action.tick_may_crit ? state->composite_crit_chance() : 0.0;
++      amount.tick_amount.crit_chance = std::clamp( amount.tick_amount.crit_chance_uncapped, 0.0, 1.0 );
+       if ( action.tick_may_crit )
+       {
+         state->result = RESULT_CRIT;
+@@ -724,7 +746,11 @@ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
+                                     amount.tick_amount.crit * amount.tick_amount.crit_chance;
+       amount.tick_amount.present = true;
+       amount.periodic = true;
+-      if ( !skill_damage_runtime_layers_valid( amount.tick_amount.runtime_layers ) )
++      if ( !skill_damage_runtime_layers_valid( amount.tick_amount.runtime_layers ) ||
++           !std::isfinite( amount.tick_amount.base_multiplier ) ||
++           !std::isfinite( amount.tick_amount.base_component_multiplier ) ||
++           amount.tick_amount.base_multiplier <= 0.0 ||
++           amount.tick_amount.base_component_multiplier <= 0.0 )
+       {
+         amount.tick_amount.present = false;
+         amount.periodic = false;
+@@ -882,8 +908,15 @@ void write_skill_damage_amount( std::ostream& out, const skill_damage_amount_t&
+     out << ",\"crit\":"; write_skill_damage_json_number( out, c.crit );
+     out << ",\"crit_multiplier\":"; write_skill_damage_json_number( out, c.crit_multiplier );
+     out << ",\"crit_chance\":"; write_skill_damage_json_number( out, c.crit_chance );
++    out << ",\"crit_chance_uncapped\":"; write_skill_damage_json_number( out, c.crit_chance_uncapped );
++    out << ",\"can_crit\":" << ( c.can_crit ? "true" : "false" );
+     out << ",\"expected\":"; write_skill_damage_json_number( out, c.expected );
+     out << ",\"damage_equivalent_count\":"; write_skill_damage_json_number( out, c.damage_equivalent_count );
++    out << ",\"base_damage_layers\":{\"base_multiplier\":";
++    write_skill_damage_json_number( out, c.base_multiplier );
++    out << ",\"component_multiplier\":";
++    write_skill_damage_json_number( out, c.base_component_multiplier );
++    out << '}';
+     out << ",\"runtime_layers\":{";
+     out << ( periodic ? "\"ta_multiplier\":" : "\"da_multiplier\":" );
+     write_skill_damage_json_number( out, c.runtime_layers.action_multiplier );
+@@ -1061,7 +1094,7 @@ void export_skill_damage( sim_t& sim )
+   const std::string temporary = target + ".tmp." + std::to_string( static_cast<long long>( getpid() ) );
+   std::ofstream out( temporary, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open temporary skill damage export file" );
+-  out << "{\"schema_version\":6,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
++  out << "{\"schema_version\":7,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"normalization_basis\":{\"attack_power\":100,\"spell_power\":100,"
+          "\"crit_percent\":20,\"mastery_percent\":50}";
