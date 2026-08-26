@@ -6195,9 +6195,9 @@ function initSimcBackendUploadTool() {
             }
 
             const payload = {
+                action: checkOnly ? 'check' : 'update',
                 threads: threads,
-                no_pull: noPull,
-                check_only: checkOnly
+                no_pull: noPull
             };
 
             const resp = await fetch('/api/simc-backend-binary/', {

@@ -1161,6 +1161,10 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('data-backend-id="${idOf(info.id)}"', JS)
         self.assertIn('backend_id: idOf(backendAction.dataset.backendId)', JS)
 
+    def test_legacy_backend_compile_tool_posts_supported_action(self):
+        """The live compile button must use the API's explicit check/update action contract."""
+        self.assertIn("action: checkOnly ? 'check' : 'update'", MAIN)
+
     def test_backend_controls_have_delegated_click_and_change_handlers(self):
         """Rendered backend controls must be connected through delegated safe handlers."""
         self.assertIn("closest('[data-backend-action]')", JS)
