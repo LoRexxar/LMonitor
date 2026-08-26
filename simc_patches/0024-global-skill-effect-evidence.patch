@@ -1,8 +1,16 @@
 diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
-index 65d2033..f3f9e38 100644
+index 65d2033..cb946fb 100644
 --- a/engine/sc_main.cpp
 +++ b/engine/sc_main.cpp
-@@ -538,10 +538,12 @@ struct skill_damage_amount_t
+@@ -41,6 +41,7 @@
+ #include <fcntl.h>
+ #include <fstream>
+ #include <iostream>
++#include <limits>
+ #include <regex>
+ #include <set>
+ #include <unistd.h>
+@@ -538,10 +539,12 @@ struct skill_damage_amount_t
  {
    struct component_t
    {
@@ -17,7 +25,8 @@ index 65d2033..f3f9e38 100644
    } direct_amount, tick_amount;
    bool direct = false, periodic = false;
    std::string unresolved_reason;
-@@ -613,9 +615,17 @@ bool skill_damage_amount_changed( const skill_damage_amount_t& a, const skill_da
+@@ -612,10 +615,18 @@ bool skill_damage_amount_changed( const skill_damage_amount_t& a, const skill_da
+   return changed( a.direct_amount.expected, b.direct_amount.expected ) ||
           changed( a.tick_amount.expected, b.tick_amount.expected ) ||
           changed( a.tick_amount.damage_equivalent_count, b.tick_amount.damage_equivalent_count ) ||
 +         ( a.direct && b.direct && a.direct_amount.can_crit != b.direct_amount.can_crit ) ||
@@ -37,7 +46,7 @@ index 65d2033..f3f9e38 100644
  }
  
  skill_damage_runtime_layers_t skill_damage_runtime_layers( const action_state_t* state, bool periodic )
-@@ -662,10 +672,14 @@ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
+@@ -662,10 +673,14 @@ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
        state->result = RESULT_HIT;
        action.snapshot_state( state, result_amount_type::DMG_DIRECT );
        amount.direct_amount.runtime_layers = skill_damage_runtime_layers( state, false );
@@ -53,7 +62,7 @@ index 65d2033..f3f9e38 100644
        if ( action.may_crit )
        {
          state->result = RESULT_CRIT;
-@@ -679,7 +693,11 @@ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
+@@ -679,7 +694,11 @@ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
                                        amount.direct_amount.crit * amount.direct_amount.crit_chance;
        amount.direct_amount.present = true;
        amount.direct = true;
@@ -66,7 +75,7 @@ index 65d2033..f3f9e38 100644
        {
          amount.direct_amount.present = false;
          amount.direct = false;
-@@ -692,6 +710,9 @@ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
+@@ -692,6 +711,9 @@ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
        state->n_targets = 1; state->chain_target = 0; state->result = RESULT_HIT;
        action.snapshot_state( state, result_amount_type::DMG_OVER_TIME );
        amount.tick_amount.runtime_layers = skill_damage_runtime_layers( state, true );
@@ -76,7 +85,7 @@ index 65d2033..f3f9e38 100644
        const timespan_t tick_duration = action.composite_dot_duration( state );
        const timespan_t tick_period = action.tick_time( state );
        if ( tick_duration <= 0_ms || tick_period <= 0_ms )
-@@ -711,7 +732,8 @@ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
+@@ -711,7 +733,8 @@ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
        state->attack_power = 100.0;
        state->spell_power = 100.0;
        amount.tick_amount.hit = action.calculate_tick_amount( state, 1.0 );
@@ -86,7 +95,7 @@ index 65d2033..f3f9e38 100644
        if ( action.tick_may_crit )
        {
          state->result = RESULT_CRIT;
-@@ -724,7 +746,11 @@ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
+@@ -724,7 +747,11 @@ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
                                      amount.tick_amount.crit * amount.tick_amount.crit_chance;
        amount.tick_amount.present = true;
        amount.periodic = true;
@@ -99,7 +108,20 @@ index 65d2033..f3f9e38 100644
        {
          amount.tick_amount.present = false;
          amount.periodic = false;
-@@ -882,8 +908,15 @@ void write_skill_damage_amount( std::ostream& out, const skill_damage_amount_t&
+@@ -868,7 +895,11 @@ std::vector<std::vector<skill_damage_condition_t>> skill_damage_scenarios( actio
+ 
+ void write_skill_damage_json_number( std::ostream& out, double value )
+ {
+-  if ( std::isfinite( value ) ) out << value;
++  if ( std::isfinite( value ) )
++  {
++    out.precision( std::numeric_limits<double>::max_digits10 );
++    out << value;
++  }
+   else out << "null";
+ }
+ 
+@@ -882,8 +913,15 @@ void write_skill_damage_amount( std::ostream& out, const skill_damage_amount_t&
      out << ",\"crit\":"; write_skill_damage_json_number( out, c.crit );
      out << ",\"crit_multiplier\":"; write_skill_damage_json_number( out, c.crit_multiplier );
      out << ",\"crit_chance\":"; write_skill_damage_json_number( out, c.crit_chance );
@@ -115,7 +137,7 @@ index 65d2033..f3f9e38 100644
      out << ",\"runtime_layers\":{";
      out << ( periodic ? "\"ta_multiplier\":" : "\"da_multiplier\":" );
      write_skill_damage_json_number( out, c.runtime_layers.action_multiplier );
-@@ -1061,7 +1094,7 @@ void export_skill_damage( sim_t& sim )
+@@ -1061,7 +1099,7 @@ void export_skill_damage( sim_t& sim )
    const std::string temporary = target + ".tmp." + std::to_string( static_cast<long long>( getpid() ) );
    std::ofstream out( temporary, std::ios::binary | std::ios::trunc );
    if ( !out ) throw std::runtime_error( "Unable to open temporary skill damage export file" );

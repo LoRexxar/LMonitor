@@ -56,6 +56,7 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
             '\\"schema_version\\\":7', 'crit_chance_uncapped', 'can_crit',
             'base_damage_layers', 'base_multiplier', 'component_multiplier',
             'action_da_multiplier()', 'action_ta_multiplier()',
+            '#include <limits>', 'std::numeric_limits<double>::max_digits10',
         ):
             self.assertIn(token, text)
         self.assertIn('skill_damage_amount_changed', text)
