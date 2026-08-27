@@ -2299,10 +2299,29 @@ def project_skill_damage_product_payload(payload):
                         'spell_power_coefficient': 0.0,
                         'normalized_base_damage': 0.0,
                         'final_normalized_damage': 0.0,
+                        'formula_components': [],
                     }
                     group = groups[group_key] = row
                 weighted_base = normalized_base * count
                 weighted_final = final_damage * count
+                runtime_layers = component.get('runtime_layers') or {}
+                runtime_factors = [
+                    value
+                    for value in (
+                        runtime_layers.values() if isinstance(runtime_layers, dict) else ()
+                    )
+                    if _finite_number(value)
+                    and not math.isclose(value, 1.0, rel_tol=0.0, abs_tol=1e-12)
+                ]
+                runtime_product = math.prod(runtime_factors)
+                formula_base = weighted_base
+                if not math.isclose(
+                    weighted_base * runtime_product,
+                    weighted_final,
+                    rel_tol=1e-9,
+                    abs_tol=1e-9,
+                ):
+                    formula_base = weighted_final / runtime_product
                 group['component_count'] += 1
                 group['components'].append({
                     'token': action.get('token'), 'spell_id': action.get('spell_id'),
@@ -2314,6 +2333,11 @@ def project_skill_damage_product_payload(payload):
                 group['product']['spell_power_coefficient'] += sp_coeff * count
                 group['product']['normalized_base_damage'] += weighted_base
                 group['product']['final_normalized_damage'] += weighted_final
+                group['product']['formula_components'].append({
+                    'base_damage': formula_base,
+                    'runtime_factors': runtime_factors,
+                    'final_damage': weighted_final,
+                })
         rows = []
         for group in groups.values():
             if group['component_count'] <= 0:

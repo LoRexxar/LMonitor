@@ -772,6 +772,59 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             [[60], [61]],
         )
 
+    def test_product_projection_preserves_native_runtime_factor_formula_components(self):
+        def leaf(token, spell_id, base, hit, runtime_layers):
+            return {
+                'token': token, 'spell_id': spell_id, 'name': '公式技能', 'supported': True,
+                'reporting_root_token': 'formula_skill', 'reporting_root_spell_id': 9001,
+                'reporting_root_component': True,
+                'variant': {'talent_id': None, 'runtime_condition': ''},
+                'dbc_scaling': {'direct': {
+                    'attack_power_coefficient': base / 100.0,
+                    'spell_power_coefficient': 0.0,
+                }},
+                'baseline': {'direct': {
+                    'damage_equivalent_count': 1.0,
+                    'runtime_layers': runtime_layers,
+                    'product': {
+                        'dbc_base_damage_min': base, 'dbc_base_damage_max': base,
+                        'current_talent_damage': hit, 'crit_damage': hit * 2,
+                        'crit_multiplier': 2.0, 'actual_crit_chance': 0.2,
+                        'normalized_expected': hit * 1.2, 'dbc_unresolved_reason': '',
+                    },
+                }},
+            }
+
+        payload = {'actors': [{'actions': [
+            leaf('formula_skill_main', 1, 100.0, 132.6, {
+                'da_multiplier': 1.02,
+                'target_da_multiplier': 1.30,
+                'versatility': 1.0,
+            }),
+            # SimC 的副手基础换算不属于 runtime layer；公式基础数必须吸收该换算。
+            leaf('formula_skill_offhand', 2, 100.0, 76.5, {
+                'da_multiplier': 1.53,
+                'target_da_multiplier': 1.0,
+            }),
+        ]}]}
+
+        action = project_skill_damage_product_payload(payload)['actors'][0]['actions'][0]
+
+        self.assertEqual(action['product']['normalized_base_damage'], 200.0)
+        self.assertEqual(action['product']['final_normalized_damage'], 209.1)
+        self.assertEqual(action['product']['formula_components'], [
+            {
+                'base_damage': 100.0,
+                'runtime_factors': [1.02, 1.30],
+                'final_damage': 132.6,
+            },
+            {
+                'base_damage': 50.0,
+                'runtime_factors': [1.53],
+                'final_damage': 76.5,
+            },
+        ])
+
     def test_hand_suffixes_use_base_translation_and_merge_complementary_self_roots(self):
         for token, name_zh in (
             ('raging_blow', '怒击'),

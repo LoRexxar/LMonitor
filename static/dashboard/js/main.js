@@ -5970,27 +5970,34 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const componentLabel = Number(action.component_count || 0) > 1
             ? `合并 ${action.component_count} 个施法分量`
             : '单一施法分量';
-        const apCoefficient = product.attack_power_coefficient;
-        const spCoefficient = product.spell_power_coefficient;
         const normalizedBase = product.normalized_base_damage;
-        const runtimeMultiplier = product.runtime_multiplier;
         const finalDamage = product.final_normalized_damage;
         let baseDamageCell = '<span class="text-stone-500">DBC 未解析</span>';
         if (hasFiniteSimcSkillDamageNumber(normalizedBase)) {
-            const terms = [];
-            if (hasFiniteSimcSkillDamageNumber(apCoefficient) && apCoefficient !== 0) {
-                terms.push(`AP 100 × ${formatSimcSkillDamageFactor(apCoefficient)}`);
-            }
-            if (hasFiniteSimcSkillDamageNumber(spCoefficient) && spCoefficient !== 0) {
-                terms.push(`SP 100 × ${formatSimcSkillDamageFactor(spCoefficient)}`);
-            }
-            baseDamageCell = `<div>${terms.length ? terms.join(' + ') : '无 AP/SP 系数'}</div><div class="text-xs text-stone-500">≈ ${formatSimcSkillDamageFactor(normalizedBase)}</div>`;
+            baseDamageCell = formatSimcSkillDamageNumber(normalizedBase);
         }
         let formulaCell = '<span class="text-stone-500">公式未解析</span>';
-        if (hasFiniteSimcSkillDamageNumber(normalizedBase)
-            && hasFiniteSimcSkillDamageNumber(runtimeMultiplier)
-            && hasFiniteSimcSkillDamageNumber(finalDamage)) {
-            formulaCell = `<div class="text-xs font-semibold text-stone-500">${componentLabel}</div><div>${formatSimcSkillDamageFactor(normalizedBase)} × ${formatSimcSkillDamageFactor(runtimeMultiplier)} <span class="text-xs text-stone-500">（等效总倍率）</span> ≈ ${formatSimcSkillDamageFactor(finalDamage)}</div>`;
+        const formulaComponents = Array.isArray(product.formula_components)
+            ? product.formula_components
+            : [];
+        const formulaLines = formulaComponents.map((component, index) => {
+            const baseDamage = component.base_damage;
+            const componentFinal = component.final_damage;
+            const runtimeFactors = Array.isArray(component.runtime_factors)
+                ? component.runtime_factors.filter(hasFiniteSimcSkillDamageNumber)
+                : [];
+            if (!hasFiniteSimcSkillDamageNumber(baseDamage)
+                || !hasFiniteSimcSkillDamageNumber(componentFinal)) return '';
+            const factorFormula = runtimeFactors
+                .map(factor => ` × ${formatSimcSkillDamageFactor(factor)}`)
+                .join('');
+            const prefix = formulaComponents.length > 1
+                ? `<span class="text-xs text-stone-500">分量 ${index + 1}：</span>`
+                : '';
+            return `<div>${prefix}${formatSimcSkillDamageFactor(baseDamage)}${factorFormula} ≈ ${formatSimcSkillDamageFactor(componentFinal)}</div>`;
+        }).filter(Boolean);
+        if (formulaLines.length && hasFiniteSimcSkillDamageNumber(finalDamage)) {
+            formulaCell = `<div class="text-xs font-semibold text-stone-500">${componentLabel}</div>${formulaLines.join('')}`;
         }
         return `<tr class="align-top hover:bg-stone-50"><td class="min-w-[220px] px-3 py-3">${skillMeta}</td><td class="min-w-[190px] px-3 py-3">${variantCell}</td><td class="min-w-[180px] px-3 py-3 font-mono">${baseDamageCell}</td><td class="min-w-[260px] px-3 py-3 font-mono">${formulaCell}</td><td class="px-3 py-3 font-mono font-bold text-blue-900">${formatSimcSkillDamageNumber(finalDamage)}</td></tr>`;
     }).join('') : '<tr><td colspan="5" class="px-4 py-8 text-center text-stone-500">没有符合条件的伤害技能</td></tr>';

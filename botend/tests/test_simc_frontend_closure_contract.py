@@ -288,6 +288,18 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertIn("${formatSimcSkillDamageFactor(projection.value)}×", renderer)
         self.assertNotIn("projection.bonus_percent", renderer)
 
+    def test_skill_damage_base_is_numeric_and_formula_lists_native_runtime_factors(self):
+        renderer = MAIN[
+            MAIN.index("const componentLabel ="):
+            MAIN.index("return `<tr", MAIN.index("const componentLabel ="))
+        ]
+        self.assertIn("formatSimcSkillDamageNumber(normalizedBase)", renderer)
+        self.assertIn("product.formula_components", renderer)
+        self.assertIn("component.runtime_factors", renderer)
+        self.assertNotIn("AP 100 ×", renderer)
+        self.assertNotIn("SP 100 ×", renderer)
+        self.assertNotIn("等效总倍率", renderer)
+
 
 if __name__ == "__main__":
     unittest.main()
