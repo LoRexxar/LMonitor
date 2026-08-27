@@ -374,10 +374,10 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
               row['baseline']['direct']['hit']) for row in rows],
             [
                 ('', '', 200.0),
-                ('血之气息', '点出「血之气息」天赋', 240.0),
-                ('恶毒蔑视', '目标生命值低于 35%', 300.0),
-                ('恶毒蔑视', '目标生命值低于 35% + 点出「恶毒蔑视」天赋', 270.0),
-                ('能量爆发', '点出「能量爆发」天赋', 220.0),
+                ('血之气息', '点出血之气息天赋', 240.0),
+                ('恶毒蔑视', '血量低于35%', 300.0),
+                ('恶毒蔑视', '点出恶毒蔑视天赋，血量低于35%', 270.0),
+                ('能量爆发', '点出能量爆发天赋', 220.0),
             ],
         )
         hero_row = next(row for row in rows if row['variant']['talent_id'] == 11)
@@ -451,13 +451,13 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         ]
         self.assertEqual(observed, [
             ('', 100, 100),
-            ('目标生命值低于 35%', 80, 100),
+            ('血量低于35%', 80, 100),
             ('', 110, 90),
-            ('点出「真实天赋」天赋', 150, 100),
-            ('点出「真实天赋」天赋', 140, 100),
-            ('目标生命值低于 35%', 130, 90),
-            ('目标生命值低于 35% + 点出「真实天赋」天赋', 170, 100),
-            ('目标生命值低于 35% + 点出「真实天赋」天赋', 160, 100),
+            ('点出真实天赋', 150, 100),
+            ('点出真实天赋', 140, 100),
+            ('血量低于35%', 130, 90),
+            ('点出真实天赋，血量低于35%', 170, 100),
+            ('点出真实天赋，血量低于35%', 160, 100),
         ])
 
     def test_flatten_compares_each_talent_against_its_prerequisite_actor(self):
@@ -534,7 +534,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         self.assertEqual(
             [(row['variant']['runtime_condition'], row['baseline']['direct']['hit']) for row in rows],
-            [('', 100.0), ('目标生命值低于 35%', 130.0)],
+            [('', 100.0), ('血量低于35%', 130.0)],
         )
 
     def test_flatten_rejects_conflicting_duplicate_scenario_tokens(self):
@@ -2113,7 +2113,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         self.assertEqual({row.pk for row in rows}, {common.pk, slayer.pk, mountain_thane.pk})
 
-    def test_existing_schema_thirteen_snapshot_creates_new_schema_fourteen_identity(self):
+    def test_existing_schema_thirteen_snapshot_creates_new_schema_fifteen_identity(self):
         backend, _ = SimcBackendBinary.objects.update_or_create(
             identifier='production',
             defaults={
@@ -2137,7 +2137,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         service = SimcSkillDamageSnapshotService.create_for_current_backend()
 
         self.assertNotEqual(service.snapshot.pk, existing.pk)
-        self.assertEqual(service.snapshot.schema_revision, 14)
+        self.assertEqual(service.snapshot.schema_revision, 15)
         self.assertEqual(service.snapshot.status, SimcSkillDamageSnapshot.STATUS_PENDING)
         self.assertEqual(service.backend.pk, backend.pk)
 
@@ -2843,7 +2843,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             },
         )
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=14,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=15,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{
                 'specialization': 'fury',
@@ -2872,11 +2872,21 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         self.user = get_user_model().objects.create_user(username='viewer', password='x')
         self.staff = get_user_model().objects.create_user(username='staff', password='x', is_staff=True)
 
-    def test_get_returns_latest_schema_fourteen_success_without_profile_filters(self):
+    def test_get_returns_frozen_schema_fifteen_product_without_reprojection(self):
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=14,
+            simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=15,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
-            payload={'actors': [{'specialization': 'fury'}]},
+            payload={
+                'payload_format': 'skill_damage_product_v1',
+                'display_action_count': 1,
+                'actors': [{
+                    'specialization': 'fury',
+                    'actions': [{
+                        'spell_id': 123,
+                        'product': {'final_normalized_damage': 456.0},
+                    }],
+                }],
+            },
         )
         request = self.factory.get('/api/simc-skill-damage/', {'profile_id': 99, 'talent': 'x'})
         request.user = self.user
@@ -2884,6 +2894,11 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         body = json.loads(response.content)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(body['data']['snapshot']['identity']['game_build'], '12.1.0.69299')
+        self.assertEqual(body['data']['snapshot']['payload_format'], 'skill_damage_product_v1')
+        self.assertEqual(
+            body['data']['snapshot']['actors'][0]['actions'][0]['product']['final_normalized_damage'],
+            456.0,
+        )
         self.assertNotIn('profile_id', body['data'])
         self.assertFalse(body['data']['can_generate'])
 
@@ -2901,7 +2916,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(body['data']['snapshot'])
-        self.assertIn('schema 14', body['data']['snapshot_unavailable_reason'])
+        self.assertIn('schema 15', body['data']['snapshot_unavailable_reason'])
 
     def test_get_localizes_skill_identity_and_left_cell_only_shows_name_and_spell_id(self):
         version = WowTalentVersion.objects.create(key='current', is_active=True)
@@ -2928,9 +2943,9 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
             name='Stale Action', name_zh='过期版本中文名', snapshot_build='12.1.0.69299',
         )
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=14,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=15,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
-            payload={'actors': [{
+            payload=localize_skill_damage_payload(project_skill_damage_product_payload({'actors': [{
                 'class': 'warrior', 'specialization': 'fury',
                 'hero_talent_tree': '屠戮者', 'talent_name': 'Fury Slayer',
                 'actions': [
@@ -2980,7 +2995,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
                         }}, 'tick': None},
                     },
                 ],
-            }]},
+            }]})),
         )
         request = self.factory.get('/api/simc-skill-damage/')
         request.user = self.user
@@ -3024,14 +3039,26 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn('id="simc-skill-damage-sort-name"', template)
         self.assertIn('aria-sort="none"', template)
         self.assertIn("localeCompare(rightName, 'zh-CN'", renderer)
-        self.assertIn("formulaTerms.join(' + ')", renderer)
+        self.assertIn('const formulaGroups = new Map()', renderer)
+        self.assertIn('group.baseDamage += baseDamage', renderer)
+        self.assertIn('formatSimcSkillDamageNumber(group.baseDamage)', renderer)
         self.assertIn(
             'const renderSimcTalentProbeCondition = (runtimeCondition, scenarioTokens, talentName)',
             renderer,
         )
-        self.assertIn('`点出「${name}」天赋`', renderer)
+        self.assertIn('`点出${talentLabel}`', renderer)
+        self.assertIn("'血量低于35%'", renderer)
+        self.assertNotIn('目标生命值低于 35%', renderer)
+        self.assertNotIn('「${name}」', renderer)
         self.assertNotIn('分量 ${index + 1}', renderer)
         self.assertNotIn('合并 ${action.component_count} 个施法分量', renderer)
+
+        identity_renderer = script.split('function renderSimcSkillIdentity(action) {', 1)[1].split(
+            'function renderSimcSkillDamageSnapshot(snapshot) {', 1,
+        )[0]
+        self.assertIn('${escapeHtml(name)}', identity_renderer)
+        self.assertIn('技能 ID：${escapeHtml(spellId)}', identity_renderer)
+        self.assertNotIn('</div><div', identity_renderer)
 
     def test_global_effects_are_semantically_deduplicated_and_rendered_as_compact_cards(self):
         script = Path('static/dashboard/js/main.js').read_text(encoding='utf-8')
@@ -3123,9 +3150,9 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn('action.hero_subtree_ids', renderer)
         self.assertIn('variant.runtime_condition', renderer)
         self.assertIn('variant.talent_name_zh', renderer)
-        self.assertIn("const sortMode = sortButton.dataset.sortMode === 'final' ? 'final' : 'name';", renderer)
+        self.assertIn("const sortMode = nameSortButton.dataset.active === 'true' ? 'name' : 'final';", renderer)
         self.assertIn("if (sortMode === 'final')", renderer)
-        self.assertIn("sortButton.dataset.sortMode = 'final';", script)
+        self.assertIn("finalSortButton.dataset.active = 'true';", script)
         self.assertIn('sortDirection', renderer)
         self.assertIn('finalSortValue', renderer)
         self.assertNotIn('全部专精', renderer)

@@ -86,7 +86,7 @@ def _single_top_name(rows, rank):
 
 
 def localize_skill_damage_payload(payload):
-    """Add read-time Chinese action labels without changing the exporter snapshot."""
+    """Freeze Chinese action labels into the generated product payload."""
     result = copy.deepcopy(payload or {})
     actors = [row for row in (result.get('actors') or []) if isinstance(row, dict)]
     spell_ids = {
@@ -1255,7 +1255,8 @@ def _talent_declares_all_damage_modifier(talent):
 def _talent_probe_condition(talent):
     talent = talent if isinstance(talent, dict) else {}
     talent_name = str(talent.get('name_zh') or talent.get('name') or '该单项').strip()
-    return f'点出「{talent_name}」天赋'
+    talent_label = talent_name if talent_name.endswith('天赋') else f'{talent_name}天赋'
+    return f'点出{talent_label}'
 
 
 def classify_global_damage_modifiers(variants):
@@ -2085,7 +2086,7 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
         ):
             append_row(
                 low_action, low_amount, talent=no_talent,
-                condition='目标生命值低于 35%',
+                condition='血量低于35%',
                 comparison=low_amount,
             )
 
@@ -2160,7 +2161,7 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
             ):
                 candidates.append((
                     low_action, low_amount, base_low_amount,
-                    '目标生命值低于 35%', (),
+                    '血量低于35%', (),
                 ))
 
             for tokens, amount in low_scenarios.items():
@@ -2174,7 +2175,7 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
                 ):
                     candidates.append((
                         low_action, amount, low_reference,
-                        f'目标生命值低于 35% + {_talent_probe_condition(talent)}', tokens,
+                        f'{_talent_probe_condition(talent)}，血量低于35%', tokens,
                     ))
 
             seen_candidates = set()
@@ -2501,7 +2502,7 @@ class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
     EXPORTER_SCHEMA_REVISION = 9
-    DATASET_SCHEMA_REVISION = 14
+    DATASET_SCHEMA_REVISION = 15
     TALENT_BATCH_SIZE = 12
     FIXED_PRESET = {
         'attack_power': 100.0,
@@ -3370,7 +3371,8 @@ class SimcSkillDamageSnapshotService:
                     base_high, base_low, variants, global_effects=global_effects,
                 )
                 actors.append(actor)
-            payload = localize_skill_damage_payload({
+            raw_action_count = sum(len(actor.get('actions') or []) for actor in actors)
+            payload = project_skill_damage_product_payload({
                 'identity': {
                     'simc_revision': self.snapshot.simc_revision,
                     'game_build': self.snapshot.game_build,
@@ -3380,7 +3382,9 @@ class SimcSkillDamageSnapshotService:
                 'actors': actors,
                 'unresolved': unresolved,
             })
-            action_count = sum(len(actor.get('actions') or []) for actor in actors)
+            payload['payload_format'] = 'skill_damage_product_v1'
+            payload = localize_skill_damage_payload(payload)
+            action_count = raw_action_count
             self.snapshot.status = SimcSkillDamageSnapshot.STATUS_SUCCEEDED
             self.snapshot.payload = payload
             self.snapshot.generated_spec_count = len(actors)

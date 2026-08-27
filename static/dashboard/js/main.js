@@ -5783,7 +5783,7 @@ function initSystemAlerts() {
 function renderSimcSkillIdentity(action) {
     const name = action.display_name || action.name || '未命名技能';
     const spellId = action.spell_id || '-';
-    return `<div class="font-semibold text-gray-900">${escapeHtml(name)}</div><div class="font-mono text-xs text-stone-600">技能 ID：${escapeHtml(spellId)}</div>`;
+    return `<div class="font-semibold text-gray-900">${escapeHtml(name)} <span class="font-mono text-xs font-normal text-stone-600">技能 ID：${escapeHtml(spellId)}</span></div>`;
 }
 
 function renderSimcSkillDamageSnapshot(snapshot) {
@@ -5807,11 +5807,11 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const condition = String(runtimeCondition || '');
         const tokens = Array.isArray(scenarioTokens) ? scenarioTokens : [];
         const name = String(talentName || '').trim();
-        if (!tokens.length || !name) return condition;
-        const talentCondition = `点出「${name}」天赋`;
-        return condition.includes('目标生命值低于 35%')
-            ? `目标生命值低于 35% + ${talentCondition}`
-            : talentCondition;
+        const parts = [];
+        const talentLabel = name.endsWith('天赋') ? name : `${name}天赋`;
+        if (tokens.length && name && name !== '基础技能') parts.push(`点出${talentLabel}`);
+        if (condition.includes('35%')) parts.push('血量低于35%');
+        return parts.join('，');
     };
     const body = document.getElementById('simc-skill-damage-body');
     const identityEl = document.getElementById('simc-skill-damage-identity');
@@ -6024,20 +6024,32 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const formulaComponents = Array.isArray(product.formula_components)
             ? product.formula_components
             : [];
-        const formulaTerms = formulaComponents.map(component => {
+        const formulaGroups = new Map();
+        formulaComponents.forEach(component => {
             const baseDamage = component.base_damage;
             const componentFinal = component.final_damage;
             const runtimeFactors = Array.isArray(component.runtime_factors)
                 ? component.runtime_factors.filter(hasFiniteSimcSkillDamageNumber)
                 : [];
             if (!hasFiniteSimcSkillDamageNumber(baseDamage)
-                || !hasFiniteSimcSkillDamageNumber(componentFinal)) return '';
-            const factorFormula = runtimeFactors
+                || !hasFiniteSimcSkillDamageNumber(componentFinal)) return;
+            const factorKey = JSON.stringify(runtimeFactors);
+            const group = formulaGroups.get(factorKey) || {
+                baseDamage: 0,
+                finalDamage: 0,
+                runtimeFactors,
+            };
+            group.baseDamage += baseDamage;
+            group.finalDamage += componentFinal;
+            formulaGroups.set(factorKey, group);
+        });
+        const formulaTerms = Array.from(formulaGroups.values()).map(group => {
+            const factorFormula = group.runtimeFactors
                 .map(factor => ` × ${formatSimcSkillDamageFactor(factor)}`)
                 .join('');
-            const term = `${formatSimcSkillDamageFactor(baseDamage)}${factorFormula}`;
-            return formulaComponents.length > 1 ? `(${term})` : term;
-        }).filter(Boolean);
+            const term = `${formatSimcSkillDamageNumber(group.baseDamage)}${factorFormula}`;
+            return formulaGroups.size > 1 ? `(${term})` : term;
+        });
         if (formulaTerms.length && hasFiniteSimcSkillDamageNumber(finalDamage)) {
             formulaCell = `${formulaTerms.join(' + ')} ≈ ${formatSimcSkillDamageFactor(finalDamage)}`;
         }
@@ -6073,7 +6085,7 @@ function initSimcSkillDamagePanel() {
         statusEl.textContent = running
             ? `正在生成：${job.identity.game_build} · 已完成 ${job.spec_count || 0} 个专精`
             : currentSnapshot
-                ? `最近成功：${currentSnapshot.spec_count || 0} 个专精、${currentSnapshot.action_count || 0} 个技能组件 · ${currentSnapshot.completed_at || ''}`
+                ? `最近成功：${currentSnapshot.spec_count || 0} 个专精、${currentSnapshot.action_count || 0} 个技能 · ${currentSnapshot.completed_at || ''}`
                 : (job && job.has_error ? '最近一次生成失败；旧成功快照不会被覆盖。' : '当前还没有成功快照。');
         if (running && !pollTimer) pollTimer = setInterval(() => load().catch(() => {}), 3000);
         if (!running && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
