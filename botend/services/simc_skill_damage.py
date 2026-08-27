@@ -1129,6 +1129,11 @@ def _scenario_has_target_marginal_change(reference_actor, selected_actor, scenar
             fields = set().union(*(component.keys() for component in components))
             fields.discard('runtime_layers')
             for field in fields:
+                # Provenance containers such as base_damage_layers are not
+                # scalar outcome facts. Their changes are already represented
+                # by hit/crit/expected plus the exporter runtime layers.
+                if not all(_finite_number(component.get(field)) for component in components):
+                    continue
                 ratio = _scenario_marginal_ratio(
                     components[0].get(field), components[1].get(field),
                     components[2].get(field), components[3].get(field),
@@ -1929,6 +1934,59 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
         if isinstance(action, dict) and action.get('supported') is True
     }
     rows = []
+    hero_subtree_by_trait_entry = {}
+    for item in variants:
+        talent = (item or {}).get('talent') or {}
+        subtree_id = talent.get('hero_subtree_id')
+        trait_entry_id = talent.get('node_id')
+        if (
+            talent.get('tree_type') != 'hero'
+            or not isinstance(subtree_id, int) or isinstance(subtree_id, bool)
+            or subtree_id <= 0
+            or not isinstance(trait_entry_id, int) or isinstance(trait_entry_id, bool)
+            or trait_entry_id <= 0
+        ):
+            continue
+        hero_subtree_by_trait_entry.setdefault(trait_entry_id, set()).add(subtree_id)
+
+    effect_actions = {}
+    effect_has_player_skill = set()
+    for item in variants:
+        for actor_key in ('high', 'low'):
+            for action in ((item.get(actor_key) or {}).get('actions') or []):
+                if not isinstance(action, dict) or action.get('supported') is not True:
+                    continue
+                action_identity = _action_identity(action)
+                for effect in action.get('selected_trait_effects') or []:
+                    if not isinstance(effect, dict):
+                        continue
+                    effect_identity = (
+                        effect.get('trait_entry_id'),
+                        effect.get('source_spell_id'),
+                        effect.get('effect_index'),
+                    )
+                    if effect_identity[0] not in hero_subtree_by_trait_entry:
+                        continue
+                    effect_actions.setdefault(effect_identity, set()).add(action_identity)
+                    if action.get('player_skill') is True:
+                        effect_has_player_skill.add(effect_identity)
+
+    hero_ownership_by_action = {}
+    for effect_identity, action_identities in effect_actions.items():
+        # An effect that also touches an active player skill is a modifier, not
+        # evidence that it owns every affected action. Narrow effects on a
+        # derived action are the exporter-native ownership proof.
+        if effect_identity in effect_has_player_skill:
+            continue
+        for action_identity in action_identities:
+            hero_ownership_by_action.setdefault(action_identity, set()).update(
+                hero_subtree_by_trait_entry[effect_identity[0]]
+            )
+
+    def native_hero_ownership(action):
+        if not isinstance(action, dict):
+            return []
+        return sorted(hero_ownership_by_action.get(_action_identity(action)) or ())
     if global_effects is None:
         classified_global_modifiers = classify_global_damage_modifiers(variants)
         passive_global_talent_ids = {
@@ -1975,18 +2033,12 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
     def append_row(action, amount, *, talent, condition, comparison, scenario_tokens=()):
         if not isinstance(action, dict) or _amount_state(amount)[0] != 'resolved':
             return
-        talent_hero_subtree_id = talent.get('hero_subtree_id')
-        hero_subtree_ids = []
-        if (
-            talent.get('tree_type') == 'hero'
-            and isinstance(talent_hero_subtree_id, int)
-            and not isinstance(talent_hero_subtree_id, bool)
-            and talent_hero_subtree_id > 0
-        ):
-            hero_subtree_ids = [talent_hero_subtree_id]
         row = copy.deepcopy(action)
+        hero_subtree_ids = native_hero_ownership(action)
         if hero_subtree_ids:
             row['hero_subtree_ids'] = hero_subtree_ids
+        else:
+            row.pop('hero_subtree_ids', None)
         row['baseline'] = copy.deepcopy(amount)
         row['scenarios'] = []
         reference_state = _amount_state(comparison)
@@ -2442,8 +2494,8 @@ def project_skill_damage_product_payload(payload):
 class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
-    EXPORTER_SCHEMA_REVISION = 8
-    DATASET_SCHEMA_REVISION = 13
+    EXPORTER_SCHEMA_REVISION = 9
+    DATASET_SCHEMA_REVISION = 14
     TALENT_BATCH_SIZE = 12
     FIXED_PRESET = {
         'attack_power': 100.0,
@@ -3036,6 +3088,22 @@ class SimcSkillDamageSnapshotService:
                     raise ValueError('exporter action supported 必须为布尔值。')
                 if not isinstance(action.get('player_skill'), bool):
                     raise ValueError('exporter action player skill 必须为布尔值。')
+                selected_trait_effects = action.get('selected_trait_effects')
+                if not isinstance(selected_trait_effects, list) or any(
+                    not isinstance(effect, dict)
+                    or set(effect) != {'trait_entry_id', 'source_spell_id', 'effect_index'}
+                    or type(effect.get('trait_entry_id')) is not int
+                    or effect['trait_entry_id'] <= 0
+                    or type(effect.get('source_spell_id')) is not int
+                    or effect['source_spell_id'] <= 0
+                    or type(effect.get('effect_index')) is not int
+                    or effect['effect_index'] < 0
+                    for effect in selected_trait_effects
+                ) or len({
+                    (effect['trait_entry_id'], effect['source_spell_id'], effect['effect_index'])
+                    for effect in selected_trait_effects
+                }) != len(selected_trait_effects):
+                    raise ValueError('exporter selected trait effects 结构或 identity 无效。')
                 if (
                     not isinstance(action.get('reporting_root_token'), str)
                     or not action['reporting_root_token'].strip()

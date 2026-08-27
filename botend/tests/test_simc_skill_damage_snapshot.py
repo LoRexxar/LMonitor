@@ -1797,15 +1797,26 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 action('b', scenarios=shared_scenarios),
             ],
         }
+        weapon_scenarios = (
+            ('buff.avatar', 107574, amount(damage=1.20)),
+            ('buff.recklessness', 1719, amount(crit_delta=0.20)),
+        )
+        selected_weapon_scenarios = (
+            ('buff.avatar', 107574, amount(damage=1.20, base=1.06)),
+            ('buff.recklessness', 1719, amount(crit_delta=0.20, base=1.06)),
+        )
         weapon_reference = {
             'talent_effectiveness': 'inactive',
-            'actions': [action('a'), action('b')],
+            'actions': [
+                action('a', scenarios=weapon_scenarios),
+                action('b', scenarios=weapon_scenarios),
+            ],
         }
         weapon_selected = {
             'talent_effectiveness': 'active',
             'actions': [
-                action('a', baseline=amount(base=1.06)),
-                action('b', baseline=amount(base=1.06)),
+                action('a', baseline=amount(base=1.06), scenarios=selected_weapon_scenarios),
+                action('b', baseline=amount(base=1.06), scenarios=selected_weapon_scenarios),
             ],
         }
         for selected_action in weapon_selected['actions']:
@@ -1947,13 +1958,14 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 'tick': None, 'unresolved_reason': None,
             }
 
-        def action(hit, *, player_skill=False, scenarios=()):
+        def action(hit, *, player_skill=False, scenarios=(), selected_trait_effects=()):
             return {
                 'token': 'derived_action', 'spell_id': 42, 'supported': True,
                 'player_skill': player_skill,
                 'reporting_root_token': 'derived_action',
                 'reporting_root_spell_id': 42,
                 'reporting_root_component': True,
+                'selected_trait_effects': list(selected_trait_effects),
                 'baseline': amount(hit),
                 'scenarios': [
                     {
@@ -1966,14 +1978,18 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         baseline = action(100)
         mountain_reference = action(100)
-        mountain_selected = action(120)
+        mountain_selected = action(120, selected_trait_effects=({
+            'trait_entry_id': 1001,
+            'source_spell_id': 435607,
+            'effect_index': 1,
+        },))
         slayer_reference = action(100)
         slayer_selected = action(130, scenarios=(('debuff.side_effect', 150),))
         rows = flatten_single_talent_damage_variants(
             {'actions': [baseline]}, {'actions': [baseline]}, [
                 {
                     'talent': {
-                        'id': 1, 'name': 'Passive activator', 'tree_type': 'hero',
+                        'id': 1, 'node_id': 1001, 'name': 'Passive activator', 'tree_type': 'hero',
                         'hero_subtree_id': 61, 'hero_subtree_name': 'Mountain',
                     },
                     'reference_high': {'actions': [mountain_reference]},
@@ -1983,7 +1999,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 },
                 {
                     'talent': {
-                        'id': 2, 'name': 'Conditional side effect', 'tree_type': 'hero',
+                        'id': 2, 'node_id': 1002, 'name': 'Conditional side effect', 'tree_type': 'hero',
                         'hero_subtree_id': 60, 'hero_subtree_name': 'Slayer',
                     },
                     'reference_high': {'actions': [slayer_reference]},
@@ -1994,11 +2010,10 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             ],
         )
 
-        hero_rows = [row for row in rows if (row.get('variant') or {}).get('hero_subtree_id')]
+        derived_rows = [row for row in rows if row.get('token') == 'derived_action']
         self.assertEqual(
-            {(row['variant']['hero_subtree_id'], tuple(row.get('hero_subtree_ids') or ()))
-             for row in hero_rows},
-            {(60, (60,)), (61, (61,))},
+            {tuple(row.get('hero_subtree_ids') or ()) for row in derived_rows},
+            {(61,)},
         )
 
     def test_global_modifier_requires_positive_unique_talent_id_and_never_deletes_bad_ids(self):
@@ -2098,7 +2113,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         self.assertEqual({row.pk for row in rows}, {common.pk, slayer.pk, mountain_thane.pk})
 
-    def test_existing_schema_eight_snapshot_creates_new_schema_nine_identity(self):
+    def test_existing_schema_thirteen_snapshot_creates_new_schema_fourteen_identity(self):
         backend, _ = SimcBackendBinary.objects.update_or_create(
             identifier='production',
             defaults={
@@ -2110,7 +2125,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         existing = SimcSkillDamageSnapshot.objects.create(
             simc_revision='f' * 40,
             game_build='12.1.0.69300',
-            schema_revision=8,
+            schema_revision=13,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{
                 'specialization': 'fury',
@@ -2122,7 +2137,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         service = SimcSkillDamageSnapshotService.create_for_current_backend()
 
         self.assertNotEqual(service.snapshot.pk, existing.pk)
-        self.assertEqual(service.snapshot.schema_revision, 13)
+        self.assertEqual(service.snapshot.schema_revision, 14)
         self.assertEqual(service.snapshot.status, SimcSkillDamageSnapshot.STATUS_PENDING)
         self.assertEqual(service.backend.pk, backend.pk)
 
@@ -2429,7 +2444,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             'specialization_passive_effects': [],
         }
         payload = {
-            'schema_version': 8,
+            'schema_version': 9,
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
@@ -2443,6 +2458,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 'spell_id': 1,
                 'supported': True,
                 'player_skill': True,
+                'selected_trait_effects': [],
                 'reporting_root_token': 'test_action',
                 'reporting_root_spell_id': 1,
                 'reporting_root_component': True,
@@ -2604,6 +2620,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             return {
                 'token': token, 'spell_id': spell_id, 'supported': True,
                 'player_skill': True,
+                'selected_trait_effects': [],
                 # A reporting root need not be one of the damaging exported actions.
                 'reporting_root_token': 'non_damaging_root',
                 'reporting_root_spell_id': 9000,
@@ -2628,7 +2645,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             }
 
         payload = {
-            'schema_version': 8, 'simc_revision': 'c' * 40,
+            'schema_version': 9, 'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
             'actors': [{
@@ -2724,7 +2741,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         service = SimcSkillDamageSnapshotService(snapshot)
         payload = {
-            'schema_version': 8,
+            'schema_version': 9,
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
@@ -2738,6 +2755,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 'spell_id': 1,
                 'supported': True,
                 'player_skill': True,
+                'selected_trait_effects': [],
                 'reporting_root_token': 'test_action',
                 'reporting_root_spell_id': 1,
                 'reporting_root_component': True,
@@ -2774,7 +2792,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         service = SimcSkillDamageSnapshotService(snapshot)
         base = {
-            'schema_version': 8,
+            'schema_version': 9,
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
@@ -2790,7 +2808,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         service = SimcSkillDamageSnapshotService(snapshot)
         base = {
-            'schema_version': 8,
+            'schema_version': 9,
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
@@ -2825,7 +2843,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             },
         )
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=13,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=14,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{
                 'specialization': 'fury',
@@ -2854,9 +2872,9 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         self.user = get_user_model().objects.create_user(username='viewer', password='x')
         self.staff = get_user_model().objects.create_user(username='staff', password='x', is_staff=True)
 
-    def test_get_returns_latest_schema_nine_success_without_profile_filters(self):
+    def test_get_returns_latest_schema_fourteen_success_without_profile_filters(self):
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=13,
+            simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=14,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{'specialization': 'fury'}]},
         )
@@ -2883,7 +2901,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(body['data']['snapshot'])
-        self.assertIn('schema 13', body['data']['snapshot_unavailable_reason'])
+        self.assertIn('schema 14', body['data']['snapshot_unavailable_reason'])
 
     def test_get_localizes_skill_identity_and_left_cell_only_shows_name_and_spell_id(self):
         version = WowTalentVersion.objects.create(key='current', is_active=True)
@@ -2910,7 +2928,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
             name='Stale Action', name_zh='过期版本中文名', snapshot_build='12.1.0.69299',
         )
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=13,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=14,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{
                 'class': 'warrior', 'specialization': 'fury',

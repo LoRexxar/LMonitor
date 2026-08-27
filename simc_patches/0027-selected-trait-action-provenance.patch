@@ -1,0 +1,80 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -1067,6 +1067,51 @@
+                candidate.actions.end();
+       } );
+ }
+ 
++struct skill_damage_selected_trait_effect_t
++{
++  unsigned trait_entry_id = 0;
++  unsigned source_spell_id = 0;
++  unsigned effect_index = 0;
++};
++
++std::vector<skill_damage_selected_trait_effect_t>
++skill_damage_selected_trait_effects( const player_t& player, const action_t& action )
++{
++  std::vector<skill_damage_selected_trait_effect_t> result;
++  if ( !action.data().ok() ) return result;
++  std::set<std::tuple<unsigned, unsigned, unsigned>> seen;
++  for ( const auto* effect : action.sim->dbc->effects_affecting_spell( &action.data() ) )
++  {
++    if ( !effect || !effect->spell_id() ) continue;
++    for ( const auto& player_trait : player.player_traits )
++    {
++      const auto trait_entry_id = std::get<1>( player_trait );
++      if ( !std::get<2>( player_trait ) ) continue;
++      const auto* trait = trait_data_t::find( trait_entry_id, player.is_ptr() );
++      if ( !trait || !trait->id_spell || trait->id_spell != effect->spell_id() ) continue;
++      const auto identity = std::make_tuple( trait_entry_id, trait->id_spell, effect->index() );
++      if ( seen.insert( identity ).second )
++        result.push_back( { trait_entry_id, trait->id_spell, effect->index() } );
++    }
++  }
++  return result;
++}
++
++void write_skill_damage_selected_trait_effects( std::ostream& out, const player_t& player,
++                                                 const action_t& action )
++{
++  const auto effects = skill_damage_selected_trait_effects( player, action );
++  out << '[';
++  for ( size_t i = 0; i < effects.size(); ++i )
++  {
++    if ( i ) out << ',';
++    out << "{\"trait_entry_id\":" << effects[ i ].trait_entry_id;
++    out << ",\"source_spell_id\":" << effects[ i ].source_spell_id;
++    out << ",\"effect_index\":" << effects[ i ].effect_index << '}';
++  }
++  out << ']';
++}
++
+ std::string skill_damage_talent_effectiveness( const player_t& player )
+ {
+@@ -1127,6 +1174,8 @@
+       out << ",\"reporting_root_spell_id\":" << reporting_root_spell_id;
+       out << ",\"reporting_root_component\":" << ( reporting_root_component ? "true" : "false" );
+       out << ",\"player_skill\":" << ( skill_damage_player_skill( *player, reporting_root ) ? "true" : "false" );
++      out << ",\"selected_trait_effects\":";
++      write_skill_damage_selected_trait_effects( out, *player, *action );
+       out << ",\"dbc_scaling\":{\"source\":\"spell_effect\",\"direct\":";
+       write_skill_damage_dbc_component( out, dbc_scaling.direct );
+       out << ",\"tick\":";
+@@ -1163,6 +1210,6 @@
+   const std::string temporary = target + ".tmp." + std::to_string( static_cast<long long>( getpid() ) );
+   std::ofstream out( temporary, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open temporary skill damage export file" );
+-  out << "{\"schema_version\":8,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
++  out << "{\"schema_version\":9,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"normalization_basis\":{\"attack_power\":100,\"spell_power\":100,"
+@@ -1235,6 +1282,7 @@
+         apl_metadata_json_string( out, token );
+         out << ",\"reporting_root_spell_id\":" << candidate.spell_id;
+-        out << ",\"reporting_root_component\":true,\"player_skill\":false,\"baseline\":{\"direct\":null,\"tick\":null,"
++        out << ",\"reporting_root_component\":true,\"player_skill\":false,"
++               "\"selected_trait_effects\":[],\"baseline\":{\"direct\":null,\"tick\":null,"
+                "\"unresolved_reason\":";
+         apl_metadata_json_string(
+             out, candidate.unresolved_reason.empty()

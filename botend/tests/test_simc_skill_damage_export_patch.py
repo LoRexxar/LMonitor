@@ -26,6 +26,7 @@ TARGET_STATE_MATERIALIZATION_PATCH = PATCH_DIR / "0023-materialize-target-runtim
 GLOBAL_SKILL_EFFECT_EVIDENCE_PATCH = PATCH_DIR / "0024-global-skill-effect-evidence.patch"
 ACTIVE_PLAYER_SKILL_PATCH = PATCH_DIR / "0025-active-player-skill-identity.patch"
 SPECIALIZATION_PASSIVE_PROVENANCE_PATCH = PATCH_DIR / "0026-specialization-passive-damage-provenance.patch"
+SELECTED_TRAIT_ACTION_PROVENANCE_PATCH = PATCH_DIR / "0027-selected-trait-action-provenance.patch"
 
 
 class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
@@ -53,6 +54,22 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         cls.global_skill_effect_evidence_text = GLOBAL_SKILL_EFFECT_EVIDENCE_PATCH.read_text(encoding="utf-8")
         cls.active_player_skill_text = ACTIVE_PLAYER_SKILL_PATCH.read_text(encoding="utf-8")
         cls.specialization_passive_provenance_text = SPECIALIZATION_PASSIVE_PROVENANCE_PATCH.read_text(encoding="utf-8")
+        cls.selected_trait_action_provenance_text = SELECTED_TRAIT_ACTION_PROVENANCE_PATCH.read_text(encoding="utf-8")
+
+    def test_selected_trait_action_provenance_is_exported_with_schema_nine(self):
+        text = self.selected_trait_action_provenance_text
+        for token in (
+            '\\"schema_version\\\":9', 'selected_trait_effects',
+            'effects_affecting_spell', 'player.player_traits', 'trait_entry_id',
+            'source_spell_id', 'effect_index',
+        ):
+            self.assertIn(token, text)
+        added_lines = '\n'.join(
+            line[1:] for line in text.splitlines()
+            if line.startswith('+') and not line.startswith('+++')
+        )
+        for forbidden in ('thunder_blast', 'warrior', '435607', '435222'):
+            self.assertNotIn(forbidden, added_lines.lower())
 
     def test_specialization_passive_provenance_is_exported_with_schema_eight(self):
         text = self.specialization_passive_provenance_text
