@@ -5803,6 +5803,16 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const prefix = signed && value > 0 ? '+' : '';
         return `${prefix}${value.toFixed(2)}%`;
     };
+    const renderSimcTalentProbeCondition = (runtimeCondition, scenarioTokens, talentName) => {
+        const condition = String(runtimeCondition || '');
+        const tokens = Array.isArray(scenarioTokens) ? scenarioTokens : [];
+        const name = String(talentName || '').trim();
+        if (!tokens.length || !name) return condition;
+        const talentCondition = `点出「${name}」天赋`;
+        return condition.includes('目标生命值低于 35%')
+            ? `目标生命值低于 35% + ${talentCondition}`
+            : talentCondition;
+    };
     const body = document.getElementById('simc-skill-damage-body');
     const identityEl = document.getElementById('simc-skill-damage-identity');
     const unresolvedEl = document.getElementById('simc-skill-damage-unresolved');
@@ -5940,7 +5950,9 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     if (globalEffects.length) {
         const items = globalEffects.map(effect => {
             const name = effect.display_name || effect.talent_name_zh || effect.talent_name || effect.source_token || '未知全局效果';
-            const condition = effect.runtime_condition || '';
+            const condition = effect.source_type === 'talent'
+                ? renderSimcTalentProbeCondition(effect.runtime_condition, effect.scenario_tokens, name)
+                : (effect.runtime_condition || '');
             const projections = (Array.isArray(effect.projections) ? effect.projections : []).map(projection => {
                 if (!projection || typeof projection !== 'object') return '';
                 if (projection.kind === 'crit_chance') {
@@ -5996,7 +6008,11 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const treeLabel = variant.tree_type === 'hero'
             ? `英雄天赋 · ${variant.hero_subtree_name_zh || variant.hero_subtree_name || ''}`
             : ({class: '职业天赋', spec: '专精天赋'}[variant.tree_type] || '');
-        const conditionLabel = variant.runtime_condition || '';
+        const conditionLabel = renderSimcTalentProbeCondition(
+            variant.runtime_condition,
+            variant.scenario_tokens,
+            talentName,
+        );
         const variantCell = `<div class="font-semibold text-stone-900">${escapeHtml(talentName)}</div>${treeLabel ? `<div class="text-xs text-stone-500">${escapeHtml(treeLabel)}</div>` : ''}${conditionLabel ? `<div class="mt-1 text-xs text-amber-800">${escapeHtml(conditionLabel)}</div>` : ''}`;
         const normalizedBase = product.normalized_base_damage;
         const finalDamage = product.final_normalized_damage;

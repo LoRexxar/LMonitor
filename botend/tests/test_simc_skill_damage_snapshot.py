@@ -3025,6 +3025,11 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn('aria-sort="none"', template)
         self.assertIn("localeCompare(rightName, 'zh-CN'", renderer)
         self.assertIn("formulaTerms.join(' + ')", renderer)
+        self.assertIn(
+            'const renderSimcTalentProbeCondition = (runtimeCondition, scenarioTokens, talentName)',
+            renderer,
+        )
+        self.assertIn('`点出「${name}」天赋`', renderer)
         self.assertNotIn('分量 ${index + 1}', renderer)
         self.assertNotIn('合并 ${action.component_count} 个施法分量', renderer)
 
