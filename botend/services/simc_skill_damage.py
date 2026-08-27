@@ -31,6 +31,46 @@ def _text_key(value):
     return str(value or '').strip().casefold()
 
 
+_HAND_COMPONENT_SUFFIX_RE = re.compile(
+    r'_(?P<hand>mh|oh|main_hand|off_hand)$', re.IGNORECASE,
+)
+
+
+def _hand_component_identity(value):
+    """Return a canonical base token and hand for terminal SimC hand suffixes."""
+    token = _text_key(value)
+    match = _HAND_COMPONENT_SUFFIX_RE.search(token)
+    if not match or not token[:match.start()]:
+        return '', ''
+    hand = 'main' if match.group('hand').lower() in ('mh', 'main_hand') else 'off'
+    return token[:match.start()], hand
+
+
+def _action_hand_component_identity(action):
+    for value in (action.get('token'), action.get('name')):
+        base_token, hand = _hand_component_identity(value)
+        if base_token:
+            return base_token, hand
+    return '', ''
+
+
+def _action_variant_ownership_key(action):
+    variant = action.get('variant') or {}
+    hero_subtree_ids = tuple(sorted({
+        subtree_id
+        for subtree_id in (action.get('hero_subtree_ids') or [])
+        if (
+            isinstance(subtree_id, int)
+            and not isinstance(subtree_id, bool)
+            and subtree_id > 0
+        )
+    }))
+    return (
+        json.dumps(variant, ensure_ascii=False, sort_keys=True, separators=(',', ':')),
+        hero_subtree_ids,
+    )
+
+
 def _single_top_name(rows, rank):
     ranked = [(rank(row), str(row.get('name_zh') or '').strip()) for row in rows]
     ranked = [(item_rank, name) for item_rank, name in ranked if item_rank >= 0 and name]
@@ -46,9 +86,11 @@ def localize_skill_damage_payload(payload):
     result = copy.deepcopy(payload or {})
     actors = [row for row in (result.get('actors') or []) if isinstance(row, dict)]
     spell_ids = {
-        action.get('spell_id')
+        spell_id
         for actor in actors for action in (actor.get('actions') or [])
-        if isinstance(action, dict) and isinstance(action.get('spell_id'), int)
+        if isinstance(action, dict)
+        for spell_id in (action.get('spell_id'), action.get('reporting_root_spell_id'))
+        if isinstance(spell_id, int) and not isinstance(spell_id, bool) and spell_id > 0
     }
     spell_ids.update(
         spell_id
@@ -58,11 +100,28 @@ def localize_skill_damage_payload(payload):
         for spell_id in (effect.get('source_spell_ids') or [])
         if isinstance(spell_id, int) and not isinstance(spell_id, bool) and spell_id > 0
     )
-    tokens = {
-        _text_key(action.get('token'))
-        for actor in actors for action in (actor.get('actions') or [])
-        if isinstance(action, dict) and _text_key(action.get('token'))
+    hand_spell_ids = {
+        spell_id
+        for actor in actors
+        for action in (actor.get('actions') or [])
+        if isinstance(action, dict) and _action_hand_component_identity(action)[0]
+        for spell_id in (action.get('spell_id'), action.get('reporting_root_spell_id'))
+        if isinstance(spell_id, int) and not isinstance(spell_id, bool) and spell_id > 0
     }
+    tokens = set()
+    for actor in actors:
+        for action in actor.get('actions') or []:
+            if not isinstance(action, dict):
+                continue
+            token = _text_key(action.get('token'))
+            if token:
+                tokens.add(token)
+            root_token = _text_key(action.get('reporting_root_token'))
+            if root_token:
+                tokens.add(root_token)
+            base_token, _hand = _action_hand_component_identity(action)
+            if base_token:
+                tokens.add(base_token)
     snapshot_build = str((payload.get('identity') or {}).get('game_build') or '').strip()
     spell_query = WowSpellSnapshot.objects.filter(
         branch='wow', locale='zhCN', spell_id__in=spell_ids, name_zh__gt='',
@@ -73,6 +132,14 @@ def localize_skill_damage_payload(payload):
         row['spell_id']: str(row['name_zh'] or '').strip()
         for row in spell_query.values('spell_id', 'name_zh')
     } if spell_ids else {}
+    missing_hand_spell_ids = hand_spell_ids - set(spell_names)
+    if missing_hand_spell_ids:
+        recent_hand_names = WowSpellSnapshot.objects.filter(
+            branch='wow', locale='zhCN', spell_id__in=missing_hand_spell_ids,
+            name_zh__gt='',
+        ).values('spell_id', 'name_zh').order_by('-updated_at')
+        for row in recent_hand_names:
+            spell_names.setdefault(row['spell_id'], str(row['name_zh'] or '').strip())
     talent_rows = list(
         WowTalentNodeMetadata.objects.filter(
             talent_version__is_active=True,
@@ -135,23 +202,52 @@ def localize_skill_damage_payload(payload):
                 continue
             token = _text_key(action.get('token'))
             spell_id = action.get('spell_id')
+            base_token, _hand = _action_hand_component_identity(action)
+            root_token = _text_key(action.get('reporting_root_token'))
+            root_spell_id = action.get('reporting_root_spell_id')
+            action_identity = {token, _text_key(action.get('name'))}
+            has_distinct_reporting_root = (
+                action.get('reporting_root_component') is True
+                and root_token
+                and root_token not in action_identity
+            )
+            if has_distinct_reporting_root:
+                canonical_token = root_token
+                canonical_spell_id = root_spell_id
+            elif base_token:
+                canonical_token = base_token
+                canonical_spell_id = None
+            else:
+                canonical_token = token
+                canonical_spell_id = spell_id
             apl_token_name = _single_top_name(
-                [row for row in apl_rows if _text_key(row.get('symbol__token')) == token],
+                [
+                    row for row in apl_rows
+                    if _text_key(row.get('symbol__token')) == canonical_token
+                ],
                 scope_rank,
-            ) if token else ''
+            ) if canonical_token else ''
             talent_name = _single_top_name(
-                [row for row in talent_rows if spell_id in (
+                [row for row in talent_rows if canonical_spell_id in (
                     row.get('spell_id'), row.get('display_spell_id'),
                 )],
                 lambda row: scope_rank(row, talent=True),
-            ) if isinstance(spell_id, int) else ''
+            ) if isinstance(canonical_spell_id, int) else ''
             apl_spell_name = _single_top_name(
-                [row for row in apl_rows if row.get('spell_id') == spell_id],
+                [row for row in apl_rows if row.get('spell_id') == canonical_spell_id],
                 scope_rank,
-            ) if isinstance(spell_id, int) else ''
+            ) if isinstance(canonical_spell_id, int) else ''
+            existing_display_name = str(action.get('display_name') or '').strip()
+            if base_token and (
+                _hand_component_identity(existing_display_name)[0]
+                or _text_key(existing_display_name) in action_identity
+            ):
+                existing_display_name = ''
             action['display_name'] = (
-                str(action.get('display_name') or '').strip()
-                or spell_names.get(spell_id) or apl_token_name or talent_name or apl_spell_name
+                existing_display_name
+                or spell_names.get(canonical_spell_id)
+                or apl_token_name or talent_name or apl_spell_name
+                or spell_names.get(spell_id)
                 or str(action.get('name') or action.get('token') or '未命名技能')
             )
     return result
@@ -2100,6 +2196,35 @@ def project_skill_damage_product_payload(payload):
     actors = [actor for actor in (result.get('actors') or []) if isinstance(actor, dict)]
     for actor in actors:
         groups = {}
+        hand_groups = {}
+        for action in actor.get('actions') or []:
+            if not isinstance(action, dict) or action.get('supported') is not True:
+                continue
+            baseline = action.get('baseline')
+            if not isinstance(baseline, dict) or baseline.get('unresolved_reason'):
+                continue
+            base_token, hand = _action_hand_component_identity(action)
+            root_token = _text_key(action.get('reporting_root_token'))
+            if (
+                not base_token or not hand
+                or action.get('reporting_root_component') is not True
+                or root_token not in {
+                    _text_key(action.get('token')), _text_key(action.get('name')),
+                }
+            ):
+                continue
+            variant_key, hero_subtree_ids = _action_variant_ownership_key(action)
+            hand_key = (base_token, variant_key, hero_subtree_ids)
+            hand_group = hand_groups.setdefault(hand_key, {'hands': set(), 'spell_ids': set()})
+            hand_group['hands'].add(hand)
+            root_spell_id = action.get('reporting_root_spell_id')
+            if isinstance(root_spell_id, int) and not isinstance(root_spell_id, bool):
+                hand_group['spell_ids'].add(root_spell_id)
+        paired_hand_groups = {
+            key: value for key, value in hand_groups.items()
+            if value['hands'] == {'main', 'off'}
+        }
+
         for action in actor.get('actions') or []:
             if not isinstance(action, dict) or action.get('supported') is not True:
                 continue
@@ -2137,19 +2262,20 @@ def project_skill_damage_product_payload(payload):
                 root_component = action.get('reporting_root_component') is True
                 root_token = action.get('reporting_root_token') if root_component else action.get('token')
                 root_spell_id = action.get('reporting_root_spell_id') if root_component else action.get('spell_id')
-                variant = action.get('variant') or {}
-                hero_subtree_ids = tuple(sorted({
-                    subtree_id
-                    for subtree_id in (action.get('hero_subtree_ids') or [])
-                    if (
-                        isinstance(subtree_id, int)
-                        and not isinstance(subtree_id, bool)
-                        and subtree_id > 0
-                    )
-                }))
+                variant_key, hero_subtree_ids = _action_variant_ownership_key(action)
+                base_token, hand = _action_hand_component_identity(action)
+                hand_key = (base_token, variant_key, hero_subtree_ids)
+                self_root = _text_key(root_token) in {
+                    _text_key(action.get('token')), _text_key(action.get('name')),
+                }
+                paired_hand_group = paired_hand_groups.get(hand_key)
+                if root_component and hand and self_root and paired_hand_group:
+                    root_token = base_token
+                    root_spell_ids = paired_hand_group['spell_ids']
+                    root_spell_id = next(iter(root_spell_ids)) if len(root_spell_ids) == 1 else None
                 group_key = (
                     str(root_token or ''), root_spell_id,
-                    json.dumps(variant, ensure_ascii=False, sort_keys=True, separators=(',', ':')),
+                    variant_key,
                     hero_subtree_ids,
                 )
                 group = groups.get(group_key)

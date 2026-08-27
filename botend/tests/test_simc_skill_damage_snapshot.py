@@ -23,6 +23,7 @@ from botend.services.simc_skill_damage import (
     classify_global_damage_modifiers,
     classify_global_skill_effects,
     flatten_single_talent_damage_variants,
+    localize_skill_damage_payload,
     project_skill_damage_product_payload,
 )
 from botend.dashboard.api import SimcSkillDamageSnapshotAPIView
@@ -770,6 +771,93 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             sorted(row['hero_subtree_ids'] for row in reverse),
             [[60], [61]],
         )
+
+    def test_hand_suffixes_use_base_translation_and_merge_complementary_self_roots(self):
+        for token, name_zh in (
+            ('raging_blow', '怒击'),
+            ('odyns_fury', '奥丁之怒'),
+            ('fracture', '破裂'),
+            ('soul_carver', '灵魂切削'),
+        ):
+            symbol = SimcAplSymbol.objects.create(token=token, symbol_kind='action')
+            SimcAplSymbolScope.objects.create(
+                symbol=symbol, class_name='warrior', spec='fury', name_zh=name_zh,
+            )
+
+        WowSpellSnapshot.objects.create(
+            branch='wow', locale='zhCN', spell_id=342857,
+            name='Glaive Tempest', name_zh='战刃风暴', snapshot_build='12.1.0.69404',
+        )
+
+        def leaf(token, spell_id, *, root=None, root_spell_id=None, variant_id=1):
+            return {
+                'name': token, 'token': token, 'spell_id': spell_id,
+                'display_name': token, 'supported': True,
+                'reporting_root_token': root or token,
+                'reporting_root_spell_id': root_spell_id or spell_id,
+                'reporting_root_component': True,
+                'variant': {'talent_id': variant_id, 'runtime_condition': ''},
+                'dbc_scaling': {'direct': {
+                    'attack_power_coefficient': 1.0,
+                    'spell_power_coefficient': 0.0,
+                }},
+                'baseline': {'direct': {'product': {
+                    'dbc_base_damage_min': 100.0,
+                    'dbc_base_damage_max': 100.0,
+                    'current_talent_damage': 120.0,
+                    'crit_damage': 240.0,
+                    'crit_multiplier': 2.0,
+                    'actual_crit_chance': 0.2,
+                    'normalized_expected': 144.0,
+                }}},
+            }
+
+        payload = {
+            'identity': {'game_build': '12.1.0.69497'},
+            'actors': [{
+                'class': 'warrior', 'specialization': 'fury',
+                'actions': [
+                    leaf('raging_blow_mh', 96103, root='raging_blow', root_spell_id=85288),
+                    leaf('raging_blow_oh', 85384, root='raging_blow', root_spell_id=85288),
+                    leaf('odyns_fury_mh', 385060, root='odyns_fury', root_spell_id=385059),
+                    leaf('odyns_fury_oh', 385061, root='odyns_fury', root_spell_id=385059),
+                    leaf('fracture_mh', 225919),
+                    leaf('fracture_oh', 225921),
+                    leaf('soul_carver_oh', 214743),
+                    leaf('glaive_tempest_mh', 342857),
+                    leaf('glaive_tempest_oh', 342857),
+                ],
+            }],
+        }
+
+        localized = localize_skill_damage_payload(payload)
+        self.assertEqual(
+            [row['display_name'] for row in localized['actors'][0]['actions']],
+            ['怒击', '怒击', '奥丁之怒', '奥丁之怒', '破裂', '破裂', '灵魂切削', '战刃风暴', '战刃风暴'],
+        )
+
+        rows = project_skill_damage_product_payload(localized)['actors'][0]['actions']
+        by_token = {row['token']: row for row in rows}
+        self.assertEqual(set(by_token), {
+            'raging_blow', 'odyns_fury', 'fracture', 'soul_carver_oh',
+            'glaive_tempest',
+        })
+        for token in ('raging_blow', 'odyns_fury', 'fracture', 'glaive_tempest'):
+            self.assertEqual(by_token[token]['component_count'], 2)
+            self.assertEqual(by_token[token]['product']['attack_power_coefficient'], 2.0)
+            self.assertEqual(by_token[token]['product']['normalized_base_damage'], 200.0)
+            self.assertEqual(by_token[token]['product']['final_normalized_damage'], 240.0)
+        self.assertEqual(by_token['raging_blow']['display_name'], '怒击')
+        self.assertEqual(by_token['odyns_fury']['display_name'], '奥丁之怒')
+        self.assertEqual(by_token['fracture']['display_name'], '破裂')
+        self.assertEqual(by_token['glaive_tempest']['display_name'], '战刃风暴')
+        self.assertIsNone(by_token['fracture']['spell_id'])
+        self.assertEqual(
+            {item['spell_id'] for item in by_token['fracture']['components']},
+            {225919, 225921},
+        )
+        self.assertEqual(by_token['soul_carver_oh']['component_count'], 1)
+        self.assertEqual(by_token['soul_carver_oh']['display_name'], '灵魂切削')
 
     def test_all_damage_text_scope_requires_player_positive_unrestricted_damage(self):
         accepted = (
