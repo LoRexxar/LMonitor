@@ -76,10 +76,10 @@ from botend.management.commands.sync_mythic_dungeon_tools import (
     load_payload_seed,
 )
 from botend.wow.spell_text import SpellTextResolver
-from scripts.import_mdt_6_2_5 import (
-    SOURCE_VERSION_KEY as MDT_625_SOURCE_VERSION_KEY,
-    TARGET_VERSION_KEY as MDT_625_TARGET_VERSION_KEY,
-    validate_package as validate_625_package,
+from scripts.import_mdt_6_2_9 import (
+    SOURCE_VERSION_KEY as MDT_629_SOURCE_VERSION_KEY,
+    TARGET_VERSION_KEY as MDT_629_TARGET_VERSION_KEY,
+    validate_package as validate_629_package,
 )
 from botend.mythic_planner.mdt_route_codec import (
     MDT2_PREFIX,
@@ -130,11 +130,11 @@ def assign_demo_mdt_indexes():
 
 
 class MythicPlannerImportTests(TestCase):
-    def test_builtin_625_upgrade_contract_starts_from_622(self):
-        self.assertEqual(MDT_625_SOURCE_VERSION_KEY, 'mdt-6-2-2')
-        self.assertEqual(MDT_625_TARGET_VERSION_KEY, 'mdt-6-2-5')
+    def test_builtin_629_upgrade_contract_starts_from_625(self):
+        self.assertEqual(MDT_629_SOURCE_VERSION_KEY, 'mdt-6-2-5')
+        self.assertEqual(MDT_629_TARGET_VERSION_KEY, 'mdt-6-2-9')
 
-    def test_builtin_625_package_imports_complete_live_dataset(self):
+    def test_builtin_629_package_imports_complete_live_dataset(self):
         call_command(
             'import_mythic_dungeon_data',
             activate=True,
@@ -143,10 +143,10 @@ class MythicPlannerImportTests(TestCase):
         )
 
         version = MythicDungeonDataVersion.objects.get(
-            key='mdt-6-2-5',
+            key='mdt-6-2-9',
             is_active=True,
         )
-        self.assertEqual(version.metadata['source_tag'], '6.2.5')
+        self.assertEqual(version.metadata['source_tag'], '6.2.9')
         self.assertEqual(version.metadata['spell_snapshot']['source_branch'], 'wow')
         self.assertEqual(version.metadata['spell_snapshot']['snapshot_build'], '12.1.0.69299')
         self.assertEqual(version.dungeons.filter(is_active=True).count(), 16)
@@ -162,7 +162,7 @@ class MythicPlannerImportTests(TestCase):
                 enemy__dungeon__data_version=version,
                 is_active=True,
             ).count(),
-            3054,
+            3071,
         )
         self.assertEqual(
             MythicDungeonAbility.objects.filter(
@@ -179,13 +179,21 @@ class MythicPlannerImportTests(TestCase):
         )
         self.assertEqual(
             version.dungeons.get(key='temple-of-sethraliss').total_enemy_forces,
-            689,
+            687,
         )
         self.assertEqual(
-            version.dungeons.get(key='murder-row').total_enemy_forces,
-            655,
+            version.dungeons.get(key='ruby-life-pools').total_enemy_forces,
+            551,
         )
         blinding_vale = version.dungeons.get(key='the-blinding-vale')
+        self.assertEqual(blinding_vale.total_enemy_forces, 686)
+        self.assertEqual(
+            blinding_vale.enemies.get(
+                npc_id=249756,
+                is_active=True,
+            ).enemy_forces,
+            60,
+        )
         self.assertTrue(
             blinding_vale.enemies.filter(npc_id=243028, is_active=True).exists()
         )
@@ -221,7 +229,7 @@ class MythicPlannerImportTests(TestCase):
         self.assertTrue(share_code.startswith(MDT2_PREFIX))
         self.assertEqual(decode_share_code(share_code), route_data)
 
-    def test_builtin_625_assets_resolve_to_current_short_oss_keys(self):
+    def test_builtin_629_assets_resolve_to_current_short_oss_keys(self):
         call_command(
             'import_mythic_dungeon_data',
             activate=True,
@@ -229,12 +237,12 @@ class MythicPlannerImportTests(TestCase):
             verbosity=0,
         )
         version = MythicDungeonDataVersion.objects.get(
-            key='mdt-6-2-5',
+            key='mdt-6-2-9',
         )
         jobs, stats = SyncMythicDungeonAssetsCommand()._build_jobs(
             version=version,
             base_prefix='mythic-planner',
-            version_prefix='mythic-planner/versions/mdt-6-2-5',
+            version_prefix='mythic-planner/versions/mdt-6-2-9',
             oss_base_url='https://oss.wowdaily.cn/',
             force=False,
         )
@@ -664,16 +672,16 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             / 'data'
             / 'mythic_planner'
             / 'vendor'
-            / 'mythic-dungeon-tools-6.2.5'
+            / 'mythic-dungeon-tools-6.2.9'
         )
 
     def test_fixed_upstream_snapshot_converts_real_dungeons_and_assets(self):
         payload = build_payload(self.source_root())
 
-        self.assertEqual(payload['data_version']['key'], 'mdt-6-2-5')
+        self.assertEqual(payload['data_version']['key'], 'mdt-6-2-9')
         self.assertEqual(
             payload['data_version']['metadata']['source_commit'],
-            '68e9378b7e894ebdf990f8759657f70c611742fa',
+            'a49bd78f843bb89d2cea3daefbc1cf7aed809c31',
         )
         self.assertEqual(payload['data_version']['metadata']['license'], 'GPL-2.0-only')
         self.assertEqual(len(payload['dungeons']), 16)
@@ -701,7 +709,7 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
                 for dungeon in payload['dungeons']
                 for enemy in dungeon['enemies']
             ),
-            3054,
+            3071,
         )
         blinding_vale = next(
             dungeon
@@ -711,6 +719,27 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
         blinding_vale_npcs = {enemy['npc_id'] for enemy in blinding_vale['enemies']}
         self.assertIn(243028, blinding_vale_npcs)
         self.assertNotIn(241808, blinding_vale_npcs)
+        self.assertEqual(blinding_vale['total_enemy_forces'], 686)
+        self.assertEqual(
+            next(
+                enemy
+                for enemy in blinding_vale['enemies']
+                if enemy['npc_id'] == 249756
+            )['enemy_forces'],
+            60,
+        )
+        ruby_life_pools = next(
+            dungeon
+            for dungeon in payload['dungeons']
+            if dungeon['key'] == 'ruby-life-pools'
+        )
+        self.assertEqual(ruby_life_pools['total_enemy_forces'], 551)
+        temple = next(
+            dungeon
+            for dungeon in payload['dungeons']
+            if dungeon['key'] == 'temple-of-sethraliss'
+        )
+        self.assertEqual(temple['total_enemy_forces'], 687)
         murder_row = next(
             dungeon for dungeon in payload['dungeons'] if dungeon['key'] == 'murder-row'
         )
@@ -721,7 +750,7 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             'midnight-season-2',
         )
         self.assertIn(
-            '/static/portal/mythic_planner/vendor/mdt-6.2.5/maps/',
+            '/static/portal/mythic_planner/vendor/mdt-6.2.9/maps/',
             murder_row['floors'][0]['background_url'],
         )
         all_pois = [
@@ -846,13 +875,13 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             1665,
         )
 
-    def test_builtin_625_package_passes_release_contract(self):
+    def test_builtin_629_package_passes_release_contract(self):
         self.assertEqual(
-            validate_625_package(),
+            validate_629_package(),
             {
                 'dungeons': 16,
                 'enemies': 462,
-                'spawns': 3054,
+                'spawns': 3071,
                 'abilities': 1665,
                 'spells': 1474,
                 'pois': 64,
@@ -936,13 +965,13 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
         )
         self.assertEqual(metadata['spell_snapshot']['source_branch'], 'wowt')
 
-    def test_builtin_625_package_preserves_interactive_poi_assets(self):
+    def test_builtin_629_package_preserves_interactive_poi_assets(self):
         package_path = (
             Path(settings.BASE_DIR)
             / 'botend'
             / 'data'
             / 'mythic_planner'
-            / 'mdt_6_2_5.json'
+            / 'mdt_6_2_9.json'
         )
         payload = json.loads(package_path.read_text(encoding='utf-8'))
         pois = [
