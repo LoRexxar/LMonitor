@@ -3014,6 +3014,18 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
 
 
 class SimcSkillDamageDashboardContractTests(TestCase):
+    def test_global_effects_are_semantically_deduplicated_and_rendered_as_compact_cards(self):
+        script = Path('static/dashboard/js/main.js').read_text(encoding='utf-8')
+        renderer = script.split('function renderSimcSkillDamageSnapshot(snapshot) {', 1)[1].split(
+            'function initSimcSkillDamagePanel()', 1,
+        )[0]
+
+        self.assertIn('globalEffectDisplayKey(effect)', renderer)
+        self.assertIn('globalEffectDisplayPriority(effect)', renderer)
+        self.assertIn("effect.source_type === 'talent'", renderer)
+        self.assertIn('grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3', renderer)
+        self.assertNotIn('flex items-center justify-between gap-4 border-t', renderer)
+
     def test_dashboard_has_independent_light_skill_damage_panel(self):
         template = Path('templates/dashboard/index.html').read_text(encoding='utf-8')
         script = Path('static/dashboard/js/main.js').read_text(encoding='utf-8')

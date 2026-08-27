@@ -5888,19 +5888,44 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         return;
     }
 
-    const globalEffects = [];
-    const seenGlobalEffects = new Set();
+    const globalEffectDisplayPriority = effect => (
+        effect.source_type === 'talent' ? 3 : effect.source_type === 'specialization_passive' ? 2 : 1
+    );
+    const globalEffectDisplayKey = effect => {
+        const scenarioTokens = Array.isArray(effect.scenario_tokens)
+            ? effect.scenario_tokens.map(String).sort()
+            : [];
+        if (!scenarioTokens.length) return String(effect.effect_id || '');
+        const projectionKeys = (Array.isArray(effect.projections) ? effect.projections : [])
+            .filter(projection => projection && typeof projection === 'object')
+            .map(projection => [
+                String(projection.kind || ''),
+                String(projection.evidence_layer || ''),
+                hasFiniteSimcSkillDamageNumber(projection.value)
+                    ? formatSimcSkillDamageFactor(projection.value)
+                    : '',
+                hasFiniteSimcSkillDamageNumber(projection.percentage_points)
+                    ? formatSimcSkillDamageFactor(projection.percentage_points)
+                    : '',
+            ].join(':'))
+            .sort();
+        return JSON.stringify([scenarioTokens, projectionKeys]);
+    };
+    const globalEffectsByKey = new Map();
     selectedActors.forEach(actor => {
         const effects = Array.isArray(actor.global_skill_effects) ? actor.global_skill_effects : [];
         effects.forEach(effect => {
             if (!effect || typeof effect !== 'object') return;
             if (effect.hero_subtree_id != null && String(effect.hero_subtree_id) !== selectedHeroTree) return;
-            const key = String(effect.effect_id || '');
-            if (!key || seenGlobalEffects.has(key)) return;
-            seenGlobalEffects.add(key);
-            globalEffects.push(effect);
+            const key = globalEffectDisplayKey(effect);
+            if (!key) return;
+            const current = globalEffectsByKey.get(key);
+            if (!current || globalEffectDisplayPriority(effect) > globalEffectDisplayPriority(current)) {
+                globalEffectsByKey.set(key, effect);
+            }
         });
     });
+    const globalEffects = Array.from(globalEffectsByKey.values());
     if (globalEffects.length) {
         const items = globalEffects.map(effect => {
             const name = effect.display_name || effect.talent_name_zh || effect.talent_name || effect.source_token || '未知全局效果';
@@ -5916,9 +5941,9 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 }
                 return '';
             }).filter(Boolean).join('<span class="text-indigo-300"> · </span>');
-            return `<div class="flex items-center justify-between gap-4 border-t border-indigo-200 py-2 first:border-t-0"><span><span class="font-semibold text-indigo-950">${escapeHtml(name)}</span>${condition ? `<span class="ml-2 text-xs text-amber-800">${escapeHtml(condition)}</span>` : ''}</span><span class="flex flex-wrap justify-end gap-2">${projections}</span></div>`;
+            return `<div class="rounded-lg border border-indigo-200 bg-white/70 px-3 py-2.5"><div class="flex flex-wrap items-start justify-between gap-2"><span class="font-semibold leading-5 text-indigo-950">${escapeHtml(name)}</span><span class="flex flex-wrap gap-2">${projections}</span></div>${condition ? `<div class="mt-1 text-xs leading-4 text-amber-800">${escapeHtml(condition)}</div>` : ''}</div>`;
         }).join('');
-        globalModifiersEl.innerHTML = `<div class="mb-1 text-sm font-bold text-indigo-950">全局效果</div><div class="mb-2 text-xs text-indigo-700">统一列出跨技能成立的全局伤害、暴击和基础伤害层效果；对应条件场景及伤害行已从下方技能明细中剥离。</div>${items}`;
+        globalModifiersEl.innerHTML = `<div class="mb-1 text-sm font-bold text-indigo-950">全局效果</div><div class="mb-3 text-xs text-indigo-700">跨技能成立的效果；同一条件的运行时与天赋证据已合并展示。</div><div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">${items}</div>`;
         globalModifiersEl.classList.remove('hidden');
     }
 
