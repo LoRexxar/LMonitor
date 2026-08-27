@@ -1,0 +1,105 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -525,6 +525,14 @@
+ // co-occurrence sets plus singleton buffs; never a powerset.
+ struct skill_damage_runtime_layers_t
+ {
++  struct specialization_passive_effect_t
++  {
++    unsigned source_spell_id = 0;
++    unsigned effect_index = 0;
++    std::string source_name;
++    double factor = 1.0;
++  };
++
+   double action_multiplier = 1.0;
+   double player_multiplier = 1.0;
+   double versus_multiplier = 1.0;
+@@ -533,6 +541,7 @@
+   double versatility = 1.0;
+   double pet_multiplier = 1.0;
+   double target_pet_multiplier = 1.0;
++  std::vector<specialization_passive_effect_t> specialization_passive_effects;
+ };
+ 
+ struct skill_damage_amount_t
+@@ -629,6 +638,40 @@
+              layers_changed( a.tick_amount.runtime_layers, b.tick_amount.runtime_layers ) ) );
+ }
+ 
++std::vector<skill_damage_runtime_layers_t::specialization_passive_effect_t>
++skill_damage_specialization_passive_effects( const action_t& action, bool periodic )
++{
++  std::vector<skill_damage_runtime_layers_t::specialization_passive_effect_t> result;
++  if ( !action.player || !action.data().ok() )
++    return result;
++
++  const auto class_id = static_cast<unsigned>( util::class_id( action.player->type ) );
++  const auto spec_id = static_cast<unsigned>( action.player->specialization() );
++  std::unordered_set<unsigned> specialization_spell_ids;
++  for ( const auto& entry : specialization_spell_entry_t::data( action.player->is_ptr() ) )
++    if ( entry.class_id == class_id && entry.specialization_id == spec_id )
++      specialization_spell_ids.insert( entry.spell_id );
++
++  const auto property = periodic ? P_TICK_DAMAGE : P_GENERIC;
++  for ( const auto* effect : action.sim->dbc->effects_affecting_spell( &action.data() ) )
++  {
++    if ( !effect || effect->type() != E_APPLY_AURA || effect->subtype() != A_ADD_PCT_MODIFIER ||
++         effect->misc_value1() != property ||
++         specialization_spell_ids.find( effect->spell_id() ) == specialization_spell_ids.end() )
++      continue;
++    const auto* source = effect->spell();
++    if ( !source || !source->ok() || !source->flags( spell_attribute::SX_PASSIVE ) )
++      continue;
++    const double factor = 1.0 + effect->percent();
++    if ( !std::isfinite( factor ) || factor <= 0.0 || std::abs( factor - 1.0 ) <= 1.0e-12 )
++      continue;
++    result.push_back( {
++      source->id(), effect->index(), source->name_cstr(), factor
++    } );
++  }
++  return result;
++}
++
+ skill_damage_runtime_layers_t skill_damage_runtime_layers( const action_state_t* state, bool periodic )
+ {
+   skill_damage_runtime_layers_t layers;
+@@ -640,6 +683,8 @@
+   layers.versatility = state->versatility;
+   layers.pet_multiplier = state->pet_multiplier;
+   layers.target_pet_multiplier = state->target_pet_multiplier;
++  layers.specialization_passive_effects =
++      skill_damage_specialization_passive_effects( *state->action, periodic );
+   return layers;
+ }
+ 
+@@ -933,6 +978,20 @@
+     out << ",\"versatility\":"; write_skill_damage_json_number( out, c.runtime_layers.versatility );
+     out << ",\"pet_multiplier\":"; write_skill_damage_json_number( out, c.runtime_layers.pet_multiplier );
+     out << ",\"target_pet_multiplier\":"; write_skill_damage_json_number( out, c.runtime_layers.target_pet_multiplier );
++    out << ",\"specialization_passive_effects\":[";
++    for ( size_t i = 0; i < c.runtime_layers.specialization_passive_effects.size(); ++i )
++    {
++      if ( i ) out << ',';
++      const auto& effect = c.runtime_layers.specialization_passive_effects[ i ];
++      out << "{\"source_spell_id\":" << effect.source_spell_id;
++      out << ",\"source_name\":"; apl_metadata_json_string( out, effect.source_name );
++      out << ",\"effect_index\":" << effect.effect_index;
++      out << ",\"component\":";
++      apl_metadata_json_string( out, periodic ? "tick" : "direct" );
++      out << ",\"factor\":"; write_skill_damage_json_number( out, effect.factor );
++      out << '}';
++    }
++    out << ']';
+     out << "}}";
+   };
+   out << "{\"direct\":"; write_component( a.direct_amount, a.direct, false );
+@@ -1163,7 +1163,7 @@
+   const std::string temporary = target + ".tmp." + std::to_string( static_cast<long long>( getpid() ) );
+   std::ofstream out( temporary, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open temporary skill damage export file" );
+-  out << "{\"schema_version\":7,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
++  out << "{\"schema_version\":8,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"normalization_basis\":{\"attack_power\":100,\"spell_power\":100,"
+          "\"crit_percent\":20,\"mastery_percent\":50}";

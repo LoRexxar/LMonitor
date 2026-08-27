@@ -825,6 +825,80 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             },
         ])
 
+    def test_product_projection_moves_native_specialization_passive_out_of_skill_formula(self):
+        WowSpellSnapshot.objects.create(
+            branch='wow', locale='zhCN', spell_id=137050,
+            name='Fury Warrior', name_zh='狂怒战士', snapshot_build='12.1.0.69404',
+        )
+        payload = {
+            'identity': {'game_build': '12.1.0.69404'},
+            'actors': [{'class': 'warrior', 'specialization': 'fury', 'actions': [{
+            'token': 'native_passive_skill', 'spell_id': 9001,
+            'name': '原生专精被动测试技能', 'supported': True,
+            'reporting_root_token': 'native_passive_skill',
+            'reporting_root_spell_id': 9001,
+            'reporting_root_component': True,
+            'variant': {'talent_id': None, 'runtime_condition': ''},
+            'dbc_scaling': {'direct': {
+                'attack_power_coefficient': 1.0,
+                'spell_power_coefficient': 0.0,
+            }},
+            'baseline': {'direct': {
+                'damage_equivalent_count': 1.0,
+                'runtime_layers': {
+                    'da_multiplier': 1.281,
+                    'target_da_multiplier': 1.0,
+                    'specialization_passive_effects': [{
+                        'source_spell_id': 137050,
+                        'source_name': 'Fury Warrior',
+                        'effect_index': 1,
+                        'component': 'direct',
+                        'factor': 1.22,
+                    }],
+                },
+                'product': {
+                    'dbc_base_damage_min': 100.0,
+                    'dbc_base_damage_max': 100.0,
+                    'current_talent_damage': 128.1,
+                    'crit_damage': 256.2,
+                    'crit_multiplier': 2.0,
+                    'actual_crit_chance': 0.2,
+                    'normalized_expected': 153.72,
+                    'dbc_unresolved_reason': '',
+                },
+            }},
+        }]}]}
+        original = json.loads(json.dumps(payload))
+
+        actor = localize_skill_damage_payload(
+            project_skill_damage_product_payload(payload)
+        )['actors'][0]
+        action = actor['actions'][0]
+
+        self.assertEqual(payload, original)
+        self.assertEqual(action['product']['normalized_base_damage'], 100.0)
+        self.assertEqual(action['product']['final_normalized_damage'], 105.0)
+        self.assertEqual(action['product']['formula_components'], [{
+            'base_damage': 100.0,
+            'runtime_factors': [1.05],
+            'final_damage': 105.0,
+        }])
+        self.assertEqual(actor['global_skill_effects'], [{
+            'effect_id': 'specialization_passive:137050:1.22',
+            'source_type': 'specialization_passive',
+            'source_spell_ids': [137050],
+            'source_name': 'Fury Warrior',
+            'scenario_tokens': [],
+            'runtime_condition': '专精被动（适用于受影响技能）',
+            'display_name': '狂怒战士',
+            'projections': [{
+                'kind': 'damage_multiplier',
+                'value': 1.22,
+                'bonus_percent': 22.0,
+                'component': 'direct',
+            }],
+        }])
+
     def test_hand_suffixes_use_base_translation_and_merge_complementary_self_roots(self):
         for token, name_zh in (
             ('raging_blow', '怒击'),
@@ -2048,7 +2122,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         service = SimcSkillDamageSnapshotService.create_for_current_backend()
 
         self.assertNotEqual(service.snapshot.pk, existing.pk)
-        self.assertEqual(service.snapshot.schema_revision, 12)
+        self.assertEqual(service.snapshot.schema_revision, 13)
         self.assertEqual(service.snapshot.status, SimcSkillDamageSnapshot.STATUS_PENDING)
         self.assertEqual(service.backend.pk, backend.pk)
 
@@ -2354,7 +2428,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             'target_pet_multiplier': 1.0,
         }
         payload = {
-            'schema_version': 7,
+            'schema_version': 8,
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
@@ -2525,7 +2599,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             }
 
         payload = {
-            'schema_version': 7, 'simc_revision': 'c' * 40,
+            'schema_version': 8, 'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
             'actors': [{
@@ -2621,7 +2695,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         service = SimcSkillDamageSnapshotService(snapshot)
         payload = {
-            'schema_version': 7,
+            'schema_version': 8,
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
@@ -2671,7 +2745,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         service = SimcSkillDamageSnapshotService(snapshot)
         base = {
-            'schema_version': 7,
+            'schema_version': 8,
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
@@ -2687,7 +2761,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         service = SimcSkillDamageSnapshotService(snapshot)
         base = {
-            'schema_version': 7,
+            'schema_version': 8,
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
@@ -2722,7 +2796,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             },
         )
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=12,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=13,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{
                 'specialization': 'fury',
@@ -2753,7 +2827,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
 
     def test_get_returns_latest_schema_nine_success_without_profile_filters(self):
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=12,
+            simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=13,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{'specialization': 'fury'}]},
         )
@@ -2780,7 +2854,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(body['data']['snapshot'])
-        self.assertIn('schema 12', body['data']['snapshot_unavailable_reason'])
+        self.assertIn('schema 13', body['data']['snapshot_unavailable_reason'])
 
     def test_get_localizes_skill_identity_and_left_cell_only_shows_name_and_spell_id(self):
         version = WowTalentVersion.objects.create(key='current', is_active=True)
@@ -2807,7 +2881,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
             name='Stale Action', name_zh='过期版本中文名', snapshot_build='12.1.0.69299',
         )
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=12,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=13,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{
                 'class': 'warrior', 'specialization': 'fury',
@@ -2934,13 +3008,17 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         for removed_label in ('该条件实际伤害', '技能实际暴击率', '归一化伤害期望'):
             self.assertNotIn(removed_label, template)
         for field in (
-            'attack_power_coefficient', 'spell_power_coefficient',
-            'normalized_base_damage', 'runtime_multiplier', 'final_normalized_damage',
+            'normalized_base_damage', 'final_normalized_damage', 'formula_components',
+            'base_damage', 'runtime_factors', 'final_damage',
         ):
             self.assertIn(field, renderer)
+        for removed_field in (
+            'attack_power_coefficient', 'spell_power_coefficient', 'runtime_multiplier',
+        ):
+            self.assertNotIn(removed_field, renderer)
         self.assertIn('formatSimcSkillDamageFactor', renderer)
         self.assertIn('toFixed(6)', renderer)
-        self.assertIn('等效总倍率', renderer)
+        self.assertNotIn('等效总倍率', renderer)
         self.assertNotIn('SimC 总乘区', renderer)
         for crit_field in ('crit_damage', 'crit_multiplier', 'actual_crit_chance', 'normalized_expected'):
             self.assertNotIn(crit_field, renderer)

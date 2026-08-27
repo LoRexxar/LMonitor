@@ -8220,8 +8220,10 @@ class SimcSkillDamageSnapshotAPIView(View):
                 'game_build': latest.game_build,
                 'schema_revision': latest.schema_revision,
             }
-            snapshot = project_skill_damage_product_payload(
-                localize_skill_damage_payload({**(latest.payload or {}), 'identity': identity})
+            snapshot = localize_skill_damage_payload(
+                project_skill_damage_product_payload({
+                    **(latest.payload or {}), 'identity': identity,
+                })
             )
             snapshot['identity'] = identity
             snapshot['id'] = latest.pk

@@ -2197,6 +2197,7 @@ def project_skill_damage_product_payload(payload):
     for actor in actors:
         groups = {}
         hand_groups = {}
+        native_global_effects = {}
         for action in actor.get('actions') or []:
             if not isinstance(action, dict) or action.get('supported') is not True:
                 continue
@@ -2305,14 +2306,78 @@ def project_skill_damage_product_payload(payload):
                 weighted_base = normalized_base * count
                 weighted_final = final_damage * count
                 runtime_layers = component.get('runtime_layers') or {}
-                runtime_factors = [
-                    value
-                    for value in (
-                        runtime_layers.values() if isinstance(runtime_layers, dict) else ()
-                    )
-                    if _finite_number(value)
-                    and not math.isclose(value, 1.0, rel_tol=0.0, abs_tol=1e-12)
-                ]
+                passive_rows = []
+                passive_factor = 1.0
+                seen_passive_effects = set()
+                if isinstance(runtime_layers, dict):
+                    for effect in runtime_layers.get('specialization_passive_effects') or []:
+                        if not isinstance(effect, dict):
+                            continue
+                        source_spell_id = effect.get('source_spell_id')
+                        factor = effect.get('factor')
+                        if (
+                            not isinstance(source_spell_id, int)
+                            or isinstance(source_spell_id, bool)
+                            or source_spell_id <= 0
+                            or not _finite_number(factor)
+                            or factor <= 0
+                            or math.isclose(factor, 1.0, rel_tol=0.0, abs_tol=1e-12)
+                            or effect.get('component') != component_name
+                        ):
+                            continue
+                        effect_key = (
+                            source_spell_id, effect.get('effect_index'), component_name, factor,
+                        )
+                        if effect_key in seen_passive_effects:
+                            continue
+                        seen_passive_effects.add(effect_key)
+                        passive_rows.append(effect)
+                        passive_factor *= factor
+
+                component_multiplier_key = (
+                    'da_multiplier' if component_name == 'direct' else 'ta_multiplier'
+                )
+                component_multiplier = (
+                    runtime_layers.get(component_multiplier_key)
+                    if isinstance(runtime_layers, dict) else None
+                )
+                strip_passive = bool(passive_rows) and (
+                    _finite_number(component_multiplier) and component_multiplier > 0
+                )
+                if strip_passive:
+                    weighted_final /= passive_factor
+
+                runtime_factors = []
+                for layer_name, value in (
+                    runtime_layers.items() if isinstance(runtime_layers, dict) else ()
+                ):
+                    if not _finite_number(value):
+                        continue
+                    if strip_passive and layer_name == component_multiplier_key:
+                        value /= passive_factor
+                    if not math.isclose(value, 1.0, rel_tol=0.0, abs_tol=1e-12):
+                        runtime_factors.append(value)
+
+                if strip_passive:
+                    for effect in passive_rows:
+                        source_spell_id = effect['source_spell_id']
+                        factor = effect['factor']
+                        effect_key = (source_spell_id, factor)
+                        factor_value = float(factor)
+                        global_effect = native_global_effects.setdefault(effect_key, {
+                            'effect_id': (
+                                f'specialization_passive:{source_spell_id}:'
+                                f'{factor_value:.17g}'
+                            ),
+                            'source_type': 'specialization_passive',
+                            'source_spell_ids': [source_spell_id],
+                            'source_name': str(effect.get('source_name') or '').strip(),
+                            'scenario_tokens': [],
+                            'runtime_condition': '专精被动（适用于受影响技能）',
+                            '_factor': factor_value,
+                            '_components': set(),
+                        })
+                        global_effect['_components'].add(component_name)
                 runtime_product = math.prod(runtime_factors)
                 formula_base = weighted_base
                 if not math.isclose(
@@ -2348,6 +2413,26 @@ def project_skill_damage_product_payload(payload):
             product['runtime_multiplier'] = final / base if base else None
             rows.append(group)
         actor['actions'] = rows
+        existing_global_effects = [
+            effect for effect in (actor.get('global_skill_effects') or [])
+            if isinstance(effect, dict)
+        ]
+        existing_effect_ids = {
+            str(effect.get('effect_id') or '') for effect in existing_global_effects
+        }
+        for global_effect in native_global_effects.values():
+            components = global_effect.pop('_components')
+            factor = global_effect.pop('_factor')
+            component_name = next(iter(components)) if len(components) == 1 else 'all'
+            global_effect['projections'] = [{
+                'kind': 'damage_multiplier',
+                'value': factor,
+                'bonus_percent': round((factor - 1.0) * 100.0, 8),
+                'component': component_name,
+            }]
+            if global_effect['effect_id'] not in existing_effect_ids:
+                existing_global_effects.append(global_effect)
+        actor['global_skill_effects'] = existing_global_effects
         display_count += len(rows)
     result['actors'] = actors
     result['display_action_count'] = display_count
@@ -2357,8 +2442,8 @@ def project_skill_damage_product_payload(payload):
 class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
-    EXPORTER_SCHEMA_REVISION = 7
-    DATASET_SCHEMA_REVISION = 12
+    EXPORTER_SCHEMA_REVISION = 8
+    DATASET_SCHEMA_REVISION = 13
     TALENT_BATCH_SIZE = 12
     FIXED_PRESET = {
         'attack_power': 100.0,

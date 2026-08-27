@@ -25,6 +25,7 @@ RUNTIME_LAYER_SCENARIO_CHANGE_PATCH = PATCH_DIR / "0022-runtime-layer-scenario-c
 TARGET_STATE_MATERIALIZATION_PATCH = PATCH_DIR / "0023-materialize-target-runtime-states.patch"
 GLOBAL_SKILL_EFFECT_EVIDENCE_PATCH = PATCH_DIR / "0024-global-skill-effect-evidence.patch"
 ACTIVE_PLAYER_SKILL_PATCH = PATCH_DIR / "0025-active-player-skill-identity.patch"
+SPECIALIZATION_PASSIVE_PROVENANCE_PATCH = PATCH_DIR / "0026-specialization-passive-damage-provenance.patch"
 
 
 class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
@@ -51,6 +52,16 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         cls.target_state_materialization_text = TARGET_STATE_MATERIALIZATION_PATCH.read_text(encoding="utf-8")
         cls.global_skill_effect_evidence_text = GLOBAL_SKILL_EFFECT_EVIDENCE_PATCH.read_text(encoding="utf-8")
         cls.active_player_skill_text = ACTIVE_PLAYER_SKILL_PATCH.read_text(encoding="utf-8")
+        cls.specialization_passive_provenance_text = SPECIALIZATION_PASSIVE_PROVENANCE_PATCH.read_text(encoding="utf-8")
+
+    def test_specialization_passive_provenance_is_exported_with_schema_eight(self):
+        text = self.specialization_passive_provenance_text
+        for token in (
+            '\\"schema_version\\\":8', 'specialization_passive_effects',
+            'effects_affecting_spell', 'effect_index', 'source_spell_id',
+            'source_name', 'component', 'factor',
+        ):
+            self.assertIn(token, text)
 
     def test_player_skill_identity_uses_current_actor_dbc_candidates(self):
         text = self.active_player_skill_text
