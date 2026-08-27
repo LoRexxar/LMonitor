@@ -5928,6 +5928,8 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         actions.forEach(action => {
             const variant = action.variant && typeof action.variant === 'object' ? action.variant : {};
             if (variant.hero_subtree_id != null && String(variant.hero_subtree_id) !== selectedHeroTree) return;
+            const heroSubtreeIds = Array.isArray(action.hero_subtree_ids) ? action.hero_subtree_ids : [];
+            if (heroSubtreeIds.length && !heroSubtreeIds.some(id => String(id) === selectedHeroTree)) return;
             const haystack = `${action.display_name || ''} ${action.name || ''} ${action.spell_id || ''} ${variant.talent_name || ''} ${variant.talent_name_zh || ''} ${variant.runtime_condition || ''}`.toLowerCase();
             if (query && !haystack.includes(query)) return;
             const product = action.product && typeof action.product === 'object' ? action.product : {};

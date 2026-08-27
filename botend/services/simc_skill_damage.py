@@ -1426,7 +1426,9 @@ def _base_damage_layer_candidate(reference_actor, selected_actor):
         return None
     reference_actions, selected_actions = action_pair
     groups = {}
+    mirrored_runtime_groups = {}
     compared_roots = set()
+    comparable_components = set()
     component_count = 0
     for identity, reference_action in reference_actions.items():
         selected_action = selected_actions[identity]
@@ -1455,7 +1457,7 @@ def _base_damage_layer_candidate(reference_actor, selected_actor):
             if set(reference_layers) != {'base_multiplier', 'component_multiplier'} or set(selected_layers) != set(reference_layers):
                 return None
             component_ratio = 1.0
-            changed = False
+            changed_layers = []
             for layer in ('base_multiplier', 'component_multiplier'):
                 reference_value = reference_layers.get(layer)
                 selected_value = selected_layers.get(layer)
@@ -1467,15 +1469,47 @@ def _base_damage_layer_candidate(reference_actor, selected_actor):
                     rel_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
                     abs_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
                 ):
-                    changed = True
                     component_ratio *= ratio
-                    group = groups.setdefault(layer, {'ratios': [], 'roots': set(), 'components': set()})
-                    group['ratios'].append(ratio)
-                    group['roots'].add(selected_root)
-                    group['components'].add(component_name)
-            if not changed:
+                    changed_layers.append((layer, ratio))
+            component_identity = (selected_root, component_name)
+            comparable_components.add(component_identity)
+            if not changed_layers:
+                if not _fact_equal(reference_component, selected_component):
+                    return None
+                continue
+            reference_runtime_layers = reference_component.get('runtime_layers')
+            selected_runtime_layers = selected_component.get('runtime_layers')
+            if (
+                not isinstance(reference_runtime_layers, dict)
+                or not isinstance(selected_runtime_layers, dict)
+                or set(reference_runtime_layers) != set(selected_runtime_layers)
+            ):
                 return None
-            if reference_component.get('runtime_layers') != selected_component.get('runtime_layers'):
+            mirrored_runtime_changes = []
+            for layer, reference_value in reference_runtime_layers.items():
+                selected_value = selected_runtime_layers.get(layer)
+                if (
+                    not _finite_number(reference_value)
+                    or not _finite_number(selected_value)
+                    or reference_value <= 0
+                    or selected_value <= 0
+                ):
+                    return None
+                ratio = selected_value / reference_value
+                if not math.isclose(
+                    ratio, 1.0,
+                    rel_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
+                    abs_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
+                ):
+                    mirrored_runtime_changes.append((layer, ratio))
+            if mirrored_runtime_changes and (
+                len(mirrored_runtime_changes) != 1
+                or not math.isclose(
+                    mirrored_runtime_changes[0][1], component_ratio,
+                    rel_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
+                    abs_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
+                )
+            ):
                 return None
             for field in (
                 'crit_multiplier', 'crit_chance', 'crit_chance_uncapped',
@@ -1497,13 +1531,35 @@ def _base_damage_layer_candidate(reference_actor, selected_actor):
                     abs_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
                 ):
                     return None
+            for layer, ratio in changed_layers:
+                group = groups.setdefault(
+                    layer,
+                    {'ratios': [], 'roots': set(), 'components': set(), 'evidence': set()},
+                )
+                group['ratios'].append(ratio)
+                group['roots'].add(selected_root)
+                group['components'].add(component_name)
+                group['evidence'].add(component_identity)
+            for layer, ratio in mirrored_runtime_changes:
+                group = mirrored_runtime_groups.setdefault(
+                    layer,
+                    {'ratios': [], 'roots': set(), 'components': set(), 'evidence': set()},
+                )
+                group['ratios'].append(ratio)
+                group['roots'].add(selected_root)
+                group['components'].add(component_name)
+                group['evidence'].add(component_identity)
             component_count += 1
             root_compared = True
         if root_compared:
             compared_roots.add(selected_root)
     if len(compared_roots) < 2 or not groups:
         return None
-    if any(group['roots'] != compared_roots for group in groups.values()):
+    if any(group['evidence'] != comparable_components for group in groups.values()):
+        return None
+    if mirrored_runtime_groups and set().union(*(
+        group['evidence'] for group in mirrored_runtime_groups.values()
+    )) != comparable_components:
         return None
     multiplier = 1.0
     for group in groups.values():
@@ -1517,6 +1573,13 @@ def _base_damage_layer_candidate(reference_actor, selected_actor):
         multiplier *= average
     if multiplier <= 1.0 + _GLOBAL_DAMAGE_RATIO_REL_TOLERANCE:
         return None
+    for group in mirrored_runtime_groups.values():
+        if any(not math.isclose(
+            ratio, multiplier,
+            rel_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
+            abs_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
+        ) for ratio in group['ratios']):
+            return None
     return {
         'multiplier': multiplier,
         'runtime_layer': '+'.join(f'base_damage.{layer}' for layer in sorted(groups)),
@@ -1527,12 +1590,72 @@ def _base_damage_layer_candidate(reference_actor, selected_actor):
         ],
         'evidence_root_count': len(compared_roots),
         'evidence_component_count': component_count,
+        'mirrored_runtime_layers': sorted(mirrored_runtime_groups),
     }
 
 
 def _global_effect_identity(prefix, scenario_tokens=()):
     suffix = '+'.join(scenario_tokens) if scenario_tokens else 'passive'
     return f'{prefix}:{suffix}'
+
+
+def _amount_change_only_global_multiplier(reference, selected, multiplier):
+    if (
+        _amount_state(reference)[0] != 'resolved'
+        or _amount_state(selected)[0] != 'resolved'
+        or not _finite_number(multiplier)
+        or multiplier <= 0
+    ):
+        return False
+    changed = False
+    scalable_fields = {'hit', 'crit', 'expected'}
+    for component_name in ('direct', 'tick'):
+        reference_component = reference.get(component_name)
+        selected_component = selected.get(component_name)
+        if reference_component is None and selected_component is None:
+            continue
+        if not isinstance(reference_component, dict) or not isinstance(selected_component, dict):
+            return False
+        for field in set(reference_component) | set(selected_component):
+            reference_value = reference_component.get(field)
+            selected_value = selected_component.get(field)
+            values = None
+            if field in scalable_fields:
+                values = ((reference_value, selected_value),)
+            elif field in ('base_damage_layers', 'runtime_layers'):
+                if not isinstance(reference_value, dict) or not isinstance(selected_value, dict):
+                    return False
+                if set(reference_value) != set(selected_value):
+                    return False
+                values = tuple(
+                    (reference_value[key], selected_value[key]) for key in reference_value
+                )
+            if values is None:
+                if not _fact_equal(reference_value, selected_value):
+                    return False
+                continue
+            for old, new in values:
+                if not _finite_number(old) or not _finite_number(new) or old <= 0:
+                    if not _fact_equal(old, new):
+                        return False
+                    continue
+                ratio = new / old
+                if math.isclose(
+                    ratio, 1.0,
+                    rel_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
+                    abs_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
+                ):
+                    continue
+                if not math.isclose(
+                    ratio, multiplier,
+                    rel_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
+                    abs_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
+                ):
+                    return False
+                changed = True
+    return changed and _fact_equal(
+        reference.get('unresolved_reason'), selected.get('unresolved_reason'),
+    )
 
 
 def classify_global_skill_effects(base_high, base_low, variants):
@@ -1717,6 +1840,11 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
             for modifier in classified_global_modifiers
             if not modifier.get('scenario_tokens')
         }
+        passive_global_multipliers = {
+            modifier.get('talent_id'): modifier.get('damage_multiplier')
+            for modifier in classified_global_modifiers
+            if not modifier.get('scenario_tokens')
+        }
         global_scenario_token_sets = {
             tuple(modifier.get('scenario_tokens') or [])
             for modifier in classified_global_modifiers
@@ -1729,6 +1857,14 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
             if effect.get('source_type') == 'talent'
             and effect.get('talent_id') is not None
             and not effect.get('scenario_tokens')
+        }
+        passive_global_multipliers = {
+            effect.get('talent_id'): projection.get('value')
+            for effect in global_effects
+            if effect.get('source_type') == 'talent'
+            and not effect.get('scenario_tokens')
+            for projection in (effect.get('projections') or [])
+            if projection.get('kind') == 'damage_multiplier'
         }
         global_scenario_token_sets = {
             tuple(effect.get('scenario_tokens') or [])
@@ -1743,7 +1879,18 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
     def append_row(action, amount, *, talent, condition, comparison, scenario_tokens=()):
         if not isinstance(action, dict) or _amount_state(amount)[0] != 'resolved':
             return
+        talent_hero_subtree_id = talent.get('hero_subtree_id')
+        hero_subtree_ids = []
+        if (
+            talent.get('tree_type') == 'hero'
+            and isinstance(talent_hero_subtree_id, int)
+            and not isinstance(talent_hero_subtree_id, bool)
+            and talent_hero_subtree_id > 0
+        ):
+            hero_subtree_ids = [talent_hero_subtree_id]
         row = copy.deepcopy(action)
+        if hero_subtree_ids:
+            row['hero_subtree_ids'] = hero_subtree_ids
         row['baseline'] = copy.deepcopy(amount)
         row['scenarios'] = []
         reference_state = _amount_state(comparison)
@@ -1814,6 +1961,11 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
         for identity in dict.fromkeys([*high_actions, *low_actions]):
             high_action = high_actions.get(identity)
             low_action = low_actions.get(identity)
+            if passive_global_talent and any(
+                action and action.get('player_skill') is True
+                for action in (high_action, low_action)
+            ):
+                continue
             base_high_action = reference_high_actions.get(identity)
             base_low_action = reference_low_actions.get(identity)
             high_amount = high_action.get('baseline') if high_action else None
@@ -1822,19 +1974,9 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
             base_low_amount = base_low_action.get('baseline') if base_low_action else None
             candidates = []
 
-            if passive_global_talent and any(
-                action and action.get('player_skill') is True
-                for action in (high_action, low_action)
-            ):
-                continue
-
             if (
                 _amount_state(high_amount)[0] == 'resolved'
                 and _effect_changed(base_high_amount, high_amount)
-                and not (
-                    passive_global_talent
-                    and high_action.get('player_skill') is True
-                )
             ):
                 candidates.append((
                     high_action, high_amount, base_high_amount,
@@ -1861,10 +2003,6 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
                 and _paired_effect_changed(
                     base_high_amount, high_amount, base_low_amount, low_amount,
                 )
-                and not (
-                    passive_global_talent
-                    and low_action.get('player_skill') is True
-                )
             ):
                 candidates.append((
                     low_action, low_amount, base_low_amount,
@@ -1887,6 +2025,15 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
 
             seen_candidates = set()
             for source_action, amount, comparison, condition, tokens in candidates:
+                if (
+                    passive_global_talent
+                    and source_action.get('player_skill') is not True
+                    and _amount_change_only_global_multiplier(
+                        comparison, amount,
+                        passive_global_multipliers.get(talent.get('id')),
+                    )
+                ):
+                    continue
                 identity_key = (
                     condition,
                     json.dumps(amount, ensure_ascii=False, sort_keys=True, separators=(',', ':')),
@@ -1991,9 +2138,19 @@ def project_skill_damage_product_payload(payload):
                 root_token = action.get('reporting_root_token') if root_component else action.get('token')
                 root_spell_id = action.get('reporting_root_spell_id') if root_component else action.get('spell_id')
                 variant = action.get('variant') or {}
+                hero_subtree_ids = tuple(sorted({
+                    subtree_id
+                    for subtree_id in (action.get('hero_subtree_ids') or [])
+                    if (
+                        isinstance(subtree_id, int)
+                        and not isinstance(subtree_id, bool)
+                        and subtree_id > 0
+                    )
+                }))
                 group_key = (
                     str(root_token or ''), root_spell_id,
                     json.dumps(variant, ensure_ascii=False, sort_keys=True, separators=(',', ':')),
+                    hero_subtree_ids,
                 )
                 group = groups.get(group_key)
                 if group is None:
@@ -2005,6 +2162,10 @@ def project_skill_damage_product_payload(payload):
                     row['token'] = root_token
                     row['spell_id'] = root_spell_id
                     row['component'] = 'combined'
+                    if hero_subtree_ids:
+                        row['hero_subtree_ids'] = list(hero_subtree_ids)
+                    else:
+                        row.pop('hero_subtree_ids', None)
                     row['component_count'] = 0
                     row['components'] = []
                     row['product'] = {
@@ -2047,7 +2208,7 @@ class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
     EXPORTER_SCHEMA_REVISION = 7
-    DATASET_SCHEMA_REVISION = 11
+    DATASET_SCHEMA_REVISION = 12
     TALENT_BATCH_SIZE = 12
     FIXED_PRESET = {
         'attack_power': 100.0,

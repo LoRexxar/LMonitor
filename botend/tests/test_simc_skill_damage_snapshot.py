@@ -15,6 +15,7 @@ from botend.models import (
 )
 from botend.services.simc_skill_damage import (
     SimcSkillDamageSnapshotService,
+    _base_damage_layer_candidate,
     _player_skill_actions,
     _talent_declares_all_damage_modifier,
     attach_runtime_product_metrics,
@@ -752,6 +753,23 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertEqual(action['product']['normalized_base_damage'], 290.0)
         self.assertEqual(action['product']['final_normalized_damage'], 348.0)
         self.assertEqual(action['product']['runtime_multiplier'], 1.2)
+
+        mountain_leaf = leaf('mountain_leaf', 4, 'direct', 100.0, 120.0)
+        mountain_leaf['hero_subtree_ids'] = [61]
+        slayer_leaf = leaf('slayer_leaf', 5, 'direct', 100.0, 120.0)
+        slayer_leaf['hero_subtree_ids'] = [60]
+        ownership_payload = {'actors': [{'actions': [mountain_leaf, slayer_leaf]}]}
+        forward = project_skill_damage_product_payload(ownership_payload)['actors'][0]['actions']
+        ownership_payload['actors'][0]['actions'].reverse()
+        reverse = project_skill_damage_product_payload(ownership_payload)['actors'][0]['actions']
+        self.assertEqual(
+            sorted(row['hero_subtree_ids'] for row in forward),
+            [[60], [61]],
+        )
+        self.assertEqual(
+            sorted(row['hero_subtree_ids'] for row in reverse),
+            [[60], [61]],
+        )
 
     def test_all_damage_text_scope_requires_player_positive_unrestricted_damage(self):
         accepted = (
@@ -1535,6 +1553,8 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 action('b', baseline=amount(base=1.06)),
             ],
         }
+        for selected_action in weapon_selected['actions']:
+            selected_action['baseline']['direct']['runtime_layers']['da_multiplier'] = 1.06
         variants = [{
             'talent': {
                 'id': 9, 'name': 'Weapon Specialization', 'name_zh': '武器专精',
@@ -1564,7 +1584,27 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         self.assertEqual(weapon['projections'][0]['kind'], 'damage_multiplier')
         self.assertAlmostEqual(weapon['projections'][0]['value'], 1.06)
-        self.assertIn('base_damage.', weapon['projections'][0]['evidence_layer'])
+        base_layer_evidence = _base_damage_layer_candidate(weapon_reference, weapon_selected)
+        self.assertAlmostEqual(base_layer_evidence['multiplier'], 1.06)
+        self.assertEqual(base_layer_evidence['mirrored_runtime_layers'], ['da_multiplier'])
+        mismatched_mirror = copy.deepcopy(weapon_selected)
+        mismatched_mirror['actions'][0]['baseline']['direct']['runtime_layers']['da_multiplier'] = 1.05
+        self.assertIsNone(_base_damage_layer_candidate(weapon_reference, mismatched_mirror))
+
+        mixed_component_reference = copy.deepcopy(weapon_reference)
+        mixed_component_selected = copy.deepcopy(weapon_selected)
+        for actor in (mixed_component_reference, mixed_component_selected):
+            periodic = actor['actions'][1]['baseline'].pop('direct')
+            periodic['runtime_layers']['ta_multiplier'] = periodic['runtime_layers'].pop('da_multiplier')
+            actor['actions'][1]['baseline']['tick'] = periodic
+        mixed_component_evidence = _base_damage_layer_candidate(
+            mixed_component_reference, mixed_component_selected,
+        )
+        self.assertAlmostEqual(mixed_component_evidence['multiplier'], 1.06)
+        self.assertEqual(
+            mixed_component_evidence['mirrored_runtime_layers'],
+            ['da_multiplier', 'ta_multiplier'],
+        )
 
         rows = flatten_single_talent_damage_variants(
             base_actor, base_actor, variants, global_effects=effects,
@@ -1605,6 +1645,13 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertNotIn(
             'talent:9:passive', {effect['effect_id'] for effect in partial_effects},
         )
+        partial_rows = flatten_single_talent_damage_variants(
+            base_actor, base_actor, [partial_variant], global_effects=partial_effects,
+        )
+        self.assertTrue(any(
+            (row.get('variant') or {}).get('talent_id') == 9
+            for row in partial_rows
+        ))
 
         selected_only_variant = copy.deepcopy(variants[0])
         for key in ('high', 'low'):
@@ -1633,6 +1680,70 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertNotIn(
             'talent:9:passive',
             {effect['effect_id'] for effect in runtime_selected_only_effects},
+        )
+
+    def test_inactive_derived_action_is_owned_by_hero_tree_with_passive_activation(self):
+        def amount(hit):
+            return {
+                'direct': {
+                    'hit': hit, 'crit': hit * 2, 'crit_multiplier': 2.0,
+                    'crit_chance': 0.2, 'expected': hit * 1.2,
+                },
+                'tick': None, 'unresolved_reason': None,
+            }
+
+        def action(hit, *, player_skill=False, scenarios=()):
+            return {
+                'token': 'derived_action', 'spell_id': 42, 'supported': True,
+                'player_skill': player_skill,
+                'reporting_root_token': 'derived_action',
+                'reporting_root_spell_id': 42,
+                'reporting_root_component': True,
+                'baseline': amount(hit),
+                'scenarios': [
+                    {
+                        'buffs': [{'token': token, 'spell_id': 99, 'scope': 'target'}],
+                        'values': amount(value),
+                    }
+                    for token, value in scenarios
+                ],
+            }
+
+        baseline = action(100)
+        mountain_reference = action(100)
+        mountain_selected = action(120)
+        slayer_reference = action(100)
+        slayer_selected = action(130, scenarios=(('debuff.side_effect', 150),))
+        rows = flatten_single_talent_damage_variants(
+            {'actions': [baseline]}, {'actions': [baseline]}, [
+                {
+                    'talent': {
+                        'id': 1, 'name': 'Passive activator', 'tree_type': 'hero',
+                        'hero_subtree_id': 61, 'hero_subtree_name': 'Mountain',
+                    },
+                    'reference_high': {'actions': [mountain_reference]},
+                    'high': {'actions': [mountain_selected]},
+                    'reference_low': {'actions': [mountain_reference]},
+                    'low': {'actions': [mountain_selected]},
+                },
+                {
+                    'talent': {
+                        'id': 2, 'name': 'Conditional side effect', 'tree_type': 'hero',
+                        'hero_subtree_id': 60, 'hero_subtree_name': 'Slayer',
+                    },
+                    'reference_high': {'actions': [slayer_reference]},
+                    'high': {'actions': [slayer_selected]},
+                    'reference_low': {'actions': [slayer_reference]},
+                    'low': {'actions': [slayer_selected]},
+                },
+            ],
+        )
+
+        hero_rows = [row for row in rows if (row.get('variant') or {}).get('hero_subtree_id')]
+        self.assertEqual(
+            {(row['variant']['hero_subtree_id'], tuple(row.get('hero_subtree_ids') or ()))
+             for row in hero_rows},
+            {(60, (60,)), (61, (61,))},
         )
 
     def test_global_modifier_requires_positive_unique_talent_id_and_never_deletes_bad_ids(self):
@@ -1756,7 +1867,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         service = SimcSkillDamageSnapshotService.create_for_current_backend()
 
         self.assertNotEqual(service.snapshot.pk, existing.pk)
-        self.assertEqual(service.snapshot.schema_revision, 11)
+        self.assertEqual(service.snapshot.schema_revision, 12)
         self.assertEqual(service.snapshot.status, SimcSkillDamageSnapshot.STATUS_PENDING)
         self.assertEqual(service.backend.pk, backend.pk)
 
@@ -2430,7 +2541,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             },
         )
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=11,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=12,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{
                 'specialization': 'fury',
@@ -2461,7 +2572,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
 
     def test_get_returns_latest_schema_nine_success_without_profile_filters(self):
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=11,
+            simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=12,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{'specialization': 'fury'}]},
         )
@@ -2488,7 +2599,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(body['data']['snapshot'])
-        self.assertIn('schema 11', body['data']['snapshot_unavailable_reason'])
+        self.assertIn('schema 12', body['data']['snapshot_unavailable_reason'])
 
     def test_get_localizes_skill_identity_and_left_cell_only_shows_name_and_spell_id(self):
         version = WowTalentVersion.objects.create(key='current', is_active=True)
@@ -2515,7 +2626,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
             name='Stale Action', name_zh='过期版本中文名', snapshot_build='12.1.0.69299',
         )
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=11,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=12,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{
                 'class': 'warrior', 'specialization': 'fury',
@@ -2672,6 +2783,7 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn('selectedHeroTree', renderer)
         self.assertIn('hero_talent_trees', renderer)
         self.assertIn('variant.hero_subtree_id', renderer)
+        self.assertIn('action.hero_subtree_ids', renderer)
         self.assertIn('variant.runtime_condition', renderer)
         self.assertIn('variant.talent_name_zh', renderer)
         self.assertIn("const sortMode = sortButton.dataset.sortMode === 'final' ? 'final' : 'name';", renderer)
