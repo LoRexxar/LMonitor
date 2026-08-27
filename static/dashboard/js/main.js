@@ -5912,7 +5912,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 }
                 if (projection.kind === 'damage_multiplier') {
                     const label = String(projection.evidence_layer || '').startsWith('base_damage.') ? '基础伤害' : '全局伤害';
-                    return `<span class="whitespace-nowrap"><span class="text-xs text-indigo-700">${label}</span> <span class="font-mono text-indigo-900">${formatSimcSkillDamageFactor(projection.value)} ×（${formatSimcSkillDamagePercent(projection.bonus_percent, true)}）</span></span>`;
+                    return `<span class="whitespace-nowrap"><span class="text-xs text-indigo-700">${label}</span> <span class="font-mono text-indigo-900">${formatSimcSkillDamageFactor(projection.value)}×</span></span>`;
                 }
                 return '';
             }).filter(Boolean).join('<span class="text-indigo-300"> · </span>');

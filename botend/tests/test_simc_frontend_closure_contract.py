@@ -280,6 +280,14 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertIn("renderSimcSavedProfileDetail(detail)", detail)
         self.assertNotIn("JSON.stringify(stats.secondary", detail)
 
+    def test_global_damage_effect_renders_multiplier_without_duplicate_bonus_percent(self):
+        renderer = MAIN[
+            MAIN.index("const globalEffects = [];"):
+            MAIN.index("const rows = [];", MAIN.index("const globalEffects = [];"))
+        ]
+        self.assertIn("${formatSimcSkillDamageFactor(projection.value)}×", renderer)
+        self.assertNotIn("projection.bonus_percent", renderer)
+
 
 if __name__ == "__main__":
     unittest.main()
