@@ -374,10 +374,10 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
               row['baseline']['direct']['hit']) for row in rows],
             [
                 ('', '', 200.0),
-                ('血之气息', '探针条件：启用 bloodcraze buff', 240.0),
+                ('血之气息', '点出「血之气息」天赋', 240.0),
                 ('恶毒蔑视', '目标生命值低于 35%', 300.0),
-                ('恶毒蔑视', '目标生命值低于 35% + 探针启用 defensive_stance buff', 270.0),
-                ('能量爆发', '探针条件：启用 burst_of_power buff', 220.0),
+                ('恶毒蔑视', '目标生命值低于 35% + 点出「恶毒蔑视」天赋', 270.0),
+                ('能量爆发', '点出「能量爆发」天赋', 220.0),
             ],
         )
         hero_row = next(row for row in rows if row['variant']['talent_id'] == 11)
@@ -453,11 +453,11 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             ('', 100, 100),
             ('目标生命值低于 35%', 80, 100),
             ('', 110, 90),
-            ('探针条件：启用 foo buff', 150, 100),
-            ('探针条件：启用 bar buff', 140, 100),
+            ('点出「真实天赋」天赋', 150, 100),
+            ('点出「真实天赋」天赋', 140, 100),
             ('目标生命值低于 35%', 130, 90),
-            ('目标生命值低于 35% + 探针启用 foo buff', 170, 100),
-            ('目标生命值低于 35% + 探针启用 bar buff', 160, 100),
+            ('目标生命值低于 35% + 点出「真实天赋」天赋', 170, 100),
+            ('目标生命值低于 35% + 点出「真实天赋」天赋', 160, 100),
         ])
 
     def test_flatten_compares_each_talent_against_its_prerequisite_actor(self):
@@ -3014,6 +3014,20 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
 
 
 class SimcSkillDamageDashboardContractTests(TestCase):
+    def test_skill_table_sums_formula_components_and_supports_name_sorting(self):
+        template = Path('templates/dashboard/index.html').read_text(encoding='utf-8')
+        script = Path('static/dashboard/js/main.js').read_text(encoding='utf-8')
+        renderer = script.split('function renderSimcSkillDamageSnapshot(snapshot) {', 1)[1].split(
+            'function initSimcSkillDamagePanel()', 1,
+        )[0]
+
+        self.assertIn('id="simc-skill-damage-sort-name"', template)
+        self.assertIn('aria-sort="none"', template)
+        self.assertIn("localeCompare(rightName, 'zh-CN'", renderer)
+        self.assertIn("formulaTerms.join(' + ')", renderer)
+        self.assertNotIn('分量 ${index + 1}', renderer)
+        self.assertNotIn('合并 ${action.component_count} 个施法分量', renderer)
+
     def test_global_effects_are_semantically_deduplicated_and_rendered_as_compact_cards(self):
         script = Path('static/dashboard/js/main.js').read_text(encoding='utf-8')
         renderer = script.split('function renderSimcSkillDamageSnapshot(snapshot) {', 1)[1].split(

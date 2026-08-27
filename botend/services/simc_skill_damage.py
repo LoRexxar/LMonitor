@@ -1252,6 +1252,12 @@ def _talent_declares_all_damage_modifier(talent):
     return False
 
 
+def _talent_probe_condition(talent):
+    talent = talent if isinstance(talent, dict) else {}
+    talent_name = str(talent.get('name_zh') or talent.get('name') or '该单项').strip()
+    return f'点出「{talent_name}」天赋'
+
+
 def classify_global_damage_modifiers(variants):
     """Classify text-declared all-damage effects using cross-skill runtime layers."""
     variants = list(variants or [])
@@ -1309,7 +1315,7 @@ def classify_global_damage_modifiers(variants):
             multiplier = (high['multiplier'] + low['multiplier']) / 2.0
             runtime_condition = ''
             if scenario_tokens:
-                runtime_condition = f'探针条件：启用 {" + ".join(scenario_tokens)} buff'
+                runtime_condition = _talent_probe_condition(talent)
             modifiers.append({
                 'talent_id': talent_id,
                 'talent_name': str(talent.get('name') or ''),
@@ -2143,7 +2149,7 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
                 if _amount_state(amount)[0] == 'resolved' and _effect_changed(reference, amount):
                     candidates.append((
                         high_action, amount, reference,
-                        f'探针条件：启用 {" + ".join(tokens)} buff', tokens,
+                        _talent_probe_condition(talent), tokens,
                     ))
 
             if (
@@ -2168,7 +2174,7 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
                 ):
                     candidates.append((
                         low_action, amount, low_reference,
-                        f'目标生命值低于 35% + 探针启用 {" + ".join(tokens)} buff', tokens,
+                        f'目标生命值低于 35% + {_talent_probe_condition(talent)}', tokens,
                     ))
 
             seen_candidates = set()
