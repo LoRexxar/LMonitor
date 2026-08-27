@@ -2493,9 +2493,15 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             'effect_index': 0,
             'source_spell_id': 137050,
             'source_name': 'Fury Warrior',
+            'component': 'direct',
             'factor': 1.22,
         }]
         service._validate_export(payload)
+
+        direct['runtime_layers']['specialization_passive_effects'][0]['component'] = 'tick'
+        with self.assertRaisesRegex(ValueError, 'specialization passive effects'):
+            service._validate_export(payload)
+        direct['runtime_layers']['specialization_passive_effects'][0]['component'] = 'direct'
 
         direct['runtime_layers']['specialization_passive_effects'][0]['factor'] = float('nan')
         with self.assertRaisesRegex(ValueError, 'specialization passive effects'):
@@ -2528,6 +2534,11 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 },
             },
         }
+        tick_passive_effects = tick_action['baseline']['tick']['runtime_layers'][
+            'specialization_passive_effects'
+        ]
+        for effect in tick_passive_effects:
+            effect['component'] = 'tick'
         service._validate_export(tick_payload)
         tick_action['baseline']['tick']['runtime_layers'].pop('target_ta_multiplier')
         with self.assertRaisesRegex(ValueError, 'runtime layers'):

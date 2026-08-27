@@ -2890,13 +2890,16 @@ class SimcSkillDamageSnapshotService:
                 passive_effects = runtime_layers.get('specialization_passive_effects')
                 if not isinstance(passive_effects, list) or any(
                     not isinstance(effect, dict)
-                    or set(effect) != {'effect_index', 'source_spell_id', 'source_name', 'factor'}
+                    or set(effect) != {
+                        'effect_index', 'source_spell_id', 'source_name', 'component', 'factor',
+                    }
                     or type(effect.get('effect_index')) is not int
                     or effect['effect_index'] < 0
                     or type(effect.get('source_spell_id')) is not int
                     or effect['source_spell_id'] <= 0
                     or not isinstance(effect.get('source_name'), str)
                     or not effect['source_name'].strip()
+                    or effect.get('component') != component_name
                     or not _finite_number(effect.get('factor'))
                     or effect['factor'] <= 0
                     for effect in passive_effects
