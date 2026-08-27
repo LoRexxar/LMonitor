@@ -31,6 +31,10 @@ def _text_key(value):
     return str(value or '').strip().casefold()
 
 
+def _contains_cjk(value):
+    return bool(re.search(r'[\u3400-\u9fff]', str(value or '')))
+
+
 _HAND_COMPONENT_SUFFIX_RE = re.compile(
     r'_(?P<hand>mh|oh|main_hand|off_hand)$', re.IGNORECASE,
 )
@@ -100,14 +104,6 @@ def localize_skill_damage_payload(payload):
         for spell_id in (effect.get('source_spell_ids') or [])
         if isinstance(spell_id, int) and not isinstance(spell_id, bool) and spell_id > 0
     )
-    hand_spell_ids = {
-        spell_id
-        for actor in actors
-        for action in (actor.get('actions') or [])
-        if isinstance(action, dict) and _action_hand_component_identity(action)[0]
-        for spell_id in (action.get('spell_id'), action.get('reporting_root_spell_id'))
-        if isinstance(spell_id, int) and not isinstance(spell_id, bool) and spell_id > 0
-    }
     tokens = set()
     for actor in actors:
         for action in actor.get('actions') or []:
@@ -132,13 +128,13 @@ def localize_skill_damage_payload(payload):
         row['spell_id']: str(row['name_zh'] or '').strip()
         for row in spell_query.values('spell_id', 'name_zh')
     } if spell_ids else {}
-    missing_hand_spell_ids = hand_spell_ids - set(spell_names)
-    if missing_hand_spell_ids:
-        recent_hand_names = WowSpellSnapshot.objects.filter(
-            branch='wow', locale='zhCN', spell_id__in=missing_hand_spell_ids,
+    missing_spell_ids = spell_ids - set(spell_names)
+    if missing_spell_ids:
+        recent_spell_names = WowSpellSnapshot.objects.filter(
+            branch='wow', locale='zhCN', spell_id__in=missing_spell_ids,
             name_zh__gt='',
         ).values('spell_id', 'name_zh').order_by('-updated_at')
-        for row in recent_hand_names:
+        for row in recent_spell_names:
             spell_names.setdefault(row['spell_id'], str(row['name_zh'] or '').strip())
     talent_rows = list(
         WowTalentNodeMetadata.objects.filter(
@@ -238,16 +234,20 @@ def localize_skill_damage_payload(payload):
                 scope_rank,
             ) if isinstance(canonical_spell_id, int) else ''
             existing_display_name = str(action.get('display_name') or '').strip()
+            existing_localized_name = (
+                existing_display_name if _contains_cjk(existing_display_name) else ''
+            )
             if base_token and (
                 _hand_component_identity(existing_display_name)[0]
                 or _text_key(existing_display_name) in action_identity
             ):
                 existing_display_name = ''
             action['display_name'] = (
-                existing_display_name
+                existing_localized_name
                 or spell_names.get(canonical_spell_id)
                 or apl_token_name or talent_name or apl_spell_name
                 or spell_names.get(spell_id)
+                or existing_display_name
                 or str(action.get('name') or action.get('token') or '未命名技能')
             )
     return result

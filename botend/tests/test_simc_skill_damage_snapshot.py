@@ -859,6 +859,46 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertEqual(by_token['soul_carver_oh']['component_count'], 1)
         self.assertEqual(by_token['soul_carver_oh']['display_name'], '灵魂切削')
 
+    def test_derived_action_names_prefer_authoritative_recent_chinese_spell_names(self):
+        for spell_id, name, name_zh in (
+            (5308, 'Execute', '斩杀'),
+            (184367, 'Rampage', '暴怒'),
+            (388539, 'Rend', '撕裂'),
+            (999999, 'Authoritative Name', '权威中文'),
+        ):
+            WowSpellSnapshot.objects.create(
+                branch='wow', locale='zhCN', spell_id=spell_id,
+                name=name, name_zh=name_zh, snapshot_build='12.1.0.69404',
+            )
+
+        def action(token, spell_id, *, root=None, root_spell_id=None, display_name=None):
+            return {
+                'name': token, 'token': token, 'spell_id': spell_id,
+                'display_name': display_name or token,
+                'reporting_root_token': root or token,
+                'reporting_root_spell_id': root_spell_id or spell_id,
+                'reporting_root_component': True,
+            }
+
+        payload = {
+            'identity': {'game_build': '12.1.0.69497'},
+            'actors': [{
+                'class': 'warrior', 'specialization': 'fury',
+                'actions': [
+                    action('execute_mainhand', 280849, root='execute', root_spell_id=5308),
+                    action('rampage1', 218617, root='rampage', root_spell_id=184367),
+                    action('rend_dot', 388539),
+                    action('already_localized', 999999, display_name='已有中文'),
+                ],
+            }],
+        }
+
+        localized = localize_skill_damage_payload(payload)
+        self.assertEqual(
+            [row['display_name'] for row in localized['actors'][0]['actions']],
+            ['斩杀', '暴怒', '撕裂', '已有中文'],
+        )
+
     def test_all_damage_text_scope_requires_player_positive_unrestricted_damage(self):
         accepted = (
             'Increases all damage you deal by 20%.',
