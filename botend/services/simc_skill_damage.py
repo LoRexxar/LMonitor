@@ -2874,17 +2874,34 @@ class SimcSkillDamageSnapshotService:
                     )
                 ):
                     raise ValueError('exporter base damage layers 结构或数值无效。')
-                expected_runtime_fields = set(_RUNTIME_LAYER_FIELDS[component_name])
+                numeric_runtime_fields = set(_RUNTIME_LAYER_FIELDS[component_name])
+                expected_runtime_fields = numeric_runtime_fields | {'specialization_passive_effects'}
                 runtime_layers = component.get('runtime_layers')
                 if (
                     not isinstance(runtime_layers, dict)
                     or set(runtime_layers) != expected_runtime_fields
                     or not all(
                         _finite_number(value) and value > 0
-                        for value in runtime_layers.values()
+                        for field, value in runtime_layers.items()
+                        if field in numeric_runtime_fields
                     )
                 ):
                     raise ValueError('exporter runtime layers 结构或数值无效。')
+                passive_effects = runtime_layers.get('specialization_passive_effects')
+                if not isinstance(passive_effects, list) or any(
+                    not isinstance(effect, dict)
+                    or set(effect) != {'effect_index', 'source_spell_id', 'source_name', 'factor'}
+                    or type(effect.get('effect_index')) is not int
+                    or effect['effect_index'] < 0
+                    or type(effect.get('source_spell_id')) is not int
+                    or effect['source_spell_id'] <= 0
+                    or not isinstance(effect.get('source_name'), str)
+                    or not effect['source_name'].strip()
+                    or not _finite_number(effect.get('factor'))
+                    or effect['factor'] <= 0
+                    for effect in passive_effects
+                ):
+                    raise ValueError('exporter specialization passive effects 结构或数值无效。')
                 equivalent_count = component.get('damage_equivalent_count')
                 if not _finite_number(equivalent_count) or equivalent_count <= 0:
                     raise ValueError('exporter damage equivalent count 无效。')

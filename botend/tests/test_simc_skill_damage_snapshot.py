@@ -2426,6 +2426,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             'versatility': 1.0,
             'pet_multiplier': 1.0,
             'target_pet_multiplier': 1.0,
+            'specialization_passive_effects': [],
         }
         payload = {
             'schema_version': 8,
@@ -2488,6 +2489,19 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             service._validate_export(payload)
         direct['runtime_layers']['da_multiplier'] = 1.0
 
+        direct['runtime_layers']['specialization_passive_effects'] = [{
+            'effect_index': 0,
+            'source_spell_id': 137050,
+            'source_name': 'Fury Warrior',
+            'factor': 1.22,
+        }]
+        service._validate_export(payload)
+
+        direct['runtime_layers']['specialization_passive_effects'][0]['factor'] = float('nan')
+        with self.assertRaisesRegex(ValueError, 'specialization passive effects'):
+            service._validate_export(payload)
+        direct['runtime_layers']['specialization_passive_effects'][0]['factor'] = 1.22
+
         direct['runtime_layers']['unexpected'] = 1.0
         with self.assertRaisesRegex(ValueError, 'runtime layers'):
             service._validate_export(payload)
@@ -2508,6 +2522,9 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                     'versatility': 1.0,
                     'pet_multiplier': 1.0,
                     'target_pet_multiplier': 1.0,
+                    'specialization_passive_effects': copy.deepcopy(
+                        direct['runtime_layers']['specialization_passive_effects']
+                    ),
                 },
             },
         }
@@ -2568,6 +2585,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                     'versatility': 1.0,
                     'pet_multiplier': 1.0,
                     'target_pet_multiplier': 1.0,
+                    'specialization_passive_effects': [],
                 },
             }, 'tick': None}
 
