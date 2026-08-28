@@ -6010,7 +6010,8 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             variant.scenario_tokens,
             talentName,
         );
-        const variantLabel = conditionLabel || (talentName === '基础技能' ? talentName : '-');
+        const fallbackTalentLabel = talentName.endsWith('天赋') ? talentName : `${talentName}天赋`;
+        const variantLabel = conditionLabel || (talentName === '基础技能' ? talentName : `点出${fallbackTalentLabel}`);
         const variantCell = `<div class="text-xs text-amber-800">${escapeHtml(variantLabel)}</div>`;
         const normalizedBase = product.normalized_base_damage;
         const finalDamage = product.final_normalized_damage;
