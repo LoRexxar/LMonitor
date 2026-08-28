@@ -27,6 +27,7 @@ GLOBAL_SKILL_EFFECT_EVIDENCE_PATCH = PATCH_DIR / "0024-global-skill-effect-evide
 ACTIVE_PLAYER_SKILL_PATCH = PATCH_DIR / "0025-active-player-skill-identity.patch"
 SPECIALIZATION_PASSIVE_PROVENANCE_PATCH = PATCH_DIR / "0026-specialization-passive-damage-provenance.patch"
 SELECTED_TRAIT_ACTION_PROVENANCE_PATCH = PATCH_DIR / "0027-selected-trait-action-provenance.patch"
+EQUIPMENT_ACTION_PROVENANCE_PATCH = PATCH_DIR / "0028-exclude-equipment-actions.patch"
 
 
 class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
@@ -55,6 +56,19 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         cls.active_player_skill_text = ACTIVE_PLAYER_SKILL_PATCH.read_text(encoding="utf-8")
         cls.specialization_passive_provenance_text = SPECIALIZATION_PASSIVE_PROVENANCE_PATCH.read_text(encoding="utf-8")
         cls.selected_trait_action_provenance_text = SELECTED_TRAIT_ACTION_PROVENANCE_PATCH.read_text(encoding="utf-8")
+        cls.equipment_action_provenance_text = EQUIPMENT_ACTION_PROVENANCE_PATCH.read_text(encoding="utf-8")
+
+    def test_equipment_actions_are_excluded_by_reporting_root_item_provenance(self):
+        text = self.equipment_action_provenance_text
+        self.assertIn("reporting_root->item", text)
+        self.assertIn('\\"schema_version\\\":10', text)
+        self.assertRegex(text, r"reporting_root->item[\s\S]*?continue")
+        added_lines = '\n'.join(
+            line[1:] for line in text.splitlines()
+            if line.startswith('+') and not line.startswith('+++')
+        )
+        for forbidden in ('venomfang', '1306635', 'warrior', 'fury'):
+            self.assertNotIn(forbidden, added_lines.lower())
 
     def test_selected_trait_action_provenance_is_exported_with_schema_nine(self):
         text = self.selected_trait_action_provenance_text

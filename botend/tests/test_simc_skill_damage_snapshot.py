@@ -819,11 +819,15 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertEqual(action['product']['formula_components'], [
             {
                 'base_damage': 100.0,
+                'base_source': 'attack_power',
+                'base_multiplier': 1.0,
                 'runtime_factors': [1.02, 1.30],
                 'final_damage': 132.6,
             },
             {
                 'base_damage': 50.0,
+                'base_source': 'attack_power',
+                'base_multiplier': 0.5,
                 'runtime_factors': [1.53],
                 'final_damage': 76.5,
             },
@@ -884,6 +888,8 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertEqual(action['product']['final_normalized_damage'], 105.0)
         self.assertEqual(action['product']['formula_components'], [{
             'base_damage': 100.0,
+            'base_source': 'attack_power',
+            'base_multiplier': 1.0,
             'runtime_factors': [1.05],
             'final_damage': 105.0,
         }])
@@ -2171,7 +2177,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         self.assertEqual({row.pk for row in rows}, {common.pk, slayer.pk, mountain_thane.pk})
 
-    def test_existing_schema_thirteen_snapshot_creates_new_schema_sixteen_identity(self):
+    def test_existing_schema_thirteen_snapshot_creates_new_schema_seventeen_identity(self):
         backend, _ = SimcBackendBinary.objects.update_or_create(
             identifier='production',
             defaults={
@@ -2195,7 +2201,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         service = SimcSkillDamageSnapshotService.create_for_current_backend()
 
         self.assertNotEqual(service.snapshot.pk, existing.pk)
-        self.assertEqual(service.snapshot.schema_revision, 16)
+        self.assertEqual(service.snapshot.schema_revision, 17)
         self.assertEqual(service.snapshot.status, SimcSkillDamageSnapshot.STATUS_PENDING)
         self.assertEqual(service.backend.pk, backend.pk)
 
@@ -2502,7 +2508,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             'specialization_passive_effects': [],
         }
         payload = {
-            'schema_version': 9,
+            'schema_version': 10,
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
@@ -2703,7 +2709,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             }
 
         payload = {
-            'schema_version': 9, 'simc_revision': 'c' * 40,
+            'schema_version': 10, 'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
             'actors': [{
@@ -2799,7 +2805,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         service = SimcSkillDamageSnapshotService(snapshot)
         payload = {
-            'schema_version': 9,
+            'schema_version': 10,
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
@@ -2850,7 +2856,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         service = SimcSkillDamageSnapshotService(snapshot)
         base = {
-            'schema_version': 9,
+            'schema_version': 10,
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
@@ -2866,7 +2872,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         service = SimcSkillDamageSnapshotService(snapshot)
         base = {
-            'schema_version': 9,
+            'schema_version': 10,
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
@@ -2901,7 +2907,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             },
         )
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=16,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=17,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{
                 'specialization': 'fury',
@@ -2930,9 +2936,9 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         self.user = get_user_model().objects.create_user(username='viewer', password='x')
         self.staff = get_user_model().objects.create_user(username='staff', password='x', is_staff=True)
 
-    def test_get_returns_frozen_schema_sixteen_product_without_reprojection(self):
+    def test_get_returns_frozen_schema_seventeen_product_without_reprojection(self):
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=16,
+            simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=17,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={
                 'payload_format': 'skill_damage_product_v1',
@@ -2974,7 +2980,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(body['data']['snapshot'])
-        self.assertIn('schema 16', body['data']['snapshot_unavailable_reason'])
+        self.assertIn('schema 17', body['data']['snapshot_unavailable_reason'])
 
     def test_get_localizes_skill_identity_and_left_cell_only_shows_name_and_spell_id(self):
         version = WowTalentVersion.objects.create(key='current', is_active=True)
@@ -3001,7 +3007,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
             name='Stale Action', name_zh='过期版本中文名', snapshot_build='12.1.0.69299',
         )
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=16,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=17,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload=localize_skill_damage_payload(project_skill_damage_product_payload({'actors': [{
                 'class': 'warrior', 'specialization': 'fury',
@@ -3098,8 +3104,13 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn('aria-sort="none"', template)
         self.assertIn("localeCompare(rightName, 'zh-CN'", renderer)
         self.assertIn('const formulaGroups = new Map()', renderer)
-        self.assertIn('group.baseDamage += baseDamage', renderer)
-        self.assertIn('formatSimcSkillDamageNumber(group.baseDamage)', renderer)
+        self.assertIn("attack_power: '基础AP'", renderer)
+        self.assertIn("spell_power: '基础SP'", renderer)
+        self.assertIn("attack_and_spell_power: '基础AP+SP'", renderer)
+        self.assertIn("fixed_damage: '基础伤害'", renderer)
+        self.assertIn('component.base_source', renderer)
+        self.assertIn('component.base_multiplier', renderer)
+        self.assertNotIn('formatSimcSkillDamageNumber(group.baseDamage)', renderer)
         self.assertIn(
             'const renderSimcTalentProbeCondition = (runtimeCondition, scenarioTokens, talentName)',
             renderer,

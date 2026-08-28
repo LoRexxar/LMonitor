@@ -27,6 +27,9 @@ from botend.services.simc_player_config import (
 from botend.wow.talents.metadata import TalentMetadataProvider
 
 
+_SKILL_DAMAGE_PRIMARY_STAT_BASE = 100.0
+
+
 def _text_key(value):
     return str(value or '').strip().casefold()
 
@@ -2446,6 +2449,19 @@ def project_skill_damage_product_payload(payload):
                     abs_tol=1e-9,
                 ):
                     formula_base = weighted_final / runtime_product
+                if ap_coeff and sp_coeff:
+                    formula_base_source = 'attack_and_spell_power'
+                elif ap_coeff:
+                    formula_base_source = 'attack_power'
+                elif sp_coeff:
+                    formula_base_source = 'spell_power'
+                else:
+                    formula_base_source = 'fixed_damage'
+                formula_base_multiplier = (
+                    formula_base / _SKILL_DAMAGE_PRIMARY_STAT_BASE
+                    if formula_base_source != 'fixed_damage'
+                    else 1.0
+                )
                 group['component_count'] += 1
                 group['components'].append({
                     'token': action.get('token'), 'spell_id': action.get('spell_id'),
@@ -2459,6 +2475,8 @@ def project_skill_damage_product_payload(payload):
                 group['product']['final_normalized_damage'] += weighted_final
                 group['product']['formula_components'].append({
                     'base_damage': formula_base,
+                    'base_source': formula_base_source,
+                    'base_multiplier': formula_base_multiplier,
                     'runtime_factors': runtime_factors,
                     'final_damage': weighted_final,
                 })
@@ -2501,12 +2519,12 @@ def project_skill_damage_product_payload(payload):
 class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
-    EXPORTER_SCHEMA_REVISION = 9
-    DATASET_SCHEMA_REVISION = 16
+    EXPORTER_SCHEMA_REVISION = 10
+    DATASET_SCHEMA_REVISION = 17
     TALENT_BATCH_SIZE = 12
     FIXED_PRESET = {
-        'attack_power': 100.0,
-        'spell_power': 100.0,
+        'attack_power': _SKILL_DAMAGE_PRIMARY_STAT_BASE,
+        'spell_power': _SKILL_DAMAGE_PRIMARY_STAT_BASE,
         'crit_percent': 20.0,
         'mastery_percent': 50.0,
     }
