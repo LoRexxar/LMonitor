@@ -3115,6 +3115,8 @@ class SimcSkillDamageDashboardContractTests(TestCase):
             renderer,
         )
         self.assertIn('`点出${talentLabel}`', renderer)
+        self.assertIn("scope === 'debuff' ? '目标' : '自身'", renderer)
+        self.assertIn('`${owner}存在 ${stateToken} 效果时`', renderer)
         self.assertIn("'血量低于35%'", renderer)
         self.assertNotIn('目标生命值低于 35%', renderer)
         self.assertNotIn('「${name}」', renderer)

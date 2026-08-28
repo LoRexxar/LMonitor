@@ -5823,6 +5823,14 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const parts = [];
         const talentLabel = name.endsWith('天赋') ? name : `${name}天赋`;
         if (tokens.length && name && name !== '基础技能') parts.push(`点出${talentLabel}`);
+        [...new Set(tokens.map(token => String(token || '').trim()).filter(Boolean))].forEach(token => {
+            const separatorIndex = token.indexOf('.');
+            const scope = separatorIndex >= 0 ? token.slice(0, separatorIndex) : '';
+            const stateToken = separatorIndex >= 0 ? token.slice(separatorIndex + 1) : token;
+            if (!stateToken) return;
+            const owner = scope === 'debuff' ? '目标' : '自身';
+            parts.push(`${owner}存在 ${stateToken} 效果时`);
+        });
         if (condition.includes('35%')) parts.push('血量低于35%');
         return parts.join('，');
     };
