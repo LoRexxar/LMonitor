@@ -6005,15 +6005,13 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const skillMeta = renderSimcSkillIdentity(action);
         const variant = action.variant && typeof action.variant === 'object' ? action.variant : {};
         const talentName = variant.talent_name_zh || variant.talent_name || '基础技能';
-        const treeLabel = variant.tree_type === 'hero'
-            ? `英雄天赋 · ${variant.hero_subtree_name_zh || variant.hero_subtree_name || ''}`
-            : ({class: '职业天赋', spec: '专精天赋'}[variant.tree_type] || '');
         const conditionLabel = renderSimcTalentProbeCondition(
             variant.runtime_condition,
             variant.scenario_tokens,
             talentName,
         );
-        const variantCell = `<div class="font-semibold text-stone-900">${escapeHtml(talentName)}</div>${treeLabel ? `<div class="text-xs text-stone-500">${escapeHtml(treeLabel)}</div>` : ''}${conditionLabel ? `<div class="mt-1 text-xs text-amber-800">${escapeHtml(conditionLabel)}</div>` : ''}`;
+        const variantLabel = conditionLabel || (talentName === '基础技能' ? talentName : '-');
+        const variantCell = `<div class="text-xs text-amber-800">${escapeHtml(variantLabel)}</div>`;
         const normalizedBase = product.normalized_base_damage;
         const finalDamage = product.final_normalized_damage;
         let baseDamageCell = '<span class="text-stone-500">DBC 未解析</span>';

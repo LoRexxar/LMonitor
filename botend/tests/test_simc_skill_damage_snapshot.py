@@ -3110,6 +3110,10 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertNotIn('「${name}」', renderer)
         self.assertNotIn('分量 ${index + 1}', renderer)
         self.assertNotIn('合并 ${action.component_count} 个施法分量', renderer)
+        self.assertIn("const variantLabel = conditionLabel || (talentName === '基础技能' ? talentName : '-')", renderer)
+        self.assertIn('${escapeHtml(variantLabel)}</div>`', renderer)
+        self.assertNotIn('const treeLabel =', renderer)
+        self.assertNotIn('${escapeHtml(talentName)}</div>${treeLabel', renderer)
 
         identity_renderer = script.split('function renderSimcSkillIdentity(action) {', 1)[1].split(
             'function renderSimcSkillDamageSnapshot(snapshot) {', 1,
