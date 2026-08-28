@@ -393,6 +393,78 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
              'hero_subtree_name_zh': '屠戮者'},
         )
 
+    def test_runtime_conditions_freeze_authoritative_chinese_spell_names_without_tokens(self):
+        for spell_id, name, name_zh in (
+            (1001, 'Executioner', '刽子手'),
+            (1002, 'Overwhelmed', '势不可挡'),
+        ):
+            WowSpellSnapshot.objects.create(
+                branch='wow', locale='zhCN', spell_id=spell_id,
+                name=name, name_zh=name_zh, snapshot_build='12.1.0.69497',
+            )
+
+        def amount(hit):
+            return {
+                'direct': {
+                    'hit': hit, 'crit': hit * 2, 'crit_multiplier': 2.0,
+                    'crit_chance': 0.2, 'expected': hit * 1.2,
+                },
+                'tick': None,
+            }
+
+        def action(hit, scenarios=()):
+            return {
+                'name': 'execute', 'token': 'execute', 'spell_id': 5308,
+                'supported': True, 'player_skill': True,
+                'reporting_root_token': 'execute', 'reporting_root_spell_id': 5308,
+                'reporting_root_component': True,
+                'baseline': amount(hit),
+                'scenarios': [
+                    {
+                        'active_buffs': [token],
+                        'buffs': [{'token': token, 'spell_id': spell_id, 'scope': scope}],
+                        'amount': amount(scenario_hit),
+                    }
+                    for token, spell_id, scope, scenario_hit in scenarios
+                ],
+            }
+
+        reference = {'actions': [action(100.0)]}
+        selected = {'actions': [action(100.0, (
+            ('buff.executioner', 1001, 'self', 120.0),
+            ('debuff.overwhelmed', 1002, 'target', 130.0),
+        ))]}
+        rows = flatten_single_talent_damage_variants(reference, reference, [{
+            'talent': {'id': 74900, 'name': "Slayer's Malice", 'name_zh': '屠戮者之怨'},
+            'reference_high': reference, 'reference_low': reference,
+            'high': selected, 'low': selected,
+        }])
+        localized = localize_skill_damage_payload({
+            'identity': {'game_build': '12.1.0.69497'},
+            'actors': [{'class': 'warrior', 'specialization': 'fury', 'actions': rows}],
+        })
+        variants = [
+            row['variant'] for row in localized['actors'][0]['actions']
+            if row['variant']['scenario_tokens']
+        ]
+
+        self.assertEqual(
+            [variant['runtime_condition'] for variant in variants],
+            [
+                '点出屠戮者之怨天赋，且自身存在刽子手效果时',
+                '点出屠戮者之怨天赋，且目标存在势不可挡效果时',
+            ],
+        )
+        self.assertEqual(
+            [variant['runtime_conditions'] for variant in variants],
+            [
+                [{'token': 'buff.executioner', 'spell_id': 1001,
+                  'scope': 'self', 'name_zh': '刽子手'}],
+                [{'token': 'debuff.overwhelmed', 'spell_id': 1002,
+                  'scope': 'target', 'name_zh': '势不可挡'}],
+            ],
+        )
+
     def test_flatten_preserves_component_changes_same_token_scenarios_and_each_health_condition(self):
         def amount(direct, tick):
             return {
@@ -2177,7 +2249,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         self.assertEqual({row.pk for row in rows}, {common.pk, slayer.pk, mountain_thane.pk})
 
-    def test_existing_schema_thirteen_snapshot_creates_new_schema_seventeen_identity(self):
+    def test_existing_schema_thirteen_snapshot_creates_new_schema_eighteen_identity(self):
         backend, _ = SimcBackendBinary.objects.update_or_create(
             identifier='production',
             defaults={
@@ -2201,7 +2273,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         service = SimcSkillDamageSnapshotService.create_for_current_backend()
 
         self.assertNotEqual(service.snapshot.pk, existing.pk)
-        self.assertEqual(service.snapshot.schema_revision, 17)
+        self.assertEqual(service.snapshot.schema_revision, 18)
         self.assertEqual(service.snapshot.status, SimcSkillDamageSnapshot.STATUS_PENDING)
         self.assertEqual(service.backend.pk, backend.pk)
 
@@ -2907,7 +2979,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             },
         )
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=17,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=18,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{
                 'specialization': 'fury',
@@ -2936,9 +3008,9 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         self.user = get_user_model().objects.create_user(username='viewer', password='x')
         self.staff = get_user_model().objects.create_user(username='staff', password='x', is_staff=True)
 
-    def test_get_returns_frozen_schema_seventeen_product_without_reprojection(self):
+    def test_get_returns_frozen_schema_eighteen_product_without_reprojection(self):
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=17,
+            simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=18,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={
                 'payload_format': 'skill_damage_product_v1',
@@ -2980,7 +3052,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(body['data']['snapshot'])
-        self.assertIn('schema 17', body['data']['snapshot_unavailable_reason'])
+        self.assertIn('schema 18', body['data']['snapshot_unavailable_reason'])
 
     def test_get_localizes_skill_identity_and_left_cell_only_shows_name_and_spell_id(self):
         version = WowTalentVersion.objects.create(key='current', is_active=True)
@@ -3007,7 +3079,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
             name='Stale Action', name_zh='过期版本中文名', snapshot_build='12.1.0.69299',
         )
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=17,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=18,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload=localize_skill_damage_payload(project_skill_damage_product_payload({'actors': [{
                 'class': 'warrior', 'specialization': 'fury',

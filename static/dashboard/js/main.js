@@ -5817,7 +5817,8 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         return `${prefix}${value.toFixed(2)}%`;
     };
     const renderSimcTalentProbeCondition = (runtimeCondition, scenarioTokens, talentName) => {
-        const condition = String(runtimeCondition || '');
+        const condition = String(runtimeCondition || '').trim();
+        if (condition && !condition.startsWith('启用 ')) return condition;
         const tokens = Array.isArray(scenarioTokens) ? scenarioTokens : [];
         const name = String(talentName || '').trim();
         const parts = [];

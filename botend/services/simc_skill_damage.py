@@ -107,6 +107,17 @@ def localize_skill_damage_payload(payload):
         for spell_id in (effect.get('source_spell_ids') or [])
         if isinstance(spell_id, int) and not isinstance(spell_id, bool) and spell_id > 0
     )
+    spell_ids.update(
+        condition.get('spell_id')
+        for actor in actors
+        for action in (actor.get('actions') or [])
+        if isinstance(action, dict)
+        for condition in ((action.get('variant') or {}).get('runtime_conditions') or [])
+        if isinstance(condition, dict)
+        and isinstance(condition.get('spell_id'), int)
+        and not isinstance(condition.get('spell_id'), bool)
+        and condition.get('spell_id') > 0
+    )
     tokens = set()
     for actor in actors:
         for action in actor.get('actions') or []:
@@ -199,6 +210,32 @@ def localize_skill_damage_payload(payload):
         for action in actor.get('actions') or []:
             if not isinstance(action, dict):
                 continue
+            variant = action.get('variant') or {}
+            runtime_conditions = variant.get('runtime_conditions') or []
+            localized_conditions = []
+            for runtime_condition in runtime_conditions:
+                if not isinstance(runtime_condition, dict):
+                    continue
+                localized_condition = copy.deepcopy(runtime_condition)
+                condition_spell_id = localized_condition.get('spell_id')
+                condition_name = spell_names.get(condition_spell_id, '')
+                localized_condition['name_zh'] = (
+                    condition_name if _contains_cjk(condition_name) else ''
+                )
+                localized_conditions.append(localized_condition)
+            if localized_conditions:
+                variant['runtime_conditions'] = localized_conditions
+                condition_parts = [str(variant.get('runtime_condition') or '').strip()]
+                condition_parts = [part for part in condition_parts if part]
+                for localized_condition in localized_conditions:
+                    owner = '目标' if localized_condition.get('scope') == 'target' else '自身'
+                    condition_spell_id = localized_condition.get('spell_id')
+                    effect_name = localized_condition.get('name_zh') or (
+                        f'未解析效果（Spell ID {condition_spell_id}）'
+                        if condition_spell_id else '未解析效果'
+                    )
+                    condition_parts.append(f'{owner}存在{effect_name}效果时')
+                variant['runtime_condition'] = '，且'.join(condition_parts)
             token = _text_key(action.get('token'))
             spell_id = action.get('spell_id')
             base_token, _hand = _action_hand_component_identity(action)
@@ -2063,6 +2100,9 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
             'trait_entry_id': talent.get('node_id'),
             'runtime_condition': condition,
             'scenario_tokens': list(scenario_tokens),
+            'runtime_conditions': _scenario_metadata(
+                {'actions': [action]}, scenario_tokens,
+            ) if scenario_tokens else [],
             'reference_available': reference_state[0] == 'resolved',
         }
         if reference_state[0] == 'absent':
@@ -2520,7 +2560,7 @@ class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
     EXPORTER_SCHEMA_REVISION = 10
-    DATASET_SCHEMA_REVISION = 17
+    DATASET_SCHEMA_REVISION = 18
     TALENT_BATCH_SIZE = 12
     FIXED_PRESET = {
         'attack_power': _SKILL_DAMAGE_PRIMARY_STAT_BASE,
