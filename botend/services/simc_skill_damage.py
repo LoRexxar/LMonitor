@@ -1148,10 +1148,10 @@ def _scenario_has_target_marginal_change(reference_actor, selected_actor, scenar
             if not all(set(layers) == set(layer_sets[0]) for layers in layer_sets):
                 return True
             for layer in layer_sets[0]:
-                ratio = _scenario_marginal_ratio(
-                    layer_sets[0][layer], layer_sets[1][layer],
-                    layer_sets[2][layer], layer_sets[3][layer],
-                )
+                values = tuple(layers.get(layer) for layers in layer_sets)
+                if not all(_finite_number(value) for value in values):
+                    continue
+                ratio = _scenario_marginal_ratio(*values)
                 if ratio is None or not math.isclose(
                     ratio, 1.0,
                     rel_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
@@ -2502,7 +2502,7 @@ class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
     EXPORTER_SCHEMA_REVISION = 9
-    DATASET_SCHEMA_REVISION = 15
+    DATASET_SCHEMA_REVISION = 16
     TALENT_BATCH_SIZE = 12
     FIXED_PRESET = {
         'attack_power': 100.0,
