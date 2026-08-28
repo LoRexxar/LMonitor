@@ -18,8 +18,8 @@ from botend.alerting import upsert_system_alert
 from botend.models import MonitorTask, MonitorWebhook
 from botend.monitor_env import filter_runnable_tasks
 from botend.plugin_sync import (
+    monitor_task_sort_key,
     portal_data_task_is_due,
-    portal_monitor_task_priority,
     sync_monitortasks_from_plugin_list,
 )
 from LMonitor.config import Monitor_Type_BaseObject_List
@@ -150,7 +150,7 @@ class LMonitorCore:
                 try:
                     tasks = sorted(
                         filter_runnable_tasks(MonitorTask.objects.filter(is_active=1)),
-                        key=lambda task: (portal_monitor_task_priority(task), task.last_scan_time),
+                        key=monitor_task_sort_key,
                     )
 
                     for task in tasks:

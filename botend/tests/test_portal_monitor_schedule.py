@@ -4,7 +4,12 @@ from zoneinfo import ZoneInfo
 
 from django.test import SimpleTestCase
 
-from botend.plugin_sync import monitor_default_wait_time, portal_data_task_is_due, portal_monitor_task_priority
+from botend.plugin_sync import (
+    monitor_default_wait_time,
+    monitor_task_sort_key,
+    portal_data_task_is_due,
+    portal_monitor_task_priority,
+)
 
 
 class PortalMonitorScheduleTests(SimpleTestCase):
@@ -39,6 +44,21 @@ class PortalMonitorScheduleTests(SimpleTestCase):
         self.assertLess(portal_monitor_task_priority(peak), portal_monitor_task_priority(player))
         self.assertLess(portal_monitor_task_priority(player), portal_monitor_task_priority(ranking))
         self.assertLess(portal_monitor_task_priority(ranking), portal_monitor_task_priority(aggregation))
+
+    def test_global_oldest_last_scan_time_wins_before_portal_priority(self):
+        shanghai = ZoneInfo('Asia/Shanghai')
+        stale_unrelated = self._task(
+            'wowheadMonitor',
+            datetime(1999, 12, 31, 16, 0, tzinfo=shanghai),
+        )
+        recent_peak = self._task(
+            'PortalPeakSpecRankMonitor',
+            datetime(2026, 8, 28, 10, 0, tzinfo=shanghai),
+        )
+
+        ordered = sorted([recent_peak, stale_unrelated], key=monitor_task_sort_key)
+
+        self.assertIs(ordered[0], stale_unrelated)
 
     def test_portal_data_task_missed_slot_runs_later_without_waiting_for_next_slot(self):
         shanghai = ZoneInfo('Asia/Shanghai')

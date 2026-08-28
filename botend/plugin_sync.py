@@ -46,6 +46,11 @@ def portal_monitor_task_priority(task):
     return PORTAL_MONITOR_TASK_PRIORITY.get(getattr(task, "name", ""), 100)
 
 
+def monitor_task_sort_key(task):
+    """Keep the global queue fair; priority only breaks equal-time ties."""
+    return task.last_scan_time, portal_monitor_task_priority(task)
+
+
 def portal_data_task_is_due(task, now=None):
     """Return whether a portal raw/aggregate task still owes the latest fixed slot."""
     if getattr(task, "name", "") not in PORTAL_DATA_SCHEDULED_TASKS:
