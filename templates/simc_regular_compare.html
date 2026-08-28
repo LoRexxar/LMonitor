@@ -4,192 +4,321 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="https://wow.lorexxar.cn/favicon.ico">
-    <title>常规模拟对比</title>
+    <title>多模拟对比</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        .loading {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #10b981;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
+        :root {
+            --page-bg: #eef1f5;
+            --surface: #ffffff;
+            --surface-muted: #f7f9fb;
+            --ink: #111827;
+            --muted: #526071;
+            --line: #dbe2ea;
+            --line-strong: #c7d0db;
+            --accent: #0f766e;
+            --accent-soft: #e7f6f3;
+            --early: #2563eb;
+            --late: #d97706;
+            --missing: #dc2626;
+            --same: #64748b;
+            --radius: 14px;
         }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        * { box-sizing: border-box; }
+        body { margin: 0; background: var(--page-bg); color: var(--ink); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+        button, input, select { font: inherit; }
+        button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid #0d9488; outline-offset: 2px; }
+        .loading { display: inline-block; width: 20px; height: 20px; border: 3px solid #d7dee7; border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .compare-page { width: min(1800px, 100%); margin: 0 auto; padding: 20px; }
+        .compare-appbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 14px; padding: 16px 18px; background: var(--surface); border-bottom: 1px solid var(--line); border-radius: var(--radius); }
+        .compare-title-wrap { display: flex; min-width: 0; align-items: center; gap: 12px; }
+        .compare-mark { display: grid; width: 34px; height: 34px; flex: 0 0 34px; place-items: center; border-radius: 9px; background: #111827; color: #fff; font-size: 12px; font-weight: 800; letter-spacing: -.02em; }
+        .compare-appbar h1 { margin: 0; font-size: 21px; line-height: 1.2; letter-spacing: -.02em; }
+        .compare-context { margin-top: 3px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+        .plain-button { display: inline-flex; min-height: 34px; align-items: center; justify-content: center; gap: 7px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 9px; background: #fff; color: #283548; font-size: 13px; font-weight: 650; cursor: pointer; transition: background-color .18s ease, border-color .18s ease, color .18s ease; }
+        .plain-button:hover { border-color: #9aa7b7; background: #f8fafc; }
+        .plain-button.is-active { border-color: var(--accent); background: var(--accent); color: #fff; }
+        .plain-button.compact { min-height: 30px; padding: 0 9px; font-size: 12px; }
+        .surface { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+        .surface-section { min-width: 0; padding: 18px; }
+        .compare-stack { display: grid; min-width: 0; gap: 14px; }
+        .compare-stack > * { min-width: 0; }
+        .section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+        .section-heading h2 { margin: 0; color: var(--ink); font-size: 17px; line-height: 1.3; letter-spacing: -.01em; }
+        .section-heading p { max-width: 76ch; margin: 5px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+        .summary-strip { display: grid; grid-template-columns: minmax(240px, 1.35fr) repeat(3, minmax(150px, .7fr)); min-height: 108px; overflow: hidden; }
+        .summary-primary, .summary-metric { padding: 18px 20px; }
+        .summary-primary { display: flex; flex-direction: column; justify-content: center; background: #f8fafc; border-right: 1px solid var(--line); }
+        .summary-primary h2 { margin: 0 0 7px; font-size: 18px; letter-spacing: -.015em; }
+        .summary-primary p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+        .summary-metric { display: flex; flex-direction: column; justify-content: center; border-right: 1px solid var(--line); }
+        .summary-metric:last-child { border-right: 0; }
+        .summary-label { color: var(--muted); font-size: 11px; }
+        .summary-value { margin-top: 6px; font-size: 18px; font-weight: 760; line-height: 1.25; font-variant-numeric: tabular-nums; }
+        .summary-note { margin-top: 4px; color: var(--muted); font-size: 11px; }
+        .summary-positive { color: #047857; }
+        .timeline-surface { width: 100%; min-width: 0; overflow: hidden; }
+        .timeline-head { width: 100%; min-width: 0; padding: 17px 18px 0; }
+        .timeline-toolbar { display: flex; width: 100%; min-width: 0; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 0 14px; }
+        .toolbar-group { display: inline-flex; align-items: center; gap: 6px; }
+        .toolbar-divider { width: 1px; height: 28px; margin: 0 2px; background: var(--line); }
+        .toolbar-label { color: var(--muted); font-size: 11px; font-weight: 650; }
+        .timeline-search { width: min(230px, 100%); min-height: 34px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 9px; color: var(--ink); font-size: 12px; }
+        .timeline-select { min-height: 34px; padding: 0 30px 0 9px; border: 1px solid var(--line-strong); border-radius: 9px; background: #fff; color: #283548; font-size: 12px; }
+        .timeline-zoom { width: 112px; accent-color: var(--accent); }
+        .timeline-result-filters { display: flex; min-width: 0; flex: 1 1 100%; flex-wrap: wrap; gap: 7px; padding-top: 3px; }
+        .result-filter { display: inline-flex; align-items: center; gap: 7px; min-height: 30px; padding: 0 9px; border: 1px solid var(--line); border-radius: 999px; background: #fff; color: #334155; font-size: 11px; cursor: pointer; }
+        .result-filter::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--task-color); }
+        .result-filter.is-muted { color: #8b97a6; text-decoration: line-through; background: #f8fafc; }
+        .result-filter[disabled] { cursor: default; text-decoration: none; opacity: 1; }
+        .timeline-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 10px 18px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--surface-muted); color: var(--muted); font-size: 11px; }
+        .legend-item { display: inline-flex; align-items: center; gap: 6px; }
+        .legend-swatch { width: 9px; height: 9px; border-radius: 3px; background: var(--legend-color); }
+        .legend-swatch.missing { background: transparent; border: 1.5px dashed var(--missing); }
+        .cast-timeline-workspace { display: grid; width: 100%; min-width: 0; max-width: 100%; grid-template-columns: 236px minmax(0, 1fr) 258px; min-height: 390px; overflow: hidden; background: #fff; }
+        .cast-lane-sidebar { border-right: 1px solid var(--line); background: #fbfcfd; }
+        .cast-sidebar-head, .cast-ruler { height: 46px; border-bottom: 1px solid var(--line); background: #f8fafc; }
+        .cast-sidebar-head { display: flex; align-items: center; justify-content: space-between; padding: 0 13px; color: var(--muted); font-size: 11px; font-weight: 700; }
+        .cast-lane-label { height: 78px; padding: 11px 13px; border-bottom: 1px solid var(--line); box-shadow: inset 3px 0 var(--task-color); }
+        .cast-lane-label.is-base { background: var(--accent-soft); }
+        .lane-name-row { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; }
+        .lane-name { overflow: hidden; color: #1f2937; font-size: 12px; font-weight: 760; text-overflow: ellipsis; white-space: nowrap; }
+        .lane-base { flex: 0 0 auto; color: var(--accent); font-size: 10px; font-weight: 750; }
+        .lane-stats { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-top: 7px; font-variant-numeric: tabular-nums; }
+        .lane-dps { font-size: 13px; font-weight: 720; }
+        .lane-delta { font-size: 11px; font-weight: 700; }
+        .lane-diff-note { margin-top: 4px; overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+        .cast-scroll { position: relative; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-color: #b9c3cf #edf1f5; }
+        .cast-canvas { position: relative; min-width: 100%; }
+        .cast-ruler { position: relative; z-index: 5; }
+        .cast-ruler-tick { position: absolute; bottom: 8px; transform: translateX(-50%); color: #58677a; font-size: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .cast-ruler-tick::after { content: ""; position: absolute; top: 19px; left: 50%; height: 6px; border-left: 1px solid #9eabb9; }
+        .cast-lane { position: relative; height: 78px; border-bottom: 1px solid var(--line); background: #fff; }
+        .cast-lane:nth-child(odd) { background: #fafbfd; }
+        .cast-lane.is-base { background: #f3fbf9; }
+        .cast-guide { position: absolute; z-index: 0; top: 46px; bottom: 0; border-left: 1px solid #e4e9ef; pointer-events: none; }
+        .cast-guide.is-major { border-left-color: #cdd5df; }
+        .cast-first-divergence { position: absolute; z-index: 3; top: 46px; bottom: 0; border-left: 1px dashed var(--missing); pointer-events: none; }
+        .cast-first-divergence span { position: absolute; top: 6px; left: 5px; padding: 2px 5px; border-radius: 5px; background: #fff1f2; color: #be123c; font-size: 9px; font-weight: 750; white-space: nowrap; }
+        .cast-playhead { position: absolute; z-index: 8; top: 46px; bottom: 0; display: none; border-left: 1px solid var(--accent); pointer-events: none; }
+        .cast-playhead::before { content: attr(data-time); position: absolute; top: -21px; left: 0; transform: translateX(-50%); padding: 2px 5px; border-radius: 5px; background: var(--accent); color: #fff; font-size: 9px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .cast-timeline-event { position: absolute; z-index: 2; display: grid; width: 32px; height: 32px; place-items: center; padding: 2px; transform: translateX(-50%); border: 2px solid #fff; border-radius: 7px; background: var(--task-color); box-shadow: 0 2px 6px rgba(15, 23, 42, .24); cursor: pointer; transition: transform .16s cubic-bezier(.22,1,.36,1), opacity .16s ease, filter .16s ease; }
+        .cast-timeline-event:hover, .cast-timeline-event:focus-visible, .cast-timeline-event.is-selected { z-index: 10; transform: translateX(-50%) scale(1.12); outline: 2px solid var(--task-color); outline-offset: 2px; }
+        .cast-timeline-event.is-related { z-index: 9; filter: saturate(1.25); outline: 2px solid #0f172a; outline-offset: 2px; }
+        .cast-timeline-event.is-dimmed { opacity: .22; filter: grayscale(.7); }
+        .cast-timeline-event img { display: block; width: 100%; height: 100%; border-radius: 4px; object-fit: cover; background: #263444; }
+        .cast-timeline-event-fallback { display: grid; width: 100%; height: 100%; place-items: center; border-radius: 4px; background: #334155; color: #fff; font-size: 11px; font-weight: 800; }
+        .cast-timeline-event[data-status="early"] { border-color: #bfdbfe; box-shadow: 0 0 0 2px var(--early); }
+        .cast-timeline-event[data-status="late"] { border-color: #fde68a; box-shadow: 0 0 0 2px var(--late); }
+        .cast-timeline-event[data-status="replacement"] { border-color: #fecaca; box-shadow: 0 0 0 2px var(--missing); }
+        .cast-timeline-event[data-status="missing"] { border: 2px dashed var(--missing); background: #fff; box-shadow: none; opacity: .82; }
+        .cast-event-delta { position: absolute; top: -13px; left: 50%; transform: translateX(-50%); padding: 1px 4px; border-radius: 4px; background: #fff; color: var(--status-color, var(--muted)); font-size: 8px; font-weight: 800; line-height: 11px; white-space: nowrap; }
+        .cast-inspector { min-width: 0; max-width: 100%; overflow: hidden; border-left: 1px solid var(--line); background: #fbfcfd; }
+        .cast-inspector-head { display: flex; height: 46px; align-items: center; padding: 0 14px; border-bottom: 1px solid var(--line); color: #334155; font-size: 11px; font-weight: 750; }
+        .cast-inspector-body { padding: 14px; }
+        .inspector-empty { color: var(--muted); font-size: 11px; line-height: 1.65; }
+        .inspector-skill { display: flex; align-items: center; gap: 10px; }
+        .inspector-icon { width: 38px; height: 38px; flex: 0 0 38px; border-radius: 8px; object-fit: cover; background: #334155; }
+        .inspector-title { font-size: 13px; font-weight: 780; }
+        .inspector-subtitle { margin-top: 3px; color: var(--muted); font-size: 10px; }
+        .inspector-status { display: inline-flex; margin-top: 8px; padding: 3px 6px; border-radius: 6px; background: #eef2f7; color: #334155; font-size: 10px; font-weight: 750; }
+        .inspector-grid { display: grid; grid-template-columns: 68px minmax(0, 1fr); gap: 7px 9px; margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 10px; line-height: 1.45; }
+        .inspector-grid dt { color: var(--muted); }
+        .inspector-grid dd { margin: 0; overflow-wrap: anywhere; color: #243244; }
+        .inspector-comparison { margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--line); }
+        .inspector-comparison h4 { margin: 0 0 7px; font-size: 10px; }
+        .inspector-compare-row { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto auto; gap: 7px; padding: 5px 0; border-bottom: 1px solid #edf0f4; color: #405064; font-size: 9px; font-variant-numeric: tabular-nums; }
+        .inspector-compare-row strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .results-grid { display: grid; min-width: 0; grid-template-columns: minmax(0, 1.15fr) minmax(320px, .85fr); gap: 14px; }
+        .results-grid > * { min-width: 0; }
+        .chart-container { position: relative; height: 260px; width: 100%; }
+        .data-table-wrap { max-width: 100%; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
+        .compare-table { width: 100%; min-width: 760px; border-collapse: separate; border-spacing: 0; color: #263548; font-size: 12px; }
+        .compare-table th { position: sticky; top: 0; z-index: 4; padding: 10px 12px; border-bottom: 1px solid var(--line-strong); background: #f5f7fa; color: #526071; font-size: 10px; font-weight: 750; text-align: left; white-space: nowrap; }
+        .compare-table td { padding: 11px 12px; border-bottom: 1px solid #e6ebf0; vertical-align: top; }
+        .compare-table tr:last-child td { border-bottom: 0; }
+        .compare-table tbody tr:hover td { background: #f8fafc; }
+        .task-identity { display: flex; align-items: flex-start; gap: 9px; min-width: 180px; }
+        .task-dot { width: 9px; height: 9px; flex: 0 0 9px; margin-top: 4px; border-radius: 50%; background: var(--task-color); }
+        .task-name { font-weight: 750; color: #1f2937; }
+        .task-meta { margin-top: 3px; color: var(--muted); font-size: 10px; }
+        .delta-positive { color: #047857; }
+        .delta-negative { color: #b91c1c; }
+        .rotation-summary { display: flex; flex-wrap: wrap; gap: 4px 8px; color: var(--muted); font-size: 10px; }
+        .rotation-summary strong { color: #334155; }
+        .matrix-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+        .matrix-search { min-height: 32px; width: min(250px, 100%); padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 8px; font-size: 11px; }
+        .matrix-table { min-width: max-content; }
+        .matrix-table th, .matrix-table td { min-width: 190px; }
+        .matrix-table th:first-child, .matrix-table td:first-child { position: sticky; left: 0; z-index: 3; min-width: 170px; max-width: 230px; background: #fff; }
+        .matrix-table th:first-child { z-index: 6; background: #f5f7fa; }
+        .matrix-table .baseline-column { position: sticky; left: 170px; z-index: 2; background: #f3fbf9; }
+        .matrix-table th.baseline-column { z-index: 5; background: #e7f6f3; }
+        .matrix-table tbody tr:hover .baseline-column { background: #edf9f6; }
+        .matrix-column-head { box-shadow: inset 0 3px var(--task-color); }
+        .config-difference-cell { background: #fffbeb; }
+        .matrix-value { color: #263548; line-height: 1.45; overflow-wrap: anywhere; }
+        .matrix-delta { display: inline-flex; margin-top: 5px; padding: 2px 5px; border-radius: 5px; background: #fff1f2; color: #be123c; font-size: 9px; font-weight: 750; }
+        .matrix-same { margin-top: 5px; color: #7a8796; font-size: 9px; }
+        .ability-cell { min-width: 180px; }
+        .ability-value-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+        .ability-percent { font-weight: 750; font-variant-numeric: tabular-nums; }
+        .ability-dps { color: var(--muted); font-size: 9px; font-variant-numeric: tabular-nums; }
+        .ability-bar-track { height: 4px; margin-top: 7px; overflow: hidden; border-radius: 999px; background: #e8edf2; }
+        .ability-bar { height: 100%; border-radius: inherit; background: var(--task-color); }
+        .ability-delta { margin-top: 5px; font-size: 9px; font-weight: 700; }
+        .is-row-hidden { display: none; }
+        .empty-state { padding: 34px 18px; color: var(--muted); font-size: 12px; text-align: center; }
+        @media (max-width: 1180px) {
+            .summary-strip { grid-template-columns: repeat(3, 1fr); }
+            .summary-primary { grid-column: 1 / -1; border-right: 0; border-bottom: 1px solid var(--line); }
+            .cast-timeline-workspace { grid-template-columns: 210px minmax(0, 1fr); }
+            .cast-inspector { grid-column: 1 / -1; border-top: 1px solid var(--line); border-left: 0; }
+            .cast-inspector-body { min-height: 118px; }
+            .results-grid { grid-template-columns: 1fr; }
         }
-        .chart-container {
-            position: relative;
-            height: 420px;
-            width: 100%;
+        @media (max-width: 720px) {
+            .compare-page { padding: 10px; }
+            .compare-appbar { align-items: flex-start; padding: 14px; }
+            .summary-strip { grid-template-columns: 1fr; }
+            .summary-primary, .summary-metric { border-right: 0; border-bottom: 1px solid var(--line); }
+            .summary-metric:last-child { border-bottom: 0; }
+            .surface-section, .timeline-head { padding: 14px; }
+            .cast-timeline-workspace { grid-template-columns: 168px minmax(0, 1fr); }
+            .cast-lane-label { padding-inline: 9px; }
+            .toolbar-divider { display: none; }
+            .timeline-search { flex: 1 1 100%; width: 100%; }
+            .matrix-table .baseline-column { left: 150px; }
+            .matrix-table th:first-child, .matrix-table td:first-child { min-width: 150px; max-width: 150px; }
         }
-        .config-difference-cell {
-            background: #fffbeb;
-            box-shadow: inset 3px 0 #f59e0b;
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
         }
-        .cast-timeline-viewport { height: 620px; overflow: auto; position: relative; border: 1px solid #d1d5db; border-radius: .75rem; background: #f8fafc; }
-        .cast-timeline-content { width: max-content; min-width: 100%; }
-        .cast-timeline-header { position: sticky; top: 0; z-index: 30; display: flex; width: max-content; min-width: 100%; box-shadow: 0 1px 0 rgba(148,163,184,.45); }
-        .cast-timeline-corner, .cast-timeline-task-title { min-height: 52px; background: rgba(255,255,255,.96); backdrop-filter: blur(8px); }
-        .cast-timeline-corner { position: sticky; left: 0; z-index: 40; flex: 0 0 76px; padding: .85rem .5rem; border-right: 1px solid #d1d5db; font-size: 11px; font-weight: 700; color: #475569; letter-spacing: .04em; }
-        .cast-timeline-task-title { flex: 0 0 220px; width: 220px; padding: .7rem .75rem; border-right: 1px solid #e2e8f0; font-size: 13px; font-weight: 700; color: #0f172a; overflow-wrap: anywhere; }
-        .cast-timeline-body { display: flex; position: relative; }
-        .cast-timeline-axis { position: sticky; left: 0; z-index: 20; flex: 0 0 76px; background: rgba(255,255,255,.96); border-right: 1px solid #d1d5db; }
-        .cast-timeline-lanes { display: flex; position: relative; width: max-content; }
-        .cast-timeline-lane { position: relative; flex: 0 0 220px; width: 220px; border-right: 1px solid #e2e8f0; background: rgba(255,255,255,.72); }
-        .cast-timeline-lane:nth-child(even) { background: rgba(248,250,252,.92); }
-        .cast-timeline-tick { position: absolute; right: 8px; transform: translateY(-50%); font-size: 11px; color: #64748b; white-space: nowrap; font-variant-numeric: tabular-nums; }
-        .cast-timeline-grid { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
-        .cast-timeline-guide { position: absolute; left: 0; right: 0; border-top: 1px solid rgba(203,213,225,.8); }
-        .cast-timeline-event { position: absolute; z-index: 2; width: 36px; height: 36px; padding: 3px; transform: translate(-50%, -50%); border: 2px solid #fff; border-radius: 8px; background: #0f766e; box-shadow: 0 2px 6px rgba(15,23,42,.24); cursor: pointer; transition: transform .12s ease, box-shadow .12s ease; }
-        .cast-timeline-event:hover, .cast-timeline-event:focus-visible { z-index: 5; transform: translate(-50%, -50%) scale(1.14); outline: 2px solid #0f766e; outline-offset: 2px; box-shadow: 0 5px 13px rgba(15,23,42,.3); }
-        .cast-timeline-event img { display: block; width: 100%; height: 100%; border-radius: 4px; object-fit: cover; background: #134e4a; }
-        .cast-timeline-event-fallback { display: grid; width: 100%; height: 100%; place-items: center; border-radius: 4px; background: #115e59; color: white; font-size: 13px; font-weight: 700; }
-        .cast-timeline-pointer { position: absolute; left: 0; right: 0; z-index: 8; display: none; border-top: 1px solid #f43f5e; pointer-events: none; }
-        .cast-timeline-pointer::before { content: attr(data-time); position: sticky; left: 4px; top: -11px; display: inline-block; padding: 1px 4px; border-radius: 3px; background: #f43f5e; color: white; font-size: 10px; line-height: 16px; font-variant-numeric: tabular-nums; }
-        .cast-timeline-popover { position: fixed; z-index: 100; display: none; width: min(340px, calc(100vw - 20px)); padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; box-shadow: 0 12px 30px rgba(15,23,42,.22); color: #1e293b; font-size: 12px; line-height: 1.45; pointer-events: none; }
-        .cast-timeline-popover-title { font-weight: 700; font-size: 13px; color: #0f172a; }
-        .cast-timeline-popover-time { margin-top: 2px; color: #64748b; font-variant-numeric: tabular-nums; }
-        .cast-timeline-popover-buffs { margin-top: 8px; padding-top: 8px; border-top: 1px solid #e2e8f0; white-space: pre-wrap; word-break: break-word; }
-        @media (max-width: 640px) { .cast-timeline-task-title, .cast-timeline-lane { flex-basis: 176px; width: 176px; } .cast-timeline-viewport { height: 520px; } }
-        @media (prefers-reduced-motion: reduce) { .cast-timeline-event { transition: none; } }
     </style>
 </head>
-<body class="bg-gray-100">
-    <div class="container mx-auto px-4 py-8">
-        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-            <div class="flex items-center justify-between">
+<body>
+    <main class="compare-page">
+        <header class="compare-appbar">
+            <div class="compare-title-wrap">
+                <span class="compare-mark" aria-hidden="true">SC</span>
                 <div>
-                    <h1 class="text-3xl font-bold text-gray-900 mb-2">
-                        <i class="fas fa-balance-scale text-emerald-600 mr-3"></i>
-                        常规模拟对比
-                    </h1>
-                    <p class="text-gray-600">任务ID: <span id="task-ids" class="font-semibold"></span></p>
-                </div>
-                <button onclick="window.close()" class="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors">
-                    <i class="fas fa-times mr-2"></i>关闭
-                </button>
-            </div>
-        </div>
-
-        <div id="loading-section" class="bg-white rounded-lg shadow-md p-8 text-center">
-            <div class="loading mx-auto mb-4"></div>
-            <p class="text-gray-600">正在加载对比数据...</p>
-        </div>
-
-        <div id="error-section" class="bg-red-50 border border-red-200 rounded-lg p-6 mb-6 hidden">
-            <div class="flex items-center">
-                <i class="fas fa-exclamation-triangle text-red-500 mr-3"></i>
-                <div>
-                    <h3 class="text-red-800 font-semibold">加载失败</h3>
-                    <p id="error-message" class="text-red-600 mt-1"></p>
+                    <h1>多模拟对比</h1>
+                    <div class="compare-context">当前对比：<span id="task-ids">—</span></div>
                 </div>
             </div>
-        </div>
+            <button type="button" onclick="window.close()" class="plain-button"><i class="fas fa-times" aria-hidden="true"></i>关闭</button>
+        </header>
 
-        <div id="compare-content" class="hidden space-y-6">
-            <div id="comparison-summary" class="bg-white rounded-lg shadow-md p-6"></div>
-            <div id="invalid-section" class="bg-yellow-50 border border-yellow-200 rounded-lg p-6 hidden">
-                <div class="flex items-center mb-3">
-                    <i class="fas fa-exclamation-circle text-yellow-600 mr-3"></i>
-                    <h3 class="text-yellow-800 font-semibold">部分任务无法参与对比</h3>
-                </div>
-                <ul id="invalid-list" class="list-disc list-inside text-yellow-800 space-y-1"></ul>
+        <section id="loading-section" class="surface empty-state">
+            <div class="loading" aria-hidden="true"></div>
+            <p>正在整理结果与施法序列…</p>
+        </section>
+
+        <section id="error-section" class="surface surface-section hidden" role="alert">
+            <div class="flex items-start gap-3 text-red-700">
+                <i class="fas fa-exclamation-triangle mt-1" aria-hidden="true"></i>
+                <div><h2 class="m-0 text-base font-semibold">加载失败</h2><p id="error-message" class="mb-0 mt-1 text-sm"></p></div>
             </div>
+        </section>
 
-            <div class="bg-white rounded-lg shadow-md p-6">
-                <h2 class="text-xl font-semibold text-gray-900 mb-4">
-                    <i class="fas fa-chart-line text-emerald-600 mr-2"></i>
-                    DPS对比（含差异）
-                </h2>
-                <div class="chart-container">
-                    <canvas id="dps-chart"></canvas>
-                </div>
-            </div>
+        <div id="compare-content" class="compare-stack hidden">
+            <section id="comparison-summary" class="surface summary-strip" aria-label="对比结论"></section>
 
-            <div class="bg-white rounded-lg shadow-md p-6">
-                <h2 class="text-xl font-semibold text-gray-900 mb-4">
-                    <i class="fas fa-table text-blue-500 mr-2"></i>
-                    任务详情
-                </h2>
-                <div class="overflow-x-auto">
-                    <table class="min-w-max w-full border border-gray-200 rounded-lg">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b whitespace-nowrap">排名</th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b whitespace-nowrap">任务ID</th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b whitespace-nowrap">任务名称</th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b whitespace-nowrap">DPS</th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b whitespace-nowrap">APL</th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b whitespace-nowrap">Profile</th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b whitespace-nowrap">场景</th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b whitespace-nowrap">DPS差异（相对基准）</th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b whitespace-nowrap">职业/专精</th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b whitespace-nowrap">天赋</th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b whitespace-nowrap">APL列表</th>
-                                <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b whitespace-nowrap">操作</th>
-                            </tr>
-                        </thead>
-                        <tbody id="task-compare-table" class="bg-white divide-y divide-gray-200"></tbody>
-                    </table>
+            <section id="invalid-section" class="surface surface-section hidden" role="status">
+                <div class="flex items-center gap-3 text-amber-800">
+                    <i class="fas fa-exclamation-circle" aria-hidden="true"></i>
+                    <h2 class="m-0 text-sm font-semibold">部分任务无法参与对比</h2>
                 </div>
-            </div>
+                <ul id="invalid-list" class="mb-0 mt-3 list-disc pl-5 text-sm text-amber-800"></ul>
+            </section>
 
-            <div class="bg-white rounded-lg shadow-md p-6">
-                <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
-                    <h2 class="text-xl font-semibold text-gray-900">
-                        <i class="fas fa-sliders-h text-amber-500 mr-2"></i>
-                        配置差异一览
-                    </h2>
-                    <span class="text-xs text-gray-500">琥珀色单元格表示相对基准任务的冻结输入不同</span>
-                </div>
-                <div class="overflow-x-auto">
-                    <table class="min-w-full border border-gray-200 rounded-lg">
-                        <thead class="bg-gray-50" id="config-compare-thead"></thead>
-                        <tbody class="bg-white divide-y divide-gray-200" id="config-compare-tbody"></tbody>
-                    </table>
-                </div>
-            </div>
-
-            <div class="bg-white rounded-lg shadow-md p-6">
-                <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
-                    <h2 class="text-xl font-semibold text-gray-900">
-                        <i class="fas fa-stream text-emerald-600 mr-2"></i>
-                        施法序列对比
-                    </h2>
-                    <div class="flex items-center gap-2 text-xs text-gray-600">
-                        <label for="cast-timeline-zoom" class="whitespace-nowrap">缩放</label>
-                        <input id="cast-timeline-zoom" type="range" min="4" max="32" value="16" step="1" class="w-28 accent-emerald-600" aria-label="施法时间轴缩放">
-                        <output id="cast-timeline-zoom-value" for="cast-timeline-zoom">16 像素/秒</output>
-                        <span id="cast-timeline-summary" class="text-gray-500"></span>
+            <section class="surface timeline-surface" aria-labelledby="timeline-title">
+                <div class="timeline-head">
+                    <div class="section-heading">
+                        <div>
+                            <h2 id="timeline-title">施法序列对比</h2>
+                            <p>所有结果共用横向时间轴；以基准序列匹配同名施法，直接标记提前、延后、缺失与替换。</p>
+                        </div>
+                        <span id="cast-timeline-summary" class="compare-context"></span>
+                    </div>
+                    <div class="timeline-toolbar" aria-label="时间轴工具栏">
+                        <div class="toolbar-group" role="group" aria-label="施法显示模式">
+                            <button type="button" class="plain-button compact is-active" data-timeline-mode="all">全部施法</button>
+                            <button type="button" class="plain-button compact" data-timeline-mode="diff">仅看差异</button>
+                        </div>
+                        <span class="toolbar-divider" aria-hidden="true"></span>
+                        <input id="cast-timeline-search" class="timeline-search" type="search" placeholder="搜索技能（中英文）" aria-label="搜索时间轴技能">
+                        <select id="cast-timeline-window" class="timeline-select" aria-label="时间窗口"><option value="all">全部时间</option></select>
+                        <span class="toolbar-divider" aria-hidden="true"></span>
+                        <div class="toolbar-group">
+                            <label class="toolbar-label" for="cast-timeline-zoom">缩放</label>
+                            <input id="cast-timeline-zoom" class="timeline-zoom" type="range" min="1" max="4" value="1" step="0.25" aria-label="施法时间轴缩放">
+                        <output id="cast-timeline-zoom-value" class="toolbar-label" for="cast-timeline-zoom">1×</output>
+                        </div>
+                        <button type="button" id="cast-timeline-reset" class="plain-button compact">重置视图</button>
+                        <div id="cast-timeline-result-filters" class="timeline-result-filters" aria-label="结果显示筛选"></div>
                     </div>
                 </div>
-                <p class="text-sm text-gray-600 mb-4">每列为一个任务；所有列共用同一条纵向时间轴。时间轴可独立滚动，左侧时间刻度和任务标题会保持可见；悬浮施法可查看目标、资源与 Buff 快照。</p>
+                <div class="timeline-legend" aria-label="时间轴图例">
+                    <span class="legend-item"><span class="legend-swatch" style="--legend-color:var(--same)"></span>相同</span>
+                    <span class="legend-item"><span class="legend-swatch" style="--legend-color:var(--early)"></span>提前</span>
+                    <span class="legend-item"><span class="legend-swatch" style="--legend-color:var(--late)"></span>延后</span>
+                    <span class="legend-item"><span class="legend-swatch missing"></span>缺失</span>
+                    <span class="legend-item"><span class="legend-swatch" style="--legend-color:var(--missing)"></span>替换 / 额外施法</span>
+                    <span class="legend-item">悬浮任意技能可跨结果高亮，点击后锁定详情</span>
+                </div>
                 <div id="cast-timeline"></div>
+            </section>
+
+            <div class="results-grid">
+                <section class="surface surface-section" aria-labelledby="result-overview-title">
+                    <div class="section-heading"><div><h2 id="result-overview-title">结果概览</h2><p>DPS、输入变化与施法差异使用同一结果颜色。</p></div></div>
+                    <div class="data-table-wrap">
+                        <table class="compare-table">
+                            <thead><tr><th>结果</th><th>DPS</th><th>相对基准</th><th>施法差异</th><th>操作</th></tr></thead>
+                            <tbody id="task-compare-table"></tbody>
+                        </table>
+                    </div>
+                </section>
+                <section class="surface surface-section" aria-labelledby="dps-chart-title">
+                    <div class="section-heading"><div><h2 id="dps-chart-title">DPS 排序</h2><p>横条长度表示绝对 DPS，标签显示相对基准变化。</p></div></div>
+                    <div class="chart-container"><canvas id="dps-chart"></canvas></div>
+                </section>
             </div>
 
-            <div class="bg-white rounded-lg shadow-md p-6">
-                <h2 class="text-xl font-semibold text-gray-900 mb-4">
-                    <i class="fas fa-bolt text-purple-500 mr-2"></i>
-                    技能DPS占比对比
-                </h2>
-                <div class="mb-3 flex items-center justify-between gap-3">
-                    <input id="ability-compare-search" type="text" class="px-3 py-2 border border-gray-300 rounded-md text-sm w-full max-w-sm" placeholder="搜索技能（中英文）">
-                    <span id="ability-compare-count" class="text-sm text-gray-500">0 项</span>
+            <section class="surface surface-section" aria-labelledby="config-title">
+                <div class="matrix-toolbar">
+                    <div class="section-heading mb-0"><div><h2 id="config-title">配置差异一览</h2><p>字段列与基准列固定；保留原始值，并明确标出与基准不同的结果。</p></div></div>
+                    <button type="button" id="config-differences-only" class="plain-button compact" aria-pressed="false">仅显示有差异</button>
                 </div>
-                <div class="overflow-x-auto">
-                    <table class="min-w-full border border-gray-200 rounded-lg">
-                        <thead class="bg-gray-50" id="abilities-compare-thead"></thead>
-                        <tbody class="bg-white divide-y divide-gray-200" id="abilities-compare-tbody"></tbody>
+                <div class="data-table-wrap">
+                    <table class="compare-table matrix-table">
+                        <thead id="config-compare-thead"></thead>
+                        <tbody id="config-compare-tbody"></tbody>
                     </table>
                 </div>
-            </div>
+            </section>
+
+            <section class="surface surface-section" aria-labelledby="ability-title">
+                <div class="matrix-toolbar">
+                    <div class="section-heading mb-0"><div><h2 id="ability-title">技能DPS占比对比</h2><p>每个单元格同时显示占比、DPS、相对基准百分点与统一尺度条。</p></div></div>
+                    <div class="toolbar-group">
+                        <input id="ability-compare-search" type="search" class="matrix-search" placeholder="搜索技能（中英文）">
+                        <button type="button" id="ability-differences-only" class="plain-button compact" aria-pressed="false">仅显示有差异</button>
+                        <span id="ability-compare-count" class="compare-context">0 项</span>
+                    </div>
+                </div>
+                <div class="data-table-wrap">
+                    <table class="compare-table matrix-table">
+                        <thead id="abilities-compare-thead"></thead>
+                        <tbody id="abilities-compare-tbody"></tbody>
+                    </table>
+                </div>
+            </section>
         </div>
-    </div>
+    </main>
 
     <div id="apl-modal" class="fixed inset-0 bg-black bg-opacity-60 z-50 hidden">
         <div class="flex items-center justify-center min-h-screen p-4">
@@ -222,6 +351,19 @@
     <script>
         let regularCompareTasks = [];
         let regularCompareTaskId = '';
+        let regularTimelineModel = null;
+        let dpsChartInstance = null;
+        const RESULT_COLORS = ['#0f766e', '#2563eb', '#d97706', '#7c3aed', '#16a34a', '#dc2626', '#0891b2', '#db2777'];
+        const castTimelineState = {
+            mode: 'all',
+            query: '',
+            window: 'all',
+            visibleTaskIds: new Set(),
+            selectedKey: '',
+            selectedTaskId: null,
+            selectedEventIndex: null,
+        };
+        const matrixState = { configDifferencesOnly: false, abilityDifferencesOnly: false };
         const aplModalState = {
             original: '',
             translated: '',
@@ -252,6 +394,124 @@
             return matched ? matched[1] : (name || '');
         }
 
+        function taskKey(task) {
+            return String(task && task.id !== undefined ? task.id : '');
+        }
+
+        function taskColor(task, index = 0) {
+            return task && task._compareColor ? task._compareColor : RESULT_COLORS[index % RESULT_COLORS.length];
+        }
+
+        function prepareTasks(tasks) {
+            const ordered = [...tasks].sort((left, right) => {
+                if (!!left.is_base !== !!right.is_base) return left.is_base ? -1 : 1;
+                return Number(right.dps || 0) - Number(left.dps || 0);
+            });
+            ordered.forEach((task, index) => { task._compareColor = RESULT_COLORS[index % RESULT_COLORS.length]; });
+            return ordered;
+        }
+
+        function formatSigned(value, digits = 2, suffix = '') {
+            const number = Number(value);
+            if (!Number.isFinite(number)) return '—';
+            return `${number > 0 ? '+' : ''}${number.toFixed(digits)}${suffix}`;
+        }
+
+        function timelineActionKey(row) {
+            const spellId = row && row.spell && row.spell.id;
+            if (spellId) return `spell:${spellId}`;
+            return String((row && (row.action_en || row.action || (row.spell && row.spell.name))) || '')
+                .trim().toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, '');
+        }
+
+        function timelineDisplayName(row, task) {
+            return (row && row.spell && row.spell.name)
+                || translateSkillName((row && (row.action || row.action_en)) || '', (task && task.action_localizations) || {})
+                || (row && (row.action_en || row.action))
+                || '未解析技能';
+        }
+
+        function timelineStatusLabel(status, delta) {
+            if (status === 'early') return `提前 ${Math.abs(Number(delta || 0)).toFixed(2)}s`;
+            if (status === 'late') return `延后 ${Math.abs(Number(delta || 0)).toFixed(2)}s`;
+            if (status === 'missing') return '基准有、当前缺失';
+            if (status === 'replacement') return '替换 / 额外施法';
+            if (status === 'base-difference') return '其他结果在此处有差异';
+            if (status === 'base') return '基准施法';
+            return '与基准一致';
+        }
+
+        function buildCastTimelineModel(tasks) {
+            const baselineTask = tasks.find(task => task.is_base) || tasks[0];
+            const sequences = new Map(tasks.map(task => [taskKey(task), (Array.isArray(task.sample_sequence) ? task.sample_sequence : [])
+                .filter(row => Number.isFinite(Number(row.time_seconds)))
+                .map((row, index) => ({ ...row, _eventIndex: index, _actionKey: timelineActionKey(row) }))]));
+            const baselineSequence = sequences.get(taskKey(baselineTask)) || [];
+            const baselineBuckets = new Map();
+            baselineSequence.forEach((row, index) => {
+                if (!baselineBuckets.has(row._actionKey)) baselineBuckets.set(row._actionKey, []);
+                baselineBuckets.get(row._actionKey).push(index);
+            });
+            const analyses = new Map();
+            const divergentBaselineIndices = new Set();
+            let firstDivergence = null;
+
+            tasks.forEach(task => {
+                const id = taskKey(task);
+                const sequence = sequences.get(id) || [];
+                if (task === baselineTask) {
+                    analyses.set(id, {
+                        events: sequence.map((row, index) => ({ row, index, status: 'base', delta: 0, baselineIndex: index })),
+                        missing: [], similarity: 100, firstDivergence: null,
+                        counts: { early: 0, late: 0, missing: 0, replacement: 0, same: sequence.length },
+                    });
+                    return;
+                }
+                const usedBaseline = new Set();
+                const events = sequence.map((row, index) => {
+                    const candidates = (baselineBuckets.get(row._actionKey) || [])
+                        .filter(baselineIndex => !usedBaseline.has(baselineIndex))
+                        .map(baselineIndex => ({ baselineIndex, delta: Number(row.time_seconds) - Number(baselineSequence[baselineIndex].time_seconds) }))
+                        .filter(match => Math.abs(match.delta) <= 4)
+                        .sort((left, right) => Math.abs(left.delta) - Math.abs(right.delta));
+                    const match = candidates[0];
+                    if (!match) return { row, index, status: 'replacement', delta: null, baselineIndex: null };
+                    usedBaseline.add(match.baselineIndex);
+                    const status = Math.abs(match.delta) <= .35 ? 'same' : (match.delta < 0 ? 'early' : 'late');
+                    return { row, index, status, delta: match.delta, baselineIndex: match.baselineIndex };
+                });
+                const missing = baselineSequence
+                    .map((row, index) => ({ row, index, status: 'missing', delta: null, baselineIndex: index }))
+                    .filter(item => !usedBaseline.has(item.index));
+                const counts = { early: 0, late: 0, missing: missing.length, replacement: 0, same: 0 };
+                events.forEach(item => { counts[item.status] = (counts[item.status] || 0) + 1; });
+                events.filter(item => item.status !== 'same').forEach(item => {
+                    if (item.baselineIndex !== null) divergentBaselineIndices.add(item.baselineIndex);
+                    const time = Number(item.row.time_seconds);
+                    if (firstDivergence === null || time < firstDivergence) firstDivergence = time;
+                });
+                missing.forEach(item => {
+                    divergentBaselineIndices.add(item.baselineIndex);
+                    const time = Number(item.row.time_seconds);
+                    if (firstDivergence === null || time < firstDivergence) firstDivergence = time;
+                });
+                const matchedCount = events.filter(item => item.status !== 'replacement').length;
+                const similarity = Math.round((matchedCount / Math.max(1, baselineSequence.length, sequence.length)) * 100);
+                const ownFirst = [...events.filter(item => item.status !== 'same'), ...missing]
+                    .map(item => Number(item.row.time_seconds)).filter(Number.isFinite).sort((a, b) => a - b)[0];
+                analyses.set(id, { events, missing, similarity, firstDivergence: Number.isFinite(ownFirst) ? ownFirst : null, counts });
+            });
+
+            const baselineAnalysis = analyses.get(taskKey(baselineTask));
+            if (baselineAnalysis) baselineAnalysis.events.forEach(item => {
+                if (divergentBaselineIndices.has(item.baselineIndex)) item.status = 'base-difference';
+            });
+            const allRows = Array.from(sequences.values()).flat();
+            const minTime = allRows.length ? Math.min(...allRows.map(row => Number(row.time_seconds))) : 0;
+            const maxTime = allRows.length ? Math.max(...allRows.map(row => Number(row.time_seconds))) : 0;
+            return { baselineTask, baselineSequence, sequences, analyses, minTime, maxTime, firstDivergence, divergentBaselineIndices };
+        }
+
         function showError(message) {
             document.getElementById('loading-section').classList.add('hidden');
             const errorSection = document.getElementById('error-section');
@@ -275,27 +535,25 @@
         }
 
         function renderDpsChart(tasks) {
-            const maxDps = Math.max(...tasks.map(t => t.dps || 0));
             const labels = tasks.map(t => `${t.name || '任务'}(#${t.id})`);
-            const values = tasks.map(t => t.dps || 0);
+            const values = tasks.map(t => Number(t.dps || 0));
             const ctx = document.getElementById('dps-chart').getContext('2d');
-            new Chart(ctx, {
-                type: 'line',
+            if (dpsChartInstance) dpsChartInstance.destroy();
+            dpsChartInstance = new Chart(ctx, {
+                type: 'bar',
                 data: {
                     labels: labels,
                     datasets: [{
                         label: 'DPS',
                         data: values,
-                        borderColor: 'rgba(5, 150, 105, 1)',
-                        backgroundColor: 'rgba(16, 185, 129, 0.15)',
-                        borderWidth: 3,
-                        pointRadius: 6,
-                        pointHoverRadius: 8,
-                        fill: true,
-                        tension: 0.35
+                        backgroundColor: tasks.map((task, index) => taskColor(task, index)),
+                        borderWidth: 0,
+                        borderRadius: 5,
+                        barThickness: 24,
                     }]
                 },
                 options: {
+                    indexAxis: 'y',
                     responsive: true,
                     maintainAspectRatio: false,
                     plugins: {
@@ -303,23 +561,16 @@
                         tooltip: {
                             callbacks: {
                                 label: function(context) {
-                                    const value = context.parsed.y || 0;
-                                    const deltaPercent = maxDps > 0 ? ((value / maxDps - 1) * 100) : 0;
-                                    const sign = deltaPercent >= 0 ? '+' : '';
-                                    return [`DPS: ${value.toLocaleString()}`, `差异: ${sign}${deltaPercent.toFixed(1)}%`];
+                                    const task = tasks[context.dataIndex];
+                                    const value = Number(task && task.dps || 0);
+                                    return [`DPS：${value.toLocaleString()}`, task && task.is_base ? '对比基准' : `相对基准：${formatSigned(task && task.delta_percent, 2, '%')}`];
                                 }
                             }
                         }
                     },
                     scales: {
-                        y: {
-                            beginAtZero: false,
-                            ticks: {
-                                callback: function(value) {
-                                    return value.toLocaleString();
-                                }
-                            }
-                        }
+                        x: { beginAtZero: true, grid: { color: '#e7ebf0' }, ticks: { color: '#637083', callback: value => Number(value).toLocaleString() } },
+                        y: { grid: { display: false }, ticks: { color: '#334155', font: { size: 11, weight: '600' } } },
                     }
                 }
             });
@@ -327,44 +578,23 @@
 
         function renderTaskTable(tasks) {
             const tbody = document.getElementById('task-compare-table');
-            const maxDps = Math.max(...tasks.map(t => t.dps || 0));
-            tbody.innerHTML = tasks.map(t => {
-                const classSpec = `${escapeHtml((t.character && t.character.class) || '')}${(t.character && t.character.spec) ? ' / ' + escapeHtml(t.character.spec) : ''}`;
-                const talents = escapeHtml((t.talents && t.talents.string) || '');
-                const aplName = escapeHtml(t.apl_name || '—');
-                const profileName = escapeHtml(t.profile_name || '—');
-                const battleScenario = escapeHtml(t.battle_scenario || '—');
+            tbody.innerHTML = tasks.map((t, index) => {
                 const viewUrl = `/dashboard/simc/tasks/${encodeURIComponent(t.id)}/`;
-                const dps = t.dps || 0;
-                const candidateLabel = escapeHtml((t.candidate_name || '').trim());
-                const taskTitle = candidateLabel ? `${escapeHtml(t.name || '')}<div class="text-xs text-violet-600 mt-1">${candidateLabel}${t.is_base_candidate ? '（基础）' : ''}</div>` : escapeHtml(t.name || '');
-                const deltaPercent = t.delta_percent;
-                const deltaSign = deltaPercent !== null && deltaPercent >= 0 ? '+' : '';
-                const deltaClass = deltaPercent === 0 ? 'text-green-700' : (deltaPercent < 0 ? 'text-red-700' : 'text-green-700');
+                const analysis = regularTimelineModel && regularTimelineModel.analyses.get(taskKey(t));
+                const counts = (analysis && analysis.counts) || { early: 0, late: 0, missing: 0, replacement: 0 };
+                const delta = Number(t.delta_percent);
+                const deltaClass = Number.isFinite(delta) && delta < 0 ? 'delta-negative' : 'delta-positive';
+                const encodedName = encodeURIComponent(t.name || '任务');
+                const encodedApl = encodeURIComponent(t.apl_list || '');
+                const encodedSpec = encodeURIComponent(t.spec || '');
+                const meta = [t.apl_name, t.profile_name, t.battle_scenario].filter(Boolean).map(escapeHtml).join(' · ') || `任务 #${escapeHtml(t.id)}`;
                 return `
-                    <tr class="hover:bg-gray-50">
-                        <td class="px-4 py-3 text-sm font-bold text-gray-900">${t.rank ? `#${t.rank}` : '-'}</td>
-                        <td class="px-4 py-3 text-sm text-gray-900">${t.id}</td>
-                        <td class="px-4 py-3 text-sm font-medium text-gray-900">${taskTitle}</td>
-                        <td class="px-4 py-3 text-sm text-gray-900">${dps.toLocaleString()}</td>
-                        <td class="px-4 py-3 text-sm text-gray-700" title="${aplName}">${aplName}</td>
-                        <td class="px-4 py-3 text-sm text-gray-700" title="${profileName}">${profileName}</td>
-                        <td class="px-4 py-3 text-sm text-gray-700" title="${battleScenario}">${battleScenario}</td>
-                        <td class="px-4 py-3 text-sm ${deltaClass}">
-                            ${deltaPercent === null || deltaPercent === undefined ? '-' : (t.is_base ? '基准' : `${deltaSign}${deltaPercent.toFixed(2)}% (${Number(t.delta_dps || 0) >= 0 ? '+' : ''}${Number(t.delta_dps || 0).toLocaleString()})`)}
-                        </td>
-                        <td class="px-4 py-3 text-sm text-gray-700">${classSpec || '-'}</td>
-                        <td class="px-4 py-3 text-sm text-gray-700 break-all">${talents || '-'}</td>
-                        <td class="px-4 py-3 text-sm text-gray-700">
-                            <button onclick="openAplModal('${escapeHtml(t.name || '')}', '${encodeURIComponent(t.apl_list || '')}', '${escapeHtml(t.spec || '')}')" class="px-3 py-1 bg-teal-600 text-white rounded hover:bg-teal-700 transition-colors duration-200 text-sm">
-                                <i class="fas fa-code mr-1"></i>查看APL
-                            </button>
-                        </td>
-                        <td class="px-4 py-3 text-center">
-                            <a href="${viewUrl}" target="_blank" class="px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors duration-200 text-sm">
-                                <i class="fas fa-file-alt mr-1"></i>查看结果
-                            </a>
-                        </td>
+                    <tr style="--task-color:${taskColor(t, index)}">
+                        <td><div class="task-identity"><span class="task-dot"></span><div><div class="task-name">${escapeHtml(t.name || '任务')}${t.is_base ? ' · 基准' : ''}</div><div class="task-meta">${meta}</div></div></div></td>
+                        <td class="font-semibold tabular-nums">${Number(t.dps || 0).toLocaleString()}</td>
+                        <td class="${deltaClass}">${t.is_base ? '基准' : `${formatSigned(t.delta_percent, 2, '%')}<div class="task-meta">${formatSigned(t.delta_dps, 0, ' DPS')}</div>`}</td>
+                        <td><div class="rotation-summary">${t.is_base ? '<strong>参考序列</strong>' : `<span>相似 <strong>${analysis ? analysis.similarity : 0}%</strong></span><span>早 <strong>${counts.early}</strong></span><span>晚 <strong>${counts.late}</strong></span><span>缺 <strong>${counts.missing}</strong></span><span>替 <strong>${counts.replacement}</strong></span>`}</div></td>
+                        <td class="whitespace-nowrap"><button type="button" class="plain-button compact" onclick="openAplModal(decodeURIComponent('${encodedName}'), '${encodedApl}', decodeURIComponent('${encodedSpec}'))">APL</button> <a href="${viewUrl}" target="_blank" rel="noopener" class="plain-button compact">结果</a></td>
                     </tr>
                 `;
             }).join('');
@@ -454,16 +684,24 @@
                 if (!labels.has(key)) keys.push(key);
                 labels.set(key, (fact && fact.label) || key);
             }));
-            thead.innerHTML = `<tr><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">配置</th>${tasks.map(task => `<th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b min-w-[13rem]">${escapeHtml(task.name || '任务')}(#${task.id})${task.is_base ? '（基准）' : ''}</th>`).join('')}</tr>`;
+            const baselineTask = tasks.find(task => task.is_base) || tasks[0];
+            thead.innerHTML = `<tr><th>配置字段</th>${tasks.map((task, index) => `<th class="matrix-column-head ${task === baselineTask ? 'baseline-column' : ''}" style="--task-color:${taskColor(task, index)}">${escapeHtml(task.name || '任务')}${task === baselineTask ? ' · 基准' : ''}</th>`).join('')}</tr>`;
             if (!keys.length) {
-                tbody.innerHTML = `<tr><td colspan="${tasks.length + 1}" class="px-4 py-6 text-center text-gray-500">未读取到冻结配置快照</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="${tasks.length + 1}" class="empty-state">未读取到冻结配置快照</td></tr>`;
                 return;
             }
-            tbody.innerHTML = keys.map(key => `<tr class="hover:bg-gray-50"><td class="px-4 py-3 text-sm font-medium text-gray-900 align-top">${escapeHtml(labels.get(key))}</td>${tasks.map(task => {
-                const fact = (task.config_facts || {})[key];
-                const changed = !!(fact && fact.is_different);
-                return `<td class="px-4 py-3 text-sm text-gray-700 break-all align-top ${changed ? 'config-difference-cell' : ''}">${escapeHtml((fact && fact.display) || '—')}</td>`;
-            }).join('')}</tr>`).join('');
+            tbody.innerHTML = keys.map(key => {
+                const baselineFact = (baselineTask.config_facts || {})[key];
+                const baselineDisplay = String((baselineFact && baselineFact.display) || '—');
+                const rowDifferent = tasks.some(task => String((((task.config_facts || {})[key] || {}).display) || '—') !== baselineDisplay);
+                return `<tr data-matrix-different="${rowDifferent ? '1' : '0'}"><td><strong>${escapeHtml(labels.get(key))}</strong></td>${tasks.map((task, index) => {
+                    const fact = (task.config_facts || {})[key];
+                    const display = String((fact && fact.display) || '—');
+                    const changed = task !== baselineTask && display !== baselineDisplay;
+                    return `<td class="${task === baselineTask ? 'baseline-column' : ''} ${changed ? 'config-difference-cell' : ''}" style="--task-color:${taskColor(task, index)}"><div class="matrix-value">${escapeHtml(display)}</div>${task === baselineTask ? '<div class="matrix-same">对比基准</div>' : (changed ? '<span class="matrix-delta">与基准不同</span>' : '<div class="matrix-same">与基准相同</div>')}</td>`;
+                }).join('')}</tr>`;
+            }).join('');
+            applyMatrixFilters();
         }
 
         function renderCastTimeline(tasks) {
@@ -471,104 +709,185 @@
             const summary = document.getElementById('cast-timeline-summary');
             const zoomInput = document.getElementById('cast-timeline-zoom');
             const zoomValue = document.getElementById('cast-timeline-zoom-value');
-            const pixelsPerSecond = Number(zoomInput && zoomInput.value) || 16;
-            if (zoomValue) zoomValue.textContent = `${pixelsPerSecond} 像素/秒`;
-            const sequences = tasks.map(task => (Array.isArray(task.sample_sequence) ? task.sample_sequence : [])
-                .filter(row => Number.isFinite(Number(row.time_seconds))));
-            const eventCount = sequences.reduce((total, sequence) => total + sequence.length, 0);
-            if (!eventCount) {
+            const windowSelect = document.getElementById('cast-timeline-window');
+            const filtersHost = document.getElementById('cast-timeline-result-filters');
+            const previousScroll = host.querySelector('.cast-scroll');
+            const previousViewportCenter = previousScroll && previousScroll.scrollWidth
+                ? (previousScroll.scrollLeft + previousScroll.clientWidth / 2) / previousScroll.scrollWidth
+                : 0;
+            const model = regularTimelineModel || buildCastTimelineModel(tasks);
+            regularTimelineModel = model;
+            const eventCount = Array.from(model.sequences.values()).reduce((total, sequence) => total + sequence.length, 0);
+            if (!eventCount || !model.baselineSequence.length) {
                 summary.textContent = '无可用施法序列';
-                host.innerHTML = '<div class="py-8 text-center text-gray-500">此批次结果未包含 Sample Sequence Table。</div>';
+                host.innerHTML = '<div class="empty-state">此批次结果未包含可对齐的 Sample Sequence Table。</div>';
                 return;
             }
-            const allEvents = sequences.flat();
-            const minTime = Math.min(...allEvents.map(row => Number(row.time_seconds)));
-            const maxTime = Math.max(...allEvents.map(row => Number(row.time_seconds)));
-            const duration = Math.max(1, maxTime - minTime);
-            const height = Math.max(540, Math.ceil(duration * pixelsPerSecond) + 56);
-            const desiredTick = Math.max(5, duration / 8);
-            const magnitude = Math.pow(10, Math.floor(Math.log10(desiredTick)));
-            const tickStep = Math.ceil(desiredTick / magnitude) * magnitude;
-            const tickStart = Math.floor(minTime / tickStep) * tickStep;
+            const zoomScale = Number(zoomInput && zoomInput.value) || 1;
+            const zoomLabel = Number.isInteger(zoomScale)
+                ? zoomScale.toFixed(0)
+                : zoomScale.toFixed(2).replace(/0$/, '');
+            if (zoomValue) zoomValue.textContent = `${zoomLabel}×`;
+
+            const windowSignature = `${Math.floor(model.minTime)}:${Math.ceil(model.maxTime)}`;
+            if (windowSelect.dataset.signature !== windowSignature) {
+                const options = ['<option value="all">全部时间</option>'];
+                const start = Math.min(0, Math.floor(model.minTime / 30) * 30);
+                for (let from = start; from < model.maxTime; from += 30) {
+                    const to = Math.min(from + 30, Math.ceil(model.maxTime));
+                    options.push(`<option value="${from}:${to}">${from.toFixed(0)}–${to.toFixed(0)} 秒</option>`);
+                }
+                windowSelect.innerHTML = options.join('');
+                windowSelect.dataset.signature = windowSignature;
+                if (![...windowSelect.options].some(option => option.value === castTimelineState.window)) castTimelineState.window = 'all';
+                windowSelect.value = castTimelineState.window;
+            }
+            let viewMin = model.minTime;
+            let viewMax = model.maxTime;
+            if (castTimelineState.window !== 'all') {
+                const [from, to] = castTimelineState.window.split(':').map(Number);
+                if (Number.isFinite(from) && Number.isFinite(to)) { viewMin = Math.max(model.minTime, from); viewMax = Math.min(model.maxTime, to); }
+            }
+            if (viewMax <= viewMin) viewMax = viewMin + 1;
+            const duration = Math.max(1, viewMax - viewMin);
+            const baseCanvasWidth = Math.max(960, Math.ceil(duration * 10) + 64);
+            const canvasWidth = Math.ceil(baseCanvasWidth * zoomScale);
+            const effectivePixelsPerSecond = (canvasWidth - 64) / duration;
+            const leftFor = time => 32 + ((Number(time) - viewMin) / duration) * (canvasWidth - 64);
+            const visibleTasks = tasks.filter(task => task.is_base || castTimelineState.visibleTaskIds.has(taskKey(task)));
+            const tickTarget = Math.max(6, Math.min(14, Math.floor(canvasWidth / 100)));
+            const rawStep = duration / tickTarget;
+            const steps = [1, 2, 5, 10, 15, 30, 60, 120];
+            const tickStep = steps.find(step => step >= rawStep) || Math.ceil(rawStep / 60) * 60;
+            const tickStart = Math.ceil(viewMin / tickStep) * tickStep;
             const ticks = [];
-            for (let time = tickStart; time <= maxTime + 0.001; time += tickStep) ticks.push(Math.round(time * 1000) / 1000);
-            const topFor = time => 28 + (Number(time || 0) - minTime) * pixelsPerSecond;
-            const displayName = (row, task) => (row.spell && row.spell.name) || translateSkillName(row.action, task.action_localizations);
-            const eventLabel = (row, task) => `${row.time_label || `${Number(row.time_seconds).toFixed(3)}s`}，${task.name || '任务'}，${displayName(row, task)}${row.buffs ? `，Buff：${row.buffs}` : ''}`;
-            const iconFor = (row, task) => {
-                const url = row.spell && row.spell.icon_url;
-                if (url) return `<img src="${escapeHtml(url)}" alt="">`;
-                return `<span class="cast-timeline-event-fallback" aria-hidden="true">${escapeHtml((displayName(row, task) || '?').slice(0, 1))}</span>`;
+            for (let time = tickStart; time <= viewMax + .001; time += tickStep) ticks.push(Math.round(time * 1000) / 1000);
+            const query = castTimelineState.query.trim().toLowerCase();
+            const matchesQuery = (row, task) => !query || `${timelineDisplayName(row, task)} ${row.action || ''} ${row.action_en || ''}`.toLowerCase().includes(query);
+            const registry = new Map();
+
+            filtersHost.innerHTML = tasks.map((task, index) => {
+                const visible = task.is_base || castTimelineState.visibleTaskIds.has(taskKey(task));
+                return `<button type="button" class="result-filter ${visible ? '' : 'is-muted'}" style="--task-color:${taskColor(task, index)}" data-timeline-task-toggle="${escapeHtml(taskKey(task))}" ${task.is_base ? 'disabled' : ''}>${escapeHtml(task.name || '任务')}${task.is_base ? ' · 基准' : ''}</button>`;
+            }).join('');
+
+            const laneLabel = (task, index) => {
+                const analysis = model.analyses.get(taskKey(task));
+                const counts = analysis && analysis.counts || {};
+                const delta = Number(task.delta_percent);
+                const deltaClass = Number.isFinite(delta) && delta < 0 ? 'delta-negative' : 'delta-positive';
+                return `<div class="cast-lane-label ${task.is_base ? 'is-base' : ''}" style="--task-color:${taskColor(task, index)}"><div class="lane-name-row"><span class="lane-name" title="${escapeHtml(task.name || '任务')}">${escapeHtml(task.name || '任务')}</span>${task.is_base ? '<span class="lane-base">基准</span>' : ''}</div><div class="lane-stats"><span class="lane-dps">${Number(task.dps || 0).toLocaleString()} DPS</span><span class="lane-delta ${deltaClass}">${task.is_base ? '—' : formatSigned(task.delta_percent, 2, '%')}</span></div><div class="lane-diff-note">${task.is_base ? '参考施法序列' : `相似 ${analysis ? analysis.similarity : 0}% · 早 ${counts.early || 0} · 晚 ${counts.late || 0} · 缺 ${counts.missing || 0} · 替 ${counts.replacement || 0}`}</div></div>`;
             };
-            const eventsForLane = (task, sequence, taskIndex) => {
-                const slots = new Map();
-                sequence.forEach(row => {
-                    const key = Number(row.time_seconds).toFixed(3);
-                    slots.set(key, [...(slots.get(key) || []), row]);
-                });
-                return sequence.map((row, eventIndex) => {
-                    const peers = slots.get(Number(row.time_seconds).toFixed(3));
-                    const slot = peers.indexOf(row);
-                    const x = ((slot + 1) / (peers.length + 1)) * 100;
-                    return `<button type="button" class="cast-timeline-event" data-task-index="${taskIndex}" data-event-index="${eventIndex}" style="top:${topFor(row.time_seconds)}px;left:${x}%" aria-label="${escapeHtml(eventLabel(row, task))}">${iconFor(row, task)}</button>`;
+
+            const laneEvents = (task, taskIndex) => {
+                const analysis = model.analyses.get(taskKey(task));
+                if (!analysis) return '';
+                let items = [...analysis.events, ...(task.is_base ? [] : analysis.missing)];
+                items = items.filter(item => {
+                    const time = Number(item.row.time_seconds);
+                    if (time < viewMin || time > viewMax) return false;
+                    if (!matchesQuery(item.row, task)) return false;
+                    if (castTimelineState.mode === 'diff' && (item.status === 'same' || item.status === 'base')) return false;
+                    return true;
+                }).sort((left, right) => Number(left.row.time_seconds) - Number(right.row.time_seconds));
+                const lastTimeBySlot = [-Infinity, -Infinity];
+                return items.map((item, renderIndex) => {
+                    const time = Number(item.row.time_seconds);
+                    const minGapSeconds = 38 / Math.max(5, effectivePixelsPerSecond);
+                    let slot = lastTimeBySlot.findIndex(lastTime => time - lastTime >= minGapSeconds);
+                    if (slot < 0) slot = renderIndex % 2;
+                    lastTimeBySlot[slot] = time;
+                    const top = slot === 0 ? 10 : 42;
+                    const status = item.status;
+                    const eventRef = `${taskKey(task)}:${status === 'missing' ? 'missing' : 'event'}:${item.index}`;
+                    registry.set(eventRef, { item, task, taskIndex });
+                    const name = timelineDisplayName(item.row, task);
+                    const url = item.row.spell && item.row.spell.icon_url;
+                    const icon = url ? `<img src="${escapeHtml(url)}" alt="">` : `<span class="cast-timeline-event-fallback" aria-hidden="true">${escapeHtml(name.slice(0, 1))}</span>`;
+                    const deltaLabel = castTimelineState.mode === 'diff'
+                        ? (status === 'early' ? `-${Math.abs(item.delta).toFixed(1)}s` : status === 'late' ? `+${Math.abs(item.delta).toFixed(1)}s` : status === 'missing' ? '缺失' : status === 'replacement' ? '替换' : '')
+                        : (status === 'missing' ? '缺失' : status === 'replacement' ? '替换' : '');
+                    const statusColor = status === 'early' ? 'var(--early)' : status === 'late' ? 'var(--late)' : 'var(--missing)';
+                    const selected = castTimelineState.selectedTaskId === taskKey(task) && castTimelineState.selectedEventIndex === eventRef;
+                    return `<button type="button" class="cast-timeline-event ${selected ? 'is-selected' : ''}" data-event-ref="${escapeHtml(eventRef)}" data-action-key="${escapeHtml(item.row._actionKey)}" data-status="${escapeHtml(status)}" style="--task-color:${taskColor(task, taskIndex)};--status-color:${statusColor};left:${leftFor(time)}px;top:${top}px" aria-label="${escapeHtml(`${name}，${timelineStatusLabel(status, item.delta)}，${time.toFixed(3)} 秒`)}">${deltaLabel ? `<span class="cast-event-delta">${deltaLabel}</span>` : ''}${icon}</button>`;
                 }).join('');
             };
-            summary.textContent = `${eventCount} 次施法 · ${minTime.toFixed(1)}–${maxTime.toFixed(1)} 秒`;
-            host.innerHTML = `<section class="cast-timeline-viewport" aria-label="施法时间轴"><div class="cast-timeline-content"><div class="cast-timeline-header"><div class="cast-timeline-corner">时间</div>${tasks.map(task => `<div class="cast-timeline-task-title">${escapeHtml(task.name || '任务')}(#${escapeHtml(task.id)})${task.is_base ? ' <span class="text-xs text-blue-600">基准</span>' : ''}</div>`).join('')}</div><div class="cast-timeline-body"><div class="cast-timeline-axis" style="height:${height}px">${ticks.map(time => `<span class="cast-timeline-tick" style="top:${topFor(time)}px">${time}s</span>`).join('')}</div><div class="cast-timeline-lanes" style="height:${height}px"><div class="cast-timeline-grid">${ticks.map(time => `<span class="cast-timeline-guide" style="top:${topFor(time)}px"></span>`).join('')}</div><div class="cast-timeline-pointer" aria-hidden="true"></div>${tasks.map((task, index) => `<section class="cast-timeline-lane" aria-label="${escapeHtml(task.name || '任务')}施法序列" style="height:${height}px">${eventsForLane(task, sequences[index], index)}</section>`).join('')}</div></div></div></section>`;
 
-            const viewport = host.querySelector('.cast-timeline-viewport');
-            const pointer = host.querySelector('.cast-timeline-pointer');
-            let animationFrame = 0;
-            let requestedY = null;
-            const updatePointer = () => {
-                animationFrame = 0;
-                if (requestedY === null) return;
-                const y = Math.max(0, Math.min(height, requestedY));
-                pointer.style.top = `${y}px`;
-                pointer.dataset.time = `${(minTime + (y - 28) / pixelsPerSecond).toFixed(3)}s`;
-                pointer.style.display = 'block';
-            };
-            viewport.addEventListener('pointermove', event => {
-                const body = event.target.closest('.cast-timeline-body');
-                if (!body) return;
-                const bodyRect = body.getBoundingClientRect();
-                requestedY = event.clientY - bodyRect.top;
-                if (!animationFrame) animationFrame = requestAnimationFrame(updatePointer);
-            });
-            viewport.addEventListener('pointerleave', () => { pointer.style.display = 'none'; requestedY = null; });
+            const firstDivergenceVisible = Number.isFinite(model.firstDivergence) && model.firstDivergence >= viewMin && model.firstDivergence <= viewMax;
+            const guideHtml = ticks.map((time, index) => `<span class="cast-guide ${index % 2 === 0 ? 'is-major' : ''}" style="left:${leftFor(time)}px"></span>`).join('');
+            summary.textContent = `${eventCount} 次施法 · ${model.minTime.toFixed(1)}–${model.maxTime.toFixed(1)} 秒${Number.isFinite(model.firstDivergence) ? ` · 首个分歧 ${model.firstDivergence.toFixed(2)}s` : ' · 序列一致'}`;
+            host.innerHTML = `<div class="cast-timeline-workspace"><div class="cast-lane-sidebar"><div class="cast-sidebar-head"><span>结果</span><span>DPS / 差值</span></div>${visibleTasks.map((task, index) => laneLabel(task, tasks.indexOf(task))).join('')}</div><div class="cast-scroll"><div class="cast-canvas" style="width:${canvasWidth}px"><div class="cast-ruler">${ticks.map(time => `<span class="cast-ruler-tick" style="left:${leftFor(time)}px">${time.toFixed(time % 1 ? 1 : 0)}s</span>`).join('')}</div>${guideHtml}${firstDivergenceVisible ? `<div class="cast-first-divergence" style="left:${leftFor(model.firstDivergence)}px"><span>首个分歧 ${model.firstDivergence.toFixed(2)}s</span></div>` : ''}<div class="cast-playhead" aria-hidden="true"></div>${visibleTasks.map(task => `<div class="cast-lane ${task.is_base ? 'is-base' : ''}" aria-label="${escapeHtml(task.name || '任务')}施法序列">${laneEvents(task, tasks.indexOf(task))}</div>`).join('')}</div></div><aside class="cast-inspector"><div class="cast-inspector-head">选中事件详情</div><div class="cast-inspector-body" id="cast-timeline-inspector"><p class="inspector-empty">悬浮技能可跨结果高亮同名施法；点击任意技能后，这里会锁定显示时间偏移、目标、资源、Buff 与各结果最近一次同名施法。</p></div></aside></div>`;
 
-            const popover = document.createElement('div');
-            popover.className = 'cast-timeline-popover';
-            popover.setAttribute('role', 'tooltip');
-            document.body.appendChild(popover);
-            const hidePopover = () => { popover.style.display = 'none'; };
-            const showPopover = (button, row, task) => {
-                popover.replaceChildren();
-                const title = document.createElement('div');
-                title.className = 'cast-timeline-popover-title';
-                title.textContent = displayName(row, task) || '未解析技能';
-                const time = document.createElement('div');
-                time.className = 'cast-timeline-popover-time';
-                time.textContent = `${row.time_label || `${Number(row.time_seconds).toFixed(3)}s`} · ${task.name || '任务'}`;
-                const buffs = document.createElement('div');
-                buffs.className = 'cast-timeline-popover-buffs';
-                buffs.textContent = row.buffs ? `此时 Buff 快照：\n${row.buffs}` : '此时无可用 Buff 快照';
-                popover.append(title, time, buffs);
-                const rect = button.getBoundingClientRect();
-                const width = Math.min(340, window.innerWidth - 20);
-                popover.style.left = `${Math.max(10, Math.min(window.innerWidth - width - 10, rect.right + 10))}px`;
-                popover.style.top = `${Math.max(10, Math.min(window.innerHeight - 150, rect.top - 8))}px`;
-                popover.style.display = 'block';
-            };
-            host.querySelectorAll('.cast-timeline-event').forEach(button => {
-                const task = tasks[Number(button.dataset.taskIndex)];
-                const row = sequences[Number(button.dataset.taskIndex)][Number(button.dataset.eventIndex)];
-                button.addEventListener('pointerenter', () => showPopover(button, row, task));
-                button.addEventListener('pointerleave', hidePopover);
-                button.addEventListener('focus', () => showPopover(button, row, task));
-                button.addEventListener('blur', hidePopover);
-                button.addEventListener('click', () => showPopover(button, row, task));
+            const scroll = host.querySelector('.cast-scroll');
+            if (previousScroll) {
+                scroll.scrollLeft = Math.max(0, previousViewportCenter * scroll.scrollWidth - scroll.clientWidth / 2);
+            }
+            const playhead = host.querySelector('.cast-playhead');
+            const inspector = host.querySelector('#cast-timeline-inspector');
+            const buttons = [...host.querySelectorAll('.cast-timeline-event')];
+            const applyHighlight = key => buttons.forEach(button => {
+                const related = !!key && button.dataset.actionKey === key;
+                button.classList.toggle('is-related', related);
+                button.classList.toggle('is-dimmed', !!key && !related);
             });
+            const renderInspector = selection => {
+                if (!selection) return;
+                const { item, task } = selection;
+                const row = item.row;
+                const actionKey = row._actionKey;
+                const baselineRow = item.baselineIndex !== null && item.baselineIndex !== undefined ? model.baselineSequence[item.baselineIndex] : null;
+                const referenceTime = Number((baselineRow || row).time_seconds);
+                const nearestRows = visibleTasks.map(resultTask => {
+                    const candidates = (model.sequences.get(taskKey(resultTask)) || []).filter(candidate => candidate._actionKey === actionKey);
+                    const nearest = candidates.sort((left, right) => Math.abs(Number(left.time_seconds) - referenceTime) - Math.abs(Number(right.time_seconds) - referenceTime))[0];
+                    return { task: resultTask, row: nearest, delta: nearest ? Number(nearest.time_seconds) - referenceTime : null };
+                });
+                const iconUrl = row.spell && row.spell.icon_url;
+                inspector.innerHTML = `<div class="inspector-skill">${iconUrl ? `<img class="inspector-icon" src="${escapeHtml(iconUrl)}" alt="">` : `<span class="inspector-icon cast-timeline-event-fallback">${escapeHtml(timelineDisplayName(row, task).slice(0, 1))}</span>`}<div><div class="inspector-title">${escapeHtml(timelineDisplayName(row, task))}</div><div class="inspector-subtitle">${escapeHtml(task.name || '任务')} · ${Number(row.time_seconds).toFixed(3)}s</div></div></div><span class="inspector-status">${escapeHtml(timelineStatusLabel(item.status, item.delta))}</span><dl class="inspector-grid"><dt>动作列表</dt><dd>${escapeHtml(row.action_list || '—')}</dd><dt>目标</dt><dd>${escapeHtml(row.target || '—')}</dd><dt>资源</dt><dd>${escapeHtml(row.resources || '—')}</dd><dt>Buff</dt><dd>${escapeHtml(row.buffs || '—')}</dd></dl><div class="inspector-comparison"><h4>各结果最近一次同名施法</h4>${nearestRows.map(candidate => `<div class="inspector-compare-row"><strong>${escapeHtml(candidate.task.name || '任务')}</strong><span>${candidate.row ? `${Number(candidate.row.time_seconds).toFixed(3)}s` : '缺失'}</span><span class="${candidate.delta !== null && candidate.delta < 0 ? 'delta-positive' : candidate.delta > 0 ? 'delta-negative' : ''}">${candidate.delta === null ? '—' : candidate.task.is_base ? '基准' : formatSigned(candidate.delta, 2, 's')}</span></div>`).join('')}</div>`;
+                playhead.style.left = `${leftFor(Number(row.time_seconds))}px`;
+                playhead.dataset.time = `${Number(row.time_seconds).toFixed(3)}s`;
+                playhead.style.display = 'block';
+            };
+
+            buttons.forEach(button => {
+                const selection = registry.get(button.dataset.eventRef);
+                button.addEventListener('pointerenter', () => applyHighlight(button.dataset.actionKey));
+                button.addEventListener('pointerleave', () => applyHighlight(castTimelineState.selectedKey));
+                button.addEventListener('focus', () => applyHighlight(button.dataset.actionKey));
+                button.addEventListener('blur', () => applyHighlight(castTimelineState.selectedKey));
+                button.addEventListener('click', () => {
+                    castTimelineState.selectedKey = button.dataset.actionKey;
+                    castTimelineState.selectedTaskId = taskKey(selection.task);
+                    castTimelineState.selectedEventIndex = button.dataset.eventRef;
+                    buttons.forEach(candidate => candidate.classList.toggle('is-selected', candidate === button));
+                    applyHighlight(castTimelineState.selectedKey);
+                    renderInspector(selection);
+                });
+            });
+            if (castTimelineState.selectedEventIndex && registry.has(castTimelineState.selectedEventIndex)) {
+                applyHighlight(castTimelineState.selectedKey);
+                renderInspector(registry.get(castTimelineState.selectedEventIndex));
+            }
+            let pointerFrame = 0;
+            scroll.addEventListener('pointermove', event => {
+                if (event.target.closest('.cast-timeline-event')) return;
+                if (pointerFrame) cancelAnimationFrame(pointerFrame);
+                pointerFrame = requestAnimationFrame(() => {
+                    const rect = host.querySelector('.cast-canvas').getBoundingClientRect();
+                    const x = Math.max(32, Math.min(canvasWidth - 32, event.clientX - rect.left));
+                    const time = viewMin + ((x - 32) / Math.max(1, canvasWidth - 64)) * duration;
+                    playhead.style.left = `${x}px`;
+                    playhead.dataset.time = `${time.toFixed(3)}s`;
+                    playhead.style.display = 'block';
+                });
+            });
+            filtersHost.querySelectorAll('[data-timeline-task-toggle]').forEach(button => button.addEventListener('click', () => {
+                const id = button.dataset.timelineTaskToggle;
+                if (castTimelineState.visibleTaskIds.has(id)) castTimelineState.visibleTaskIds.delete(id); else castTimelineState.visibleTaskIds.add(id);
+                castTimelineState.selectedKey = '';
+                castTimelineState.selectedEventIndex = null;
+                renderCastTimeline(tasks);
+            }));
         }
 
         function renderAbilityCompare(tasks) {
@@ -587,28 +906,23 @@
             const abilityNames = Array.from(names);
             if (abilityNames.length === 0) {
                 thead.innerHTML = '';
-                tbody.innerHTML = `<tr><td class="px-4 py-6 text-center text-gray-500" colspan="${tasks.length + 1}">未解析到技能占比数据</td></tr>`;
+                tbody.innerHTML = `<tr><td class="empty-state" colspan="${tasks.length + 1}">未解析到技能占比数据</td></tr>`;
                 if (countEl) countEl.textContent = '0 项';
                 return;
             }
 
             const baselineTask = tasks.find(t => t.is_base) || tasks[0];
-            const baselineTaskId = baselineTask ? baselineTask.id : null;
+            const baselineTaskId = baselineTask ? taskKey(baselineTask) : null;
 
             function parsePercent(text) {
-                if (!text || typeof text !== 'string') return null;
-                const m = text.match(/([\d.]+)/);
+                if (text === null || text === undefined) return null;
+                const m = String(text).match(/(-?[\d.]+)/);
                 if (!m) return null;
                 const v = parseFloat(m[1]);
                 return Number.isFinite(v) ? v : null;
             }
 
-            thead.innerHTML = `
-                <tr>
-                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">技能</th>
-                    ${tasks.map(t => `<th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">${escapeHtml(t.name || '')}(#${t.id})${baselineTaskId === t.id ? '（基准）' : ''}</th>`).join('')}
-                </tr>
-            `;
+            thead.innerHTML = `<tr><th>技能</th>${tasks.map((task, index) => `<th class="matrix-column-head ${task === baselineTask ? 'baseline-column' : ''}" style="--task-color:${taskColor(task, index)}">${escapeHtml(task.name || '任务')}${task === baselineTask ? ' · 基准' : ''}</th>`).join('')}</tr>`;
 
             const abilityMap = new Map();
             tasks.forEach(t => {
@@ -620,7 +934,7 @@
                         percent: a.dps_percent || '',
                     });
                 });
-                abilityMap.set(t.id, m);
+                abilityMap.set(taskKey(t), m);
             });
 
             const baselineMap = baselineTaskId ? abilityMap.get(baselineTaskId) : null;
@@ -628,9 +942,9 @@
             const filteredAbilityNames = abilityNames
                 .filter(name => !keyword || String(name || '').toLowerCase().includes(keyword))
                 .sort((a, b) => {
-                    const av = parsePercent(baselineMap ? (baselineMap.get(a)?.percent || '') : '') || -1;
-                    const bv = parsePercent(baselineMap ? (baselineMap.get(b)?.percent || '') : '') || -1;
-                    return bv - av;
+                    const left = parsePercent(baselineMap ? (baselineMap.get(a)?.percent || '') : '') ?? -1;
+                    const right = parsePercent(baselineMap ? (baselineMap.get(b)?.percent || '') : '') ?? -1;
+                    return right - left;
                 });
 
             if (countEl) countEl.textContent = `${filteredAbilityNames.length} 项`;
@@ -639,35 +953,34 @@
                 const baselineAbility = baselineMap ? baselineMap.get(name) : null;
                 const baselineText = baselineAbility?.percent || '';
                 const baselineValue = parsePercent(baselineText);
-                const cols = tasks.map(t => {
-                    const m = abilityMap.get(t.id);
+                const values = tasks.map(task => parsePercent((abilityMap.get(taskKey(task))?.get(name) || {}).percent));
+                const maxValue = Math.max(1, ...values.filter(Number.isFinite));
+                const rowDifferent = values.some(value => baselineValue !== null && value !== null && Math.abs(value - baselineValue) >= .05) || values.some(value => value === null) !== values.every(value => value === null);
+                const cols = tasks.map((t, index) => {
+                    const m = abilityMap.get(taskKey(t));
                     const ability = m ? m.get(name) : null;
                     const valueText = ability?.percent || '';
                     const valueNumber = parsePercent(valueText);
                     if (!valueText) {
-                        return `<td class="px-4 py-3 text-sm text-gray-700">-</td>`;
+                        return `<td class="ability-cell ${t === baselineTask ? 'baseline-column' : ''}" style="--task-color:${taskColor(t, index)}"><div class="matrix-value">—</div>${t === baselineTask ? '' : '<span class="matrix-delta">此结果无该技能</span>'}</td>`;
                     }
                     const dpsText = ability?.dps ? `${Number(ability.dps).toLocaleString()} DPS` : '';
-                    if (!baselineTaskId || baselineTaskId === t.id || baselineValue === null || valueNumber === null) {
-                        return `<td class="px-4 py-3 text-sm text-gray-700"><div>${escapeHtml(valueText)}</div><div class="text-xs text-gray-500">${escapeHtml(dpsText)}</div></td>`;
-                    }
-
-                    const delta = valueNumber - baselineValue;
-                    const deltaSign = delta >= 0 ? '+' : '';
-                    const deltaClass = delta >= 0 ? 'text-green-700' : 'text-red-700';
-                    return `<td class="px-4 py-3 text-sm text-gray-700">
-                        <div>${escapeHtml(valueText)}</div>
-                        <div class="text-xs text-gray-500">${escapeHtml(dpsText)}</div>
-                        <div class="text-xs ${deltaClass}">${deltaSign}${delta.toFixed(1)} 个百分点</div>
-                    </td>`;
+                    const delta = baselineValue !== null && valueNumber !== null ? valueNumber - baselineValue : null;
+                    const deltaClass = delta !== null && delta < 0 ? 'delta-negative' : 'delta-positive';
+                    return `<td class="ability-cell ${t === baselineTask ? 'baseline-column' : ''}" style="--task-color:${taskColor(t, index)}"><div class="ability-value-row"><span class="ability-percent">${escapeHtml(valueText)}</span><span class="ability-dps">${escapeHtml(dpsText)}</span></div><div class="ability-bar-track"><div class="ability-bar" style="width:${Math.max(2, (Number(valueNumber || 0) / maxValue) * 100).toFixed(1)}%"></div></div><div class="ability-delta ${deltaClass}">${t === baselineTask ? '对比基准' : delta === null ? '无法计算差值' : `${formatSigned(delta, 2)} 个百分点`}</div></td>`;
                 }).join('');
-                return `
-                    <tr class="hover:bg-gray-50">
-                        <td class="px-4 py-3 text-sm font-medium text-gray-900">${escapeHtml(name)}</td>
-                        ${cols}
-                    </tr>
-                `;
+                return `<tr data-ability-different="${rowDifferent ? '1' : '0'}"><td><strong>${escapeHtml(name)}</strong></td>${cols}</tr>`;
             }).join('');
+            applyMatrixFilters();
+        }
+
+        function applyMatrixFilters() {
+            document.querySelectorAll('#config-compare-tbody tr[data-matrix-different]').forEach(row => {
+                row.classList.toggle('is-row-hidden', matrixState.configDifferencesOnly && row.dataset.matrixDifferent !== '1');
+            });
+            document.querySelectorAll('#abilities-compare-tbody tr[data-ability-different]').forEach(row => {
+                row.classList.toggle('is-row-hidden', matrixState.abilityDifferencesOnly && row.dataset.abilityDifferent !== '1');
+            });
         }
 
         async function loadCompare() {
@@ -697,27 +1010,30 @@
                     return;
                 }
 
-                const tasks = (data.data && data.data.runs) || [];
+                const rawTasks = (data.data && data.data.runs) || [];
                 const invalid = (data.data && data.data.invalid) || [];
                 const comparison = (data.data && data.data.comparison) || {};
                 regularCompareTaskId = taskIds || taskId;
 
-                if (!tasks || tasks.length < 2) {
+                if (!rawTasks || rawTasks.length < 2) {
                     showError('可用于对比的任务不足2个');
                     return;
                 }
 
-                tasks.sort((a, b) => (b.dps || 0) - (a.dps || 0));
+                const tasks = prepareTasks(rawTasks);
                 regularCompareTasks = tasks;
+                regularTimelineModel = buildCastTimelineModel(tasks);
+                castTimelineState.visibleTaskIds = new Set(tasks.map(taskKey));
                 const baseline = comparison.baseline || {};
                 const winner = comparison.winner || {};
+                const baselineTask = regularTimelineModel.baselineTask;
+                const winnerTask = tasks.reduce((best, task) => Number(task.dps || 0) > Number(best.dps || 0) ? task : best, tasks[0]);
+                const firstDivergence = regularTimelineModel.firstDivergence;
                 document.getElementById('comparison-summary').innerHTML = `
-                    <h2 class="text-xl font-semibold text-gray-900 mb-3"><i class="fas fa-trophy text-yellow-500 mr-2"></i>对比结论</h2>
-                    <div class="grid md:grid-cols-3 gap-4 text-sm">
-                        <div><span class="text-gray-500">样本数</span><div class="text-2xl font-bold">${tasks.length}</div></div>
-                        <div><span class="text-gray-500">基准样本</span><div class="font-semibold">${escapeHtml(baseline.label || '-')} · ${Number(baseline.dps || 0).toLocaleString()} DPS</div></div>
-                        <div><span class="text-gray-500">最优样本</span><div class="font-semibold text-green-700">${escapeHtml(winner.label || '-')} · ${Number(winner.dps || 0).toLocaleString()} DPS</div><div class="text-xs text-green-700">相对基准 ${Number(winner.delta_percent || 0) >= 0 ? '+' : ''}${Number(winner.delta_percent || 0).toFixed(2)}%</div></div>
-                    </div>`;
+                    <div class="summary-primary"><h2>${winnerTask === baselineTask ? '基准结果仍为最优' : `${escapeHtml(winnerTask.name || winner.label || '候选结果')} 当前领先`}</h2><p>${Number.isFinite(firstDivergence) ? `施法序列在 ${firstDivergence.toFixed(2)} 秒首次出现可识别分歧；时间轴已按基准自动匹配同名施法。` : '当前可解析施法在时间容差内保持一致；仍可继续核对资源与 Buff 快照。'}</p></div>
+                    <div class="summary-metric"><span class="summary-label">参与结果</span><strong class="summary-value">${tasks.length}</strong><span class="summary-note">基准固定在首列与首轨</span></div>
+                    <div class="summary-metric"><span class="summary-label">基准 DPS</span><strong class="summary-value">${Number(baselineTask.dps || baseline.dps || 0).toLocaleString()}</strong><span class="summary-note">${escapeHtml(baselineTask.name || baseline.label || '基准')}</span></div>
+                    <div class="summary-metric"><span class="summary-label">最优结果</span><strong class="summary-value summary-positive">${Number(winnerTask.dps || winner.dps || 0).toLocaleString()}</strong><span class="summary-note summary-positive">${winnerTask.is_base ? '与基准一致' : `相对基准 ${formatSigned(winnerTask.delta_percent ?? winner.delta_percent, 2, '%')}`}</span></div>`;
                 renderInvalid(invalid);
                 renderDpsChart(tasks);
                 renderTaskTable(tasks);
@@ -728,7 +1044,8 @@
                 document.getElementById('loading-section').classList.add('hidden');
                 document.getElementById('compare-content').classList.remove('hidden');
             } catch (e) {
-                showError('加载失败');
+                console.error('SimC compare load failed', e);
+                showError(e && e.message ? `加载失败：${e.message}` : '加载失败');
             }
         }
 
@@ -749,6 +1066,30 @@
             document.querySelectorAll('.apl-language-button').forEach(button => {
                 button.addEventListener('click', () => switchAplModalLanguage(button.dataset.aplLanguage));
             });
+            document.addEventListener('keydown', event => {
+                if (event.key === 'Escape' && !modal.classList.contains('hidden')) closeAplModal();
+            });
+            document.querySelectorAll('[data-timeline-mode]').forEach(button => button.addEventListener('click', () => {
+                castTimelineState.mode = button.dataset.timelineMode;
+                document.querySelectorAll('[data-timeline-mode]').forEach(candidate => candidate.classList.toggle('is-active', candidate === button));
+                if (regularCompareTasks.length) renderCastTimeline(regularCompareTasks);
+            }));
+            let timelineSearchTimer = 0;
+            const timelineSearch = document.getElementById('cast-timeline-search');
+            if (timelineSearch) timelineSearch.addEventListener('input', () => {
+                window.clearTimeout(timelineSearchTimer);
+                timelineSearchTimer = window.setTimeout(() => {
+                    castTimelineState.query = timelineSearch.value || '';
+                    if (regularCompareTasks.length) renderCastTimeline(regularCompareTasks);
+                }, 120);
+            });
+            const timelineWindow = document.getElementById('cast-timeline-window');
+            if (timelineWindow) timelineWindow.addEventListener('change', () => {
+                castTimelineState.window = timelineWindow.value || 'all';
+                castTimelineState.selectedKey = '';
+                castTimelineState.selectedEventIndex = null;
+                if (regularCompareTasks.length) renderCastTimeline(regularCompareTasks);
+            });
             const timelineZoom = document.getElementById('cast-timeline-zoom');
             if (timelineZoom) {
                 timelineZoom.addEventListener('input', () => {
@@ -757,6 +1098,35 @@
                     }
                 });
             }
+            const timelineReset = document.getElementById('cast-timeline-reset');
+            if (timelineReset) timelineReset.addEventListener('click', () => {
+                castTimelineState.mode = 'all';
+                castTimelineState.query = '';
+                castTimelineState.window = 'all';
+                castTimelineState.selectedKey = '';
+                castTimelineState.selectedTaskId = null;
+                castTimelineState.selectedEventIndex = null;
+                castTimelineState.visibleTaskIds = new Set(regularCompareTasks.map(taskKey));
+                timelineSearch.value = '';
+                timelineWindow.value = 'all';
+                timelineZoom.value = '1';
+                document.querySelectorAll('[data-timeline-mode]').forEach(button => button.classList.toggle('is-active', button.dataset.timelineMode === 'all'));
+                if (regularCompareTasks.length) renderCastTimeline(regularCompareTasks);
+            });
+            const configDifferences = document.getElementById('config-differences-only');
+            if (configDifferences) configDifferences.addEventListener('click', () => {
+                matrixState.configDifferencesOnly = !matrixState.configDifferencesOnly;
+                configDifferences.classList.toggle('is-active', matrixState.configDifferencesOnly);
+                configDifferences.setAttribute('aria-pressed', String(matrixState.configDifferencesOnly));
+                applyMatrixFilters();
+            });
+            const abilityDifferences = document.getElementById('ability-differences-only');
+            if (abilityDifferences) abilityDifferences.addEventListener('click', () => {
+                matrixState.abilityDifferencesOnly = !matrixState.abilityDifferencesOnly;
+                abilityDifferences.classList.toggle('is-active', matrixState.abilityDifferencesOnly);
+                abilityDifferences.setAttribute('aria-pressed', String(matrixState.abilityDifferencesOnly));
+                applyMatrixFilters();
+            });
             const abilitySearch = document.getElementById('ability-compare-search');
             if (abilitySearch) {
                 abilitySearch.addEventListener('input', () => {
