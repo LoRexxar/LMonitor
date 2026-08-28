@@ -244,8 +244,8 @@ def serialize_catalog():
                 'is_featured': route.is_featured,
                 'is_active': route.is_active,
                 'updated_at': (
-                    route.updated_at.isoformat()
-                    if route.updated_at
+                    route.display_updated_on.isoformat()
+                    if route.display_updated_on
                     else None
                 ),
             }

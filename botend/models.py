@@ -2942,6 +2942,7 @@ class MythicDungeonDefaultRoute(models.Model):
     name = models.CharField(max_length=160)
     description = models.TextField(default='', blank=True)
     applicable_level = models.CharField(max_length=80, default='', blank=True)
+    display_updated_on = models.DateField(default=timezone.localdate)
     dungeon_level = models.PositiveIntegerField(default=10)
     route_data = models.JSONField(default=dict, blank=True)
     order = models.PositiveIntegerField(default=0)

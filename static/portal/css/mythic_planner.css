@@ -968,7 +968,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .mdt-route-library { display: grid; gap: 5px; }
 .mdt-library-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(100px, auto); gap: 10px; align-items: center; padding: 9px; border: 1px solid var(--mdt-border-soft); background: #0c1218; }
 .mdt-library-row-default {
-    grid-template-columns: minmax(190px, 1.2fr) minmax(92px, .65fr) 132px minmax(118px, .8fr) auto;
+    grid-template-columns: minmax(150px, .85fr) minmax(78px, .42fr) 118px minmax(165px, 1.25fr) auto;
     gap: 8px;
     padding: 8px 9px;
 }

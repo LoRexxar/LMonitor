@@ -1,8 +1,8 @@
 {% extends 'dashboard/index.html' %}
 {% load static %}
 {% block dashboard_extra_head %}
-<link rel="stylesheet" href="{% static 'dashboard/css/mythic_planner.css' %}?v=20260828_recommended_route_fields">
-<script src="{% static 'dashboard/js/mythic_planner.js' %}?v=20260828_4" defer></script>
+<link rel="stylesheet" href="{% static 'dashboard/css/mythic_planner.css' %}?v=20260828_route_updated_on">
+<script src="{% static 'dashboard/js/mythic_planner.js' %}?v=20260828_6" defer></script>
 {% endblock %}
 {% block dashboard_content %}
 {% include 'dashboard/_mythic_planner_config_content.html' %}
@@ -15,7 +15,7 @@
     <link rel="icon" href="/favicon.ico">
     <title>大秘境规划器管理 · LMonitor</title>
     {% load static %}
-    <link rel="stylesheet" href="{% static 'dashboard/css/mythic_planner.css' %}?v=20260828_recommended_route_fields">
+    <link rel="stylesheet" href="{% static 'dashboard/css/mythic_planner.css' %}?v=20260828_route_updated_on">
 </head>
 <body>
     <header class="mp-admin-header">
@@ -156,6 +156,6 @@
     </div>
 
     <div id="admin-toast" class="mp-admin-toast" role="status" hidden></div>
-    <script src="{% static 'dashboard/js/mythic_planner.js' %}?v=20260828_4" defer></script>
+    <script src="{% static 'dashboard/js/mythic_planner.js' %}?v=20260828_6" defer></script>
 </body>
 </html>

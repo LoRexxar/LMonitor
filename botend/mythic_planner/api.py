@@ -1,5 +1,6 @@
 import hashlib
 import json
+from datetime import date
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -51,6 +52,7 @@ from botend.mythic_planner.importer import import_mythic_dungeon_payload
 
 SHORT_LINK_RATE_LIMIT = 30
 SHORT_LINK_RATE_WINDOW_SECONDS = 60 * 60
+DEFAULT_ROUTE_APPLICABLE_LEVELS = ('顶层', '中高层', '割草', '集合石平推')
 
 
 def success(data=None, **extra):
@@ -411,6 +413,7 @@ def _management_default_route(row):
         'name': row.name,
         'description': row.description,
         'applicable_level': row.applicable_level,
+        'display_updated_on': _iso(row.display_updated_on),
         'dungeon_level': row.dungeon_level,
         'route_data': route_data,
         'route_code': encode_share_code(route_data),
@@ -785,12 +788,14 @@ RESOURCE_SPECS = {
     'default_routes': {
         'model': MythicDungeonDefaultRoute,
         'fields': {
-            'dungeon_id', 'name', 'description', 'applicable_level', 'dungeon_level',
-            'route_data', 'order', 'is_featured', 'is_active',
+            'dungeon_id', 'name', 'description', 'applicable_level',
+            'display_updated_on', 'dungeon_level', 'route_data', 'order',
+            'is_featured', 'is_active',
         },
         'json': {'route_data'},
         'bool': {'is_featured', 'is_active'},
         'int': {'dungeon_id', 'dungeon_level', 'order'},
+        'date': {'display_updated_on'},
     },
     'versions': {
         'model': MythicDungeonDataVersion,
@@ -936,6 +941,11 @@ def _coerce_resource_data(spec, data):
             value = int(value)
         if field in spec.get('float', set()) and value not in (None, ''):
             value = float(value)
+        if field in spec.get('date', set()) and value not in (None, ''):
+            try:
+                value = date.fromisoformat(str(value))
+            except ValueError as exc:
+                raise ValueError(f'字段 {field} 必须是 YYYY-MM-DD 日期。') from exc
         if value == '' and field in {'external_index', 'map_id', 'npc_id'}:
             value = None
         clean[field] = value
@@ -1235,6 +1245,12 @@ class DashboardMythicPlannerAPIView(View):
                     ) or '').strip()
                     if not applicable_level:
                         raise ValueError('适用层数不能为空。')
+                    if applicable_level not in DEFAULT_ROUTE_APPLICABLE_LEVELS:
+                        raise ValueError(
+                            '适用层数必须选择：'
+                            + '、'.join(DEFAULT_ROUTE_APPLICABLE_LEVELS)
+                            + '。'
+                        )
                     dungeon_level = int(clean.get(
                         'dungeon_level',
                         raw_route_data.get(

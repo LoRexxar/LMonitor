@@ -619,7 +619,9 @@
 .mp-admin-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; padding: 20px; overflow-y: auto; }
 .mp-admin-form-grid label, .mp-admin-import-body label { display: grid; gap: 6px; color: #4f6076; font-size: 11px; }
 .mp-admin-form-grid label.is-wide { grid-column: 1 / -1; }
+.mp-admin-form-grid > label:not(.mp-admin-checkbox) > span:first-child { display: flex; min-height: 16px; align-items: center; }
 .mp-admin-form-grid input, .mp-admin-form-grid select, .mp-admin-form-grid textarea, .mp-admin-import-body textarea {
+    box-sizing: border-box;
     width: 100%;
     min-height: 39px;
     padding: 8px 10px;
@@ -632,7 +634,7 @@
 .mp-admin-form-grid textarea { min-height: 105px; resize: vertical; font-family: Consolas, monospace; font-size: 11px; }
 .mp-admin-form-grid input:focus, .mp-admin-form-grid select:focus, .mp-admin-form-grid textarea:focus, .mp-admin-import-body textarea:focus { border-color: var(--admin-blue); box-shadow: 0 0 0 3px #2563eb18; }
 .mp-admin-form-grid input[readonly] { background: #f3f6f9; color: #6b7a8d; cursor: not-allowed; }
-.mp-admin-checkbox { display: flex !important; min-height: 39px; flex-direction: row; align-items: center; gap: 8px !important; padding: 7px 10px; border: 1px solid #d8e0e9; border-radius: 7px; background: #f9fbfd; }
+.mp-admin-checkbox { align-self: end; display: flex !important; height: 39px; min-height: 39px; flex-direction: row; align-items: center; gap: 8px !important; padding: 7px 10px; border: 1px solid #d8e0e9; border-radius: 7px; background: #f9fbfd; }
 .mp-admin-checkbox input { width: 16px; min-height: 16px; accent-color: var(--admin-blue); }
 .mp-admin-dialog form > footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 13px 20px; border-top: 1px solid var(--admin-border); background: #fafbfd; }
 .mp-admin-dialog form > footer button { padding: 8px 14px; border: 1px solid #cbd5e1; border-radius: 7px; background: #fff; color: #3b4b61; cursor: pointer; }

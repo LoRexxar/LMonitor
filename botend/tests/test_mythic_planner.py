@@ -4,6 +4,7 @@ import json
 import re
 import zlib
 import tempfile
+from datetime import date
 from pathlib import Path
 from unittest import mock
 
@@ -2763,7 +2764,8 @@ class MythicPlannerPublicApiTests(TestCase):
             dungeon=dungeon,
             name='官方首选路线',
             description='适合首次打开规划器的玩家。',
-            applicable_level='12层左右',
+            applicable_level='中高层',
+            display_updated_on=date(2026, 8, 18),
             dungeon_level=12,
             route_data=payload,
             order=2,
@@ -2784,7 +2786,8 @@ class MythicPlannerPublicApiTests(TestCase):
         self.assertEqual([row['id'] for row in rows], [published.id])
         self.assertEqual(rows[0]['dungeon_key'], 'gloamvault')
         self.assertEqual(rows[0]['route_data'], payload)
-        self.assertEqual(rows[0]['applicable_level'], '12层左右')
+        self.assertEqual(rows[0]['applicable_level'], '中高层')
+        self.assertEqual(rows[0]['updated_at'], '2026-08-18')
         self.assertEqual(rows[0]['route_code'], encode_share_code(payload))
         self.assertTrue(rows[0]['is_active'])
         self.assertTrue(rows[0]['is_featured'])
@@ -3164,7 +3167,8 @@ class MythicPlannerDashboardTests(TestCase):
                 'data': {
                     'name': '后台默认路线',
                     'description': '给所有玩家使用的推荐路线。',
-                    'applicable_level': '12层左右',
+                    'applicable_level': '中高层',
+                    'display_updated_on': '2026-08-20',
                     'route_code': encode_share_code(payload),
                     'is_active': True,
                 },
@@ -3178,14 +3182,52 @@ class MythicPlannerDashboardTests(TestCase):
         self.assertEqual(route.updated_by_user_id, self.staff.id)
         self.assertEqual(route.route_data['data_version_key'], 'lmonitor-demo-1')
         self.assertEqual(route.route_data['name'], '后台默认路线')
-        self.assertEqual(route.applicable_level, '12层左右')
+        self.assertEqual(route.applicable_level, '中高层')
+        self.assertEqual(route.display_updated_on, date(2026, 8, 20))
         self.assertEqual(route.dungeon_level, 12)
         self.assertEqual(route.dungeon_id, dungeon.id)
         self.assertEqual(created.json()['snapshot']['default_routes'][0]['revision'], 1)
         self.assertEqual(
+            created.json()['snapshot']['default_routes'][0]['display_updated_on'],
+            '2026-08-20',
+        )
+        self.assertEqual(
             created.json()['snapshot']['default_routes'][0]['route_code'],
             encode_share_code(route.route_data),
         )
+
+        rejected_level = self.client.post(
+            '/api/mythic-planner/manage/',
+            data=json.dumps({
+                'resource': 'default_routes',
+                'data': {
+                    'name': '层数分类无效的路线',
+                    'applicable_level': '12层左右',
+                    'route_code': encode_share_code(payload),
+                    'is_active': True,
+                },
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(rejected_level.status_code, 400, rejected_level.content)
+        self.assertIn('适用层数必须选择', rejected_level.json()['message'])
+
+        rejected_date = self.client.post(
+            '/api/mythic-planner/manage/',
+            data=json.dumps({
+                'resource': 'default_routes',
+                'data': {
+                    'name': '日期无效的路线',
+                    'applicable_level': '中高层',
+                    'display_updated_on': '2026-02-30',
+                    'route_code': encode_share_code(payload),
+                    'is_active': True,
+                },
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(rejected_date.status_code, 400, rejected_date.content)
+        self.assertIn('YYYY-MM-DD', rejected_date.json()['message'])
 
         invalid = copy.deepcopy(payload)
         invalid['pulls'][0]['spawn_uids'] = ['vault-guardian:not-found']
@@ -3196,7 +3238,7 @@ class MythicPlannerDashboardTests(TestCase):
                 'data': {
                     'dungeon_id': dungeon.id,
                     'name': '无效默认路线',
-                    'applicable_level': '12层左右',
+                    'applicable_level': '中高层',
                     'dungeon_level': 12,
                     'route_data': invalid,
                     'is_active': True,
@@ -3215,6 +3257,7 @@ class MythicPlannerDashboardTests(TestCase):
                 'snapshot_resources': ['default_routes'],
                 'data': {
                     'description': '更新后的路线说明。',
+                    'display_updated_on': '2026-08-21',
                 },
             }),
             content_type='application/json',
@@ -3223,6 +3266,7 @@ class MythicPlannerDashboardTests(TestCase):
         route.refresh_from_db()
         self.assertEqual(route.revision, 2)
         self.assertEqual(route.description, '更新后的路线说明。')
+        self.assertEqual(route.display_updated_on, date(2026, 8, 21))
 
         archived = self.client.delete(
             f'/api/mythic-planner/manage/{route.id}/',

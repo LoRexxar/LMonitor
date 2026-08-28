@@ -1900,9 +1900,11 @@
 
     function routeLibraryTime(value) {
         if (!value) return '尚未记录更新时间';
+        const dateOnly = String(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (dateOnly) return `${dateOnly[1]}/${dateOnly[2]}/${dateOnly[3]}`;
         const date = new Date(value);
         if (Number.isNaN(date.getTime())) return '更新时间未知';
-        return date.toLocaleString('zh-CN', {hour12: false});
+        return date.toLocaleDateString('zh-CN');
     }
 
     function routeLibraryCode(route) {
@@ -1911,7 +1913,7 @@
 
     function routeLibraryNotePreview(route) {
         const note = String(route?.description || '暂无备注');
-        return note.length > 9 ? `${note.slice(0, 9)}…` : note;
+        return note.length > 16 ? `${note.slice(0, 16)}…` : note;
     }
 
     function routeLibraryDungeon() {

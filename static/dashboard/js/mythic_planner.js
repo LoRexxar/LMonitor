@@ -67,17 +67,28 @@
             columns: [
                 ['name', '路线名'],
                 ['applicable_level', '适用层数'],
-                ['updated_at', '更新时间'],
+                ['display_updated_on', '更新时间'],
                 ['description', '备注'],
                 ['is_active', '是否启用'],
                 ['route_code', '字符串'],
             ],
             fields: [
                 {key: 'name', label: '路线名', required: true},
-                {key: 'applicable_level', label: '适用层数', required: true, help: '支持“12层左右”“10–15层均可”等自由描述。'},
-                {key: 'updated_at', label: '更新时间', type: 'readonly'},
-                {key: 'description', label: '备注', type: 'textarea', wide: true},
+                {
+                    key: 'applicable_level',
+                    label: '适用层数',
+                    type: 'select',
+                    required: true,
+                    options: [
+                        ['顶层', '顶层'],
+                        ['中高层', '中高层'],
+                        ['割草', '割草'],
+                        ['集合石平推', '集合石平推'],
+                    ],
+                },
+                {key: 'display_updated_on', label: '更新时间', type: 'date', default: 'today', required: true},
                 {key: 'is_active', label: '是否启用', type: 'checkbox', default: true},
+                {key: 'description', label: '备注', type: 'textarea', wide: true},
                 {key: 'route_code', label: '字符串', type: 'textarea', wide: true, required: true, help: '粘贴规划器导出的 !~MDT2~ 路线字符串；系统会自动识别所属地下城并校验路线内容。'},
             ],
         },
@@ -708,6 +719,11 @@
         if (field.key === 'enemy_id' && els.dungeonFilter.value) {
             return state.snapshot?.enemies?.find((row) => row.dungeon_id === Number(els.dungeonFilter.value))?.id || '';
         }
+        if (field.type === 'date' && field.default === 'today') {
+            const now = new Date();
+            const localDate = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+            return localDate.toISOString().slice(0, 10);
+        }
         return field.default ?? '';
     }
 
@@ -741,7 +757,13 @@
             const text = field.type === 'json' ? JSON.stringify(value ?? field.default ?? {}, null, 2) : String(value || '');
             return `<label class="${classes}"><span>${escapeHtml(field.label)}</span><textarea name="${field.key}"${required}>${escapeHtml(text)}</textarea>${help}</label>`;
         }
-        const type = field.type === 'color' ? 'color' : field.type === 'number' ? 'number' : 'text';
+        const type = field.type === 'color'
+            ? 'color'
+            : field.type === 'number'
+                ? 'number'
+                : field.type === 'date'
+                    ? 'date'
+                    : 'text';
         const attrs = [
             field.min !== undefined ? `min="${field.min}"` : '',
             field.max !== undefined ? `max="${field.max}"` : '',
