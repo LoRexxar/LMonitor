@@ -94,6 +94,7 @@
         origin: randomId(),
         isApplyingRemote: false,
         modalView: '',
+        routeLibraryDungeonKey: '',
     };
 
     const els = {};
@@ -1913,10 +1914,47 @@
         return note.length > 9 ? `${note.slice(0, 9)}…` : note;
     }
 
+    function routeLibraryDungeon() {
+        return state.catalog?.dungeons?.find(
+            (dungeon) => dungeon.key === state.routeLibraryDungeonKey,
+        ) || null;
+    }
+
+    function routeLibraryFilteredRows(rows) {
+        return state.routeLibraryDungeonKey
+            ? rows.filter((route) => route.dungeon_key === state.routeLibraryDungeonKey)
+            : rows;
+    }
+
+    function routeLibraryFilter() {
+        const dungeons = Array.isArray(state.catalog?.dungeons) ? state.catalog.dungeons : [];
+        return `
+            <div class="mdt-library-filter">
+                <div>
+                    <strong>路线地图</strong>
+                    <span>默认显示当前选中的地图</span>
+                </div>
+                <label for="route-library-dungeon-filter">
+                    <span>显示地图</span>
+                    <select id="route-library-dungeon-filter">
+                        <option value="">全部地图</option>
+                        ${dungeons.map((dungeon) => `
+                            <option
+                                value="${escapeHtml(dungeon.key)}"
+                                ${dungeon.key === state.routeLibraryDungeonKey ? 'selected' : ''}
+                            >${escapeHtml(dungeon.display_name)}</option>
+                        `).join('')}
+                    </select>
+                </label>
+            </div>
+        `;
+    }
+
     function localRouteRows() {
-        const rows = loadStoredRoutes();
+        const rows = routeLibraryFilteredRows(loadStoredRoutes());
         if (!rows.length) {
-            return '<div class="mdt-library-empty">还没有保存到当前浏览器的路线。</div>';
+            const dungeon = routeLibraryDungeon();
+            return `<div class="mdt-library-empty">${dungeon ? `${escapeHtml(dungeon.display_name)}还没有本地路线。` : '还没有保存到当前浏览器的路线。'}</div>`;
         }
         return `<div class="mdt-route-library">${rows.map((route) => {
             const dungeon = state.catalog?.dungeons?.find((item) => item.key === route.dungeon_key);
@@ -1940,9 +1978,10 @@
     }
 
     function defaultRouteRows() {
-        const rows = catalogDefaultRoutes();
+        const rows = routeLibraryFilteredRows(catalogDefaultRoutes());
         if (!rows.length) {
-            return '<div class="mdt-library-empty">当前数据版本还没有发布默认路线。</div>';
+            const dungeon = routeLibraryDungeon();
+            return `<div class="mdt-library-empty">${dungeon ? `${escapeHtml(dungeon.display_name)}还没有发布推荐路线。` : '当前数据版本还没有发布推荐路线。'}</div>`;
         }
         return `<div class="mdt-route-library">${rows.map((route) => {
             const routeCode = routeLibraryCode(route);
@@ -1976,7 +2015,12 @@
 
     function renderRouteLibraryModal() {
         if (state.modalView !== 'route-library') return;
+        const selectedDungeon = routeLibraryDungeon();
+        els.modalSubtitle.textContent = selectedDungeon
+            ? `正在显示：${selectedDungeon.display_name}`
+            : '推荐路线与当前浏览器路线';
         els.modalContent.innerHTML = `
+            ${routeLibraryFilter()}
             <section class="mdt-library-section">
                 <header>
                     <div>
@@ -1999,6 +2043,7 @@
     }
 
     function showRouteLibrary() {
+        state.routeLibraryDungeonKey = state.dungeon?.key || '';
         openModal({
             title: '路线库',
             subtitle: '推荐路线与当前浏览器路线',
@@ -2328,6 +2373,12 @@
                     toast(`推荐路线“${route.name}”的字符串已复制。`);
                 }
             }
+        });
+        els.modal.addEventListener('change', (event) => {
+            const dungeonFilter = event.target.closest('#route-library-dungeon-filter');
+            if (!dungeonFilter) return;
+            state.routeLibraryDungeonKey = dungeonFilter.value;
+            renderRouteLibraryModal();
         });
         window.addEventListener('keydown', (event) => {
             if (event.key === 'Escape' && !els.enemyDetailModal.hidden) {
