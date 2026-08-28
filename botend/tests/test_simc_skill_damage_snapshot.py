@@ -422,17 +422,21 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 'scenarios': [
                     {
                         'active_buffs': [token],
-                        'buffs': [{'token': token, 'spell_id': spell_id, 'scope': scope}],
+                        'buffs': [{
+                            'token': token, 'spell_id': spell_id,
+                            'scope': scope, 'stacks': stacks,
+                        }],
                         'amount': amount(scenario_hit),
                     }
-                    for token, spell_id, scope, scenario_hit in scenarios
+                    for token, spell_id, scope, stacks, scenario_hit in scenarios
                 ],
             }
 
         reference = {'actions': [action(100.0)]}
         selected = {'actions': [action(100.0, (
-            ('buff.executioner', 1001, 'self', 120.0),
-            ('debuff.overwhelmed', 1002, 'target', 130.0),
+            ('buff.executioner', 1001, 'self', 1, 120.0),
+            ('debuff.overwhelmed', 1002, 'target', 1, 130.0),
+            ('debuff.overwhelmed', 1002, 'target', 2, 140.0),
         ))]}
         rows = flatten_single_talent_damage_variants(reference, reference, [{
             'talent': {'id': 74900, 'name': "Slayer's Malice", 'name_zh': '屠戮者之怨'},
@@ -453,6 +457,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             [
                 '点出屠戮者之怨天赋，且自身存在刽子手效果时',
                 '点出屠戮者之怨天赋，且目标存在势不可挡效果时',
+                '点出屠戮者之怨天赋，且目标存在势不可挡效果（2层）时',
             ],
         )
         self.assertEqual(
@@ -462,6 +467,8 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                   'scope': 'self', 'name_zh': '刽子手'}],
                 [{'token': 'debuff.overwhelmed', 'spell_id': 1002,
                   'scope': 'target', 'name_zh': '势不可挡'}],
+                [{'token': 'debuff.overwhelmed', 'spell_id': 1002,
+                  'scope': 'target', 'stacks': 2, 'name_zh': '势不可挡'}],
             ],
         )
 
@@ -613,6 +620,155 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             [('', 100.0), ('血量低于35%', 130.0)],
         )
 
+    def test_same_scenario_token_with_different_stacks_projects_distinct_rows(self):
+        def amount(multiplier):
+            return {
+                'direct': {
+                    'hit': 100.0 * multiplier, 'crit': 200.0 * multiplier,
+                    'crit_multiplier': 2.0, 'crit_chance': 0.2,
+                    'expected': 120.0 * multiplier, 'damage_equivalent_count': 1.0,
+                    'runtime_layers': {'da_multiplier': multiplier},
+                },
+                'tick': None, 'unresolved_reason': None,
+            }
+
+        def action(multiplier, scenarios=()):
+            return {
+                'name': 'stack_probe', 'token': 'stack_probe', 'spell_id': 90002,
+                'supported': True, 'player_skill': True,
+                'reporting_root_token': 'stack_probe',
+                'reporting_root_spell_id': 90002,
+                'reporting_root_component': True,
+                'baseline': amount(multiplier),
+                'scenarios': [{
+                    'buffs': [{
+                        'token': 'buff.stack_probe', 'scope': 'self',
+                        'spell_id': 90003, 'class_family': 1, 'stacks': stacks,
+                    }],
+                    'values': amount(value),
+                } for stacks, value in scenarios],
+                'dbc_scaling': {
+                    'direct': {
+                        'attack_power_coefficient': 1.0,
+                        'spell_power_coefficient': 0.0,
+                        'normalized_base': 100.0,
+                    },
+                    'tick': None,
+                },
+            }
+
+        reference = {'actions': [action(1.0)]}
+        selected = {'actions': [action(1.0, ((1, 1.10), (2, 1.20)))]}
+        rows = flatten_single_talent_damage_variants(
+            {'actions': []}, {'actions': []}, [{
+                'talent': {'id': 901, 'name': 'Stack Probe', 'name_zh': '叠层探针'},
+                'reference_high': reference, 'reference_low': reference,
+                'high': selected, 'low': selected,
+            }], global_effects=[],
+        )
+        scenario_rows = [
+            row for row in rows
+            if (row.get('variant') or {}).get('scenario_tokens') == ['buff.stack_probe']
+        ]
+        self.assertEqual(len(scenario_rows), 2)
+        self.assertEqual(
+            [row['variant']['runtime_conditions'][0].get('stacks', 1) for row in scenario_rows],
+            [1, 2],
+        )
+        projected = project_skill_damage_product_payload({
+            'actors': [{'actions': scenario_rows}],
+        })['actors'][0]['actions']
+        self.assertEqual(len(projected), 2)
+        projected_damage = sorted(
+            row['product']['final_normalized_damage'] for row in projected
+        )
+        self.assertAlmostEqual(projected_damage[0], 110.0)
+        self.assertAlmostEqual(projected_damage[1], 120.0)
+
+        stack_two_global = [{
+            'source_type': 'runtime_state',
+            'scenario_tokens': ['buff.stack_probe'],
+            'runtime_conditions': [{
+                'token': 'buff.stack_probe', 'scope': 'self',
+                'spell_id': 90003, 'stacks': 2,
+            }],
+            'projections': [{'kind': 'damage_multiplier', 'value': 1.20}],
+        }]
+        retained = flatten_single_talent_damage_variants(
+            {'actions': []}, {'actions': []}, [{
+                'talent': {'id': 901, 'name': 'Stack Probe', 'name_zh': '叠层探针'},
+                'reference_high': reference, 'reference_low': reference,
+                'high': selected, 'low': selected,
+            }], global_effects=stack_two_global,
+        )
+        retained_scenarios = [
+            row['variant']['runtime_conditions'][0].get('stacks', 1)
+            for row in retained if row['variant']['scenario_tokens'] == ['buff.stack_probe']
+        ]
+        self.assertEqual(retained_scenarios, [1])
+
+    def test_low_scenario_formula_decomposes_health_and_scenario_runtime_factors(self):
+        def amount(multiplier):
+            return {
+                'direct': {
+                    'hit': 100.0 * multiplier, 'crit': 200.0 * multiplier,
+                    'crit_multiplier': 2.0, 'crit_chance': 0.2,
+                    'expected': 120.0 * multiplier, 'damage_equivalent_count': 1.0,
+                    'runtime_layers': {'da_multiplier': multiplier},
+                },
+                'tick': None, 'unresolved_reason': None,
+            }
+
+        def action(multiplier, scenario=None):
+            scenarios = []
+            if scenario is not None:
+                scenarios.append({
+                    'buffs': [{
+                        'token': 'buff.low_probe', 'scope': 'self',
+                        'spell_id': 90004, 'class_family': 1, 'stacks': 1,
+                    }],
+                    'values': amount(scenario),
+                })
+            return {
+                'name': 'factor_probe', 'token': 'factor_probe', 'spell_id': 90005,
+                'supported': True, 'player_skill': True,
+                'reporting_root_token': 'factor_probe',
+                'reporting_root_spell_id': 90005,
+                'reporting_root_component': True,
+                'baseline': amount(multiplier), 'scenarios': scenarios,
+                'dbc_scaling': {
+                    'direct': {
+                        'attack_power_coefficient': 1.0,
+                        'spell_power_coefficient': 0.0,
+                        'normalized_base': 100.0,
+                    },
+                    'tick': None,
+                },
+            }
+
+        reference = {'actions': [action(1.0)]}
+        high = {'actions': [action(1.0)]}
+        low = {'actions': [action(1.25, 1.375)]}
+        rows = flatten_single_talent_damage_variants(
+            {'actions': []}, {'actions': []}, [{
+                'talent': {'id': 902, 'name': 'Factor Probe', 'name_zh': '乘区探针'},
+                'reference_high': reference, 'reference_low': reference,
+                'high': high, 'low': low,
+            }], global_effects=[],
+        )
+        scenario_row = next(
+            row for row in rows
+            if (row.get('variant') or {}).get('scenario_tokens') == ['buff.low_probe']
+        )
+        formula = project_skill_damage_product_payload({
+            'actors': [{'actions': [scenario_row]}],
+        })['actors'][0]['actions'][0]['product']['formula_components'][0]
+        self.assertAlmostEqual(formula['base_damage'], 100.0)
+        self.assertEqual(len(formula['runtime_factors']), 2)
+        self.assertAlmostEqual(formula['runtime_factors'][0], 1.25)
+        self.assertAlmostEqual(formula['runtime_factors'][1], 1.10)
+        self.assertAlmostEqual(formula['final_damage'], 137.5)
+
     def test_flatten_rejects_conflicting_duplicate_scenario_tokens(self):
         def amount(hit):
             return {
@@ -634,7 +790,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             'dbc': {'resolved': True, 'scaling_type': 'ap', 'coefficient': 1.0,
                     'base_value_min': 100.0, 'base_value_max': 100.0},
         }
-        with self.assertRaisesRegex(ValueError, '同一 scenario tokens 返回冲突数值'):
+        with self.assertRaisesRegex(ValueError, '同一 scenario identity 返回冲突数值'):
             flatten_single_talent_damage_variants(
                 {'actions': []}, {'actions': []}, [{
                     'talent': {'id': 1, 'name': 'Conflict'},
@@ -1692,6 +1848,113 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         missing_low.pop('low')
         self.assertEqual(classify_global_damage_modifiers([missing_low]), [])
 
+    def test_variant_only_uniform_debuff_is_global_and_stripped_from_action_rows(self):
+        def amount(multiplier):
+            layers = {
+                name: 1.0 for name in (
+                    'da_multiplier', 'player_multiplier', 'versus_multiplier',
+                    'persistent_multiplier', 'target_da_multiplier', 'versatility',
+                    'pet_multiplier', 'target_pet_multiplier',
+                )
+            }
+            layers['da_multiplier'] = multiplier
+            return {
+                'direct': {
+                    'hit': 100.0 * multiplier, 'crit': 200.0 * multiplier,
+                    'crit_multiplier': 2.0, 'crit_chance': 0.2,
+                    'crit_chance_uncapped': 0.2, 'can_crit': True,
+                    'expected': 120.0 * multiplier, 'damage_equivalent_count': 1.0,
+                    'base_damage_layers': {
+                        'base_multiplier': 1.0, 'component_multiplier': 1.0,
+                    },
+                    'runtime_layers': layers,
+                },
+                'tick': None, 'unresolved_reason': None,
+            }
+
+        def action(token, spell_id, with_debuff=False):
+            scenarios = []
+            if with_debuff:
+                scenarios.append({
+                    'buffs': [{
+                        'token': 'debuff.exposed', 'scope': 'target',
+                        'spell_id': 90001, 'class_family': 1, 'stacks': 1,
+                    }],
+                    'values': amount(1.20),
+                })
+            return {
+                'token': token, 'spell_id': spell_id, 'supported': True,
+                'player_skill': True, 'harmful': True,
+                'reporting_root_token': token,
+                'reporting_root_spell_id': spell_id,
+                'reporting_root_component': True,
+                'baseline': amount(1.0), 'scenarios': scenarios,
+                'dbc_scaling': {
+                    'direct': {
+                        'attack_power_coefficient': 1.0,
+                        'spell_power_coefficient': 0.0,
+                        'normalized_base': 100.0,
+                    },
+                    'tick': None,
+                },
+            }
+
+        reference = {
+            'talent_effectiveness': 'inactive',
+            'actions': [action('a', 100), action('b', 200)],
+        }
+        selected = {
+            'talent_effectiveness': 'active',
+            'actions': [action('a', 100, True), action('b', 200, True)],
+        }
+        variant = {
+            'talent': {
+                'id': 903, 'name': 'Expose Weakness', 'name_zh': '揭示弱点',
+                'description': (
+                    'Applies Exposed to the target. '
+                    'Increases all damage you deal to affected targets.'
+                ),
+            },
+            'reference_high': reference, 'reference_low': reference,
+            'high': selected, 'low': selected,
+        }
+        effects = classify_global_skill_effects(
+            {'actions': []}, {'actions': []}, [variant],
+        )
+        self.assertEqual(len([
+            effect for effect in effects
+            if effect.get('scenario_tokens') == ['debuff.exposed']
+        ]), 1)
+        state_effect = next(
+            effect for effect in effects
+            if effect.get('scenario_tokens') == ['debuff.exposed']
+        )
+        self.assertEqual(state_effect['source_type'], 'talent')
+        self.assertEqual(state_effect['talent_id'], 903)
+        self.assertEqual(state_effect['runtime_conditions'], [{
+            'token': 'debuff.exposed', 'scope': 'target', 'spell_id': 90001,
+        }])
+        self.assertAlmostEqual(state_effect['projections'][0]['value'], 1.20)
+        self.assertEqual(state_effect['evidence']['damage']['evidence_root_count'], 2)
+
+        rows = flatten_single_talent_damage_variants(
+            {'actions': []}, {'actions': []}, [variant], global_effects=effects,
+        )
+        self.assertFalse(any(
+            (row.get('variant') or {}).get('scenario_tokens') == ['debuff.exposed']
+            for row in rows
+        ))
+
+        inherited_variant = copy.deepcopy(variant)
+        inherited_variant['reference_high'] = selected
+        inherited_variant['reference_low'] = selected
+        self.assertEqual(
+            classify_global_skill_effects(
+                {'actions': []}, {'actions': []}, [inherited_variant],
+            ),
+            [],
+        )
+
     def test_global_scenario_is_stripped_from_every_talent_actor(self):
         direct_layers = (
             'da_multiplier', 'player_multiplier', 'versus_multiplier',
@@ -2273,7 +2536,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         service = SimcSkillDamageSnapshotService.create_for_current_backend()
 
         self.assertNotEqual(service.snapshot.pk, existing.pk)
-        self.assertEqual(service.snapshot.schema_revision, 18)
+        self.assertEqual(service.snapshot.schema_revision, 19)
         self.assertEqual(service.snapshot.status, SimcSkillDamageSnapshot.STATUS_PENDING)
         self.assertEqual(service.backend.pk, backend.pk)
 
@@ -2580,7 +2843,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             'specialization_passive_effects': [],
         }
         payload = {
-            'schema_version': 10,
+            'schema_version': 11,
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
@@ -2624,6 +2887,20 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         }
         service._validate_export(payload)
         action = payload['actors'][0]['actions'][0]
+        action['scenarios'] = [
+            {
+                'buffs': [{
+                    'token': 'buff.test_stack', 'scope': 'self',
+                    'spell_id': 12345, 'class_family': 4, 'stacks': stacks,
+                }],
+                'values': copy.deepcopy(action['baseline']),
+                'direct_multiplier': 1.0,
+                'tick_multiplier': 1.0,
+            }
+            for stacks in (1, 2)
+        ]
+        service._validate_export(payload)
+        action['scenarios'] = []
 
         player_skill = action.pop('player_skill')
         with self.assertRaisesRegex(ValueError, 'player skill'):
@@ -2781,7 +3058,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             }
 
         payload = {
-            'schema_version': 10, 'simc_revision': 'c' * 40,
+            'schema_version': 11, 'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
             'actors': [{
@@ -2848,7 +3125,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         for mutate, message in (
             (lambda row: row['scenarios'].__setitem__(0, None), 'scenario 结构'),
             (lambda row: row['scenarios'][0]['buffs'].append({
-                'token': 'probe', 'scope': 'self', 'spell_id': 124,
+                'token': 'probe', 'scope': 'self', 'spell_id': 124, 'stacks': 1,
             }),
              'buff token identity'),
             (lambda row: row['scenarios'][0]['buffs'][0].__setitem__('scope', 'external'),
@@ -2877,7 +3154,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         service = SimcSkillDamageSnapshotService(snapshot)
         payload = {
-            'schema_version': 10,
+            'schema_version': 11,
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
@@ -2928,7 +3205,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         service = SimcSkillDamageSnapshotService(snapshot)
         base = {
-            'schema_version': 10,
+            'schema_version': 11,
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
@@ -2944,7 +3221,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         service = SimcSkillDamageSnapshotService(snapshot)
         base = {
-            'schema_version': 10,
+            'schema_version': 11,
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
@@ -2979,7 +3256,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             },
         )
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=18,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=19,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{
                 'specialization': 'fury',
@@ -3010,7 +3287,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
 
     def test_get_returns_frozen_schema_eighteen_product_without_reprojection(self):
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=18,
+            simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=19,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={
                 'payload_format': 'skill_damage_product_v1',
@@ -3052,7 +3329,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(body['data']['snapshot'])
-        self.assertIn('schema 18', body['data']['snapshot_unavailable_reason'])
+        self.assertIn('schema 19', body['data']['snapshot_unavailable_reason'])
 
     def test_get_localizes_skill_identity_and_left_cell_only_shows_name_and_spell_id(self):
         version = WowTalentVersion.objects.create(key='current', is_active=True)
@@ -3079,7 +3356,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
             name='Stale Action', name_zh='过期版本中文名', snapshot_build='12.1.0.69299',
         )
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=18,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=19,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload=localize_skill_damage_payload(project_skill_damage_product_payload({'actors': [{
                 'class': 'warrior', 'specialization': 'fury',

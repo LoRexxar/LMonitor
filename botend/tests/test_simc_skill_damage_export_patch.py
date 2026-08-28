@@ -28,6 +28,7 @@ ACTIVE_PLAYER_SKILL_PATCH = PATCH_DIR / "0025-active-player-skill-identity.patch
 SPECIALIZATION_PASSIVE_PROVENANCE_PATCH = PATCH_DIR / "0026-specialization-passive-damage-provenance.patch"
 SELECTED_TRAIT_ACTION_PROVENANCE_PATCH = PATCH_DIR / "0027-selected-trait-action-provenance.patch"
 EQUIPMENT_ACTION_PROVENANCE_PATCH = PATCH_DIR / "0028-exclude-equipment-actions.patch"
+RUNTIME_BUFF_STACKS_PATCH = PATCH_DIR / "0029-export-all-runtime-buff-stacks.patch"
 
 
 class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
@@ -57,6 +58,22 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         cls.specialization_passive_provenance_text = SPECIALIZATION_PASSIVE_PROVENANCE_PATCH.read_text(encoding="utf-8")
         cls.selected_trait_action_provenance_text = SELECTED_TRAIT_ACTION_PROVENANCE_PATCH.read_text(encoding="utf-8")
         cls.equipment_action_provenance_text = EQUIPMENT_ACTION_PROVENANCE_PATCH.read_text(encoding="utf-8")
+        cls.runtime_buff_stacks_text = RUNTIME_BUFF_STACKS_PATCH.read_text(encoding="utf-8")
+
+    def test_runtime_buff_stacks_are_exported_as_distinct_schema_eleven_scenarios(self):
+        text = self.runtime_buff_stacks_text
+        for token in (
+            '\\"schema_version\\\":11', 'int stacks = 1',
+            'stacks <= max_stacks', 'condition.stacks',
+            'max_expanded_scenarios', 'std::length_error',
+        ):
+            self.assertIn(token, text)
+        added_lines = '\n'.join(
+            line[1:] for line in text.splitlines()
+            if line.startswith('+') and not line.startswith('+++')
+        )
+        for forbidden in ('warrior', 'fury', 'overwhelmed', 'executioner'):
+            self.assertNotIn(forbidden, added_lines.lower())
 
     def test_equipment_actions_are_excluded_by_reporting_root_item_provenance(self):
         text = self.equipment_action_provenance_text

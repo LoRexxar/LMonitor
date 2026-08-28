@@ -234,7 +234,13 @@ def localize_skill_damage_payload(payload):
                         f'未解析效果（Spell ID {condition_spell_id}）'
                         if condition_spell_id else '未解析效果'
                     )
-                    condition_parts.append(f'{owner}存在{effect_name}效果时')
+                    stacks = localized_condition.get('stacks', 1)
+                    stack_label = f'（{stacks}层）' if (
+                        isinstance(stacks, int)
+                        and not isinstance(stacks, bool)
+                        and stacks > 1
+                    ) else ''
+                    condition_parts.append(f'{owner}存在{effect_name}效果{stack_label}时')
                 variant['runtime_condition'] = '，且'.join(condition_parts)
             token = _text_key(action.get('token'))
             spell_id = action.get('spell_id')
@@ -403,16 +409,44 @@ def _action_identity(action):
     return (str(action.get('token') or ''), action.get('spell_id'))
 
 
+def _scenario_identity(scenario):
+    """Return the full runtime-state identity while preserving legacy exports."""
+    buffs = scenario.get('buffs')
+    if isinstance(buffs, list):
+        identity = []
+        for buff in buffs:
+            if not isinstance(buff, dict):
+                continue
+            token = str(buff.get('token') or '').strip()
+            if not token:
+                continue
+            stacks = buff.get('stacks', 1)
+            if not isinstance(stacks, int) or isinstance(stacks, bool) or stacks <= 0:
+                stacks = 1
+            spell_id = buff.get('spell_id', 0)
+            if not isinstance(spell_id, int) or isinstance(spell_id, bool):
+                spell_id = 0
+            identity.append((
+                token, str(buff.get('scope') or '').strip(), spell_id, stacks,
+            ))
+        return tuple(sorted(set(identity)))
+    tokens = scenario.get('active_buffs') if isinstance(scenario.get('active_buffs'), list) else []
+    return tuple(
+        (str(token).strip(), '', 0, 1)
+        for token in sorted({str(token).strip() for token in tokens if str(token or '').strip()})
+    )
+
+
+def _scenario_identity_tokens(identity):
+    return tuple(
+        str(item[0] if isinstance(item, tuple) else item).strip()
+        for item in identity or ()
+        if str(item[0] if isinstance(item, tuple) else item).strip()
+    )
+
+
 def _scenario_tokens(scenario):
-    if isinstance(scenario.get('active_buffs'), list):
-        tokens = scenario['active_buffs']
-    else:
-        tokens = [
-            buff.get('token')
-            for buff in (scenario.get('buffs') or [])
-            if isinstance(buff, dict)
-        ]
-    return tuple(sorted({str(token).strip() for token in tokens if str(token or '').strip()}))
+    return _scenario_identity_tokens(_scenario_identity(scenario))
 
 
 _AMOUNT_COMPONENT_FIELDS = (
@@ -515,15 +549,16 @@ def _scenario_amounts(action):
     for scenario in ((action or {}).get('scenarios') or []):
         if not isinstance(scenario, dict):
             continue
-        tokens = _scenario_tokens(scenario)
-        if not tokens:
+        identity = _scenario_identity(scenario)
+        if not identity:
             continue
         amount = scenario.get('values') or scenario.get('amount')
-        if tokens in amounts and not _fact_equal(
-            _amount_signature(amounts[tokens]), _amount_signature(amount),
+        if identity in amounts and not _fact_equal(
+            _amount_signature(amounts[identity]), _amount_signature(amount),
         ):
-            raise ValueError(f'exporter 同一 scenario tokens 返回冲突数值：{" + ".join(tokens)}')
-        amounts.setdefault(tokens, amount)
+            tokens = _scenario_identity_tokens(identity)
+            raise ValueError(f'exporter 同一 scenario identity 返回冲突数值：{" + ".join(tokens)}')
+        amounts.setdefault(identity, amount)
     return amounts
 
 
@@ -723,9 +758,10 @@ def _canonical_runtime_state_token(value):
 def _scenario_is_selected_only_action_state(
     reference_actor, selected_actor, scenario_tokens,
 ):
-    if len(scenario_tokens) != 1:
+    display_tokens = _scenario_identity_tokens(scenario_tokens)
+    if len(display_tokens) != 1:
         return False
-    scenario_token = str(scenario_tokens[0] or '')
+    scenario_token = str(display_tokens[0] or '')
     scope, separator, state_name = scenario_token.partition('.')
     if separator != '.' or scope not in {'buff', 'debuff'}:
         return False
@@ -1368,7 +1404,8 @@ def classify_global_damage_modifiers(variants):
                 'damage_multiplier': multiplier,
                 'damage_bonus_percent': (multiplier - 1.0) * 100.0,
                 'runtime_condition': runtime_condition,
-                'scenario_tokens': list(scenario_tokens),
+                'scenario_tokens': list(_scenario_identity_tokens(scenario_tokens)),
+                'runtime_conditions': _scenario_metadata({}, scenario_tokens),
                 'runtime_layer': high['runtime_layer'],
                 'runtime_components': list(high['runtime_components']),
                 'evidence_roots': list(high['evidence_roots']),
@@ -1389,32 +1426,34 @@ def classify_global_damage_modifiers(variants):
     return modifiers
 
 
-def _scenario_metadata(actor, scenario_tokens):
-    matched = []
-    for action in ((actor or {}).get('actions') or []):
-        for scenario in (action.get('scenarios') or []) if isinstance(action, dict) else []:
-            if not isinstance(scenario, dict) or _scenario_tokens(scenario) != tuple(scenario_tokens):
-                continue
-            buffs = scenario.get('buffs') or []
-            if not isinstance(buffs, list):
-                continue
-            matched.extend(buff for buff in buffs if isinstance(buff, dict))
+def _scenario_metadata(_actor, scenario_tokens):
     result = []
     seen = set()
-    for buff in matched:
-        identity = (
-            str(buff.get('token') or '').strip(),
-            buff.get('spell_id'),
-            str(buff.get('scope') or '').strip(),
-        )
-        if not identity[0] or identity in seen:
+    for identity in scenario_tokens or ():
+        if isinstance(identity, tuple) and len(identity) == 4:
+            token, scope, spell_id, stacks = identity
+        else:
+            token, scope, spell_id, stacks = identity, '', 0, 1
+        token = str(token or '').strip()
+        if not token:
             continue
-        seen.add(identity)
-        result.append({
-            'token': identity[0],
-            'spell_id': identity[1] if isinstance(identity[1], int) else 0,
-            'scope': identity[2],
-        })
+        canonical = (
+            token,
+            str(scope or '').strip(),
+            spell_id if isinstance(spell_id, int) and not isinstance(spell_id, bool) else 0,
+            stacks if isinstance(stacks, int) and not isinstance(stacks, bool) and stacks > 0 else 1,
+        )
+        if canonical in seen:
+            continue
+        seen.add(canonical)
+        item = {
+            'token': canonical[0],
+            'spell_id': canonical[2],
+            'scope': canonical[1],
+        }
+        if canonical[3] > 1:
+            item['stacks'] = canonical[3]
+        result.append(item)
     return result
 
 
@@ -1425,7 +1464,7 @@ def _neutralize_actor_scenario(actor, scenario_tokens):
             continue
         baseline = action.get('baseline')
         for scenario in action.get('scenarios') or []:
-            if not isinstance(scenario, dict) or _scenario_tokens(scenario) != tuple(scenario_tokens):
+            if not isinstance(scenario, dict) or _scenario_identity(scenario) != scenario_tokens:
                 continue
             field = 'values' if 'values' in scenario else 'amount'
             scenario[field] = copy.deepcopy(baseline)
@@ -1440,7 +1479,7 @@ def _uniform_crit_scenario_candidate(actor, scenario_tokens, *, damage_multiplie
     roots = set()
     components = set()
     for action in actions.values():
-        scenario = _scenario_amounts(action).get(tuple(scenario_tokens))
+        scenario = _scenario_amounts(action).get(scenario_tokens)
         if scenario is None:
             continue
         root = (
@@ -1743,7 +1782,14 @@ def _base_damage_layer_candidate(reference_actor, selected_actor):
 
 
 def _global_effect_identity(prefix, scenario_tokens=()):
-    suffix = '+'.join(scenario_tokens) if scenario_tokens else 'passive'
+    suffix_parts = []
+    for item in scenario_tokens:
+        if not isinstance(item, tuple):
+            suffix_parts.append(str(item))
+            continue
+        token, _scope, _spell_id, stacks = item
+        suffix_parts.append(str(token) if stacks == 1 else f'{token}@{stacks}')
+    suffix = '+'.join(suffix_parts) if suffix_parts else 'passive'
     return f'{prefix}:{suffix}'
 
 
@@ -1810,83 +1856,123 @@ def classify_global_skill_effects(base_high, base_low, variants):
     effects = []
 
     def append_effect(*, effect_id, source_type, scenario_tokens, projections, source=None, evidence=None):
+        display_tokens = _scenario_identity_tokens(scenario_tokens)
         row = {
             'effect_id': effect_id,
             'source_type': source_type,
-            'scenario_tokens': list(scenario_tokens),
+            'scenario_tokens': list(display_tokens),
+            'runtime_conditions': _scenario_metadata({}, scenario_tokens),
             'runtime_condition': (
-                f'启用 {" + ".join(scenario_tokens)}' if scenario_tokens else ''
+                f'启用 {" + ".join(display_tokens)}' if display_tokens else ''
             ),
             'projections': projections,
+            '_scenario_identity': tuple(scenario_tokens),
         }
         row.update(copy.deepcopy(source or {}))
         row['evidence'] = copy.deepcopy(evidence or {})
         effects.append(row)
 
-    high_tokens = _scenario_token_universe(base_high)
-    low_tokens = _scenario_token_universe(base_low)
-    for scenario_tokens in sorted(high_tokens & low_tokens):
-        if len(scenario_tokens) != 1:
-            continue
-        neutral_high = _neutralize_actor_scenario(base_high, scenario_tokens)
-        neutral_low = _neutralize_actor_scenario(base_low, scenario_tokens)
-        high_damage = _runtime_layer_scenario_candidate(
-            neutral_high, base_high, scenario_tokens, allow_reduction=True,
+    state_sources = [(base_high, base_low, None, {}, {})]
+    state_sources.extend(
+        (
+            item.get('high') or {}, item.get('low') or {}, item.get('talent') or {},
+            item.get('reference_high') or {}, item.get('reference_low') or {},
         )
-        low_damage = _runtime_layer_scenario_candidate(
-            neutral_low, base_low, scenario_tokens, allow_reduction=True,
-        )
-        high_crit = _uniform_crit_scenario_candidate(
-            base_high, scenario_tokens,
-            damage_multiplier=(high_damage or {}).get('multiplier', 1.0),
-        )
-        low_crit = _uniform_crit_scenario_candidate(
-            base_low, scenario_tokens,
-            damage_multiplier=(low_damage or {}).get('multiplier', 1.0),
-        )
-        projections = []
-        evidence = {}
-        if high_damage and low_damage and (
-            high_damage.get('runtime_layer') == low_damage.get('runtime_layer')
-            and high_damage.get('runtime_components') == low_damage.get('runtime_components')
-            and math.isclose(
-                high_damage['multiplier'], low_damage['multiplier'],
+        for item in variants or []
+        if isinstance(item, dict)
+    )
+    seen_state_effects = set()
+    for source_high, source_low, talent, reference_high, reference_low in state_sources:
+        high_tokens = _scenario_token_universe(source_high)
+        low_tokens = _scenario_token_universe(source_low)
+        inherited_tokens = (
+            _scenario_token_universe(reference_high)
+            | _scenario_token_universe(reference_low)
+        ) if talent else set()
+        for scenario_tokens in sorted((high_tokens & low_tokens) - inherited_tokens):
+            if len(scenario_tokens) != 1:
+                continue
+            neutral_high = _neutralize_actor_scenario(source_high, scenario_tokens)
+            neutral_low = _neutralize_actor_scenario(source_low, scenario_tokens)
+            high_damage = _runtime_layer_scenario_candidate(
+                neutral_high, source_high, scenario_tokens, allow_reduction=True,
+            )
+            low_damage = _runtime_layer_scenario_candidate(
+                neutral_low, source_low, scenario_tokens, allow_reduction=True,
+            )
+            high_crit = _uniform_crit_scenario_candidate(
+                source_high, scenario_tokens,
+                damage_multiplier=(high_damage or {}).get('multiplier', 1.0),
+            )
+            low_crit = _uniform_crit_scenario_candidate(
+                source_low, scenario_tokens,
+                damage_multiplier=(low_damage or {}).get('multiplier', 1.0),
+            )
+            projections = []
+            evidence = {}
+            if high_damage and low_damage and (
+                high_damage.get('runtime_layer') == low_damage.get('runtime_layer')
+                and high_damage.get('runtime_components') == low_damage.get('runtime_components')
+                and math.isclose(
+                    high_damage['multiplier'], low_damage['multiplier'],
+                    rel_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
+                    abs_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
+                )
+            ):
+                multiplier = (high_damage['multiplier'] + low_damage['multiplier']) / 2.0
+                projections.append({
+                    'kind': 'damage_multiplier', 'operation': 'multiply',
+                    'value': multiplier, 'bonus_percent': (multiplier - 1.0) * 100.0,
+                    'evidence_layer': high_damage['runtime_layer'],
+                })
+                evidence['damage'] = high_damage
+            if high_crit and low_crit and math.isclose(
+                high_crit['chance_delta'], low_crit['chance_delta'],
                 rel_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
                 abs_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
+            ):
+                delta = (high_crit['chance_delta'] + low_crit['chance_delta']) / 2.0
+                projections.append({
+                    'kind': 'crit_chance', 'operation': 'add',
+                    'value': delta, 'percentage_points': delta * 100.0,
+                    'evidence_layer': 'crit_chance_uncapped',
+                })
+                evidence['crit'] = high_crit
+            if not projections:
+                continue
+            projection_identity = tuple(
+                (row['kind'], round(float(row['value']), 12)) for row in projections
             )
-        ):
-            multiplier = (high_damage['multiplier'] + low_damage['multiplier']) / 2.0
-            projections.append({
-                'kind': 'damage_multiplier', 'operation': 'multiply',
-                'value': multiplier, 'bonus_percent': (multiplier - 1.0) * 100.0,
-                'evidence_layer': high_damage['runtime_layer'],
-            })
-            evidence['damage'] = high_damage
-        if high_crit and low_crit and math.isclose(
-            high_crit['chance_delta'], low_crit['chance_delta'],
-            rel_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
-            abs_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
-        ):
-            delta = (high_crit['chance_delta'] + low_crit['chance_delta']) / 2.0
-            projections.append({
-                'kind': 'crit_chance', 'operation': 'add',
-                'value': delta, 'percentage_points': delta * 100.0,
-                'evidence_layer': 'crit_chance_uncapped',
-            })
-            evidence['crit'] = high_crit
-        if projections:
-            metadata = _scenario_metadata(base_high, scenario_tokens)
+            effect_identity = (scenario_tokens, projection_identity)
+            if effect_identity in seen_state_effects:
+                continue
+            seen_state_effects.add(effect_identity)
+            metadata = _scenario_metadata(source_high, scenario_tokens)
+            source = {
+                'source_spell_ids': sorted({
+                    item['spell_id'] for item in metadata if item.get('spell_id')
+                }),
+                'source_token': _scenario_identity_tokens(scenario_tokens)[0],
+            }
+            source_type = 'runtime_state'
+            effect_prefix = 'runtime_state'
+            if talent:
+                source_type = 'talent'
+                talent_id = talent.get('id')
+                effect_prefix = f'talent:{talent_id}:runtime_state'
+                source.update({
+                    'talent_id': talent_id,
+                    'talent_name': str(talent.get('name') or ''),
+                    'talent_name_zh': str(talent.get('name_zh') or ''),
+                    'tree_type': str(talent.get('tree_type') or ''),
+                    'hero_subtree_id': talent.get('hero_subtree_id'),
+                    'hero_subtree_name': str(talent.get('hero_subtree_name') or ''),
+                    'hero_subtree_name_zh': str(talent.get('hero_subtree_name_zh') or ''),
+                })
             append_effect(
-                effect_id=_global_effect_identity('runtime_state', scenario_tokens),
-                source_type='runtime_state', scenario_tokens=scenario_tokens,
-                projections=projections,
-                source={
-                    'source_spell_ids': sorted({
-                        item['spell_id'] for item in metadata if item.get('spell_id')
-                    }),
-                    'source_token': scenario_tokens[0],
-                },
-                evidence=evidence,
+                effect_id=_global_effect_identity(effect_prefix, scenario_tokens),
+                source_type=source_type, scenario_tokens=scenario_tokens,
+                projections=projections, source=source, evidence=evidence,
             )
 
     talent_damage_modifiers = {}
@@ -1917,12 +2003,18 @@ def classify_global_skill_effects(base_high, base_low, variants):
                 damages, key=lambda row: tuple(row.get('scenario_tokens') or []),
             ):
                 multiplier = damage['damage_multiplier']
+                runtime_conditions = damage.get('runtime_conditions') or []
+                scenario_identity = (
+                    _scenario_identity({'buffs': runtime_conditions})
+                    if runtime_conditions
+                    else tuple(damage.get('scenario_tokens') or [])
+                )
                 append_effect(
                     effect_id=_global_effect_identity(
-                        f'talent:{talent_id}', tuple(damage.get('scenario_tokens') or []),
+                        f'talent:{talent_id}', scenario_identity,
                     ),
                     source_type='talent',
-                    scenario_tokens=tuple(damage.get('scenario_tokens') or []),
+                    scenario_tokens=scenario_identity,
                     projections=[{
                         'kind': 'damage_multiplier', 'operation': 'multiply',
                         'value': multiplier, 'bonus_percent': (multiplier - 1.0) * 100.0,
@@ -1965,7 +2057,36 @@ def classify_global_skill_effects(base_high, base_low, variants):
             }],
             source=source, evidence={'base_damage': high_base},
         )
-    return effects
+    deduplicated = {}
+    order = []
+    for effect in effects:
+        scenario_identity = effect.get('_scenario_identity') or ()
+        if scenario_identity:
+            canonical_scenario_identity = tuple(
+                item if isinstance(item, tuple) and len(item) == 4
+                else (str(item), '', 0, 1)
+                for item in scenario_identity
+            )
+            projection_identity = tuple(
+                (row.get('kind'), round(float(row.get('value')), 12))
+                for row in effect.get('projections') or []
+                if _finite_number(row.get('value'))
+            )
+            identity = (canonical_scenario_identity, projection_identity)
+        else:
+            identity = ('effect_id', effect.get('effect_id'))
+        existing = deduplicated.get(identity)
+        if existing is None:
+            order.append(identity)
+            deduplicated[identity] = effect
+        elif effect.get('source_type') == 'talent' and existing.get('source_type') != 'talent':
+            deduplicated[identity] = effect
+    result = []
+    for identity in order:
+        effect = deduplicated[identity]
+        effect.pop('_scenario_identity', None)
+        result.append(effect)
+    return result
 
 
 def flatten_single_talent_damage_variants(base_high, base_low, variants, *, global_effects=None):
@@ -2046,8 +2167,8 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
             for modifier in classified_global_modifiers
             if not modifier.get('scenario_tokens')
         }
-        global_scenario_token_sets = {
-            tuple(modifier.get('scenario_tokens') or [])
+        global_scenario_identities = {
+            tuple((str(token), '', 0, 1) for token in (modifier.get('scenario_tokens') or []))
             for modifier in classified_global_modifiers
             if modifier.get('scenario_tokens')
         }
@@ -2067,15 +2188,27 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
             for projection in (effect.get('projections') or [])
             if projection.get('kind') == 'damage_multiplier'
         }
-        global_scenario_token_sets = {
-            tuple(effect.get('scenario_tokens') or [])
+        global_scenario_identities = {
+            _scenario_identity({'buffs': effect.get('runtime_conditions')})
+            if isinstance(effect.get('runtime_conditions'), list)
+            and effect.get('runtime_conditions')
+            else tuple(
+                (str(token), '', 0, 1) for token in (effect.get('scenario_tokens') or [])
+            )
             for effect in global_effects
             if effect.get('scenario_tokens')
         }
 
     def includes_global_scenario(tokens):
-        token_set = set(tokens or ())
-        return any(set(global_tokens).issubset(token_set) for global_tokens in global_scenario_token_sets)
+        identity_set = set(
+            item if isinstance(item, tuple) and len(item) == 4
+            else (str(item), '', 0, 1)
+            for item in tokens or ()
+        )
+        return any(
+            set(global_identity).issubset(identity_set)
+            for global_identity in global_scenario_identities
+        )
 
     def append_row(action, amount, *, talent, condition, comparison, scenario_tokens=()):
         if not isinstance(action, dict) or _amount_state(amount)[0] != 'resolved':
@@ -2087,6 +2220,39 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
         else:
             row.pop('hero_subtree_ids', None)
         row['baseline'] = copy.deepcopy(amount)
+        if scenario_tokens:
+            action_baseline = action.get('baseline') or {}
+            for component_name in ('direct', 'tick'):
+                final_component = row['baseline'].get(component_name)
+                baseline_component = action_baseline.get(component_name)
+                if not isinstance(final_component, dict) or not isinstance(baseline_component, dict):
+                    continue
+                final_layers = final_component.get('runtime_layers')
+                baseline_layers = baseline_component.get('runtime_layers')
+                if not isinstance(final_layers, dict) or not isinstance(baseline_layers, dict):
+                    continue
+                factor_layers = []
+                for layer_name, baseline_value in baseline_layers.items():
+                    final_value = final_layers.get(layer_name)
+                    if (
+                        not _finite_number(baseline_value)
+                        or not _finite_number(final_value)
+                        or baseline_value <= 0
+                        or final_value <= 0
+                    ):
+                        continue
+                    if not math.isclose(baseline_value, 1.0, rel_tol=0.0, abs_tol=1e-12):
+                        factor_layers.append({
+                            'phase': 'actor_baseline', 'layer': layer_name,
+                            'factor': baseline_value,
+                        })
+                    marginal = final_value / baseline_value
+                    if not math.isclose(marginal, 1.0, rel_tol=0.0, abs_tol=1e-12):
+                        factor_layers.append({
+                            'phase': 'runtime_scenario', 'layer': layer_name,
+                            'factor': marginal,
+                        })
+                final_component['runtime_factor_layers'] = factor_layers
         row['scenarios'] = []
         reference_state = _amount_state(comparison)
         row['variant'] = {
@@ -2099,7 +2265,7 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
             'hero_subtree_name_zh': str(talent.get('hero_subtree_name_zh') or ''),
             'trait_entry_id': talent.get('node_id'),
             'runtime_condition': condition,
-            'scenario_tokens': list(scenario_tokens),
+            'scenario_tokens': list(_scenario_identity_tokens(scenario_tokens)),
             'runtime_conditions': _scenario_metadata(
                 {'actions': [action]}, scenario_tokens,
             ) if scenario_tokens else [],
@@ -2450,13 +2616,31 @@ def project_skill_damage_product_payload(payload):
                     weighted_final /= passive_factor
 
                 runtime_factors = []
-                for layer_name, value in (
-                    runtime_layers.items() if isinstance(runtime_layers, dict) else ()
-                ):
+                factor_layers = component.get('runtime_factor_layers')
+                runtime_factor_rows = (
+                    factor_layers if isinstance(factor_layers, list)
+                    else [
+                        {'layer': layer_name, 'factor': value}
+                        for layer_name, value in (
+                            runtime_layers.items() if isinstance(runtime_layers, dict) else ()
+                        )
+                    ]
+                )
+                stripped_passive = False
+                for factor_row in runtime_factor_rows:
+                    if not isinstance(factor_row, dict):
+                        continue
+                    layer_name = factor_row.get('layer')
+                    value = factor_row.get('factor')
                     if not _finite_number(value):
                         continue
-                    if strip_passive and layer_name == component_multiplier_key:
+                    if (
+                        strip_passive
+                        and not stripped_passive
+                        and layer_name == component_multiplier_key
+                    ):
                         value /= passive_factor
+                        stripped_passive = True
                     if not math.isclose(value, 1.0, rel_tol=0.0, abs_tol=1e-12):
                         runtime_factors.append(value)
 
@@ -2559,8 +2743,8 @@ def project_skill_damage_product_payload(payload):
 class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
-    EXPORTER_SCHEMA_REVISION = 10
-    DATASET_SCHEMA_REVISION = 18
+    EXPORTER_SCHEMA_REVISION = 11
+    DATASET_SCHEMA_REVISION = 19
     TALENT_BATCH_SIZE = 12
     FIXED_PRESET = {
         'attack_power': _SKILL_DAMAGE_PRIMARY_STAT_BASE,
@@ -3092,10 +3276,17 @@ class SimcSkillDamageSnapshotService:
                         or buff.get('spell_id') < 0
                     ):
                         raise ValueError('exporter scenario buff spell identity 无效。')
+                    stacks = buff.get('stacks')
+                    if (
+                        not isinstance(stacks, int)
+                        or isinstance(stacks, bool)
+                        or stacks <= 0
+                    ):
+                        raise ValueError('exporter scenario buff stacks 无效。')
                     buff_token = buff_token.strip()
                     scenario_buff_identities[buff_token] = (buff.get('spell_id'), buff_scope)
-                    buff_tokens.append(buff_token)
-                if not buff_tokens or len(buff_tokens) != len(set(buff_tokens)):
+                    buff_tokens.append((buff_token, buff_scope, buff.get('spell_id'), stacks))
+                if not buff_tokens or len(buff_tokens) != len({item[0] for item in buff_tokens}):
                     raise ValueError('exporter scenario buff token identity 必须非空且唯一。')
                 for buff_token, buff_identity in scenario_buff_identities.items():
                     previous_identity = actor_buff_identities.get(buff_token)
