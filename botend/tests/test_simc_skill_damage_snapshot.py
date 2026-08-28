@@ -17,6 +17,10 @@ from botend.services.simc_skill_damage import (
     SimcSkillDamageSnapshotService,
     _base_damage_layer_candidate,
     _player_skill_actions,
+    _runtime_layer_candidate,
+    _runtime_layer_candidates,
+    _scenario_has_target_marginal_change,
+    _scenario_token_universe,
     _talent_declares_all_damage_modifier,
     attach_runtime_product_metrics,
     build_single_talent_actor_input,
@@ -374,10 +378,10 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
               row['baseline']['direct']['hit']) for row in rows],
             [
                 ('', '', 200.0),
-                ('血之气息', '探针条件：启用 bloodcraze buff', 240.0),
-                ('恶毒蔑视', '目标生命值低于 35%', 300.0),
-                ('恶毒蔑视', '目标生命值低于 35% + 探针启用 defensive_stance buff', 270.0),
-                ('能量爆发', '探针条件：启用 burst_of_power buff', 220.0),
+                ('血之气息', '点出血之气息天赋', 240.0),
+                ('恶毒蔑视', '血量低于35%', 300.0),
+                ('恶毒蔑视', '点出恶毒蔑视天赋，血量低于35%', 270.0),
+                ('能量爆发', '点出能量爆发天赋', 220.0),
             ],
         )
         hero_row = next(row for row in rows if row['variant']['talent_id'] == 11)
@@ -451,13 +455,13 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         ]
         self.assertEqual(observed, [
             ('', 100, 100),
-            ('目标生命值低于 35%', 80, 100),
+            ('血量低于35%', 80, 100),
             ('', 110, 90),
-            ('探针条件：启用 foo buff', 150, 100),
-            ('探针条件：启用 bar buff', 140, 100),
-            ('目标生命值低于 35%', 130, 90),
-            ('目标生命值低于 35% + 探针启用 foo buff', 170, 100),
-            ('目标生命值低于 35% + 探针启用 bar buff', 160, 100),
+            ('点出真实天赋', 150, 100),
+            ('点出真实天赋', 140, 100),
+            ('血量低于35%', 130, 90),
+            ('点出真实天赋，血量低于35%', 170, 100),
+            ('点出真实天赋，血量低于35%', 160, 100),
         ])
 
     def test_flatten_compares_each_talent_against_its_prerequisite_actor(self):
@@ -534,7 +538,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         self.assertEqual(
             [(row['variant']['runtime_condition'], row['baseline']['direct']['hit']) for row in rows],
-            [('', 100.0), ('目标生命值低于 35%', 130.0)],
+            [('', 100.0), ('血量低于35%', 130.0)],
         )
 
     def test_flatten_rejects_conflicting_duplicate_scenario_tokens(self):
@@ -815,11 +819,15 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertEqual(action['product']['formula_components'], [
             {
                 'base_damage': 100.0,
+                'base_source': 'attack_power',
+                'base_multiplier': 1.0,
                 'runtime_factors': [1.02, 1.30],
                 'final_damage': 132.6,
             },
             {
                 'base_damage': 50.0,
+                'base_source': 'attack_power',
+                'base_multiplier': 0.5,
                 'runtime_factors': [1.53],
                 'final_damage': 76.5,
             },
@@ -880,6 +888,8 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertEqual(action['product']['final_normalized_damage'], 105.0)
         self.assertEqual(action['product']['formula_components'], [{
             'base_damage': 100.0,
+            'base_source': 'attack_power',
+            'base_multiplier': 1.0,
             'runtime_factors': [1.05],
             'final_damage': 105.0,
         }])
@@ -1797,15 +1807,26 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 action('b', scenarios=shared_scenarios),
             ],
         }
+        weapon_scenarios = (
+            ('buff.avatar', 107574, amount(damage=1.20)),
+            ('buff.recklessness', 1719, amount(crit_delta=0.20)),
+        )
+        selected_weapon_scenarios = (
+            ('buff.avatar', 107574, amount(damage=1.20, base=1.06)),
+            ('buff.recklessness', 1719, amount(crit_delta=0.20, base=1.06)),
+        )
         weapon_reference = {
             'talent_effectiveness': 'inactive',
-            'actions': [action('a'), action('b')],
+            'actions': [
+                action('a', scenarios=weapon_scenarios),
+                action('b', scenarios=weapon_scenarios),
+            ],
         }
         weapon_selected = {
             'talent_effectiveness': 'active',
             'actions': [
-                action('a', baseline=amount(base=1.06)),
-                action('b', baseline=amount(base=1.06)),
+                action('a', baseline=amount(base=1.06), scenarios=selected_weapon_scenarios),
+                action('b', baseline=amount(base=1.06), scenarios=selected_weapon_scenarios),
             ],
         }
         for selected_action in weapon_selected['actions']:
@@ -1820,6 +1841,59 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             'reference_low': copy.deepcopy(weapon_reference),
             'low': copy.deepcopy(weapon_selected),
         }]
+
+        runtime_only_variant = copy.deepcopy(variants[0])
+        for actor_key in ('reference_high', 'reference_low', 'high', 'low'):
+            for runtime_action in runtime_only_variant[actor_key]['actions']:
+                runtime_action['scenarios'] = [
+                    scenario for scenario in runtime_action.get('scenarios') or []
+                    if (scenario.get('buffs') or [{}])[0].get('token') == 'buff.avatar'
+                ]
+                selected_side = actor_key in ('high', 'low')
+                runtime_action['baseline']['direct'] = amount(
+                    base=1.06 if selected_side else 1.0,
+                )['direct']
+                runtime_action['scenarios'][0]['values']['direct'] = amount(
+                    base=1.06 if selected_side else 1.0, damage=1.20,
+                )['direct']
+                runtime_action['baseline']['direct']['base_damage_layers']['component_multiplier'] = 1.0
+                runtime_action['scenarios'][0]['values']['direct']['base_damage_layers']['component_multiplier'] = 1.0
+                runtime_action['baseline']['direct']['runtime_layers']['da_multiplier'] = (
+                    1.06 if selected_side else 1.0
+                )
+                runtime_action['scenarios'][0]['values']['direct']['runtime_layers']['da_multiplier'] = (
+                    1.272 if selected_side else 1.20
+                )
+                for amount_row in (
+                    runtime_action['baseline'], runtime_action['scenarios'][0]['values'],
+                ):
+                    amount_row['direct']['runtime_layers']['specialization_passive_effects'] = [{
+                        'source_spell_id': 137050,
+                        'effect_index': 0,
+                        'component': 'direct',
+                        'factor': 1.22,
+                    }]
+        self.assertIsNotNone(_runtime_layer_candidate(
+            runtime_only_variant['reference_high'], runtime_only_variant['high'], (),
+        ))
+        for scenario_tokens in _scenario_token_universe(runtime_only_variant['high']):
+            self.assertFalse(
+                _scenario_has_target_marginal_change(
+                    runtime_only_variant['reference_high'], runtime_only_variant['high'],
+                    scenario_tokens,
+                ),
+                scenario_tokens,
+            )
+        self.assertIn((), _runtime_layer_candidates(
+            runtime_only_variant['reference_high'], runtime_only_variant['high'],
+        ))
+        runtime_only_effects = classify_global_skill_effects(
+            copy.deepcopy(base_actor), copy.deepcopy(base_actor), [runtime_only_variant],
+        )
+        runtime_only_weapon = {
+            effect['effect_id']: effect for effect in runtime_only_effects
+        }['talent:9:passive']
+        self.assertAlmostEqual(runtime_only_weapon['projections'][0]['value'], 1.06)
 
         effects = classify_global_skill_effects(
             copy.deepcopy(base_actor), copy.deepcopy(base_actor), variants,
@@ -1839,6 +1913,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         self.assertEqual(weapon['projections'][0]['kind'], 'damage_multiplier')
         self.assertAlmostEqual(weapon['projections'][0]['value'], 1.06)
+
         base_layer_evidence = _base_damage_layer_candidate(weapon_reference, weapon_selected)
         self.assertAlmostEqual(base_layer_evidence['multiplier'], 1.06)
         self.assertEqual(base_layer_evidence['mirrored_runtime_layers'], ['da_multiplier'])
@@ -1947,13 +2022,14 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 'tick': None, 'unresolved_reason': None,
             }
 
-        def action(hit, *, player_skill=False, scenarios=()):
+        def action(hit, *, player_skill=False, scenarios=(), selected_trait_effects=()):
             return {
                 'token': 'derived_action', 'spell_id': 42, 'supported': True,
                 'player_skill': player_skill,
                 'reporting_root_token': 'derived_action',
                 'reporting_root_spell_id': 42,
                 'reporting_root_component': True,
+                'selected_trait_effects': list(selected_trait_effects),
                 'baseline': amount(hit),
                 'scenarios': [
                     {
@@ -1966,14 +2042,18 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         baseline = action(100)
         mountain_reference = action(100)
-        mountain_selected = action(120)
+        mountain_selected = action(120, selected_trait_effects=({
+            'trait_entry_id': 1001,
+            'source_spell_id': 435607,
+            'effect_index': 1,
+        },))
         slayer_reference = action(100)
         slayer_selected = action(130, scenarios=(('debuff.side_effect', 150),))
         rows = flatten_single_talent_damage_variants(
             {'actions': [baseline]}, {'actions': [baseline]}, [
                 {
                     'talent': {
-                        'id': 1, 'name': 'Passive activator', 'tree_type': 'hero',
+                        'id': 1, 'node_id': 1001, 'name': 'Passive activator', 'tree_type': 'hero',
                         'hero_subtree_id': 61, 'hero_subtree_name': 'Mountain',
                     },
                     'reference_high': {'actions': [mountain_reference]},
@@ -1983,7 +2063,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 },
                 {
                     'talent': {
-                        'id': 2, 'name': 'Conditional side effect', 'tree_type': 'hero',
+                        'id': 2, 'node_id': 1002, 'name': 'Conditional side effect', 'tree_type': 'hero',
                         'hero_subtree_id': 60, 'hero_subtree_name': 'Slayer',
                     },
                     'reference_high': {'actions': [slayer_reference]},
@@ -1994,11 +2074,10 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             ],
         )
 
-        hero_rows = [row for row in rows if (row.get('variant') or {}).get('hero_subtree_id')]
+        derived_rows = [row for row in rows if row.get('token') == 'derived_action']
         self.assertEqual(
-            {(row['variant']['hero_subtree_id'], tuple(row.get('hero_subtree_ids') or ()))
-             for row in hero_rows},
-            {(60, (60,)), (61, (61,))},
+            {tuple(row.get('hero_subtree_ids') or ()) for row in derived_rows},
+            {(61,)},
         )
 
     def test_global_modifier_requires_positive_unique_talent_id_and_never_deletes_bad_ids(self):
@@ -2098,7 +2177,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         self.assertEqual({row.pk for row in rows}, {common.pk, slayer.pk, mountain_thane.pk})
 
-    def test_existing_schema_eight_snapshot_creates_new_schema_nine_identity(self):
+    def test_existing_schema_thirteen_snapshot_creates_new_schema_seventeen_identity(self):
         backend, _ = SimcBackendBinary.objects.update_or_create(
             identifier='production',
             defaults={
@@ -2110,7 +2189,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         existing = SimcSkillDamageSnapshot.objects.create(
             simc_revision='f' * 40,
             game_build='12.1.0.69300',
-            schema_revision=8,
+            schema_revision=13,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{
                 'specialization': 'fury',
@@ -2122,7 +2201,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         service = SimcSkillDamageSnapshotService.create_for_current_backend()
 
         self.assertNotEqual(service.snapshot.pk, existing.pk)
-        self.assertEqual(service.snapshot.schema_revision, 13)
+        self.assertEqual(service.snapshot.schema_revision, 17)
         self.assertEqual(service.snapshot.status, SimcSkillDamageSnapshot.STATUS_PENDING)
         self.assertEqual(service.backend.pk, backend.pk)
 
@@ -2426,9 +2505,10 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             'versatility': 1.0,
             'pet_multiplier': 1.0,
             'target_pet_multiplier': 1.0,
+            'specialization_passive_effects': [],
         }
         payload = {
-            'schema_version': 8,
+            'schema_version': 10,
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
@@ -2442,6 +2522,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 'spell_id': 1,
                 'supported': True,
                 'player_skill': True,
+                'selected_trait_effects': [],
                 'reporting_root_token': 'test_action',
                 'reporting_root_spell_id': 1,
                 'reporting_root_component': True,
@@ -2488,6 +2569,25 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             service._validate_export(payload)
         direct['runtime_layers']['da_multiplier'] = 1.0
 
+        direct['runtime_layers']['specialization_passive_effects'] = [{
+            'effect_index': 0,
+            'source_spell_id': 137050,
+            'source_name': 'Fury Warrior',
+            'component': 'direct',
+            'factor': 1.22,
+        }]
+        service._validate_export(payload)
+
+        direct['runtime_layers']['specialization_passive_effects'][0]['component'] = 'tick'
+        with self.assertRaisesRegex(ValueError, 'specialization passive effects'):
+            service._validate_export(payload)
+        direct['runtime_layers']['specialization_passive_effects'][0]['component'] = 'direct'
+
+        direct['runtime_layers']['specialization_passive_effects'][0]['factor'] = float('nan')
+        with self.assertRaisesRegex(ValueError, 'specialization passive effects'):
+            service._validate_export(payload)
+        direct['runtime_layers']['specialization_passive_effects'][0]['factor'] = 1.22
+
         direct['runtime_layers']['unexpected'] = 1.0
         with self.assertRaisesRegex(ValueError, 'runtime layers'):
             service._validate_export(payload)
@@ -2508,9 +2608,17 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                     'versatility': 1.0,
                     'pet_multiplier': 1.0,
                     'target_pet_multiplier': 1.0,
+                    'specialization_passive_effects': copy.deepcopy(
+                        direct['runtime_layers']['specialization_passive_effects']
+                    ),
                 },
             },
         }
+        tick_passive_effects = tick_action['baseline']['tick']['runtime_layers'][
+            'specialization_passive_effects'
+        ]
+        for effect in tick_passive_effects:
+            effect['component'] = 'tick'
         service._validate_export(tick_payload)
         tick_action['baseline']['tick']['runtime_layers'].pop('target_ta_multiplier')
         with self.assertRaisesRegex(ValueError, 'runtime layers'):
@@ -2568,6 +2676,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                     'versatility': 1.0,
                     'pet_multiplier': 1.0,
                     'target_pet_multiplier': 1.0,
+                    'specialization_passive_effects': [],
                 },
             }, 'tick': None}
 
@@ -2575,6 +2684,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             return {
                 'token': token, 'spell_id': spell_id, 'supported': True,
                 'player_skill': True,
+                'selected_trait_effects': [],
                 # A reporting root need not be one of the damaging exported actions.
                 'reporting_root_token': 'non_damaging_root',
                 'reporting_root_spell_id': 9000,
@@ -2599,7 +2709,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             }
 
         payload = {
-            'schema_version': 8, 'simc_revision': 'c' * 40,
+            'schema_version': 10, 'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
             'actors': [{
@@ -2695,7 +2805,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         service = SimcSkillDamageSnapshotService(snapshot)
         payload = {
-            'schema_version': 8,
+            'schema_version': 10,
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
@@ -2709,6 +2819,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 'spell_id': 1,
                 'supported': True,
                 'player_skill': True,
+                'selected_trait_effects': [],
                 'reporting_root_token': 'test_action',
                 'reporting_root_spell_id': 1,
                 'reporting_root_component': True,
@@ -2745,7 +2856,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         service = SimcSkillDamageSnapshotService(snapshot)
         base = {
-            'schema_version': 8,
+            'schema_version': 10,
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
@@ -2761,7 +2872,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         service = SimcSkillDamageSnapshotService(snapshot)
         base = {
-            'schema_version': 8,
+            'schema_version': 10,
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
             'normalization_basis': dict(service.FIXED_PRESET),
@@ -2796,7 +2907,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             },
         )
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=13,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=17,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{
                 'specialization': 'fury',
@@ -2825,11 +2936,21 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         self.user = get_user_model().objects.create_user(username='viewer', password='x')
         self.staff = get_user_model().objects.create_user(username='staff', password='x', is_staff=True)
 
-    def test_get_returns_latest_schema_nine_success_without_profile_filters(self):
+    def test_get_returns_frozen_schema_seventeen_product_without_reprojection(self):
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=13,
+            simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=17,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
-            payload={'actors': [{'specialization': 'fury'}]},
+            payload={
+                'payload_format': 'skill_damage_product_v1',
+                'display_action_count': 1,
+                'actors': [{
+                    'specialization': 'fury',
+                    'actions': [{
+                        'spell_id': 123,
+                        'product': {'final_normalized_damage': 456.0},
+                    }],
+                }],
+            },
         )
         request = self.factory.get('/api/simc-skill-damage/', {'profile_id': 99, 'talent': 'x'})
         request.user = self.user
@@ -2837,6 +2958,11 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         body = json.loads(response.content)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(body['data']['snapshot']['identity']['game_build'], '12.1.0.69299')
+        self.assertEqual(body['data']['snapshot']['payload_format'], 'skill_damage_product_v1')
+        self.assertEqual(
+            body['data']['snapshot']['actors'][0]['actions'][0]['product']['final_normalized_damage'],
+            456.0,
+        )
         self.assertNotIn('profile_id', body['data'])
         self.assertFalse(body['data']['can_generate'])
 
@@ -2854,7 +2980,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(body['data']['snapshot'])
-        self.assertIn('schema 13', body['data']['snapshot_unavailable_reason'])
+        self.assertIn('schema 17', body['data']['snapshot_unavailable_reason'])
 
     def test_get_localizes_skill_identity_and_left_cell_only_shows_name_and_spell_id(self):
         version = WowTalentVersion.objects.create(key='current', is_active=True)
@@ -2881,9 +3007,9 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
             name='Stale Action', name_zh='过期版本中文名', snapshot_build='12.1.0.69299',
         )
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=13,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=17,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
-            payload={'actors': [{
+            payload=localize_skill_damage_payload(project_skill_damage_product_payload({'actors': [{
                 'class': 'warrior', 'specialization': 'fury',
                 'hero_talent_tree': '屠戮者', 'talent_name': 'Fury Slayer',
                 'actions': [
@@ -2933,7 +3059,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
                         }}, 'tick': None},
                     },
                 ],
-            }]},
+            }]})),
         )
         request = self.factory.get('/api/simc-skill-damage/')
         request.user = self.user
@@ -2967,6 +3093,59 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
 
 
 class SimcSkillDamageDashboardContractTests(TestCase):
+    def test_skill_table_sums_formula_components_and_supports_name_sorting(self):
+        template = Path('templates/dashboard/index.html').read_text(encoding='utf-8')
+        script = Path('static/dashboard/js/main.js').read_text(encoding='utf-8')
+        renderer = script.split('function renderSimcSkillDamageSnapshot(snapshot) {', 1)[1].split(
+            'function initSimcSkillDamagePanel()', 1,
+        )[0]
+
+        self.assertIn('id="simc-skill-damage-sort-name"', template)
+        self.assertIn('aria-sort="none"', template)
+        self.assertIn("localeCompare(rightName, 'zh-CN'", renderer)
+        self.assertIn('const formulaGroups = new Map()', renderer)
+        self.assertIn("attack_power: '基础AP'", renderer)
+        self.assertIn("spell_power: '基础SP'", renderer)
+        self.assertIn("attack_and_spell_power: '基础AP+SP'", renderer)
+        self.assertIn("fixed_damage: '基础伤害'", renderer)
+        self.assertIn('component.base_source', renderer)
+        self.assertIn('component.base_multiplier', renderer)
+        self.assertNotIn('formatSimcSkillDamageNumber(group.baseDamage)', renderer)
+        self.assertIn(
+            'const renderSimcTalentProbeCondition = (runtimeCondition, scenarioTokens, talentName)',
+            renderer,
+        )
+        self.assertIn('`点出${talentLabel}`', renderer)
+        self.assertIn("'血量低于35%'", renderer)
+        self.assertNotIn('目标生命值低于 35%', renderer)
+        self.assertNotIn('「${name}」', renderer)
+        self.assertNotIn('分量 ${index + 1}', renderer)
+        self.assertNotIn('合并 ${action.component_count} 个施法分量', renderer)
+        self.assertIn("const fallbackTalentLabel = talentName.endsWith('天赋') ? talentName : `${talentName}天赋`", renderer)
+        self.assertIn("const variantLabel = conditionLabel || (talentName === '基础技能' ? talentName : `点出${fallbackTalentLabel}`)", renderer)
+        self.assertIn('${escapeHtml(variantLabel)}</div>`', renderer)
+        self.assertNotIn('const treeLabel =', renderer)
+        self.assertNotIn('${escapeHtml(talentName)}</div>${treeLabel', renderer)
+
+        identity_renderer = script.split('function renderSimcSkillIdentity(action) {', 1)[1].split(
+            'function renderSimcSkillDamageSnapshot(snapshot) {', 1,
+        )[0]
+        self.assertIn('${escapeHtml(name)}', identity_renderer)
+        self.assertIn('技能 ID：${escapeHtml(spellId)}', identity_renderer)
+        self.assertNotIn('</div><div', identity_renderer)
+
+    def test_global_effects_are_semantically_deduplicated_and_rendered_as_compact_cards(self):
+        script = Path('static/dashboard/js/main.js').read_text(encoding='utf-8')
+        renderer = script.split('function renderSimcSkillDamageSnapshot(snapshot) {', 1)[1].split(
+            'function initSimcSkillDamagePanel()', 1,
+        )[0]
+
+        self.assertIn('globalEffectDisplayKey(effect)', renderer)
+        self.assertIn('globalEffectDisplayPriority(effect)', renderer)
+        self.assertIn("effect.source_type === 'talent'", renderer)
+        self.assertIn('grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3', renderer)
+        self.assertNotIn('flex items-center justify-between gap-4 border-t', renderer)
+
     def test_dashboard_has_independent_light_skill_damage_panel(self):
         template = Path('templates/dashboard/index.html').read_text(encoding='utf-8')
         script = Path('static/dashboard/js/main.js').read_text(encoding='utf-8')
@@ -3045,9 +3224,9 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn('action.hero_subtree_ids', renderer)
         self.assertIn('variant.runtime_condition', renderer)
         self.assertIn('variant.talent_name_zh', renderer)
-        self.assertIn("const sortMode = sortButton.dataset.sortMode === 'final' ? 'final' : 'name';", renderer)
+        self.assertIn("const sortMode = nameSortButton.dataset.active === 'true' ? 'name' : 'final';", renderer)
         self.assertIn("if (sortMode === 'final')", renderer)
-        self.assertIn("sortButton.dataset.sortMode = 'final';", script)
+        self.assertIn("finalSortButton.dataset.active = 'true';", script)
         self.assertIn('sortDirection', renderer)
         self.assertIn('finalSortValue', renderer)
         self.assertNotIn('全部专精', renderer)

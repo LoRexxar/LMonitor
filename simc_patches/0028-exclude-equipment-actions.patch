@@ -1,0 +1,29 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -1107,7 +1107,6 @@
+       if ( !action || skill_damage_external_recipient_action( *action ) ||
+            ( !action->does_direct_damage() && !action->does_periodic_damage() ) ) continue;
+       const unsigned spell_id = apl_metadata_action_spell_id( *action );
+-      if ( !exported_actions.emplace( action->name_str, spell_id ).second ) continue;
+ 
+       const auto immediate_parents = action_parents.find( action );
+       const action_t* parent_action = immediate_parents != action_parents.end() && immediate_parents->second.size() == 1
+@@ -1140,6 +1139,11 @@
+       const action_t* reporting_root = unambiguous_ancestry && trigger_proven ? reporting_root_candidate : action;
+       const unsigned reporting_root_spell_id = apl_metadata_action_spell_id( *reporting_root );
+       const bool reporting_root_component = reporting_root == action || trigger_proven;
++
++      // Equipment effects are initialized on the actor but are not player skills.
++      // Use SimC's native action provenance rather than spell/name/class heuristics.
++      if ( reporting_root->item ) continue;
++      if ( !exported_actions.emplace( action->name_str, spell_id ).second ) continue;
+ 
+       const bool requires_weapon_data = action->weapon != nullptr && action->weapon_multiplier != 0.0;
+       const bool residual_trigger_dependent = skill_damage_residual_trigger_dependent( *action );
+@@ -1210,5 +1214,5 @@
+   const std::string temporary = target + ".tmp." + std::to_string( static_cast<long long>( getpid() ) );
+   std::ofstream out( temporary, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open temporary skill damage export file" );
+-  out << "{\"schema_version\":9,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
++  out << "{\"schema_version\":10,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );

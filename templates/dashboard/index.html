@@ -476,7 +476,7 @@
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260828_mdt_default_route_tab"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260828_mdt_default_route_tab_skill_damage_formula_source"></script>
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806c" defer></script>
     <script src="{% static 'dashboard/js/simc-result-report.js' %}?v=20260817_result_config_panel"></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260818_task_compare_selection"></script>
@@ -1783,7 +1783,7 @@
                                 <div class="simc-skill-damage-table mt-4 overflow-x-auto rounded-xl border border-stone-300 bg-stone-50">
                                     <table class="min-w-full border-collapse text-sm">
                                         <thead class="bg-stone-200 text-left text-xs font-bold uppercase tracking-wide text-stone-700">
-                                            <tr><th class="px-3 py-3">技能</th><th class="px-3 py-3">单项天赋条件</th><th class="px-3 py-3">基础 AP/SP 伤害</th><th class="px-3 py-3">伤害公式</th><th class="px-3 py-3"><button id="simc-skill-damage-sort-final" type="button" data-direction="desc" class="font-bold text-blue-900 hover:underline">最终归一化伤害 ↓</button></th></tr>
+                                            <tr><th id="simc-skill-damage-sort-name-header" aria-sort="none" class="px-3 py-3"><button id="simc-skill-damage-sort-name" type="button" data-active="false" data-direction="asc" class="font-bold text-blue-900 hover:underline">技能 ↕</button></th><th class="px-3 py-3">单项天赋条件</th><th class="px-3 py-3">基础 AP/SP 伤害</th><th class="px-3 py-3">伤害公式</th><th id="simc-skill-damage-sort-final-header" aria-sort="descending" class="px-3 py-3"><button id="simc-skill-damage-sort-final" type="button" data-active="true" data-direction="desc" class="font-bold text-blue-900 hover:underline">最终归一化伤害 ↓</button></th></tr>
                                         </thead>
                                         <tbody id="simc-skill-damage-body" class="divide-y divide-stone-300 bg-white"><tr><td colspan="5" class="px-4 py-8 text-center text-stone-500">请先选择专精</td></tr></tbody>
                                     </table>

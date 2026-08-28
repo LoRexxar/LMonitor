@@ -56,10 +56,7 @@ from botend.services.simc_player_config import (
     SUPPORTED_SIMC_SPEC_IDENTITIES,
 )
 from botend.services.simc_composer import SimcComposer, validate_simulation_options
-from botend.services.simc_skill_damage import (
-    SimcSkillDamageSnapshotService, localize_skill_damage_payload,
-    project_skill_damage_product_payload,
-)
+from botend.services.simc_skill_damage import SimcSkillDamageSnapshotService
 from botend.wow.talents.service import TalentBuildCodeService
 from botend.services.simc_hero_talents import resolve_hero_talent_names
 from botend.services.simc_consumables import simc_consumable_option
@@ -8220,11 +8217,7 @@ class SimcSkillDamageSnapshotAPIView(View):
                 'game_build': latest.game_build,
                 'schema_revision': latest.schema_revision,
             }
-            snapshot = localize_skill_damage_payload(
-                project_skill_damage_product_payload({
-                    **(latest.payload or {}), 'identity': identity,
-                })
-            )
+            snapshot = {**(latest.payload or {}), 'identity': identity}
             snapshot['identity'] = identity
             snapshot['id'] = latest.pk
             snapshot['status'] = latest.status
