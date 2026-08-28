@@ -414,8 +414,17 @@ function activateDashboardLocation() {
         target = Array.from(document.querySelectorAll('.submenu-item[data-tool]'))
             .find(item => item.dataset.tool === tool);
     } else if (section) {
-        target = Array.from(document.querySelectorAll('[data-dashboard-section]'))
-            .find(item => item.dataset.dashboardSection === section);
+        const mythicResource = params.get('resource') || '';
+        const sectionTargets = Array.from(
+            document.querySelectorAll('[data-dashboard-section]'),
+        ).filter(item => item.dataset.dashboardSection === section);
+        target = (
+            mythicResource
+                ? sectionTargets.find(
+                    item => item.dataset.mythicResource === mythicResource,
+                )
+                : sectionTargets.find(item => !item.dataset.mythicResource)
+        ) || sectionTargets[0];
         if (!target) {
             target = Array.from(document.querySelectorAll('.nav-item[data-section]'))
                 .find(item => item.dataset.section === section);
@@ -590,6 +599,7 @@ function initNavigation() {
             e.preventDefault();
             e.stopPropagation(); // 阻止事件冒泡到父级菜单项
             const dashboardSection = this.getAttribute('data-dashboard-section');
+            const mythicResource = this.getAttribute('data-mythic-resource') || '';
             if (!isSimcDashboardSection(dashboardSection)) deactivateSimcWorkbench();
 
             // 移除所有子菜单项的active类
@@ -631,7 +641,10 @@ function initNavigation() {
                         switchSimcPlayerImportMode();
                     }
                     document.dispatchEvent(new CustomEvent('dashboard-section-changed', {
-                        detail: { section: dashboardSection },
+                        detail: {
+                            section: dashboardSection,
+                            mythicResource,
+                        },
                     }));
                     syncDashboardLocation({ section: dashboardSection });
                 }

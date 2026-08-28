@@ -18,6 +18,7 @@ from botend.models import (
     MythicDungeon,
     MythicDungeonAbility,
     MythicDungeonDataVersion,
+    MythicDungeonDefaultRoute,
     MythicDungeonEnemy,
     MythicDungeonFloor,
     MythicDungeonPoi,
@@ -390,6 +391,43 @@ def _management_route(row, owner=None, include_payload=False):
     return result
 
 
+def _management_default_route(row):
+    route_data = row.route_data if isinstance(row.route_data, dict) else {}
+    pulls = route_data.get('pulls')
+    pulls = pulls if isinstance(pulls, list) else []
+    annotations = route_data.get('annotations')
+    annotations = annotations if isinstance(annotations, list) else []
+    spawn_count = sum(
+        len(pull.get('spawn_uids') or [])
+        for pull in pulls
+        if isinstance(pull, dict) and isinstance(pull.get('spawn_uids'), list)
+    )
+    return {
+        'id': row.id,
+        'dungeon_id': row.dungeon_id,
+        'dungeon_name': row.dungeon.display_name,
+        'data_version_id': row.dungeon.data_version_id,
+        'version_label': row.dungeon.data_version.label,
+        'name': row.name,
+        'description': row.description,
+        'applicable_level': row.applicable_level,
+        'dungeon_level': row.dungeon_level,
+        'route_data': route_data,
+        'route_code': encode_share_code(route_data),
+        'pull_count': len(pulls),
+        'spawn_count': spawn_count,
+        'annotation_count': len(annotations),
+        'order': row.order,
+        'is_featured': row.is_featured,
+        'is_active': row.is_active,
+        'revision': row.revision,
+        'created_by_user_id': row.created_by_user_id,
+        'updated_by_user_id': row.updated_by_user_id,
+        'created_at': _iso(row.created_at),
+        'updated_at': _iso(row.updated_at),
+    }
+
+
 def management_snapshot(resources=None, dungeon_id=None):
     if resources is None:
         requested_resources = None
@@ -461,6 +499,12 @@ def management_snapshot(resources=None, dungeon_id=None):
             'dungeon__data_version',
         ).all()
     ) if wants('routes') else []
+    default_routes = list(
+        MythicDungeonDefaultRoute.objects.select_related(
+            'dungeon',
+            'dungeon__data_version',
+        ).all()
+    ) if wants('default_routes') else []
     owner_ids = {
         row.owner_user_id
         for row in routes
@@ -485,6 +529,7 @@ def management_snapshot(resources=None, dungeon_id=None):
         'spawns': MythicDungeonSpawn,
         'pois': MythicDungeonPoi,
         'routes': MythicDungeonRoute,
+        'default_routes': MythicDungeonDefaultRoute,
         'configs': MythicPlannerConfig,
     }
     loaded_rows = {
@@ -499,6 +544,7 @@ def management_snapshot(resources=None, dungeon_id=None):
         'spawns': spawns,
         'pois': pois,
         'routes': routes,
+        'default_routes': default_routes,
         'configs': configs,
     }
 
@@ -702,6 +748,10 @@ def management_snapshot(resources=None, dungeon_id=None):
             _management_route(row, owners.get(row.owner_user_id))
             for row in routes
         ],
+        'default_routes': [
+            _management_default_route(row)
+            for row in default_routes
+        ],
         'configs': [
             {
                 'id': row.id,
@@ -731,6 +781,16 @@ RESOURCE_SPECS = {
         'model': MythicDungeonRoute,
         'fields': {'is_public', 'is_active'},
         'bool': {'is_public', 'is_active'},
+    },
+    'default_routes': {
+        'model': MythicDungeonDefaultRoute,
+        'fields': {
+            'dungeon_id', 'name', 'description', 'applicable_level', 'dungeon_level',
+            'route_data', 'order', 'is_featured', 'is_active',
+        },
+        'json': {'route_data'},
+        'bool': {'is_featured', 'is_active'},
+        'int': {'dungeon_id', 'dungeon_level', 'order'},
     },
     'versions': {
         'model': MythicDungeonDataVersion,
@@ -1098,6 +1158,142 @@ class DashboardMythicPlannerAPIView(View):
                         snapshot_dungeon_id,
                     ),
                 )
+            if resource == 'default_routes':
+                data = body.get('data')
+                if not isinstance(data, dict):
+                    raise ValueError('data 必须是 JSON 对象。')
+                route_code = str(data.get('route_code') or '').strip()
+                clean = _coerce_resource_data(
+                    RESOURCE_SPECS['default_routes'],
+                    data,
+                )
+                with transaction.atomic():
+                    row = None
+                    if object_id:
+                        row = get_object_or_404(
+                            MythicDungeonDefaultRoute.objects.select_related(
+                                'dungeon__data_version',
+                            ),
+                            id=object_id,
+                        )
+                    raw_route_data = (
+                        decode_share_code(route_code)
+                        if route_code
+                        else clean.get(
+                            'route_data',
+                            getattr(row, 'route_data', None),
+                        )
+                    )
+                    if not isinstance(raw_route_data, dict):
+                        raise ValueError('推荐路线字符串不能为空。')
+                    dungeon_key = str(
+                        raw_route_data.get('dungeon_key') or ''
+                    ).strip()
+                    data_version_key = str(
+                        raw_route_data.get('data_version_key') or ''
+                    ).strip()
+                    dungeon_queryset = MythicDungeon.objects.select_related(
+                        'data_version',
+                    )
+                    if dungeon_key:
+                        dungeon_queryset = dungeon_queryset.filter(
+                            key=dungeon_key,
+                        )
+                        if data_version_key:
+                            dungeon_queryset = dungeon_queryset.filter(
+                                data_version__key=data_version_key,
+                            )
+                        else:
+                            dungeon_queryset = dungeon_queryset.order_by(
+                                '-data_version__is_active',
+                                'id',
+                            )
+                        dungeon = dungeon_queryset.first()
+                        if not dungeon:
+                            raise ValueError(
+                                '路线字符串对应的地下城或数据版本不存在。'
+                            )
+                    else:
+                        dungeon_id = clean.get(
+                            'dungeon_id',
+                            getattr(row, 'dungeon_id', None),
+                        )
+                        if not dungeon_id:
+                            raise ValueError('路线字符串缺少地下城标识。')
+                        dungeon = get_object_or_404(
+                            dungeon_queryset,
+                            id=dungeon_id,
+                        )
+                    name = str(
+                        clean.get('name', getattr(row, 'name', '')) or ''
+                    ).strip()
+                    if not name:
+                        raise ValueError('推荐路线名称不能为空。')
+                    applicable_level = str(clean.get(
+                        'applicable_level',
+                        getattr(row, 'applicable_level', ''),
+                    ) or '').strip()
+                    if not applicable_level:
+                        raise ValueError('适用层数不能为空。')
+                    dungeon_level = int(clean.get(
+                        'dungeon_level',
+                        raw_route_data.get(
+                            'dungeon_level',
+                            getattr(row, 'dungeon_level', 10),
+                        ),
+                    ))
+                    config = MythicPlannerConfig.objects.filter(
+                        key='default',
+                    ).first()
+                    min_level = config.min_dungeon_level if config else 2
+                    max_level = config.max_dungeon_level if config else 35
+                    if not min_level <= dungeon_level <= max_level:
+                        raise ValueError(
+                            f'地下城层数必须在 {min_level} 到 {max_level} 之间。'
+                        )
+                    canonical_payload = dict(raw_route_data)
+                    canonical_payload.update({
+                        'version': 1,
+                        'dungeon_key': dungeon.key,
+                        'data_version_key': dungeon.data_version.key,
+                        'name': name,
+                        'dungeon_level': dungeon_level,
+                    })
+                    validated = validate_route_payload(
+                        canonical_payload,
+                        dungeon,
+                    )
+                    encode_share_code(validated.payload)
+                    clean.update({
+                        'dungeon_id': dungeon.id,
+                        'name': name,
+                        'applicable_level': applicable_level,
+                        'dungeon_level': dungeon_level,
+                        'route_data': validated.payload,
+                    })
+                    if row:
+                        for field, value in clean.items():
+                            setattr(row, field, value)
+                        row.revision += 1
+                    else:
+                        row = MythicDungeonDefaultRoute(
+                            **clean,
+                            created_by_user_id=request.user.id,
+                        )
+                    row.updated_by_user_id = request.user.id
+                    row.full_clean()
+                    row.save()
+                    if row.is_featured and row.is_active:
+                        MythicDungeonDefaultRoute.objects.exclude(
+                            id=row.id,
+                        ).filter(is_featured=True).update(is_featured=False)
+                return success(
+                    {'id': row.id, 'resource': resource},
+                    snapshot=management_snapshot(
+                        snapshot_resources,
+                        snapshot_dungeon_id,
+                    ),
+                )
             if resource == 'spawn_position_reset':
                 if not object_id:
                     raise ValueError('缺少刷新点 ID。')
@@ -1365,9 +1561,14 @@ class DashboardMythicPlannerAPIView(View):
             if not hasattr(row, 'is_active'):
                 raise ValueError('该资源不支持停用。')
             row.is_active = False
+            update_fields = ['is_active', 'updated_at']
             if isinstance(row, MythicDungeonDataVersion):
                 row.imported_at = row.imported_at or timezone.now()
-            row.save(update_fields=['is_active', 'updated_at'])
+            if isinstance(row, MythicDungeonDefaultRoute):
+                row.revision += 1
+                row.updated_by_user_id = request.user.id
+                update_fields.extend(['revision', 'updated_by_user_id'])
+            row.save(update_fields=update_fields)
             return success(
                 {'id': row.id, 'resource': resource, 'archived': True},
                 snapshot=management_snapshot(

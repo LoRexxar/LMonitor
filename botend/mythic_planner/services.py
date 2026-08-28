@@ -8,6 +8,7 @@ from botend.models import (
     MythicDungeonAbility,
     MythicDungeonDataVersion,
     MythicDungeonEnemy,
+    MythicDungeonDefaultRoute,
     MythicDungeonFloor,
     MythicDungeonPoi,
     MythicDungeonRoute,
@@ -105,13 +106,27 @@ def serialize_catalog():
     version = active_data_version()
     config = planner_config_dict()
     if not version:
-        return {'version': None, 'dungeons': [], 'config': config}
+        return {
+            'version': None,
+            'dungeons': [],
+            'default_routes': [],
+            'config': config,
+        }
     dungeons = list(
         version.dungeons.filter(is_active=True)
         .prefetch_related(
             Prefetch('floors', queryset=MythicDungeonFloor.objects.filter(is_active=True)),
         )
         .order_by('order', 'name_zh', 'name')
+    )
+    default_routes = list(
+        MythicDungeonDefaultRoute.objects.filter(
+            dungeon__data_version=version,
+            dungeon__is_active=True,
+            is_active=True,
+        )
+        .select_related('dungeon')
+        .order_by('-is_featured', 'order', 'name', 'id')
     )
     groups = list(
         MythicDungeonSelectionGroup.objects.filter(
@@ -209,6 +224,32 @@ def serialize_catalog():
                 ],
             }
             for dungeon in dungeons
+        ],
+        'default_routes': [
+            {
+                'id': route.id,
+                'revision': route.revision,
+                'name': route.name,
+                'description': route.description,
+                'applicable_level': (
+                    route.applicable_level
+                    or f'{route.dungeon_level} 层'
+                ),
+                'dungeon_key': route.dungeon.key,
+                'dungeon_name': display_name(route.dungeon),
+                'dungeon_level': route.dungeon_level,
+                'route_data': route.route_data or {},
+                'route_code': encode_share_code(route.route_data or {}),
+                'order': route.order,
+                'is_featured': route.is_featured,
+                'is_active': route.is_active,
+                'updated_at': (
+                    route.updated_at.isoformat()
+                    if route.updated_at
+                    else None
+                ),
+            }
+            for route in default_routes
         ],
         'config': config,
     }

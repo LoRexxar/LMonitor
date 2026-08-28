@@ -259,6 +259,20 @@
         };
     }
 
+    function catalogDefaultRoutes() {
+        return Array.isArray(state.catalog?.default_routes)
+            ? state.catalog.default_routes.filter((route) => route?.id && route?.dungeon_key)
+            : [];
+    }
+
+    function preferredDefaultRoute(dungeonKey = '') {
+        const routes = catalogDefaultRoutes();
+        const candidates = dungeonKey
+            ? routes.filter((route) => route.dungeon_key === dungeonKey)
+            : routes;
+        return candidates.find((route) => route.is_featured) || candidates[0] || null;
+    }
+
     function defaultPull(index, color = PULL_COLORS[index % PULL_COLORS.length]) {
         const pull = {
             id: randomId(),
@@ -476,19 +490,40 @@
             const params = new URLSearchParams(window.location.search);
             const requested = params.get('dungeon');
             const configured = state.catalog.config.default_dungeon_key;
-            const initial = state.catalog.dungeons.find((dungeon) => dungeon.key === requested)
+            const shareRequest = sharedRouteRequest();
+            const localRoutes = loadStoredRoutes();
+            const globalDefaultRoute = preferredDefaultRoute();
+            const requestedDungeon = state.catalog.dungeons.find((dungeon) => dungeon.key === requested);
+            const defaultDungeon = (
+                !shareRequest
+                && !localRoutes.length
+                && !requestedDungeon
+                && globalDefaultRoute
+            )
+                ? state.catalog.dungeons.find((dungeon) => dungeon.key === globalDefaultRoute.dungeon_key)
+                : null;
+            const initial = requestedDungeon
+                || defaultDungeon
                 || state.catalog.dungeons.find((dungeon) => dungeon.key === configured)
                 || state.catalog.dungeons[0];
+            const autoDefaultRoute = (
+                !shareRequest && !localRoutes.length
+                    ? preferredDefaultRoute(initial.key)
+                    : null
+            );
             selectGroupForDungeon(initial.key);
             renderCatalogSelectors(initial.key);
             configureLevelSlider();
-            const shareRequest = sharedRouteRequest();
             await loadDungeon(initial.key, {
-                restore: !shareRequest,
-                persist: !shareRequest,
+                restore: !shareRequest && localRoutes.length > 0,
+                persist: !shareRequest && (localRoutes.length > 0 || !autoDefaultRoute),
             });
             await maybeLoadSharedRoute();
-            setStatus(`已加载 ${state.catalog.version.label}。`);
+            if (autoDefaultRoute) {
+                await applyDefaultRoute(autoDefaultRoute, {automatic: true});
+            } else {
+                setStatus(`已加载 ${state.catalog.version.label}。`);
+            }
         } catch (error) {
             showEmptyState(error.message);
             toast(error.message, true);
@@ -1673,10 +1708,18 @@
         toast('已新建空白路线。');
     }
 
-    function deleteRoute() {
+    async function deleteRoute() {
         const old = state.route;
         if (!window.confirm(`确认删除本地路线“${old.name}”？服务器路线不会同时删除。`)) return;
         removeStoredRoute(old.local_id);
+        const fallback = !loadStoredRoutes().length
+            ? preferredDefaultRoute(state.dungeon.key)
+            : null;
+        if (fallback) {
+            await applyDefaultRoute(fallback, {automatic: true});
+            toast('本地路线已删除，已重新创建默认路线副本。');
+            return;
+        }
         state.route = defaultRoute(state.dungeon.key);
         state.route.current_pull_id = state.route.pulls[0].id;
         persistRoute();
@@ -1688,9 +1731,20 @@
         try {
             await navigator.clipboard.writeText(value);
         } catch (_error) {
-            const field = $(fallbackSelector);
-            field?.select();
+            const field = fallbackSelector ? $(fallbackSelector) : null;
+            if (field) {
+                field.select();
+                document.execCommand('copy');
+                return;
+            }
+            const temporaryField = document.createElement('textarea');
+            temporaryField.value = value;
+            temporaryField.style.position = 'fixed';
+            temporaryField.style.opacity = '0';
+            document.body.appendChild(temporaryField);
+            temporaryField.select();
             document.execCommand('copy');
+            temporaryField.remove();
         }
     }
 
@@ -1796,6 +1850,8 @@
             )
             || ''
         );
+        route.source_default_route_id = routeMeta.source_default_route_id || '';
+        route.source_default_route_revision = routeMeta.source_default_route_revision || '';
         route.name = payload.name || routeMeta.name || '导入路线';
         route.dungeon_level = Number(payload.dungeon_level || 10);
         route.pulls = Array.isArray(payload.pulls) ? payload.pulls : [];
@@ -1812,6 +1868,26 @@
         renderAll();
     }
 
+    async function applyDefaultRoute(defaultRouteData, {automatic = false} = {}) {
+        const payload = clone(defaultRouteData?.route_data || {});
+        payload.version = Number(payload.version || 1);
+        payload.dungeon_key = defaultRouteData.dungeon_key;
+        payload.name = defaultRouteData.name || payload.name || '默认路线副本';
+        payload.dungeon_level = Number(
+            defaultRouteData.dungeon_level || payload.dungeon_level || 10,
+        );
+        await applyImportedPayload(payload, {
+            name: defaultRouteData.name,
+            source_default_route_id: defaultRouteData.id,
+            source_default_route_revision: defaultRouteData.revision,
+        });
+        setStatus(
+            automatic
+                ? `没有本地路线，已自动创建“${defaultRouteData.name}”的本地副本。`
+                : `已从默认路线“${defaultRouteData.name}”创建本地副本。`,
+        );
+    }
+
     function routeLibraryStats(routeData) {
         const pulls = Array.isArray(routeData?.pulls) ? routeData.pulls : [];
         const selected = pulls.reduce(
@@ -1825,7 +1901,16 @@
         if (!value) return '尚未记录更新时间';
         const date = new Date(value);
         if (Number.isNaN(date.getTime())) return '更新时间未知';
-        return `更新于 ${date.toLocaleString('zh-CN', {hour12: false})}`;
+        return date.toLocaleString('zh-CN', {hour12: false});
+    }
+
+    function routeLibraryCode(route) {
+        return String(route?.route_code || '');
+    }
+
+    function routeLibraryNotePreview(route) {
+        const note = String(route?.description || '暂无备注');
+        return note.length > 9 ? `${note.slice(0, 9)}…` : note;
     }
 
     function localRouteRows() {
@@ -1840,9 +1925,11 @@
                     <div class="mdt-library-copy">
                         <div class="mdt-library-title">
                             <strong>${escapeHtml(route.name || '未命名路线')}</strong>
+                            <span class="mdt-library-badge">本地路线</span>
+                            ${route.source_default_route_id ? '<span class="mdt-library-badge is-default">默认路线副本</span>' : ''}
                         </div>
                         <span>${escapeHtml(dungeon?.display_name || route.dungeon_key)} · ${routeLibraryStats(route)}</span>
-                        <span>${routeLibraryTime(route.updated_at)}</span>
+                        <span>更新于 ${routeLibraryTime(route.updated_at)}</span>
                     </div>
                     <div class="mdt-library-actions">
                         <button type="button" data-load-route="${escapeHtml(route.local_id)}">载入</button>
@@ -1852,9 +1939,53 @@
         }).join('')}</div>`;
     }
 
+    function defaultRouteRows() {
+        const rows = catalogDefaultRoutes();
+        if (!rows.length) {
+            return '<div class="mdt-library-empty">当前数据版本还没有发布默认路线。</div>';
+        }
+        return `<div class="mdt-route-library">${rows.map((route) => {
+            const routeCode = routeLibraryCode(route);
+            return `
+            <article class="mdt-library-row mdt-library-row-default">
+                <div class="mdt-library-copy mdt-library-compact-name">
+                    <div class="mdt-library-title">
+                        <strong>${escapeHtml(route.name || '未命名默认路线')}</strong>
+                        <span class="mdt-library-badge is-default">推荐路线</span>
+                        ${route.is_featured ? '<span class="mdt-library-badge is-featured">首选</span>' : ''}
+                        <span class="mdt-library-enabled ${route.is_active ? 'is-active' : ''}" title="是否启用：${route.is_active ? '启用' : '停用'}">${route.is_active ? '启用' : '停用'}</span>
+                    </div>
+                    <span class="mdt-library-context">${escapeHtml(route.dungeon_name || route.dungeon_key)} · ${routeLibraryStats(route.route_data)}</span>
+                </div>
+                <div class="mdt-library-compact-value mdt-library-applicable-level"><span>适用层数</span><strong>${escapeHtml(route.applicable_level || `${Number(route.dungeon_level || 0)} 层`)}</strong></div>
+                <div class="mdt-library-compact-value mdt-library-compact-time"><span>更新时间</span><time>${escapeHtml(routeLibraryTime(route.updated_at))}</time></div>
+                <button
+                    type="button"
+                    class="mdt-library-note-trigger"
+                    title="${escapeHtml(route.description || '暂无备注')}"
+                    aria-label="备注：${escapeHtml(route.description || '暂无备注')}"
+                ><span>备注</span><strong>${escapeHtml(routeLibraryNotePreview(route))}</strong></button>
+                <div class="mdt-library-actions">
+                    <button type="button" data-copy-default-route="${Number(route.id)}" ${routeCode ? '' : 'disabled'}>复制字符串</button>
+                    <button type="button" class="is-primary" data-load-default-route="${Number(route.id)}">创建本地副本</button>
+                </div>
+            </article>
+        `;
+        }).join('')}</div>`;
+    }
+
     function renderRouteLibraryModal() {
         if (state.modalView !== 'route-library') return;
         els.modalContent.innerHTML = `
+            <section class="mdt-library-section">
+                <header>
+                    <div>
+                        <strong>推荐路线</strong>
+                        <span>由管理员发布；载入后独立保存，修改不会影响推荐数据</span>
+                    </div>
+                </header>
+                ${defaultRouteRows()}
+            </section>
             <section class="mdt-library-section">
                 <header>
                     <div>
@@ -1870,7 +2001,7 @@
     function showRouteLibrary() {
         openModal({
             title: '路线库',
-            subtitle: '当前浏览器路线',
+            subtitle: '推荐路线与当前浏览器路线',
             content: '',
             actions: [{label: '关闭', handler: closeModal}],
             view: 'route-library',
@@ -2173,6 +2304,29 @@
                     toast(`已载入路线“${route.name}”。`);
                 }
                 return;
+            }
+            const defaultButton = event.target.closest('[data-load-default-route]');
+            if (defaultButton) {
+                const route = catalogDefaultRoutes().find(
+                    (row) => Number(row.id) === Number(defaultButton.dataset.loadDefaultRoute),
+                );
+                if (route) {
+                    await applyDefaultRoute(route);
+                    closeModal();
+                    toast(`已创建默认路线“${route.name}”的本地副本。`);
+                }
+                return;
+            }
+            const copyDefaultButton = event.target.closest('[data-copy-default-route]');
+            if (copyDefaultButton) {
+                const route = catalogDefaultRoutes().find(
+                    (row) => Number(row.id) === Number(copyDefaultButton.dataset.copyDefaultRoute),
+                );
+                const routeCode = routeLibraryCode(route);
+                if (routeCode) {
+                    await copyText(routeCode);
+                    toast(`推荐路线“${route.name}”的字符串已复制。`);
+                }
             }
         });
         window.addEventListener('keydown', (event) => {

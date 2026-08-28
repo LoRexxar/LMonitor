@@ -60,6 +60,27 @@
                 {key: 'settings', label: '其他设置（JSON）', type: 'json', wide: true, default: {}},
             ],
         },
+        default_routes: {
+            title: '推荐路线',
+            singular: '推荐路线',
+            description: '维护向所有玩家发布的推荐路线；玩家载入后会创建本地副本，后续修改不会回写这里。',
+            columns: [
+                ['name', '路线名'],
+                ['applicable_level', '适用层数'],
+                ['updated_at', '更新时间'],
+                ['description', '备注'],
+                ['is_active', '是否启用'],
+                ['route_code', '字符串'],
+            ],
+            fields: [
+                {key: 'name', label: '路线名', required: true},
+                {key: 'applicable_level', label: '适用层数', required: true, help: '支持“12层左右”“10–15层均可”等自由描述。'},
+                {key: 'updated_at', label: '更新时间', type: 'readonly'},
+                {key: 'description', label: '备注', type: 'textarea', wide: true},
+                {key: 'is_active', label: '是否启用', type: 'checkbox', default: true},
+                {key: 'route_code', label: '字符串', type: 'textarea', wide: true, required: true, help: '粘贴规划器导出的 !~MDT2~ 路线字符串；系统会自动识别所属地下城并校验路线内容。'},
+            ],
+        },
         selection_groups: {
             title: '赛季分类',
             singular: '赛季分类',
@@ -303,6 +324,7 @@
     const CONFIG_RESOURCE_DEPENDENCIES = {
         versions: ['versions'],
         configs: ['versions', 'dungeons', 'configs'],
+        default_routes: ['versions', 'dungeons', 'default_routes'],
         selection_groups: ['versions', 'selection_groups'],
         selection_memberships: [
             'versions',
@@ -409,7 +431,7 @@
 
     function dungeonForRow(resource, row) {
         if (resource === 'dungeons') return row;
-        if (resource === 'routes') return rowBy('dungeons', row.dungeon_id);
+        if (resource === 'routes' || resource === 'default_routes') return rowBy('dungeons', row.dungeon_id);
         if (resource === 'selection_memberships') return rowBy('dungeons', row.dungeon_id);
         if (resource === 'floors' || resource === 'enemies') return rowBy('dungeons', row.dungeon_id);
         if (resource === 'abilities') return rowBy('dungeons', rowBy('enemies', row.enemy_id)?.dungeon_id);
@@ -582,6 +604,19 @@
             return `<div class="mp-admin-name"><strong>${escapeHtml(label)}</strong><span>${escapeHtml(meta)}</span></div>`;
         }
         if (key === 'route_stats') return `${Number(row.pull_count || 0)} 波 · ${Number(row.spawn_count || 0)} 个怪 · ${Number(row.annotation_count || 0)} 条标注`;
+        if (key === 'route_code') {
+            const code = String(row.route_code || '');
+            if (!code) return '—';
+            const preview = code.length > 30 ? `${code.slice(0, 30)}…` : code;
+            return `<code class="mp-admin-route-code">${escapeHtml(preview)}<span>${code.length} 字符</span></code>`;
+        }
+        if (key === 'description' && state.resource === 'default_routes') {
+            const description = String(row.description || '');
+            return description
+                ? `<span class="mp-admin-route-note">${escapeHtml(description)}</span>`
+                : '—';
+        }
+        if (key === 'is_featured') return `<span class="mp-admin-status ${row.is_featured ? 'is-public' : ''}">${row.is_featured ? '首选' : '普通'}</span>`;
         if (key === 'share_status') return `<span class="mp-admin-status ${row.is_public ? 'is-public' : ''}">${row.is_public ? '公开' : '私有'}</span>`;
         if (key === 'updated_at' || key === 'created_at') return formatDateTime(row[key]);
         if (key === 'display_name') {
@@ -681,6 +716,10 @@
         const classes = field.wide ? 'is-wide' : '';
         const required = field.required ? ' required' : '';
         const help = field.help ? `<small>${escapeHtml(field.help)}</small>` : '';
+        if (field.type === 'readonly') {
+            const text = value ? formatDateTime(value) : '保存后自动生成';
+            return `<label class="${classes}"><span>${escapeHtml(field.label)}</span><input name="${field.key}" type="text" value="${escapeHtml(text)}" readonly aria-readonly="true"></label>`;
+        }
         if (field.type === 'checkbox') {
             return `<label class="${classes} mp-admin-checkbox"><input name="${field.key}" type="checkbox" ${value ? 'checked' : ''}><span>${escapeHtml(field.label)}</span></label>`;
         }
@@ -732,6 +771,7 @@
         const config = RESOURCE_CONFIG[state.resource];
         const data = {};
         for (const field of config.fields) {
+            if (field.type === 'readonly') continue;
             const input = els.resourceForm.elements.namedItem(field.key);
             if (!input) continue;
             if (field.type === 'checkbox') data[field.key] = input.checked;
@@ -1105,6 +1145,12 @@
         });
         els.importForm.addEventListener('submit', submitImport);
         $('#load-demo-json').addEventListener('click', loadJsonTemplate);
+        document.addEventListener('dashboard-section-changed', (event) => {
+            if (event.detail?.section !== 'mythic-planner-config') return;
+            const resource = String(event.detail?.mythicResource || 'versions');
+            if (resource === state.resource) return;
+            $(`[data-resource="${resource}"]`, els.resourceNav)?.click();
+        });
         window.addEventListener('keydown', (event) => {
             if (event.key !== 'Escape') return;
             if (!els.editorModal.hidden) closeEditor();

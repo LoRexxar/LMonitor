@@ -567,6 +567,26 @@
 .mp-dashboard-embedded td { color: #34445a; font-size: 12px; }
 .mp-dashboard-embedded tbody tr:hover { background: #f8fbff; }
 .mp-admin-key { font-family: Consolas, monospace; color: #31527b; font-size: 10px; }
+.mp-admin-route-code {
+    display: block;
+    max-width: 250px;
+    overflow: hidden;
+    color: #31527b;
+    font-family: Consolas, monospace;
+    font-size: 10px;
+    line-height: 1.4;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.mp-admin-route-code span { margin-left: 6px; color: #8794a5; font-family: inherit; font-size: 9px; }
+.mp-admin-route-note {
+    display: -webkit-box;
+    max-width: 260px;
+    overflow: hidden;
+    line-height: 1.45;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
 .mp-admin-name strong, .mp-admin-name span { display: block; }
 .mp-admin-name span { margin-top: 2px; color: #8794a5; font-size: 9px; }
 .mp-admin-status { display: inline-flex; align-items: center; gap: 5px; padding: 3px 7px; border-radius: 12px; background: #eef2f6; color: #66758a; font-size: 9px; }
@@ -611,6 +631,7 @@
 }
 .mp-admin-form-grid textarea { min-height: 105px; resize: vertical; font-family: Consolas, monospace; font-size: 11px; }
 .mp-admin-form-grid input:focus, .mp-admin-form-grid select:focus, .mp-admin-form-grid textarea:focus, .mp-admin-import-body textarea:focus { border-color: var(--admin-blue); box-shadow: 0 0 0 3px #2563eb18; }
+.mp-admin-form-grid input[readonly] { background: #f3f6f9; color: #6b7a8d; cursor: not-allowed; }
 .mp-admin-checkbox { display: flex !important; min-height: 39px; flex-direction: row; align-items: center; gap: 8px !important; padding: 7px 10px; border: 1px solid #d8e0e9; border-radius: 7px; background: #f9fbfd; }
 .mp-admin-checkbox input { width: 16px; min-height: 16px; accent-color: var(--admin-blue); }
 .mp-admin-dialog form > footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 13px 20px; border-top: 1px solid var(--admin-border); background: #fafbfd; }

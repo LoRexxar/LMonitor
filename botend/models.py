@@ -2931,6 +2931,46 @@ class MythicDungeonPoi(models.Model):
         return self.label or self.key
 
 
+class MythicDungeonDefaultRoute(models.Model):
+    """由管理员发布、供所有玩家只读复制的默认路线模板。"""
+
+    dungeon = models.ForeignKey(
+        MythicDungeon,
+        on_delete=models.PROTECT,
+        related_name='default_routes',
+    )
+    name = models.CharField(max_length=160)
+    description = models.TextField(default='', blank=True)
+    applicable_level = models.CharField(max_length=80, default='', blank=True)
+    dungeon_level = models.PositiveIntegerField(default=10)
+    route_data = models.JSONField(default=dict, blank=True)
+    order = models.PositiveIntegerField(default=0)
+    is_featured = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    revision = models.PositiveIntegerField(default=1)
+    created_by_user_id = models.IntegerField(null=True, blank=True)
+    updated_by_user_id = models.IntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'mythic_dungeon_default_route'
+        ordering = ['-is_featured', 'order', 'name', 'id']
+        indexes = [
+            models.Index(
+                fields=['dungeon', 'is_active', 'order'],
+                name='md_default_dungeon_idx',
+            ),
+            models.Index(
+                fields=['is_featured', 'is_active'],
+                name='md_default_featured_idx',
+            ),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
 class MythicDungeonRoute(models.Model):
     """用户保存或公开分享的一条路线。"""
 

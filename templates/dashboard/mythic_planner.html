@@ -1,8 +1,8 @@
 {% extends 'dashboard/index.html' %}
 {% load static %}
 {% block dashboard_extra_head %}
-<link rel="stylesheet" href="{% static 'dashboard/css/mythic_planner.css' %}?v=20260728_3">
-<script src="{% static 'dashboard/js/mythic_planner.js' %}?v=20260728_4" defer></script>
+<link rel="stylesheet" href="{% static 'dashboard/css/mythic_planner.css' %}?v=20260828_recommended_route_fields">
+<script src="{% static 'dashboard/js/mythic_planner.js' %}?v=20260828_4" defer></script>
 {% endblock %}
 {% block dashboard_content %}
 {% include 'dashboard/_mythic_planner_config_content.html' %}
@@ -15,7 +15,7 @@
     <link rel="icon" href="/favicon.ico">
     <title>大秘境规划器管理 · LMonitor</title>
     {% load static %}
-    <link rel="stylesheet" href="{% static 'dashboard/css/mythic_planner.css' %}?v=20260727_1">
+    <link rel="stylesheet" href="{% static 'dashboard/css/mythic_planner.css' %}?v=20260828_recommended_route_fields">
 </head>
 <body>
     <header class="mp-admin-header">
@@ -44,6 +44,7 @@
             <nav id="resource-nav" aria-label="数据资源">
                 <button type="button" data-resource="versions" class="is-active"><span>数据版本</span><b id="count-versions">0</b></button>
                 <button type="button" data-resource="configs"><span>运行配置</span><b id="count-configs">0</b></button>
+                <button type="button" data-resource="default_routes"><span>推荐路线</span><b id="count-default_routes">0</b></button>
                 <button type="button" data-resource="selection_groups"><span>赛季分类</span><b id="count-selection_groups">0</b></button>
                 <button type="button" data-resource="selection_memberships"><span>地下城分配</span><b id="count-selection_memberships">0</b></button>
                 <button type="button" data-resource="dungeons"><span>地下城</span><b id="count-dungeons">0</b></button>
@@ -155,6 +156,6 @@
     </div>
 
     <div id="admin-toast" class="mp-admin-toast" role="status" hidden></div>
-    <script src="{% static 'dashboard/js/mythic_planner.js' %}?v=20260727_6" defer></script>
+    <script src="{% static 'dashboard/js/mythic_planner.js' %}?v=20260828_4" defer></script>
 </body>
 </html>

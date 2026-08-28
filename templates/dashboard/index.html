@@ -476,14 +476,14 @@
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260826_skill_damage_global_effects"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260828_mdt_default_route_tab"></script>
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806c" defer></script>
     <script src="{% static 'dashboard/js/simc-result-report.js' %}?v=20260817_result_config_panel"></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260818_task_compare_selection"></script>
     <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260819_benchmark_rerun_snapshot"></script>
     {% if user.is_staff or user.is_superuser %}
-    <link rel="stylesheet" href="{% static 'dashboard/css/mythic_planner.css' %}?v=20260806a">
-    <script src="{% static 'dashboard/js/mythic_planner.js' %}?v=20260806a" defer></script>
+    <link rel="stylesheet" href="{% static 'dashboard/css/mythic_planner.css' %}?v=20260828_recommended_route_fields">
+    <script src="{% static 'dashboard/js/mythic_planner.js' %}?v=20260828_4" defer></script>
     <script src="{% static 'dashboard/js/mythic_planner_positions.js' %}?v=20260806a" defer></script>
     <script src="{% static 'dashboard/js/mythic_planner_routes.js' %}?v=20260806a" defer></script>
     {% endif %}
@@ -658,6 +658,12 @@
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-map-location-dot mr-2 text-xs"></i>
                                     地图点位编辑
+                                </a>
+                            </li>
+                            <li class="submenu-item" data-dashboard-section="mythic-planner-config" data-mythic-resource="default_routes">
+                                <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
+                                    <i class="fas fa-route mr-2 text-xs"></i>
+                                    推荐路线管理
                                 </a>
                             </li>
                             <li class="submenu-item" data-dashboard-section="mythic-planner-routes">

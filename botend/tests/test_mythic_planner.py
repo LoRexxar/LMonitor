@@ -20,6 +20,7 @@ from botend.models import (
     MythicDungeon,
     MythicDungeonAbility,
     MythicDungeonDataVersion,
+    MythicDungeonDefaultRoute,
     MythicDungeonEnemy,
     MythicDungeonFloor,
     MythicDungeonPoi,
@@ -2755,6 +2756,44 @@ class MythicPlannerPublicApiTests(TestCase):
         self.assertTrue(guardian['abilities'])
         self.assertTrue(guardian['spawns'][0]['uid'].startswith('vault-guardian:'))
 
+    def test_catalog_publishes_active_default_routes_as_read_only_templates(self):
+        dungeon = get_active_dungeon('gloamvault')
+        payload = self.share_payload(name='官方首选路线')
+        published = MythicDungeonDefaultRoute.objects.create(
+            dungeon=dungeon,
+            name='官方首选路线',
+            description='适合首次打开规划器的玩家。',
+            applicable_level='12层左右',
+            dungeon_level=12,
+            route_data=payload,
+            order=2,
+            is_featured=True,
+        )
+        MythicDungeonDefaultRoute.objects.create(
+            dungeon=dungeon,
+            name='已停用路线',
+            dungeon_level=12,
+            route_data=payload,
+            is_active=False,
+        )
+
+        response = self.client.get('/portal/api/mythic-planner/catalog/')
+
+        self.assertEqual(response.status_code, 200, response.content)
+        rows = response.json()['data']['default_routes']
+        self.assertEqual([row['id'] for row in rows], [published.id])
+        self.assertEqual(rows[0]['dungeon_key'], 'gloamvault')
+        self.assertEqual(rows[0]['route_data'], payload)
+        self.assertEqual(rows[0]['applicable_level'], '12层左右')
+        self.assertEqual(rows[0]['route_code'], encode_share_code(payload))
+        self.assertTrue(rows[0]['is_active'])
+        self.assertTrue(rows[0]['is_featured'])
+        self.assertNotIn('updated_by_user_id', rows[0])
+        self.assertEqual(
+            self.client.post('/portal/api/mythic-planner/catalog/').status_code,
+            405,
+        )
+
     def test_dungeon_payload_preserves_mdt_poi_type_and_render_metadata(self):
         floor = MythicDungeonFloor.objects.get(
             dungeon__key='gloamvault',
@@ -3078,6 +3117,8 @@ class MythicPlannerDashboardTests(TestCase):
             page,
             'class="submenu-item" data-dashboard-section="mythic-planner-routes"',
         )
+        self.assertContains(page, 'data-mythic-resource="default_routes"')
+        self.assertContains(page, '推荐路线管理')
         self.assertContains(page, 'id="mythic-planner-config" class="content-section')
         self.assertContains(page, 'id="mythic-planner-positions" class="content-section')
         self.assertContains(page, 'id="mythic-planner-routes" class="content-section')
@@ -3109,6 +3150,92 @@ class MythicPlannerDashboardTests(TestCase):
         self.client.force_login(unprivileged_staff)
         self.assertEqual(self.client.get('/dashboard/mythic-planner/').status_code, 403)
         self.assertEqual(self.client.get('/api/mythic-planner/manage/').status_code, 403)
+
+    def test_staff_can_publish_validate_and_version_default_routes(self):
+        self.client.force_login(self.staff)
+        dungeon = get_active_dungeon('gloamvault')
+        payload = MythicPlannerPublicApiTests.share_payload(name='后台默认路线')
+
+        created = self.client.post(
+            '/api/mythic-planner/manage/',
+            data=json.dumps({
+                'resource': 'default_routes',
+                'snapshot_resources': ['default_routes'],
+                'data': {
+                    'name': '后台默认路线',
+                    'description': '给所有玩家使用的推荐路线。',
+                    'applicable_level': '12层左右',
+                    'route_code': encode_share_code(payload),
+                    'is_active': True,
+                },
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(created.status_code, 200, created.content)
+        route = MythicDungeonDefaultRoute.objects.get()
+        self.assertEqual(route.created_by_user_id, self.staff.id)
+        self.assertEqual(route.updated_by_user_id, self.staff.id)
+        self.assertEqual(route.route_data['data_version_key'], 'lmonitor-demo-1')
+        self.assertEqual(route.route_data['name'], '后台默认路线')
+        self.assertEqual(route.applicable_level, '12层左右')
+        self.assertEqual(route.dungeon_level, 12)
+        self.assertEqual(route.dungeon_id, dungeon.id)
+        self.assertEqual(created.json()['snapshot']['default_routes'][0]['revision'], 1)
+        self.assertEqual(
+            created.json()['snapshot']['default_routes'][0]['route_code'],
+            encode_share_code(route.route_data),
+        )
+
+        invalid = copy.deepcopy(payload)
+        invalid['pulls'][0]['spawn_uids'] = ['vault-guardian:not-found']
+        rejected = self.client.post(
+            '/api/mythic-planner/manage/',
+            data=json.dumps({
+                'resource': 'default_routes',
+                'data': {
+                    'dungeon_id': dungeon.id,
+                    'name': '无效默认路线',
+                    'applicable_level': '12层左右',
+                    'dungeon_level': 12,
+                    'route_data': invalid,
+                    'is_active': True,
+                },
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(rejected.status_code, 400, rejected.content)
+        self.assertIn('不存在的怪物刷新点', rejected.json()['message'])
+        self.assertEqual(MythicDungeonDefaultRoute.objects.count(), 1)
+
+        updated = self.client.patch(
+            f'/api/mythic-planner/manage/{route.id}/',
+            data=json.dumps({
+                'resource': 'default_routes',
+                'snapshot_resources': ['default_routes'],
+                'data': {
+                    'description': '更新后的路线说明。',
+                },
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(updated.status_code, 200, updated.content)
+        route.refresh_from_db()
+        self.assertEqual(route.revision, 2)
+        self.assertEqual(route.description, '更新后的路线说明。')
+
+        archived = self.client.delete(
+            f'/api/mythic-planner/manage/{route.id}/',
+            data=json.dumps({
+                'resource': 'default_routes',
+                'snapshot_resources': ['default_routes'],
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(archived.status_code, 200, archived.content)
+        route.refresh_from_db()
+        self.assertFalse(route.is_active)
+        self.assertEqual(route.revision, 3)
 
         self.client.force_login(self.staff)
         page = self.client.get('/dashboard/')
@@ -3876,6 +4003,7 @@ class MythicPlannerPageContractTests(SimpleTestCase):
             'data-resource="selection_memberships"',
             planner_dashboard_template,
         )
+        self.assertIn('data-resource="default_routes"', planner_dashboard_template)
         self.assertNotIn('data-resource="routes"', planner_dashboard_template)
 
         position_dashboard_template = (
@@ -3934,6 +4062,9 @@ class MythicPlannerPageContractTests(SimpleTestCase):
             / 'js'
             / 'dashboard_shell.js'
         ).read_text(encoding='utf-8')
+        dashboard_main_js = (
+            Path(settings.BASE_DIR) / 'static' / 'dashboard' / 'js' / 'main.js'
+        ).read_text(encoding='utf-8')
         for token in (
             'toggleSpawn',
             'selectBox',
@@ -3946,6 +4077,14 @@ class MythicPlannerPageContractTests(SimpleTestCase):
             '复制短链接',
             'sharedRouteRequest',
             'source_share_key',
+            'catalogDefaultRoutes',
+            'preferredDefaultRoute',
+            'applyDefaultRoute',
+            'source_default_route_id',
+            'source_default_route_revision',
+            'data-load-default-route',
+            'data-copy-default-route',
+            '创建本地副本',
             'replaceSharedRouteUrl',
             'syncDungeonUrl',
             'window.history.replaceState',
@@ -4050,6 +4189,7 @@ class MythicPlannerPageContractTests(SimpleTestCase):
             planner_css,
         )
         self.assertIn('mdt-pull-area-shape', planner_css)
+        self.assertIn('stroke-width: 1.5;', planner_css)
         self.assertIn('mdt-pull-area-label', planner_css)
         self.assertIn('.mdt-poi.is-generic-item', planner_css)
         self.assertIn('.mdt-poi.is-generic-assignable-poi', planner_css)
@@ -4168,6 +4308,11 @@ class MythicPlannerPageContractTests(SimpleTestCase):
         self.assertIn('ROUTE_SNAPSHOT_RESOURCES', route_dashboard_js)
         self.assertIn('CONFIG_RESOURCE_DEPENDENCIES', dashboard_js)
         self.assertIn('snapshot_resources', dashboard_js)
+        self.assertIn("event.detail?.mythicResource", dashboard_js)
+        self.assertIn("item.dataset.mythicResource === mythicResource", dashboard_main_js)
+        self.assertIn("mythicResource,", dashboard_main_js)
+        for token in ('路线名', '适用层数', '更新时间', '备注', '是否启用', '字符串'):
+            self.assertIn(token, dashboard_js)
         for token in (
             'openRouteDetail',
             'toggleRoutePublic',
@@ -4201,6 +4346,13 @@ class MythicPlannerPageContractTests(SimpleTestCase):
         ):
             self.assertNotIn(token, portal_js)
         self.assertIn('当前浏览器', portal_js)
+        self.assertIn('默认路线', portal_js)
+        for token in ('适用层数', '更新时间', '备注', '是否启用', '复制字符串'):
+            self.assertIn(token, portal_js)
+        self.assertIn('class="mdt-library-note-trigger"', portal_js)
+        self.assertIn('aria-label="备注：', portal_js)
+        self.assertNotIn('mdt-library-compact-code', portal_js)
+        self.assertIn("default_routes: ['versions', 'dungeons', 'default_routes']", dashboard_js)
         self.assertIn('delete cleaned.server_share_id', portal_js)
 
     def test_spawn_markers_do_not_render_a_black_crescent(self):
