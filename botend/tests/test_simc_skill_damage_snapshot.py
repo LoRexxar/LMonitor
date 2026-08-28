@@ -3104,12 +3104,11 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn('aria-sort="none"', template)
         self.assertIn("localeCompare(rightName, 'zh-CN'", renderer)
         self.assertIn('const formulaGroups = new Map()', renderer)
-        self.assertIn("attack_power: '基础AP'", renderer)
-        self.assertIn("spell_power: '基础SP'", renderer)
-        self.assertIn("attack_and_spell_power: '基础AP+SP'", renderer)
-        self.assertIn("fixed_damage: '基础伤害'", renderer)
-        self.assertIn('component.base_source', renderer)
-        self.assertIn('component.base_multiplier', renderer)
+        self.assertIn("const formulaBaseLabel = '基础伤害'", renderer)
+        self.assertIn('component.runtime_factors', renderer)
+        self.assertNotIn('formulaBaseLabels', renderer)
+        self.assertNotIn('component.base_multiplier', renderer)
+        self.assertNotIn('baseFactorFormula', renderer)
         self.assertNotIn('formatSimcSkillDamageNumber(group.baseDamage)', renderer)
         self.assertIn(
             'const renderSimcTalentProbeCondition = (runtimeCondition, scenarioTokens, talentName)',

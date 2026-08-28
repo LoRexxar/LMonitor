@@ -6037,33 +6037,20 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             ? product.formula_components
             : [];
         const formulaGroups = new Map();
-        const formulaBaseLabels = {
-            attack_power: '基础AP',
-            spell_power: '基础SP',
-            attack_and_spell_power: '基础AP+SP',
-            fixed_damage: '基础伤害',
-        };
+        const formulaBaseLabel = '基础伤害';
         formulaComponents.forEach(component => {
             const baseDamage = component.base_damage;
-            const baseSource = component.base_source;
-            const baseMultiplier = component.base_multiplier;
             const componentFinal = component.final_damage;
             const runtimeFactors = Array.isArray(component.runtime_factors)
                 ? component.runtime_factors.filter(hasFiniteSimcSkillDamageNumber)
                 : [];
             if (!hasFiniteSimcSkillDamageNumber(baseDamage)
-                || !hasFiniteSimcSkillDamageNumber(baseMultiplier)
                 || !hasFiniteSimcSkillDamageNumber(componentFinal)) return;
-            const factorKey = JSON.stringify([baseSource, runtimeFactors]);
+            const factorKey = JSON.stringify(runtimeFactors);
             const group = formulaGroups.get(factorKey) || {
-                baseSource,
-                baseDamage: 0,
-                baseMultiplier: 0,
                 finalDamage: 0,
                 runtimeFactors,
             };
-            group.baseDamage += baseDamage;
-            group.baseMultiplier += baseMultiplier;
             group.finalDamage += componentFinal;
             formulaGroups.set(factorKey, group);
         });
@@ -6071,10 +6058,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             const factorFormula = group.runtimeFactors
                 .map(factor => ` × ${formatSimcSkillDamageFactor(factor)}`)
                 .join('');
-            const baseFactorFormula = Math.abs(group.baseMultiplier - 1) > 1e-12
-                ? ` × ${formatSimcSkillDamageFactor(group.baseMultiplier)}`
-                : '';
-            const term = `${formulaBaseLabels[group.baseSource] || formulaBaseLabels.fixed_damage}${baseFactorFormula}${factorFormula}`;
+            const term = `${formulaBaseLabel}${factorFormula}`;
             return formulaGroups.size > 1 ? `(${term})` : term;
         });
         if (formulaTerms.length && hasFiniteSimcSkillDamageNumber(finalDamage)) {
