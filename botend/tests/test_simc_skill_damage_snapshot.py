@@ -1,6 +1,8 @@
 import copy
+import gc
 import json
 import sys
+import weakref
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -2612,6 +2614,71 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             'schema_revision': 8,
         })
         self.assertNotIn('talent', result['identity'])
+
+    def test_generate_releases_completed_profile_raw_export_graph_before_next_profile(self):
+        snapshot = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='b' * 40, game_build='12.1.0.69299', schema_revision=19,
+        )
+        profiles = [
+            SimpleNamespace(pk=1, spec='warrior_fury', class_name='warrior'),
+            SimpleNamespace(pk=2, spec='warrior_arms', class_name='warrior'),
+        ]
+        talents = {
+            1: [SimpleNamespace(
+                pk=101, node_id=1001, tree_type='spec', name='First Talent',
+                name_zh='第一天赋', description='', description_zh='',
+            )],
+            2: [SimpleNamespace(
+                pk=201, node_id=2001, tree_type='spec', name='Second Talent',
+                name_zh='第二天赋', description='', description_zh='',
+            )],
+        }
+        first_profile_raw_refs = []
+
+        class RawGraphProbe:
+            pass
+
+        def iter_profiles():
+            yield profiles[0]
+            gc.collect()
+            self.assertTrue(first_profile_raw_refs)
+            self.assertTrue(
+                all(ref() is None for ref in first_profile_raw_refs),
+                '完成首个专精后仍保留其完整 exporter raw actor 图',
+            )
+            yield profiles[1]
+
+        def run_target(profile, profile_talents, **_kwargs):
+            base = {
+                'name': 'skill_damage_base', 'class': 'warrior',
+                'spec': 'fury' if profile.pk == 1 else 'arms',
+                'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
+                'actions': [],
+            }
+            actor_map = {}
+            for talent in profile_talents:
+                identity = f'{talent.pk}_trait_{talent.node_id}'
+                for prefix in ('reference', 'talent'):
+                    probe = RawGraphProbe()
+                    if profile.pk == 1:
+                        first_profile_raw_refs.append(weakref.ref(probe))
+                    actor_map[f'skill_damage_{prefix}_{identity}'] = {
+                        'name': f'skill_damage_{prefix}_{identity}',
+                        'class': 'warrior', 'spec': base['spec'], 'actions': [],
+                        '_raw_graph_probe': probe,
+                    }
+            return base, actor_map, []
+
+        service = SimcSkillDamageSnapshotService(snapshot)
+        with mock.patch.object(service, '_profiles', side_effect=iter_profiles), \
+             mock.patch.object(
+                 service, '_talent_entries', side_effect=lambda profile: talents[profile.pk],
+             ), \
+             mock.patch.object(service, '_hero_talent_trees', return_value=[]), \
+             mock.patch.object(service, '_run_profile_target_resilient', side_effect=run_target):
+            result = service.generate()
+
+        self.assertEqual([actor['specialization'] for actor in result['actors']], ['fury', 'arms'])
 
     def test_generate_isolates_crashing_talent_actor_and_publishes_explicit_unresolved(self):
         snapshot = SimcSkillDamageSnapshot.objects.create(

@@ -3505,6 +3505,121 @@ class SimcSkillDamageSnapshotService:
             export_batch(talents[start:start + self.TALENT_BATCH_SIZE])
         return baseline, exported_actors, unresolved
 
+    def _generate_profile_product_actor(self, profile):
+        """Generate and compact one profile before the next raw export graph exists."""
+        all_talents = self._talent_entries(profile)
+        hero_talent_trees = self._hero_talent_trees(profile, all_talents)
+        scaffold_talents = self._spec_root_scaffold(all_talents)
+        talent_version_ids = {
+            getattr(talent, 'talent_version_id', None)
+            for talent in all_talents
+        }
+        if talent_version_ids == {None}:
+            entry_order = {}
+        else:
+            if None in talent_version_ids or len(talent_version_ids) != 1:
+                raise ValueError(f'{profile.spec} 单项天赋混入多个 active 版本。')
+            talent_version = getattr(all_talents[0], 'talent_version', None)
+            if talent_version is None:
+                raise ValueError(f'{profile.spec} 单项天赋缺少 active 版本对象。')
+            entry_order = TalentMetadataProvider(
+                talent_version=talent_version,
+            ).get_choice_entry_order()
+        talent_prerequisites = self._talent_prerequisite_map(
+            all_talents,
+            metadata_nodes=self._implicit_prerequisite_nodes(profile),
+            entry_order=entry_order,
+        )
+        scaffold_identities = {
+            (
+                str(getattr(talent, 'tree_type', '') or '').strip().lower(),
+                getattr(talent, 'node_id', None),
+            )
+            for talent in scaffold_talents
+        }
+        talents = [
+            talent for talent in all_talents
+            if (
+                str(getattr(talent, 'tree_type', '') or '').strip().lower(),
+                getattr(talent, 'node_id', None),
+            ) not in scaffold_identities
+        ]
+        base_high, high_actors, high_unresolved = self._run_profile_target_resilient(
+            profile, talents, scaffold_talents=scaffold_talents,
+            talent_prerequisites=talent_prerequisites, target_health=100,
+        )
+        base_low, low_actors, low_unresolved = self._run_profile_target_resilient(
+            profile, talents, scaffold_talents=scaffold_talents,
+            talent_prerequisites=talent_prerequisites, target_health=34,
+        )
+
+        variants = []
+        for talent in talents:
+            identity = f'{talent.pk}_trait_{talent.node_id}'
+            actor_name = f'skill_damage_talent_{identity}'
+            reference_name = f'skill_damage_reference_{identity}'
+            high_actor = high_actors.get(actor_name)
+            low_actor = low_actors.get(actor_name)
+            reference_high = high_actors.get(reference_name)
+            reference_low = low_actors.get(reference_name)
+            if not high_actor and not low_actor:
+                continue
+            if (high_actor and not reference_high) or (low_actor and not reference_low):
+                raise ValueError(f'{profile.spec} 天赋 {talent.node_id} 缺少对应前置 runtime actor。')
+            hero_subtree_id = (
+                talent.db2_subtree_id if str(talent.tree_type or '').lower() == 'hero' else None
+            )
+            hero_subtree_name = hero_subtree_name_by_id(hero_subtree_id)
+            variants.append({
+                'talent': {
+                    'id': talent.pk,
+                    'node_id': talent.node_id,
+                    'tree_type': talent.tree_type,
+                    'hero_subtree_id': hero_subtree_id,
+                    'hero_subtree_name': hero_subtree_name,
+                    'hero_subtree_name_zh': hero_subtree_name_zh(hero_subtree_name),
+                    'name': talent.name,
+                    'name_zh': talent.name_zh,
+                    'description': talent.description,
+                    'description_zh': talent.description_zh,
+                },
+                'reference_high': reference_high,
+                'reference_low': reference_low,
+                'high': high_actor,
+                'low': low_actor,
+            })
+
+        actor = copy.deepcopy(base_high)
+        actor.pop('name', None)
+        if 'specialization' not in actor and actor.get('spec'):
+            actor['specialization'] = actor.pop('spec')
+        actor['variant_model'] = 'single_talent_runtime'
+        actor['hero_talent_trees'] = hero_talent_trees
+        actor['base_damage_basis'] = 'dbc_spell_effect_ap_sp_coefficients_at_100'
+        global_effects = classify_global_skill_effects(base_high, base_low, variants)
+        actor['global_skill_effects'] = global_effects
+        actor['actions'] = flatten_single_talent_damage_variants(
+            base_high, base_low, variants, global_effects=global_effects,
+        )
+        raw_action_count = len(actor.get('actions') or [])
+        profile_payload = project_skill_damage_product_payload({
+            'identity': {
+                'simc_revision': self.snapshot.simc_revision,
+                'game_build': self.snapshot.game_build,
+                'schema_revision': self.snapshot.schema_revision,
+            },
+            'preset': dict(self.FIXED_PRESET),
+            'actors': [actor],
+            'unresolved': [],
+        })
+        profile_payload['payload_format'] = 'skill_damage_product_v1'
+        profile_payload = localize_skill_damage_payload(profile_payload)
+        return (
+            profile_payload['actors'][0],
+            [*high_unresolved, *low_unresolved],
+            raw_action_count,
+        )
+
     def generate(self):
         now = timezone.now()
         SimcSkillDamageSnapshot.objects.filter(pk=self.snapshot.pk).update(
@@ -3518,110 +3633,19 @@ class SimcSkillDamageSnapshotService:
             actors = []
             unresolved = []
             unresolved_keys = set()
+            raw_action_count = 0
             for profile in self._profiles():
-                all_talents = self._talent_entries(profile)
-                hero_talent_trees = self._hero_talent_trees(profile, all_talents)
-                scaffold_talents = self._spec_root_scaffold(all_talents)
-                talent_version_ids = {
-                    getattr(talent, 'talent_version_id', None)
-                    for talent in all_talents
-                }
-                if talent_version_ids == {None}:
-                    entry_order = {}
-                else:
-                    if None in talent_version_ids or len(talent_version_ids) != 1:
-                        raise ValueError(f'{profile.spec} 单项天赋混入多个 active 版本。')
-                    talent_version = getattr(all_talents[0], 'talent_version', None)
-                    if talent_version is None:
-                        raise ValueError(f'{profile.spec} 单项天赋缺少 active 版本对象。')
-                    entry_order = TalentMetadataProvider(
-                        talent_version=talent_version,
-                    ).get_choice_entry_order()
-                talent_prerequisites = self._talent_prerequisite_map(
-                    all_talents,
-                    metadata_nodes=self._implicit_prerequisite_nodes(profile),
-                    entry_order=entry_order,
+                actor, profile_unresolved, profile_raw_action_count = (
+                    self._generate_profile_product_actor(profile)
                 )
-                scaffold_identities = {
-                    (
-                        str(getattr(talent, 'tree_type', '') or '').strip().lower(),
-                        getattr(talent, 'node_id', None),
-                    )
-                    for talent in scaffold_talents
-                }
-                talents = [
-                    talent for talent in all_talents
-                    if (
-                        str(getattr(talent, 'tree_type', '') or '').strip().lower(),
-                        getattr(talent, 'node_id', None),
-                    ) not in scaffold_identities
-                ]
-                base_high, high_actors, high_unresolved = self._run_profile_target_resilient(
-                    profile, talents, scaffold_talents=scaffold_talents,
-                    talent_prerequisites=talent_prerequisites, target_health=100,
-                )
-                base_low, low_actors, low_unresolved = self._run_profile_target_resilient(
-                    profile, talents, scaffold_talents=scaffold_talents,
-                    talent_prerequisites=talent_prerequisites, target_health=34,
-                )
-                for row in [*high_unresolved, *low_unresolved]:
+                actors.append(actor)
+                raw_action_count += profile_raw_action_count
+                for row in profile_unresolved:
                     key = json.dumps(row, ensure_ascii=False, sort_keys=True)
                     if key not in unresolved_keys:
                         unresolved_keys.add(key)
                         unresolved.append(row)
-
-                variants = []
-                for talent in talents:
-                    identity = f'{talent.pk}_trait_{talent.node_id}'
-                    actor_name = f'skill_damage_talent_{identity}'
-                    reference_name = f'skill_damage_reference_{identity}'
-                    high_actor = high_actors.get(actor_name)
-                    low_actor = low_actors.get(actor_name)
-                    reference_high = high_actors.get(reference_name)
-                    reference_low = low_actors.get(reference_name)
-                    if not high_actor and not low_actor:
-                        # Both target-specific failures are already preserved in unresolved.
-                        continue
-                    if (high_actor and not reference_high) or (low_actor and not reference_low):
-                        raise ValueError(f'{profile.spec} 天赋 {talent.node_id} 缺少对应前置 runtime actor。')
-                    hero_subtree_id = (
-                        talent.db2_subtree_id if str(talent.tree_type or '').lower() == 'hero' else None
-                    )
-                    hero_subtree_name = hero_subtree_name_by_id(hero_subtree_id)
-                    variants.append({
-                        'talent': {
-                            'id': talent.pk,
-                            'node_id': talent.node_id,
-                            'tree_type': talent.tree_type,
-                            'hero_subtree_id': hero_subtree_id,
-                            'hero_subtree_name': hero_subtree_name,
-                            'hero_subtree_name_zh': hero_subtree_name_zh(hero_subtree_name),
-                            'name': talent.name,
-                            'name_zh': talent.name_zh,
-                            'description': talent.description,
-                            'description_zh': talent.description_zh,
-                        },
-                        'reference_high': reference_high,
-                        'reference_low': reference_low,
-                        'high': high_actor,
-                        'low': low_actor,
-                    })
-
-                actor = copy.deepcopy(base_high)
-                actor.pop('name', None)
-                if 'specialization' not in actor and actor.get('spec'):
-                    actor['specialization'] = actor.pop('spec')
-                actor['variant_model'] = 'single_talent_runtime'
-                actor['hero_talent_trees'] = hero_talent_trees
-                actor['base_damage_basis'] = 'dbc_spell_effect_ap_sp_coefficients_at_100'
-                global_effects = classify_global_skill_effects(base_high, base_low, variants)
-                actor['global_skill_effects'] = global_effects
-                actor['actions'] = flatten_single_talent_damage_variants(
-                    base_high, base_low, variants, global_effects=global_effects,
-                )
-                actors.append(actor)
-            raw_action_count = sum(len(actor.get('actions') or []) for actor in actors)
-            payload = project_skill_damage_product_payload({
+            payload = {
                 'identity': {
                     'simc_revision': self.snapshot.simc_revision,
                     'game_build': self.snapshot.game_build,
@@ -3630,9 +3654,11 @@ class SimcSkillDamageSnapshotService:
                 'preset': dict(self.FIXED_PRESET),
                 'actors': actors,
                 'unresolved': unresolved,
-            })
-            payload['payload_format'] = 'skill_damage_product_v1'
-            payload = localize_skill_damage_payload(payload)
+                'payload_format': 'skill_damage_product_v1',
+                'display_action_count': sum(
+                    len(actor.get('actions') or []) for actor in actors
+                ),
+            }
             action_count = raw_action_count
             self.snapshot.status = SimcSkillDamageSnapshot.STATUS_SUCCEEDED
             self.snapshot.payload = payload
