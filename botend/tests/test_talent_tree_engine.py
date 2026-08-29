@@ -3033,6 +3033,17 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
     ARMS_REFERENCE_CODE = 'CcEAjLzRlq54bI5v+r8Sr9Xw4jZmZmFzYmZGAAAghphZGmZzMzMzYmxMDAAAAgxyMDsFGLLDsAGwMMBmBbgZGGGMbzsNAzMAYM8AA'
     FURY_REFERENCE_CODE = 'CgEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgGDDjZ2WmZmZmxMmZMjZmZWmZGjxsMmZGAAIMwGssZ0YGQmNMjFAzgxAgZGADzMzMMYA'
 
+    def test_cached_fury_detail_with_arms_build_is_stale(self):
+        from botend.portal.spec_detail_views import _talent_build_popularity_has_builds
+
+        detail = {
+            'talent_build_popularity': {
+                'builds': [{'code': self.ARMS_REFERENCE_CODE, 'top_players': []}],
+            },
+        }
+
+        self.assertFalse(_talent_build_popularity_has_builds(detail, 'Warrior', 'Fury'))
+
     def test_fury_profile_ignores_active_arms_code_without_erasing_verified_fury_code(self):
         monitor = SpecDetailPlayerMonitor(MagicMock(), MagicMock())
         monitor.fetch_raiderio_character = MagicMock(return_value={
