@@ -3030,6 +3030,65 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
 
 
 class SpecStatsTalentRenderTests(SimpleTestCase):
+    ARMS_REFERENCE_CODE = 'CcEAjLzRlq54bI5v+r8Sr9Xw4jZmZmFzYmZGAAAghphZGmZzMzMzYmxMDAAAAgxyMDsFGLLDsAGwMMBmBbgZGGGMbzsNAzMAYM8AA'
+    FURY_REFERENCE_CODE = 'CgEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgGDDjZ2WmZmZmxMmZMjZmZWmZGjxsMmZGAAIMwGssZ0YGQmNMjFAzgxAgZGADzMzMMYA'
+
+    def test_fury_profile_ignores_active_arms_code_without_erasing_verified_fury_code(self):
+        monitor = SpecDetailPlayerMonitor(MagicMock(), MagicMock())
+        monitor.fetch_raiderio_character = MagicMock(return_value={
+            'talentLoadout': {'loadout_text': self.ARMS_REFERENCE_CODE},
+        })
+        profile = SimpleNamespace(
+            region='us', realm='realm', character_name='Player',
+            class_name='Warrior', spec_name='Fury',
+            talent_build_code=self.FURY_REFERENCE_CODE,
+            talents_json=[{'node_id': 1}], gear_json=[], item_level=0,
+            achievement_points=0, profile_url='', avatar_url='', race='', faction='',
+        )
+
+        self.assertTrue(monitor._enrich_profile_model_from_raiderio(profile))
+        self.assertEqual(profile.talent_build_code, self.FURY_REFERENCE_CODE)
+        self.assertEqual(profile.talents_json, [{'node_id': 1}])
+        self.assertIsNone(TalentBuildCodeDecoder.resolve_spec_identity('AgEA'))
+
+    def test_fury_ranking_discards_raiderio_arms_talent_code(self):
+        ranking = {
+            'character': {
+                'name': 'WrongActiveSpec',
+                'realm': {'name': 'Test Realm'},
+                'region': {'short_name': 'cn'},
+                'talentLoadout': {'loadout_text': self.ARMS_REFERENCE_CODE},
+            },
+        }
+
+        player = SpecDetailPlayerMonitor(MagicMock(), MagicMock())._build_player_from_ranking(
+            'Warrior', 'Fury', ranking,
+        )
+
+        self.assertEqual(player['talent_build_code'], '')
+        self.assertEqual(player['talents'], [])
+
+    @patch('botend.services.spec_stats_service.TalentMetadataProvider')
+    def test_fury_talent_build_popularity_discards_recognized_arms_code(self, mock_provider_cls):
+        mock_provider_cls.return_value.merge_into_node.side_effect = (
+            lambda node, class_name='', spec_name='': node
+        )
+
+        result = _compute_talent_build_popularity(
+            [
+                {'talent_build_code': self.ARMS_REFERENCE_CODE, 'talents_json': [
+                    {'node_id': 1, 'spell_id': 101, 'name': '错误专精天赋', 'tree_type': 'spec', 'points': 1},
+                ]},
+                {'talent_build_code': 'LEGACY_TEST_CODE', 'talents_json': [
+                    {'node_id': 2, 'spell_id': 102, 'name': '历史测试天赋', 'tree_type': 'spec', 'points': 1},
+                ]},
+            ],
+            'Warrior', 'Fury',
+        )
+
+        self.assertEqual(result['total'], 1)
+        self.assertEqual([build['code'] for build in result['builds']], ['LEGACY_TEST_CODE'])
+
     def test_enchant_popularity_groups_by_slot_and_formats_display_label(self):
         records = [
             {
