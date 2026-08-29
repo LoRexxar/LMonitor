@@ -7,6 +7,7 @@ from django.utils import timezone
 from utils.log import logger
 
 from botend.models import MonitorTask
+from botend.monitor_env import filter_runnable_tasks
 
 
 PORTAL_DATA_SCHEDULE_HOURS_BY_TASK = {
@@ -73,6 +74,31 @@ def portal_data_task_is_due(task, now=None):
     if timezone.is_naive(last_scan_time):
         last_scan_time = timezone.make_aware(last_scan_time, PORTAL_DATA_TIMEZONE)
     return last_scan_time < latest_slot
+
+
+def claim_next_monitor_task(now=None):
+    """Atomically reserve the globally oldest runnable task for one worker."""
+    claim_time = now or timezone.now()
+    with transaction.atomic():
+        tasks = sorted(
+            filter_runnable_tasks(
+                MonitorTask.objects.select_for_update().filter(is_active=1)
+            ),
+            key=monitor_task_sort_key,
+        )
+        for task in tasks:
+            scheduled_due = portal_data_task_is_due(task, now=claim_time)
+            if scheduled_due is False:
+                continue
+            if (
+                scheduled_due is None
+                and (claim_time - task.last_scan_time).total_seconds() < task.wait_time
+            ):
+                continue
+            task.last_scan_time = claim_time
+            task.save(update_fields=('last_scan_time',))
+            return task
+    return None
 
 
 def sync_monitortasks_from_plugin_list(

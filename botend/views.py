@@ -5,10 +5,8 @@
 import os
 import time
 import traceback
-import threading
 from django.db.utils import OperationalError
 from django.db import close_old_connections
-from django.utils import timezone
 from django.conf import settings as django_settings
 from utils.LReq import LReq
 from utils.log import logger
@@ -18,16 +16,12 @@ from botend.alerting import upsert_system_alert
 from botend.models import MonitorTask, MonitorWebhook
 from botend.monitor_env import filter_runnable_tasks
 from botend.plugin_sync import (
-    monitor_task_sort_key,
-    portal_data_task_is_due,
+    claim_next_monitor_task,
     sync_monitortasks_from_plugin_list,
 )
 from LMonitor.config import Monitor_Type_BaseObject_List
 
 THREAD_LIMIT_NUM = int(getattr(django_settings, 'THREAD_LIMIT_NUM', 10))
-
-is_Block = False
-lock = threading.Lock()
 
 
 def _truncate_text(value, limit=20000):
@@ -126,87 +120,47 @@ class LMonitorCore:
         os.environ.setdefault('DJANGO_ALLOW_ASYNC_UNSAFE', '1')
         while 1:
             Lreq = None
-            acquired_scan_lock = False
             try:
                 close_old_connections()
-                global is_Block
-                now_task = False
-                need_wait = False
-
-                lock.acquire()
-                try:
-                    if is_Block:
-                        need_wait = True
-                    else:
-                        is_Block = True
-                        acquired_scan_lock = True
-                finally:
-                    lock.release()
-
-                if need_wait:
-                    time.sleep(20)
+                now_task = claim_next_monitor_task()
+                if not now_task:
+                    time.sleep(10)
                     continue
 
+                logger.info("[Main] New Task {} start...".format(now_task.name))
                 try:
-                    tasks = sorted(
-                        filter_runnable_tasks(MonitorTask.objects.filter(is_active=1)),
-                        key=monitor_task_sort_key,
-                    )
+                    task_type = now_task.type
+                    task_url = now_task.target
+                    task_class = Monitor_Type_BaseObject_List[task_type]
 
-                    for task in tasks:
-                        now = timezone.now()
-                        scheduled_due = portal_data_task_is_due(task, now=now)
-                        if scheduled_due is False:
-                            continue
-                        if scheduled_due is None and (now - task.last_scan_time).total_seconds() < task.wait_time:
-                            continue
+                    Lreq = LReq(is_chrome=True)
+                    try:
+                        Lreq.set_current_task(now_task)
+                    except Exception:
+                        pass
+                    t = task_class(Lreq, now_task)
+                    try:
+                        scan_result = t.scan(task_url)
+                    except Exception as scan_exc:
+                        logger.warning('[Scan] task error, {}'.format(traceback.format_exc()))
+                        _record_monitor_task_alert(now_task, exc=scan_exc)
+                    else:
+                        if scan_result is False:
+                            detail = getattr(t, 'last_error_detail', '') or 'scan returned False'
+                            _record_monitor_task_alert(now_task, error_message=detail)
+                    try:
+                        Lreq.set_current_task(None)
+                    except Exception:
+                        pass
 
-                        logger.info("[Main] New Task {} start...".format(task.name))
-                        now_task = task
-
-                        task.last_scan_time = timezone.now()
-                        task.save()
-                        break
-
-                    if now_task:
-                        task_type = now_task.type
-                        task_url = now_task.target
-                        task_class = Monitor_Type_BaseObject_List[task_type]
-
-                        Lreq = LReq(is_chrome=True)
-                        try:
-                            Lreq.set_current_task(now_task)
-                        except Exception:
-                            pass
-                        t = task_class(Lreq, now_task)
-                        try:
-                            scan_result = t.scan(task_url)
-                        except Exception as scan_exc:
-                            logger.warning('[Scan] task error, {}'.format(traceback.format_exc()))
-                            _record_monitor_task_alert(now_task, exc=scan_exc)
-                        else:
-                            if scan_result is False:
-                                detail = getattr(t, 'last_error_detail', '') or 'scan returned False'
-                                _record_monitor_task_alert(now_task, error_message=detail)
-                        try:
-                            Lreq.set_current_task(None)
-                        except Exception:
-                            pass
-
-                        now_task.save()
-                        time.sleep(10)
+                    now_task.save()
+                    time.sleep(10)
                 finally:
                     if Lreq is not None:
                         try:
                             Lreq.close_driver()
                         except Exception:
                             pass
-                    if acquired_scan_lock:
-                        lock.acquire()
-                        try:
-                            is_Block = False
-                        finally:
-                            lock.release()
 
             except KeyboardInterrupt:
                 logger.error("[Scan] Stop Scaning.")
