@@ -71,6 +71,25 @@ class PortalMonitorScheduleTests(SimpleTestCase):
 
         self.assertTrue(portal_data_task_is_due(task, datetime(2026, 8, 20, 7, 45, tzinfo=shanghai)))
 
+    def test_earlier_due_news_wins_over_older_daily_task(self):
+        shanghai = ZoneInfo('Asia/Shanghai')
+        now = datetime(2026, 8, 29, 3, 21, tzinfo=shanghai)
+        news = self._task(
+            'PortalPostMonitor',
+            datetime(2026, 8, 28, 23, 29, tzinfo=shanghai),
+        )
+        news.wait_time = 600
+        ranking = self._task(
+            'SpecDetailRankingMonitor',
+            datetime(2026, 8, 28, 3, 0, tzinfo=shanghai),
+        )
+        ranking.wait_time = 86400
+
+        self.assertLess(
+            monitor_task_sort_key(news, now=now),
+            monitor_task_sort_key(ranking, now=now),
+        )
+
     def test_unrelated_task_is_not_controlled_by_portal_data_schedule(self):
         shanghai = ZoneInfo('Asia/Shanghai')
         task = self._task(

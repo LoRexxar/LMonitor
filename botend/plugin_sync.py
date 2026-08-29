@@ -47,20 +47,19 @@ def portal_monitor_task_priority(task):
     return PORTAL_MONITOR_TASK_PRIORITY.get(getattr(task, "name", ""), 100)
 
 
-def monitor_task_sort_key(task):
-    """Keep the global queue fair; priority only breaks equal-time ties."""
-    return task.last_scan_time, portal_monitor_task_priority(task)
+def _normalized_now(now=None):
+    value = now or timezone.now()
+    if timezone.is_naive(value):
+        value = timezone.make_aware(value, PORTAL_DATA_TIMEZONE)
+    return value
 
 
-def portal_data_task_is_due(task, now=None):
-    """Return whether a portal raw/aggregate task still owes the latest fixed slot."""
+def portal_data_task_due_at(task, now=None):
+    """Return the fixed slot still owed by a scheduled task, or None."""
     if getattr(task, "name", "") not in PORTAL_DATA_SCHEDULED_TASKS:
         return None
 
-    now = now or timezone.now()
-    if timezone.is_naive(now):
-        now = timezone.make_aware(now, PORTAL_DATA_TIMEZONE)
-    local_now = now.astimezone(PORTAL_DATA_TIMEZONE)
+    local_now = _normalized_now(now).astimezone(PORTAL_DATA_TIMEZONE)
     today_slots = [
         local_now.replace(hour=hour, minute=0, second=0, microsecond=0)
         for hour in PORTAL_DATA_SCHEDULE_HOURS_BY_TASK[task.name]
@@ -70,31 +69,56 @@ def portal_data_task_is_due(task, now=None):
 
     last_scan_time = getattr(task, "last_scan_time", None)
     if last_scan_time is None:
-        return True
+        return latest_slot
     if timezone.is_naive(last_scan_time):
         last_scan_time = timezone.make_aware(last_scan_time, PORTAL_DATA_TIMEZONE)
-    return last_scan_time < latest_slot
+    return latest_slot if last_scan_time < latest_slot else None
+
+
+def monitor_task_due_at(task, now=None):
+    """Return when this task became runnable, or None when it is not due."""
+    claim_time = _normalized_now(now)
+    if getattr(task, "name", "") in PORTAL_DATA_SCHEDULED_TASKS:
+        return portal_data_task_due_at(task, now=claim_time)
+
+    last_scan_time = getattr(task, "last_scan_time", None)
+    if last_scan_time is None:
+        return claim_time
+    if timezone.is_naive(last_scan_time):
+        last_scan_time = timezone.make_aware(last_scan_time, PORTAL_DATA_TIMEZONE)
+    wait_time = int(getattr(task, "wait_time", monitor_default_wait_time(task.name)) or 0)
+    due_at = last_scan_time + timedelta(seconds=wait_time)
+    return due_at if due_at <= claim_time else None
+
+
+def monitor_task_sort_key(task, now=None):
+    """Run the task that has been due longest; priority only breaks ties."""
+    claim_time = _normalized_now(now)
+    due_at = monitor_task_due_at(task, now=claim_time)
+    return due_at is None, due_at or claim_time, portal_monitor_task_priority(task)
+
+
+def portal_data_task_is_due(task, now=None):
+    """Return whether a portal raw/aggregate task still owes the latest fixed slot."""
+    if getattr(task, "name", "") not in PORTAL_DATA_SCHEDULED_TASKS:
+        return None
+    return portal_data_task_due_at(task, now=now) is not None
 
 
 def claim_next_monitor_task(now=None):
     """Atomically reserve the globally oldest runnable task for one worker."""
     claim_time = now or timezone.now()
     with transaction.atomic():
-        tasks = sorted(
-            filter_runnable_tasks(
+        tasks = [
+            task
+            for task in filter_runnable_tasks(
                 MonitorTask.objects.select_for_update().filter(is_active=1)
-            ),
-            key=monitor_task_sort_key,
-        )
-        for task in tasks:
-            scheduled_due = portal_data_task_is_due(task, now=claim_time)
-            if scheduled_due is False:
-                continue
-            if (
-                scheduled_due is None
-                and (claim_time - task.last_scan_time).total_seconds() < task.wait_time
-            ):
-                continue
+            )
+            if monitor_task_due_at(task, now=claim_time) is not None
+        ]
+        tasks.sort(key=lambda task: monitor_task_sort_key(task, now=claim_time))
+        if tasks:
+            task = tasks[0]
             task.last_scan_time = claim_time
             task.save(update_fields=('last_scan_time',))
             return task
