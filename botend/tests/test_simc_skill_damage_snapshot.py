@@ -26,6 +26,7 @@ from botend.services.simc_skill_damage import (
     _talent_declares_all_damage_modifier,
     attach_runtime_product_metrics,
     build_single_talent_actor_input,
+    plan_unique_talent_actor_configs,
     classify_global_damage_modifiers,
     classify_global_skill_effects,
     flatten_single_talent_damage_variants,
@@ -189,6 +190,46 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertNotIn('117392:1', reference)
         self.assertIn('hero_talents=117411:1/117392:1', selected)
         self.assertEqual(generated.count('warrior="skill_damage_'), 3)
+
+    def test_unique_talent_actor_plan_reuses_base_and_parent_selected_configs(self):
+        root = SimpleNamespace(
+            pk=1, tree_type='spec', node_id=101, max_points=1, talent_id=1001,
+        )
+        child = SimpleNamespace(
+            pk=2, tree_type='spec', node_id=102, max_points=1, talent_id=1002,
+        )
+
+        plan = plan_unique_talent_actor_configs(
+            [root, child], scaffold_talents=[],
+            talent_prerequisites={root.pk: [], child.pk: [root]},
+        )
+
+        self.assertEqual(
+            [actor['name'] for actor in plan['actors']],
+            [
+                'skill_damage_base',
+                'skill_damage_talent_1_trait_101',
+                'skill_damage_talent_2_trait_102',
+            ],
+        )
+        self.assertEqual(plan['aliases'], {
+            'skill_damage_reference_1_trait_101': {
+                'canonical_name': 'skill_damage_base',
+                'talent_effectiveness': 'inactive',
+            },
+            'skill_damage_talent_1_trait_101': {
+                'canonical_name': 'skill_damage_talent_1_trait_101',
+                'talent_effectiveness': 'active',
+            },
+            'skill_damage_reference_2_trait_102': {
+                'canonical_name': 'skill_damage_talent_1_trait_101',
+                'talent_effectiveness': 'inactive',
+            },
+            'skill_damage_talent_2_trait_102': {
+                'canonical_name': 'skill_damage_talent_2_trait_102',
+                'talent_effectiveness': 'active',
+            },
+        })
 
     def test_prerequisite_map_chooses_one_shortest_valid_parent_path(self):
         left_root = SimpleNamespace(
@@ -2565,19 +2606,20 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         def export_batch(
             _profile, batch, *, scaffold_talents, talent_prerequisites=None, target_health,
+            actor_plan=None,
         ):
-            actors = [{
-                'name': 'skill_damage_base', 'class': 'warrior', 'spec': 'fury',
-                'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions', 'actions': [],
-            }]
-            for talent in batch:
-                for prefix in ('reference', 'talent'):
-                    actors.append({
-                        'name': f'skill_damage_{prefix}_{talent.pk}',
-                        'class': 'warrior', 'spec': 'fury',
-                        'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
-                        'actions': [],
-                    })
+            self.assertEqual(batch, [])
+            actors = []
+            for actor_spec in actor_plan or []:
+                name = actor_spec['name']
+                actors.append({
+                    'name': name, 'class': 'warrior', 'spec': 'fury',
+                    'talent_effectiveness': (
+                        'inactive' if name == 'skill_damage_base' else 'active'
+                    ),
+                    'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
+                    'actions': [],
+                })
             return {'actors': actors, 'unresolved': []}
 
         service = SimcSkillDamageSnapshotService(snapshot)
@@ -2591,14 +2633,22 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             result = service.generate()
 
         snapshot.refresh_from_db()
-        self.assertEqual(run.call_args_list, [
-            mock.call(profile, talents[:12], scaffold_talents=[], talent_prerequisites=mock.ANY, target_health=100),
-            mock.call(profile, talents[12:24], scaffold_talents=[], talent_prerequisites=mock.ANY, target_health=100),
-            mock.call(profile, talents[24:], scaffold_talents=[], talent_prerequisites=mock.ANY, target_health=100),
-            mock.call(profile, talents[:12], scaffold_talents=[], talent_prerequisites=mock.ANY, target_health=34),
-            mock.call(profile, talents[12:24], scaffold_talents=[], talent_prerequisites=mock.ANY, target_health=34),
-            mock.call(profile, talents[24:], scaffold_talents=[], talent_prerequisites=mock.ANY, target_health=34),
-        ])
+        self.assertEqual(run.call_count, 4)
+        self.assertEqual(
+            [len(call.kwargs['actor_plan']) for call in run.call_args_list],
+            [24, 3, 24, 3],
+        )
+        self.assertEqual(
+            [call.kwargs['target_health'] for call in run.call_args_list],
+            [100, 100, 34, 34],
+        )
+        first_health_actor_names = {
+            actor_spec['name']
+            for call in run.call_args_list[:2]
+            for actor_spec in call.kwargs['actor_plan']
+        }
+        self.assertEqual(len(first_health_actor_names), 27)
+        self.assertIn('skill_damage_base', first_health_actor_names)
         self.assertEqual(snapshot.status, snapshot.STATUS_SUCCEEDED)
         self.assertEqual(result['actors'][0]['specialization'], 'fury')
         self.assertEqual(result['actors'][0]['variant_model'], 'single_talent_runtime')
@@ -2680,7 +2730,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                  service, '_talent_entries', side_effect=lambda profile: talents[profile.pk],
              ), \
              mock.patch.object(service, '_hero_talent_trees', return_value=[]), \
-             mock.patch.object(service, '_run_profile_target_resilient', side_effect=run_target):
+             mock.patch.object(service, '_run_profile_target_deduplicated', side_effect=run_target):
             result = service.generate()
 
         self.assertEqual([actor['specialization'] for actor in result['actors']], ['fury', 'arms'])
@@ -2728,28 +2778,25 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         def export_batch(
             _profile, batch, *, scaffold_talents, talent_prerequisites=None, target_health,
+            actor_plan=None,
         ):
-            if bad in batch:
+            if any(bad in (spec.get('selected_talents') or []) for spec in (actor_plan or [])):
                 raise RuntimeError(
                     'Severe: The precise proc chance of Frostbane is unknown. '
                     'Results will be incorrect.\n'
                     'sim_signal_handler: Segmentation fault! '
                     'Iteration=-1 Seed=1506411349249261642 TargetHealth=0'
                 )
-            actors = [{
-                'name': 'skill_damage_base', 'class': 'druid', 'spec': 'guardian',
-                'talent_effectiveness': 'unknown',
-                'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions', 'actions': [],
-            }]
-            for talent in batch:
-                for prefix in ('reference', 'talent'):
-                    actors.append({
-                        'name': f'skill_damage_{prefix}_{talent.pk}_trait_{talent.node_id}',
-                        'class': 'druid', 'spec': 'guardian',
-                        'talent_effectiveness': 'inactive' if prefix == 'reference' else 'active',
-                        'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
-                        'actions': [],
-                    })
+            actors = []
+            for actor_spec in actor_plan or []:
+                actors.append({
+                    'name': actor_spec['name'], 'class': 'druid', 'spec': 'guardian',
+                    'talent_effectiveness': (
+                        'unknown' if actor_spec['name'] == 'skill_damage_base' else 'active'
+                    ),
+                    'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
+                    'actions': [],
+                })
             return {'actors': actors, 'unresolved': []}
 
         service = SimcSkillDamageSnapshotService(snapshot)
@@ -2886,23 +2933,22 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         def export_batch(
             _profile, batch, *, scaffold_talents, talent_prerequisites=None, target_health,
+            actor_plan=None,
         ):
-            if batch and target_health == 34:
+            if target_health == 34 and any(
+                spec['name'] != 'skill_damage_base' for spec in (actor_plan or [])
+            ):
                 raise RuntimeError('sim_signal_handler: Segmentation fault! signal_11')
-            actors = [{
-                'name': 'skill_damage_base', 'class': 'druid', 'spec': 'guardian',
-                'talent_effectiveness': 'unknown',
-                'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions', 'actions': [],
-            }]
-            for row in batch:
-                for prefix in ('reference', 'talent'):
-                    actors.append({
-                        'name': f'skill_damage_{prefix}_{row.pk}_trait_{row.node_id}',
-                        'class': 'druid', 'spec': 'guardian',
-                        'talent_effectiveness': 'inactive' if prefix == 'reference' else 'active',
-                        'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
-                        'actions': [],
-                    })
+            actors = []
+            for actor_spec in actor_plan or []:
+                actors.append({
+                    'name': actor_spec['name'], 'class': 'druid', 'spec': 'guardian',
+                    'talent_effectiveness': (
+                        'unknown' if actor_spec['name'] == 'skill_damage_base' else 'active'
+                    ),
+                    'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
+                    'actions': [],
+                })
             return {'actors': actors, 'unresolved': []}
 
         service = SimcSkillDamageSnapshotService(snapshot)

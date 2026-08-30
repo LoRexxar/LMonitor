@@ -309,9 +309,84 @@ def _finite_number(value):
     )
 
 
+def _materialize_talent_config(scaffold_talents, selected_talents):
+    selected_talents = list(selected_talents or [])
+    replacement_talent_ids = {
+        getattr(trait, 'talent_id', None)
+        for trait in selected_talents
+        if isinstance(getattr(trait, 'talent_id', None), int)
+        and getattr(trait, 'talent_id', None) > 0
+    }
+    merged = [
+        trait for trait in (scaffold_talents or [])
+        if getattr(trait, 'talent_id', None) not in replacement_talent_ids
+    ]
+    merged.extend(selected_talents)
+    unique = []
+    seen = set()
+    for trait in merged:
+        tree_type = str(getattr(trait, 'tree_type', '') or '').strip().lower()
+        node_id = getattr(trait, 'node_id', None)
+        rank = max(1, int(getattr(trait, 'max_points', 1) or 1))
+        identity = (tree_type, node_id)
+        if tree_type not in {'class', 'spec', 'hero'} or not isinstance(node_id, int) or node_id <= 0:
+            raise ValueError('单项天赋缺少有效 tree_type 或 SimC trait entry。')
+        if identity in seen:
+            continue
+        seen.add(identity)
+        unique.append(trait)
+    key = tuple(sorted(
+        (
+            str(getattr(trait, 'tree_type', '') or '').strip().lower(),
+            int(getattr(trait, 'node_id')),
+            max(1, int(getattr(trait, 'max_points', 1) or 1)),
+        )
+        for trait in unique
+    ))
+    return key, unique
+
+
+def plan_unique_talent_actor_configs(talents, *, scaffold_talents=(), talent_prerequisites=None):
+    """Map logical reference/selected actors onto one physical actor per final talent config."""
+    talent_prerequisites = talent_prerequisites or {}
+    base_key, base_traits = _materialize_talent_config(scaffold_talents, [])
+    actors = [{'name': 'skill_damage_base', 'selected_talents': base_traits}]
+    canonical_by_config = {base_key: 'skill_damage_base'}
+    aliases = {}
+    pending = []
+    for talent in talents:
+        identity = f'{talent.pk}_trait_{talent.node_id}'
+        reference_name = f'skill_damage_reference_{identity}'
+        selected_name = f'skill_damage_talent_{identity}'
+        prerequisites = list(talent_prerequisites.get(talent.pk) or [])
+        reference_key, _ = _materialize_talent_config(scaffold_talents, prerequisites)
+        selected_key, selected_traits = _materialize_talent_config(
+            scaffold_talents, [*prerequisites, talent],
+        )
+        canonical_name = canonical_by_config.get(selected_key)
+        if canonical_name is None:
+            canonical_name = selected_name
+            canonical_by_config[selected_key] = canonical_name
+            actors.append({'name': canonical_name, 'selected_talents': selected_traits})
+        pending.append((reference_name, selected_name, reference_key, canonical_name))
+    for reference_name, selected_name, reference_key, selected_canonical_name in pending:
+        reference_canonical_name = canonical_by_config.get(reference_key)
+        if reference_canonical_name is None:
+            raise ValueError('天赋前置配置没有对应的 canonical actor。')
+        aliases[reference_name] = {
+            'canonical_name': reference_canonical_name,
+            'talent_effectiveness': 'inactive',
+        }
+        aliases[selected_name] = {
+            'canonical_name': selected_canonical_name,
+            'talent_effectiveness': 'active',
+        }
+    return {'actors': actors, 'aliases': aliases}
+
+
 def build_single_talent_actor_input(
     profile_input, class_name, talents, *, scaffold_talents=(), talent_prerequisites=None,
-    reference_aliases=None,
+    reference_aliases=None, actor_plan=None,
 ):
     """Expand one reference actor into prerequisite-vs-selected actor pairs."""
     lines = str(profile_input or '').splitlines()
@@ -384,6 +459,17 @@ def build_single_talent_actor_input(
             if entries:
                 block.append(f'{option}={"/".join(entries)}')
         return block
+
+    if actor_plan is not None:
+        output = list(global_lines)
+        for actor_spec in actor_plan:
+            name = str(actor_spec.get('name') or '').strip()
+            if not name:
+                raise ValueError('物理天赋配置 actor 缺少名称。')
+            output.extend(actor_block(name, actor_spec.get('selected_talents') or []))
+        if not actor_plan:
+            raise ValueError('物理天赋配置计划不能为空。')
+        return '\n'.join(output).rstrip() + '\n'
 
     talent_prerequisites = talent_prerequisites or {}
     scaffold_identities = {
@@ -2759,6 +2845,7 @@ class SimcSkillDamageSnapshotService:
     EXPORTER_SCHEMA_REVISION = 11
     DATASET_SCHEMA_REVISION = 19
     TALENT_BATCH_SIZE = 12
+    ACTOR_CONFIG_BATCH_SIZE = 24
     FIXED_PRESET = {
         'attack_power': _SKILL_DAMAGE_PRIMARY_STAT_BASE,
         'spell_power': _SKILL_DAMAGE_PRIMARY_STAT_BASE,
@@ -3087,8 +3174,9 @@ class SimcSkillDamageSnapshotService:
 
     def _run_profile_export(
         self, profile, talents, *, scaffold_talents=(), talent_prerequisites=None,
-        target_health=100,
+        target_health=100, actor_plan=None,
     ):
+        close_old_connections()
         baseline_profile = copy.copy(profile)
         baseline_profile.talent = ''
         reference_input = SimcComposer(None).compose_validation_input(baseline_profile, '')
@@ -3100,12 +3188,13 @@ class SimcSkillDamageSnapshotService:
                 reference_input.rstrip()
                 + '\nwarlock.normalize_destruction_mastery=1\n'
             )
-        reference_aliases = {}
+        reference_aliases = {} if actor_plan is None else None
         simc_input = build_single_talent_actor_input(
             reference_input, profile.class_name, talents,
             scaffold_talents=scaffold_talents,
             talent_prerequisites=talent_prerequisites,
             reference_aliases=reference_aliases,
+            actor_plan=actor_plan,
         )
         with tempfile.TemporaryDirectory(prefix='simc-skill-damage-') as tmp:
             input_path = Path(tmp) / 'actors.simc'
@@ -3128,7 +3217,7 @@ class SimcSkillDamageSnapshotService:
             for actor in (payload.get('actors') or [])
             if isinstance(actor, dict)
         }
-        for expected_name, canonical_name in reference_aliases.items():
+        for expected_name, canonical_name in (reference_aliases or {}).items():
             if expected_name == canonical_name:
                 continue
             canonical_actor = exported_actor_map.get(canonical_name)
@@ -3137,11 +3226,16 @@ class SimcSkillDamageSnapshotService:
             aliased_actor = {**canonical_actor, 'name': expected_name}
             payload['actors'].append(aliased_actor)
             exported_actor_map[expected_name] = aliased_actor
-        expected_actor_names = {
-            'skill_damage_base',
-            *(f'skill_damage_reference_{talent.pk}_trait_{talent.node_id}' for talent in talents),
-            *(f'skill_damage_talent_{talent.pk}_trait_{talent.node_id}' for talent in talents),
-        }
+        if actor_plan is not None:
+            expected_actor_names = {
+                str(actor_spec.get('name') or '') for actor_spec in actor_plan
+            }
+        else:
+            expected_actor_names = {
+                'skill_damage_base',
+                *(f'skill_damage_reference_{talent.pk}_trait_{talent.node_id}' for talent in talents),
+                *(f'skill_damage_talent_{talent.pk}_trait_{talent.node_id}' for talent in talents),
+            }
         self._validate_export(
             payload, profile=profile, expected_actor_names=expected_actor_names,
         )
@@ -3562,6 +3656,106 @@ class SimcSkillDamageSnapshotService:
             unresolved.extend(baseline_export.get('unresolved') or [])
         return baseline, exported_actors, unresolved
 
+    def _run_profile_target_deduplicated(
+        self, profile, talents, *, scaffold_talents, talent_prerequisites, target_health,
+    ):
+        """Export each distinct final talent configuration once, then restore logical actors."""
+        plan = plan_unique_talent_actor_configs(
+            talents,
+            scaffold_talents=scaffold_talents,
+            talent_prerequisites=talent_prerequisites,
+        )
+        canonical_actors = {}
+        unresolved = []
+        failed_canonical_names = {}
+
+        def export_batch(actor_specs):
+            try:
+                payload = self._run_profile_export(
+                    profile, [], scaffold_talents=scaffold_talents,
+                    target_health=target_health, actor_plan=actor_specs,
+                )
+            except RuntimeError as exc:
+                diagnostic = str(exc)
+                fatal_actor_initialization = re.search(
+                    r'(?:^|\r?\n)sim_signal_handler: Segmentation fault!'
+                    r'(?:[ \t]+(?:signal_\d+\b|Iteration=-?\d+\b)[^\r\n]*)?'
+                    r'(?:\r?\n|$)',
+                    diagnostic,
+                ) or re.search(
+                    r'(?:^|\r?\n)simc: class_modules/[^\r\n]+:'
+                    r'[^\r\n]*\bAssertion [^\r\n]+ failed\.(?:\r?\n|$)',
+                    diagnostic,
+                ) or re.search(
+                    r"(?:^|\r?\n)Error: Player '[^'\r\n]+' could not find spell data "
+                    r"for Action '[^'\r\n]+' \(\d+\)\.(?:\r?\n|$)",
+                    diagnostic,
+                )
+                if not fatal_actor_initialization:
+                    raise
+                if len(actor_specs) > 1:
+                    middle = len(actor_specs) // 2
+                    export_batch(actor_specs[:middle])
+                    export_batch(actor_specs[middle:])
+                    return
+                failed_canonical_names[actor_specs[0]['name']] = diagnostic[-2000:]
+                return
+            actor_map = {
+                str(actor.get('name') or ''): actor
+                for actor in (payload.get('actors') or [])
+                if isinstance(actor, dict)
+            }
+            duplicate_names = set(canonical_actors).intersection(actor_map)
+            if duplicate_names:
+                raise ValueError(f'{profile.spec} 配置 exporter 包含重复 canonical actor。')
+            canonical_actors.update(actor_map)
+            unresolved.extend(payload.get('unresolved') or [])
+
+        actor_specs = plan['actors']
+        for start in range(0, len(actor_specs), self.ACTOR_CONFIG_BATCH_SIZE):
+            export_batch(actor_specs[start:start + self.ACTOR_CONFIG_BATCH_SIZE])
+
+        baseline = canonical_actors.get('skill_damage_base')
+        if baseline is None:
+            raise ValueError(f'{profile.spec} 配置 exporter 缺少基线 actor。')
+        exported_actors = {}
+        talent_by_actor_name = {}
+        for talent in talents:
+            identity = f'{talent.pk}_trait_{talent.node_id}'
+            talent_by_actor_name[f'skill_damage_reference_{identity}'] = talent
+            talent_by_actor_name[f'skill_damage_talent_{identity}'] = talent
+        unresolved_talent_ids = set()
+        for logical_name, alias in plan['aliases'].items():
+            canonical_name = alias['canonical_name']
+            canonical_actor = canonical_actors.get(canonical_name)
+            if canonical_actor is None:
+                talent = talent_by_actor_name.get(logical_name)
+                if talent is not None and talent.pk not in unresolved_talent_ids:
+                    unresolved_talent_ids.add(talent.pk)
+                    unresolved.append({
+                        'class': str(getattr(profile, 'class_name', '') or ''),
+                        'specialization': canonical_simc_profile_identity(
+                            getattr(profile, 'spec', ''), getattr(profile, 'class_name', ''),
+                        )[1],
+                        'target_health_percentage': target_health,
+                        'talent': {
+                            'id': talent.node_id,
+                            'metadata_id': talent.pk,
+                            'name': str(talent.name or ''),
+                            'name_zh': str(talent.name_zh or ''),
+                            'tree_type': str(talent.tree_type or ''),
+                        },
+                        'reason': 'simc_actor_initialization_failed',
+                        'diagnostic': failed_canonical_names.get(canonical_name, '')[-2000:],
+                    })
+                continue
+            exported_actors[logical_name] = {
+                **canonical_actor,
+                'name': logical_name,
+                'talent_effectiveness': alias['talent_effectiveness'],
+            }
+        return baseline, exported_actors, unresolved
+
     def _generate_profile_product_actor(self, profile):
         """Generate and compact one profile before the next raw export graph exists."""
         all_talents = self._talent_entries(profile)
@@ -3601,11 +3795,11 @@ class SimcSkillDamageSnapshotService:
                 getattr(talent, 'node_id', None),
             ) not in scaffold_identities
         ]
-        base_high, high_actors, high_unresolved = self._run_profile_target_resilient(
+        base_high, high_actors, high_unresolved = self._run_profile_target_deduplicated(
             profile, talents, scaffold_talents=scaffold_talents,
             talent_prerequisites=talent_prerequisites, target_health=100,
         )
-        base_low, low_actors, low_unresolved = self._run_profile_target_resilient(
+        base_low, low_actors, low_unresolved = self._run_profile_target_deduplicated(
             profile, talents, scaffold_talents=scaffold_talents,
             talent_prerequisites=talent_prerequisites, target_health=34,
         )
