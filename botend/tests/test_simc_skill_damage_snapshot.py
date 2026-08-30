@@ -2685,6 +2685,33 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         self.assertEqual([actor['specialization'] for actor in result['actors']], ['fury', 'arms'])
 
+    def test_isolated_generation_closes_stale_db_connection_after_each_profile(self):
+        snapshot = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='b' * 40, game_build='12.1.0.69299', schema_revision=19,
+        )
+        profiles = [
+            SimpleNamespace(pk=1, spec='warrior_fury', class_name='warrior'),
+            SimpleNamespace(pk=2, spec='warrior_arms', class_name='warrior'),
+        ]
+        actors = [
+            ({
+                'class': 'warrior', 'specialization': spec,
+                'variant_model': 'single_talent_runtime',
+                'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
+                'actions': [],
+            }, [], 1)
+            for spec in ('fury', 'arms')
+        ]
+        service = SimcSkillDamageSnapshotService(snapshot)
+        with mock.patch.object(service, '_profiles', return_value=profiles), \
+             mock.patch.object(
+                 service, '_generate_profile_product_actor_isolated', side_effect=actors,
+             ), \
+             mock.patch('botend.services.simc_skill_damage.close_old_connections') as close_connections:
+            service.generate(isolate_profiles=True)
+
+        self.assertGreaterEqual(close_connections.call_count, len(profiles) + 1)
+
     def test_generate_isolates_crashing_talent_actor_and_publishes_explicit_unresolved(self):
         snapshot = SimcSkillDamageSnapshot.objects.create(
             simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=8,

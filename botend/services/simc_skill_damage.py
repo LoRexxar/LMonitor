@@ -3853,11 +3853,17 @@ class SimcSkillDamageSnapshotService:
                         current_specialization=profile_identity[1],
                     ),
                 )
-                actor, profile_unresolved, profile_raw_action_count = (
-                    self._generate_profile_product_actor_isolated(profile)
-                    if isolate_profiles
-                    else self._generate_profile_product_actor(profile)
-                )
+                if isolate_profiles:
+                    actor, profile_unresolved, profile_raw_action_count = (
+                        self._generate_profile_product_actor_isolated(profile)
+                    )
+                    # A profile subprocess can run longer than MySQL wait_timeout.
+                    # Drop the idle parent connection before publishing its result.
+                    close_old_connections()
+                else:
+                    actor, profile_unresolved, profile_raw_action_count = (
+                        self._generate_profile_product_actor(profile)
+                    )
                 actors.append(actor)
                 completed_identities.add(profile_identity)
                 raw_action_count += profile_raw_action_count
