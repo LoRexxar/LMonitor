@@ -22,7 +22,10 @@ import time
 import re
 import requests
 import os
+import signal
 import subprocess
+import sys
+import tempfile
 import threading
 import uuid
 import platform as py_platform
@@ -8188,6 +8191,7 @@ class SimcSkillDamageSnapshotAPIView(View):
     def _job_data(row):
         if not row:
             return None
+        payload = row.payload or {}
         return {
             'id': row.pk,
             'identity': {
@@ -8197,6 +8201,8 @@ class SimcSkillDamageSnapshotAPIView(View):
             },
             'status': row.status,
             'spec_count': row.generated_spec_count,
+            'total_spec_count': payload.get('total_spec_count'),
+            'current_specialization': payload.get('current_specialization') or '',
             'action_count': row.generated_action_count,
             'has_error': bool(row.error_text),
             'created_at': _fmt_dt(row.created_at),
@@ -8209,22 +8215,37 @@ class SimcSkillDamageSnapshotAPIView(View):
             schema_revision=SimcSkillDamageSnapshotService.DATASET_SCHEMA_REVISION,
         ).order_by('-completed_at', '-id').first()
         legacy_latest = SimcSkillDamageSnapshot.latest_success() if latest is None else None
-        job = SimcSkillDamageSnapshot.objects.order_by('-created_at', '-id').first()
+        active_job = SimcSkillDamageSnapshot.objects.filter(
+            status__in=(
+                SimcSkillDamageSnapshot.STATUS_PENDING,
+                SimcSkillDamageSnapshot.STATUS_RUNNING,
+            ),
+        ).order_by('-created_at', '-id').first()
+        job = active_job or SimcSkillDamageSnapshot.objects.order_by('-created_at', '-id').first()
         snapshot = None
-        if latest:
+        running_partial = (
+            active_job
+            if active_job
+            and active_job.schema_revision == SimcSkillDamageSnapshotService.DATASET_SCHEMA_REVISION
+            and active_job.generated_spec_count > 0
+            and (active_job.payload or {}).get('actors')
+            else None
+        )
+        display_snapshot = running_partial or latest
+        if display_snapshot:
             identity = {
-                'simc_revision': latest.simc_revision,
-                'game_build': latest.game_build,
-                'schema_revision': latest.schema_revision,
+                'simc_revision': display_snapshot.simc_revision,
+                'game_build': display_snapshot.game_build,
+                'schema_revision': display_snapshot.schema_revision,
             }
-            snapshot = {**(latest.payload or {}), 'identity': identity}
+            snapshot = {**(display_snapshot.payload or {}), 'identity': identity}
             snapshot['identity'] = identity
-            snapshot['id'] = latest.pk
-            snapshot['status'] = latest.status
-            snapshot['completed_at'] = _fmt_dt(latest.completed_at)
-            snapshot['spec_count'] = latest.generated_spec_count
+            snapshot['id'] = display_snapshot.pk
+            snapshot['status'] = display_snapshot.status
+            snapshot['completed_at'] = _fmt_dt(display_snapshot.completed_at)
+            snapshot['spec_count'] = display_snapshot.generated_spec_count
             snapshot['action_count'] = snapshot.get('display_action_count', 0)
-            snapshot['raw_action_count'] = latest.generated_action_count
+            snapshot['raw_action_count'] = display_snapshot.generated_action_count
         return JsonResponse({
             'success': True,
             'data': {
@@ -8243,25 +8264,70 @@ class SimcSkillDamageSnapshotAPIView(View):
         if not request.user.is_staff:
             return JsonResponse({'success': False, 'error': '仅管理员可生成技能伤害快照'}, status=403)
         try:
-            service = SimcSkillDamageSnapshotService.create_for_current_backend(request.user.id)
+            service = SimcSkillDamageSnapshotService.create_for_current_backend(
+                request.user.id, claim=True,
+            )
         except ValueError as exc:
             return JsonResponse({'success': False, 'error': str(exc)}, status=409)
 
         snapshot_id = service.snapshot.pk
 
-        def _run():
-            from django.db import close_old_connections
-            try:
-                SimcSkillDamageSnapshotService(
-                    SimcSkillDamageSnapshot.objects.get(pk=snapshot_id),
-                    backend=service.backend,
-                ).generate()
-            except Exception:
-                logger.error(f"生成 SimC 技能伤害快照失败\n{traceback.format_exc()}")
-            finally:
-                close_old_connections()
-
-        threading.Thread(target=_run, daemon=True).start()
+        ready_path = Path(tempfile.gettempdir()) / f'lmonitor-skill-snapshot-ready-{uuid.uuid4().hex}'
+        command = [
+            sys.executable,
+            str(Path(settings.BASE_DIR) / 'manage.py'),
+            'generate_simc_skill_damage_snapshot',
+            '--snapshot-id', str(snapshot_id),
+            '--ready-file', str(ready_path),
+        ]
+        if service.backend and service.backend.pk:
+            command.extend(['--backend-id', str(service.backend.pk)])
+        process = None
+        startup_error = ''
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd=str(settings.BASE_DIR),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+                start_new_session=True,
+            )
+            deadline = time.monotonic() + 10
+            while not ready_path.exists():
+                return_code = process.poll()
+                if return_code is not None:
+                    startup_error = f'生成命令在初始化阶段退出（code={return_code}）'
+                    break
+                if time.monotonic() >= deadline:
+                    startup_error = '生成命令初始化超时'
+                    try:
+                        os.killpg(process.pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        process.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        try:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                        process.wait()
+                    break
+                time.sleep(0.05)
+        except OSError as exc:
+            startup_error = str(exc)
+        finally:
+            ready_path.unlink(missing_ok=True)
+        if startup_error:
+            SimcSkillDamageSnapshot.objects.filter(pk=snapshot_id).update(
+                status=SimcSkillDamageSnapshot.STATUS_FAILED,
+                error_text=startup_error[:4000],
+                completed_at=timezone.now(),
+            )
+            return JsonResponse({'success': False, 'error': '启动技能伤害生成进程失败'}, status=500)
+        service.snapshot.refresh_from_db()
         return JsonResponse({
             'success': True,
             'message': '已开始生成当前 SimC/DBC 版本的技能伤害快照',

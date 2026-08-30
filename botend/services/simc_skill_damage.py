@@ -3,13 +3,15 @@ import json
 import math
 import os
 import re
+import signal
 import subprocess
+import sys
 import tempfile
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 
 from django.conf import settings
-from django.db import close_old_connections, models
+from django.db import close_old_connections, models, transaction
 from django.utils import timezone
 
 from botend.constants.hero_talents import (
@@ -309,6 +311,7 @@ def _finite_number(value):
 
 def build_single_talent_actor_input(
     profile_input, class_name, talents, *, scaffold_talents=(), talent_prerequisites=None,
+    reference_aliases=None,
 ):
     """Expand one reference actor into prerequisite-vs-selected actor pairs."""
     lines = str(profile_input or '').splitlines()
@@ -391,6 +394,7 @@ def build_single_talent_actor_input(
         for trait in scaffold_talents
     }
     output = [*global_lines, *actor_block('skill_damage_base')]
+    reference_name_by_block = {}
     for trait in talents:
         identity = (
             str(getattr(trait, 'tree_type', '') or '').strip().lower(),
@@ -400,7 +404,16 @@ def build_single_talent_actor_input(
             continue
         prerequisites = list(talent_prerequisites.get(trait.pk) or [])
         identity = f'{trait.pk}_trait_{trait.node_id}'
-        output.extend(actor_block(f'skill_damage_reference_{identity}', prerequisites))
+        expected_reference_name = f'skill_damage_reference_{identity}'
+        reference_block = actor_block(expected_reference_name, prerequisites)
+        reference_key = '\n'.join(reference_block[1:])
+        canonical_reference_name = expected_reference_name
+        if reference_aliases is not None:
+            canonical_reference_name = reference_name_by_block.get(reference_key, expected_reference_name)
+            reference_aliases[expected_reference_name] = canonical_reference_name
+        if canonical_reference_name == expected_reference_name:
+            reference_name_by_block[reference_key] = expected_reference_name
+            output.extend(reference_block)
         output.extend(actor_block(f'skill_damage_talent_{identity}', [*prerequisites, trait]))
     return '\n'.join(output).rstrip() + '\n'
 
@@ -2780,12 +2793,12 @@ class SimcSkillDamageSnapshotService:
             and latest_has_complete_actor_data
         ):
             return None
-        service = cls.create_for_current_backend()
+        service = cls.create_for_current_backend(claim=True)
         service.generate()
         return service.snapshot
 
     @classmethod
-    def create_for_current_backend(cls, requested_by_id=None):
+    def create_for_current_backend(cls, requested_by_id=None, *, claim=False):
         backend = SimcBackendBinary.objects.filter(identifier='production', is_active=True).first()
         if not backend:
             raise ValueError('未配置正式服 SimC 后端。')
@@ -2795,29 +2808,39 @@ class SimcSkillDamageSnapshotService:
             raise ValueError('SimC 后端缺少完整 40 位 revision。')
         if not game_build:
             raise ValueError('SimC 后端缺少 WoW/DBC game build。')
-        snapshot, created = SimcSkillDamageSnapshot.objects.get_or_create(
-            simc_revision=revision,
-            game_build=game_build,
-            schema_revision=cls.DATASET_SCHEMA_REVISION,
-            defaults={'requested_by_id': requested_by_id},
-        )
-        if not created:
-            actors = (snapshot.payload or {}).get('actors') or []
-            has_complete_actor_data = bool(actors) and all(
-                isinstance(actor, dict)
-                and actor.get('variant_model') == 'single_talent_runtime'
-                and actor.get('action_universe') == 'dbc_spellbook_selected_traits_and_derived_actions'
-                for actor in actors
+        with transaction.atomic():
+            snapshot, created = SimcSkillDamageSnapshot.objects.get_or_create(
+                simc_revision=revision,
+                game_build=game_build,
+                schema_revision=cls.DATASET_SCHEMA_REVISION,
+                defaults={'requested_by_id': requested_by_id},
             )
-            if snapshot.status == SimcSkillDamageSnapshot.STATUS_RUNNING or (
-                snapshot.status == SimcSkillDamageSnapshot.STATUS_SUCCEEDED
-                and has_complete_actor_data
-            ):
-                raise ValueError('该 SimC/DBC/exporter 版本已生成或正在生成。')
-            snapshot.status = SimcSkillDamageSnapshot.STATUS_PENDING
+            snapshot = SimcSkillDamageSnapshot.objects.select_for_update().get(pk=snapshot.pk)
+            if not created:
+                actors = (snapshot.payload or {}).get('actors') or []
+                has_complete_actor_data = bool(actors) and all(
+                    isinstance(actor, dict)
+                    and actor.get('variant_model') == 'single_talent_runtime'
+                    and actor.get('action_universe') == 'dbc_spellbook_selected_traits_and_derived_actions'
+                    for actor in actors
+                )
+                if snapshot.status == SimcSkillDamageSnapshot.STATUS_RUNNING or (
+                    snapshot.status == SimcSkillDamageSnapshot.STATUS_SUCCEEDED
+                    and has_complete_actor_data
+                ):
+                    raise ValueError('该 SimC/DBC/exporter 版本已生成或正在生成。')
+            snapshot.status = (
+                SimcSkillDamageSnapshot.STATUS_RUNNING
+                if claim else SimcSkillDamageSnapshot.STATUS_PENDING
+            )
             snapshot.error_text = ''
             snapshot.requested_by_id = requested_by_id
-            snapshot.save(update_fields=['status', 'error_text', 'requested_by_id'])
+            update_fields = ['status', 'error_text', 'requested_by_id']
+            if claim:
+                snapshot.started_at = timezone.now()
+                snapshot.completed_at = None
+                update_fields.extend(['started_at', 'completed_at'])
+            snapshot.save(update_fields=update_fields)
         return cls(snapshot, backend=backend)
 
     def _profiles(self):
@@ -3077,10 +3100,12 @@ class SimcSkillDamageSnapshotService:
                 reference_input.rstrip()
                 + '\nwarlock.normalize_destruction_mastery=1\n'
             )
+        reference_aliases = {}
         simc_input = build_single_talent_actor_input(
             reference_input, profile.class_name, talents,
             scaffold_talents=scaffold_talents,
             talent_prerequisites=talent_prerequisites,
+            reference_aliases=reference_aliases,
         )
         with tempfile.TemporaryDirectory(prefix='simc-skill-damage-') as tmp:
             input_path = Path(tmp) / 'actors.simc'
@@ -3098,6 +3123,20 @@ class SimcSkillDamageSnapshotService:
                 diagnostic = (result.stderr or result.stdout or 'SimC exporter 未生成 JSON').strip()
                 raise RuntimeError(diagnostic[-2000:])
             payload = json.loads(output_path.read_text(encoding='utf-8'))
+        exported_actor_map = {
+            str(actor.get('name') or ''): actor
+            for actor in (payload.get('actors') or [])
+            if isinstance(actor, dict)
+        }
+        for expected_name, canonical_name in reference_aliases.items():
+            if expected_name == canonical_name:
+                continue
+            canonical_actor = exported_actor_map.get(canonical_name)
+            if canonical_actor is None:
+                raise ValueError('去重 reference actor 缺少 canonical 产物。')
+            aliased_actor = {**canonical_actor, 'name': expected_name}
+            payload['actors'].append(aliased_actor)
+            exported_actor_map[expected_name] = aliased_actor
         expected_actor_names = {
             'skill_damage_base',
             *(f'skill_damage_reference_{talent.pk}_trait_{talent.node_id}' for talent in talents),
@@ -3421,25 +3460,15 @@ class SimcSkillDamageSnapshotService:
         self, profile, talents, *, scaffold_talents, talent_prerequisites, target_health,
     ):
         """Export all actors while isolating a SimC process crash to the smallest talent input."""
-        baseline_export = self._run_profile_export(
-            profile, [], scaffold_talents=scaffold_talents, target_health=target_health,
-        )
-        baseline_map = {
-            str(actor.get('name') or ''): actor
-            for actor in (baseline_export.get('actors') or [])
-            if isinstance(actor, dict)
-        }
-        baseline = baseline_map.get('skill_damage_base')
-        if baseline is None or set(baseline_map) != {'skill_damage_base'}:
-            raise ValueError(f'{profile.spec} exporter 缺少独立基线 actor。')
-
+        baseline = None
         exported_actors = {}
-        unresolved = list(baseline_export.get('unresolved') or [])
+        unresolved = []
         _class_name, specialization = canonical_simc_profile_identity(
             getattr(profile, 'spec', ''), getattr(profile, 'class_name', ''),
         )
 
         def export_batch(batch):
+            nonlocal baseline
             try:
                 payload = self._run_profile_export(
                     profile, batch,
@@ -3493,7 +3522,11 @@ class SimcSkillDamageSnapshotService:
                 if isinstance(actor, dict)
             }
             current_baseline = actor_map.pop('skill_damage_base', None)
-            if current_baseline != baseline:
+            if current_baseline is None:
+                raise ValueError(f'{profile.spec} 分块 exporter 缺少基线 actor。')
+            if baseline is None:
+                baseline = current_baseline
+            elif current_baseline != baseline:
                 raise ValueError(f'{profile.spec} 分块 exporter 基线 actor 不一致。')
             duplicate_names = set(exported_actors).intersection(actor_map)
             if duplicate_names:
@@ -3501,8 +3534,32 @@ class SimcSkillDamageSnapshotService:
             exported_actors.update(actor_map)
             unresolved.extend(payload.get('unresolved') or [])
 
-        for start in range(0, len(talents), self.TALENT_BATCH_SIZE):
-            export_batch(talents[start:start + self.TALENT_BATCH_SIZE])
+        ordered_talents = sorted(
+            talents,
+            key=lambda talent: tuple(
+                (
+                    str(getattr(prerequisite, 'tree_type', '') or '').strip().lower(),
+                    int(getattr(prerequisite, 'node_id', 0) or 0),
+                    int(getattr(prerequisite, 'max_points', 1) or 1),
+                )
+                for prerequisite in (talent_prerequisites.get(talent.pk) or [])
+            ),
+        )
+        for start in range(0, len(ordered_talents), self.TALENT_BATCH_SIZE):
+            export_batch(ordered_talents[start:start + self.TALENT_BATCH_SIZE])
+        if baseline is None:
+            baseline_export = self._run_profile_export(
+                profile, [], scaffold_talents=scaffold_talents, target_health=target_health,
+            )
+            baseline_map = {
+                str(actor.get('name') or ''): actor
+                for actor in (baseline_export.get('actors') or [])
+                if isinstance(actor, dict)
+            }
+            baseline = baseline_map.get('skill_damage_base')
+            if baseline is None or set(baseline_map) != {'skill_damage_base'}:
+                raise ValueError(f'{profile.spec} exporter 缺少独立基线 actor。')
+            unresolved.extend(baseline_export.get('unresolved') or [])
         return baseline, exported_actors, unresolved
 
     def _generate_profile_product_actor(self, profile):
@@ -3620,7 +3677,102 @@ class SimcSkillDamageSnapshotService:
             raw_action_count,
         )
 
-    def generate(self):
+    def _generate_profile_product_actor_isolated(self, profile):
+        """Run one profile in a short-lived process so its raw graph returns to the OS."""
+        with tempfile.TemporaryDirectory(prefix='simc-skill-damage-profile-') as workdir:
+            output_path = os.path.join(workdir, 'profile.json')
+            command = [
+                sys.executable,
+                str(Path(settings.BASE_DIR) / 'manage.py'),
+                'generate_simc_skill_damage_snapshot',
+                '--snapshot-id', str(self.snapshot.pk),
+                '--profile-id', str(profile.pk),
+                '--output', output_path,
+            ]
+            if self.backend and self.backend.pk:
+                command.extend(['--backend-id', str(self.backend.pk)])
+            process = subprocess.Popen(
+                command,
+                cwd=str(settings.BASE_DIR),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                start_new_session=True,
+            )
+            try:
+                stdout, stderr = process.communicate(timeout=3600)
+            except subprocess.TimeoutExpired as exc:
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                try:
+                    stdout, stderr = process.communicate(timeout=10)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    stdout, stderr = process.communicate()
+                raise RuntimeError(f'{profile.spec} 隔离生成超时。') from exc
+            if process.returncode != 0:
+                diagnostic = (stderr or stdout or '').strip()
+                raise RuntimeError(f'{profile.spec} 隔离生成进程失败：{diagnostic[-3000:]}')
+            try:
+                decoded = json.loads(Path(output_path).read_text(encoding='utf-8'))
+                if not isinstance(decoded, list) or len(decoded) != 3:
+                    raise ValueError('必须是 [actor, unresolved, raw_action_count]')
+                actor, unresolved_rows, raw_action_count = decoded
+                actions = actor.get('actions') if isinstance(actor, dict) else None
+                expected_class, expected_spec = canonical_simc_profile_identity(
+                    getattr(profile, 'spec', ''), getattr(profile, 'class_name', ''),
+                )
+                actor_identity = (
+                    (
+                        str(actor.get('class') or '').strip().lower(),
+                        str(actor.get('specialization') or actor.get('spec') or '').strip().lower(),
+                    )
+                    if isinstance(actor, dict)
+                    else ('', '')
+                )
+                if (
+                    not isinstance(decoded, list) or len(decoded) != 3
+                    or not isinstance(actor, dict)
+                    or not isinstance(unresolved_rows, list)
+                    or any(not isinstance(row, dict) for row in unresolved_rows)
+                    or not isinstance(raw_action_count, int) or isinstance(raw_action_count, bool)
+                    or raw_action_count < 0
+                    or actor_identity != (expected_class, expected_spec)
+                    or actor.get('variant_model') != 'single_talent_runtime'
+                    or actor.get('action_universe') != 'dbc_spellbook_selected_traits_and_derived_actions'
+                    or not isinstance(actions, list)
+                    or any(not isinstance(action, dict) for action in actions)
+                    or raw_action_count < len(actions)
+                ):
+                    raise ValueError('actor 身份、产品契约或 action 计数无效')
+                return actor, unresolved_rows, raw_action_count
+            except (OSError, ValueError, TypeError) as exc:
+                raise RuntimeError(f'{profile.spec} 隔离生成产物无效：{exc}') from exc
+
+    def _progress_payload(self, actors, unresolved, *, total_spec_count, current_specialization=''):
+        return {
+            'identity': {
+                'simc_revision': self.snapshot.simc_revision,
+                'game_build': self.snapshot.game_build,
+                'schema_revision': self.snapshot.schema_revision,
+            },
+            'preset': dict(self.FIXED_PRESET),
+            'actors': actors,
+            'unresolved': unresolved,
+            'payload_format': 'skill_damage_product_v1',
+            'display_action_count': sum(
+                len(actor.get('actions') or []) for actor in actors
+            ),
+            'total_spec_count': total_spec_count,
+            'current_specialization': current_specialization,
+        }
+
+    def generate(self, *, isolate_profiles=False):
         now = timezone.now()
         SimcSkillDamageSnapshot.objects.filter(pk=self.snapshot.pk).update(
             status=SimcSkillDamageSnapshot.STATUS_RUNNING,
@@ -3630,40 +3782,104 @@ class SimcSkillDamageSnapshotService:
         )
         self.snapshot.refresh_from_db()
         try:
-            actors = []
-            unresolved = []
-            unresolved_keys = set()
-            raw_action_count = 0
-            for profile in self._profiles():
+            profiles = self._profiles()
+            total_spec_count = len(profiles) if hasattr(profiles, '__len__') else 0
+            previous_payload = self.snapshot.payload or {}
+            actors = list(previous_payload.get('actors') or [])
+            unresolved = list(previous_payload.get('unresolved') or [])
+            if actors:
+                profile_identities = (
+                    {
+                        canonical_simc_profile_identity(
+                            getattr(profile, 'spec', ''), getattr(profile, 'class_name', ''),
+                        )
+                        for profile in profiles
+                    }
+                    if hasattr(profiles, '__len__')
+                    else set()
+                )
+                actor_identities = [
+                    (
+                        str(actor.get('class') or '').strip().lower(),
+                        str(actor.get('specialization') or actor.get('spec') or '').strip().lower(),
+                    )
+                    for actor in actors
+                    if isinstance(actor, dict)
+                ]
+                resume_valid = (
+                    len(actor_identities) == len(actors)
+                    and len(set(actor_identities)) == len(actor_identities)
+                    and set(actor_identities).issubset(profile_identities)
+                    and all(
+                        actor.get('variant_model') == 'single_talent_runtime'
+                        and actor.get('action_universe') == 'dbc_spellbook_selected_traits_and_derived_actions'
+                        and isinstance(actor.get('actions'), list)
+                        for actor in actors
+                    )
+                    and all(isinstance(row, dict) for row in unresolved)
+                )
+                if not resume_valid:
+                    actors = []
+                    unresolved = []
+            unresolved_keys = {
+                json.dumps(row, ensure_ascii=False, sort_keys=True)
+                for row in unresolved
+            }
+            raw_action_count = int(self.snapshot.generated_action_count or 0) if actors else 0
+            completed_identities = {
+                (
+                    str(actor.get('class') or '').strip().lower(),
+                    str(actor.get('specialization') or actor.get('spec') or '').strip().lower(),
+                )
+                for actor in actors
+                if isinstance(actor, dict)
+            }
+            SimcSkillDamageSnapshot.objects.filter(pk=self.snapshot.pk).update(
+                payload=self._progress_payload(
+                    actors, unresolved, total_spec_count=total_spec_count,
+                ),
+                generated_spec_count=len(actors),
+                generated_action_count=raw_action_count,
+            )
+            for profile in profiles:
+                profile_identity = canonical_simc_profile_identity(
+                    getattr(profile, 'spec', ''), getattr(profile, 'class_name', ''),
+                )
+                if profile_identity in completed_identities:
+                    continue
+                SimcSkillDamageSnapshot.objects.filter(pk=self.snapshot.pk).update(
+                    payload=self._progress_payload(
+                        actors, unresolved, total_spec_count=total_spec_count,
+                        current_specialization=profile_identity[1],
+                    ),
+                )
                 actor, profile_unresolved, profile_raw_action_count = (
-                    self._generate_profile_product_actor(profile)
+                    self._generate_profile_product_actor_isolated(profile)
+                    if isolate_profiles
+                    else self._generate_profile_product_actor(profile)
                 )
                 actors.append(actor)
+                completed_identities.add(profile_identity)
                 raw_action_count += profile_raw_action_count
                 for row in profile_unresolved:
                     key = json.dumps(row, ensure_ascii=False, sort_keys=True)
                     if key not in unresolved_keys:
                         unresolved_keys.add(key)
                         unresolved.append(row)
-            payload = {
-                'identity': {
-                    'simc_revision': self.snapshot.simc_revision,
-                    'game_build': self.snapshot.game_build,
-                    'schema_revision': self.snapshot.schema_revision,
-                },
-                'preset': dict(self.FIXED_PRESET),
-                'actors': actors,
-                'unresolved': unresolved,
-                'payload_format': 'skill_damage_product_v1',
-                'display_action_count': sum(
-                    len(actor.get('actions') or []) for actor in actors
-                ),
-            }
-            action_count = raw_action_count
+                SimcSkillDamageSnapshot.objects.filter(pk=self.snapshot.pk).update(
+                    payload=self._progress_payload(
+                        actors, unresolved, total_spec_count=total_spec_count,
+                    ),
+                    generated_spec_count=len(actors),
+                    generated_action_count=raw_action_count,
+                )
+            payload = self._progress_payload(
+                actors, unresolved, total_spec_count=total_spec_count,
+            )
             self.snapshot.status = SimcSkillDamageSnapshot.STATUS_SUCCEEDED
             self.snapshot.payload = payload
             self.snapshot.generated_spec_count = len(actors)
-            self.snapshot.generated_action_count = action_count
+            self.snapshot.generated_action_count = raw_action_count
             self.snapshot.completed_at = timezone.now()
             self.snapshot.error_text = ''
             self.snapshot.save(update_fields=[

@@ -6102,8 +6102,15 @@ function initSimcSkillDamagePanel() {
         const job = data.job;
         const running = job && ['pending', 'running'].includes(job.status);
         generateBtn.disabled = Boolean(running);
+        const progressTotal = Number(job && job.total_spec_count) || 0;
+        const progressText = progressTotal
+            ? `${job.spec_count || 0} / ${progressTotal} 个专精`
+            : `${job.spec_count || 0} 个专精`;
+        const currentSpecText = job && job.current_specialization
+            ? ` · 当前：${job.current_specialization}`
+            : '';
         statusEl.textContent = running
-            ? `正在生成：${job.identity.game_build} · 已完成 ${job.spec_count || 0} 个专精`
+            ? `正在生成：${job.identity.game_build} · 已完成 ${progressText}${currentSpecText}`
             : currentSnapshot
                 ? `最近成功：${currentSnapshot.spec_count || 0} 个专精、${currentSnapshot.action_count || 0} 个技能 · ${currentSnapshot.completed_at || ''}`
                 : (job && job.has_error ? '最近一次生成失败；旧成功快照不会被覆盖。' : '当前还没有成功快照。');

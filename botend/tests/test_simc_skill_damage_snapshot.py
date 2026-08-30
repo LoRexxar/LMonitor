@@ -2592,11 +2592,9 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         snapshot.refresh_from_db()
         self.assertEqual(run.call_args_list, [
-            mock.call(profile, [], scaffold_talents=[], target_health=100),
             mock.call(profile, talents[:12], scaffold_talents=[], talent_prerequisites=mock.ANY, target_health=100),
             mock.call(profile, talents[12:24], scaffold_talents=[], talent_prerequisites=mock.ANY, target_health=100),
             mock.call(profile, talents[24:], scaffold_talents=[], talent_prerequisites=mock.ANY, target_health=100),
-            mock.call(profile, [], scaffold_talents=[], target_health=34),
             mock.call(profile, talents[:12], scaffold_talents=[], talent_prerequisites=mock.ANY, target_health=34),
             mock.call(profile, talents[12:24], scaffold_talents=[], talent_prerequisites=mock.ANY, target_health=34),
             mock.call(profile, talents[24:], scaffold_talents=[], talent_prerequisites=mock.ANY, target_health=34),
@@ -2640,6 +2638,13 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         def iter_profiles():
             yield profiles[0]
+            snapshot.refresh_from_db()
+            self.assertEqual(snapshot.status, SimcSkillDamageSnapshot.STATUS_RUNNING)
+            self.assertEqual(snapshot.generated_spec_count, 1)
+            self.assertEqual(
+                [actor['specialization'] for actor in snapshot.payload['actors']],
+                ['fury'],
+            )
             gc.collect()
             self.assertTrue(first_profile_raw_refs)
             self.assertTrue(
