@@ -14,6 +14,7 @@ from botend.constants.wow import (
     SPEC_ICON,
     SPEC_ROLE,
     canonical_class_spec,
+    localize_gear_source,
 )
 from botend.models import SeasonMeta, WowItemVariantSnapshot, WowWagoMonitorState
 from botend.services.simc_player_config import parse_simc_player_profile
@@ -247,7 +248,7 @@ def serialize_variant(variant, class_name='', spec_name=''):
         'socket_count': variant.socket_count,
         'stats': stats_for_identity(variant.stats_json, variant.metadata, class_name, spec_name),
         'effects': variant.effects_json or [],
-        'sources': variant.source_json or [],
+        'sources': [localize_gear_source(row) for row in (variant.source_json or []) if isinstance(row, dict)],
         'crafting_options': variant.crafting_options or {},
         'unique_group': variant.unique_group or item.unique_group,
         'max_equipped': variant.max_equipped,

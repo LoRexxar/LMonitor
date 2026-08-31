@@ -198,6 +198,21 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         }).json()
         self.assertNotIn(10001, [row['item_id'] for row in wrong_class_mask['items']])
 
+    def test_catalog_localizes_raw_english_sources(self):
+        self.hero.source_json = [{
+            'type': 'raid', 'instance': 'The Venomous Abyss', 'encounter': "Ula'tek",
+            'difficulty': 'Mythic',
+        }]
+        self.hero.save(update_fields=['source_json'])
+        rows = self.client.get('/portal/api/gear-builder/catalog/', {
+            'class': 'Warrior', 'spec': 'Fury', 'slot': 'head', 'source': 'raid',
+        }).json()['items']
+        source = next(row for row in rows[0]['variants'] if row['id'] == self.hero.id)['sources'][0]
+        self.assertEqual(source['type_zh'], '团队副本')
+        self.assertEqual(source['instance_zh'], '烈毒之渊')
+        self.assertEqual(source['encounter_zh'], '乌拉特克')
+        self.assertEqual(source['difficulty_zh'], '史诗')
+
     def test_enhancements_only_offer_embellishment_for_crafted_equipment(self):
         drop = self.client.get('/portal/api/gear-builder/enhancements/', {
             'class': 'Warrior', 'spec': 'Fury', 'slot': 'head', 'variant_id': self.hero.id,
@@ -457,3 +472,5 @@ class GearBuilderFrontendContractTests(TestCase):
             self.assertIn(value, script)
         for value in ('socketCapacity', 'addedSocket', 'totalsAndEffects', 'gear-option-check'):
             self.assertIn(value, script)
+        self.assertIn('data-select-item', script)
+        self.assertNotIn('data-add-item', script)

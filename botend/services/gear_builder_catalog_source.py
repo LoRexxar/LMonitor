@@ -13,7 +13,7 @@ from urllib.parse import urlencode
 
 import requests
 
-from botend.constants.wow import SPEC_IDENTITY_MAP
+from botend.constants.wow import SPEC_IDENTITY_MAP, localize_gear_source
 from botend.services.article_image_service import _get_configured_proxies
 
 
@@ -276,7 +276,7 @@ class CurrentGearCatalogSource:
                     continue
                 source_type, instance = source_groups[instance_id]
                 raid_meta = raid_encounter_meta.get((instance_id, _safe_int(source.get('encounterId'))), {})
-                matched.append({
+                matched.append(localize_gear_source({
                     'type': source_type,
                     'instance_id': instance_id,
                     'instance': str(instance.get('name') or ''),
@@ -285,7 +285,7 @@ class CurrentGearCatalogSource:
                     'encounter_order': _safe_int(raid_meta.get('order')),
                     'item_sequence_level': _safe_int(raid_meta.get('itemSequenceLevel')),
                     'very_rare': bool(source.get('veryRare')),
-                })
+                }))
             if not matched:
                 continue
             slots = list(INVENTORY_SLOTS.get(_safe_int(raw.get('inventoryType')), ()))
@@ -324,7 +324,7 @@ class CurrentGearCatalogSource:
                 'compatible_slots': [],
                 'unique_group': 'embellishment-limit',
                 'max_equipped': _safe_int(limit.get('quantity'), 2),
-                'sources': [{'type': 'profession', 'profession': 'Crafting'}],
+                'sources': [localize_gear_source({'type': 'profession', 'profession': 'Crafting'})],
                 'metadata': {'reagent_slot_ids': reagent.get('reagentSlotIds') or []},
             })
 
@@ -354,7 +354,7 @@ class CurrentGearCatalogSource:
                 'effects': [{'description': str(raw.get('displayName') or '')}] if not stats else [],
                 'unique_group': f'item-limit-{_safe_int(raw.get("itemLimitCategory"))}' if raw.get('unique') else '',
                 'max_equipped': 1 if raw.get('unique') else 0,
-                'sources': [{'type': 'profession', 'profession': 'Jewelcrafting' if is_gem else 'Enchanting'}],
+                'sources': [localize_gear_source({'type': 'profession', 'profession': 'Jewelcrafting' if is_gem else 'Enchanting'})],
                 'metadata': {'enchantment_id': _safe_int(raw.get('id')), 'simc_name': raw.get('tokenizedName') or '', 'primary_stat_amount': primary},
             })
 
@@ -433,7 +433,7 @@ class CurrentGearCatalogSource:
                 'upgrade_track': 'myth', 'track_rank': 9, 'track_max_rank': 6,
                 'compatible_slots': list(INVENTORY_SLOTS.get(item['inventory_type'], ())),
                 'socket_count': len(socket_types), 'socket_types': socket_types,
-                'sources': [dict(row, difficulty='Mythic · Myth 9/6') for row in sources],
+                'sources': [localize_gear_source(dict(row, difficulty='Mythic · Myth 9/6')) for row in sources],
                 'metadata': {'special_mythic_drop': True},
             })
 

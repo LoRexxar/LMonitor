@@ -10,7 +10,7 @@
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260808_portal_theme_v2"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260821_mythicstats_clean_light_v7">
     <link rel="stylesheet" href="{% static 'shared/css/wow-item-tooltip.css' %}?v=20260813_simc_equipment_icon">
-    <link rel="stylesheet" href="{% static 'portal/css/gear_builder.css' %}?v=20260831_gear_builder_v2">
+    <link rel="stylesheet" href="{% static 'portal/css/gear_builder.css' %}?v=20260831_gear_builder_v3">
 </head>
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
@@ -97,7 +97,7 @@
                         </label>
                     </div>
                     <div class="gear-table-head" aria-hidden="true">
-                        <span>名称</span><span>物品等级</span><span>品级</span><span>来源</span><span>属性</span><span></span>
+                        <span>名称</span><span>物品等级</span><span>品级</span><span>来源</span><span>属性</span>
                     </div>
                     <div id="gear-candidate-list" class="gear-candidate-list" aria-live="polite"></div>
                     <button type="button" id="gear-load-more" class="gear-load-more" hidden>加载更多</button>
@@ -167,6 +167,6 @@
 
     <div id="gear-toast-root" class="gear-toast-root" aria-live="polite"></div>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
-    <script src="{% static 'portal/js/gear_builder.js' %}?v=20260831_gear_builder_v2"></script>
+    <script src="{% static 'portal/js/gear_builder.js' %}?v=20260831_gear_builder_v3"></script>
 </body>
 </html>

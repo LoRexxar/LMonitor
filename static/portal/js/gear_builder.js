@@ -35,8 +35,12 @@
     crit: "#ed7b2d", haste: "#24a7bd", mastery: "#7c3aed", versatility: "#c59d28",
   };
   const SOURCE_LABELS = {
-    mythic_plus: "大秘境", great_vault: "低保", raid: "团本", delve: "地下堡",
-    crafted: "制造", profession: "专业制造", bonus_roll: "额外掷骰",
+    mythic_plus: "大秘境", great_vault: "宏伟宝库", raid: "团队副本", delve: "地下堡",
+    crafted: "专业制造", profession: "专业制造", bonus_roll: "额外掉落",
+  };
+  const SOURCE_PLACE_FALLBACKS = {
+    mythic_plus: "当前大秘境", great_vault: "宏伟宝库", raid: "当前团队副本",
+    delve: "当前赛季地下堡", crafted: "专业制造", profession: "专业制造",
   };
 
   let bootstrap = null;
@@ -111,10 +115,14 @@
     if (!rows.length) return "来源待补全";
     return rows.slice(0, 2).map((row) => {
       if (typeof row === "string") return row;
-      const type = SOURCE_LABELS[row.type] || row.type || "";
-      const place = row.boss_zh || row.boss || row.instance_zh || row.instance || row.profession_zh || row.profession || "";
-      const difficulty = row.difficulty_zh || row.difficulty || "";
-      return [type, place, difficulty].filter(Boolean).join(" · ");
+      const type = row.type_zh || SOURCE_LABELS[row.type] || "其他来源";
+      const instance = row.instance_zh || "";
+      const encounter = row.encounter_zh || row.boss_zh || "";
+      const profession = row.profession_zh || "";
+      const difficulty = row.difficulty_zh || "";
+      const parts = [type, instance, encounter, profession, difficulty].filter(Boolean);
+      if (parts.length === 1 && SOURCE_PLACE_FALLBACKS[row.type]) parts.push(SOURCE_PLACE_FALLBACKS[row.type]);
+      return [...new Set(parts)].join(" · ");
     }).join("\n");
   }
 
@@ -315,14 +323,13 @@
         ? item.variants.find((row) => row.id === current.variant?.id) || item.variants[0]
         : item.variants[0];
       const equipped = current?.item?.item_id === item.item_id && current?.variant?.id === variant?.id;
-      return `<article class="gear-candidate-row${equipped ? " is-equipped" : ""}" data-item-id="${item.item_id}">
-        <div class="gear-candidate-name"${tooltipAttrs(item, variant)}>${iconMarkup(item)}<span class="gear-candidate-copy"><strong class="gear-candidate-title">${escapeHtml(item.name)}</strong><small class="gear-candidate-subtitle">${escapeHtml(item.armor_type || item.weapon_type || (variant.type === "crafted_equipment" ? "制造装备" : "装备"))}</small></span></div>
+      return `<div class="gear-candidate-row${equipped ? " is-equipped" : ""}" role="button"${equipped ? ' aria-current="true"' : ""} data-select-item="${item.item_id}" data-variant-id="${variant.id}"${tooltipAttrs(item, variant)}>
+        <div class="gear-candidate-name">${iconMarkup(item)}<span class="gear-candidate-copy"><strong class="gear-candidate-title">${escapeHtml(item.name)}</strong><small class="gear-candidate-subtitle">${escapeHtml(equipped ? "当前装备" : item.armor_type || item.weapon_type || (variant.type === "crafted_equipment" ? "制造装备" : "装备"))}</small></span></div>
         <div class="gear-candidate-level">${variant.item_level || "-"}</div>
         <div class="gear-track gear-track--${escapeHtml(variant.track || "crafted")}">${escapeHtml(variant.type === "crafted_equipment" ? `制造 ${variant.crafting_quality || ""}星` : `${variant.track_label || variant.track || "-"} ${variant.track_rank ? `${variant.track_rank}/${variant.track_max_rank}` : ""}`)}</div>
         <div class="gear-source-copy">${sourceMarkup(variant)}</div>
         <div class="gear-stat-copy">${statMarkup(variant.stats)}</div>
-        <button type="button" class="gear-row-action" data-add-item="${item.item_id}" data-variant-id="${variant.id}">${equipped ? "已加入" : "加入"}</button>
-      </article>`;
+      </div>`;
     }).join("");
     els.load_more.hidden = candidates.length >= candidateTotal;
     els.load_more.textContent = candidateLoading ? "加载中…" : `加载更多（${candidates.length}/${candidateTotal}）`;
@@ -434,6 +441,12 @@
   async function addItem(item, variant) {
     const error = validateEquipment(variant, state.selectedSlot);
     if (error) { toast(error, true); return; }
+    const current = selectedEntry();
+    if (Number(current?.item?.item_id) === Number(item.item_id) && Number(current?.variant?.id) === Number(variant.id)) {
+      openDetail();
+      return;
+    }
+    const replacing = Boolean(current);
     if (state.selectedSlot === "main_hand" && variant.metadata?.two_handed && state.equipment.off_hand) {
       delete state.equipment.off_hand;
       toast("已装备双手武器，副手装备已移除。")
@@ -460,7 +473,7 @@
     persist();
     renderAll();
     openDetail();
-    toast(`${item.name} 已加入${slotLabel(state.selectedSlot)}`);
+    toast(`${item.name} 已${replacing ? "替换" : "装备"}到${slotLabel(state.selectedSlot)}`);
   }
 
   function slotLabel(slot) {
@@ -634,17 +647,6 @@
 
   function openDetail() {
     els.detail_panel.classList.add("is-open");
-  }
-
-  function openCandidatePreview(item, variant) {
-    const stats = variant?.stats || {};
-    const effects = variant?.effects || [];
-    els.detail_content.innerHTML = `
-      <div class="gear-detail-identity"${tooltipAttrs(item, variant)}>${iconMarkup(item)}<div><h3 class="gear-detail-name">${escapeHtml(item.name)}</h3><div class="gear-detail-meta">装等 ${variant?.item_level || "-"}<br>${escapeHtml(sourceText(variant).replaceAll("\n", " · "))}</div></div></div>
-      <div class="gear-detail-stats">${Object.entries(stats).filter(([, value]) => number(value)).map(([key, value]) => `<div class="gear-detail-stat"><span>${escapeHtml(STAT_LABELS[key] || key)}</span><span>${formatNumber(value)}</span></div>`).join("") || '<span class="gear-no-effects">该变体没有可直接累加的静态属性。</span>'}</div>
-      <div class="gear-detail-effects"><h3>装备特效</h3>${effects.length ? effects.map((effect) => `<div class="gear-effect-line">${escapeHtml(effectText(effect))}</div>`).join("") : '<span class="gear-no-effects">无触发型特效</span>'}</div>
-      <div class="gear-detail-actions"><button type="button" class="gear-btn gear-btn--primary" data-preview-add-item="${item.item_id}" data-variant-id="${variant?.id || ""}">加入${escapeHtml(slotLabel(state.selectedSlot))}</button></div>`;
-    openDetail();
   }
 
   function closeDetail() {
@@ -841,17 +843,18 @@
     els.search_input.addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = window.setTimeout(() => loadCandidates(true), 250); });
     els.load_more.addEventListener("click", () => { candidatePage += 1; loadCandidates(false); });
     els.candidate_list.addEventListener("click", (event) => {
-      const button = event.target.closest("[data-add-item]");
-      if (button) {
-        const item = findCandidate(button.dataset.addItem);
-        const variant = item?.variants?.find((row) => Number(row.id) === Number(button.dataset.variantId));
-        if (item && variant) addItem(item, variant);
-        return;
-      }
-      const row = event.target.closest(".gear-candidate-row[data-item-id]");
-      if (!row || !window.matchMedia("(max-width: 700px)").matches) return;
-      const item = findCandidate(row.dataset.itemId);
-      if (item?.variants?.[0]) openCandidatePreview(item, item.variants[0]);
+      const row = event.target.closest(".gear-candidate-row[data-select-item]");
+      if (!row) return;
+      const item = findCandidate(row.dataset.selectItem);
+      const variant = item?.variants?.find((candidate) => Number(candidate.id) === Number(row.dataset.variantId));
+      if (item && variant) addItem(item, variant);
+    });
+    els.candidate_list.addEventListener("keydown", (event) => {
+      if (!['Enter', ' '].includes(event.key)) return;
+      const row = event.target.closest(".gear-candidate-row[data-select-item]");
+      if (!row) return;
+      event.preventDefault();
+      row.click();
     });
     els.enhancement_browser.addEventListener("change", (event) => {
       const control = event.target.closest("[data-add-enhancement]");
@@ -887,13 +890,6 @@
       if (event.target.matches("[data-crafted-stat]")) changeCraftedStat(Number(event.target.dataset.craftedStat), event.target.value);
     });
     els.detail_content.addEventListener("click", (event) => {
-      const previewAdd = event.target.closest("[data-preview-add-item]");
-      if (previewAdd) {
-        const item = findCandidate(previewAdd.dataset.previewAddItem);
-        const variant = item?.variants?.find((row) => Number(row.id) === Number(previewAdd.dataset.variantId));
-        if (item && variant) addItem(item, variant);
-        return;
-      }
       if (event.target.closest("[data-remove-item]")) { delete state.equipment[state.selectedSlot]; persist(); renderAll(); loadCandidates(true); }
       const remove = event.target.closest("[data-remove-enhancement]");
       if (remove) removeEnhancement(remove.dataset.removeEnhancement);

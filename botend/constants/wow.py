@@ -3,6 +3,8 @@
 WoW 职业专精常量
 """
 
+import re
+
 # 职业 → 专精列表
 CLASS_SPEC_MAP = {
     "DeathKnight": ["Blood", "Frost", "Unholy"],
@@ -333,10 +335,72 @@ RAID_ZONE_CN = {
     "Manaforge Omega": "法力熔炉：欧米伽",
     # MN S2（Wago Map / JournalInstance DB2, build 12.1.0.69283）
     "The Venomous Abyss": "烈毒之渊",
+    "The Tidebound Grotto": "潮缚石窟",
     # MN S1
     "VS / DR / MQD": "虚影尖塔 / 梦境裂隙 / 进攻奎尔丹纳斯",
     "Sporefall": "腐沼幽境",
 }
+
+GEAR_SOURCE_TYPE_CN = {
+    "mythic_plus": "大秘境",
+    "great_vault": "宏伟宝库",
+    "raid": "团队副本",
+    "delve": "地下堡",
+    "crafted": "专业制造",
+    "profession": "专业制造",
+    "bonus_roll": "额外掉落",
+}
+
+GEAR_SOURCE_NAME_CN = {
+    "Mythic+ Dungeons": "大秘境",
+    "Delves Season 2": "地下堡",
+    "Epic Profession Items": "专业制造",
+    "Crafting": "专业制造",
+    "Alchemy": "炼金术",
+    "Blacksmithing": "锻造",
+    "Enchanting": "附魔",
+    "Engineering": "工程学",
+    "Inscription": "铭文",
+    "Jewelcrafting": "珠宝加工",
+    "Leatherworking": "制皮",
+    "Tailoring": "裁缝",
+    "Trash Drop": "小怪掉落",
+}
+
+GEAR_DIFFICULTY_CN = {
+    "World": "世界",
+    "Normal": "普通",
+    "Heroic": "英雄",
+    "Mythic": "史诗",
+    "Raid Finder": "团队查找器",
+}
+
+
+def localize_gear_source(source):
+    """为配装器来源补齐稳定的中文显示字段，并保留原始英文用于审计。"""
+    row = dict(source) if isinstance(source, dict) else {}
+    source_type = str(row.get("type") or "")
+    instance = str(row.get("instance") or "")
+    encounter = str(row.get("encounter") or row.get("boss") or "")
+    profession = str(row.get("profession") or "")
+    difficulty = str(row.get("difficulty") or "")
+    row["type_zh"] = row.get("type_zh") or GEAR_SOURCE_TYPE_CN.get(source_type, "其他来源")
+    row["instance_zh"] = (
+        row.get("instance_zh") or RAID_ZONE_CN.get(instance) or DUNGEON_CN.get(instance)
+        or GEAR_SOURCE_NAME_CN.get(instance) or ""
+    )
+    row["encounter_zh"] = (
+        row.get("encounter_zh") or RAID_BOSS_CN.get(encounter) or DUNGEON_CN.get(encounter)
+        or GEAR_SOURCE_NAME_CN.get(encounter) or ""
+    )
+    row["profession_zh"] = row.get("profession_zh") or GEAR_SOURCE_NAME_CN.get(profession) or ""
+    if difficulty:
+        localized = difficulty
+        for english, chinese in GEAR_DIFFICULTY_CN.items():
+            localized = re.sub(rf"\b{re.escape(english)}\b", chinese, localized)
+        localized = re.sub(r"\bMyth\b", "神话", localized)
+        row["difficulty_zh"] = row.get("difficulty_zh") or localized
+    return row
 
 RAID_BOSS_CN = {
     # Nerub-ar Palace (尼鲁巴尔王宫)
