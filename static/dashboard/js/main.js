@@ -6112,15 +6112,17 @@ function initSimcSkillDamagePanel() {
     const finalSortButton = document.getElementById('simc-skill-damage-sort-final');
     const targetTabs = Array.from(panel.querySelectorAll('.simc-skill-damage-target-tab'));
     let currentSnapshot = null;
+    let loadedJobId = null;
+    let loadedSpecCount = 0;
     let pollTimer = null;
+    let pollInFlight = false;
 
-    const load = async () => {
-        const response = await fetch('/api/simc-skill-damage/', { method: 'GET' });
-        const payload = await response.json();
-        if (!response.ok || !payload.success) throw new Error(payload.error || '加载技能伤害快照失败');
-        const data = payload.data || {};
-        currentSnapshot = data.snapshot || null;
-        renderSimcSkillDamageSnapshot(currentSnapshot);
+    const stopPolling = () => {
+        if (pollTimer) clearTimeout(pollTimer);
+        pollTimer = null;
+    };
+
+    const renderStatus = data => {
         generateBtn.classList.toggle('hidden', !data.can_generate);
         const job = data.job;
         const running = job && ['pending', 'running'].includes(job.status);
@@ -6137,11 +6139,64 @@ function initSimcSkillDamagePanel() {
             : currentSnapshot
                 ? `最近成功：${currentSnapshot.spec_count || 0} 个专精、${currentSnapshot.action_count || 0} 个技能 · ${currentSnapshot.completed_at || ''}`
                 : (job && job.has_error ? '最近一次生成失败；旧成功快照不会被覆盖。' : '当前还没有成功快照。');
-        if (running && !pollTimer) pollTimer = setInterval(() => load().catch(() => {}), 3000);
-        if (!running && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+        return running;
     };
 
-    refreshBtn.addEventListener('click', () => load().catch(error => showMessage(error.message, 'error')));
+    let loadSummary;
+    const schedulePoll = () => {
+        stopPolling();
+        pollTimer = setTimeout(async () => {
+            pollTimer = null;
+            if (pollInFlight) {
+                schedulePoll();
+                return;
+            }
+            pollInFlight = true;
+            try {
+                await loadSummary();
+            } catch (_error) {
+                schedulePoll();
+            } finally {
+                pollInFlight = false;
+            }
+        }, 3000);
+    };
+
+    const loadFullSnapshot = async ({managePolling = true} = {}) => {
+        const response = await fetch('/api/simc-skill-damage/', { method: 'GET' });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.error || '加载技能伤害快照失败');
+        const data = payload.data || {};
+        currentSnapshot = data.snapshot || null;
+        renderSimcSkillDamageSnapshot(currentSnapshot);
+        const job = data.job;
+        loadedJobId = job ? job.id : null;
+        loadedSpecCount = Number(job && job.spec_count) || 0;
+        const running = renderStatus(data);
+        if (managePolling) {
+            if (running) schedulePoll();
+            else stopPolling();
+        }
+    };
+
+    loadSummary = async () => {
+        const response = await fetch('/api/simc-skill-damage/?summary=1', { method: 'GET' });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.error || '加载技能伤害生成进度失败');
+        const data = payload.data || {};
+        const job = data.job;
+        const running = renderStatus(data);
+        const specCount = Number(job && job.spec_count) || 0;
+        const hasNewPartial = running && job && specCount > 0
+            && (job.id !== loadedJobId || specCount > loadedSpecCount);
+        if (hasNewPartial || (job && !running)) {
+            await loadFullSnapshot({managePolling: false});
+        }
+        if (running) schedulePoll();
+        else stopPolling();
+    };
+
+    refreshBtn.addEventListener('click', () => loadFullSnapshot().catch(error => showMessage(error.message, 'error')));
     targetTabs.forEach(tab => tab.addEventListener('click', () => {
         targetTabs.forEach(candidate => {
             const active = candidate === tab;
@@ -6190,13 +6245,13 @@ function initSimcSkillDamagePanel() {
             const payload = await response.json();
             if (!response.ok || !payload.success) throw new Error(payload.error || '触发生成失败');
             showMessage(payload.message, 'success');
-            await load();
+            await loadFullSnapshot();
         } catch (error) {
             generateBtn.disabled = false;
             showMessage(error.message, 'error');
         }
     });
-    load().catch(error => { statusEl.textContent = error.message; });
+    loadFullSnapshot().catch(error => { statusEl.textContent = error.message; });
 }
 
 function initSimcBackendUploadTool() {

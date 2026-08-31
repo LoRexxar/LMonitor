@@ -40,6 +40,7 @@ from botend.models import MonitorTask, PlayerSpecTopPlayer, PortalPeakSpecRankRo
 from botend.alerting import upsert_system_alert
 from botend.dashboard.permissions import DashboardPermissionRequiredMixin, has_dashboard_permission
 from django.db import IntegrityError, models, transaction
+from django.db.models.fields.json import KeyTextTransform
 from core.glm import GLMClient
 from botend.monitor_env import is_task_runnable, env_limit_hint
 from botend.wow_daily_report.generator import generate_wow_daily_report
@@ -8209,30 +8210,84 @@ class SimcSkillDamageSnapshotAPIView(View):
             'completed_at': _fmt_dt(row.completed_at),
         }
 
+    @staticmethod
+    def _summary_job_data(row):
+        if not row:
+            return None
+        try:
+            total_spec_count = int(row.get('total_spec_count_value') or 0)
+        except (TypeError, ValueError):
+            total_spec_count = 0
+        return {
+            'id': row['id'],
+            'identity': {
+                'simc_revision': row['simc_revision'],
+                'game_build': row['game_build'],
+                'schema_revision': row['schema_revision'],
+            },
+            'status': row['status'],
+            'spec_count': row['generated_spec_count'],
+            'total_spec_count': total_spec_count,
+            'current_specialization': row.get('current_specialization_value') or '',
+            'action_count': row['generated_action_count'],
+            'has_error': bool(row['error_text']),
+            'created_at': _fmt_dt(row['created_at']),
+            'completed_at': _fmt_dt(row['completed_at']),
+        }
+
+    def _summary_job(self):
+        fields = (
+            'id', 'simc_revision', 'game_build', 'schema_revision', 'status',
+            'generated_spec_count', 'generated_action_count', 'error_text',
+            'created_at', 'completed_at', 'total_spec_count_value',
+            'current_specialization_value',
+        )
+        jobs = SimcSkillDamageSnapshot.objects.annotate(
+            total_spec_count_value=KeyTextTransform('total_spec_count', 'payload'),
+            current_specialization_value=KeyTextTransform('current_specialization', 'payload'),
+        )
+        active = jobs.filter(status__in=(
+            SimcSkillDamageSnapshot.STATUS_PENDING,
+            SimcSkillDamageSnapshot.STATUS_RUNNING,
+        )).order_by('-created_at', '-id').values(*fields).first()
+        return active or jobs.order_by('-created_at', '-id').values(*fields).first()
+
     def get(self, request):
-        latest = SimcSkillDamageSnapshot.objects.filter(
+        if request.GET.get('summary') == '1':
+            return JsonResponse({
+                'success': True,
+                'data': {
+                    'job': self._summary_job_data(self._summary_job()),
+                    'can_generate': bool(request.user.is_staff),
+                },
+            })
+        latest = SimcSkillDamageSnapshot.objects.defer('payload').filter(
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             schema_revision=SimcSkillDamageSnapshotService.DATASET_SCHEMA_REVISION,
         ).order_by('-completed_at', '-id').first()
-        legacy_latest = SimcSkillDamageSnapshot.latest_success() if latest is None else None
-        active_job = SimcSkillDamageSnapshot.objects.filter(
+        legacy_latest_exists = (
+            latest is None
+            and SimcSkillDamageSnapshot.objects.filter(
+                status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+            ).exists()
+        )
+        active_job = SimcSkillDamageSnapshot.objects.defer('payload').filter(
             status__in=(
                 SimcSkillDamageSnapshot.STATUS_PENDING,
                 SimcSkillDamageSnapshot.STATUS_RUNNING,
             ),
         ).order_by('-created_at', '-id').first()
-        job = active_job or SimcSkillDamageSnapshot.objects.order_by('-created_at', '-id').first()
         snapshot = None
         running_partial = (
             active_job
             if active_job
             and active_job.schema_revision == SimcSkillDamageSnapshotService.DATASET_SCHEMA_REVISION
             and active_job.generated_spec_count > 0
-            and (active_job.payload or {}).get('actors')
             else None
         )
-        display_snapshot = running_partial or latest
-        if display_snapshot:
+        display_snapshot_meta = running_partial or latest
+        if display_snapshot_meta:
+            display_snapshot = SimcSkillDamageSnapshot.objects.get(pk=display_snapshot_meta.pk)
             identity = {
                 'simc_revision': display_snapshot.simc_revision,
                 'game_build': display_snapshot.game_build,
@@ -8253,9 +8308,9 @@ class SimcSkillDamageSnapshotAPIView(View):
                 'snapshot_unavailable_reason': (
                     f'最新成功快照不是 schema {SimcSkillDamageSnapshotService.DATASET_SCHEMA_REVISION} '
                     '英雄树划分的前置成对单项天赋运行时数据，请生成新快照。'
-                    if legacy_latest else None
+                    if legacy_latest_exists else None
                 ),
-                'job': self._job_data(job),
+                'job': self._summary_job_data(self._summary_job()),
                 'can_generate': bool(request.user.is_staff),
             },
         })
@@ -8327,11 +8382,10 @@ class SimcSkillDamageSnapshotAPIView(View):
                 completed_at=timezone.now(),
             )
             return JsonResponse({'success': False, 'error': '启动技能伤害生成进程失败'}, status=500)
-        service.snapshot.refresh_from_db()
         return JsonResponse({
             'success': True,
             'message': '已开始生成当前 SimC/DBC 版本的技能伤害快照',
-            'data': {'job': self._job_data(service.snapshot)},
+            'data': {'job': self._summary_job_data(self._summary_job())},
         }, status=202)
 
 

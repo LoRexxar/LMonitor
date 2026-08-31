@@ -26,7 +26,9 @@ class Command(BaseCommand):
         snapshot = None
         skip_failure_update = False
         try:
-            snapshot = SimcSkillDamageSnapshot.objects.filter(pk=options['snapshot_id']).first()
+            snapshot = SimcSkillDamageSnapshot.objects.defer('payload').filter(
+                pk=options['snapshot_id'],
+            ).first()
             if snapshot is None:
                 raise CommandError('snapshot 不存在')
             backend = None
