@@ -591,6 +591,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
                 ('新闻聚合', '/portal/news/', None),
                 ('全职业数据', '/portal/specs/', None),
                 ('天赋模拟器', '/portal/talents/', None),
+                ('职业配装器', '/portal/gear-builder/', None),
                 ('MDT', '/portal/mythic-planner/', None),
                 ('simc模拟数据', '/portal/simc-benchmarks/', None),
             ],
@@ -613,7 +614,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
 
         for template_name in (
             'index.html', 'news.html', 'specs.html', 'talent_simulator.html',
-            'simc_benchmark_results.html', 'article.html', 'wow_skill_diff_report.html',
+            'gear_builder.html', 'simc_benchmark_results.html', 'article.html', 'wow_skill_diff_report.html',
         ):
             template = (self.ROOT / 'templates/portal' / template_name).read_text(encoding='utf-8')
             self.assertIn("portal/js/portal-theme.js", template, template_name)
@@ -646,6 +647,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             'news.html',
             'specs.html',
             'talent_simulator.html',
+            'gear_builder.html',
             'simc_benchmark_results.html',
             'article.html',
             'wow_skill_diff_report.html',

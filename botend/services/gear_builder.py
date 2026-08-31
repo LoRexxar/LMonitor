@@ -1,0 +1,519 @@
+"""职业配装器目录查询、制造解析与 SimC 映射服务。"""
+
+from __future__ import annotations
+
+from collections import OrderedDict, defaultdict
+from math import floor
+
+from django.db.models import Q
+
+from botend.constants.wow import (
+    CLASS_CN,
+    CLASS_SPEC_MAP,
+    SPEC_CN,
+    SPEC_ICON,
+    SPEC_ROLE,
+    canonical_class_spec,
+)
+from botend.models import SeasonMeta, WowItemVariantSnapshot, WowWagoMonitorState
+from botend.services.simc_player_config import parse_simc_player_profile
+from botend.templatetags.wow_tags import wow_icon_oss_url
+
+
+EQUIPMENT_SLOTS = (
+    ('head', '头部'),
+    ('neck', '颈部'),
+    ('shoulders', '肩部'),
+    ('back', '背部'),
+    ('chest', '胸部'),
+    ('wrists', '腕部'),
+    ('hands', '手部'),
+    ('waist', '腰部'),
+    ('legs', '腿部'),
+    ('feet', '脚部'),
+    ('finger1', '戒指1'),
+    ('finger2', '戒指2'),
+    ('trinket1', '饰品1'),
+    ('trinket2', '饰品2'),
+    ('main_hand', '主手'),
+    ('off_hand', '副手'),
+)
+SLOT_LABELS = dict(EQUIPMENT_SLOTS)
+SLOT_FAMILIES = {
+    'finger1': 'finger', 'finger2': 'finger',
+    'trinket1': 'trinket', 'trinket2': 'trinket',
+    'main_hand': 'weapon', 'off_hand': 'weapon',
+}
+STAT_KEYS = (
+    'strength', 'agility', 'intellect', 'stamina', 'armor', 'bonus_armor',
+    'crit', 'haste', 'mastery', 'versatility', 'leech', 'avoidance', 'speed',
+    'weapon_dps', 'min_damage', 'max_damage',
+)
+STAT_LABELS = {
+    'strength': '力量', 'agility': '敏捷', 'intellect': '智力', 'stamina': '耐力',
+    'armor': '护甲', 'bonus_armor': '额外护甲', 'crit': '暴击', 'haste': '急速',
+    'mastery': '精通', 'versatility': '全能', 'leech': '吸血',
+    'avoidance': '闪避', 'speed': '速度', 'weapon_dps': '武器秒伤',
+    'min_damage': '最低伤害', 'max_damage': '最高伤害',
+}
+UPGRADE_TRACK_LABELS = {'champion': '勇士', 'hero': '英雄', 'myth': '神话'}
+CLASS_MASKS = {
+    'warrior': 1, 'paladin': 2, 'hunter': 4, 'rogue': 8, 'priest': 16,
+    'deathknight': 32, 'shaman': 64, 'mage': 128, 'warlock': 256,
+    'monk': 512, 'druid': 1024, 'demonhunter': 2048, 'evoker': 4096,
+}
+INTELLECT_SPECS = {
+    'Paladin:Holy', 'Priest:Discipline', 'Priest:Holy', 'Priest:Shadow',
+    'Shaman:Elemental', 'Shaman:Restoration', 'Mage:Arcane', 'Mage:Fire', 'Mage:Frost',
+    'Warlock:Affliction', 'Warlock:Demonology', 'Warlock:Destruction',
+    'Monk:Mistweaver', 'Druid:Balance', 'Druid:Restoration',
+    'Evoker:Devastation', 'Evoker:Preservation', 'Evoker:Augmentation',
+}
+AGILITY_CLASSES = {'Hunter', 'Rogue', 'DemonHunter'}
+AGILITY_SPECS = {
+    'Shaman:Enhancement', 'Monk:Brewmaster', 'Monk:Windwalker',
+    'Druid:Feral', 'Druid:Guardian',
+}
+
+
+class GearBuilderError(ValueError):
+    pass
+
+
+def _number(value, default=0):
+    try:
+        parsed = float(value)
+        return int(parsed) if parsed.is_integer() else parsed
+    except (TypeError, ValueError):
+        return default
+
+
+def normalize_stats(raw):
+    """将导入器允许的扁平或分组属性统一成前端可累加结构。"""
+    raw = raw if isinstance(raw, dict) else {}
+    result = OrderedDict()
+    for key in STAT_KEYS:
+        if key in raw:
+            result[key] = _number(raw.get(key))
+    for group_name in ('primary', 'secondary', 'tertiary', 'weapon'):
+        group = raw.get(group_name)
+        if not isinstance(group, dict):
+            continue
+        for key, value in group.items():
+            if key not in STAT_KEYS:
+                continue
+            if isinstance(value, dict):
+                value = value.get('rating', value.get('value', 0))
+            result[key] = _number(value)
+    return {key: value for key, value in result.items() if value}
+
+
+def stats_for_identity(raw, metadata, class_name='', spec_name=''):
+    """把可随职业变化的主属性映射到当前职业专精，避免同时累计三种主属性。"""
+    stats = normalize_stats(raw)
+    identity = f'{class_name}:{spec_name}'
+    if identity in INTELLECT_SPECS:
+        primary = 'intellect'
+    elif class_name in AGILITY_CLASSES or identity in AGILITY_SPECS:
+        primary = 'agility'
+    else:
+        primary = 'strength'
+    metadata = metadata if isinstance(metadata, dict) else {}
+    values = metadata.get('primary_stat_values') if isinstance(metadata.get('primary_stat_values'), dict) else {}
+    amount = values.get(primary) or metadata.get('primary_stat_amount') or 0
+    if amount:
+        stats[primary] = _number(amount)
+    return stats
+
+
+def active_season():
+    return SeasonMeta.objects.filter(is_active=True).order_by('-updated_at', '-id').first()
+
+
+def catalog_context(season=None):
+    season = season or active_season()
+    monitor = WowWagoMonitorState.objects.filter(branch='wow', locale='enUS', is_active=True).first()
+    if not season:
+        return {
+            'available': False, 'season': None, 'batch_key': '',
+            'game_build': str(getattr(monitor, 'build', '') or ''),
+            'sync_status': 'missing_season', 'synced_at': None, 'sync_report': {},
+        }
+    return {
+        'available': bool(season.gear_batch_key),
+        'season': {
+            'id': season.id,
+            'key': season.season_key,
+            'name': season.season_name,
+        },
+        'batch_key': season.gear_batch_key,
+        'game_build': season.game_build or str(getattr(monitor, 'build', '') or ''),
+        'sync_status': season.gear_sync_status or ('ready' if season.gear_batch_key else 'not_synced'),
+        'synced_at': season.gear_synced_at.isoformat() if season.gear_synced_at else None,
+        'sync_report': season.gear_sync_report or {},
+    }
+
+
+def specs_payload():
+    payload = []
+    for class_name, spec_names in CLASS_SPEC_MAP.items():
+        payload.append({
+            'key': class_name,
+            'name': CLASS_CN.get(class_name, class_name),
+            'specs': [{
+                'key': spec_name,
+                'name': SPEC_CN.get(spec_name, spec_name),
+                'role': SPEC_ROLE.get((class_name, spec_name), 'dps'),
+                'icon': SPEC_ICON.get((class_name, spec_name), ''),
+            } for spec_name in spec_names],
+        })
+    return payload
+
+
+def bootstrap_payload():
+    return {
+        'catalog': catalog_context(),
+        'classes': specs_payload(),
+        'slots': [{'key': key, 'label': label, 'family': SLOT_FAMILIES.get(key, key)} for key, label in EQUIPMENT_SLOTS],
+        'stats': [{'key': key, 'label': label} for key, label in STAT_LABELS.items()],
+        'upgrade_tracks': [{'key': key, 'label': label} for key, label in UPGRADE_TRACK_LABELS.items()],
+        'rules': {
+            'state_version': 1,
+            'share_version': 1,
+            'max_share_length': 8000,
+            'crafted_secondary_count': 2,
+            'temporary_enchants_supported': False,
+        },
+    }
+
+
+def canonical_spec(class_name, spec_name):
+    identity = canonical_class_spec(class_name, spec_name)
+    if not identity:
+        raise GearBuilderError('未知职业或专精')
+    return identity
+
+
+def slot_matches(variant, slot):
+    family = SLOT_FAMILIES.get(slot, slot)
+    compatible = [str(value) for value in (variant.compatible_slots or []) if value]
+    item_slot = str(variant.item.slot_key or '')
+    return not compatible or slot in compatible or family in compatible or item_slot in (slot, family)
+
+
+def spec_matches(item, class_name, spec_name):
+    class_mask = int(item.allowable_class_mask or 0)
+    expected_mask = CLASS_MASKS.get(str(class_name or '').casefold(), 0)
+    if class_mask > 0 and expected_mask and not class_mask & expected_mask:
+        return False
+    eligible = [str(value).casefold() for value in (item.eligible_specs or []) if value]
+    if not eligible:
+        return True
+    candidates = {
+        f'{class_name}:{spec_name}'.casefold(),
+        f'{class_name}_{spec_name}'.casefold(),
+        spec_name.casefold(),
+    }
+    return bool(candidates.intersection(eligible))
+
+
+def _source_matches(variant, source_type):
+    if not source_type or source_type == 'all':
+        return True
+    return any(str(row.get('type') or '').casefold() == source_type.casefold()
+               for row in (variant.source_json or []) if isinstance(row, dict))
+
+
+def serialize_variant(variant, class_name='', spec_name=''):
+    item = variant.item
+    return {
+        'id': variant.id,
+        'key': variant.variant_key,
+        'type': variant.variant_type,
+        'item_id': item.item_id,
+        'item_level': variant.item_level,
+        'track': variant.upgrade_track,
+        'track_label': UPGRADE_TRACK_LABELS.get(variant.upgrade_track, variant.upgrade_track),
+        'track_rank': variant.track_rank,
+        'track_max_rank': variant.track_max_rank,
+        'crafting_quality': variant.crafting_quality,
+        'bonus_ids': variant.bonus_ids or [],
+        'compatible_slots': variant.compatible_slots or [],
+        'socket_types': variant.socket_types or [],
+        'socket_count': variant.socket_count,
+        'stats': stats_for_identity(variant.stats_json, variant.metadata, class_name, spec_name),
+        'effects': variant.effects_json or [],
+        'sources': variant.source_json or [],
+        'crafting_options': variant.crafting_options or {},
+        'unique_group': variant.unique_group or item.unique_group,
+        'max_equipped': variant.max_equipped,
+        'is_intrinsic_embellishment': variant.is_intrinsic_embellishment,
+        'metadata': variant.metadata or {},
+    }
+
+
+def serialize_item(item, variants, class_name='', spec_name=''):
+    description = item.description_zh or item.description or ''
+    return {
+        'item_id': item.item_id,
+        'name': item.name_zh or item.name or f'物品 #{item.item_id}',
+        'name_en': item.name or '',
+        'description': description,
+        'icon': item.icon or '',
+        'icon_url': wow_icon_oss_url(item.icon, 'medium') if item.icon else '',
+        'quality': item.quality,
+        'catalog_type': item.catalog_type,
+        'slot': item.slot_key,
+        'armor_type': item.armor_type,
+        'weapon_type': item.weapon_type,
+        'unique_group': item.unique_group,
+        'simc_token': item.simc_token,
+        'enchantment_id': item.enchantment_id,
+        'metadata': item.metadata or {},
+        'variants': [serialize_variant(variant, class_name, spec_name) for variant in variants],
+    }
+
+
+def _catalog_queryset(season, variant_types, query=''):
+    qs = WowItemVariantSnapshot.objects.filter(
+        season=season,
+        batch_key=season.gear_batch_key,
+        variant_type__in=variant_types,
+    ).select_related('item')
+    query = str(query or '').strip()
+    if query:
+        lookup = Q(item__name__icontains=query) | Q(item__name_zh__icontains=query)
+        if query.isdigit():
+            lookup |= Q(item__item_id=int(query))
+        qs = qs.filter(lookup)
+    return qs.order_by('-item_level', 'item__name_zh', 'item__name', 'variant_key')
+
+
+def catalog_items(*, class_name, spec_name, slot, source_type='all', query='', page=1, page_size=60):
+    class_name, spec_name = canonical_spec(class_name, spec_name)
+    if slot not in SLOT_LABELS:
+        raise GearBuilderError('未知装备槽位')
+    season = active_season()
+    if not season or not season.gear_batch_key:
+        return {'items': [], 'total': 0, 'page': 1, 'page_size': page_size, 'catalog': catalog_context(season)}
+
+    grouped = defaultdict(list)
+    for variant in _catalog_queryset(
+        season,
+        (WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT, WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT),
+        query,
+    ):
+        if not slot_matches(variant, slot) or not spec_matches(variant.item, class_name, spec_name):
+            continue
+        if not _source_matches(variant, source_type):
+            continue
+        grouped[variant.item_id].append(variant)
+
+    rows = [serialize_item(variants[0].item, variants, class_name, spec_name) for variants in grouped.values()]
+    rows.sort(key=lambda row: (-max((v['item_level'] for v in row['variants']), default=0), row['name']))
+    page = max(1, int(page or 1))
+    page_size = min(100, max(1, int(page_size or 60)))
+    start = (page - 1) * page_size
+    return {
+        'items': rows[start:start + page_size],
+        'total': len(rows),
+        'page': page,
+        'page_size': page_size,
+        'catalog': catalog_context(season),
+    }
+
+
+def enhancement_items(*, class_name, spec_name, slot, equipment_variant_id=None):
+    class_name, spec_name = canonical_spec(class_name, spec_name)
+    if slot not in SLOT_LABELS:
+        raise GearBuilderError('未知装备槽位')
+    season = active_season()
+    if not season or not season.gear_batch_key:
+        return {'groups': {'embellishments': [], 'gems': [], 'enchants': []}, 'catalog': catalog_context(season)}
+    equipment_variant = None
+    if equipment_variant_id:
+        equipment_variant = WowItemVariantSnapshot.objects.filter(
+            id=equipment_variant_id,
+            season=season,
+            batch_key=season.gear_batch_key,
+        ).select_related('item').first()
+
+    groups = {'embellishments': [], 'gems': [], 'enchants': []}
+    type_to_group = {
+        WowItemVariantSnapshot.TYPE_EMBELLISHMENT: 'embellishments',
+        WowItemVariantSnapshot.TYPE_GEM: 'gems',
+        WowItemVariantSnapshot.TYPE_ENCHANT: 'enchants',
+    }
+    grouped = defaultdict(list)
+    for variant in _catalog_queryset(season, tuple(type_to_group)):
+        if not spec_matches(variant.item, class_name, spec_name):
+            continue
+        if variant.variant_type == WowItemVariantSnapshot.TYPE_EMBELLISHMENT:
+            if not equipment_variant or equipment_variant.variant_type != WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT:
+                continue
+        if not slot_matches(variant, slot):
+            continue
+        grouped[(variant.variant_type, variant.item_id)].append(variant)
+    for (variant_type, _item_id), variants in grouped.items():
+        groups[type_to_group[variant_type]].append(serialize_item(variants[0].item, variants, class_name, spec_name))
+    for rows in groups.values():
+        rows.sort(key=lambda row: row['name'])
+    return {'groups': groups, 'catalog': catalog_context(season)}
+
+
+def resolve_crafted_variant(*, variant_id, selected_stats=None, embellishment_variant_id=None):
+    season = active_season()
+    if not season or not season.gear_batch_key:
+        raise GearBuilderError('当前赛季装备目录尚未同步')
+    variant = WowItemVariantSnapshot.objects.filter(
+        id=variant_id,
+        season=season,
+        batch_key=season.gear_batch_key,
+        variant_type=WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT,
+    ).select_related('item').first()
+    if not variant:
+        raise GearBuilderError('制造装备变体不存在或已过期')
+    options = variant.crafting_options or {}
+    allowed = [str(value) for value in (options.get('stat_pool') or ('crit', 'haste', 'mastery', 'versatility'))]
+    required_count = int(options.get('stat_count') or 2)
+    selected = list(dict.fromkeys(str(value) for value in (selected_stats or []) if value))
+    if len(selected) != required_count or any(value not in allowed for value in selected):
+        raise GearBuilderError(f'请选择 {required_count} 项合法制造绿字')
+
+    stats = normalize_stats(variant.stats_json)
+    total = _number(options.get('secondary_total') or (variant.stats_json or {}).get('secondary_total'))
+    explicit = options.get('stat_values') if isinstance(options.get('stat_values'), dict) else {}
+    if explicit:
+        for key in selected:
+            stats[key] = _number(explicit.get(key))
+    elif total:
+        base = floor(total / required_count)
+        remainder = int(total - base * required_count)
+        for index, key in enumerate(selected):
+            stats[key] = base + (1 if index < remainder else 0)
+
+    embellishment = None
+    effects = list(variant.effects_json or [])
+    if embellishment_variant_id:
+        embellishment = WowItemVariantSnapshot.objects.filter(
+            id=embellishment_variant_id,
+            season=season,
+            batch_key=season.gear_batch_key,
+            variant_type=WowItemVariantSnapshot.TYPE_EMBELLISHMENT,
+        ).select_related('item').first()
+        if not embellishment or not slot_matches(embellishment, variant.item.slot_key or (variant.compatible_slots or [''])[0]):
+            raise GearBuilderError('所选美化与该制造装备不兼容')
+        effects.extend(embellishment.effects_json or [])
+
+    return {
+        'variant': serialize_item(variant.item, [variant]),
+        'resolved_stats': stats,
+        'selected_stats': selected,
+        'effects': effects,
+        'embellishment': serialize_item(embellishment.item, [embellishment]) if embellishment else None,
+        'simc': {
+            'item_id': variant.item.item_id,
+            'ilevel': variant.item_level,
+            'bonus_ids': variant.bonus_ids or [],
+            'crafted_stats': selected,
+            'crafting_quality': variant.crafting_quality,
+        },
+    }
+
+
+def _simc_item_id(payload):
+    if not isinstance(payload, dict):
+        return 0
+    return int(payload.get('item_id') or payload.get('id') or 0)
+
+
+def import_simc_profile(profile_text):
+    if not str(profile_text or '').strip():
+        raise GearBuilderError('请粘贴 SimC Profile')
+    parsed = parse_simc_player_profile(profile_text)
+    profile = parsed.get('profile') or {}
+    identity = profile.get('identity') or {}
+    normalized_identity = canonical_class_spec(identity.get('class_name'), identity.get('spec'))
+    equipment = profile.get('equipment') or []
+    season = active_season()
+    batch_key = season.gear_batch_key if season else ''
+    item_ids = [_simc_item_id(row) for row in equipment]
+    enhancer_ids = []
+    for row in equipment:
+        enhancer_ids.extend(_simc_item_id(gem) for gem in (row.get('gems') or []))
+        enhancer_ids.append(_simc_item_id(row.get('enchant')))
+    requested_ids = [value for value in item_ids + enhancer_ids if value]
+    variants = list(WowItemVariantSnapshot.objects.filter(
+        Q(item__item_id__in=requested_ids) | Q(item__enchantment_id__in=requested_ids),
+        season=season,
+        batch_key=batch_key,
+    ).select_related('item')) if season and batch_key else []
+    by_item = defaultdict(list)
+    by_enchantment = defaultdict(list)
+    for variant in variants:
+        by_item[int(variant.item.item_id)].append(variant)
+        if variant.item.enchantment_id:
+            by_enchantment[int(variant.item.enchantment_id)].append(variant)
+
+    mapped = []
+    warnings = []
+    for row in equipment:
+        item_id = _simc_item_id(row)
+        candidates = by_item.get(item_id, [])
+        requested_bonus = {str(value) for value in (row.get('bonus_ids') or [])}
+        requested_level = int(row.get('item_level') or 0)
+        selected = next((value for value in candidates if requested_bonus and set(map(str, value.bonus_ids or [])) == requested_bonus), None)
+        selected = selected or next((value for value in candidates if requested_level and value.item_level == requested_level), None)
+        selected = selected or (candidates[0] if candidates else None)
+        external = selected is None
+        if external:
+            warnings.append(f"{SLOT_LABELS.get(row.get('slot'), row.get('slot'))} 的物品 #{item_id} 不在当前目录中，已作为外部装备保留。")
+        enchant_payload = row.get('enchant') or {}
+        enchant_id = _simc_item_id(enchant_payload)
+        enchant_candidates = by_item.get(enchant_id) or by_enchantment.get(enchant_id) or []
+        gem_rows = []
+        for gem in row.get('gems') or []:
+            gem_id = _simc_item_id(gem)
+            gem_variant = next((value for value in by_item.get(gem_id, []) if value.variant_type == WowItemVariantSnapshot.TYPE_GEM), None)
+            gem_rows.append({
+                'item_id': gem_id,
+                'variant_id': gem_variant.id if gem_variant else None,
+                'variant': serialize_variant(gem_variant) if gem_variant else None,
+                'item': serialize_item(gem_variant.item, [gem_variant]) if gem_variant else None,
+                'external': not bool(gem_variant),
+                'name': gem.get('display_name') or f'#{gem_id}',
+            })
+        mapped.append({
+            'slot': row.get('slot'),
+            'item_id': item_id,
+            'name': row.get('display_name') or f'#{item_id}',
+            'item_level': requested_level,
+            'variant_id': selected.id if selected else None,
+            'variant': serialize_variant(selected) if selected else None,
+            'item': serialize_item(selected.item, [selected]) if selected else None,
+            'external': external,
+            'bonus_ids': row.get('bonus_ids') or [],
+            'crafted_stats': row.get('crafted_stats') or [],
+            'crafting_quality': row.get('crafting_quality') or 0,
+            'gems': gem_rows,
+            'enchant': {
+                'item_id': enchant_id,
+                'variant_id': enchant_candidates[0].id if enchant_candidates else None,
+                'variant': serialize_variant(enchant_candidates[0]) if enchant_candidates else None,
+                'item': serialize_item(enchant_candidates[0].item, [enchant_candidates[0]]) if enchant_candidates else None,
+                'external': bool(enchant_id and not enchant_candidates),
+                'name': enchant_payload.get('display_name') or (f'#{enchant_id}' if enchant_id else ''),
+            } if enchant_id else None,
+            'raw_value': row.get('raw_value') or '',
+        })
+    return {
+        'identity': {
+            'class_name': normalized_identity[0] if normalized_identity else '',
+            'spec_name': normalized_identity[1] if normalized_identity else '',
+            'class_cn': CLASS_CN.get(normalized_identity[0], '') if normalized_identity else '',
+            'spec_cn': SPEC_CN.get(normalized_identity[1], '') if normalized_identity else '',
+        },
+        'equipment': mapped,
+        'warnings': warnings,
+        'catalog': catalog_context(season),
+    }

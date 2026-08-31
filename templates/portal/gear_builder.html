@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="/favicon.ico">
+    <title>职业配装器 - WowDaily.cn</title>
+    {% load static %}
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="{% static 'portal/js/portal-theme.js' %}?v=20260808_portal_theme_v2"></script>
+    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260821_mythicstats_clean_light_v7">
+    <link rel="stylesheet" href="{% static 'shared/css/wow-item-tooltip.css' %}?v=20260813_simc_equipment_icon">
+    <link rel="stylesheet" href="{% static 'portal/css/gear_builder.css' %}?v=20260831_gear_builder_v1">
+</head>
+<body class="portal-bg font-sans">
+    {% include 'portal/_header.html' %}
+
+    <main
+        class="gear-builder-page"
+        data-bootstrap-url="{% url 'portal_gear_builder_bootstrap' %}"
+        data-catalog-url="{% url 'portal_gear_builder_catalog' %}"
+        data-enhancements-url="{% url 'portal_gear_builder_enhancements' %}"
+        data-crafted-url="{% url 'portal_gear_builder_resolve_crafted' %}"
+        data-simc-url="{% url 'portal_gear_builder_import_simc' %}"
+        aria-busy="true"
+    >
+        <header class="gear-builder-toolbar">
+            <div class="gear-builder-heading">
+                <h1>职业配装器</h1>
+                <span id="gear-catalog-status" class="gear-catalog-status">正在读取装备目录</span>
+            </div>
+            <div class="gear-builder-controls">
+                <label class="gear-select-control">
+                    <span>职业</span>
+                    <select id="gear-class-select" aria-label="选择职业"></select>
+                </label>
+                <label class="gear-select-control">
+                    <span>专精</span>
+                    <select id="gear-spec-select" aria-label="选择专精"></select>
+                </label>
+                <span class="gear-control-divider" aria-hidden="true"></span>
+                <button type="button" id="gear-import-simc" class="gear-btn gear-btn--primary">
+                    <span aria-hidden="true">⇧</span> 导入 SimC
+                </button>
+                <button type="button" id="gear-copy-share" class="gear-btn">
+                    <span aria-hidden="true">↗</span> 复制分享链接
+                </button>
+                <button type="button" id="gear-clear" class="gear-btn gear-btn--danger-quiet">
+                    清空
+                </button>
+            </div>
+        </header>
+
+        <nav class="gear-mobile-tabs" aria-label="配装器区域">
+            <button type="button" data-mobile-view="slots" class="is-active">装备 <span id="gear-mobile-count">0/16</span></button>
+            <button type="button" data-mobile-view="browser">候选与强化</button>
+            <button type="button" data-mobile-view="stats">属性汇总</button>
+        </nav>
+
+        <section class="gear-builder-workspace" aria-label="职业配装工作区">
+            <aside class="gear-panel gear-slots-panel" data-gear-mobile-panel="slots">
+                <div class="gear-panel-heading">
+                    <h2>装备栏位</h2>
+                    <span id="gear-equipped-count">0/16</span>
+                </div>
+                <div id="gear-slot-list" class="gear-slot-list" role="listbox" aria-label="装备槽位"></div>
+            </aside>
+
+            <section class="gear-panel gear-browser-panel" data-gear-mobile-panel="browser">
+                <div class="gear-browser-head">
+                    <div>
+                        <span class="gear-browser-eyeline">当前槽位</span>
+                        <h2 id="gear-browser-title">头部 · 未选择</h2>
+                    </div>
+                    <div class="gear-mode-switch" role="tablist" aria-label="选择装备或强化">
+                        <button type="button" id="gear-mode-equipment" class="is-active" role="tab" aria-selected="true">装备</button>
+                        <button type="button" id="gear-mode-enhancement" role="tab" aria-selected="false">强化</button>
+                    </div>
+                </div>
+
+                <div id="gear-equipment-browser">
+                    <div class="gear-filter-row">
+                        <label class="gear-search">
+                            <span aria-hidden="true">⌕</span>
+                            <input id="gear-search-input" type="search" placeholder="搜索装备名称或物品 ID" autocomplete="off">
+                        </label>
+                        <label class="gear-filter-select">
+                            <span>来源</span>
+                            <select id="gear-source-filter">
+                                <option value="all">全部</option>
+                                <option value="mythic_plus">大秘境</option>
+                                <option value="great_vault">低保</option>
+                                <option value="raid">团本</option>
+                                <option value="delve">地下堡</option>
+                                <option value="crafted">制造</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="gear-table-head" aria-hidden="true">
+                        <span>名称</span><span>物品等级</span><span>品级</span><span>来源</span><span>属性</span><span></span>
+                    </div>
+                    <div id="gear-candidate-list" class="gear-candidate-list" aria-live="polite"></div>
+                    <button type="button" id="gear-load-more" class="gear-load-more" hidden>加载更多</button>
+                </div>
+
+                <div id="gear-enhancement-browser" class="gear-enhancement-browser" hidden>
+                    <div class="gear-enhancement-intro">
+                        <strong>装备强化</strong>
+                        <span>根据当前装备的槽位、插槽和制造规则显示可用选项。</span>
+                    </div>
+                    <section class="gear-enhancement-section">
+                        <div class="gear-enhancement-heading"><h3>美化</h3><span>仅制造装备</span></div>
+                        <div id="gear-embellishment-list" class="gear-option-list"></div>
+                    </section>
+                    <section class="gear-enhancement-section">
+                        <div class="gear-enhancement-heading"><h3>宝石</h3><span id="gear-socket-summary">需要装备插槽</span></div>
+                        <div id="gear-gem-list" class="gear-option-list"></div>
+                    </section>
+                    <section class="gear-enhancement-section">
+                        <div class="gear-enhancement-heading"><h3>永久附魔</h3><span>按槽位兼容</span></div>
+                        <div id="gear-enchant-list" class="gear-option-list"></div>
+                    </section>
+                </div>
+            </section>
+
+            <aside id="gear-detail-panel" class="gear-panel gear-detail-panel" aria-label="当前选择">
+                <div class="gear-detail-sheet-handle" aria-hidden="true"></div>
+                <div class="gear-panel-heading">
+                    <h2>当前选择</h2>
+                    <button type="button" id="gear-detail-close" class="gear-icon-btn" aria-label="关闭详情">×</button>
+                </div>
+                <div id="gear-detail-content" class="gear-detail-content"></div>
+            </aside>
+        </section>
+
+        <section class="gear-panel gear-stats-panel" data-gear-mobile-panel="stats" aria-live="polite">
+            <div class="gear-stats-heading">
+                <div><h2>当前配装属性</h2><span>不包含临时增益与随机第三属性</span></div>
+                <span id="gear-save-status" class="gear-save-status">保存在当前浏览器</span>
+            </div>
+            <div id="gear-stat-grid" class="gear-stat-grid"></div>
+            <div class="gear-effect-summary">
+                <h3>装备与强化特效</h3>
+                <div id="gear-effect-list"></div>
+            </div>
+        </section>
+    </main>
+
+    <dialog id="gear-simc-dialog" class="gear-dialog">
+        <form method="dialog" class="gear-dialog-card">
+            <div class="gear-dialog-head">
+                <div><h2>导入 SimulationCraft Profile</h2><p>支持游戏内 SimulationCraft 插件、Wowhead 与 Raidbots 导出的玩家配置。</p></div>
+                <button type="submit" value="cancel" class="gear-icon-btn" aria-label="关闭">×</button>
+            </div>
+            <textarea id="gear-simc-input" rows="14" placeholder="warrior=\"角色名\"&#10;spec=fury&#10;head=...,id=123456,ilevel=710,bonus_id=...&#10;..."></textarea>
+            <div id="gear-simc-message" class="gear-dialog-message" aria-live="polite"></div>
+            <div class="gear-dialog-actions">
+                <button type="submit" value="cancel" class="gear-btn">取消</button>
+                <button type="button" id="gear-simc-submit" class="gear-btn gear-btn--primary">解析并写入</button>
+            </div>
+        </form>
+    </dialog>
+
+    <div id="gear-toast-root" class="gear-toast-root" aria-live="polite"></div>
+    <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
+    <script src="{% static 'portal/js/gear_builder.js' %}?v=20260831_gear_builder_v1"></script>
+</body>
+</html>

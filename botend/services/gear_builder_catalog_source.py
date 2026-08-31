@@ -1,0 +1,477 @@
+"""从正式服公开数据源生成职业配装器的规范化目录。"""
+
+from __future__ import annotations
+
+import hashlib
+import html
+import json
+import re
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from urllib.parse import urlencode
+
+import requests
+
+from botend.constants.wow import SPEC_IDENTITY_MAP
+
+
+WAGO_DB2_HOME = 'https://wago.tools/db2'
+RAIDBOTS_LIVE_ROOT = 'https://www.raidbots.com/static/data/live'
+WOWHEAD_TOOLTIP = 'https://nether.wowhead.com/tooltip/item/{item_id}'
+
+# 当前正式服赛季的合法装备等级。版本变化时必须显式更新并通过审计，不能静默猜测。
+SEASON_LEVEL_PROFILES = {
+    'mid2': {
+        'tracks': {
+            'champion': (292, 295, 298, 302, 305, 308),
+            'hero': (305, 308, 311, 315, 318, 321),
+            'myth': (318, 321, 324, 328, 331, 334),
+        },
+        'crafted': {
+            'hero': (305, 309, 312, 315, 318),
+            'myth': (318, 322, 325, 328, 331),
+        },
+    },
+}
+
+INVENTORY_SLOTS = {
+    1: ('head',), 2: ('neck',), 3: ('shoulders',), 5: ('chest',),
+    6: ('waist',), 7: ('legs',), 8: ('feet',), 9: ('wrists',),
+    10: ('hands',), 11: ('finger',), 12: ('trinket',),
+    13: ('main_hand', 'off_hand'), 14: ('off_hand',), 15: ('main_hand',),
+    16: ('back',), 17: ('main_hand',), 20: ('chest',),
+    21: ('main_hand',), 22: ('off_hand',), 23: ('off_hand',),
+    25: ('main_hand',), 26: ('main_hand',), 28: ('off_hand',),
+}
+
+STAT_NAMES_ZH = {
+    '力量': 'strength', '敏捷': 'agility', '智力': 'intellect',
+    '耐力': 'stamina', '护甲': 'armor', '额外护甲': 'bonus_armor',
+    '爆击': 'crit', '暴击': 'crit', '急速': 'haste', '精通': 'mastery',
+    '全能': 'versatility', '吸血': 'leech', '闪避': 'avoidance', '速度': 'speed',
+}
+RAIDBOTS_STATS = {
+    'str': 'strength', 'agi': 'agility', 'int': 'intellect', 'sta': 'stamina',
+    'crit': 'crit', 'haste': 'haste', 'mastery': 'mastery',
+    'vers': 'versatility', 'leech': 'leech', 'avoidance': 'avoidance',
+    'runspeed': 'speed',
+}
+
+
+class CatalogSourceError(RuntimeError):
+    """远端目录无法被安全构建。"""
+
+
+def _safe_int(value, default=0):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _plain_text(value):
+    value = str(value or '').replace('\b', '')
+    value = re.sub(r'<br\s*/?>', '\n', value, flags=re.I)
+    value = re.sub(r'<[^>]+>', '', value)
+    value = html.unescape(value)
+    return '\n'.join(line.strip() for line in value.splitlines() if line.strip())
+
+
+def _tooltip_details(payload):
+    tooltip = _plain_text((payload or {}).get('tooltip'))
+    stats = {}
+    for amount, label in re.findall(
+        r'\+?([0-9][0-9,.]*)\s*(额外护甲|力量|敏捷|智力|耐力|护甲|爆击|暴击|急速|精通|全能|吸血|闪避|速度)',
+        tooltip,
+    ):
+        key = STAT_NAMES_ZH[label]
+        stats[key] = max(stats.get(key, 0), _safe_int(amount.replace(',', '').replace('.', '')))
+    effects = []
+    for line in tooltip.splitlines():
+        if line.startswith(('装备：', '使用：')):
+            effects.append({'description_zh': line})
+    primary_options = {}
+    for amount, labels in re.findall(r'\+?([0-9][0-9,.]*)\s*\[([^\]]*(?:力量|敏捷|智力)[^\]]*)\]', tooltip):
+        parsed = _safe_int(amount.replace(',', '').replace('.', ''))
+        for label, key in (('力量', 'strength'), ('敏捷', 'agility'), ('智力', 'intellect')):
+            if label in labels:
+                primary_options[key] = parsed
+    random_secondaries = [
+        _safe_int(value.replace(',', '').replace('.', ''))
+        for value in re.findall(r'\+?([0-9][0-9,.]*)\s*随机属性\d+', tooltip)
+    ]
+    return {
+        'name_zh': str((payload or {}).get('name') or ''),
+        'icon': str((payload or {}).get('icon') or ''),
+        'quality': _safe_int((payload or {}).get('quality')),
+        'description_zh': '\n'.join(row['description_zh'] for row in effects),
+        'stats': stats,
+        'effects': effects,
+        'primary_options': primary_options,
+        'secondary_total': sum(random_secondaries),
+    }
+
+
+class CurrentGearCatalogSource:
+    """锁定 Wago 构建，并将 Raidbots/Wowhead 数据投影为导入目录。"""
+
+    def __init__(self, *, cache_dir='.cache/gear_builder', workers=8, timeout=45, no_proxy=False, progress=None):
+        self.cache_root = Path(cache_dir).expanduser().resolve()
+        self.workers = max(1, min(24, int(workers or 8)))
+        self.timeout = max(5, int(timeout or 45))
+        self.progress = progress or (lambda _message: None)
+        self.session = requests.Session()
+        self.session.headers.update({'User-Agent': 'Mozilla/5.0 (compatible; LMonitor-GearBuilder/1.0)'})
+        self.session.trust_env = not no_proxy
+
+    def build(self, *, season_key='', include_wowhead=True):
+        self.progress('正在读取 Wago 正式服构建号……')
+        game_build = self._wago_current_build()
+        metadata = self._get_json(f'{RAIDBOTS_LIVE_ROOT}/metadata.json')
+        raidbots_build = str(metadata.get('wowBuild') or metadata.get('wow_build') or '')
+        if raidbots_build != game_build:
+            raise CatalogSourceError(
+                f'Wago 构建 {game_build} 与 Raidbots 构建 {raidbots_build or "未知"} 不一致，拒绝激活混合批次。'
+            )
+
+        self.progress(f'已锁定正式服构建 {game_build}，正在下载结构化目录……')
+        seasons = self._get_json(f'{RAIDBOTS_LIVE_ROOT}/seasons.json')
+        instances = self._get_json(f'{RAIDBOTS_LIVE_ROOT}/instances.json')
+        encounter_items = self._get_json(f'{RAIDBOTS_LIVE_ROOT}/encounter-items.json')
+        crafting = self._get_json(f'{RAIDBOTS_LIVE_ROOT}/crafting.json')
+        enchantments = self._get_json(f'{RAIDBOTS_LIVE_ROOT}/enchantments.json')
+        active = next((row for row in seasons if row.get('active')), None)
+        if not active:
+            raise CatalogSourceError('Raidbots 未声明当前正式服赛季。')
+        short_name = str(active.get('shortName') or '')
+        profile = SEASON_LEVEL_PROFILES.get(short_name)
+        if not profile:
+            raise CatalogSourceError(f'当前赛季 {short_name or active.get("name")} 尚未配置合法装等范围。')
+
+        normalized_season_key = season_key.strip() or self._season_key(active)
+        items, season_info = self._build_items(active, profile, instances, encounter_items, crafting, enchantments)
+        if include_wowhead:
+            self._enrich_wowhead(items, game_build)
+        else:
+            self.progress('已跳过 Wowhead 中文 Tooltip 与变体属性补全。')
+
+        content = json.dumps(items, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
+        batch_key = f'gear-{game_build}-{hashlib.sha256(content).hexdigest()[:12]}'
+        return {
+            'season_key': normalized_season_key,
+            'season_name': str(active.get('name') or normalized_season_key),
+            'season_info': season_info,
+            'batch_key': batch_key,
+            'game_build': game_build,
+            'provider': {
+                'structure': 'wago_db2',
+                'normalized_projection': 'raidbots_static',
+                'display': 'wowhead_zhcn',
+                'wago_build': game_build,
+                'raidbots_build': raidbots_build,
+            },
+            'items': items,
+        }
+
+    def _get(self, url, **kwargs):
+        try:
+            response = self.session.get(url, timeout=self.timeout, **kwargs)
+            response.raise_for_status()
+            return response
+        except requests.RequestException as exc:
+            raise CatalogSourceError(f'下载失败：{url}；{exc}') from exc
+
+    def _get_json(self, url):
+        try:
+            return self._get(url).json()
+        except (ValueError, json.JSONDecodeError) as exc:
+            raise CatalogSourceError(f'远端返回的不是合法 JSON：{url}') from exc
+
+    def _wago_current_build(self):
+        response = self._get(WAGO_DB2_HOME)
+        match = re.search(r'data-page=(?:"([^"]+)"|\'([^\']+)\')', response.text or '')
+        if not match:
+            raise CatalogSourceError('无法从 Wago DB2 页面解析当前构建号。')
+        try:
+            page = json.loads(html.unescape(match.group(1) or match.group(2) or ''))
+        except json.JSONDecodeError as exc:
+            raise CatalogSourceError('Wago DB2 页面中的构建元数据无法解析。') from exc
+        props = page.get('props') or {}
+        build = str(props.get('currentVersion') or props.get('current_version') or '')
+        if not re.fullmatch(r'\d+\.\d+\.\d+\.\d+', build):
+            raise CatalogSourceError(f'Wago 返回了异常构建号：{build or "空"}')
+        return build
+
+    @staticmethod
+    def _season_key(active):
+        short_name = str(active.get('shortName') or '').lower()
+        expansion = re.sub(r'[^a-z0-9]+', '-', str(active.get('name') or '').split(' Season ', 1)[0].lower()).strip('-')
+        number = re.search(r'(\d+)$', short_name)
+        return f'{expansion}-s{number.group(1)}' if expansion and number else short_name or 'current-season'
+
+    def _build_items(self, active, profile, instances, encounter_items, crafting, enchantments):
+        instance_by_id = {_safe_int(row.get('id')): row for row in instances}
+        short_name = str(active.get('shortName') or '')
+        season_number = (re.search(r'(\d+)$', short_name) or [None, ''])[1]
+        mplus = next((row for row in instances if row.get('type') == 'mplus-chest'), None)
+        delve = next((row for row in instances if row.get('type') == f'delve-{short_name}'), None)
+        raid_group = next((row for row in instances if row.get('type') == 'raid' and row.get('id', 0) < 0 and str(row.get('name')) == f'Season {season_number} Raids'), None)
+        if not mplus or not delve or not raid_group:
+            raise CatalogSourceError('无法定位当前赛季的大秘境、团本或地下堡来源集合。')
+        raid_ids = sorted({_safe_int(row.get('sourceInstanceId')) for row in raid_group.get('encounters') or [] if _safe_int(row.get('sourceInstanceId')) > 0})
+        profession_type = f'profession{str(active.get("name") or "").split(" Season ", 1)[0].replace(" ", "")}Epic'
+        profession = next((row for row in instances if row.get('type') == profession_type), None)
+        if not profession:
+            raise CatalogSourceError(f'无法定位当前赛季制造装备集合：{profession_type}')
+
+        source_groups = {
+            _safe_int(mplus['id']): ('mythic_plus', mplus),
+            _safe_int(delve['id']): ('delve', delve),
+            _safe_int(profession['id']): ('crafted', profession),
+        }
+        for raid_id in raid_ids:
+            source_groups[raid_id] = ('raid', instance_by_id.get(raid_id) or raid_group)
+        encounter_names = {}
+        for instance in instances:
+            for encounter in instance.get('encounters') or []:
+                encounter_names[(_safe_int(instance.get('id')), _safe_int(encounter.get('id')))] = str(encounter.get('name') or '')
+
+        by_id = {}
+        for raw in encounter_items:
+            matched = []
+            for source in raw.get('sources') or []:
+                instance_id = _safe_int(source.get('instanceId'))
+                if instance_id not in source_groups:
+                    continue
+                source_type, instance = source_groups[instance_id]
+                matched.append({
+                    'type': source_type,
+                    'instance_id': instance_id,
+                    'instance': str(instance.get('name') or ''),
+                    'encounter_id': _safe_int(source.get('encounterId')),
+                    'encounter': encounter_names.get((instance_id, _safe_int(source.get('encounterId'))), ''),
+                })
+            if not matched:
+                continue
+            slots = list(INVENTORY_SLOTS.get(_safe_int(raw.get('inventoryType')), ()))
+            if not slots:
+                continue
+            item = self._base_item(raw, 'equipment', slots)
+            for source_type in sorted({row['type'] for row in matched}):
+                sources = [row for row in matched if row['type'] == source_type]
+                if source_type == 'crafted':
+                    self._add_crafted_variants(item, profile, sources)
+                else:
+                    self._add_drop_variants(item, profile, source_type, sources)
+            by_id[item['item_id']] = item
+
+        for reagent in (crafting.get('reagents') or []):
+            limit = reagent.get('itemLimit') or {}
+            if _safe_int(reagent.get('expansion')) != 11 or _safe_int(limit.get('category')) != 512:
+                continue
+            item_id = _safe_int(reagent.get('id') or reagent.get('itemId'))
+            if not item_id:
+                continue
+            item = by_id.setdefault(item_id, self._base_item(reagent, 'embellishment', []))
+            item['unique_group'] = 'embellishment-limit'
+            item['variants'].append({
+                'key': f'embellishment-q{_safe_int(reagent.get("craftingQuality")) or 1}',
+                'type': 'embellishment',
+                'crafting_quality': _safe_int(reagent.get('craftingQuality')),
+                'bonus_ids': reagent.get('craftingBonusIds') or [],
+                'compatible_slots': [],
+                'unique_group': 'embellishment-limit',
+                'max_equipped': _safe_int(limit.get('quantity'), 2),
+                'sources': [{'type': 'profession', 'profession': 'Crafting'}],
+                'metadata': {'reagent_slot_ids': reagent.get('reagentSlotIds') or []},
+            })
+
+        for raw in enchantments:
+            item_id = _safe_int(raw.get('itemId'))
+            if _safe_int(raw.get('expansion')) != 11 or not item_id:
+                continue
+            is_gem = raw.get('slot') == 'socket'
+            if not is_gem and str(raw.get('categoryName') or '') in ('Tool Enchants', 'Bots'):
+                continue
+            slots = ['head', 'neck', 'shoulders', 'back', 'chest', 'wrists', 'hands', 'waist', 'legs', 'feet', 'finger', 'weapon'] if is_gem else self._enchant_slots(raw)
+            if not slots:
+                continue
+            catalog_type = 'gem' if is_gem else 'enchant'
+            item = by_id.setdefault(item_id, self._base_item({
+                'id': item_id, 'name': raw.get('itemName'), 'icon': raw.get('itemIcon'), 'quality': raw.get('quality'),
+            }, catalog_type, slots))
+            item['enchantment_id'] = _safe_int(raw.get('id'))
+            stats, primary = self._raidbots_stats(raw.get('stats') or [])
+            item['variants'].append({
+                'key': f'{catalog_type}-q{_safe_int(raw.get("craftingQuality")) or 1}-e{_safe_int(raw.get("id"))}',
+                'type': catalog_type,
+                'crafting_quality': _safe_int(raw.get('craftingQuality')),
+                'compatible_slots': slots,
+                'socket_types': [str(raw.get('socketType') or 'prismatic').lower()] if is_gem else [],
+                'stats': stats,
+                'effects': [{'description': str(raw.get('displayName') or '')}] if not stats else [],
+                'unique_group': f'item-limit-{_safe_int(raw.get("itemLimitCategory"))}' if raw.get('unique') else '',
+                'max_equipped': 1 if raw.get('unique') else 0,
+                'sources': [{'type': 'profession', 'profession': 'Jewelcrafting' if is_gem else 'Enchanting'}],
+                'metadata': {'enchantment_id': _safe_int(raw.get('id')), 'simc_name': raw.get('tokenizedName') or '', 'primary_stat_amount': primary},
+            })
+
+        items = []
+        for item in by_id.values():
+            unique = {}
+            for variant in item.pop('variants', []):
+                unique[variant['key']] = variant
+            item['variants'] = list(unique.values())
+            if item['variants']:
+                items.append(item)
+        items.sort(key=lambda row: row['item_id'])
+        raid_names = [str((instance_by_id.get(value) or {}).get('name') or value) for value in raid_ids]
+        return items, {
+            'mplus_zone_id': _safe_int(mplus.get('id')),
+            'mplus_zone_name': str(mplus.get('name') or ''),
+            'mplus_encounters': mplus.get('encounters') or [],
+            'raid_zone_id': raid_ids[0] if raid_ids else _safe_int(raid_group.get('id')),
+            'raid_zone_name': ' / '.join(raid_names),
+            'raid_zones': [{'zone_id': value, 'zone_name': str((instance_by_id.get(value) or {}).get('name') or value)} for value in raid_ids],
+            'raid_encounters': raid_group.get('encounters') or [],
+            'delve_sources': delve.get('encounters') or [],
+        }
+
+    @staticmethod
+    def _base_item(raw, catalog_type, slots):
+        item_id = _safe_int(raw.get('id') or raw.get('itemId'))
+        slot_key = slots[0] if len(slots) == 1 else ('weapon' if any(value.endswith('hand') for value in slots) else '')
+        return {
+            'item_id': item_id,
+            'name': str(raw.get('name') or raw.get('itemName') or ''),
+            'name_zh': '',
+            'description_zh': '',
+            'icon': str(raw.get('icon') or raw.get('itemIcon') or ''),
+            'quality': _safe_int(raw.get('quality')),
+            'catalog_type': catalog_type,
+            'inventory_type': _safe_int(raw.get('inventoryType')),
+            'slot_key': slot_key,
+            'item_class_id': _safe_int(raw.get('itemClass')),
+            'item_subclass_id': _safe_int(raw.get('itemSubClass')),
+            'eligible_specs': [
+                f'{identity[0]}:{identity[1]}'
+                for spec_id in (raw.get('specs') or [])
+                for identity in [SPEC_IDENTITY_MAP.get(_safe_int(spec_id))]
+                if identity
+            ],
+            'unique_group': f'item-{item_id}' if raw.get('uniqueEquipped') else '',
+            'simc_token': re.sub(r'[^a-z0-9]+', '_', str(raw.get('name') or raw.get('itemName') or '').lower()).strip('_'),
+            'metadata': {'raidbots_stats_alloc': raw.get('stats') or []},
+            'variants': [],
+        }
+
+    @staticmethod
+    def _add_drop_variants(item, profile, source_type, sources):
+        for track, levels in profile['tracks'].items():
+            for rank, item_level in enumerate(levels, 1):
+                item['variants'].append({
+                    'key': f'{source_type}-{track}-{rank}-{item_level}',
+                    'type': 'drop_equipment', 'item_level': item_level,
+                    'upgrade_track': track, 'track_rank': rank, 'track_max_rank': len(levels),
+                    'compatible_slots': list(INVENTORY_SLOTS.get(item['inventory_type'], ())),
+                    'sources': sources,
+                })
+
+    @staticmethod
+    def _add_crafted_variants(item, profile, sources):
+        for tier, levels in profile['crafted'].items():
+            for quality, item_level in enumerate(levels, 1):
+                item['variants'].append({
+                    'key': f'crafted-{tier}-q{quality}-{item_level}',
+                    'type': 'crafted_equipment', 'item_level': item_level, 'crafting_quality': quality,
+                    'compatible_slots': list(INVENTORY_SLOTS.get(item['inventory_type'], ())),
+                    'crafting_options': {'stat_count': 2, 'stat_pool': ['crit', 'haste', 'mastery', 'versatility']},
+                    'sources': sources,
+                })
+
+    @staticmethod
+    def _raidbots_stats(rows):
+        stats = defaultdict(int)
+        primary = 0
+        for row in rows:
+            amount = _safe_int(row.get('amount'))
+            stat_type = str(row.get('type') or '')
+            if stat_type in ('stragiint', 'stragi'):
+                primary = max(primary, amount)
+            elif stat_type in RAIDBOTS_STATS:
+                stats[RAIDBOTS_STATS[stat_type]] += amount
+        return dict(stats), primary
+
+    @staticmethod
+    def _enchant_slots(raw):
+        category = str(raw.get('categoryName') or '').lower()
+        by_category = {
+            'chest enchants': ['chest'], 'helm enchants': ['head'], 'boot enchants': ['feet'],
+            'rings enchants': ['finger'], 'shoulder enchants': ['shoulders'],
+            'weapon enchants': ['weapon'],
+        }
+        if category in by_category:
+            return by_category[category]
+        mask = _safe_int((raw.get('equipRequirements') or {}).get('invTypeMask'))
+        slots = []
+        for inventory_type, values in INVENTORY_SLOTS.items():
+            if mask & (1 << inventory_type):
+                slots.extend(values)
+        return list(dict.fromkeys(slots))
+
+    def _enrich_wowhead(self, items, game_build):
+        requests_needed = {}
+        for item in items:
+            for variant in item.get('variants') or []:
+                item_level = _safe_int(variant.get('item_level'))
+                requests_needed[(item['item_id'], item_level)] = None
+        total = len(requests_needed)
+        self.progress(f'正在从 Wowhead 补全 {total} 组中文 Tooltip/装等属性（结果会缓存）……')
+        cache_dir = self.cache_root / game_build / 'wowhead'
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        completed = 0
+        with ThreadPoolExecutor(max_workers=self.workers) as executor:
+            futures = {executor.submit(self._wowhead_tooltip, item_id, item_level, cache_dir): (item_id, item_level) for item_id, item_level in requests_needed}
+            for future in as_completed(futures):
+                key = futures[future]
+                try:
+                    requests_needed[key] = future.result()
+                except CatalogSourceError:
+                    requests_needed[key] = {}
+                completed += 1
+                if completed % 250 == 0 or completed == total:
+                    self.progress(f'Wowhead 补全进度 {completed}/{total}')
+        for item in items:
+            fallback = {}
+            for variant in item.get('variants') or []:
+                details = requests_needed.get((item['item_id'], _safe_int(variant.get('item_level')))) or {}
+                fallback = fallback or details
+                if details.get('stats'):
+                    variant['stats'] = details['stats']
+                if details.get('effects'):
+                    variant['effects'] = details['effects']
+                if details.get('primary_options'):
+                    variant.setdefault('metadata', {})['primary_stat_values'] = details['primary_options']
+                if details.get('secondary_total') and variant.get('type') == 'crafted_equipment':
+                    variant.setdefault('crafting_options', {})['secondary_total'] = details['secondary_total']
+            details = fallback or requests_needed.get((item['item_id'], 0)) or {}
+            item['name_zh'] = details.get('name_zh') or item.get('name_zh') or ''
+            item['description_zh'] = details.get('description_zh') or item.get('description_zh') or ''
+            item['icon'] = details.get('icon') or item.get('icon') or ''
+            item['quality'] = details.get('quality') or item.get('quality') or 0
+
+    def _wowhead_tooltip(self, item_id, item_level, cache_dir):
+        path = cache_dir / f'{item_id}-{item_level or "base"}.json'
+        if path.is_file():
+            try:
+                return _tooltip_details(json.loads(path.read_text(encoding='utf-8')))
+            except (OSError, json.JSONDecodeError):
+                pass
+        params = {'locale': 'zhcn'}
+        if item_level:
+            params['ilvl'] = item_level
+        url = f'{WOWHEAD_TOOLTIP.format(item_id=item_id)}?{urlencode(params)}'
+        payload = self._get_json(url)
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
+        return _tooltip_details(payload)

@@ -55,6 +55,14 @@ from botend.portal.views import PortalArticleView, PortalNewsView, PortalSpecsVi
 from botend.portal.views import PortalReportFileView, PortalWowHotfixReportView, PortalWowSkillDiffReportView
 from botend.portal.spec_detail_views import SpecDetailPlayerView, SpecDetailPlayerDetailView, SpecDetailDungeonView, SpecDetailRaidView, SpecOverviewAPIView, SimcProfileDetailView
 from botend.portal.talent_simulator import PortalTalentSimulatorAPIView, PortalTalentSimulatorEncodeAPIView, PortalTalentSimulatorView
+from botend.portal.gear_builder import (
+    PortalGearBuilderBootstrapAPIView,
+    PortalGearBuilderCatalogAPIView,
+    PortalGearBuilderCraftedResolveAPIView,
+    PortalGearBuilderEnhancementsAPIView,
+    PortalGearBuilderSimcImportAPIView,
+    PortalGearBuilderView,
+)
 from botend.portal.api import (
     PortalBluepostsAPIView,
     PortalNgaHotAPIView,
@@ -118,6 +126,7 @@ urlpatterns = [
     path('portal/specs/', PortalSpecsView.as_view(), name='portal_specs'),
     path('portal/article/<int:article_id>/', PortalArticleView.as_view(), name='portal_article'),
     path('portal/talents/', PortalTalentSimulatorView.as_view(), name='portal_talent_simulator'),
+    path('portal/gear-builder/', PortalGearBuilderView.as_view(), name='portal_gear_builder'),
     path('portal/mythic-planner/', PortalMythicPlannerView.as_view(), name='portal_mythic_planner'),
     path('m/<slug:share_token>', PortalMythicPlannerView.as_view(), name='portal_mythic_planner_short_link'),
 
@@ -174,6 +183,11 @@ urlpatterns = [
     path('portal/api/simc-benchmarks/spec-rankings/', PortalSimcSpecRankingAPIView.as_view(), name='portal_simc_spec_rankings'),
     path('portal/api/talents/simulator/', csrf_exempt(PortalTalentSimulatorAPIView.as_view()), name="portal_talent_simulator_api"),
     path('portal/api/talents/simulator/encode/', csrf_exempt(PortalTalentSimulatorEncodeAPIView.as_view()), name="portal_talent_simulator_encode"),
+    path('portal/api/gear-builder/bootstrap/', PortalGearBuilderBootstrapAPIView.as_view(), name='portal_gear_builder_bootstrap'),
+    path('portal/api/gear-builder/catalog/', PortalGearBuilderCatalogAPIView.as_view(), name='portal_gear_builder_catalog'),
+    path('portal/api/gear-builder/enhancements/', PortalGearBuilderEnhancementsAPIView.as_view(), name='portal_gear_builder_enhancements'),
+    path('portal/api/gear-builder/resolve-crafted/', csrf_exempt(PortalGearBuilderCraftedResolveAPIView.as_view()), name='portal_gear_builder_resolve_crafted'),
+    path('portal/api/gear-builder/import-simc/', csrf_exempt(PortalGearBuilderSimcImportAPIView.as_view()), name='portal_gear_builder_import_simc'),
     path('portal/api/mythic-planner/catalog/', MythicPlannerCatalogAPIView.as_view(), name='mythic_planner_catalog'),
     path('portal/api/mythic-planner/dungeons/<slug:dungeon_key>/', MythicPlannerDungeonAPIView.as_view(), name='mythic_planner_dungeon'),
     path('portal/api/mythic-planner/share-code/', MythicPlannerShareCodeAPIView.as_view(), name='mythic_planner_share_code'),

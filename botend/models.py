@@ -2201,6 +2201,12 @@ class SeasonMeta(models.Model):
         help_text='[{"zone_id": 123, "zone_name": "Raid Name", "encounters": [{"id": 1, "name": "Boss"}]}]')
     mplus_encounters = models.JSONField("M+副本列表", default=list, blank=True, help_text="M+ 副本列表 [{id, name, short}, ...]")
     raid_encounters = models.JSONField("团本Boss列表", default=list, blank=True, help_text="团本 Boss 列表 [{id, name, index}, ...]")
+    game_build = models.CharField("正式服构建", max_length=64, default="", blank=True)
+    delve_sources = models.JSONField("地下堡来源", default=list, blank=True)
+    gear_batch_key = models.CharField("装备目录批次", max_length=80, default="", blank=True)
+    gear_sync_status = models.CharField("装备目录同步状态", max_length=32, default="", blank=True)
+    gear_synced_at = models.DateTimeField("装备目录同步时间", null=True, blank=True)
+    gear_sync_report = models.JSONField("装备目录同步报告", default=dict, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -2443,6 +2449,20 @@ class WowItemSnapshot(models.Model):
     icon = models.CharField(max_length=255, default="", blank=True, help_text="图标名称")
     quality = models.IntegerField(default=0, blank=True, help_text="品质等级")
     source = models.CharField(max_length=32, default="wowhead", blank=True, help_text="数据源")
+    catalog_type = models.CharField(max_length=32, default="", blank=True, db_index=True, help_text="装备/制造/美化/宝石/附魔")
+    inventory_type = models.IntegerField(default=0, blank=True, help_text="DB2 InventoryType")
+    slot_key = models.CharField(max_length=32, default="", blank=True, db_index=True, help_text="规范化装备槽位")
+    item_class_id = models.IntegerField(default=0, blank=True)
+    item_subclass_id = models.IntegerField(default=0, blank=True)
+    armor_type = models.CharField(max_length=32, default="", blank=True)
+    weapon_type = models.CharField(max_length=64, default="", blank=True)
+    allowable_class_mask = models.BigIntegerField(default=0, blank=True)
+    eligible_specs = models.JSONField(default=list, blank=True, help_text="允许使用的 class:spec 列表")
+    unique_group = models.CharField(max_length=128, default="", blank=True, db_index=True)
+    effect_refs = models.JSONField(default=list, blank=True, help_text="Spell/ItemEffect 等稳定引用")
+    simc_token = models.CharField(max_length=128, default="", blank=True, db_index=True)
+    enchantment_id = models.BigIntegerField(default=0, blank=True, db_index=True)
+    metadata = models.JSONField(default=dict, blank=True)
     updated_at = models.DateTimeField(default=timezone.now, help_text="更新时间")
 
     class Meta:
@@ -2457,6 +2477,79 @@ class WowItemSnapshot(models.Model):
 
     def __str__(self):
         return f"{self.item_id}: {self.name_zh or self.name}"
+
+
+class WowItemVariantSnapshot(models.Model):
+    """当前赛季可选择的装备、制造、美化、宝石和附魔变体。"""
+
+    TYPE_DROP_EQUIPMENT = 'drop_equipment'
+    TYPE_CRAFTED_EQUIPMENT = 'crafted_equipment'
+    TYPE_EMBELLISHMENT = 'embellishment'
+    TYPE_GEM = 'gem'
+    TYPE_ENCHANT = 'enchant'
+    TYPE_CHOICES = (
+        (TYPE_DROP_EQUIPMENT, '掉落装备'),
+        (TYPE_CRAFTED_EQUIPMENT, '制造装备'),
+        (TYPE_EMBELLISHMENT, '美化'),
+        (TYPE_GEM, '宝石'),
+        (TYPE_ENCHANT, '附魔'),
+    )
+
+    id = models.BigAutoField(primary_key=True)
+    item = models.ForeignKey(
+        WowItemSnapshot,
+        on_delete=models.CASCADE,
+        related_name='gear_variants',
+    )
+    season = models.ForeignKey(
+        SeasonMeta,
+        on_delete=models.CASCADE,
+        related_name='gear_variants',
+    )
+    batch_key = models.CharField(max_length=80)
+    game_build = models.CharField(max_length=64, default='', blank=True)
+    variant_key = models.CharField(max_length=160)
+    variant_type = models.CharField(max_length=32, choices=TYPE_CHOICES)
+    item_level = models.PositiveIntegerField(default=0)
+    upgrade_track = models.CharField(max_length=16, default='', blank=True)
+    track_rank = models.PositiveSmallIntegerField(default=0)
+    track_max_rank = models.PositiveSmallIntegerField(default=0)
+    crafting_quality = models.PositiveSmallIntegerField(default=0)
+    bonus_ids = models.JSONField(default=list, blank=True)
+    compatible_slots = models.JSONField(default=list, blank=True)
+    socket_types = models.JSONField(default=list, blank=True)
+    socket_count = models.PositiveSmallIntegerField(default=0)
+    stats_json = models.JSONField(default=dict, blank=True)
+    effects_json = models.JSONField(default=list, blank=True)
+    source_json = models.JSONField(default=list, blank=True)
+    crafting_options = models.JSONField(default=dict, blank=True)
+    unique_group = models.CharField(max_length=128, default='', blank=True)
+    max_equipped = models.PositiveSmallIntegerField(default=0)
+    is_intrinsic_embellishment = models.BooleanField(default=False)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'wow_item_variant_snapshot'
+        app_label = 'botend'
+        verbose_name = 'WoW物品赛季变体'
+        verbose_name_plural = 'WoW物品赛季变体'
+        ordering = ('item__name_zh', 'item_level', 'variant_key')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('season', 'batch_key', 'item', 'variant_key'),
+                name='uniq_item_variant_batch_key',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=('season', 'batch_key', 'variant_type'), name='gear_var_batch_type_idx'),
+            models.Index(fields=('batch_key', 'variant_type', 'item_level'), name='gear_var_type_level_idx'),
+            models.Index(fields=('batch_key', 'item'), name='gear_var_batch_item_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.item_id}/{self.variant_type}/{self.variant_key}'
 
 
 class MythicDungeonDataVersion(models.Model):
