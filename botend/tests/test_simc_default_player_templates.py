@@ -157,7 +157,7 @@ class ImportSimcPlayerTemplatesTests(TestCase):
         'botend.management.commands.import_simc_player_templates.REQUIRED_PROFILE_SPECS',
         {('warrior', 'fury')},
     )
-    def test_mid2_import_replaces_old_mid1_profile_and_marks_version(self):
+    def test_mid2_import_updates_existing_mid1_profile_in_place(self):
         old = SimcProfile.objects.create(
             user_id=None, source=SimcProfile.SOURCE_SIMC_UPSTREAM,
             system_key='simc_upstream:warrior_fury', name='MID1 默认玩家 warrior_fury',
@@ -171,14 +171,20 @@ class ImportSimcPlayerTemplatesTests(TestCase):
                 profile_version='12.1', sync_version='b' * 40,
             )
         profile = SimcProfile.objects.get(system_key='simc_upstream:warrior_fury')
-        self.assertNotEqual(profile.id, old.id)
+        self.assertEqual(profile.id, old.id)
         self.assertEqual(profile.profile_set, 'MID2')
         self.assertEqual(profile.version, '12.1')
         self.assertEqual(profile.sync_version, 'b' * 40)
-        old.refresh_from_db()
-        self.assertFalse(old.is_active)
-        self.assertIsNone(old.system_key)
-        self.assertNotEqual(profile.id, old.id)
+        self.assertTrue(profile.is_active)
+        self.assertEqual(profile.system_key, 'simc_upstream:warrior_fury')
+        self.assertEqual(
+            SimcProfile.objects.filter(
+                user_id__isnull=True,
+                source=SimcProfile.SOURCE_SIMC_UPSTREAM,
+                spec='warrior_fury',
+            ).count(),
+            1,
+        )
 
     def test_required_mid1_profiles_match_the_supported_32_spec_execution_scope(self):
         from botend.management.commands.import_simc_player_templates import REQUIRED_PROFILE_SPECS

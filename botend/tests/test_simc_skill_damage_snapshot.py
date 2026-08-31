@@ -2788,6 +2788,117 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         self.assertEqual([actor['specialization'] for actor in result['actors']], ['fury', 'arms'])
 
+    def test_isolated_generate_releases_published_product_actor_before_next_profile(self):
+        snapshot = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='b' * 40, game_build='12.1.0.69299', schema_revision=20,
+        )
+        profiles = [
+            SimpleNamespace(pk=1, spec='warrior_fury', class_name='warrior'),
+            SimpleNamespace(pk=2, spec='warrior_arms', class_name='warrior'),
+        ]
+        first_actor_refs = []
+
+        class ProductActor(dict):
+            pass
+
+        def iter_profiles():
+            yield profiles[0]
+            gc.collect()
+            self.assertTrue(first_actor_refs)
+            self.assertIsNone(
+                first_actor_refs[0](),
+                '父生成进程仍保留已发布专精的完整产品 actor 对象图',
+            )
+            snapshot.refresh_from_db()
+            self.assertEqual(snapshot.generated_spec_count, 1)
+            self.assertEqual(
+                [actor['specialization'] for actor in snapshot.payload['actors']],
+                ['fury'],
+            )
+            yield profiles[1]
+
+        def generate_actor(profile):
+            actor = ProductActor({
+                'class': 'warrior',
+                'specialization': 'fury' if profile.pk == 1 else 'arms',
+                'variant_model': 'single_talent_runtime',
+                'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
+                'actions': [],
+            })
+            if profile.pk == 1:
+                first_actor_refs.append(weakref.ref(actor))
+            return actor, [], 1
+
+        service = SimcSkillDamageSnapshotService(snapshot)
+        with mock.patch.object(service, '_profiles', side_effect=iter_profiles), \
+             mock.patch.object(
+                 service, '_generate_profile_product_actor_isolated', side_effect=generate_actor,
+             ):
+            service.generate(isolate_profiles=True)
+
+        snapshot.refresh_from_db()
+        self.assertEqual(snapshot.status, snapshot.STATUS_SUCCEEDED)
+        self.assertEqual(
+            [actor['specialization'] for actor in snapshot.payload['actors']],
+            ['fury', 'arms'],
+        )
+
+    def test_resume_uses_published_count_manifest_without_replacing_actors(self):
+        existing_actor = {
+            'class': 'warrior',
+            'specialization': 'fury',
+            'variant_model': 'single_talent_runtime',
+            'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
+            'actions': [{'token': 'large-resume-marker'}],
+        }
+        snapshot = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='a' * 40,
+            game_build='12.1.0.69300',
+            schema_revision=20,
+            status=SimcSkillDamageSnapshot.STATUS_FAILED,
+            generated_spec_count=1,
+            generated_action_count=3,
+            payload={
+                'payload_format': 'skill_damage_product_v1',
+                'actors': [existing_actor],
+                'unresolved': [],
+                'display_action_count': 1,
+                'total_spec_count': 2,
+            },
+        )
+        profiles = [
+            SimpleNamespace(pk=1, spec='warrior_fury', class_name='warrior'),
+            SimpleNamespace(pk=2, spec='warrior_arms', class_name='warrior'),
+        ]
+        generated_actor = {
+            'class': 'warrior',
+            'specialization': 'arms',
+            'variant_model': 'single_talent_runtime',
+            'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
+            'actions': [],
+        }
+        service = SimcSkillDamageSnapshotService(snapshot)
+        service._profiles = mock.Mock(return_value=profiles)
+        service._generate_profile_product_actor = mock.Mock(
+            return_value=(generated_actor, [], 2),
+        )
+
+        result = service.generate()
+
+        service._generate_profile_product_actor.assert_called_once_with(profiles[1])
+        self.assertEqual(
+            [actor['specialization'] for actor in result['actors']],
+            ['fury', 'arms'],
+        )
+        self.assertEqual(result['actors'][0]['actions'][0]['token'], 'large-resume-marker')
+        snapshot.refresh_from_db()
+        self.assertEqual(snapshot.generated_spec_count, 2)
+        self.assertEqual(snapshot.generated_action_count, 5)
+        self.assertEqual(
+            snapshot.payload['completed_profile_identities'],
+            [['warrior', 'arms'], ['warrior', 'fury']],
+        )
+
     def test_isolated_generation_closes_stale_db_connection_after_each_profile(self):
         snapshot = SimcSkillDamageSnapshot.objects.create(
             simc_revision='b' * 40, game_build='12.1.0.69299', schema_revision=20,
@@ -3500,6 +3611,36 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         self.user = get_user_model().objects.create_user(username='viewer', password='x')
         self.staff = get_user_model().objects.create_user(username='staff', password='x', is_staff=True)
 
+    def test_get_summary_returns_progress_without_materializing_snapshot_payload(self):
+        SimcSkillDamageSnapshot.objects.create(
+            simc_revision='f' * 40, game_build='12.1.0.69300', schema_revision=20,
+            status=SimcSkillDamageSnapshot.STATUS_RUNNING,
+            generated_spec_count=1,
+            generated_action_count=27,
+            payload={
+                'total_spec_count': 32,
+                'current_specialization': 'frost',
+                'actors': [{'specialization': 'frost', 'actions': [
+                    {'token': 'large-private-action'},
+                ]}],
+                'unresolved': [{'reason': 'large-private-unresolved'}],
+            },
+        )
+        request = self.factory.get('/api/simc-skill-damage/', {'summary': '1'})
+        request.user = self.user
+
+        response = SimcSkillDamageSnapshotAPIView.as_view()(request)
+        body = json.loads(response.content)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(body['data']['job']['status'], SimcSkillDamageSnapshot.STATUS_RUNNING)
+        self.assertEqual(body['data']['job']['spec_count'], 1)
+        self.assertEqual(body['data']['job']['total_spec_count'], 32)
+        self.assertEqual(body['data']['job']['current_specialization'], 'frost')
+        self.assertNotIn('snapshot', body['data'])
+        self.assertNotIn('large-private-action', response.content.decode())
+        self.assertNotIn('large-private-unresolved', response.content.decode())
+
     def test_get_returns_frozen_schema_eighteen_product_without_reprojection(self):
         SimcSkillDamageSnapshot.objects.create(
             simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=20,
@@ -3736,6 +3877,13 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn('id="simc-skill-damage"', template)
         self.assertIn("'skill-damage': 'simc-skill-damage'", script)
         self.assertIn('/api/simc-skill-damage/', script)
+        panel_initializer = script.split('function initSimcSkillDamagePanel() {', 1)[1].split(
+            'function initSimcBackendUploadTool()', 1,
+        )[0]
+        self.assertIn('/api/simc-skill-damage/?summary=1', panel_initializer)
+        self.assertIn('specCount > loadedSpecCount', panel_initializer)
+        self.assertIn('setTimeout(async () =>', panel_initializer)
+        self.assertNotIn('setInterval(', panel_initializer)
         self.assertIn('renderSimcSkillDamageSnapshot', script)
         self.assertIn('initSimcSkillDamagePanel();', script)
         self.assertNotIn('bg-gray-900 simc-skill-damage', template)
@@ -3777,6 +3925,14 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         )[0]
 
         self.assertIn('id="simc-skill-damage-hero-tree"', template)
+        self.assertLess(
+            template.index('id="simc-skill-damage-spec"'),
+            template.index('id="simc-skill-damage-target-tabs"'),
+        )
+        self.assertLess(
+            template.index('id="simc-skill-damage-hero-tree"'),
+            template.index('id="simc-skill-damage-target-tabs"'),
+        )
         for target_count in ('1', '2', '5', '10', '20'):
             self.assertIn(f'data-target-count="{target_count}"', template)
         self.assertIn(".simc-skill-damage-target-tab", script)
