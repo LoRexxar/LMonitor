@@ -1,0 +1,13 @@
+diff --git a/engine/class_modules/monk/sc_monk.cpp b/engine/class_modules/monk/sc_monk.cpp
+index 028afff36f..d5a07c4ff0 100644
+--- a/engine/class_modules/monk/sc_monk.cpp
++++ b/engine/class_modules/monk/sc_monk.cpp
+@@ -5483,7 +5483,7 @@ bool monk_t::validate_actor()
+ 
+       // Report without counting the hidden talent that activates the subtree
+       count -= 1;
+-      if ( count < expected && count != 0 )
++      if ( sim->skill_damage_export_file.empty() && count < expected && count != 0 )
+       {
+         sim->error( SEVERE, "Invalid Hero Talent tree, possibly low level. Found {} talents, expected {}.", count,
+                     expected );

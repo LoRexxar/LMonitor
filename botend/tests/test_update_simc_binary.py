@@ -494,6 +494,53 @@ class UpdateSimcBinaryCommandTests(TestCase):
                 self.assertEqual(target.read_text(encoding='utf-8'), 'before\nfixed\nafter\n')
                 self.assertFalse(command._apply_local_patches())
 
+    def test_partial_monk_hero_probe_patch_tolerates_upstream_indentation_drift(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_dir = Path(tmpdir) / 'simc'
+            patch_dir = Path(tmpdir) / 'patches'
+            source_dir.mkdir()
+            patch_dir.mkdir()
+            target = source_dir / 'monk.cpp'
+            target.write_text(
+                'before\n'
+                '    count -= 1;\n'
+                '    if ( count < expected && count != 0 )\n'
+                '    {\n'
+                'after\n',
+                encoding='utf-8',
+            )
+            subprocess.run(['git', 'init', '-q'], cwd=source_dir, check=True)
+            subprocess.run(['git', 'add', 'monk.cpp'], cwd=source_dir, check=True)
+            subprocess.run(
+                ['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                 'commit', '-qm', 'base'],
+                cwd=source_dir,
+                check=True,
+            )
+            (patch_dir / '0031-allow-partial-monk-hero-talent-probes.patch').write_text(
+                'diff --git a/monk.cpp b/monk.cpp\n'
+                '--- a/monk.cpp\n'
+                '+++ b/monk.cpp\n'
+                '@@ -1,5 +1,5 @@\n'
+                ' before\n'
+                '      count -= 1;\n'
+                '-      if ( count < expected && count != 0 )\n'
+                '+      if ( exporter_empty && count < expected && count != 0 )\n'
+                '      {\n'
+                ' after\n',
+                encoding='utf-8',
+            )
+            command = Command()
+            command.stdout = StringIO()
+            command.simc_source_dir = str(source_dir)
+
+            with override_settings(SIMC_CONFIG={'simc_patch_dir': str(patch_dir)}):
+                self.assertTrue(command._apply_local_patches())
+                self.assertIn('if ( exporter_empty &&', target.read_text(encoding='utf-8'))
+                self.assertFalse(command._apply_local_patches())
+
     def test_patch_ledger_uses_unquoted_non_ascii_paths(self):
         from botend.management.commands.update_simc_binary import Command
 

@@ -30,6 +30,7 @@ SELECTED_TRAIT_ACTION_PROVENANCE_PATCH = PATCH_DIR / "0027-selected-trait-action
 EQUIPMENT_ACTION_PROVENANCE_PATCH = PATCH_DIR / "0028-exclude-equipment-actions.patch"
 RUNTIME_BUFF_STACKS_PATCH = PATCH_DIR / "0029-export-all-runtime-buff-stacks.patch"
 MULTI_TARGET_DAMAGE_PATCH = PATCH_DIR / "0030-export-multi-target-skill-damage.patch"
+PARTIAL_MONK_HERO_PROBE_PATCH = PATCH_DIR / "0031-allow-partial-monk-hero-talent-probes.patch"
 
 
 class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
@@ -61,6 +62,22 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         cls.equipment_action_provenance_text = EQUIPMENT_ACTION_PROVENANCE_PATCH.read_text(encoding="utf-8")
         cls.runtime_buff_stacks_text = RUNTIME_BUFF_STACKS_PATCH.read_text(encoding="utf-8")
         cls.multi_target_damage_text = MULTI_TARGET_DAMAGE_PATCH.read_text(encoding="utf-8")
+        cls.partial_monk_hero_probe_text = PARTIAL_MONK_HERO_PROBE_PATCH.read_text(encoding="utf-8")
+
+    def test_partial_monk_hero_tree_validation_is_bypassed_only_for_skill_damage_export(self):
+        text = self.partial_monk_hero_probe_text
+        self.assertIn('engine/class_modules/monk/sc_monk.cpp', text)
+        self.assertIn(
+            'if ( sim->skill_damage_export_file.empty() && count < expected && count != 0 )',
+            text,
+        )
+        added_lines = '\n'.join(
+            line[1:] for line in text.splitlines()
+            if line.startswith('+') and not line.startswith('+++')
+        )
+        self.assertNotIn('return true', added_lines)
+        self.assertNotIn('return false', added_lines)
+        self.assertIn('Invalid Hero Talent tree', text)
 
     def test_multi_target_damage_uses_native_action_state_aoe_for_five_schema_twelve_scenarios(self):
         text = self.multi_target_damage_text

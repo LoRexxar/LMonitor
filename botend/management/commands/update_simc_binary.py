@@ -977,8 +977,13 @@ class Command(BaseCommand):
             patch_content = entry['content']
             if index < trusted_prefix:
                 continue
+            compatibility_args = (
+                ['--ignore-space-change']
+                if patch_name == '0031-allow-partial-monk-hero-talent-probes.patch'
+                else []
+            )
             check = subprocess.run(
-                ['git', 'apply', '--check', '-'],
+                ['git', 'apply', *compatibility_args, '--check', '-'],
                 cwd=self.simc_source_dir,
                 input=patch_content,
                 capture_output=True,
@@ -986,7 +991,7 @@ class Command(BaseCommand):
             )
             if check.returncode == 0:
                 applied = subprocess.run(
-                    ['git', 'apply', '-'],
+                    ['git', 'apply', *compatibility_args, '-'],
                     cwd=self.simc_source_dir,
                     input=patch_content,
                     capture_output=True,
@@ -1006,7 +1011,7 @@ class Command(BaseCommand):
                 continue
 
             reverse = subprocess.run(
-                ['git', 'apply', '--reverse', '--check', '-'],
+                ['git', 'apply', *compatibility_args, '--reverse', '--check', '-'],
                 cwd=self.simc_source_dir,
                 input=patch_content,
                 capture_output=True,
