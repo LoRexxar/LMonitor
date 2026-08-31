@@ -65,7 +65,9 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
     def test_multi_target_damage_uses_native_action_state_aoe_for_five_schema_twelve_scenarios(self):
         text = self.multi_target_damage_text
         for token in (
-            '\\"schema_version\\\":12', 'scenario_counts = { 1, 2, 5, 10, 20 }',
+            '\\\"schema_version\\\":12', 'scenario_counts = { 2, 5, 10, 20 }',
+            'target_hit[ 1 ] = amount.direct_amount.hit',
+            'target_hit[ 1 ] = amount.tick_amount.hit',
             'hit_state->n_targets', 'hit_state->chain_target', 'calculate_direct_amount',
             'calculate_tick_amount', '\\"target_hit\\"',
         ):
