@@ -29,6 +29,7 @@ SPECIALIZATION_PASSIVE_PROVENANCE_PATCH = PATCH_DIR / "0026-specialization-passi
 SELECTED_TRAIT_ACTION_PROVENANCE_PATCH = PATCH_DIR / "0027-selected-trait-action-provenance.patch"
 EQUIPMENT_ACTION_PROVENANCE_PATCH = PATCH_DIR / "0028-exclude-equipment-actions.patch"
 RUNTIME_BUFF_STACKS_PATCH = PATCH_DIR / "0029-export-all-runtime-buff-stacks.patch"
+MULTI_TARGET_DAMAGE_PATCH = PATCH_DIR / "0030-export-multi-target-skill-damage.patch"
 
 
 class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
@@ -59,6 +60,22 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         cls.selected_trait_action_provenance_text = SELECTED_TRAIT_ACTION_PROVENANCE_PATCH.read_text(encoding="utf-8")
         cls.equipment_action_provenance_text = EQUIPMENT_ACTION_PROVENANCE_PATCH.read_text(encoding="utf-8")
         cls.runtime_buff_stacks_text = RUNTIME_BUFF_STACKS_PATCH.read_text(encoding="utf-8")
+        cls.multi_target_damage_text = MULTI_TARGET_DAMAGE_PATCH.read_text(encoding="utf-8")
+
+    def test_multi_target_damage_uses_native_action_state_aoe_for_five_schema_twelve_scenarios(self):
+        text = self.multi_target_damage_text
+        for token in (
+            '\\"schema_version\\\":12', 'scenario_counts = { 1, 2, 5, 10, 20 }',
+            'hit_state->n_targets', 'hit_state->chain_target', 'calculate_direct_amount',
+            'calculate_tick_amount', '\\"target_hit\\"',
+        ):
+            self.assertIn(token, text)
+        added_lines = '\n'.join(
+            line[1:] for line in text.splitlines()
+            if line.startswith('+') and not line.startswith('+++')
+        )
+        for forbidden in ('warrior', 'fury', 'whirlwind', 'thunder_blast'):
+            self.assertNotIn(forbidden, added_lines.lower())
 
     def test_runtime_buff_stacks_are_exported_as_distinct_schema_eleven_scenarios(self):
         text = self.runtime_buff_stacks_text

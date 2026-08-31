@@ -554,8 +554,9 @@ _AMOUNT_COMPONENT_FIELDS = (
 )
 _AMOUNT_COMPONENT_SIGNATURE_FIELDS = (
     *_AMOUNT_COMPONENT_FIELDS,
-    'crit_chance_uncapped', 'can_crit', 'base_damage_layers', 'runtime_layers',
+    'crit_chance_uncapped', 'can_crit', 'target_hit', 'base_damage_layers', 'runtime_layers',
 )
+_SKILL_DAMAGE_TARGET_COUNTS = (1, 2, 5, 10, 20)
 
 
 def _amount_expected(amount):
@@ -2549,6 +2550,24 @@ def attach_runtime_product_metrics(actor):
                 'normalized_expected': component.get('expected'),
                 'dbc_unresolved_reason': dbc_reason,
             }
+            target_hit = component.get('target_hit')
+            if isinstance(target_hit, dict):
+                by_target = {}
+                for target_count in _SKILL_DAMAGE_TARGET_COUNTS:
+                    value = target_hit.get(str(target_count))
+                    if not _finite_number(value):
+                        by_target = {}
+                        break
+                    by_target[str(target_count)] = float(value)
+                if (
+                    by_target
+                    and _finite_number(component.get('hit'))
+                    and math.isclose(
+                        by_target['1'], float(component['hit']),
+                        rel_tol=1.0e-8, abs_tol=1.0e-8,
+                    )
+                ):
+                    component['product']['current_talent_damage_by_target'] = by_target
     return actor
 
 
@@ -2667,11 +2686,25 @@ def project_skill_damage_product_payload(payload):
                         'spell_power_coefficient': 0.0,
                         'normalized_base_damage': 0.0,
                         'final_normalized_damage': 0.0,
+                        'final_normalized_damage_by_target': {
+                            str(target_count): 0.0
+                            for target_count in _SKILL_DAMAGE_TARGET_COUNTS
+                        },
                         'formula_components': [],
                     }
                     group = groups[group_key] = row
                 weighted_base = normalized_base * count
                 weighted_final = final_damage * count
+                component_target_damage = product.get('current_talent_damage_by_target')
+                weighted_target_damage = None
+                if isinstance(component_target_damage, dict) and all(
+                    _finite_number(component_target_damage.get(str(target_count)))
+                    for target_count in _SKILL_DAMAGE_TARGET_COUNTS
+                ):
+                    weighted_target_damage = {
+                        str(target_count): component_target_damage[str(target_count)] * count
+                        for target_count in _SKILL_DAMAGE_TARGET_COUNTS
+                    }
                 runtime_layers = component.get('runtime_layers') or {}
                 passive_rows = []
                 passive_factor = 1.0
@@ -2713,6 +2746,11 @@ def project_skill_damage_product_payload(payload):
                 )
                 if strip_passive:
                     weighted_final /= passive_factor
+                    if weighted_target_damage is not None:
+                        weighted_target_damage = {
+                            key: value / passive_factor
+                            for key, value in weighted_target_damage.items()
+                        }
 
                 runtime_factors = []
                 factor_layers = component.get('runtime_factor_layers')
@@ -2796,13 +2834,21 @@ def project_skill_damage_product_payload(payload):
                 group['product']['spell_power_coefficient'] += sp_coeff * count
                 group['product']['normalized_base_damage'] += weighted_base
                 group['product']['final_normalized_damage'] += weighted_final
-                group['product']['formula_components'].append({
+                if weighted_target_damage is None:
+                    group['product'].pop('final_normalized_damage_by_target', None)
+                elif 'final_normalized_damage_by_target' in group['product']:
+                    for target_count, value in weighted_target_damage.items():
+                        group['product']['final_normalized_damage_by_target'][target_count] += value
+                formula_component = {
                     'base_damage': formula_base,
                     'base_source': formula_base_source,
                     'base_multiplier': formula_base_multiplier,
                     'runtime_factors': runtime_factors,
                     'final_damage': weighted_final,
-                })
+                }
+                if weighted_target_damage is not None:
+                    formula_component['final_damage_by_target'] = weighted_target_damage
+                group['product']['formula_components'].append(formula_component)
         rows = []
         for group in groups.values():
             if group['component_count'] <= 0:
@@ -2811,6 +2857,13 @@ def project_skill_damage_product_payload(payload):
             base = product['normalized_base_damage']
             final = product['final_normalized_damage']
             product['runtime_multiplier'] = final / base if base else None
+            target_damage = product.get('final_normalized_damage_by_target')
+            if isinstance(target_damage, dict):
+                target_damage['1'] = final
+                product['multi_target_multiplier'] = {
+                    key: value / final if final else None
+                    for key, value in target_damage.items()
+                }
             rows.append(group)
         actor['actions'] = rows
         existing_global_effects = [
@@ -2842,8 +2895,8 @@ def project_skill_damage_product_payload(payload):
 class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
-    EXPORTER_SCHEMA_REVISION = 11
-    DATASET_SCHEMA_REVISION = 19
+    EXPORTER_SCHEMA_REVISION = 12
+    DATASET_SCHEMA_REVISION = 20
     TALENT_BATCH_SIZE = 12
     ACTOR_CONFIG_BATCH_SIZE = 24
     FIXED_PRESET = {
@@ -3386,6 +3439,27 @@ class SimcSkillDamageSnapshotService:
                         f'calculated={calculated_decimal!r}, '
                         f'damage_equivalent_count={component.get("damage_equivalent_count")!r}。'
                     )
+                target_hit = component.get('target_hit')
+                expected_target_keys = {
+                    str(target_count) for target_count in _SKILL_DAMAGE_TARGET_COUNTS
+                }
+                if not isinstance(target_hit, dict):
+                    raise ValueError('exporter 多目标伤害结构无效。')
+                if unresolved_reason:
+                    if target_hit and (
+                        set(target_hit) != expected_target_keys
+                        or not all(_finite_number(value) for value in target_hit.values())
+                    ):
+                        raise ValueError('exporter 多目标伤害结构无效。')
+                elif (
+                    set(target_hit) != expected_target_keys
+                    or not all(_finite_number(value) for value in target_hit.values())
+                    or not math.isclose(
+                        float(target_hit['1']), float(component['hit']),
+                        rel_tol=1.0e-8, abs_tol=1.0e-8,
+                    )
+                ):
+                    raise ValueError('exporter 多目标伤害结构或单目标基线无效。')
 
         def validate_scenarios(scenarios, *, actor_buff_identities):
             if not isinstance(scenarios, list):

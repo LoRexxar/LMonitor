@@ -476,7 +476,7 @@
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260830_skill_damage_incremental_progress"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260831_skill_damage_target_tabs"></script>
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806c" defer></script>
     <script src="{% static 'dashboard/js/simc-result-report.js' %}?v=20260817_result_config_panel"></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260818_task_compare_selection"></script>
@@ -1774,6 +1774,13 @@
                                     </div>
                                 </div>
                                 <div id="simc-skill-damage-status" class="mt-4 rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-700">正在读取最近成功快照…</div>
+                                <div id="simc-skill-damage-target-tabs" class="mt-4 flex flex-wrap gap-2" role="tablist" aria-label="目标数量">
+                                    <button type="button" role="tab" aria-selected="true" data-target-count="1" class="simc-skill-damage-target-tab rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white">1目标</button>
+                                    <button type="button" role="tab" aria-selected="false" data-target-count="2" class="simc-skill-damage-target-tab rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">2目标</button>
+                                    <button type="button" role="tab" aria-selected="false" data-target-count="5" class="simc-skill-damage-target-tab rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">5目标</button>
+                                    <button type="button" role="tab" aria-selected="false" data-target-count="10" class="simc-skill-damage-target-tab rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">10目标</button>
+                                    <button type="button" role="tab" aria-selected="false" data-target-count="20" class="simc-skill-damage-target-tab rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">20目标</button>
+                                </div>
                                 <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,220px)_minmax(0,220px)_minmax(0,1fr)]">
                                     <select id="simc-skill-damage-spec" class="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-gray-800"><option value="">请选择专精</option></select>
                                     <select id="simc-skill-damage-hero-tree" class="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-gray-800" disabled><option value="">请选择英雄天赋</option></select>
