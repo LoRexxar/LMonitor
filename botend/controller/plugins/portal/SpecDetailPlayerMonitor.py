@@ -13,6 +13,7 @@ from django.db import IntegrityError, transaction
 from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
 from botend.models import SeasonMeta, PlayerSpecTopPlayer
 from botend.constants.wow import CLASS_SPEC_MAP
+from botend.wow.talents.build_code import TalentBuildCodeDecoder
 from botend.wow.talents.view_model import build_talent_view_model
 from botend.wow.talents.service import TalentBuildCodeService
 
@@ -583,8 +584,20 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         profile.faction = char_data.get('faction') or profile.faction
 
         talent_build_code = self._extract_rio_talent_build_code(char_data)
-        if talent_build_code:
+        if talent_build_code and TalentBuildCodeDecoder.matches_spec(
+            talent_build_code, profile.class_name, profile.spec_name,
+        ):
             profile.talent_build_code = talent_build_code
+        elif talent_build_code:
+            # Raider.IO's character endpoint reports the currently active spec,
+            # which may differ from the specialization leaderboard being stored.
+            # Ignore that response rather than destroying a previously verified build.
+            existing_identity = TalentBuildCodeDecoder.resolve_spec_identity(
+                profile.talent_build_code,
+            )
+            if existing_identity and existing_identity != (profile.class_name, profile.spec_name):
+                profile.talent_build_code = ''
+                profile.talents_json = []
         elif not profile.talents_json:
             structured = self._parse_rio_talents_from_profile(char_data)
             if structured:
@@ -605,6 +618,10 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         path = char.get('path', '')
         profile_url = ('https://raider.io' + path) if path else None
         talent_build_code = self._extract_rio_talent_build_code(char)
+        if talent_build_code and not TalentBuildCodeDecoder.matches_spec(
+            talent_build_code, class_name, spec_name,
+        ):
+            talent_build_code = ''
 
         return {
             '_class_name': class_name,
@@ -725,13 +742,31 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 player['faction'] = char_data.get('faction') or player.get('faction')
 
                 talent_build_code = self._extract_rio_talent_build_code(char_data)
-                if talent_build_code:
+                if talent_build_code and TalentBuildCodeDecoder.matches_spec(
+                    talent_build_code,
+                    player.get('_class_name', ''),
+                    player.get('_spec_name', ''),
+                ):
                     player['talent_build_code'] = talent_build_code
+                elif talent_build_code:
+                    existing_code = player.get('talent_build_code', '')
+                    existing_identity = TalentBuildCodeDecoder.resolve_spec_identity(existing_code)
+                    if existing_identity and existing_identity != (
+                        player.get('_class_name', ''), player.get('_spec_name', ''),
+                    ):
+                        player['talent_build_code'] = ''
+                        player['talents'] = []
 
                 if self._has_display_ready_talents(player.get('talents')):
                     time.sleep(0.2)
                     continue
-                structured = self._parse_rio_talents_from_profile(char_data)
+                structured = []
+                if not talent_build_code or TalentBuildCodeDecoder.matches_spec(
+                    talent_build_code,
+                    player.get('_class_name', ''),
+                    player.get('_spec_name', ''),
+                ):
+                    structured = self._parse_rio_talents_from_profile(char_data)
 
                 if structured:
                     player['talents'] = self._normalize_talent_nodes(
@@ -740,7 +775,15 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                         player.get('_spec_name', ''),
                     )
                 # 如果从 talentLoadout 提取到了 build_code，存储它
-                if hasattr(self, '_pending_build_code') and self._pending_build_code:
+                if (
+                    hasattr(self, '_pending_build_code')
+                    and self._pending_build_code
+                    and TalentBuildCodeDecoder.matches_spec(
+                        self._pending_build_code,
+                        player.get('_class_name', ''),
+                        player.get('_spec_name', ''),
+                    )
+                ):
                     player['talent_build_code'] = self._pending_build_code
                     self._pending_build_code = None
 
@@ -798,9 +841,20 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 ).exclude(talents_json='[]').first()
 
             if ranking:
-                if getattr(ranking, 'talent_build_code', '') and not player.get('talent_build_code'):
-                    player['talent_build_code'] = ranking.talent_build_code
-                if ranking.talents_json and isinstance(ranking.talents_json, list):
+                ranking_build_code = str(getattr(ranking, 'talent_build_code', '') or '').strip()
+                ranking_code_mismatch = bool(
+                    ranking_build_code
+                    and not TalentBuildCodeDecoder.matches_spec(
+                        ranking_build_code, class_name, spec_name,
+                    )
+                )
+                if ranking_build_code and not ranking_code_mismatch and not player.get('talent_build_code'):
+                    player['talent_build_code'] = ranking_build_code
+                if (
+                    not ranking_code_mismatch
+                    and ranking.talents_json
+                    and isinstance(ranking.talents_json, list)
+                ):
                     if ranking.talents_json and isinstance(ranking.talents_json[0], dict):
                         player['talents'] = self._normalize_talent_nodes(
                             ranking.talents_json,

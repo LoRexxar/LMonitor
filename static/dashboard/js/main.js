@@ -5817,12 +5817,21 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         return `${prefix}${value.toFixed(2)}%`;
     };
     const renderSimcTalentProbeCondition = (runtimeCondition, scenarioTokens, talentName) => {
-        const condition = String(runtimeCondition || '');
+        const condition = String(runtimeCondition || '').trim();
+        if (condition && !condition.startsWith('启用 ')) return condition;
         const tokens = Array.isArray(scenarioTokens) ? scenarioTokens : [];
         const name = String(talentName || '').trim();
         const parts = [];
         const talentLabel = name.endsWith('天赋') ? name : `${name}天赋`;
         if (tokens.length && name && name !== '基础技能') parts.push(`点出${talentLabel}`);
+        [...new Set(tokens.map(token => String(token || '').trim()).filter(Boolean))].forEach(token => {
+            const separatorIndex = token.indexOf('.');
+            const scope = separatorIndex >= 0 ? token.slice(0, separatorIndex) : '';
+            const stateToken = separatorIndex >= 0 ? token.slice(separatorIndex + 1) : token;
+            if (!stateToken) return;
+            const owner = scope === 'debuff' ? '目标' : '自身';
+            parts.push(`${owner}存在 ${stateToken} 效果时`);
+        });
         if (condition.includes('35%')) parts.push('血量低于35%');
         return parts.join('，');
     };
@@ -6037,33 +6046,20 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             ? product.formula_components
             : [];
         const formulaGroups = new Map();
-        const formulaBaseLabels = {
-            attack_power: '基础AP',
-            spell_power: '基础SP',
-            attack_and_spell_power: '基础AP+SP',
-            fixed_damage: '基础伤害',
-        };
+        const formulaBaseLabel = '基础伤害';
         formulaComponents.forEach(component => {
             const baseDamage = component.base_damage;
-            const baseSource = component.base_source;
-            const baseMultiplier = component.base_multiplier;
             const componentFinal = component.final_damage;
             const runtimeFactors = Array.isArray(component.runtime_factors)
                 ? component.runtime_factors.filter(hasFiniteSimcSkillDamageNumber)
                 : [];
             if (!hasFiniteSimcSkillDamageNumber(baseDamage)
-                || !hasFiniteSimcSkillDamageNumber(baseMultiplier)
                 || !hasFiniteSimcSkillDamageNumber(componentFinal)) return;
-            const factorKey = JSON.stringify([baseSource, runtimeFactors]);
+            const factorKey = JSON.stringify(runtimeFactors);
             const group = formulaGroups.get(factorKey) || {
-                baseSource,
-                baseDamage: 0,
-                baseMultiplier: 0,
                 finalDamage: 0,
                 runtimeFactors,
             };
-            group.baseDamage += baseDamage;
-            group.baseMultiplier += baseMultiplier;
             group.finalDamage += componentFinal;
             formulaGroups.set(factorKey, group);
         });
@@ -6071,10 +6067,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             const factorFormula = group.runtimeFactors
                 .map(factor => ` × ${formatSimcSkillDamageFactor(factor)}`)
                 .join('');
-            const baseFactorFormula = Math.abs(group.baseMultiplier - 1) > 1e-12
-                ? ` × ${formatSimcSkillDamageFactor(group.baseMultiplier)}`
-                : '';
-            const term = `${formulaBaseLabels[group.baseSource] || formulaBaseLabels.fixed_damage}${baseFactorFormula}${factorFormula}`;
+            const term = `${formulaBaseLabel}${factorFormula}`;
             return formulaGroups.size > 1 ? `(${term})` : term;
         });
         if (formulaTerms.length && hasFiniteSimcSkillDamageNumber(finalDamage)) {
@@ -6109,8 +6102,15 @@ function initSimcSkillDamagePanel() {
         const job = data.job;
         const running = job && ['pending', 'running'].includes(job.status);
         generateBtn.disabled = Boolean(running);
+        const progressTotal = Number(job && job.total_spec_count) || 0;
+        const progressText = progressTotal
+            ? `${job.spec_count || 0} / ${progressTotal} 个专精`
+            : `${job.spec_count || 0} 个专精`;
+        const currentSpecText = job && job.current_specialization
+            ? ` · 当前：${job.current_specialization}`
+            : '';
         statusEl.textContent = running
-            ? `正在生成：${job.identity.game_build} · 已完成 ${job.spec_count || 0} 个专精`
+            ? `正在生成：${job.identity.game_build} · 已完成 ${progressText}${currentSpecText}`
             : currentSnapshot
                 ? `最近成功：${currentSnapshot.spec_count || 0} 个专精、${currentSnapshot.action_count || 0} 个技能 · ${currentSnapshot.completed_at || ''}`
                 : (job && job.has_error ? '最近一次生成失败；旧成功快照不会被覆盖。' : '当前还没有成功快照。');

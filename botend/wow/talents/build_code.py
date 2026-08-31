@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+from botend.constants.wow import SPEC_IDENTITY_MAP
+
 BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
 BASE64_LOOKUP = {char: index for index, char in enumerate(BASE64_ALPHABET)}
 
@@ -18,6 +20,22 @@ class TalentBuildCodeDecoder:
             return 0
         stream.extract(cls.HEADER_VERSION_BITS)
         return stream.extract(cls.SPEC_ID_BITS)
+
+    @classmethod
+    def resolve_spec_identity(cls, build_code):
+        """Resolve a complete import header to the site's canonical class/spec identity."""
+        build_code = str(build_code or '').strip()
+        minimum_bits = cls.HEADER_VERSION_BITS + cls.SPEC_ID_BITS + cls.TREE_HASH_BITS
+        if len(build_code) * 6 < minimum_bits:
+            return None
+        if any(char not in BASE64_LOOKUP for char in build_code):
+            return None
+        return SPEC_IDENTITY_MAP.get(cls.extract_spec_id(build_code))
+
+    @classmethod
+    def matches_spec(cls, build_code, class_name, spec_name):
+        """Return True only when the import header proves the expected specialization."""
+        return cls.resolve_spec_identity(build_code) == (class_name, spec_name)
 
     @classmethod
     def decode_node_states(cls, build_code, full_nodes):

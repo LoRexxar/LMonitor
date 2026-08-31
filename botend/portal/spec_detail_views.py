@@ -20,6 +20,7 @@ from botend.services.spec_stats_service import SpecStatsService
 from botend.services.spec_overview_service import SpecOverviewService
 from botend.services.simc_player_config import build_player_config_detail
 from botend.constants.wow import CLASS_SPEC_MAP, CLASS_CN, SPEC_CN, SPEC_ICON, SPEC_ROLE
+from botend.wow.talents.build_code import TalentBuildCodeDecoder
 
 
 AGGREGATED_DIR = os.path.join('media', 'aggregated')
@@ -64,11 +65,17 @@ def _talent_tree_has_hero(detail):
     return any(t.get('tree_type') == 'hero' and (t.get('nodes') or []) for t in trees)
 
 
-def _talent_build_popularity_has_builds(detail):
+def _talent_build_popularity_has_builds(detail, class_name='', spec_name=''):
     builds = (((detail or {}).get('talent_build_popularity') or {}).get('builds') or [])
     if not builds:
         return False
-    return all('top_players' in build for build in builds if isinstance(build, dict))
+    for build in builds:
+        if not isinstance(build, dict) or 'top_players' not in build:
+            return False
+        identity = TalentBuildCodeDecoder.resolve_spec_identity(build.get('code'))
+        if identity and identity != (class_name, spec_name):
+            return False
+    return True
 
 
 def _load_json(season_id, class_name, spec_name, filename):
@@ -255,7 +262,7 @@ class SpecDetailDungeonView(View):
                         if (
                             (not _talent_tree_has_hero(detail))
                             or ('secondary_stats' not in detail)
-                            or (not _talent_build_popularity_has_builds(detail))
+                            or (not _talent_build_popularity_has_builds(detail, class_name, spec_name))
                             or _detail_item_metadata_is_stale(detail)
                         ):
                             detail = SpecStatsService.get_dungeon_detail(did, class_name, spec_name) or detail
@@ -322,7 +329,7 @@ class SpecDetailRaidView(View):
                         if (
                             (not _talent_tree_has_hero(detail))
                             or ('secondary_stats' not in detail)
-                            or (not _talent_build_popularity_has_builds(detail))
+                            or (not _talent_build_popularity_has_builds(detail, class_name, spec_name))
                             or _detail_item_metadata_is_stale(detail)
                         ):
                             detail = SpecStatsService.get_raid_detail(

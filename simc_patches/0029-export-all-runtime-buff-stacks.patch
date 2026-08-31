@@ -1,0 +1,72 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -820,6 +820,7 @@
+   skill_damage_condition_scope_e scope;
+   buff_t* buff;
+   std::string token;
++  int stacks = 1;
+ };
+ 
+ // Each probe runs on the normally initialized actor. Fatal action bugs are
+@@ -859,7 +860,7 @@
+   for ( const auto& condition : conditions )
+   {
+     // Exporter probes must not run gameplay callbacks from trigger/execute.
+-    condition.buff->current_stack = std::max( 1, condition.buff->max_stack() );
++    condition.buff->current_stack = condition.stacks;
+     condition.buff->current_value = condition.buff->default_value;
+     condition.buff->invalidate_cache();
+   }
+@@ -933,8 +934,32 @@
+       add_owned_condition( buff, skill_damage_condition_scope_e::TARGET );
+ 
+   std::vector<std::vector<skill_damage_condition_t>> result;
+-  result.reserve( scenarios.size() );
+-  for ( auto& [ key, conditions ] : scenarios ) result.push_back( std::move( conditions ) );
++  constexpr size_t max_expanded_scenarios = 4096;
++  for ( auto& [ key, conditions ] : scenarios )
++  {
++    std::vector<std::vector<skill_damage_condition_t>> expanded( 1 );
++    for ( const auto& condition : conditions )
++    {
++      std::vector<std::vector<skill_damage_condition_t>> next;
++      const int max_stacks = std::max( 1, condition.buff->max_stack() );
++      if ( expanded.size() > max_expanded_scenarios / static_cast<size_t>( max_stacks ) )
++        throw std::length_error( "Skill damage runtime stack scenarios exceed the safe limit" );
++      next.reserve( expanded.size() * static_cast<size_t>( max_stacks ) );
++      for ( const auto& prefix : expanded )
++        for ( int stacks = 1; stacks <= max_stacks; ++stacks )
++        {
++          auto candidate = prefix;
++          auto stacked = condition;
++          stacked.stacks = stacks;
++          candidate.push_back( std::move( stacked ) );
++          next.push_back( std::move( candidate ) );
++        }
++      expanded = std::move( next );
++    }
++    if ( result.size() > max_expanded_scenarios - expanded.size() )
++      throw std::length_error( "Skill damage runtime stack scenarios exceed the safe limit" );
++    for ( auto& candidate : expanded ) result.push_back( std::move( candidate ) );
++  }
+   return result;
+ }
+ 
+@@ -1208,7 +1228,7 @@
+   const std::string temporary = target + ".tmp." + std::to_string( static_cast<long long>( getpid() ) );
+   std::ofstream out( temporary, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open temporary skill damage export file" );
+-  out << "{\"schema_version\":10,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
++  out << "{\"schema_version\":11,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"normalization_basis\":{\"attack_power\":100,\"spell_power\":100,"
+          "\"crit_percent\":20,\"mastery_percent\":50}";
+@@ -1368,7 +1388,7 @@
+               condition.scope == skill_damage_condition_scope_e::TARGET ? "target" : "self" );
+           out << ",\"spell_id\":" << ( buff->data().ok() ? buff->data().id() : 0 )
+               << ",\"class_family\":" << ( buff->data().ok() ? buff->data().class_family() : 0 )
+-              << ",\"stacks\":" << std::max( 1, buff->max_stack() ) << '}';
++              << ",\"stacks\":" << condition.stacks << '}';
+         }
+         out << "],\"values\":"; write_skill_damage_amount( out, changed );
+         out << ",\"direct_multiplier\":";

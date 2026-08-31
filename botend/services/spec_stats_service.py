@@ -1268,6 +1268,9 @@ def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
         build_code = str(record.get('talent_build_code') or '').strip()
         if not build_code:
             continue
+        resolved_identity = TalentBuildCodeDecoder.resolve_spec_identity(build_code)
+        if resolved_identity and resolved_identity != (class_name, spec_name):
+            continue
         total += 1
         if build_code not in first_seen_order:
             first_seen_order[build_code] = len(first_seen_order)
@@ -2281,7 +2284,14 @@ def _merge_player_profile_fields(records, season_id, class_name, spec_name, fiel
                 (row.get('character_name') or '').lower(),
             )
             profile = profiles.get(key) or {}
+            profile_build_code = str(profile.get('talent_build_code') or '').strip()
+            profile_identity = TalentBuildCodeDecoder.resolve_spec_identity(profile_build_code)
+            reject_profile_talents = bool(
+                profile_identity and profile_identity != (class_name, spec_name)
+            )
             for field in fields:
+                if reject_profile_talents and field in {'talent_build_code', 'talents_json'}:
+                    continue
                 if profile.get(field) not in (None, '', [], {}):
                     row[field] = profile.get(field)
             merged.append(row)

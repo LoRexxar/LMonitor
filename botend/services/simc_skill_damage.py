@@ -3,13 +3,15 @@ import json
 import math
 import os
 import re
+import signal
 import subprocess
+import sys
 import tempfile
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 
 from django.conf import settings
-from django.db import close_old_connections, models
+from django.db import close_old_connections, models, transaction
 from django.utils import timezone
 
 from botend.constants.hero_talents import (
@@ -107,6 +109,17 @@ def localize_skill_damage_payload(payload):
         for spell_id in (effect.get('source_spell_ids') or [])
         if isinstance(spell_id, int) and not isinstance(spell_id, bool) and spell_id > 0
     )
+    spell_ids.update(
+        condition.get('spell_id')
+        for actor in actors
+        for action in (actor.get('actions') or [])
+        if isinstance(action, dict)
+        for condition in ((action.get('variant') or {}).get('runtime_conditions') or [])
+        if isinstance(condition, dict)
+        and isinstance(condition.get('spell_id'), int)
+        and not isinstance(condition.get('spell_id'), bool)
+        and condition.get('spell_id') > 0
+    )
     tokens = set()
     for actor in actors:
         for action in actor.get('actions') or []:
@@ -199,6 +212,38 @@ def localize_skill_damage_payload(payload):
         for action in actor.get('actions') or []:
             if not isinstance(action, dict):
                 continue
+            variant = action.get('variant') or {}
+            runtime_conditions = variant.get('runtime_conditions') or []
+            localized_conditions = []
+            for runtime_condition in runtime_conditions:
+                if not isinstance(runtime_condition, dict):
+                    continue
+                localized_condition = copy.deepcopy(runtime_condition)
+                condition_spell_id = localized_condition.get('spell_id')
+                condition_name = spell_names.get(condition_spell_id, '')
+                localized_condition['name_zh'] = (
+                    condition_name if _contains_cjk(condition_name) else ''
+                )
+                localized_conditions.append(localized_condition)
+            if localized_conditions:
+                variant['runtime_conditions'] = localized_conditions
+                condition_parts = [str(variant.get('runtime_condition') or '').strip()]
+                condition_parts = [part for part in condition_parts if part]
+                for localized_condition in localized_conditions:
+                    owner = '目标' if localized_condition.get('scope') == 'target' else '自身'
+                    condition_spell_id = localized_condition.get('spell_id')
+                    effect_name = localized_condition.get('name_zh') or (
+                        f'未解析效果（Spell ID {condition_spell_id}）'
+                        if condition_spell_id else '未解析效果'
+                    )
+                    stacks = localized_condition.get('stacks', 1)
+                    stack_label = f'（{stacks}层）' if (
+                        isinstance(stacks, int)
+                        and not isinstance(stacks, bool)
+                        and stacks > 1
+                    ) else ''
+                    condition_parts.append(f'{owner}存在{effect_name}效果{stack_label}时')
+                variant['runtime_condition'] = '，且'.join(condition_parts)
             token = _text_key(action.get('token'))
             spell_id = action.get('spell_id')
             base_token, _hand = _action_hand_component_identity(action)
@@ -264,8 +309,84 @@ def _finite_number(value):
     )
 
 
+def _materialize_talent_config(scaffold_talents, selected_talents):
+    selected_talents = list(selected_talents or [])
+    replacement_talent_ids = {
+        getattr(trait, 'talent_id', None)
+        for trait in selected_talents
+        if isinstance(getattr(trait, 'talent_id', None), int)
+        and getattr(trait, 'talent_id', None) > 0
+    }
+    merged = [
+        trait for trait in (scaffold_talents or [])
+        if getattr(trait, 'talent_id', None) not in replacement_talent_ids
+    ]
+    merged.extend(selected_talents)
+    unique = []
+    seen = set()
+    for trait in merged:
+        tree_type = str(getattr(trait, 'tree_type', '') or '').strip().lower()
+        node_id = getattr(trait, 'node_id', None)
+        rank = max(1, int(getattr(trait, 'max_points', 1) or 1))
+        identity = (tree_type, node_id)
+        if tree_type not in {'class', 'spec', 'hero'} or not isinstance(node_id, int) or node_id <= 0:
+            raise ValueError('单项天赋缺少有效 tree_type 或 SimC trait entry。')
+        if identity in seen:
+            continue
+        seen.add(identity)
+        unique.append(trait)
+    key = tuple(sorted(
+        (
+            str(getattr(trait, 'tree_type', '') or '').strip().lower(),
+            int(getattr(trait, 'node_id')),
+            max(1, int(getattr(trait, 'max_points', 1) or 1)),
+        )
+        for trait in unique
+    ))
+    return key, unique
+
+
+def plan_unique_talent_actor_configs(talents, *, scaffold_talents=(), talent_prerequisites=None):
+    """Map logical reference/selected actors onto one physical actor per final talent config."""
+    talent_prerequisites = talent_prerequisites or {}
+    base_key, base_traits = _materialize_talent_config(scaffold_talents, [])
+    actors = [{'name': 'skill_damage_base', 'selected_talents': base_traits}]
+    canonical_by_config = {base_key: 'skill_damage_base'}
+    aliases = {}
+    pending = []
+    for talent in talents:
+        identity = f'{talent.pk}_trait_{talent.node_id}'
+        reference_name = f'skill_damage_reference_{identity}'
+        selected_name = f'skill_damage_talent_{identity}'
+        prerequisites = list(talent_prerequisites.get(talent.pk) or [])
+        reference_key, _ = _materialize_talent_config(scaffold_talents, prerequisites)
+        selected_key, selected_traits = _materialize_talent_config(
+            scaffold_talents, [*prerequisites, talent],
+        )
+        canonical_name = canonical_by_config.get(selected_key)
+        if canonical_name is None:
+            canonical_name = selected_name
+            canonical_by_config[selected_key] = canonical_name
+            actors.append({'name': canonical_name, 'selected_talents': selected_traits})
+        pending.append((reference_name, selected_name, reference_key, canonical_name))
+    for reference_name, selected_name, reference_key, selected_canonical_name in pending:
+        reference_canonical_name = canonical_by_config.get(reference_key)
+        if reference_canonical_name is None:
+            raise ValueError('天赋前置配置没有对应的 canonical actor。')
+        aliases[reference_name] = {
+            'canonical_name': reference_canonical_name,
+            'talent_effectiveness': 'inactive',
+        }
+        aliases[selected_name] = {
+            'canonical_name': selected_canonical_name,
+            'talent_effectiveness': 'active',
+        }
+    return {'actors': actors, 'aliases': aliases}
+
+
 def build_single_talent_actor_input(
     profile_input, class_name, talents, *, scaffold_talents=(), talent_prerequisites=None,
+    reference_aliases=None, actor_plan=None,
 ):
     """Expand one reference actor into prerequisite-vs-selected actor pairs."""
     lines = str(profile_input or '').splitlines()
@@ -339,6 +460,17 @@ def build_single_talent_actor_input(
                 block.append(f'{option}={"/".join(entries)}')
         return block
 
+    if actor_plan is not None:
+        output = list(global_lines)
+        for actor_spec in actor_plan:
+            name = str(actor_spec.get('name') or '').strip()
+            if not name:
+                raise ValueError('物理天赋配置 actor 缺少名称。')
+            output.extend(actor_block(name, actor_spec.get('selected_talents') or []))
+        if not actor_plan:
+            raise ValueError('物理天赋配置计划不能为空。')
+        return '\n'.join(output).rstrip() + '\n'
+
     talent_prerequisites = talent_prerequisites or {}
     scaffold_identities = {
         (
@@ -348,6 +480,7 @@ def build_single_talent_actor_input(
         for trait in scaffold_talents
     }
     output = [*global_lines, *actor_block('skill_damage_base')]
+    reference_name_by_block = {}
     for trait in talents:
         identity = (
             str(getattr(trait, 'tree_type', '') or '').strip().lower(),
@@ -357,7 +490,16 @@ def build_single_talent_actor_input(
             continue
         prerequisites = list(talent_prerequisites.get(trait.pk) or [])
         identity = f'{trait.pk}_trait_{trait.node_id}'
-        output.extend(actor_block(f'skill_damage_reference_{identity}', prerequisites))
+        expected_reference_name = f'skill_damage_reference_{identity}'
+        reference_block = actor_block(expected_reference_name, prerequisites)
+        reference_key = '\n'.join(reference_block[1:])
+        canonical_reference_name = expected_reference_name
+        if reference_aliases is not None:
+            canonical_reference_name = reference_name_by_block.get(reference_key, expected_reference_name)
+            reference_aliases[expected_reference_name] = canonical_reference_name
+        if canonical_reference_name == expected_reference_name:
+            reference_name_by_block[reference_key] = expected_reference_name
+            output.extend(reference_block)
         output.extend(actor_block(f'skill_damage_talent_{identity}', [*prerequisites, trait]))
     return '\n'.join(output).rstrip() + '\n'
 
@@ -366,16 +508,44 @@ def _action_identity(action):
     return (str(action.get('token') or ''), action.get('spell_id'))
 
 
+def _scenario_identity(scenario):
+    """Return the full runtime-state identity while preserving legacy exports."""
+    buffs = scenario.get('buffs')
+    if isinstance(buffs, list):
+        identity = []
+        for buff in buffs:
+            if not isinstance(buff, dict):
+                continue
+            token = str(buff.get('token') or '').strip()
+            if not token:
+                continue
+            stacks = buff.get('stacks', 1)
+            if not isinstance(stacks, int) or isinstance(stacks, bool) or stacks <= 0:
+                stacks = 1
+            spell_id = buff.get('spell_id', 0)
+            if not isinstance(spell_id, int) or isinstance(spell_id, bool):
+                spell_id = 0
+            identity.append((
+                token, str(buff.get('scope') or '').strip(), spell_id, stacks,
+            ))
+        return tuple(sorted(set(identity)))
+    tokens = scenario.get('active_buffs') if isinstance(scenario.get('active_buffs'), list) else []
+    return tuple(
+        (str(token).strip(), '', 0, 1)
+        for token in sorted({str(token).strip() for token in tokens if str(token or '').strip()})
+    )
+
+
+def _scenario_identity_tokens(identity):
+    return tuple(
+        str(item[0] if isinstance(item, tuple) else item).strip()
+        for item in identity or ()
+        if str(item[0] if isinstance(item, tuple) else item).strip()
+    )
+
+
 def _scenario_tokens(scenario):
-    if isinstance(scenario.get('active_buffs'), list):
-        tokens = scenario['active_buffs']
-    else:
-        tokens = [
-            buff.get('token')
-            for buff in (scenario.get('buffs') or [])
-            if isinstance(buff, dict)
-        ]
-    return tuple(sorted({str(token).strip() for token in tokens if str(token or '').strip()}))
+    return _scenario_identity_tokens(_scenario_identity(scenario))
 
 
 _AMOUNT_COMPONENT_FIELDS = (
@@ -478,15 +648,16 @@ def _scenario_amounts(action):
     for scenario in ((action or {}).get('scenarios') or []):
         if not isinstance(scenario, dict):
             continue
-        tokens = _scenario_tokens(scenario)
-        if not tokens:
+        identity = _scenario_identity(scenario)
+        if not identity:
             continue
         amount = scenario.get('values') or scenario.get('amount')
-        if tokens in amounts and not _fact_equal(
-            _amount_signature(amounts[tokens]), _amount_signature(amount),
+        if identity in amounts and not _fact_equal(
+            _amount_signature(amounts[identity]), _amount_signature(amount),
         ):
-            raise ValueError(f'exporter 同一 scenario tokens 返回冲突数值：{" + ".join(tokens)}')
-        amounts.setdefault(tokens, amount)
+            tokens = _scenario_identity_tokens(identity)
+            raise ValueError(f'exporter 同一 scenario identity 返回冲突数值：{" + ".join(tokens)}')
+        amounts.setdefault(identity, amount)
     return amounts
 
 
@@ -686,9 +857,10 @@ def _canonical_runtime_state_token(value):
 def _scenario_is_selected_only_action_state(
     reference_actor, selected_actor, scenario_tokens,
 ):
-    if len(scenario_tokens) != 1:
+    display_tokens = _scenario_identity_tokens(scenario_tokens)
+    if len(display_tokens) != 1:
         return False
-    scenario_token = str(scenario_tokens[0] or '')
+    scenario_token = str(display_tokens[0] or '')
     scope, separator, state_name = scenario_token.partition('.')
     if separator != '.' or scope not in {'buff', 'debuff'}:
         return False
@@ -1331,7 +1503,8 @@ def classify_global_damage_modifiers(variants):
                 'damage_multiplier': multiplier,
                 'damage_bonus_percent': (multiplier - 1.0) * 100.0,
                 'runtime_condition': runtime_condition,
-                'scenario_tokens': list(scenario_tokens),
+                'scenario_tokens': list(_scenario_identity_tokens(scenario_tokens)),
+                'runtime_conditions': _scenario_metadata({}, scenario_tokens),
                 'runtime_layer': high['runtime_layer'],
                 'runtime_components': list(high['runtime_components']),
                 'evidence_roots': list(high['evidence_roots']),
@@ -1352,32 +1525,34 @@ def classify_global_damage_modifiers(variants):
     return modifiers
 
 
-def _scenario_metadata(actor, scenario_tokens):
-    matched = []
-    for action in ((actor or {}).get('actions') or []):
-        for scenario in (action.get('scenarios') or []) if isinstance(action, dict) else []:
-            if not isinstance(scenario, dict) or _scenario_tokens(scenario) != tuple(scenario_tokens):
-                continue
-            buffs = scenario.get('buffs') or []
-            if not isinstance(buffs, list):
-                continue
-            matched.extend(buff for buff in buffs if isinstance(buff, dict))
+def _scenario_metadata(_actor, scenario_tokens):
     result = []
     seen = set()
-    for buff in matched:
-        identity = (
-            str(buff.get('token') or '').strip(),
-            buff.get('spell_id'),
-            str(buff.get('scope') or '').strip(),
-        )
-        if not identity[0] or identity in seen:
+    for identity in scenario_tokens or ():
+        if isinstance(identity, tuple) and len(identity) == 4:
+            token, scope, spell_id, stacks = identity
+        else:
+            token, scope, spell_id, stacks = identity, '', 0, 1
+        token = str(token or '').strip()
+        if not token:
             continue
-        seen.add(identity)
-        result.append({
-            'token': identity[0],
-            'spell_id': identity[1] if isinstance(identity[1], int) else 0,
-            'scope': identity[2],
-        })
+        canonical = (
+            token,
+            str(scope or '').strip(),
+            spell_id if isinstance(spell_id, int) and not isinstance(spell_id, bool) else 0,
+            stacks if isinstance(stacks, int) and not isinstance(stacks, bool) and stacks > 0 else 1,
+        )
+        if canonical in seen:
+            continue
+        seen.add(canonical)
+        item = {
+            'token': canonical[0],
+            'spell_id': canonical[2],
+            'scope': canonical[1],
+        }
+        if canonical[3] > 1:
+            item['stacks'] = canonical[3]
+        result.append(item)
     return result
 
 
@@ -1388,7 +1563,7 @@ def _neutralize_actor_scenario(actor, scenario_tokens):
             continue
         baseline = action.get('baseline')
         for scenario in action.get('scenarios') or []:
-            if not isinstance(scenario, dict) or _scenario_tokens(scenario) != tuple(scenario_tokens):
+            if not isinstance(scenario, dict) or _scenario_identity(scenario) != scenario_tokens:
                 continue
             field = 'values' if 'values' in scenario else 'amount'
             scenario[field] = copy.deepcopy(baseline)
@@ -1403,7 +1578,7 @@ def _uniform_crit_scenario_candidate(actor, scenario_tokens, *, damage_multiplie
     roots = set()
     components = set()
     for action in actions.values():
-        scenario = _scenario_amounts(action).get(tuple(scenario_tokens))
+        scenario = _scenario_amounts(action).get(scenario_tokens)
         if scenario is None:
             continue
         root = (
@@ -1706,7 +1881,14 @@ def _base_damage_layer_candidate(reference_actor, selected_actor):
 
 
 def _global_effect_identity(prefix, scenario_tokens=()):
-    suffix = '+'.join(scenario_tokens) if scenario_tokens else 'passive'
+    suffix_parts = []
+    for item in scenario_tokens:
+        if not isinstance(item, tuple):
+            suffix_parts.append(str(item))
+            continue
+        token, _scope, _spell_id, stacks = item
+        suffix_parts.append(str(token) if stacks == 1 else f'{token}@{stacks}')
+    suffix = '+'.join(suffix_parts) if suffix_parts else 'passive'
     return f'{prefix}:{suffix}'
 
 
@@ -1773,83 +1955,123 @@ def classify_global_skill_effects(base_high, base_low, variants):
     effects = []
 
     def append_effect(*, effect_id, source_type, scenario_tokens, projections, source=None, evidence=None):
+        display_tokens = _scenario_identity_tokens(scenario_tokens)
         row = {
             'effect_id': effect_id,
             'source_type': source_type,
-            'scenario_tokens': list(scenario_tokens),
+            'scenario_tokens': list(display_tokens),
+            'runtime_conditions': _scenario_metadata({}, scenario_tokens),
             'runtime_condition': (
-                f'启用 {" + ".join(scenario_tokens)}' if scenario_tokens else ''
+                f'启用 {" + ".join(display_tokens)}' if display_tokens else ''
             ),
             'projections': projections,
+            '_scenario_identity': tuple(scenario_tokens),
         }
         row.update(copy.deepcopy(source or {}))
         row['evidence'] = copy.deepcopy(evidence or {})
         effects.append(row)
 
-    high_tokens = _scenario_token_universe(base_high)
-    low_tokens = _scenario_token_universe(base_low)
-    for scenario_tokens in sorted(high_tokens & low_tokens):
-        if len(scenario_tokens) != 1:
-            continue
-        neutral_high = _neutralize_actor_scenario(base_high, scenario_tokens)
-        neutral_low = _neutralize_actor_scenario(base_low, scenario_tokens)
-        high_damage = _runtime_layer_scenario_candidate(
-            neutral_high, base_high, scenario_tokens, allow_reduction=True,
+    state_sources = [(base_high, base_low, None, {}, {})]
+    state_sources.extend(
+        (
+            item.get('high') or {}, item.get('low') or {}, item.get('talent') or {},
+            item.get('reference_high') or {}, item.get('reference_low') or {},
         )
-        low_damage = _runtime_layer_scenario_candidate(
-            neutral_low, base_low, scenario_tokens, allow_reduction=True,
-        )
-        high_crit = _uniform_crit_scenario_candidate(
-            base_high, scenario_tokens,
-            damage_multiplier=(high_damage or {}).get('multiplier', 1.0),
-        )
-        low_crit = _uniform_crit_scenario_candidate(
-            base_low, scenario_tokens,
-            damage_multiplier=(low_damage or {}).get('multiplier', 1.0),
-        )
-        projections = []
-        evidence = {}
-        if high_damage and low_damage and (
-            high_damage.get('runtime_layer') == low_damage.get('runtime_layer')
-            and high_damage.get('runtime_components') == low_damage.get('runtime_components')
-            and math.isclose(
-                high_damage['multiplier'], low_damage['multiplier'],
+        for item in variants or []
+        if isinstance(item, dict)
+    )
+    seen_state_effects = set()
+    for source_high, source_low, talent, reference_high, reference_low in state_sources:
+        high_tokens = _scenario_token_universe(source_high)
+        low_tokens = _scenario_token_universe(source_low)
+        inherited_tokens = (
+            _scenario_token_universe(reference_high)
+            | _scenario_token_universe(reference_low)
+        ) if talent else set()
+        for scenario_tokens in sorted((high_tokens & low_tokens) - inherited_tokens):
+            if len(scenario_tokens) != 1:
+                continue
+            neutral_high = _neutralize_actor_scenario(source_high, scenario_tokens)
+            neutral_low = _neutralize_actor_scenario(source_low, scenario_tokens)
+            high_damage = _runtime_layer_scenario_candidate(
+                neutral_high, source_high, scenario_tokens, allow_reduction=True,
+            )
+            low_damage = _runtime_layer_scenario_candidate(
+                neutral_low, source_low, scenario_tokens, allow_reduction=True,
+            )
+            high_crit = _uniform_crit_scenario_candidate(
+                source_high, scenario_tokens,
+                damage_multiplier=(high_damage or {}).get('multiplier', 1.0),
+            )
+            low_crit = _uniform_crit_scenario_candidate(
+                source_low, scenario_tokens,
+                damage_multiplier=(low_damage or {}).get('multiplier', 1.0),
+            )
+            projections = []
+            evidence = {}
+            if high_damage and low_damage and (
+                high_damage.get('runtime_layer') == low_damage.get('runtime_layer')
+                and high_damage.get('runtime_components') == low_damage.get('runtime_components')
+                and math.isclose(
+                    high_damage['multiplier'], low_damage['multiplier'],
+                    rel_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
+                    abs_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
+                )
+            ):
+                multiplier = (high_damage['multiplier'] + low_damage['multiplier']) / 2.0
+                projections.append({
+                    'kind': 'damage_multiplier', 'operation': 'multiply',
+                    'value': multiplier, 'bonus_percent': (multiplier - 1.0) * 100.0,
+                    'evidence_layer': high_damage['runtime_layer'],
+                })
+                evidence['damage'] = high_damage
+            if high_crit and low_crit and math.isclose(
+                high_crit['chance_delta'], low_crit['chance_delta'],
                 rel_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
                 abs_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
+            ):
+                delta = (high_crit['chance_delta'] + low_crit['chance_delta']) / 2.0
+                projections.append({
+                    'kind': 'crit_chance', 'operation': 'add',
+                    'value': delta, 'percentage_points': delta * 100.0,
+                    'evidence_layer': 'crit_chance_uncapped',
+                })
+                evidence['crit'] = high_crit
+            if not projections:
+                continue
+            projection_identity = tuple(
+                (row['kind'], round(float(row['value']), 12)) for row in projections
             )
-        ):
-            multiplier = (high_damage['multiplier'] + low_damage['multiplier']) / 2.0
-            projections.append({
-                'kind': 'damage_multiplier', 'operation': 'multiply',
-                'value': multiplier, 'bonus_percent': (multiplier - 1.0) * 100.0,
-                'evidence_layer': high_damage['runtime_layer'],
-            })
-            evidence['damage'] = high_damage
-        if high_crit and low_crit and math.isclose(
-            high_crit['chance_delta'], low_crit['chance_delta'],
-            rel_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
-            abs_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
-        ):
-            delta = (high_crit['chance_delta'] + low_crit['chance_delta']) / 2.0
-            projections.append({
-                'kind': 'crit_chance', 'operation': 'add',
-                'value': delta, 'percentage_points': delta * 100.0,
-                'evidence_layer': 'crit_chance_uncapped',
-            })
-            evidence['crit'] = high_crit
-        if projections:
-            metadata = _scenario_metadata(base_high, scenario_tokens)
+            effect_identity = (scenario_tokens, projection_identity)
+            if effect_identity in seen_state_effects:
+                continue
+            seen_state_effects.add(effect_identity)
+            metadata = _scenario_metadata(source_high, scenario_tokens)
+            source = {
+                'source_spell_ids': sorted({
+                    item['spell_id'] for item in metadata if item.get('spell_id')
+                }),
+                'source_token': _scenario_identity_tokens(scenario_tokens)[0],
+            }
+            source_type = 'runtime_state'
+            effect_prefix = 'runtime_state'
+            if talent:
+                source_type = 'talent'
+                talent_id = talent.get('id')
+                effect_prefix = f'talent:{talent_id}:runtime_state'
+                source.update({
+                    'talent_id': talent_id,
+                    'talent_name': str(talent.get('name') or ''),
+                    'talent_name_zh': str(talent.get('name_zh') or ''),
+                    'tree_type': str(talent.get('tree_type') or ''),
+                    'hero_subtree_id': talent.get('hero_subtree_id'),
+                    'hero_subtree_name': str(talent.get('hero_subtree_name') or ''),
+                    'hero_subtree_name_zh': str(talent.get('hero_subtree_name_zh') or ''),
+                })
             append_effect(
-                effect_id=_global_effect_identity('runtime_state', scenario_tokens),
-                source_type='runtime_state', scenario_tokens=scenario_tokens,
-                projections=projections,
-                source={
-                    'source_spell_ids': sorted({
-                        item['spell_id'] for item in metadata if item.get('spell_id')
-                    }),
-                    'source_token': scenario_tokens[0],
-                },
-                evidence=evidence,
+                effect_id=_global_effect_identity(effect_prefix, scenario_tokens),
+                source_type=source_type, scenario_tokens=scenario_tokens,
+                projections=projections, source=source, evidence=evidence,
             )
 
     talent_damage_modifiers = {}
@@ -1880,12 +2102,18 @@ def classify_global_skill_effects(base_high, base_low, variants):
                 damages, key=lambda row: tuple(row.get('scenario_tokens') or []),
             ):
                 multiplier = damage['damage_multiplier']
+                runtime_conditions = damage.get('runtime_conditions') or []
+                scenario_identity = (
+                    _scenario_identity({'buffs': runtime_conditions})
+                    if runtime_conditions
+                    else tuple(damage.get('scenario_tokens') or [])
+                )
                 append_effect(
                     effect_id=_global_effect_identity(
-                        f'talent:{talent_id}', tuple(damage.get('scenario_tokens') or []),
+                        f'talent:{talent_id}', scenario_identity,
                     ),
                     source_type='talent',
-                    scenario_tokens=tuple(damage.get('scenario_tokens') or []),
+                    scenario_tokens=scenario_identity,
                     projections=[{
                         'kind': 'damage_multiplier', 'operation': 'multiply',
                         'value': multiplier, 'bonus_percent': (multiplier - 1.0) * 100.0,
@@ -1928,7 +2156,36 @@ def classify_global_skill_effects(base_high, base_low, variants):
             }],
             source=source, evidence={'base_damage': high_base},
         )
-    return effects
+    deduplicated = {}
+    order = []
+    for effect in effects:
+        scenario_identity = effect.get('_scenario_identity') or ()
+        if scenario_identity:
+            canonical_scenario_identity = tuple(
+                item if isinstance(item, tuple) and len(item) == 4
+                else (str(item), '', 0, 1)
+                for item in scenario_identity
+            )
+            projection_identity = tuple(
+                (row.get('kind'), round(float(row.get('value')), 12))
+                for row in effect.get('projections') or []
+                if _finite_number(row.get('value'))
+            )
+            identity = (canonical_scenario_identity, projection_identity)
+        else:
+            identity = ('effect_id', effect.get('effect_id'))
+        existing = deduplicated.get(identity)
+        if existing is None:
+            order.append(identity)
+            deduplicated[identity] = effect
+        elif effect.get('source_type') == 'talent' and existing.get('source_type') != 'talent':
+            deduplicated[identity] = effect
+    result = []
+    for identity in order:
+        effect = deduplicated[identity]
+        effect.pop('_scenario_identity', None)
+        result.append(effect)
+    return result
 
 
 def flatten_single_talent_damage_variants(base_high, base_low, variants, *, global_effects=None):
@@ -2009,8 +2266,8 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
             for modifier in classified_global_modifiers
             if not modifier.get('scenario_tokens')
         }
-        global_scenario_token_sets = {
-            tuple(modifier.get('scenario_tokens') or [])
+        global_scenario_identities = {
+            tuple((str(token), '', 0, 1) for token in (modifier.get('scenario_tokens') or []))
             for modifier in classified_global_modifiers
             if modifier.get('scenario_tokens')
         }
@@ -2030,15 +2287,27 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
             for projection in (effect.get('projections') or [])
             if projection.get('kind') == 'damage_multiplier'
         }
-        global_scenario_token_sets = {
-            tuple(effect.get('scenario_tokens') or [])
+        global_scenario_identities = {
+            _scenario_identity({'buffs': effect.get('runtime_conditions')})
+            if isinstance(effect.get('runtime_conditions'), list)
+            and effect.get('runtime_conditions')
+            else tuple(
+                (str(token), '', 0, 1) for token in (effect.get('scenario_tokens') or [])
+            )
             for effect in global_effects
             if effect.get('scenario_tokens')
         }
 
     def includes_global_scenario(tokens):
-        token_set = set(tokens or ())
-        return any(set(global_tokens).issubset(token_set) for global_tokens in global_scenario_token_sets)
+        identity_set = set(
+            item if isinstance(item, tuple) and len(item) == 4
+            else (str(item), '', 0, 1)
+            for item in tokens or ()
+        )
+        return any(
+            set(global_identity).issubset(identity_set)
+            for global_identity in global_scenario_identities
+        )
 
     def append_row(action, amount, *, talent, condition, comparison, scenario_tokens=()):
         if not isinstance(action, dict) or _amount_state(amount)[0] != 'resolved':
@@ -2050,6 +2319,39 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
         else:
             row.pop('hero_subtree_ids', None)
         row['baseline'] = copy.deepcopy(amount)
+        if scenario_tokens:
+            action_baseline = action.get('baseline') or {}
+            for component_name in ('direct', 'tick'):
+                final_component = row['baseline'].get(component_name)
+                baseline_component = action_baseline.get(component_name)
+                if not isinstance(final_component, dict) or not isinstance(baseline_component, dict):
+                    continue
+                final_layers = final_component.get('runtime_layers')
+                baseline_layers = baseline_component.get('runtime_layers')
+                if not isinstance(final_layers, dict) or not isinstance(baseline_layers, dict):
+                    continue
+                factor_layers = []
+                for layer_name, baseline_value in baseline_layers.items():
+                    final_value = final_layers.get(layer_name)
+                    if (
+                        not _finite_number(baseline_value)
+                        or not _finite_number(final_value)
+                        or baseline_value <= 0
+                        or final_value <= 0
+                    ):
+                        continue
+                    if not math.isclose(baseline_value, 1.0, rel_tol=0.0, abs_tol=1e-12):
+                        factor_layers.append({
+                            'phase': 'actor_baseline', 'layer': layer_name,
+                            'factor': baseline_value,
+                        })
+                    marginal = final_value / baseline_value
+                    if not math.isclose(marginal, 1.0, rel_tol=0.0, abs_tol=1e-12):
+                        factor_layers.append({
+                            'phase': 'runtime_scenario', 'layer': layer_name,
+                            'factor': marginal,
+                        })
+                final_component['runtime_factor_layers'] = factor_layers
         row['scenarios'] = []
         reference_state = _amount_state(comparison)
         row['variant'] = {
@@ -2062,7 +2364,10 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
             'hero_subtree_name_zh': str(talent.get('hero_subtree_name_zh') or ''),
             'trait_entry_id': talent.get('node_id'),
             'runtime_condition': condition,
-            'scenario_tokens': list(scenario_tokens),
+            'scenario_tokens': list(_scenario_identity_tokens(scenario_tokens)),
+            'runtime_conditions': _scenario_metadata(
+                {'actions': [action]}, scenario_tokens,
+            ) if scenario_tokens else [],
             'reference_available': reference_state[0] == 'resolved',
         }
         if reference_state[0] == 'absent':
@@ -2410,13 +2715,31 @@ def project_skill_damage_product_payload(payload):
                     weighted_final /= passive_factor
 
                 runtime_factors = []
-                for layer_name, value in (
-                    runtime_layers.items() if isinstance(runtime_layers, dict) else ()
-                ):
+                factor_layers = component.get('runtime_factor_layers')
+                runtime_factor_rows = (
+                    factor_layers if isinstance(factor_layers, list)
+                    else [
+                        {'layer': layer_name, 'factor': value}
+                        for layer_name, value in (
+                            runtime_layers.items() if isinstance(runtime_layers, dict) else ()
+                        )
+                    ]
+                )
+                stripped_passive = False
+                for factor_row in runtime_factor_rows:
+                    if not isinstance(factor_row, dict):
+                        continue
+                    layer_name = factor_row.get('layer')
+                    value = factor_row.get('factor')
                     if not _finite_number(value):
                         continue
-                    if strip_passive and layer_name == component_multiplier_key:
+                    if (
+                        strip_passive
+                        and not stripped_passive
+                        and layer_name == component_multiplier_key
+                    ):
                         value /= passive_factor
+                        stripped_passive = True
                     if not math.isclose(value, 1.0, rel_tol=0.0, abs_tol=1e-12):
                         runtime_factors.append(value)
 
@@ -2519,9 +2842,10 @@ def project_skill_damage_product_payload(payload):
 class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
-    EXPORTER_SCHEMA_REVISION = 10
-    DATASET_SCHEMA_REVISION = 17
+    EXPORTER_SCHEMA_REVISION = 11
+    DATASET_SCHEMA_REVISION = 19
     TALENT_BATCH_SIZE = 12
+    ACTOR_CONFIG_BATCH_SIZE = 24
     FIXED_PRESET = {
         'attack_power': _SKILL_DAMAGE_PRIMARY_STAT_BASE,
         'spell_power': _SKILL_DAMAGE_PRIMARY_STAT_BASE,
@@ -2556,12 +2880,12 @@ class SimcSkillDamageSnapshotService:
             and latest_has_complete_actor_data
         ):
             return None
-        service = cls.create_for_current_backend()
+        service = cls.create_for_current_backend(claim=True)
         service.generate()
         return service.snapshot
 
     @classmethod
-    def create_for_current_backend(cls, requested_by_id=None):
+    def create_for_current_backend(cls, requested_by_id=None, *, claim=False):
         backend = SimcBackendBinary.objects.filter(identifier='production', is_active=True).first()
         if not backend:
             raise ValueError('未配置正式服 SimC 后端。')
@@ -2571,29 +2895,39 @@ class SimcSkillDamageSnapshotService:
             raise ValueError('SimC 后端缺少完整 40 位 revision。')
         if not game_build:
             raise ValueError('SimC 后端缺少 WoW/DBC game build。')
-        snapshot, created = SimcSkillDamageSnapshot.objects.get_or_create(
-            simc_revision=revision,
-            game_build=game_build,
-            schema_revision=cls.DATASET_SCHEMA_REVISION,
-            defaults={'requested_by_id': requested_by_id},
-        )
-        if not created:
-            actors = (snapshot.payload or {}).get('actors') or []
-            has_complete_actor_data = bool(actors) and all(
-                isinstance(actor, dict)
-                and actor.get('variant_model') == 'single_talent_runtime'
-                and actor.get('action_universe') == 'dbc_spellbook_selected_traits_and_derived_actions'
-                for actor in actors
+        with transaction.atomic():
+            snapshot, created = SimcSkillDamageSnapshot.objects.get_or_create(
+                simc_revision=revision,
+                game_build=game_build,
+                schema_revision=cls.DATASET_SCHEMA_REVISION,
+                defaults={'requested_by_id': requested_by_id},
             )
-            if snapshot.status == SimcSkillDamageSnapshot.STATUS_RUNNING or (
-                snapshot.status == SimcSkillDamageSnapshot.STATUS_SUCCEEDED
-                and has_complete_actor_data
-            ):
-                raise ValueError('该 SimC/DBC/exporter 版本已生成或正在生成。')
-            snapshot.status = SimcSkillDamageSnapshot.STATUS_PENDING
+            snapshot = SimcSkillDamageSnapshot.objects.select_for_update().get(pk=snapshot.pk)
+            if not created:
+                actors = (snapshot.payload or {}).get('actors') or []
+                has_complete_actor_data = bool(actors) and all(
+                    isinstance(actor, dict)
+                    and actor.get('variant_model') == 'single_talent_runtime'
+                    and actor.get('action_universe') == 'dbc_spellbook_selected_traits_and_derived_actions'
+                    for actor in actors
+                )
+                if snapshot.status == SimcSkillDamageSnapshot.STATUS_RUNNING or (
+                    snapshot.status == SimcSkillDamageSnapshot.STATUS_SUCCEEDED
+                    and has_complete_actor_data
+                ):
+                    raise ValueError('该 SimC/DBC/exporter 版本已生成或正在生成。')
+            snapshot.status = (
+                SimcSkillDamageSnapshot.STATUS_RUNNING
+                if claim else SimcSkillDamageSnapshot.STATUS_PENDING
+            )
             snapshot.error_text = ''
             snapshot.requested_by_id = requested_by_id
-            snapshot.save(update_fields=['status', 'error_text', 'requested_by_id'])
+            update_fields = ['status', 'error_text', 'requested_by_id']
+            if claim:
+                snapshot.started_at = timezone.now()
+                snapshot.completed_at = None
+                update_fields.extend(['started_at', 'completed_at'])
+            snapshot.save(update_fields=update_fields)
         return cls(snapshot, backend=backend)
 
     def _profiles(self):
@@ -2840,8 +3174,9 @@ class SimcSkillDamageSnapshotService:
 
     def _run_profile_export(
         self, profile, talents, *, scaffold_talents=(), talent_prerequisites=None,
-        target_health=100,
+        target_health=100, actor_plan=None,
     ):
+        close_old_connections()
         baseline_profile = copy.copy(profile)
         baseline_profile.talent = ''
         reference_input = SimcComposer(None).compose_validation_input(baseline_profile, '')
@@ -2853,10 +3188,13 @@ class SimcSkillDamageSnapshotService:
                 reference_input.rstrip()
                 + '\nwarlock.normalize_destruction_mastery=1\n'
             )
+        reference_aliases = {} if actor_plan is None else None
         simc_input = build_single_talent_actor_input(
             reference_input, profile.class_name, talents,
             scaffold_talents=scaffold_talents,
             talent_prerequisites=talent_prerequisites,
+            reference_aliases=reference_aliases,
+            actor_plan=actor_plan,
         )
         with tempfile.TemporaryDirectory(prefix='simc-skill-damage-') as tmp:
             input_path = Path(tmp) / 'actors.simc'
@@ -2874,11 +3212,30 @@ class SimcSkillDamageSnapshotService:
                 diagnostic = (result.stderr or result.stdout or 'SimC exporter 未生成 JSON').strip()
                 raise RuntimeError(diagnostic[-2000:])
             payload = json.loads(output_path.read_text(encoding='utf-8'))
-        expected_actor_names = {
-            'skill_damage_base',
-            *(f'skill_damage_reference_{talent.pk}_trait_{talent.node_id}' for talent in talents),
-            *(f'skill_damage_talent_{talent.pk}_trait_{talent.node_id}' for talent in talents),
+        exported_actor_map = {
+            str(actor.get('name') or ''): actor
+            for actor in (payload.get('actors') or [])
+            if isinstance(actor, dict)
         }
+        for expected_name, canonical_name in (reference_aliases or {}).items():
+            if expected_name == canonical_name:
+                continue
+            canonical_actor = exported_actor_map.get(canonical_name)
+            if canonical_actor is None:
+                raise ValueError('去重 reference actor 缺少 canonical 产物。')
+            aliased_actor = {**canonical_actor, 'name': expected_name}
+            payload['actors'].append(aliased_actor)
+            exported_actor_map[expected_name] = aliased_actor
+        if actor_plan is not None:
+            expected_actor_names = {
+                str(actor_spec.get('name') or '') for actor_spec in actor_plan
+            }
+        else:
+            expected_actor_names = {
+                'skill_damage_base',
+                *(f'skill_damage_reference_{talent.pk}_trait_{talent.node_id}' for talent in talents),
+                *(f'skill_damage_talent_{talent.pk}_trait_{talent.node_id}' for talent in talents),
+            }
         self._validate_export(
             payload, profile=profile, expected_actor_names=expected_actor_names,
         )
@@ -3052,10 +3409,17 @@ class SimcSkillDamageSnapshotService:
                         or buff.get('spell_id') < 0
                     ):
                         raise ValueError('exporter scenario buff spell identity 无效。')
+                    stacks = buff.get('stacks')
+                    if (
+                        not isinstance(stacks, int)
+                        or isinstance(stacks, bool)
+                        or stacks <= 0
+                    ):
+                        raise ValueError('exporter scenario buff stacks 无效。')
                     buff_token = buff_token.strip()
                     scenario_buff_identities[buff_token] = (buff.get('spell_id'), buff_scope)
-                    buff_tokens.append(buff_token)
-                if not buff_tokens or len(buff_tokens) != len(set(buff_tokens)):
+                    buff_tokens.append((buff_token, buff_scope, buff.get('spell_id'), stacks))
+                if not buff_tokens or len(buff_tokens) != len({item[0] for item in buff_tokens}):
                     raise ValueError('exporter scenario buff token identity 必须非空且唯一。')
                 for buff_token, buff_identity in scenario_buff_identities.items():
                     previous_identity = actor_buff_identities.get(buff_token)
@@ -3190,25 +3554,15 @@ class SimcSkillDamageSnapshotService:
         self, profile, talents, *, scaffold_talents, talent_prerequisites, target_health,
     ):
         """Export all actors while isolating a SimC process crash to the smallest talent input."""
-        baseline_export = self._run_profile_export(
-            profile, [], scaffold_talents=scaffold_talents, target_health=target_health,
-        )
-        baseline_map = {
-            str(actor.get('name') or ''): actor
-            for actor in (baseline_export.get('actors') or [])
-            if isinstance(actor, dict)
-        }
-        baseline = baseline_map.get('skill_damage_base')
-        if baseline is None or set(baseline_map) != {'skill_damage_base'}:
-            raise ValueError(f'{profile.spec} exporter 缺少独立基线 actor。')
-
+        baseline = None
         exported_actors = {}
-        unresolved = list(baseline_export.get('unresolved') or [])
+        unresolved = []
         _class_name, specialization = canonical_simc_profile_identity(
             getattr(profile, 'spec', ''), getattr(profile, 'class_name', ''),
         )
 
         def export_batch(batch):
+            nonlocal baseline
             try:
                 payload = self._run_profile_export(
                     profile, batch,
@@ -3262,7 +3616,11 @@ class SimcSkillDamageSnapshotService:
                 if isinstance(actor, dict)
             }
             current_baseline = actor_map.pop('skill_damage_base', None)
-            if current_baseline != baseline:
+            if current_baseline is None:
+                raise ValueError(f'{profile.spec} 分块 exporter 缺少基线 actor。')
+            if baseline is None:
+                baseline = current_baseline
+            elif current_baseline != baseline:
                 raise ValueError(f'{profile.spec} 分块 exporter 基线 actor 不一致。')
             duplicate_names = set(exported_actors).intersection(actor_map)
             if duplicate_names:
@@ -3270,11 +3628,345 @@ class SimcSkillDamageSnapshotService:
             exported_actors.update(actor_map)
             unresolved.extend(payload.get('unresolved') or [])
 
-        for start in range(0, len(talents), self.TALENT_BATCH_SIZE):
-            export_batch(talents[start:start + self.TALENT_BATCH_SIZE])
+        ordered_talents = sorted(
+            talents,
+            key=lambda talent: tuple(
+                (
+                    str(getattr(prerequisite, 'tree_type', '') or '').strip().lower(),
+                    int(getattr(prerequisite, 'node_id', 0) or 0),
+                    int(getattr(prerequisite, 'max_points', 1) or 1),
+                )
+                for prerequisite in (talent_prerequisites.get(talent.pk) or [])
+            ),
+        )
+        for start in range(0, len(ordered_talents), self.TALENT_BATCH_SIZE):
+            export_batch(ordered_talents[start:start + self.TALENT_BATCH_SIZE])
+        if baseline is None:
+            baseline_export = self._run_profile_export(
+                profile, [], scaffold_talents=scaffold_talents, target_health=target_health,
+            )
+            baseline_map = {
+                str(actor.get('name') or ''): actor
+                for actor in (baseline_export.get('actors') or [])
+                if isinstance(actor, dict)
+            }
+            baseline = baseline_map.get('skill_damage_base')
+            if baseline is None or set(baseline_map) != {'skill_damage_base'}:
+                raise ValueError(f'{profile.spec} exporter 缺少独立基线 actor。')
+            unresolved.extend(baseline_export.get('unresolved') or [])
         return baseline, exported_actors, unresolved
 
-    def generate(self):
+    def _run_profile_target_deduplicated(
+        self, profile, talents, *, scaffold_talents, talent_prerequisites, target_health,
+    ):
+        """Export each distinct final talent configuration once, then restore logical actors."""
+        plan = plan_unique_talent_actor_configs(
+            talents,
+            scaffold_talents=scaffold_talents,
+            talent_prerequisites=talent_prerequisites,
+        )
+        canonical_actors = {}
+        unresolved = []
+        failed_canonical_names = {}
+
+        def export_batch(actor_specs):
+            try:
+                payload = self._run_profile_export(
+                    profile, [], scaffold_talents=scaffold_talents,
+                    target_health=target_health, actor_plan=actor_specs,
+                )
+            except RuntimeError as exc:
+                diagnostic = str(exc)
+                fatal_actor_initialization = re.search(
+                    r'(?:^|\r?\n)sim_signal_handler: Segmentation fault!'
+                    r'(?:[ \t]+(?:signal_\d+\b|Iteration=-?\d+\b)[^\r\n]*)?'
+                    r'(?:\r?\n|$)',
+                    diagnostic,
+                ) or re.search(
+                    r'(?:^|\r?\n)simc: class_modules/[^\r\n]+:'
+                    r'[^\r\n]*\bAssertion [^\r\n]+ failed\.(?:\r?\n|$)',
+                    diagnostic,
+                ) or re.search(
+                    r"(?:^|\r?\n)Error: Player '[^'\r\n]+' could not find spell data "
+                    r"for Action '[^'\r\n]+' \(\d+\)\.(?:\r?\n|$)",
+                    diagnostic,
+                )
+                if not fatal_actor_initialization:
+                    raise
+                if len(actor_specs) > 1:
+                    middle = len(actor_specs) // 2
+                    export_batch(actor_specs[:middle])
+                    export_batch(actor_specs[middle:])
+                    return
+                failed_canonical_names[actor_specs[0]['name']] = diagnostic[-2000:]
+                return
+            actor_map = {
+                str(actor.get('name') or ''): actor
+                for actor in (payload.get('actors') or [])
+                if isinstance(actor, dict)
+            }
+            duplicate_names = set(canonical_actors).intersection(actor_map)
+            if duplicate_names:
+                raise ValueError(f'{profile.spec} 配置 exporter 包含重复 canonical actor。')
+            canonical_actors.update(actor_map)
+            unresolved.extend(payload.get('unresolved') or [])
+
+        actor_specs = plan['actors']
+        for start in range(0, len(actor_specs), self.ACTOR_CONFIG_BATCH_SIZE):
+            export_batch(actor_specs[start:start + self.ACTOR_CONFIG_BATCH_SIZE])
+
+        baseline = canonical_actors.get('skill_damage_base')
+        if baseline is None:
+            raise ValueError(f'{profile.spec} 配置 exporter 缺少基线 actor。')
+        exported_actors = {}
+        talent_by_actor_name = {}
+        for talent in talents:
+            identity = f'{talent.pk}_trait_{talent.node_id}'
+            talent_by_actor_name[f'skill_damage_reference_{identity}'] = talent
+            talent_by_actor_name[f'skill_damage_talent_{identity}'] = talent
+        unresolved_talent_ids = set()
+        for logical_name, alias in plan['aliases'].items():
+            canonical_name = alias['canonical_name']
+            canonical_actor = canonical_actors.get(canonical_name)
+            if canonical_actor is None:
+                talent = talent_by_actor_name.get(logical_name)
+                if talent is not None and talent.pk not in unresolved_talent_ids:
+                    unresolved_talent_ids.add(talent.pk)
+                    unresolved.append({
+                        'class': str(getattr(profile, 'class_name', '') or ''),
+                        'specialization': canonical_simc_profile_identity(
+                            getattr(profile, 'spec', ''), getattr(profile, 'class_name', ''),
+                        )[1],
+                        'target_health_percentage': target_health,
+                        'talent': {
+                            'id': talent.node_id,
+                            'metadata_id': talent.pk,
+                            'name': str(talent.name or ''),
+                            'name_zh': str(talent.name_zh or ''),
+                            'tree_type': str(talent.tree_type or ''),
+                        },
+                        'reason': 'simc_actor_initialization_failed',
+                        'diagnostic': failed_canonical_names.get(canonical_name, '')[-2000:],
+                    })
+                continue
+            exported_actors[logical_name] = {
+                **canonical_actor,
+                'name': logical_name,
+                'talent_effectiveness': alias['talent_effectiveness'],
+            }
+        return baseline, exported_actors, unresolved
+
+    def _generate_profile_product_actor(self, profile):
+        """Generate and compact one profile before the next raw export graph exists."""
+        all_talents = self._talent_entries(profile)
+        hero_talent_trees = self._hero_talent_trees(profile, all_talents)
+        scaffold_talents = self._spec_root_scaffold(all_talents)
+        talent_version_ids = {
+            getattr(talent, 'talent_version_id', None)
+            for talent in all_talents
+        }
+        if talent_version_ids == {None}:
+            entry_order = {}
+        else:
+            if None in talent_version_ids or len(talent_version_ids) != 1:
+                raise ValueError(f'{profile.spec} 单项天赋混入多个 active 版本。')
+            talent_version = getattr(all_talents[0], 'talent_version', None)
+            if talent_version is None:
+                raise ValueError(f'{profile.spec} 单项天赋缺少 active 版本对象。')
+            entry_order = TalentMetadataProvider(
+                talent_version=talent_version,
+            ).get_choice_entry_order()
+        talent_prerequisites = self._talent_prerequisite_map(
+            all_talents,
+            metadata_nodes=self._implicit_prerequisite_nodes(profile),
+            entry_order=entry_order,
+        )
+        scaffold_identities = {
+            (
+                str(getattr(talent, 'tree_type', '') or '').strip().lower(),
+                getattr(talent, 'node_id', None),
+            )
+            for talent in scaffold_talents
+        }
+        talents = [
+            talent for talent in all_talents
+            if (
+                str(getattr(talent, 'tree_type', '') or '').strip().lower(),
+                getattr(talent, 'node_id', None),
+            ) not in scaffold_identities
+        ]
+        base_high, high_actors, high_unresolved = self._run_profile_target_deduplicated(
+            profile, talents, scaffold_talents=scaffold_talents,
+            talent_prerequisites=talent_prerequisites, target_health=100,
+        )
+        base_low, low_actors, low_unresolved = self._run_profile_target_deduplicated(
+            profile, talents, scaffold_talents=scaffold_talents,
+            talent_prerequisites=talent_prerequisites, target_health=34,
+        )
+
+        variants = []
+        for talent in talents:
+            identity = f'{talent.pk}_trait_{talent.node_id}'
+            actor_name = f'skill_damage_talent_{identity}'
+            reference_name = f'skill_damage_reference_{identity}'
+            high_actor = high_actors.get(actor_name)
+            low_actor = low_actors.get(actor_name)
+            reference_high = high_actors.get(reference_name)
+            reference_low = low_actors.get(reference_name)
+            if not high_actor and not low_actor:
+                continue
+            if (high_actor and not reference_high) or (low_actor and not reference_low):
+                raise ValueError(f'{profile.spec} 天赋 {talent.node_id} 缺少对应前置 runtime actor。')
+            hero_subtree_id = (
+                talent.db2_subtree_id if str(talent.tree_type or '').lower() == 'hero' else None
+            )
+            hero_subtree_name = hero_subtree_name_by_id(hero_subtree_id)
+            variants.append({
+                'talent': {
+                    'id': talent.pk,
+                    'node_id': talent.node_id,
+                    'tree_type': talent.tree_type,
+                    'hero_subtree_id': hero_subtree_id,
+                    'hero_subtree_name': hero_subtree_name,
+                    'hero_subtree_name_zh': hero_subtree_name_zh(hero_subtree_name),
+                    'name': talent.name,
+                    'name_zh': talent.name_zh,
+                    'description': talent.description,
+                    'description_zh': talent.description_zh,
+                },
+                'reference_high': reference_high,
+                'reference_low': reference_low,
+                'high': high_actor,
+                'low': low_actor,
+            })
+
+        actor = copy.deepcopy(base_high)
+        actor.pop('name', None)
+        if 'specialization' not in actor and actor.get('spec'):
+            actor['specialization'] = actor.pop('spec')
+        actor['variant_model'] = 'single_talent_runtime'
+        actor['hero_talent_trees'] = hero_talent_trees
+        actor['base_damage_basis'] = 'dbc_spell_effect_ap_sp_coefficients_at_100'
+        global_effects = classify_global_skill_effects(base_high, base_low, variants)
+        actor['global_skill_effects'] = global_effects
+        actor['actions'] = flatten_single_talent_damage_variants(
+            base_high, base_low, variants, global_effects=global_effects,
+        )
+        raw_action_count = len(actor.get('actions') or [])
+        profile_payload = project_skill_damage_product_payload({
+            'identity': {
+                'simc_revision': self.snapshot.simc_revision,
+                'game_build': self.snapshot.game_build,
+                'schema_revision': self.snapshot.schema_revision,
+            },
+            'preset': dict(self.FIXED_PRESET),
+            'actors': [actor],
+            'unresolved': [],
+        })
+        profile_payload['payload_format'] = 'skill_damage_product_v1'
+        profile_payload = localize_skill_damage_payload(profile_payload)
+        return (
+            profile_payload['actors'][0],
+            [*high_unresolved, *low_unresolved],
+            raw_action_count,
+        )
+
+    def _generate_profile_product_actor_isolated(self, profile):
+        """Run one profile in a short-lived process so its raw graph returns to the OS."""
+        with tempfile.TemporaryDirectory(prefix='simc-skill-damage-profile-') as workdir:
+            output_path = os.path.join(workdir, 'profile.json')
+            command = [
+                sys.executable,
+                str(Path(settings.BASE_DIR) / 'manage.py'),
+                'generate_simc_skill_damage_snapshot',
+                '--snapshot-id', str(self.snapshot.pk),
+                '--profile-id', str(profile.pk),
+                '--output', output_path,
+            ]
+            if self.backend and self.backend.pk:
+                command.extend(['--backend-id', str(self.backend.pk)])
+            process = subprocess.Popen(
+                command,
+                cwd=str(settings.BASE_DIR),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                start_new_session=True,
+            )
+            try:
+                stdout, stderr = process.communicate(timeout=3600)
+            except subprocess.TimeoutExpired as exc:
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                try:
+                    stdout, stderr = process.communicate(timeout=10)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    stdout, stderr = process.communicate()
+                raise RuntimeError(f'{profile.spec} 隔离生成超时。') from exc
+            if process.returncode != 0:
+                diagnostic = (stderr or stdout or '').strip()
+                raise RuntimeError(f'{profile.spec} 隔离生成进程失败：{diagnostic[-3000:]}')
+            try:
+                decoded = json.loads(Path(output_path).read_text(encoding='utf-8'))
+                if not isinstance(decoded, list) or len(decoded) != 3:
+                    raise ValueError('必须是 [actor, unresolved, raw_action_count]')
+                actor, unresolved_rows, raw_action_count = decoded
+                actions = actor.get('actions') if isinstance(actor, dict) else None
+                expected_class, expected_spec = canonical_simc_profile_identity(
+                    getattr(profile, 'spec', ''), getattr(profile, 'class_name', ''),
+                )
+                actor_identity = (
+                    (
+                        str(actor.get('class') or '').strip().lower(),
+                        str(actor.get('specialization') or actor.get('spec') or '').strip().lower(),
+                    )
+                    if isinstance(actor, dict)
+                    else ('', '')
+                )
+                if (
+                    not isinstance(decoded, list) or len(decoded) != 3
+                    or not isinstance(actor, dict)
+                    or not isinstance(unresolved_rows, list)
+                    or any(not isinstance(row, dict) for row in unresolved_rows)
+                    or not isinstance(raw_action_count, int) or isinstance(raw_action_count, bool)
+                    or raw_action_count < 0
+                    or actor_identity != (expected_class, expected_spec)
+                    or actor.get('variant_model') != 'single_talent_runtime'
+                    or actor.get('action_universe') != 'dbc_spellbook_selected_traits_and_derived_actions'
+                    or not isinstance(actions, list)
+                    or any(not isinstance(action, dict) for action in actions)
+                    or raw_action_count < len(actions)
+                ):
+                    raise ValueError('actor 身份、产品契约或 action 计数无效')
+                return actor, unresolved_rows, raw_action_count
+            except (OSError, ValueError, TypeError) as exc:
+                raise RuntimeError(f'{profile.spec} 隔离生成产物无效：{exc}') from exc
+
+    def _progress_payload(self, actors, unresolved, *, total_spec_count, current_specialization=''):
+        return {
+            'identity': {
+                'simc_revision': self.snapshot.simc_revision,
+                'game_build': self.snapshot.game_build,
+                'schema_revision': self.snapshot.schema_revision,
+            },
+            'preset': dict(self.FIXED_PRESET),
+            'actors': actors,
+            'unresolved': unresolved,
+            'payload_format': 'skill_damage_product_v1',
+            'display_action_count': sum(
+                len(actor.get('actions') or []) for actor in actors
+            ),
+            'total_spec_count': total_spec_count,
+            'current_specialization': current_specialization,
+        }
+
+    def generate(self, *, isolate_profiles=False):
         now = timezone.now()
         SimcSkillDamageSnapshot.objects.filter(pk=self.snapshot.pk).update(
             status=SimcSkillDamageSnapshot.STATUS_RUNNING,
@@ -3284,129 +3976,110 @@ class SimcSkillDamageSnapshotService:
         )
         self.snapshot.refresh_from_db()
         try:
-            actors = []
-            unresolved = []
-            unresolved_keys = set()
-            for profile in self._profiles():
-                all_talents = self._talent_entries(profile)
-                hero_talent_trees = self._hero_talent_trees(profile, all_talents)
-                scaffold_talents = self._spec_root_scaffold(all_talents)
-                talent_version_ids = {
-                    getattr(talent, 'talent_version_id', None)
-                    for talent in all_talents
-                }
-                if talent_version_ids == {None}:
-                    entry_order = {}
-                else:
-                    if None in talent_version_ids or len(talent_version_ids) != 1:
-                        raise ValueError(f'{profile.spec} 单项天赋混入多个 active 版本。')
-                    talent_version = getattr(all_talents[0], 'talent_version', None)
-                    if talent_version is None:
-                        raise ValueError(f'{profile.spec} 单项天赋缺少 active 版本对象。')
-                    entry_order = TalentMetadataProvider(
-                        talent_version=talent_version,
-                    ).get_choice_entry_order()
-                talent_prerequisites = self._talent_prerequisite_map(
-                    all_talents,
-                    metadata_nodes=self._implicit_prerequisite_nodes(profile),
-                    entry_order=entry_order,
+            profiles = self._profiles()
+            total_spec_count = len(profiles) if hasattr(profiles, '__len__') else 0
+            previous_payload = self.snapshot.payload or {}
+            actors = list(previous_payload.get('actors') or [])
+            unresolved = list(previous_payload.get('unresolved') or [])
+            if actors:
+                profile_identities = (
+                    {
+                        canonical_simc_profile_identity(
+                            getattr(profile, 'spec', ''), getattr(profile, 'class_name', ''),
+                        )
+                        for profile in profiles
+                    }
+                    if hasattr(profiles, '__len__')
+                    else set()
                 )
-                scaffold_identities = {
+                actor_identities = [
                     (
-                        str(getattr(talent, 'tree_type', '') or '').strip().lower(),
-                        getattr(talent, 'node_id', None),
+                        str(actor.get('class') or '').strip().lower(),
+                        str(actor.get('specialization') or actor.get('spec') or '').strip().lower(),
                     )
-                    for talent in scaffold_talents
-                }
-                talents = [
-                    talent for talent in all_talents
-                    if (
-                        str(getattr(talent, 'tree_type', '') or '').strip().lower(),
-                        getattr(talent, 'node_id', None),
-                    ) not in scaffold_identities
+                    for actor in actors
+                    if isinstance(actor, dict)
                 ]
-                base_high, high_actors, high_unresolved = self._run_profile_target_resilient(
-                    profile, talents, scaffold_talents=scaffold_talents,
-                    talent_prerequisites=talent_prerequisites, target_health=100,
+                resume_valid = (
+                    len(actor_identities) == len(actors)
+                    and len(set(actor_identities)) == len(actor_identities)
+                    and set(actor_identities).issubset(profile_identities)
+                    and all(
+                        actor.get('variant_model') == 'single_talent_runtime'
+                        and actor.get('action_universe') == 'dbc_spellbook_selected_traits_and_derived_actions'
+                        and isinstance(actor.get('actions'), list)
+                        for actor in actors
+                    )
+                    and all(isinstance(row, dict) for row in unresolved)
                 )
-                base_low, low_actors, low_unresolved = self._run_profile_target_resilient(
-                    profile, talents, scaffold_talents=scaffold_talents,
-                    talent_prerequisites=talent_prerequisites, target_health=34,
+                if not resume_valid:
+                    actors = []
+                    unresolved = []
+            unresolved_keys = {
+                json.dumps(row, ensure_ascii=False, sort_keys=True)
+                for row in unresolved
+            }
+            raw_action_count = int(self.snapshot.generated_action_count or 0) if actors else 0
+            completed_identities = {
+                (
+                    str(actor.get('class') or '').strip().lower(),
+                    str(actor.get('specialization') or actor.get('spec') or '').strip().lower(),
                 )
-                for row in [*high_unresolved, *low_unresolved]:
+                for actor in actors
+                if isinstance(actor, dict)
+            }
+            SimcSkillDamageSnapshot.objects.filter(pk=self.snapshot.pk).update(
+                payload=self._progress_payload(
+                    actors, unresolved, total_spec_count=total_spec_count,
+                ),
+                generated_spec_count=len(actors),
+                generated_action_count=raw_action_count,
+            )
+            for profile in profiles:
+                profile_identity = canonical_simc_profile_identity(
+                    getattr(profile, 'spec', ''), getattr(profile, 'class_name', ''),
+                )
+                if profile_identity in completed_identities:
+                    continue
+                SimcSkillDamageSnapshot.objects.filter(pk=self.snapshot.pk).update(
+                    payload=self._progress_payload(
+                        actors, unresolved, total_spec_count=total_spec_count,
+                        current_specialization=profile_identity[1],
+                    ),
+                )
+                if isolate_profiles:
+                    actor, profile_unresolved, profile_raw_action_count = (
+                        self._generate_profile_product_actor_isolated(profile)
+                    )
+                    # A profile subprocess can run longer than MySQL wait_timeout.
+                    # Drop the idle parent connection before publishing its result.
+                    close_old_connections()
+                else:
+                    actor, profile_unresolved, profile_raw_action_count = (
+                        self._generate_profile_product_actor(profile)
+                    )
+                actors.append(actor)
+                completed_identities.add(profile_identity)
+                raw_action_count += profile_raw_action_count
+                for row in profile_unresolved:
                     key = json.dumps(row, ensure_ascii=False, sort_keys=True)
                     if key not in unresolved_keys:
                         unresolved_keys.add(key)
                         unresolved.append(row)
-
-                variants = []
-                for talent in talents:
-                    identity = f'{talent.pk}_trait_{talent.node_id}'
-                    actor_name = f'skill_damage_talent_{identity}'
-                    reference_name = f'skill_damage_reference_{identity}'
-                    high_actor = high_actors.get(actor_name)
-                    low_actor = low_actors.get(actor_name)
-                    reference_high = high_actors.get(reference_name)
-                    reference_low = low_actors.get(reference_name)
-                    if not high_actor and not low_actor:
-                        # Both target-specific failures are already preserved in unresolved.
-                        continue
-                    if (high_actor and not reference_high) or (low_actor and not reference_low):
-                        raise ValueError(f'{profile.spec} 天赋 {talent.node_id} 缺少对应前置 runtime actor。')
-                    hero_subtree_id = (
-                        talent.db2_subtree_id if str(talent.tree_type or '').lower() == 'hero' else None
-                    )
-                    hero_subtree_name = hero_subtree_name_by_id(hero_subtree_id)
-                    variants.append({
-                        'talent': {
-                            'id': talent.pk,
-                            'node_id': talent.node_id,
-                            'tree_type': talent.tree_type,
-                            'hero_subtree_id': hero_subtree_id,
-                            'hero_subtree_name': hero_subtree_name,
-                            'hero_subtree_name_zh': hero_subtree_name_zh(hero_subtree_name),
-                            'name': talent.name,
-                            'name_zh': talent.name_zh,
-                            'description': talent.description,
-                            'description_zh': talent.description_zh,
-                        },
-                        'reference_high': reference_high,
-                        'reference_low': reference_low,
-                        'high': high_actor,
-                        'low': low_actor,
-                    })
-
-                actor = copy.deepcopy(base_high)
-                actor.pop('name', None)
-                if 'specialization' not in actor and actor.get('spec'):
-                    actor['specialization'] = actor.pop('spec')
-                actor['variant_model'] = 'single_talent_runtime'
-                actor['hero_talent_trees'] = hero_talent_trees
-                actor['base_damage_basis'] = 'dbc_spell_effect_ap_sp_coefficients_at_100'
-                global_effects = classify_global_skill_effects(base_high, base_low, variants)
-                actor['global_skill_effects'] = global_effects
-                actor['actions'] = flatten_single_talent_damage_variants(
-                    base_high, base_low, variants, global_effects=global_effects,
+                SimcSkillDamageSnapshot.objects.filter(pk=self.snapshot.pk).update(
+                    payload=self._progress_payload(
+                        actors, unresolved, total_spec_count=total_spec_count,
+                    ),
+                    generated_spec_count=len(actors),
+                    generated_action_count=raw_action_count,
                 )
-                actors.append(actor)
-            raw_action_count = sum(len(actor.get('actions') or []) for actor in actors)
-            payload = project_skill_damage_product_payload({
-                'identity': {
-                    'simc_revision': self.snapshot.simc_revision,
-                    'game_build': self.snapshot.game_build,
-                    'schema_revision': self.snapshot.schema_revision,
-                },
-                'preset': dict(self.FIXED_PRESET),
-                'actors': actors,
-                'unresolved': unresolved,
-            })
-            payload['payload_format'] = 'skill_damage_product_v1'
-            payload = localize_skill_damage_payload(payload)
-            action_count = raw_action_count
+            payload = self._progress_payload(
+                actors, unresolved, total_spec_count=total_spec_count,
+            )
             self.snapshot.status = SimcSkillDamageSnapshot.STATUS_SUCCEEDED
             self.snapshot.payload = payload
             self.snapshot.generated_spec_count = len(actors)
-            self.snapshot.generated_action_count = action_count
+            self.snapshot.generated_action_count = raw_action_count
             self.snapshot.completed_at = timezone.now()
             self.snapshot.error_text = ''
             self.snapshot.save(update_fields=[

@@ -2,13 +2,15 @@ from datetime import datetime
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 
+from botend.models import MonitorTask
 from botend.plugin_sync import (
     monitor_default_wait_time,
     monitor_task_sort_key,
     portal_data_task_is_due,
     portal_monitor_task_priority,
+    claim_next_monitor_task,
 )
 
 
@@ -69,6 +71,25 @@ class PortalMonitorScheduleTests(SimpleTestCase):
 
         self.assertTrue(portal_data_task_is_due(task, datetime(2026, 8, 20, 7, 45, tzinfo=shanghai)))
 
+    def test_earlier_due_news_wins_over_older_daily_task(self):
+        shanghai = ZoneInfo('Asia/Shanghai')
+        now = datetime(2026, 8, 29, 3, 21, tzinfo=shanghai)
+        news = self._task(
+            'PortalPostMonitor',
+            datetime(2026, 8, 28, 23, 29, tzinfo=shanghai),
+        )
+        news.wait_time = 600
+        ranking = self._task(
+            'SpecDetailRankingMonitor',
+            datetime(2026, 8, 28, 3, 0, tzinfo=shanghai),
+        )
+        ranking.wait_time = 86400
+
+        self.assertLess(
+            monitor_task_sort_key(news, now=now),
+            monitor_task_sort_key(ranking, now=now),
+        )
+
     def test_unrelated_task_is_not_controlled_by_portal_data_schedule(self):
         shanghai = ZoneInfo('Asia/Shanghai')
         task = self._task(
@@ -77,3 +98,25 @@ class PortalMonitorScheduleTests(SimpleTestCase):
         )
 
         self.assertIsNone(portal_data_task_is_due(task, datetime(2026, 8, 20, 15, 0, tzinfo=shanghai)))
+
+
+class MonitorTaskClaimTests(TestCase):
+    def test_two_worker_claims_reserve_distinct_oldest_runnable_tasks(self):
+        shanghai = ZoneInfo('Asia/Shanghai')
+        now = datetime(2026, 8, 29, 9, 0, tzinfo=shanghai)
+        oldest = MonitorTask.objects.create(
+            name='wowheadMonitor', target='', type=16,
+            last_scan_time=datetime(2026, 8, 28, 20, 0, tzinfo=shanghai),
+            wait_time=600, is_active=True,
+        )
+        second = MonitorTask.objects.create(
+            name='PortalPostMonitor', target='', type=18,
+            last_scan_time=datetime(2026, 8, 28, 21, 0, tzinfo=shanghai),
+            wait_time=600, is_active=True,
+        )
+
+        first_claim = claim_next_monitor_task(now=now)
+        second_claim = claim_next_monitor_task(now=now)
+
+        self.assertEqual(first_claim.id, oldest.id)
+        self.assertEqual(second_claim.id, second.id)
