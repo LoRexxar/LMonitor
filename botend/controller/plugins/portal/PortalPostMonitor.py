@@ -263,32 +263,110 @@ class PortalPostMonitor(BaseScan):
         except Exception:
             return []
 
+    @staticmethod
+    def _parse_exwind_datetime(value):
+        value = re.sub(r'\s+', ' ', str(value or '')).strip()
+        match = re.search(
+            r'([0-9]{4}-[0-9]{2}-[0-9]{2})\s+([0-9]{2}:[0-9]{2})(?::([0-9]{2}))?',
+            value,
+        )
+        if not match:
+            return None
+        try:
+            raw = f"{match.group(1)} {match.group(2)}:{match.group(3) or '00'}"
+            parsed = datetime.datetime.strptime(raw, "%Y-%m-%d %H:%M:%S")
+            return timezone.make_aware(parsed, timezone.get_current_timezone())
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
+    def _parse_exwind_latest(cls, html_text):
+        """解析 Exwind 首页文章卡片，同时兼容旧版纯链接结构。"""
+        base_url = 'https://exwind.net/'
+        seen = set()
+        items = []
+
+        try:
+            from bs4 import BeautifulSoup
+
+            soup = BeautifulSoup(html_text or '', 'html.parser')
+            for anchor in soup.select('a[href]'):
+                href = str(anchor.get('href') or '').strip()
+                absolute_url = urljoin(base_url, href)
+                parsed_url = urlparse(absolute_url)
+                hostname = (parsed_url.hostname or '').lower()
+                if not (hostname == 'exwind.net' or hostname.endswith('.exwind.net')):
+                    continue
+                if not parsed_url.path.startswith('/post/') or absolute_url in seen:
+                    continue
+
+                title_node = anchor.select_one(
+                    '[data-title], .post-title, .entry-title, '
+                    '.font-bold.text-lg, h1, h2, h3, h4'
+                )
+                title = title_node.get_text(' ', strip=True) if title_node else ''
+                if not title:
+                    title = str(anchor.get('title') or anchor.get('aria-label') or '').strip()
+                if not title:
+                    title = anchor.get_text(' ', strip=True)
+                    title = re.sub(r'\s*阅读全文\s*(?:→|›|»)?\s*$', '', title).strip()
+                if not title or title in {'阅读全文', '返回列表'}:
+                    continue
+
+                publish_time = None
+                for time_node in anchor.select('time, [datetime], [data-time], .text-xs'):
+                    candidate = (
+                        time_node.get('datetime')
+                        or time_node.get('data-time')
+                        or time_node.get_text(' ', strip=True)
+                    )
+                    publish_time = cls._parse_exwind_datetime(candidate)
+                    if publish_time:
+                        break
+
+                seen.add(absolute_url)
+                items.append({
+                    'title': html.unescape(title).strip(),
+                    'url': absolute_url,
+                    'publish_time': publish_time,
+                })
+        except Exception:
+            pass
+
+        # 旧版首页的文章链接可能没有标题节点类名，保留简单链接回退。
+        for match in re.finditer(
+            r'<a[^>]+href=[\'\"]([^\'\"]*?/post/[^\'\"]+)[\'\"][^>]*>(.*?)</a>',
+            html_text or '',
+            flags=re.I | re.S,
+        ):
+            href = (match.group(1) or '').strip()
+            absolute_url = urljoin(base_url, href)
+            if not href or absolute_url in seen:
+                continue
+            title = re.sub(r'<[^>]+>', ' ', match.group(2) or '')
+            title = re.sub(r'\s+', ' ', html.unescape(title)).strip()
+            title = re.sub(r'\s*阅读全文\s*(?:→|›|»)?\s*$', '', title).strip()
+            if not title or title in {'阅读全文', '返回列表'}:
+                continue
+            seen.add(absolute_url)
+            items.append({'title': title, 'url': absolute_url, 'publish_time': None})
+
+        return items
+
     def update_exwind_latest(self):
         try:
-            seen = set()
-            items = []
             resp = self.req.get('https://exwind.net/', 'Response', 0, '', headers={'User-Agent': 'Mozilla/5.0'})
             if not resp or resp.status_code != 200:
                 return
             html_text = resp.text or ''
-            for m in re.finditer(r'<a[^>]+href=[\'"]([^\'"]*?/post/[^\'"]+)[\'"][^>]*>(.*?)</a>', html_text, flags=re.I | re.S):
-                href = (m.group(1) or '').strip()
-                title_raw = (m.group(2) or '').strip()
-                title = re.sub(r'<[^>]+>', '', title_raw)
-                title = html.unescape(title).strip()
-                if not href or '/post/' not in href:
-                    continue
-                href = urljoin('https://exwind.net/', href)
-                if not title or '阅读全文' in title or '返回列表' in title:
-                    continue
-                if href in seen:
-                    continue
-                seen.add(href)
-                items.append({'title': title, 'url': href})
+            items = self._parse_exwind_latest(html_text)
+            if not items:
+                logger.warning('[PortalPostMonitor] exwind listing parsed zero articles')
+                return
 
             enriched = []
             for it in items:
-                dt = self._get_exwind_publish_time(it['url'])
+                dt = it.get('publish_time') or self._get_exwind_publish_time(it['url'])
                 enriched.append((dt or timezone.now(), it))
                 if len(enriched) >= 40:
                     break
@@ -299,7 +377,8 @@ class PortalPostMonitor(BaseScan):
                     existing = WowArticle.objects.filter(url=it['url']).only("id", "description").first()
                 except Exception:
                     existing = None
-                if not existing or not (getattr(existing, "description", "") or "").strip() or len((getattr(existing, "description", "") or "")) < 800:
+                existing_description = (getattr(existing, "description", "") or "").strip()
+                if not existing_description or len(existing_description) < 800:
                     desc_full = self._fetch_full_text(it['url'], source='exwind')
                 self._upsert_article(
                     title=it['title'],
@@ -307,7 +386,7 @@ class PortalPostMonitor(BaseScan):
                     source='exwind',
                     category='news',
                     author=None,
-                    description=desc_full,
+                    description=desc_full or existing_description or None,
                     publish_time=dt,
                 )
         except Exception as e:
