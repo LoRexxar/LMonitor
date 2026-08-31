@@ -5846,9 +5846,12 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     const nameSortHeader = document.getElementById('simc-skill-damage-sort-name-header');
     const finalSortHeader = document.getElementById('simc-skill-damage-sort-final-header');
     const globalModifiersEl = document.getElementById('simc-skill-damage-global-modifiers');
+    const targetTabs = Array.from(document.querySelectorAll('.simc-skill-damage-target-tab'));
     if (!body || !identityEl || !unresolvedEl || !specSelect || !heroTreeSelect || !searchInput
         || !nameSortButton || !finalSortButton || !nameSortHeader || !finalSortHeader
-        || !globalModifiersEl) return;
+        || !globalModifiersEl || !targetTabs.length) return;
+    const activeTargetTab = targetTabs.find(tab => tab.getAttribute('aria-selected') === 'true');
+    const targetCount = String(activeTargetTab ? activeTargetTab.dataset.targetCount : '1');
 
     const identity = snapshot && snapshot.identity ? snapshot.identity : {};
     identityEl.textContent = snapshot
@@ -5913,7 +5916,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     const activeSortButton = sortMode === 'name' ? nameSortButton : finalSortButton;
     const sortDirection = activeSortButton.dataset.direction === 'asc' ? 'asc' : 'desc';
     nameSortButton.textContent = `技能 ${sortMode === 'name' ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}`;
-    finalSortButton.textContent = `最终归一化伤害 ${sortMode === 'final' ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}`;
+    finalSortButton.textContent = `${targetCount}目标最终归一化伤害 ${sortMode === 'final' ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}`;
     nameSortHeader.setAttribute('aria-sort', sortMode === 'name'
         ? (sortDirection === 'asc' ? 'ascending' : 'descending')
         : 'none');
@@ -6003,10 +6006,14 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             const haystack = `${action.display_name || ''} ${action.name || ''} ${action.spell_id || ''} ${variant.talent_name || ''} ${variant.talent_name_zh || ''} ${variant.runtime_condition || ''}`.toLowerCase();
             if (query && !haystack.includes(query)) return;
             const product = action.product && typeof action.product === 'object' ? action.product : {};
-            const finalSortValue = hasFiniteSimcSkillDamageNumber(product.final_normalized_damage)
+            const damageByTarget = product.final_normalized_damage_by_target;
+            const selectedFinalDamage = targetCount === '1'
                 ? product.final_normalized_damage
+                : (damageByTarget && typeof damageByTarget === 'object' ? damageByTarget[targetCount] : null);
+            const finalSortValue = hasFiniteSimcSkillDamageNumber(selectedFinalDamage)
+                ? selectedFinalDamage
                 : Number.NEGATIVE_INFINITY;
-            rows.push({action, product, finalSortValue, sourceIndex: rows.length});
+            rows.push({action, product, selectedFinalDamage, finalSortValue, sourceIndex: rows.length});
         });
     });
     rows.sort((left, right) => {
@@ -6023,7 +6030,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         if (nameDelta) return nameDelta;
         return left.sourceIndex - right.sourceIndex;
     });
-    body.innerHTML = rows.length ? rows.map(({action, product}) => {
+    body.innerHTML = rows.length ? rows.map(({action, product, selectedFinalDamage}) => {
         const skillMeta = renderSimcSkillIdentity(action);
         const variant = action.variant && typeof action.variant === 'object' ? action.variant : {};
         const talentName = variant.talent_name_zh || variant.talent_name || '基础技能';
@@ -6036,7 +6043,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const variantLabel = conditionLabel || (talentName === '基础技能' ? talentName : `点出${fallbackTalentLabel}`);
         const variantCell = `<div class="text-xs text-amber-800">${escapeHtml(variantLabel)}</div>`;
         const normalizedBase = product.normalized_base_damage;
-        const finalDamage = product.final_normalized_damage;
+        const finalDamage = selectedFinalDamage;
         let baseDamageCell = '<span class="text-stone-500">DBC 未解析</span>';
         if (hasFiniteSimcSkillDamageNumber(normalizedBase)) {
             baseDamageCell = formatSimcSkillDamageNumber(normalizedBase);
@@ -6049,16 +6056,28 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const formulaBaseLabel = '基础伤害';
         formulaComponents.forEach(component => {
             const baseDamage = component.base_damage;
-            const componentFinal = component.final_damage;
+            const componentSingleTarget = component.final_damage;
+            const componentDamageByTarget = component.final_damage_by_target;
+            const componentFinal = targetCount === '1'
+                ? componentSingleTarget
+                : (componentDamageByTarget && typeof componentDamageByTarget === 'object'
+                    ? componentDamageByTarget[targetCount]
+                    : null);
             const runtimeFactors = Array.isArray(component.runtime_factors)
                 ? component.runtime_factors.filter(hasFiniteSimcSkillDamageNumber)
                 : [];
             if (!hasFiniteSimcSkillDamageNumber(baseDamage)
                 || !hasFiniteSimcSkillDamageNumber(componentFinal)) return;
-            const factorKey = JSON.stringify(runtimeFactors);
+            const multiTargetFactor = targetCount !== '1'
+                && hasFiniteSimcSkillDamageNumber(componentSingleTarget)
+                && componentSingleTarget !== 0
+                ? componentFinal / componentSingleTarget
+                : 1;
+            const factorKey = JSON.stringify([runtimeFactors, multiTargetFactor]);
             const group = formulaGroups.get(factorKey) || {
                 finalDamage: 0,
                 runtimeFactors,
+                multiTargetFactor,
             };
             group.finalDamage += componentFinal;
             formulaGroups.set(factorKey, group);
@@ -6067,7 +6086,10 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             const factorFormula = group.runtimeFactors
                 .map(factor => ` × ${formatSimcSkillDamageFactor(factor)}`)
                 .join('');
-            const term = `${formulaBaseLabel}${factorFormula}`;
+            const multiTargetFormula = targetCount !== '1'
+                ? ` × ${formatSimcSkillDamageFactor(group.multiTargetFactor)}（多目标）`
+                : '';
+            const term = `${formulaBaseLabel}${factorFormula}${multiTargetFormula}`;
             return formulaGroups.size > 1 ? `(${term})` : term;
         });
         if (formulaTerms.length && hasFiniteSimcSkillDamageNumber(finalDamage)) {
@@ -6088,6 +6110,7 @@ function initSimcSkillDamagePanel() {
     const searchInput = document.getElementById('simc-skill-damage-search');
     const nameSortButton = document.getElementById('simc-skill-damage-sort-name');
     const finalSortButton = document.getElementById('simc-skill-damage-sort-final');
+    const targetTabs = Array.from(panel.querySelectorAll('.simc-skill-damage-target-tab'));
     let currentSnapshot = null;
     let pollTimer = null;
 
@@ -6119,6 +6142,19 @@ function initSimcSkillDamagePanel() {
     };
 
     refreshBtn.addEventListener('click', () => load().catch(error => showMessage(error.message, 'error')));
+    targetTabs.forEach(tab => tab.addEventListener('click', () => {
+        targetTabs.forEach(candidate => {
+            const active = candidate === tab;
+            candidate.setAttribute('aria-selected', active ? 'true' : 'false');
+            candidate.classList.toggle('bg-blue-700', active);
+            candidate.classList.toggle('text-white', active);
+            candidate.classList.toggle('border', !active);
+            candidate.classList.toggle('border-stone-300', !active);
+            candidate.classList.toggle('bg-white', !active);
+            candidate.classList.toggle('text-stone-700', !active);
+        });
+        renderSimcSkillDamageSnapshot(currentSnapshot);
+    }));
     specSelect.addEventListener('change', () => {
         heroTreeSelect.value = '';
         renderSimcSkillDamageSnapshot(currentSnapshot);

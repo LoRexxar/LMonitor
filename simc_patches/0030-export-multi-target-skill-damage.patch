@@ -1,0 +1,156 @@
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+index 9300807e29..b9a771a027 100644
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -32,6 +32,7 @@
+ #include "util/git_info.hpp"
+ #include "util/io.hpp"
+
++#include <array>
+ #include <locale>
+ #include <cctype>
+ #include <cerrno>
+@@ -552,6 +553,7 @@ struct skill_damage_amount_t
+     double crit_chance_uncapped = 0.0, expected = 0.0;
+     double base_multiplier = 1.0, base_component_multiplier = 1.0;
+     double damage_equivalent_count = 1.0;
++    std::map<int, double> target_hit;
+     skill_damage_runtime_layers_t runtime_layers;
+     bool present = false, can_crit = false;
+   } direct_amount, tick_amount;
+@@ -697,6 +699,75 @@ bool skill_damage_runtime_layers_valid( const skill_damage_runtime_layers_t& lay
+          positive( layers.pet_multiplier ) && positive( layers.target_pet_multiplier );
+ }
+
++double skill_damage_target_hit( action_t& action, player_t* target, unsigned n_targets,
++                                unsigned chain_target, bool periodic )
++{
++  const auto amount_type = periodic ? result_amount_type::DMG_OVER_TIME : result_amount_type::DMG_DIRECT;
++  action_state_t* hit_state = action.get_state();
++  if ( !hit_state )
++    throw std::runtime_error( "target scenario state allocation failed" );
++  hit_state->target = target;
++  hit_state->n_targets = n_targets;
++  hit_state->chain_target = chain_target;
++  hit_state->result = RESULT_HIT;
++  action.snapshot_state( hit_state, amount_type );
++  hit_state->attack_power = 100.0;
++  hit_state->spell_power = 100.0;
++  const double hit = periodic ? action.calculate_tick_amount( hit_state, 1.0 )
++                              : action.calculate_direct_amount( hit_state );
++  action_state_t::release( hit_state );
++  return hit;
++}
++
++void skill_damage_populate_target_scenarios( action_t& action, skill_damage_amount_t& amount )
++{
++  static constexpr std::array<int, 4> scenario_counts = { 2, 5, 10, 20 };
++  if ( amount.direct )
++    amount.direct_amount.target_hit[ 1 ] = amount.direct_amount.hit;
++  if ( amount.periodic )
++    amount.tick_amount.target_hit[ 1 ] = amount.tick_amount.hit;
++  if ( !action.target )
++    throw std::runtime_error( "target scenario action target unavailable" );
++
++  const int saved_desired_targets = action.sim->desired_targets;
++  try
++  {
++    for ( int scenario_count : scenario_counts )
++    {
++      // Keep the full target count visible to class/action formulas while using
++      // action_state_t's native n_targets/chain_target AoE calculation path.
++      action.sim->desired_targets = scenario_count;
++      const int configured_targets = action.n_targets();
++      const int hit_targets = configured_targets < 0
++                            ? scenario_count
++                            : configured_targets > 0
++                                ? std::min( scenario_count, configured_targets )
++                                : 1;
++      double direct_hit = 0.0;
++      double tick_hit = 0.0;
++      for ( int index = 0; index < hit_targets; ++index )
++      {
++        if ( amount.direct )
++          direct_hit += skill_damage_target_hit(
++              action, action.target, as<unsigned>( hit_targets ), as<unsigned>( index ), false );
++        if ( amount.periodic )
++          tick_hit += skill_damage_target_hit(
++              action, action.target, as<unsigned>( hit_targets ), as<unsigned>( index ), true );
++      }
++      if ( amount.direct )
++        amount.direct_amount.target_hit[ scenario_count ] = direct_hit;
++      if ( amount.periodic )
++        amount.tick_amount.target_hit[ scenario_count ] = tick_hit;
++    }
++  }
++  catch ( ... )
++  {
++    action.sim->desired_targets = saved_desired_targets;
++    throw;
++  }
++  action.sim->desired_targets = saved_desired_targets;
++}
++
+ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
+ {
+   skill_damage_amount_t amount;
+@@ -803,6 +874,10 @@ skill_damage_amount_t skill_damage_runtime_amount( action_t& action )
+         amount.unresolved_reason = "runtime_layer_non_positive";
+       }
+     }
++    if ( amount.direct || amount.periodic )
++    {
++      skill_damage_populate_target_scenarios( action, amount );
++    }
+   }
+   catch ( const std::exception& e ) { amount.unresolved_reason = std::string( "runtime_snapshot_failed: " ) + e.what(); }
+   catch ( ... ) { amount.unresolved_reason = "runtime_snapshot_failed: unknown_exception"; }
+@@ -986,6 +1061,16 @@ void write_skill_damage_amount( std::ostream& out, const skill_damage_amount_t&
+     out << ",\"crit_chance_uncapped\":"; write_skill_damage_json_number( out, c.crit_chance_uncapped );
+     out << ",\"can_crit\":" << ( c.can_crit ? "true" : "false" );
+     out << ",\"expected\":"; write_skill_damage_json_number( out, c.expected );
++    out << ",\"target_hit\":{";
++    bool first_target_hit = true;
++    for ( const auto& [ target_count, hit ] : c.target_hit )
++    {
++      if ( !first_target_hit ) out << ',';
++      first_target_hit = false;
++      out << '\"' << target_count << "\":";
++      write_skill_damage_json_number( out, hit );
++    }
++    out << '}';
+     out << ",\"damage_equivalent_count\":"; write_skill_damage_json_number( out, c.damage_equivalent_count );
+     out << ",\"base_damage_layers\":{\"base_multiplier\":";
+     write_skill_damage_json_number( out, c.base_multiplier );
+@@ -1233,7 +1318,7 @@ void export_skill_damage( sim_t& sim )
+   const std::string temporary = target + ".tmp." + std::to_string( static_cast<long long>( getpid() ) );
+   std::ofstream out( temporary, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open temporary skill damage export file" );
+-  out << "{\"schema_version\":11,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
++  out << "{\"schema_version\":12,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"normalization_basis\":{\"attack_power\":100,\"spell_power\":100,"
+          "\"crit_percent\":20,\"mastery_percent\":50}";
+@@ -1320,15 +1405,19 @@ void export_skill_damage( sim_t& sim )
+       const bool requires_weapon_data = action->weapon != nullptr && action->weapon_multiplier != 0.0;
+       const bool residual_trigger_dependent = skill_damage_residual_trigger_dependent( *action );
+       const bool child_trigger_dependent = action->snapshot_state_requires_parent_execute_state;
+-      // Each calculation resets the normally initialized actor. Fatal probes are
+-      // isolated by the caller through recursive actor-process splitting.
++      const bool unsupported_probe = requires_weapon_data || residual_trigger_dependent || child_trigger_dependent;
++      // Unsupported actions have no truthful baseline or delta. Enumerating every
++      // actor buff for them only repeats identical unresolved rows and dominates
++      // exporter runtime without adding product evidence.
+       skill_damage_amount_t baseline;
+       if ( requires_weapon_data ) baseline.unresolved_reason = "weapon_dependent";
+       else if ( residual_trigger_dependent ) baseline.unresolved_reason = "residual_trigger_dependent";
+       else if ( child_trigger_dependent ) baseline.unresolved_reason = "child_trigger_dependent";
+       else baseline = skill_damage_snapshot( *action, {} );
+       // Runtime multiplier evaluation materializes lazy actor_target_data_t states.
+-      const auto scenarios = skill_damage_scenarios( *action );
++      const auto scenarios = unsupported_probe
++        ? std::vector<std::vector<skill_damage_condition_t>>{}
++        : skill_damage_scenarios( *action );
+       if ( !first_action ) out << ',';
+       first_action = false;
+       out << "{\"token\":"; apl_metadata_json_string( out, action->name_str );
