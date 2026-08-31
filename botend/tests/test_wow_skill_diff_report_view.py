@@ -102,6 +102,7 @@ class PortalWowSkillDiffReportViewTests(SimpleTestCase):
         html = response.content.decode('utf-8')
         self.assertIn('wow-skill-diff-embedded-html', html)
         self.assertIn('PTR(测试服) 职业技能变更报告', html)
+        self.assertIn('portal/js/wow-skill-diff-report.js', html)
         self.assertNotIn('<iframe', html)
         self.assertNotIn('HTML 报告文件不存在', html)
 
@@ -228,6 +229,22 @@ class WagoSkillDiffHtmlReportTests(SimpleTestCase):
         self.addCleanup(self.tmpdir.cleanup)
         self.base_dir = Path(self.tmpdir.name)
 
+    def test_report_change_tone_marks_direct_buff_nerf_and_uncertain_fields(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+
+        self.assertEqual(
+            monitor._report_change_tone('PvpMultiplier', '1.35', '1.485'),
+            ('buff', '增强', '+10%'),
+        )
+        self.assertEqual(
+            monitor._report_change_tone('PvpMultiplier', '1', '0.7'),
+            ('nerf', '削弱', '-30%'),
+        )
+        self.assertEqual(
+            monitor._report_change_tone('AuraInterruptFlags_1', '0', '16704'),
+            ('mechanic', '数值调整', ''),
+        )
+
     def test_html_report_repairs_utf8_mojibake_names(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
         monitor.locale = 'enUS'
@@ -340,6 +357,11 @@ class WagoSkillDiffHtmlReportTests(SimpleTestCase):
         self.assertIn('最高缩放等级 / MaxScalingLevel', html)
         self.assertIn('天赋定义 / traitdefinition', html)
         self.assertIn('天赋定义 ID / TraitDefinitionID', html)
+        self.assertIn('改动影响概览', html)
+        self.assertIn('这条改动可能影响', html)
+        self.assertIn('等级缩放范围', html)
+        self.assertIn('查看 DB2 字段细节', html)
+        self.assertIn("data-tone='mechanic'", html)
     def test_html_report_resolves_or_hides_unresolved_tooltip_placeholders(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
         monitor.locale = 'enUS'
@@ -405,6 +427,29 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmpdir.cleanup)
         self.base_dir = Path(self.tmpdir.name)
+
+    def test_hotfix_fallback_html_uses_the_same_impact_report_hierarchy(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor.locale = 'zhCN'
+
+        with override_settings(BASE_DIR=str(self.base_dir)):
+            report = monitor._build_hotfix_fallback_report(
+                branch='wow',
+                current_build='68367',
+                from_push=109505,
+                to_push=109506,
+                locale='zhCN',
+                reason='明细接口暂时不可用。',
+                source_report={'table_count': 3, 'entry_count': 8},
+            )
+
+        html = (self.base_dir / 'static' / report['content_html_path']).read_text(encoding='utf-8')
+        self.assertIn('hotfix-report-fallback', html)
+        self.assertIn('Wago Hotfix 影响报告 · 数据待补全', html)
+        self.assertIn('影响范围暂时无法可靠还原', html)
+        self.assertIn('不会猜测受影响对象，也不会给出增强或削弱结论', html)
+        self.assertIn('当前已知 DB2 表', html)
+        self.assertIn('当前已知记录', html)
 
     def test_hotfix_full_html_enriches_records_instead_of_record_id_list(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
@@ -505,12 +550,18 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
         self.assertIn('Wago push 109505', html)
         self.assertIn('ItemSparse readable row 19019', html)
         self.assertIn('DB2 表目录（按类别分组，覆盖全部表）', html)
-        self.assertIn('技能/天赋只是其中一类', html)
-        self.assertIn('筛选类别、表名、record_id、名称、描述、字段值', html)
-        self.assertIn('Hotfix 原始数据只给出 push / DB2 表 / record_id', html)
+        self.assertIn('筛选表名、record_id、字段值', html)
+        self.assertIn('class="hotfix-report"', html)
+        self.assertIn("aria-label='按影响范围筛选'", html)
+        self.assertIn("data-hotfix-category='all'", html)
+        self.assertIn("data-hotfix-category='技能/法术'", html)
+        self.assertIn('不判断增强或削弱', html)
+        self.assertIn('这次具体改了什么', html)
+        self.assertIn('第 1 个技能效果的当前记录：基础值 15，法术强度系数 0.42，PvP 倍率 0.8', html)
+        self.assertIn('当前设置为随物品等级缩放', html)
+        self.assertIn('查看技术明细与完整 DB2 字段', html)
         self.assertIn('先看对象和字段', html)
         self.assertIn('字段关系', html)
-        self.assertIn('具体游戏对象', html)
         self.assertIn('查看完整 DB2 原始字段（含 0 / 默认值 / 内部字段）', html)
         self.assertIn('class=\'fields important-fields\'', html)
         self.assertNotIn("<div class='field primary'><span>标志位</span><strong>0</strong></div>", html)
@@ -652,10 +703,10 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
 
         html = Path(full_path).read_text(encoding='utf-8')
         self.assertEqual(rel_path, 'portal/reports/wow_hotfix_full_wow_zhCN_109505.html')
-        self.assertIn('具体游戏对象', html)
-        self.assertIn('技能/法术 · 奥术涌动', html)
-        self.assertIn('任务 · 修复信标', html)
-        self.assertIn('物品/装备 · 奥术饰品', html)
+        self.assertIn('这次具体改了什么', html)
+        self.assertIn('奥术涌动', html)
+        self.assertIn('修复信标', html)
+        self.assertIn('奥术饰品', html)
         self.assertIn('关联技能', html)
         self.assertIn('奥术涌动 #365350', html)
         self.assertTrue(fetch_locales)
@@ -738,14 +789,16 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
             )
 
         html = Path(full_path).read_text(encoding='utf-8')
-        self.assertIn('具体游戏对象', html)
-        self.assertIn('坐骑 · 星界水母', html)
+        self.assertIn('这次具体改了什么', html)
+        self.assertIn('<h3>星界水母</h3>', html)
         self.assertIn('来源技能', html)
         self.assertIn('召唤星界水母 #2222', html)
         self.assertIn('生物外观 ID', html)
         self.assertIn('Mount.ID = MountID', html)
         self.assertNotIn('可读解释', html)
-        self.assertNotIn('可能影响', html)
+        self.assertIn('查看技术明细与完整 DB2 字段', html)
+        self.assertIn('坐骑获取与展示', html)
+        self.assertIn('不判断增强或削弱', html)
 
     def test_hotfix_full_report_scans_bounded_pages_even_when_pushes_are_not_monotonic(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())

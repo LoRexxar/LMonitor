@@ -13,27 +13,30 @@
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
 
-    <div class="max-w-[1200px] mx-auto px-4 py-6">
-        <div class="portal-card portal-card-accent portal-accent-indigo bg-white/80 shadow-sm border border-slate-200/70 p-5">
-            <div class="flex flex-wrap items-start justify-between gap-3">
-                <div class="min-w-0">
-                    <div class="text-lg font-extrabold text-slate-900 break-words">{{ page_title }}</div>
-                    <div class="mt-1 text-xs text-slate-500 flex flex-wrap items-center gap-2">
+    <div class="max-w-[1240px] mx-auto px-4 py-6">
+        <main class="wow-skill-diff-page">
+            <header class="wow-skill-diff-page-head">
+                <div class="wow-skill-diff-page-head-main">
+                    <div class="wow-skill-diff-kicker">Wago 版本更新 · 职业改动报告</div>
+                    <h1>{{ page_title }}</h1>
+                    <div class="wow-skill-diff-meta" aria-label="报告元数据">
                         {% if report.display_from_build or report.display_to_build %}
-                            <span>版本：{{ report.display_from_build|default:report.from_build }} → {{ report.display_to_build|default:report.to_build }}</span>
-                            <span class="text-slate-400">数据版本：{{ report.from_build }} → {{ report.to_build }}</span>
+                            <span><b>游戏版本</b>{{ report.display_from_build|default:report.from_build }} → {{ report.display_to_build|default:report.to_build }}</span>
+                            <span><b>数据版本</b>{{ report.from_build }} → {{ report.to_build }}</span>
                         {% else %}
-                            <span>版本：{{ report.from_build }} → {{ report.to_build }}</span>
+                            <span><b>版本</b>{{ report.from_build }} → {{ report.to_build }}</span>
                         {% endif %}
-                        <span>服务器：{{ server_title }}</span>
-                        <span>时间：{{ report.created_at|date:"Y-m-d H:i:s" }}</span>
+                        <span><b>服务器</b>{{ server_title }}</span>
+                        <span><b>生成时间</b>{{ report.created_at|date:"Y-m-d H:i:s" }}</span>
                     </div>
                 </div>
-            </div>
+                {% if html_exists %}
+                    <a class="wow-skill-diff-standalone-link" href="{{ report_file_url }}" target="_blank" rel="noopener noreferrer">打开独立报告</a>
+                {% endif %}
+            </header>
             {% if html_exists %}
                 <div class="mt-5">
-                    <a class="text-xs text-indigo-700 hover:text-indigo-900 underline" href="{{ report_file_url }}" target="_blank" rel="noopener noreferrer">打开独立 HTML 报告</a>
-                    <div class="wow-skill-diff-embedded-html mt-3 rounded-lg border border-slate-200 bg-white overflow-hidden">
+                    <div class="wow-skill-diff-embedded-html">
                         {{ embedded_html|safe }}
                     </div>
                 </div>
@@ -45,7 +48,8 @@
                 {% endif %}
                 <div class="mt-5">{{ fallback_html|safe }}</div>
             {% endif %}
-        </div>
+        </main>
     </div>
+    <script src="{% static 'portal/js/wow-skill-diff-report.js' %}?v=20260831_impact_v1"></script>
 </body>
 </html>

@@ -670,30 +670,27 @@ class WagoSkillDiffMonitor(BaseScan):
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{esc(summary_title)}</title>
   <style>
-    body {{ font-family: -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,'Noto Sans',sans-serif; margin: 24px; color:#0f172a; }}
-    a {{ color:#2563eb; }}
-    .box {{ border:1px solid #fde68a; background:#fffbeb; border-radius:8px; padding:14px 16px; margin:16px 0; }}
-    .meta {{ color:#475569; line-height:1.8; }}
-    code {{ background:#f1f5f9; padding:1px 6px; border-radius:4px; }}
+    body {{ margin:0; padding:16px; font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif; color:#172033; background:#f1f3f7; line-height:1.6; }}
+    * {{ box-sizing:border-box; }} a {{ color:#5145b7; }}
+    .hotfix-report {{ --line:#dfe3ea; --soft:#f7f8fa; max-width:1000px; margin:0 auto; background:#fff; border:1px solid var(--line); border-radius:16px; padding:24px; }}
+    .hero {{ display:flex; justify-content:space-between; gap:18px; align-items:flex-start; padding-bottom:16px; border-bottom:1px solid var(--line); }}
+    .kicker {{ display:block; color:#5b4fc4; font-size:12px; font-weight:800; }} h1 {{ margin:3px 0 0; font-size:28px; line-height:1.24; }}
+    .meta {{ color:#667085; font-size:12px; margin-top:8px; display:flex; flex-wrap:wrap; gap:7px 13px; }} .source-link {{ min-height:40px; display:inline-flex; align-items:center; white-space:nowrap; border:1px solid var(--line); border-radius:10px; padding:7px 11px; font-weight:750; text-decoration:none; }}
+    .summary {{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:14px 0; }} .metric {{ border:1px solid var(--line); background:var(--soft); border-radius:12px; padding:10px 12px; }} .metric span {{ display:block; color:#667085; font-size:11px; }} .metric strong {{ display:block; font-size:20px; }}
+    .impact-overview {{ border:1px solid var(--line); border-radius:14px; background:var(--soft); padding:14px; margin:14px 0; }} .impact-overview h2 {{ margin:2px 0 5px; font-size:20px; }} .impact-overview p {{ margin:0; color:#667085; font-size:13px; }}
+    .box {{ border:1px solid #e6c85e; background:#fff7dc; color:#5f4500; border-radius:10px; padding:12px 14px; margin:14px 0; }} .box h2 {{ margin:0 0 6px; font-size:17px; }} .box p {{ margin:5px 0; }}
+    code {{ background:#f1f3f7; padding:1px 6px; border-radius:4px; }}
+    @media(max-width:640px) {{ body{{padding:8px}} .hotfix-report{{padding:14px;border-radius:12px}} .hero{{display:block}} .source-link{{margin-top:10px;min-height:44px}} }}
+    @media(prefers-color-scheme:dark) {{ body{{background:#211e1b;color:#f4f1ed}} .hotfix-report{{--line:rgba(154,141,128,.42);--soft:#27231f;background:#302b26;box-shadow:none}} .meta,.impact-overview p,.metric span{{color:#b8afa6}} .box{{background:rgba(154,103,0,.24);color:#f4cc72}} code{{background:#27231f}} }}
   </style>
 </head>
 <body>
-  <h1>{esc(summary_title)}</h1>
-  <div class="meta">
-    <div>分支：{esc(branch)} ｜ 区域/语言：{esc(locale)} ｜ Build：{esc(current_build)} ｜ Push：{from_push} → {to_push}</div>
-    <div>生成时间：{esc(now_text)}</div>
-    <div>Wago 链接：<a href="{esc(wago_url)}" target="_blank" rel="noreferrer">{esc(wago_url)}</a></div>
-  </div>
-  <div class="box">
-    <h2>Fallback 状态说明</h2>
-    <p>{esc(reason)}</p>
-    <p>监控已确认 hotfix push 有更新，因此仍生成本报告并记录本次事件；如果明细为空，请优先打开上方 Wago 链接复核原始更新。</p>
-  </div>
-  <h2>当前可用统计</h2>
-  <ul>
-    <li>表数量：<code>{table_count}</code></li>
-    <li>记录数量：<code>{entry_count}</code></li>
-  </ul>
+  <main class="hotfix-report hotfix-report-fallback">
+    <header class="hero"><div><span class="kicker">Wago Hotfix 影响报告 · 数据待补全</span><h1>{esc(summary_title)}</h1><div class="meta"><span>分支：{esc(branch)}</span><span>区域/语言：{esc(locale)}</span><span>Build：{esc(current_build)}</span><span>Push：{from_push} → {to_push}</span><span>生成时间：{esc(now_text)}</span></div></div><a class="source-link" href="{esc(wago_url)}" target="_blank" rel="noreferrer">核对 Wago 原始列表</a></header>
+    <div class="summary"><div class="metric"><span>当前已知 DB2 表</span><strong>{table_count}</strong></div><div class="metric"><span>当前已知记录</span><strong>{entry_count}</strong></div></div>
+    <section class="impact-overview"><span class="kicker">先看状态，再核对来源</span><h2>影响范围暂时无法可靠还原</h2><p>系统已确认新的 Hotfix push，但表级明细或当前 build 数据还不完整，因此不会猜测受影响对象，也不会给出增强或削弱结论。</p></section>
+    <div class="box"><h2>Fallback 状态说明</h2><p>{esc(reason)}</p><p>本次事件已经记录。明细补全前，请通过上方 Wago 原始列表复核；下一轮监控仍可重新生成完整的影响报告。</p></div>
+  </main>
 </body>
 </html>
 """
@@ -2627,6 +2624,28 @@ class WagoSkillDiffMonitor(BaseScan):
             'vehicleseat': 'VehicleSeat.ID = 座位记录；VehicleID/AttachmentID/Flags 是载具座位配置字段',
             'modifiertree': 'ModifierTree.ID = 条件节点；Parent/Operator/Amount/Type 字段组成规则树',
         }
+        category_impacts = {
+            '技能/法术': ('技能表现与战斗机制', '可能涉及伤害、治疗、资源、冷却、持续时间、范围或触发逻辑。'),
+            '天赋': ('天赋选择与构筑', '可能改变天赋收益、选择优先级或与其他技能的联动。'),
+            '天赋树': ('天赋路径与节点关系', '可能改变节点收益、前置关系或构筑路径。'),
+            '物品/装备': ('装备表现与物品效果', '可能涉及属性、特效、使用效果、掉落或装备限制。'),
+            '地下城手册': ('副本机制说明', '可能涉及首领、技能说明、阶段提示或手册展示。'),
+            '任务': ('任务流程与目标', '可能涉及接取条件、目标文本、进度或奖励关联。'),
+            '生物/NPC': ('NPC 行为与外观', '可能涉及生物配置、交互、模型或关联技能。'),
+            '地图/区域': ('地图与区域内容', '可能涉及地图配置、区域归属、场景或内容入口。'),
+            '区域': ('区域规则与内容', '可能涉及区域配置、条件或场景表现。'),
+            '货币': ('货币获取与消耗', '可能涉及货币名称、上限、来源或用途。'),
+            '成就': ('成就条件与展示', '可能涉及达成条件、进度或奖励关联。'),
+            '坐骑': ('坐骑获取与展示', '可能涉及来源技能、外观或收藏信息。'),
+            '载具/交互': ('载具操作与交互', '可能涉及座位、相机、挂点或交互规则。'),
+            '幻化': ('幻化外观与收藏', '可能涉及外观来源、解锁条件或展示。'),
+            '收藏': ('收藏获取与展示', '可能涉及收藏来源、状态或展示信息。'),
+            '界面': ('界面显示与交互', '可能涉及客户端展示、提示或交互配置。'),
+            '要塞/追随者': ('追随者与要塞系统', '可能涉及任务、能力、奖励或系统配置。'),
+            '宠物': ('宠物属性与来源', '可能涉及品种、技能、外观或获取方式。'),
+            '角色/职业': ('角色与职业规则', '可能涉及职业、专精、种族或角色配置。'),
+            '其他 DB2': ('底层系统配置', '当前只能确认底层 DB2 对象发生热修，需要结合字段和游戏内表现复核。'),
+        }
 
         def esc(s):
             return html.escape(str(s or ""))
@@ -2653,6 +2672,22 @@ class WagoSkillDiffMonitor(BaseScan):
 
         def table_system(t):
             return table_category(t)
+
+        def impact_category(value):
+            raw = str(value or '').strip()
+            if raw in category_impacts:
+                return raw
+            low = raw.lower()
+            for needle, label in category_rules:
+                if needle in low:
+                    return label
+            for label in category_impacts:
+                if label and label in raw:
+                    return label
+            return '其他 DB2'
+
+        def impact_copy(value):
+            return category_impacts.get(impact_category(value), category_impacts['其他 DB2'])
 
         def hotfix_table_url(table_name='', push_id=0):
             params = []
@@ -2749,8 +2784,10 @@ class WagoSkillDiffMonitor(BaseScan):
             return first_text(row)
 
         def row_fields_html(table_name, record_id, row):
+            impact_title, impact_description = impact_copy(table_name)
             semantic_html = (
                 "<div class='semantic-fallback'>"
+                f"<div class='semantic-line impact-semantic'><span>可能影响</span><strong>{esc(impact_title)}</strong><small>{esc(impact_description)}</small></div>"
                 f"<div class='semantic-line'><span>DB2 表</span><strong>{esc(table_label(table_name))}</strong></div>"
                 f"<div class='semantic-line'><span>类别</span><strong>{esc(table_system(table_name))}</strong></div>"
                 f"<div class='semantic-line'><span>字段关系</span><strong>{esc(table_relationship(table_name))}</strong></div>"
@@ -2907,8 +2944,10 @@ class WagoSkillDiffMonitor(BaseScan):
 
         category_cards = []
         for cat, meta in sorted(category_counts.items(), key=lambda x: (-x[1]['rows'], x[0])):
+            impact_title, impact_description = impact_copy(cat)
             category_cards.append(
-                f"<div class='metric category'><span>{esc(cat)}</span><strong>{int(meta['rows'])}</strong><em>{int(meta['tables'])} 张表</em></div>"
+                f"<button type='button' class='impact-filter' data-hotfix-category='{esc(cat)}' aria-pressed='false' title='{esc(impact_description)}'>"
+                f"<span>{esc(cat)}</span><strong>{int(meta['rows'])}</strong><em>{esc(impact_title)} · {int(meta['tables'])} 张表</em></button>"
             )
 
         stats_rows = []
@@ -2931,9 +2970,10 @@ class WagoSkillDiffMonitor(BaseScan):
         relationship_cards = []
         for key in ordered_keys[:120]:
             t, c = table_lookup.get(key) or (key, 0)
+            cat = table_category(t)
             relation = table_relationship(t)
             relationship_cards.append(
-                f"<article class='system-card' data-search='{esc((table_system(t)+' '+table_label(t)+' '+relation).lower())}'>"
+                f"<article class='system-card' data-category='{esc(cat)}' data-search='{esc((table_system(t)+' '+table_label(t)+' '+relation).lower())}'>"
                 f"<div><span>{esc(table_system(t))}</span><strong>{esc(table_label(t))}</strong></div>"
                 f"<p><b>字段关系：</b>{esc(relation)}</p>"
                 f"<a href='#table-{esc(key)}'>查看 {int(c or 0)} 条 DB2 记录</a>"
@@ -2941,8 +2981,8 @@ class WagoSkillDiffMonitor(BaseScan):
             )
         system_overview = (
             "<section class='systems-overview' id='systems-overview'>"
-            "<div class='table-head'><div><h2>先看对象和字段</h2>"
-            "<p>先列 DB2 表之间的关联路径和关键字段含义；下方再展示对象卡片与原始字段。</p></div></div>"
+            "<div class='table-head'><div><span class='section-kicker'>技术解释</span><h2>对象与字段关系</h2>"
+            "<p>需要追踪热修来源时，先看对象和字段之间的关联路径，再进入下方 DB2 原始记录。</p></div></div>"
             + ''.join(relationship_cards)
             + "</section>"
         ) if relationship_cards else ''
@@ -2975,6 +3015,122 @@ class WagoSkillDiffMonitor(BaseScan):
         def clean_report_text(value):
             return self._cleanup_unresolved_tooltip_tokens(str(value or ''))
 
+        resolved_objects_by_source = {}
+        for resolved_obj in list(getattr(object_graph, 'objects', []) or []):
+            for source_ref in resolved_obj.source_records or []:
+                resolved_objects_by_source[(tkey(source_ref.table), int(source_ref.record_id or 0))] = resolved_obj
+
+        def reader_identity(table_name, record_id, row):
+            key = tkey(table_name)
+            row = row if isinstance(row, dict) else {}
+            category = table_category(table_name)
+            resolved_obj = resolved_objects_by_source.get((key, int(record_id or 0)))
+            if resolved_obj:
+                obj_kind = clean_report_text(resolved_obj.kind) or 'object'
+                obj_category = impact_category(clean_report_text(resolved_obj.category) or category)
+                obj_title = clean_report_text(resolved_obj.title or resolved_obj.object_id)
+                kind_label = clean_report_text(resolved_obj.category) or obj_category
+                return f"{obj_kind}:{resolved_obj.object_id}", obj_category, obj_title, kind_label
+            if key.startswith('spell'):
+                spell_id = self._extract_spell_id(key, row) or (record_id if key in ('spellname', 'spelldescription') else 0)
+                name = spell_name(spell_id) if spell_id else first_text(row)
+                return f"spell:{spell_id or record_id}", category, name or f"技能 #{spell_id or record_id}", '技能'
+            if 'item' in key:
+                object_id = self._to_int(row.get('ItemID') or row.get('ID') or record_id)
+                return f"item:{object_id}", category, first_text(row) or f"物品 #{object_id}", '物品'
+            if 'quest' in key:
+                object_id = self._to_int(row.get('QuestID') or row.get('ID') or record_id)
+                return f"quest:{object_id}", category, first_text(row) or f"任务 #{object_id}", '任务'
+            if 'map' in key or 'area' in key:
+                object_id = self._to_int(row.get('MapID') or row.get('AreaID') or row.get('ID') or record_id)
+                return f"world:{key}:{object_id}", category, first_text(row) or f"{table_label(table_name)} #{object_id}", '地图与区域'
+            if 'creature' in key:
+                object_id = self._to_int(row.get('CreatureID') or row.get('ID') or record_id)
+                return f"creature:{object_id}", category, first_text(row) or f"生物 #{object_id}", '生物/NPC'
+            object_id = self._to_int(row.get('ID') or record_id)
+            return f"record:{key}:{object_id}", category, first_text(row) or f"{table_label(table_name)} #{object_id}", table_category(table_name)
+
+        def reader_facts(table_name, record_id, row):
+            key = tkey(table_name)
+            if not isinstance(row, dict) or not row:
+                return [f"已确认 {table_label(table_name)} 记录发生热修，但当前 build 暂未还原出可读字段。"]
+
+            def value(field):
+                raw = row.get(field)
+                if raw is None or str(raw).strip() == '':
+                    return ''
+                return clean_report_text(raw).strip()
+
+            facts = []
+            if key == 'spelleffect':
+                index = self._to_int(row.get('EffectIndex') or 0) + 1
+                values = []
+                for field, label in (
+                    ('EffectBasePointsF', '基础值'), ('EffectBasePoints', '基础值'),
+                    ('EffectBonusCoefficient', '法术强度系数'), ('BonusCoefficientFromAP', '攻击强度系数'),
+                    ('Coefficient', '通用系数'), ('PvpMultiplier', 'PvP 倍率'),
+                ):
+                    current = value(field)
+                    if current and f"{label} {current}" not in values:
+                        values.append(f"{label} {current}")
+                if values:
+                    facts.append(f"第 {index} 个技能效果的当前记录：{'，'.join(values)}。")
+                else:
+                    facts.append(f"第 {index} 个技能效果配置发生热修。")
+            elif key == 'spellscaling':
+                min_level = value('MinScalingLevel')
+                max_level = value('MaxScalingLevel')
+                if min_level or max_level:
+                    facts.append(f"当前等级缩放范围：{min_level or '未标明'}–{max_level or '未标明'}。")
+                if value('ScalesFromItemLevel') not in ('', '0', '0.0'):
+                    facts.append('当前设置为随物品等级缩放。')
+            elif key in ('spelldescription', 'spellscripttext'):
+                text = first_text(row)
+                if text:
+                    facts.append(f"当前文本：{text}")
+            elif key in ('spellcooldowns', 'spellcategory'):
+                cooldown = value('RecoveryTime') or value('CategoryRecoveryTime')
+                if cooldown:
+                    try:
+                        seconds = float(cooldown) / 1000
+                        cooldown = f"{seconds:g} 秒"
+                    except Exception:
+                        pass
+                    facts.append(f"当前冷却记录：{cooldown}。")
+            elif 'item' in key:
+                description = value('Description_lang') or value('Text_lang')
+                if description:
+                    description, _removed = self._render_spell_text_plain(db2_build, record_id, description)
+                    facts.append(f"当前物品说明：{clean_report_text(description)}")
+                else:
+                    facts.append(f"{table_label(table_name)}配置发生热修。")
+            elif 'quest' in key:
+                objective = value('ObjectiveText_lang') or value('Description_lang')
+                facts.append(f"任务“{first_text(row) or record_id}”的{('目标文本' if objective else '配置记录')}发生热修。")
+                if objective:
+                    facts.append(f"当前目标：{objective}")
+            elif 'map' in key or 'area' in key:
+                facts.append(f"“{first_text(row) or table_label(table_name)}”的地图或区域配置发生热修。")
+            elif 'creature' in key:
+                facts.append(f"“{first_text(row) or ('生物 #' + str(record_id))}”的 NPC 配置发生热修。")
+
+            resolved_obj = resolved_objects_by_source.get((key, int(record_id or 0)))
+            if resolved_obj:
+                for field in resolved_obj.summary_fields or []:
+                    label = clean_report_text((field or {}).get('label'))
+                    current = clean_report_text((field or {}).get('value'))
+                    if not label or not current:
+                        continue
+                    if any(token in label for token in ('关联', '来源', '目标', '外观', '奖励')):
+                        fact = f"{label}：{current}。"
+                        if fact not in facts:
+                            facts.append(fact)
+
+            if not facts:
+                title = first_text(row)
+                facts.append(f"{('“' + title + '”的') if title else ''}{table_category(table_name)}配置发生热修。")
+            return facts[:3]
+
         def object_fields_html(fields):
             chips = []
             for item in fields or []:
@@ -2991,6 +3147,8 @@ class WagoSkillDiffMonitor(BaseScan):
             obj_category = clean_report_text(obj.category)
             obj_title = clean_report_text(obj.title or obj.object_id)
             title = f"{obj_category or obj_kind} · {obj_title or obj.object_id}"
+            obj_impact_category = impact_category(obj_category or obj_kind)
+            obj_impact_title, obj_impact_description = impact_copy(obj_impact_category)
             source_bits = []
             for ref in (obj.source_records or [])[:8]:
                 source_bits.append(f"<code>{esc(ref.table)} #{int(ref.record_id or 0)}</code>")
@@ -3001,8 +3159,9 @@ class WagoSkillDiffMonitor(BaseScan):
                 ' '.join(f"{clean_report_text((f or {}).get('label'))} {clean_report_text((f or {}).get('value'))}" for f in obj.summary_fields or []),
             ]).lower()
             object_cards.append(
-                f"<article class='object-card record' data-search='{esc(search_text)}'>"
+                f"<article class='object-card record' data-category='{esc(obj_impact_category)}' data-search='{esc(search_text)}'>"
                 f"<div class='record-head'><div><span class='object-kind'>{esc(obj_kind)}</span><strong>{esc(title)}</strong><div class='object-tags'>{tags}</div></div><div class='object-sources'>{''.join(source_bits)}</div></div>"
+                f"<div class='impact-callout'><span>这条热修可能影响</span><strong>{esc(obj_impact_title)}</strong><p>{esc(obj_impact_description)}</p></div>"
                 + object_fields_html(obj.summary_fields)
                 + "</article>"
             )
@@ -3011,15 +3170,18 @@ class WagoSkillDiffMonitor(BaseScan):
         if object_cards:
             object_graph_section = (
                 "<section class='object-section table-section' id='object-graph' data-search='具体游戏对象 字段关系'>"
-                "<div class='table-head'><div><h2>具体游戏对象</h2>"
+                "<div class='table-head'><div><span class='section-kicker'>还原后的阅读视图</span><h2>具体游戏对象</h2>"
                 f"<p>按 DB2 关系还原到技能、任务、物品、坐骑、宠物、载具等对象；已还原 {len(object_cards)} 个对象，未识别 {unresolved_count} 条样例。</p></div>"
                 "<a href='#table-list'>继续看 DB2 表明细</a></div>"
                 + ''.join(object_cards)
                 + "</section>"
             )
 
+        reader_groups = {}
         for key in ordered_keys:
             t, c = table_lookup.get(key) or (key, 0)
+            category = table_category(t)
+            impact_title, impact_description = impact_copy(category)
             raw_rows = by_table.get(t) or by_table.get(norm_table(t)) or []
             records = []
             seen = set()
@@ -3047,11 +3209,28 @@ class WagoSkillDiffMonitor(BaseScan):
                 pid = rec['push_id']
                 summary = rec.get('summary') or ''
                 row = rec.get('row')
+                reader_key, reader_category, reader_title, reader_kind = reader_identity(t, rid, row)
+                reader_group = reader_groups.setdefault(reader_key, {
+                    'category': reader_category,
+                    'title': reader_title,
+                    'kind': reader_kind,
+                    'items': [],
+                    'search': [],
+                })
+                facts = reader_facts(t, rid, row)
+                reader_group['items'].append({
+                    'table': table_label(t),
+                    'record_id': rid,
+                    'push_id': pid,
+                    'facts': facts,
+                    'url': hotfix_table_url(t, pid),
+                })
+                reader_group['search'].extend([reader_category, reader_title, reader_kind, table_label(t), ' '.join(facts)])
                 search_text = ' '.join([norm_table(t), table_label(t), str(rid), str(pid), summary, first_text(row)]).lower()
                 row_title = summary or f"record_id {rid}"
                 wago_rec_url = hotfix_table_url(t, pid)
                 cards.append(
-                    "<article class='record' data-search='{}'>".format(esc(search_text))
+                    "<article class='record' data-category='{}' data-search='{}'>".format(esc(category), esc(search_text))
                     + f"<div class='record-head'><div><span class='record-id'>#{rid}</span><strong>{esc(row_title)}</strong></div><a href='{esc(wago_rec_url)}' target='_blank' rel='noreferrer'>Wago push {pid}</a></div>"
                     + row_fields_html(t, rid, row)
                     + "</article>"
@@ -3060,12 +3239,40 @@ class WagoSkillDiffMonitor(BaseScan):
             more_html = f"<div class='muted more'>还有 {more} 条未展开；可用上方 Wago 表链接查看完整列表。</div>" if more else ''
             section_class = 'table-section'
             detail_sections.append(
-                f"<section class='{section_class}' id='table-{esc(key)}' data-search='{esc((norm_table(t)+' '+table_label(t)+' '+table_category(t)).lower())}'>"
-                f"<div class='table-head'><div><h2>{esc(table_label(t))}</h2><p>{esc(table_category(t))} · {int(c or 0)} 项 hotfix 记录，展开 {len(records)} 项可读样例</p></div><a href='{esc(hotfix_table_url(t, to_push))}' target='_blank' rel='noreferrer'>Wago 表筛选</a></div>"
+                f"<section class='{section_class}' id='table-{esc(key)}' data-category='{esc(category)}' data-search='{esc((norm_table(t)+' '+table_label(t)+' '+category).lower())}'>"
+                f"<div class='table-head'><div><span class='section-kicker'>{esc(category)} · 可能影响 {esc(impact_title)}</span><h2>{esc(table_label(t))}</h2><p>{esc(impact_description)} 本表共 {int(c or 0)} 项 hotfix 记录，展开 {len(records)} 项可读样例。</p></div><a href='{esc(hotfix_table_url(t, to_push))}' target='_blank' rel='noreferrer'>Wago 表筛选</a></div>"
                 + ''.join(cards)
                 + more_html
                 + "</section>"
             )
+
+        reader_cards = []
+        for group in reader_groups.values():
+            items = []
+            source_count = len(group['items'])
+            for item in group['items']:
+                facts_html = ''.join(f"<li>{esc(fact)}</li>" for fact in item['facts'])
+                items.append(
+                    "<div class='reader-evidence'>"
+                    f"<div><strong>{esc(item['table'])}</strong><ul>{facts_html}</ul></div>"
+                    f"<a href='{esc(item['url'])}' target='_blank' rel='noreferrer' aria-label='在 Wago 核对 {esc(item['table'])} 记录 {int(item['record_id'])}'>核对来源</a>"
+                    "</div>"
+                )
+            reader_cards.append(
+                f"<article class='reader-card' data-category='{esc(group['category'])}' data-search='{esc(' '.join(group['search']).lower())}'>"
+                f"<header><div><span>{esc(group['kind'])}</span><h3>{esc(group['title'])}</h3></div><small>{source_count} 处底层记录</small></header>"
+                + ''.join(items)
+                + "</article>"
+            )
+        reader_digest_section = (
+            "<section class='reader-digest' aria-labelledby='readerDigestTitle'>"
+            "<div class='reader-digest-head'><div><h2 id='readerDigestTitle'>这次具体改了什么</h2>"
+            f"<p>已从 {entry_count} 条底层记录整理出 {len(reader_cards)} 个对象。Wago 不提供修改前的值，因此这里只陈述当前能确认的事实，不判断增强或削弱。</p></div>"
+            f"<span id='readerCount'>显示 {len(reader_cards)} 个对象</span></div>"
+            f"<div class='impact-filters' role='group' aria-label='按影响范围筛选'><button type='button' class='impact-filter' data-hotfix-category='all' aria-pressed='true'><span>全部</span><strong>{entry_count}</strong></button>{''.join(category_cards)}</div>"
+            + ''.join(reader_cards)
+            + "</section>"
+        )
 
         html_text = f"""<!doctype html>
 <html lang="zh-CN">
@@ -3074,83 +3281,110 @@ class WagoSkillDiffMonitor(BaseScan):
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{esc(summary_title)}</title>
   <style>
-    body {{ margin:0; padding:16px; font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,'Noto Sans',sans-serif; color:#0f172a; background:#eef2f7; line-height:1.55; }}
-    a {{ color:#2563eb; text-decoration:none; }} a:hover {{ text-decoration:underline; }}
-    .card {{ max-width:1360px; margin:0 auto; background:#fff; border:1px solid rgba(148,163,184,.35); border-radius:18px; padding:20px; box-shadow:0 18px 48px rgba(15,23,42,.08); }}
-    .hero {{ display:flex; justify-content:space-between; gap:16px; align-items:flex-start; border-bottom:1px solid #e2e8f0; padding-bottom:14px; margin-bottom:14px; }}
-    h1 {{ margin:0; font-size:24px; line-height:1.25; letter-spacing:-.02em; }}
-    .meta {{ color:#475569; font-size:12px; margin-top:7px; display:flex; flex-wrap:wrap; gap:8px 12px; }}
-    .summary {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:14px 0; }}
-    .metric {{ border:1px solid #e2e8f0; background:linear-gradient(180deg,#f8fafc,#fff); border-radius:14px; padding:11px 12px; }}
-    .metric span {{ display:block; color:#64748b; font-size:12px; }} .metric strong {{ display:block; font-size:20px; margin-top:2px; }} .metric em {{ display:block; color:#64748b; font-style:normal; font-size:11px; margin-top:2px; }}
-    .categories {{ grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); }} .metric.category {{ background:#fff; }}
-    .note {{ border:1px solid #bfdbfe; background:#eff6ff; color:#1e3a8a; border-radius:14px; padding:10px 12px; font-size:13px; margin:12px 0; }}
-    .controls {{ position:sticky; top:0; z-index:5; margin:12px 0; padding:10px; background:rgba(255,255,255,.94); backdrop-filter:blur(8px); border:1px solid #e2e8f0; border-radius:14px; display:flex; gap:10px; align-items:center; }}
-    .controls input {{ width:100%; border:1px solid #cbd5e1; border-radius:10px; padding:9px 11px; font-size:14px; }} .controls .count {{ white-space:nowrap; color:#64748b; font-size:12px; }}
-    .toc {{ margin:12px 0; padding:12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:14px; display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:8px; }}
-    .toc-title {{ grid-column:1/-1; font-weight:900; }} .toc-cat {{ grid-column:1/-1; margin-top:6px; color:#475569; font-size:12px; font-weight:900; }} .toc a {{ display:flex; justify-content:space-between; gap:8px; color:#0f172a; background:#fff; border:1px solid #e2e8f0; border-radius:11px; padding:7px 9px; }} .toc span {{ color:#64748b; font-size:12px; }}
-    .layout {{ display:grid; grid-template-columns:minmax(260px,360px) 1fr; gap:14px; align-items:start; }}
-    .stats {{ position:sticky; top:66px; max-height:calc(100vh - 88px); overflow:auto; border:1px solid #e2e8f0; border-radius:14px; background:#fff; }}
-    table {{ border-collapse:collapse; width:100%; font-size:13px; }} th,td {{ border-bottom:1px solid #e2e8f0; padding:8px 10px; vertical-align:top; }} th {{ background:#f8fafc; text-align:left; position:sticky; top:0; }} td.num {{ text-align:right; width:72px; font-weight:900; }} td.tbl {{ overflow-wrap:anywhere; }} td.tbl small {{ display:block; color:#64748b; font-size:11px; margin-top:2px; }}
-    .table-section {{ margin:0 0 14px; padding:14px; border:1px solid #dbeafe; border-radius:16px; background:#f8fbff; scroll-margin-top:72px; }}
-    .table-head {{ display:flex; justify-content:space-between; gap:12px; align-items:flex-start; margin-bottom:10px; }} .table-head h2 {{ margin:0; font-size:20px; }} .table-head p {{ margin:4px 0 0; color:#64748b; font-size:12px; }}
-    .record {{ margin-top:10px; padding:11px 13px; background:#fff; border:1px solid #e2e8f0; border-radius:12px; box-shadow:0 1px 2px rgba(15,23,42,.04); }}
-    .record-head {{ display:flex; justify-content:space-between; gap:12px; align-items:flex-start; font-size:13px; }} .record-head strong {{ display:block; margin-top:2px; overflow-wrap:anywhere; }} .record-id {{ display:inline-flex; color:#2563eb; font-weight:900; margin-right:6px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }}
-    .object-section {{ border-color:#c7d2fe; background:#f8f7ff; }} .object-card {{ border-color:#ddd6fe; }} .object-kind {{ display:inline-flex; color:#7c3aed; font-weight:900; margin-right:6px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }} .object-tags {{ display:flex; flex-wrap:wrap; gap:5px; margin-top:5px; }} .object-tags span {{ color:#4c1d95; background:#ede9fe; border:1px solid #ddd6fe; border-radius:999px; padding:1px 7px; font-size:11px; font-weight:800; }} .object-sources {{ display:flex; flex-wrap:wrap; gap:5px; justify-content:flex-end; }}
-    .systems-overview {{ margin:0 0 14px; padding:14px; border:1px solid #bbf7d0; border-radius:16px; background:#f0fdf4; }} .systems-overview h2 {{ margin:0; font-size:20px; }} .system-card {{ margin-top:10px; padding:12px 13px; background:#fff; border:1px solid #dcfce7; border-radius:13px; }} .system-card div {{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }} .system-card span {{ color:#166534; background:#dcfce7; border:1px solid #bbf7d0; border-radius:999px; padding:2px 8px; font-size:12px; font-weight:900; }} .system-card strong {{ font-size:15px; }} .system-card p {{ margin:7px 0 3px; color:#0f172a; }} .system-card small {{ display:block; color:#64748b; margin-bottom:6px; }}
-    .semantic-fallback {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px; margin-top:9px; }} .semantic-line {{ border:1px solid #bbf7d0; background:#f0fdf4; border-radius:10px; padding:7px 9px; }} .semantic-line span {{ display:block; color:#166534; font-size:11px; font-weight:900; }} .semantic-line strong {{ display:block; color:#0f172a; font-size:13px; overflow-wrap:anywhere; white-space:pre-wrap; }}
-    .fields {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px; margin-top:9px; }} .important-fields {{ grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); }} .field {{ border:1px solid #e2e8f0; background:#f8fafc; border-radius:10px; padding:7px 9px; min-width:0; }} .field.primary {{ border-color:#bfdbfe; background:#eff6ff; }} .field.important {{ border-color:#fde68a; background:#fffbeb; }} .field span {{ display:block; color:#64748b; font-size:11px; font-weight:800; }} .field strong {{ display:block; color:#0f172a; font-size:13px; overflow-wrap:anywhere; white-space:pre-wrap; }} .raw-fields {{ margin-top:9px; border:1px dashed #cbd5e1; border-radius:10px; background:#f8fafc; padding:7px 9px; }} .raw-fields summary {{ cursor:pointer; color:#64748b; font-size:12px; font-weight:900; }} .raw-grid {{ grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); }} .raw-grid .field {{ background:#fff; opacity:.82; }}
-    code {{ background:#f1f5f9; padding:1px 6px; border-radius:4px; }} .muted {{ color:#64748b; font-size:13px; }} .more {{ margin-top:10px; }} .hidden {{ display:none!important; }}
-    @media(max-width:920px) {{ body{{padding:8px}} .card{{padding:14px}} .hero{{display:block}} .layout{{display:block}} .stats{{position:static; max-height:none; margin-bottom:14px}} .controls{{top:0}} }}
+    .hotfix-report-page {{ margin:0; padding:16px; font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif; color:#172033; background:#f1f3f7; line-height:1.6; }}
+    .hotfix-report {{ --ink:#172033; --muted:#667085; --line:#dfe3ea; --surface:#fff; --soft:#f7f8fa; --accent:#5b4fc4; --accent-soft:#efedff; max-width:1180px; margin:0 auto; background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:24px; color:var(--ink); }}
+    .hotfix-report * {{ box-sizing:border-box; }} .hotfix-report a {{ color:#5145b7; text-decoration:none; }} .hotfix-report a:hover {{ text-decoration:underline; }}
+    .hotfix-report a:focus-visible,.hotfix-report button:focus-visible,.hotfix-report input:focus-visible,.hotfix-report summary:focus-visible {{ outline:3px solid rgba(91,79,196,.28); outline-offset:2px; }}
+    .report-hero {{ display:flex; justify-content:space-between; gap:18px; align-items:flex-start; padding-bottom:16px; border-bottom:1px solid var(--line); }}
+    .report-kicker,.section-kicker {{ display:block; color:var(--accent); font-size:12px; font-weight:800; }}
+    .hotfix-report h1 {{ margin:3px 0 0; font-size:28px; line-height:1.25; letter-spacing:-.02em; text-wrap:balance; }}
+    .meta {{ color:var(--muted); font-size:12px; margin-top:8px; display:flex; flex-wrap:wrap; gap:7px 13px; }} .source-link {{ min-height:40px; display:inline-flex; align-items:center; border:1px solid var(--line); border-radius:10px; padding:7px 11px; font-weight:750; background:var(--surface); }}
+    .quick-facts {{ display:flex; flex-wrap:wrap; gap:7px 16px; margin:13px 0; color:var(--muted); font-size:12px; }} .quick-facts span {{ display:inline-flex; align-items:baseline; gap:4px; }} .quick-facts strong {{ color:var(--ink); font-size:14px; font-variant-numeric:tabular-nums; }}
+    .impact-filters {{ display:flex; flex-wrap:wrap; gap:7px; margin:11px 0 4px; }} .impact-filter {{ min-height:40px; text-align:left; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--ink); padding:6px 9px; cursor:pointer; }} .impact-filter:hover {{ border-color:#b8b0ed; }} .impact-filter[aria-pressed='true'] {{ border-color:var(--accent); background:var(--accent-soft); }} .impact-filter span {{ color:#475467; font-size:12px; font-weight:800; }} .impact-filter strong {{ margin-left:7px; font-size:12px; font-variant-numeric:tabular-nums; }} .impact-filter em {{ display:none; }}
+    .reader-digest {{ margin:20px 0 16px; }} .reader-digest-head {{ display:flex; justify-content:space-between; align-items:flex-end; gap:16px; margin-bottom:4px; }} .reader-digest h2 {{ margin:0; font-size:21px; }} .reader-digest-head p {{ max-width:74ch; margin:3px 0 0; color:var(--muted); font-size:12px; text-wrap:pretty; }} .reader-digest-head>span {{ color:var(--muted); font-size:12px; white-space:nowrap; }}
+    .reader-card {{ padding:15px 0; border-top:1px solid var(--line); }} .reader-card:last-child {{ border-bottom:1px solid var(--line); }} .reader-card>header {{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:7px; }} .reader-card>header span {{ color:var(--accent); font-size:11px; font-weight:800; }} .reader-card h3 {{ margin:1px 0 0; font-size:17px; line-height:1.35; }} .reader-card>header small {{ color:var(--muted); font-size:11px; white-space:nowrap; }} .reader-evidence {{ display:grid; grid-template-columns:minmax(150px,1fr) auto; gap:14px; align-items:start; padding:8px 0; }} .reader-evidence+.reader-evidence {{ border-top:1px dashed var(--line); }} .reader-evidence strong {{ display:block; margin-bottom:2px; font-size:12px; }} .reader-evidence ul {{ margin:0; padding-left:18px; color:#344054; font-size:13px; }} .reader-evidence li+li {{ margin-top:2px; }} .reader-evidence>a {{ min-height:40px; display:inline-flex; align-items:center; font-size:12px; white-space:nowrap; }}
+    .technical-report {{ margin-top:18px; border:1px solid var(--line); border-radius:12px; background:var(--soft); }} .technical-report>summary {{ min-height:52px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 12px; cursor:pointer; font-weight:850; }} .technical-report>summary small {{ color:var(--muted); font-size:11px; font-weight:650; }} .technical-body {{ padding:0 12px 12px; }}
+    .controls {{ position:sticky; top:8px; z-index:5; margin:12px 0; padding:8px; background:rgba(255,255,255,.95); backdrop-filter:blur(8px); border:1px solid var(--line); border-radius:12px; display:flex; gap:10px; align-items:center; }} .controls input {{ width:100%; min-height:42px; border:1px solid #cbd1dc; border-radius:9px; padding:8px 11px; font:inherit; font-size:13px; color:var(--ink); background:var(--surface); }} .controls .count {{ white-space:nowrap; color:var(--muted); font-size:12px; }}
+    .toc {{ margin:12px 0; padding:0 12px; background:var(--soft); border:1px solid var(--line); border-radius:12px; }} .toc-title {{ min-height:44px; display:flex; align-items:center; justify-content:space-between; gap:10px; cursor:pointer; font-weight:850; }} .toc-title small {{ color:var(--muted); font-size:11px; font-weight:650; }} .toc-grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:7px; padding:0 0 12px; }} .toc-cat {{ grid-column:1/-1; margin-top:6px; color:var(--muted); font-size:11px; font-weight:850; }} .toc a {{ min-height:40px; display:flex; align-items:center; justify-content:space-between; gap:8px; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:9px; padding:7px 9px; }} .toc span {{ color:var(--muted); font-size:11px; }}
+    .layout {{ display:grid; grid-template-columns:minmax(250px,340px) minmax(0,1fr); gap:14px; align-items:start; }} .stats {{ position:sticky; top:72px; max-height:calc(100vh - 94px); overflow:auto; border:1px solid var(--line); border-radius:12px; background:var(--surface); }}
+    .hotfix-report table {{ border-collapse:collapse; width:100%; font-size:12px; }} .hotfix-report th,.hotfix-report td {{ border-bottom:1px solid var(--line); padding:8px 10px; vertical-align:top; }} .hotfix-report th {{ background:var(--soft); text-align:left; position:sticky; top:0; }} .hotfix-report td.num {{ text-align:right; width:72px; font-weight:850; }} .hotfix-report td.tbl {{ overflow-wrap:anywhere; }} .hotfix-report td.tbl small {{ display:block; color:var(--muted); font-size:10px; margin-top:2px; }}
+    .table-section,.systems-overview {{ margin:0 0 14px; padding:14px; border:1px solid var(--line); border-radius:14px; background:var(--soft); scroll-margin-top:76px; }} .table-head {{ display:flex; justify-content:space-between; gap:12px; align-items:flex-start; margin-bottom:10px; }} .table-head h2,.systems-overview h2 {{ margin:2px 0 0; font-size:20px; }} .table-head p {{ margin:4px 0 0; color:var(--muted); font-size:12px; max-width:760px; }} .table-head>a {{ min-height:40px; display:inline-flex; align-items:center; white-space:nowrap; }}
+    .record,.system-card {{ margin-top:10px; padding:12px 13px; background:var(--surface); border:1px solid var(--line); border-radius:11px; }} .record-head {{ display:flex; justify-content:space-between; gap:12px; align-items:flex-start; font-size:12px; }} .record-head strong {{ display:block; margin-top:2px; font-size:14px; overflow-wrap:anywhere; }} .record-id {{ display:inline-flex; color:var(--accent); font-weight:850; margin-right:6px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }}
+    .object-section {{ background:#faf9ff; }} .object-kind {{ display:inline-flex; color:var(--accent); font-weight:850; margin-right:6px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }} .object-tags,.object-sources {{ display:flex; flex-wrap:wrap; gap:5px; margin-top:5px; }} .object-sources {{ justify-content:flex-end; }} .object-tags span {{ color:#4c438e; background:var(--accent-soft); border:1px solid #d8d3ff; border-radius:999px; padding:1px 7px; font-size:10px; font-weight:800; }}
+    .impact-callout {{ display:grid; grid-template-columns:minmax(120px,.55fr) minmax(180px,1fr); gap:3px 12px; margin-top:10px; padding:9px 10px; border:1px solid #d8d3ff; background:var(--accent-soft); border-radius:9px; }} .impact-callout span {{ color:var(--muted); font-size:10px; font-weight:800; }} .impact-callout strong {{ font-size:13px; }} .impact-callout p {{ grid-column:2; margin:0; color:#4c438e; font-size:11px; }}
+    .system-card div {{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }} .system-card span {{ color:#4c438e; background:var(--accent-soft); border:1px solid #d8d3ff; border-radius:999px; padding:2px 8px; font-size:11px; font-weight:850; }} .system-card strong {{ font-size:14px; }} .system-card p {{ margin:7px 0 3px; color:var(--ink); font-size:12px; }}
+    .semantic-fallback {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:8px; margin-top:9px; }} .semantic-line {{ border:1px solid var(--line); background:var(--soft); border-radius:9px; padding:7px 9px; }} .semantic-line.impact-semantic {{ border-color:#d8d3ff; background:var(--accent-soft); }} .semantic-line span {{ display:block; color:var(--muted); font-size:10px; font-weight:850; }} .semantic-line strong {{ display:block; color:var(--ink); font-size:12px; overflow-wrap:anywhere; white-space:pre-wrap; }} .semantic-line small {{ display:block; margin-top:3px; color:#4c438e; font-size:10px; }}
+    .fields {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:8px; margin-top:9px; }} .important-fields {{ grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); }} .field {{ border:1px solid var(--line); background:var(--soft); border-radius:9px; padding:7px 9px; min-width:0; }} .field.primary {{ border-color:#d8d3ff; background:#f7f5ff; }} .field.important {{ border-color:#e6c85e; background:#fff9df; }} .field span {{ display:block; color:var(--muted); font-size:10px; font-weight:800; }} .field strong {{ display:block; color:var(--ink); font-size:12px; overflow-wrap:anywhere; white-space:pre-wrap; }} .raw-fields {{ margin-top:9px; border:1px dashed #cbd1dc; border-radius:9px; background:var(--soft); padding:7px 9px; }} .raw-fields summary {{ min-height:40px; display:flex; align-items:center; cursor:pointer; color:var(--muted); font-size:11px; font-weight:850; }} .raw-grid {{ grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); }} .raw-grid .field {{ background:var(--surface); opacity:.86; }}
+    .hotfix-report code {{ background:var(--soft); padding:1px 6px; border-radius:4px; }} .muted {{ color:var(--muted); font-size:12px; }} .more {{ margin-top:10px; }} .hidden {{ display:none!important; }}
+    @media(max-width:920px) {{ .hotfix-report-page{{padding:8px}} .hotfix-report{{padding:14px;border-radius:12px}} .report-hero{{display:block}} .source-link{{margin-top:10px}} .layout{{display:block}} .stats{{position:static;max-height:none;margin-bottom:14px}} .controls{{top:4px}} }}
+    @media(max-width:560px) {{ .hotfix-report h1{{font-size:23px}} .impact-filter{{min-height:44px}} .reader-digest-head,.reader-card>header,.reader-evidence,.table-head,.record-head{{display:block}} .reader-digest-head>span,.reader-card>header small{{display:block;margin-top:5px}} .reader-evidence>a,.table-head>a,.record-head>a{{margin-top:6px;min-height:44px}} .impact-callout{{grid-template-columns:1fr}} .impact-callout p{{grid-column:1}} .controls .count{{display:none}} }}
+    @media(prefers-color-scheme:dark) {{ .hotfix-report-page{{background:#211e1b}} .hotfix-report{{--ink:#f4f1ed;--muted:#b8afa6;--line:rgba(154,141,128,.42);--surface:#302b26;--soft:#27231f;--accent:#b6adff;--accent-soft:rgba(91,79,196,.24);box-shadow:none}} .controls{{background:rgba(48,43,38,.95)}} .note,.impact-callout p,.semantic-line small{{color:#d8d3ff}} .impact-filter span,.object-tags span,.system-card span{{color:#d8d3ff}} .object-section{{background:#2b2730}} .field.primary{{background:#2d2938;border-color:#5d557a}} .field.important{{background:#39311f;border-color:#73643b}} }}
+    @media(prefers-reduced-motion:reduce) {{ .hotfix-report *{{scroll-behavior:auto!important;transition:none!important}} }}
   </style>
 </head>
-<body>
-  <main class="card">
-    <div class="hero">
+<body class="hotfix-report-page">
+  <main class="hotfix-report">
+    <header class="report-hero">
       <div>
-        <h1>{esc(summary_title)}</h1>
+        <span class="report-kicker">Wago 数据源</span>
+        <h1>Hotfix 更新报告</h1>
         <div class="meta"><span>分支：{esc(branch)}</span><span>区域/语言：{esc(locale)}</span><span>Build：{esc(build_num)}</span><span>Push：{int(from_push or 0)} → {int(to_push or 0)}</span></div>
       </div>
-      <div class="meta"><a href="{esc(wago_url)}" target="_blank" rel="noreferrer">Wago 原始 Hotfix 列表</a></div>
-    </div>
-    <div class="summary">
-      <div class="metric"><span>Hotfix 记录</span><strong>{entry_count}</strong></div>
-      <div class="metric"><span>DB2 表</span><strong>{table_count}</strong></div>
-      <div class="metric"><span>已还原类别</span><strong>{len(category_counts)}</strong></div>
-      <div class="metric"><span>每表展开</span><strong>{sample_per_table}</strong></div>
-    </div>
-    <div class="summary categories">{''.join(category_cards)}</div>
-    <div class="note">Hotfix 原始数据只给出 push / DB2 表 / record_id。本报告按所有涉及的 DB2 表逐表读取当前 build 的记录，尽可能还原名称、描述、数值、ID、关联字段和原始字段快照；技能/天赋只是其中一类，不会过滤掉任务、物品、地图、生物、货币、成就等其他改动。完整原始列表仍可通过每个表的 Wago 链接复核。</div>
-    <div class="controls"><input id="hotfixFilter" type="search" placeholder="筛选类别、表名、record_id、名称、描述、字段值…" autocomplete="off"><span class="count" id="filterCount">全部显示</span></div>
-    <nav class="toc" aria-label="DB2 表目录"><div class="toc-title">DB2 表目录（按类别分组，覆盖全部表）</div>{''.join(toc_items)}</nav>
-    <div class="layout">
-      <aside class="stats" id="table-list">
-        <table><thead><tr><th>DB2 表</th><th class="num">数量</th></tr></thead><tbody>{''.join(stats_rows)}</tbody></table>
-      </aside>
-      <section class="details">{system_overview}{object_graph_section}{''.join(detail_sections)}</section>
-    </div>
+      <a class="source-link" href="{esc(wago_url)}" target="_blank" rel="noreferrer">核对 Wago 原始列表</a>
+    </header>
+    <div class="quick-facts" aria-label="报告摘要"><span><strong>{entry_count}</strong> 条 Hotfix 记录</span><span><strong>{len(reader_cards)}</strong> 个可读对象</span><span><strong>{len(category_counts)}</strong> 个影响范围</span><span>{table_count} 张 DB2 表已收进技术明细</span></div>
+    {reader_digest_section}
+    <details class="technical-report">
+      <summary><span>查看技术明细与完整 DB2 字段</span><small>{table_count} 张表 · {entry_count} 条记录</small></summary>
+      <div class="technical-body">
+        <div class="controls"><input id="hotfixFilter" type="search" placeholder="筛选表名、record_id、字段值…" autocomplete="off"><span class="count" id="filterCount">全部显示</span></div>
+        <details class="toc"><summary class="toc-title">DB2 表目录（按类别分组，覆盖全部表）<small>{table_count} 张表 · 技术索引</small></summary><nav class="toc-grid" aria-label="DB2 表目录">{''.join(toc_items)}</nav></details>
+        <div class="layout">
+          <aside class="stats" id="table-list"><table><thead><tr><th>DB2 表</th><th class="num">数量</th></tr></thead><tbody>{''.join(stats_rows)}</tbody></table></aside>
+          <section class="details">{system_overview}{''.join(detail_sections)}</section>
+        </div>
+      </div>
+    </details>
   </main>
   <script>
 (function(){{
   var input=document.getElementById('hotfixFilter');
   var count=document.getElementById('filterCount');
+  var readerCount=document.getElementById('readerCount');
+  var category='all';
   if(!input){{return;}}
+  function categoryMatches(el){{
+    return category==='all' || (el.getAttribute('data-category')||'')===category;
+  }}
   function apply(){{
     var q=(input.value||'').trim().toLowerCase();
     var total=0, visible=0;
+    var readerTotal=0, readerVisible=0;
+    document.querySelectorAll('.reader-card').forEach(function(el){{
+      readerTotal++;
+      var ok=categoryMatches(el);
+      el.classList.toggle('hidden', !ok);
+      if(ok){{readerVisible++;}}
+    }});
     document.querySelectorAll('.record').forEach(function(el){{
       total++;
-      var ok=!q || (el.getAttribute('data-search')||'').indexOf(q)>=0 || (el.textContent||'').toLowerCase().indexOf(q)>=0;
+      var textOk=!q || (el.getAttribute('data-search')||'').indexOf(q)>=0 || (el.textContent||'').toLowerCase().indexOf(q)>=0;
+      var ok=categoryMatches(el) && textOk;
       el.classList.toggle('hidden', !ok);
       if(ok){{visible++;}}
     }});
+    document.querySelectorAll('.system-card').forEach(function(el){{
+      var textOk=!q || (el.getAttribute('data-search')||'').indexOf(q)>=0 || (el.textContent||'').toLowerCase().indexOf(q)>=0;
+      el.classList.toggle('hidden', !(categoryMatches(el) && textOk));
+    }});
     document.querySelectorAll('.table-section').forEach(function(sec){{
-      var ok=!q || !!sec.querySelector('.record:not(.hidden)') || (sec.getAttribute('data-search')||'').indexOf(q)>=0;
+      var ownMatch=categoryMatches(sec) && (!q || (sec.getAttribute('data-search')||'').indexOf(q)>=0);
+      var ok=!!sec.querySelector('.record:not(.hidden)') || ownMatch;
       sec.classList.toggle('hidden', !ok);
     }});
-    if(count){{count.textContent=q ? ('显示 '+visible+' / '+total+' 条记录') : ('全部 '+total+' 条展开记录');}}
+    var systems=document.querySelector('.systems-overview');
+    if(systems){{systems.classList.toggle('hidden', !systems.querySelector('.system-card:not(.hidden)'));}}
+    if(count){{count.textContent=(q || category!=='all') ? ('显示 '+visible+' / '+total+' 条记录') : ('全部 '+total+' 条展开记录');}}
+    if(readerCount){{readerCount.textContent='显示 '+readerVisible+' 个对象';}}
   }}
   input.addEventListener('input', apply);
+  document.querySelectorAll('[data-hotfix-category]').forEach(function(button){{
+    button.addEventListener('click', function(){{
+      category=button.getAttribute('data-hotfix-category')||'all';
+      document.querySelectorAll('[data-hotfix-category]').forEach(function(item){{item.setAttribute('aria-pressed', String(item===button));}});
+      apply();
+    }});
+  }});
   apply();
 }})();
   </script>
@@ -4945,6 +5179,144 @@ class WagoSkillDiffMonitor(BaseScan):
                 out.append(f"<span class='ins'>{html.escape(i)}</span>")
         return ''.join(out).replace('\\n', ' ')
 
+    def _report_change_tone(self, field, before, after):
+        """按玩家可感知的方向粗分字段变化；无法可靠判断时只标记为机制调整。"""
+        field = str(field or '').strip()
+        before_text = '' if before is None else str(before).strip()
+        after_text = '' if after is None else str(after).strip()
+        if not before_text and after_text:
+            return 'mechanic', '新增', ''
+        if before_text and not after_text:
+            return 'mechanic', '移除', ''
+
+        def number(value):
+            text = str(value or '').strip().replace(',', '')
+            if text.endswith('%'):
+                text = text[:-1].strip()
+            try:
+                return float(text)
+            except Exception:
+                return None
+
+        old_value = number(before_text)
+        new_value = number(after_text)
+        if old_value is None or new_value is None or abs(new_value - old_value) < 1e-12:
+            return 'mechanic', '调整', ''
+
+        positive_fields = {
+            'EffectBasePointsF', 'EffectBasePoints', 'EffectBonusCoefficient',
+            'BonusCoefficientFromAP', 'Coefficient', 'PvpMultiplier', 'ProcChance',
+            'ProcCharges', 'MaxTargets', 'Radius', 'RadiusMax', 'MinDuration',
+        }
+        inverse_fields = {
+            'RecoveryTime', 'CategoryRecoveryTime', 'StartRecoveryTime',
+            'ChargeRecoveryTime', 'CastingTime', 'BaseManaCost', 'PowerCostPct',
+        }
+        delta = new_value - old_value
+        if field in positive_fields:
+            tone = 'buff' if delta > 0 else 'nerf'
+        elif field in inverse_fields:
+            tone = 'nerf' if delta > 0 else 'buff'
+        else:
+            tone = 'mechanic'
+
+        delta_label = ''
+        if abs(old_value) > 1e-12:
+            percent = delta / abs(old_value) * 100.0
+            if abs(percent) >= 0.05:
+                digits = 0 if abs(percent) >= 10 or abs(percent - round(percent)) < 0.05 else 1
+                delta_label = f"{percent:+.{digits}f}%"
+        if tone == 'buff':
+            return tone, '增强', delta_label
+        if tone == 'nerf':
+            return tone, '削弱', delta_label
+        return tone, '数值调整', delta_label
+
+    def _report_impact_dimension(self, table_key, field):
+        field = str(field or '').strip()
+        table_key = str(table_key or '').strip().lower()
+        field_labels = {
+            'EffectBasePointsF': '基础效果数值',
+            'EffectBasePoints': '基础效果数值',
+            'EffectBonusCoefficient': '法术强度收益',
+            'BonusCoefficientFromAP': '攻击强度收益',
+            'Coefficient': '技能效果系数',
+            'PvpMultiplier': 'PvP 强度',
+            'EffectAuraPeriod': '光环触发周期',
+            'EffectAmplitude': '周期效果间隔',
+            'RecoveryTime': '技能冷却节奏',
+            'CategoryRecoveryTime': '同类技能冷却节奏',
+            'StartRecoveryTime': '公共冷却节奏',
+            'ChargeRecoveryTime': '充能恢复节奏',
+            'CastingTime': '施法节奏',
+            'ProcChance': '触发几率',
+            'ProcCharges': '触发次数',
+            'AuraInterruptFlags_0': '效果中断条件',
+            'AuraInterruptFlags_1': '效果中断条件',
+            'ChannelInterruptFlags_0': '引导中断条件',
+            'ChannelInterruptFlags_1': '引导中断条件',
+            'InterruptFlags': '打断规则',
+            'Description_lang': '技能说明与机制',
+            'AuraDescription_lang': '光环说明与机制',
+            'Name_lang': '技能名称',
+            'MaxScalingLevel': '等级缩放范围',
+            'MinScalingLevel': '等级缩放范围',
+            'ScalesFromItemLevel': '物品等级缩放',
+            'RangeIndex': '施法距离',
+            'DurationIndex': '持续时间',
+            'PvPDurationIndex': 'PvP 持续时间',
+            'CastingTimeIndex': '施法时间',
+        }
+        if field in field_labels:
+            return field_labels[field]
+        table_labels = {
+            'spelleffect': '技能效果',
+            'spell': '技能说明与机制',
+            'spelldescription': '技能说明与机制',
+            'spellcooldowns': '冷却节奏',
+            'spellpower': '资源消耗',
+            'spellcastingtimes': '施法节奏',
+            'spellinterrupts': '中断条件',
+            'spellduration': '持续时间',
+            'spellradius': '作用范围',
+            'spellranges': '施法距离',
+            'spellrange': '施法距离',
+            'spelltargetrestrictions': '目标限制',
+            'specializationspells': '专精归属',
+            'traitdefinition': '天赋定义',
+            'traitnodeentry': '天赋节点',
+            'traitnode': '天赋节点',
+        }
+        return table_labels.get(table_key) or '技能机制'
+
+    def _report_spell_tone(self, diffs_by_table):
+        tones = set()
+        for _table_key, items in (diffs_by_table or {}).items():
+            for item in items or []:
+                for field_diff in item.get('fields') or []:
+                    tone, _label, _delta = self._report_change_tone(
+                        field_diff.get('field'), field_diff.get('before'), field_diff.get('after')
+                    )
+                    tones.add(tone)
+        if 'buff' in tones and 'nerf' in tones:
+            return 'mixed'
+        if 'buff' in tones:
+            return 'buff'
+        if 'nerf' in tones:
+            return 'nerf'
+        return 'mechanic'
+
+    def _report_spell_icon_url(self, icon_name):
+        value = str(icon_name or '').strip()
+        if not value:
+            return ''
+        if value.startswith(('https://', 'http://', '/')):
+            return value
+        safe_name = re.sub(r'[^0-9A-Za-z_-]+', '', value).lower()
+        if not safe_name:
+            return ''
+        return f"https://oss.wowdaily.cn/wow_icons_oss/small/{safe_name}.jpg"
+
     def _write_empty_html_report(self, branch, server_title, from_build, to_build, display_from_build='', display_to_build='', message=''):
         rel_path = f"portal/reports/wow_skill_diff_{branch}_{self.locale}_{to_build.replace('.', '_')}_empty.html"
         base_dir = str(getattr(settings, 'BASE_DIR', '') or '')
@@ -4994,11 +5366,21 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
         name_cache = {}
         spell_changes = self._repair_utf8_mojibake_obj(spell_changes or {})
         spell_ids = sorted(set(int(x) for x in spell_changes.keys()))
+        snapshot_rows = list(
+            WowSpellSnapshot.objects.filter(branch=branch, locale=self.locale, spell_id__in=spell_ids)
+            .values('spell_id', 'name', 'description', 'aura_description', 'icon')
+        )
         snap_names = {
             int(r['spell_id']): (r.get('name') or '')
-            for r in WowSpellSnapshot.objects.filter(branch=branch, locale=self.locale, spell_id__in=spell_ids)
-            .exclude(name='')
-            .values('spell_id', 'name')
+            for r in snapshot_rows
+            if (r.get('name') or '').strip()
+        }
+        spell_context = {
+            int(r['spell_id']): {
+                'description': (r.get('description') or r.get('aura_description') or '').strip(),
+                'icon': (r.get('icon') or '').strip(),
+            }
+            for r in snapshot_rows
         }
         name_cache.update(snap_names)
         missing = [sid for sid in spell_ids if not (name_cache.get(sid) or '').strip()]
@@ -5058,6 +5440,15 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
             for tkey in ((entry or {}).get('diffs') or {}).keys():
                 changed_table_counts[tkey] = int(changed_table_counts.get(tkey) or 0) + 1
 
+        spell_tones = {
+            int(spell_id): self._report_spell_tone((entry or {}).get('diffs') or {})
+            for spell_id, entry in (spell_changes or {}).items()
+        }
+        tone_counts = {
+            tone: sum(1 for value in spell_tones.values() if value == tone)
+            for tone in ('buff', 'nerf', 'mixed', 'mechanic')
+        }
+
         parts = []
         parts.append('<!DOCTYPE html>')
         parts.append('<html lang="zh-CN">')
@@ -5068,31 +5459,26 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
         title_to = display_to_build or to_build
         parts.append(f"<title>{html.escape(server_title)} 职业技能变更报告：{html.escape(title_from)} → {html.escape(title_to)}</title>")
         parts.append('<style>')
-        parts.append('body{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;line-height:1.55;background:#eef2f7;color:#0f172a}')
-        parts.append('.card{max-width:1320px;margin:0 auto;background:#ffffff;border:1px solid rgba(148,163,184,.35);border-radius:18px;padding:20px;box-shadow:0 18px 48px rgba(15,23,42,.08)}')
-        parts.append('.hero{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;border-bottom:1px solid #e2e8f0;padding-bottom:14px;margin-bottom:14px}')
-        parts.append('.hero h1{margin:0;font-size:22px;line-height:1.25;letter-spacing:-.02em}')
-        parts.append('.meta{color:#475569;font-size:12px;margin-top:6px;display:flex;flex-wrap:wrap;gap:8px 12px}')
-        parts.append('.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:14px 0}')
-        parts.append('.metric{border:1px solid #e2e8f0;background:linear-gradient(180deg,#f8fafc,#fff);border-radius:14px;padding:11px 12px}')
-        parts.append('.metric span{display:block;color:#64748b;font-size:12px}.metric strong{display:block;font-size:18px;margin-top:2px}')
-        parts.append('.controls{position:sticky;top:0;z-index:5;margin:12px 0;padding:10px;background:rgba(255,255,255,.94);backdrop-filter:blur(8px);border:1px solid #e2e8f0;border-radius:14px;display:flex;gap:10px;align-items:center}')
-        parts.append('.controls input{width:100%;border:1px solid #cbd5e1;border-radius:10px;padding:9px 11px;font-size:14px}.controls .count{white-space:nowrap;color:#64748b;font-size:12px}')
-        parts.append('.toc{margin-top:12px;padding:12px;background:#f8fafc;border:1px solid rgba(226,232,240,1);border-radius:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}')
-        parts.append('.toc-title{grid-column:1/-1;font-weight:800;margin-bottom:2px}.toc a{color:#1d4ed8;text-decoration:none}.toc a:hover{text-decoration:underline}')
-        parts.append('.toc-item{padding:8px 10px;border:1px solid #e2e8f0;border-radius:12px;background:#fff}.toc-spec{display:inline-block;margin:4px 8px 0 0;font-size:12px;color:#475569}')
-        parts.append('h2{margin:0 0 8px 0;font-size:20px}.class-section{margin-top:18px;padding:14px;border:1px solid #dbeafe;border-radius:16px;background:#f8fbff}.class-head{display:flex;justify-content:space-between;gap:12px;align-items:baseline}')
-        parts.append('h3{margin:14px 0 8px 0;font-size:15px;color:#0f172a}.spec-section{border-top:1px dashed #cbd5e1;margin-top:10px;padding-top:8px}')
-        parts.append('.spell{margin-top:10px;padding:11px 13px;background:#fff;border:1px solid rgba(226,232,240,1);border-radius:12px;box-shadow:0 1px 2px rgba(15,23,42,.04)}')
-        parts.append('.spell-head{display:flex;gap:8px;align-items:flex-start;font-weight:800}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#22c55e;margin-top:7px;flex:0 0 auto}')
-        parts.append('.spell-title{font-weight:800}.subtle{color:#64748b;font-size:12px;font-weight:500}.line{margin-top:7px;color:#0f172a;font-size:13px;padding-left:17px}')
-        parts.append('.hash{color:#2563eb;font-weight:800;margin-right:4px}.k{color:#334155;font-weight:800}.ins{color:#16a34a;font-weight:800}.del{color:#dc2626;font-weight:800;text-decoration:line-through}')
-        parts.append('.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.hidden{display:none!important}@media(max-width:720px){body{padding:8px}.card{padding:14px}.hero{display:block}.controls{top:0}}')
+        parts.append('.skill-report-page{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;margin:0;padding:16px;line-height:1.6;background:#f1f3f7;color:#172033}')
+        parts.append('.skill-report{--ink:#172033;--muted:#667085;--line:#dfe3ea;--surface:#fff;--soft:#f7f8fa;--accent:#5b4fc4;--buff:#087f5b;--buff-bg:#e8f7f1;--nerf:#b42318;--nerf-bg:#fff0ee;--mechanic:#9a6700;--mechanic-bg:#fff7dc;max-width:1280px;margin:0 auto;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:24px;box-shadow:0 16px 42px rgba(28,36,52,.08);color:var(--ink)}')
+        parts.append('.skill-report *{box-sizing:border-box}.skill-report a{color:#5145b7}.skill-report a:focus-visible,.skill-report button:focus-visible,.skill-report input:focus-visible,.skill-report summary:focus-visible{outline:3px solid rgba(91,79,196,.28);outline-offset:2px}')
+        parts.append('.report-hero{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:16px}.report-hero h1{margin:0;font-size:24px;line-height:1.3;letter-spacing:-.02em;text-wrap:balance}.meta{color:var(--muted);font-size:12px;margin-top:7px;display:flex;flex-wrap:wrap;gap:8px 14px}')
+        parts.append('.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin:16px 0}.metric{border:1px solid var(--line);background:var(--soft);border-radius:12px;padding:12px 14px}.metric span{display:block;color:var(--muted);font-size:12px}.metric strong{display:block;font-size:20px;line-height:1.2;margin-top:4px;font-variant-numeric:tabular-nums}')
+        parts.append('.impact-overview{border:1px solid var(--line);border-radius:14px;background:var(--soft);padding:13px 14px;margin:14px 0}.impact-overview-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:10px}.impact-overview-title{font-size:14px;font-weight:850}.impact-note{color:var(--muted);font-size:12px;line-height:1.55}.tone-tabs{display:flex;flex-wrap:wrap;gap:8px}.tone-tab{min-height:40px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:#475467;padding:7px 11px;font-size:13px;font-weight:750;cursor:pointer}.tone-tab:hover{border-color:#b8b0ed;color:#4539a8}.tone-tab[aria-pressed="true"]{border-color:var(--accent);background:#efedff;color:#4539a8}.tone-tab .tab-count{font-variant-numeric:tabular-nums;margin-left:5px;opacity:.76}')
+        parts.append('.controls{position:sticky;top:8px;z-index:5;margin:14px 0;padding:9px;background:rgba(255,255,255,.96);backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:12px;display:flex;gap:10px;align-items:center;box-shadow:0 8px 24px rgba(28,36,52,.06)}.controls input{width:100%;min-height:42px;border:1px solid #c9ced8;border-radius:9px;padding:9px 12px;font-size:14px;color:var(--ink);background:var(--surface)}.controls input::placeholder{color:#667085}.controls .count{white-space:nowrap;color:var(--muted);font-size:12px}.filter-empty{padding:36px 16px;text-align:center;color:var(--muted);border:1px dashed #c9ced8;border-radius:12px;background:var(--soft)}')
+        parts.append('.toc{margin-top:14px;padding:14px;background:var(--soft);border:1px solid var(--line);border-radius:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px}.toc-title{grid-column:1/-1;font-weight:850;margin-bottom:2px}.toc a{text-decoration:none}.toc a:hover{text-decoration:underline}.toc-item{padding:9px 11px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}.toc-spec{display:inline-block;margin:4px 8px 0 0;font-size:12px;color:var(--muted)}')
+        parts.append('.skill-report h2{margin:0;font-size:21px;letter-spacing:-.015em}.class-section{margin-top:24px;scroll-margin-top:80px}.class-head{display:flex;justify-content:space-between;gap:12px;align-items:baseline;padding-bottom:9px;border-bottom:2px solid #cbc6f2}.skill-report h3{margin:18px 0 9px;font-size:15px;color:#344054}.spec-section{margin-top:10px;padding-top:2px}')
+        parts.append('.spell{margin-top:12px;padding:16px 17px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 2px 8px rgba(28,36,52,.035)}.spell[data-tone="buff"]{border-color:rgba(8,127,91,.38)}.spell[data-tone="nerf"]{border-color:rgba(180,35,24,.36)}.spell[data-tone="mixed"]{border-color:rgba(121,80,178,.38)}.spell[data-tone="mechanic"]{border-color:rgba(154,103,0,.34)}')
+        parts.append('.spell-head{display:flex;gap:12px;align-items:flex-start}.spell-icon,.spell-icon-fallback{width:44px;height:44px;border-radius:9px;flex:0 0 auto;border:1px solid rgba(23,32,51,.15);background:#eef0f4}.spell-icon{object-fit:cover}.spell-icon-fallback{display:grid;place-items:center;color:#667085;font-weight:850;font-size:15px}.spell-head-main{min-width:0;flex:1}.spell-title-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.spell-title{font-size:16px;font-weight:850;color:var(--ink)}.spell-id{color:var(--muted);font-size:12px;font-weight:650}.spell-desc{margin-top:8px;max-width:75ch;color:#475467;font-size:13px;line-height:1.7;text-wrap:pretty}.tone-badge,.delta-badge{display:inline-flex;align-items:center;border-radius:999px;padding:2px 8px;font-size:12px;font-weight:800;white-space:nowrap}.tone-badge.buff,.delta-badge.buff{color:var(--buff);background:var(--buff-bg)}.tone-badge.nerf,.delta-badge.nerf{color:var(--nerf);background:var(--nerf-bg)}.tone-badge.mixed{color:#6941c6;background:#f4f0ff}.tone-badge.mechanic,.delta-badge.mechanic{color:var(--mechanic);background:var(--mechanic-bg)}')
+        parts.append('.impact-block{margin-top:13px}.impact-block-title{font-size:12px;font-weight:850;color:#344054;margin-bottom:7px}.impact-list{display:flex;flex-direction:column;gap:6px}.impact-row{display:grid;grid-template-columns:minmax(150px,1fr) auto;gap:14px;align-items:center;padding:9px 11px;border-radius:9px;background:var(--soft);border:1px solid #e7e9ee}.impact-label{font-size:13px;font-weight:780;color:#344054}.impact-evidence{display:block;color:var(--muted);font-size:11px;margin-top:1px}.value-flow{display:flex;align-items:center;justify-content:flex-end;gap:7px;font-size:13px;font-variant-numeric:tabular-nums}.old-value{color:#8a3029;text-decoration:line-through}.new-value{color:#067647;font-weight:800}.change-arrow{color:#98a2b3}')
+        parts.append('.tech-details{margin-top:12px;border-top:1px solid var(--line);padding-top:9px}.tech-details summary{cursor:pointer;color:var(--muted);font-size:12px;font-weight:750;min-height:32px;display:flex;align-items:center}.tech-details[open] summary{color:#344054}.line{margin-top:7px;color:#475467;font-size:12px;padding:8px 10px;border-radius:8px;background:var(--soft);overflow-wrap:anywhere}.hash{color:#5145b7;font-weight:800;margin-right:4px}.k{color:#344054;font-weight:800}.ins{color:#067647;font-weight:800}.del{color:#b42318;font-weight:750;text-decoration:line-through}.subtle{color:var(--muted);font-size:12px;font-weight:500}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.hidden{display:none!important}')
+        parts.append('.portal-theme-dark .skill-report{--ink:#f4f1ed;--muted:#b8afa6;--line:rgba(154,141,128,.42);--surface:#302b26;--soft:#27231f;--accent:#b6adff;--buff:#77d9b6;--buff-bg:rgba(31,123,91,.24);--nerf:#ff9b94;--nerf-bg:rgba(180,53,44,.22);--mechanic:#f4cc72;--mechanic-bg:rgba(154,103,0,.24);box-shadow:none}.portal-theme-dark .skill-report .impact-row,.portal-theme-dark .skill-report .line{border-color:var(--line)}.portal-theme-dark .skill-report .impact-label,.portal-theme-dark .skill-report h3,.portal-theme-dark .skill-report .tech-details[open] summary{color:var(--ink)}.portal-theme-dark .skill-report .old-value{color:#ffaaa3}.portal-theme-dark .skill-report .new-value{color:#83dfbf}.portal-theme-dark .skill-report .tone-tab[aria-pressed="true"]{background:rgba(91,79,196,.25);color:#d8d3ff}.portal-theme-dark .skill-report .controls{background:rgba(48,43,38,.96)}')
+        parts.append('@media(max-width:720px){.skill-report-page{padding:8px}.skill-report{padding:14px;border-radius:12px}.report-hero{display:block}.impact-overview-head{display:block}.impact-note{margin-top:4px}.controls{top:6px;align-items:stretch}.controls .count{display:none}.tone-tab{min-height:44px}.impact-row{grid-template-columns:1fr;gap:6px}.value-flow{justify-content:flex-start;flex-wrap:wrap}.spell{padding:14px 12px}.spell-head{gap:10px}.spell-icon,.spell-icon-fallback{width:40px;height:40px}.class-head{display:block}.class-head .subtle{display:block;margin-top:3px}}@media(prefers-reduced-motion:reduce){.skill-report *{scroll-behavior:auto!important;transition:none!important}}')
         parts.append('</style>')
         parts.append('</head>')
-        parts.append('<body>')
-        parts.append('<div class="card">')
-        parts.append('<div class="hero">')
+        parts.append('<body class="skill-report-page">')
+        parts.append('<main class="skill-report">')
+        parts.append('<div class="report-hero">')
         parts.append(f"<div><h1>{html.escape(server_title)} 职业技能变更报告：{html.escape(title_from)} → {html.escape(title_to)}</h1>")
         parts.append(f"<div class='meta'><span>语言：{html.escape(self.locale)}</span><span>数据版本：{html.escape(from_build)} → {html.escape(to_build)}</span></div></div>")
         if wowhead_url:
@@ -5107,7 +5493,16 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
         if changed_table_counts:
             table_summary = '、'.join([f"{k} {v}" for k, v in sorted(changed_table_counts.items(), key=lambda x: (-x[1], x[0]))[:8]])
             parts.append(f"<div class='meta'><span>主要变更表：{html.escape(table_summary)}</span></div>")
-        parts.append("<div class='controls'><input id='spellFilter' type='search' placeholder='筛选技能名、ID、职业、专精或 DB2 表…' autocomplete='off'><span class='count' id='filterCount'>全部显示</span></div>")
+        parts.append("<section class='impact-overview' aria-labelledby='impactOverviewTitle'>")
+        parts.append("<div class='impact-overview-head'><div class='impact-overview-title' id='impactOverviewTitle'>改动影响概览</div><div class='impact-note'>增强/削弱依据可直接判断的数值、系数和冷却字段归类；机制与联动仍需结合实战验证。</div></div>")
+        parts.append("<div class='tone-tabs' role='group' aria-label='按改动方向筛选'>")
+        parts.append(f"<button class='tone-tab' type='button' data-filter-tone='all' aria-pressed='true'>全部<span class='tab-count'>{len(spell_changes)}</span></button>")
+        parts.append(f"<button class='tone-tab' type='button' data-filter-tone='buff' aria-pressed='false'>增强<span class='tab-count'>{tone_counts.get('buff', 0)}</span></button>")
+        parts.append(f"<button class='tone-tab' type='button' data-filter-tone='nerf' aria-pressed='false'>削弱<span class='tab-count'>{tone_counts.get('nerf', 0)}</span></button>")
+        parts.append(f"<button class='tone-tab' type='button' data-filter-tone='other' aria-pressed='false'>机制 / 混合<span class='tab-count'>{tone_counts.get('mechanic', 0) + tone_counts.get('mixed', 0)}</span></button>")
+        parts.append("</div></section>")
+        parts.append("<div class='controls'><input id='spellFilter' type='search' aria-label='筛选职业改动' placeholder='搜索技能名、ID、职业或专精…' autocomplete='off'><span class='count' id='filterCount'>全部显示</span></div>")
+        parts.append("<div class='filter-empty hidden' id='filterEmpty'>没有符合当前筛选条件的技能改动。</div>")
 
         parts.append("<div class='toc'><div class='toc-title'>目录</div>")
         for cid in sorted(class_to_spec_to_spells.keys()):
@@ -5218,6 +5613,33 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                 return ''
             return ' ' + ' '.join([f"<span class='del'>{html.escape(x)}</span>" for x in removed])
 
+        def render_impact_change(table_key, field, before, after, evidence=''):
+            field = str(field or '').strip()
+            technical_only = {
+                'SpellID', 'DifficultyID', 'ContentTuningID', 'TraitDefinitionID',
+                'TraitNodeID', 'TraitNodeEntryID', 'EffectIndex', 'Effect', 'EffectAura',
+            }
+            if field in technical_only:
+                return ''
+            dimension = self._report_impact_dimension(table_key, field)
+            tone, direction, delta_label = self._report_change_tone(field, before, after)
+            evidence_html = f"<span class='impact-evidence'>{html.escape(evidence)}</span>" if evidence else ''
+            if 'Flags' in field or field == 'InterruptFlags':
+                value_html = "<span class='delta-badge mechanic'>规则调整</span>"
+            else:
+                old_value = '空' if before is None or str(before).strip() == '' else str(before).strip()
+                new_value = '空' if after is None or str(after).strip() == '' else str(after).strip()
+                delta_html = f"<span class='delta-badge {tone}'>{html.escape(delta_label or direction)}</span>"
+                value_html = (
+                    f"<span class='old-value'>{html.escape(old_value)}</span>"
+                    "<span class='change-arrow'>→</span>"
+                    f"<span class='new-value'>{html.escape(new_value)}</span>{delta_html}"
+                )
+            return (
+                f"<div class='impact-row {tone}'><div><span class='impact-label'>{html.escape(dimension)}</span>"
+                f"{evidence_html}</div><div class='value-flow'>{value_html}</div></div>"
+            )
+
         for cid in sorted(class_to_spec_to_spells.keys()):
             cname = self._clean_external_text((display_class_names or {}).get(cid) or str(cid))
             parts.append(f"<section class='class-section' id='class-{cid}' data-class='{html.escape(str(cname).lower())}'>")
@@ -5237,6 +5659,8 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                         continue
                     desc_primary = ''
                     lines = []
+                    impact_lines = []
+                    impact_seen = set()
 
                     for tkey in sorted(diffs_by_table.keys()):
                         items = diffs_by_table.get(tkey) or []
@@ -5294,6 +5718,15 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                                     if str(b) == str(a):
                                         continue
                                     changes.append(f"{field_change_label(fk)}：{fmt_change(b, a)}")
+                                    impact_key = (self._report_impact_dimension(tkey, fk), str(b), str(a))
+                                    if impact_key not in impact_seen:
+                                        impact_seen.add(impact_key)
+                                        impact_html = render_impact_change(
+                                            tkey, fk, b, a,
+                                            evidence=f"{eff_cn or '技能效果'}{idx_part}",
+                                        )
+                                        if impact_html:
+                                            impact_lines.append(impact_html)
                                 if changes:
                                     label = f"{eff_cn}{idx_part}" if eff_cn else f"技能效果{idx_part}"
                                     lines.append(f"<div class='line'><span class='hash'>#</span>{html.escape(label)}（{'，'.join(changes)}）</div>")
@@ -5311,51 +5744,111 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                                         desc_primary = merged
                                     else:
                                         lines.append(f"<div class='line'><span class='k'>{html.escape(table_change_label(tkey))}</span> {html.escape(title)}：{merged}</div>")
+                                    impact_key = (self._report_impact_dimension(tkey, f), '文本更新')
+                                    if impact_key not in impact_seen:
+                                        impact_seen.add(impact_key)
+                                        impact_lines.append(
+                                            "<div class='impact-row mechanic'><div><span class='impact-label'>技能说明与机制</span>"
+                                            f"<span class='impact-evidence'>{html.escape(title)}发生变化</span></div>"
+                                            "<div class='value-flow'><span class='delta-badge mechanic'>文本更新</span></div></div>"
+                                        )
                             continue
 
                         title = table_change_label(tkey)
                         for it in filtered_items:
                             for fd in it.get('fields') or []:
                                 f = fd.get('field') or ''
-                                lines.append(f"<div class='line'><span class='k'>{html.escape(title)}</span> {html.escape(field_change_label(f))}：{fmt_change(fd.get('before'), fd.get('after'))}</div>")
+                                before = fd.get('before')
+                                after = fd.get('after')
+                                lines.append(f"<div class='line'><span class='k'>{html.escape(title)}</span> {html.escape(field_change_label(f))}：{fmt_change(before, after)}</div>")
+                                impact_key = (self._report_impact_dimension(tkey, f), str(before), str(after))
+                                if impact_key not in impact_seen:
+                                    impact_seen.add(impact_key)
+                                    impact_html = render_impact_change(tkey, f, before, after, evidence=table_title.get(tkey) or tkey)
+                                    if impact_html:
+                                        impact_lines.append(impact_html)
 
                     search_text = ' '.join([str(sname), str(spell_id), str(cname), str(spec_name), ' '.join(diffs_by_table.keys())]).lower()
-                    parts.append(f"<div class='spell' id='spell-{spell_id}' data-search='{html.escape(str(search_text), quote=True)}'>")
-                    parts.append(f"<div class='spell-head'><span class='dot'></span><div><span class='spell-title'>{html.escape(sname)} <span class='subtle mono'>#{spell_id}</span></span>：{desc_primary} <a class='subtle' href='{html.escape(wowhead_spell_url)}' target='_blank' rel='noopener noreferrer'>Wowhead</a></div></div>")
-                    for ln in lines:
-                        parts.append(ln)
-                    parts.append("</div>")
+                    context = spell_context.get(int(spell_id)) or {}
+                    if not desc_primary and context.get('description'):
+                        desc_primary = self._render_spell_text_html(to_build, spell_id, context.get('description'))
+                    tone = spell_tones.get(int(spell_id)) or 'mechanic'
+                    tone_label = {'buff': '增强', 'nerf': '削弱', 'mixed': '有增有减', 'mechanic': '机制调整'}.get(tone, '机制调整')
+                    icon_url = self._report_spell_icon_url(context.get('icon'))
+                    if icon_url:
+                        icon_html = f"<img class='spell-icon' src='{html.escape(icon_url, quote=True)}' alt='' loading='lazy'>"
+                    else:
+                        icon_html = f"<span class='spell-icon-fallback' aria-hidden='true'>{html.escape((sname or '?')[:1])}</span>"
+                    parts.append(f"<article class='spell' id='spell-{spell_id}' data-tone='{tone}' data-search='{html.escape(str(search_text), quote=True)}'>")
+                    parts.append("<div class='spell-head'>")
+                    parts.append(icon_html)
+                    parts.append("<div class='spell-head-main'>")
+                    parts.append(
+                        f"<div class='spell-title-row'><span class='spell-title'>{html.escape(sname)}</span>"
+                        f"<span class='spell-id mono'>#{spell_id}</span><span class='tone-badge {tone}'>{tone_label}</span>"
+                        f"<a class='subtle' href='{html.escape(wowhead_spell_url)}' target='_blank' rel='noopener noreferrer'>Wowhead</a></div>"
+                    )
+                    if desc_primary:
+                        parts.append(f"<div class='spell-desc'>{desc_primary}</div>")
+                    parts.append("</div></div>")
+                    parts.append("<div class='impact-block'><div class='impact-block-title'>这条改动可能影响</div><div class='impact-list'>")
+                    if impact_lines:
+                        parts.extend(impact_lines)
+                    else:
+                        parts.append("<div class='impact-row mechanic'><div><span class='impact-label'>技能机制</span><span class='impact-evidence'>当前字段无法可靠换算为直接强弱</span></div><div class='value-flow'><span class='delta-badge mechanic'>需实战验证</span></div></div>")
+                    parts.append("</div></div>")
+                    if lines:
+                        parts.append(f"<details class='tech-details'><summary>查看 DB2 字段细节（{len(lines)}）</summary>")
+                        parts.extend(lines)
+                        parts.append("</details>")
+                    parts.append("</article>")
                 parts.append('</section>')
             parts.append('</section>')
         parts.append("""<script>
 (function(){
-  var input=document.getElementById('spellFilter');
-  var count=document.getElementById('filterCount');
+  var root=document.currentScript.closest('.skill-report') || document;
+  var input=root.querySelector('#spellFilter');
+  var count=root.querySelector('#filterCount');
+  var empty=root.querySelector('#filterEmpty');
+  var activeTone='all';
   if(!input){return;}
   function apply(){
     var q=(input.value||'').trim().toLowerCase();
     var total=0, visible=0;
-    document.querySelectorAll('.spell').forEach(function(el){
+    root.querySelectorAll('.spell').forEach(function(el){
       total++;
-      var ok=!q || (el.getAttribute('data-search')||'').indexOf(q)>=0 || (el.textContent||'').toLowerCase().indexOf(q)>=0;
+      var tone=el.getAttribute('data-tone')||'mechanic';
+      var toneOk=activeTone==='all' || tone===activeTone || (activeTone==='other' && (tone==='mechanic' || tone==='mixed'));
+      var queryOk=!q || (el.getAttribute('data-search')||'').indexOf(q)>=0 || (el.textContent||'').toLowerCase().indexOf(q)>=0;
+      var ok=toneOk && queryOk;
       el.classList.toggle('hidden', !ok);
       if(ok){visible++;}
     });
-    document.querySelectorAll('.spec-section').forEach(function(sec){
+    root.querySelectorAll('.spec-section').forEach(function(sec){
       var has=!!sec.querySelector('.spell:not(.hidden)');
       sec.classList.toggle('hidden', !has);
     });
-    document.querySelectorAll('.class-section').forEach(function(sec){
+    root.querySelectorAll('.class-section').forEach(function(sec){
       var has=!!sec.querySelector('.spell:not(.hidden)');
       sec.classList.toggle('hidden', !has);
     });
-    if(count){count.textContent=q ? ('显示 '+visible+' / '+total) : ('全部 '+total+' 个技能');}
+    if(count){count.textContent=(q || activeTone!=='all') ? ('显示 '+visible+' / '+total) : ('全部 '+total+' 个技能');}
+    if(empty){empty.classList.toggle('hidden', visible!==0);}
   }
   input.addEventListener('input', apply);
+  root.querySelectorAll('[data-filter-tone]').forEach(function(button){
+    button.addEventListener('click', function(){
+      activeTone=button.getAttribute('data-filter-tone')||'all';
+      root.querySelectorAll('[data-filter-tone]').forEach(function(item){
+        item.setAttribute('aria-pressed', item===button ? 'true' : 'false');
+      });
+      apply();
+    });
+  });
   apply();
 })();
 </script>""")
-        parts.append('</div></body></html>')
+        parts.append('</main></body></html>')
         html_text = self._cleanup_unresolved_tooltip_tokens_in_html("\n".join(parts))
         with open(full_path, 'w', encoding='utf-8') as f:
             f.write(html_text)

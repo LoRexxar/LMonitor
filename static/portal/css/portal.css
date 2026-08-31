@@ -1967,6 +1967,380 @@ html.portal-theme-dark .portal-daily-report-card {
 html.portal-theme-dark .portal-today-strip-label { color: #c9c0ff; }
 html.portal-theme-dark .md-content a,
 html.portal-theme-dark .portal-today-chip-label { color: #b8aeff; }
+
+/* ── Wago 职业改动报告 ── */
+.wow-skill-diff-page-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1.25rem;
+    padding: 1.25rem 1.35rem;
+    border: 1px solid var(--portal-border);
+    border-radius: 0.9rem;
+    background: var(--portal-surface-raised);
+    box-shadow: 0 12px 30px var(--portal-shadow);
+}
+
+.wow-skill-diff-page-head-main {
+    min-width: 0;
+}
+
+.wow-skill-diff-kicker {
+    margin-bottom: 0.35rem;
+    color: var(--portal-accent-primary);
+    font-size: 0.72rem;
+    font-weight: 850;
+    letter-spacing: 0.08em;
+}
+
+.wow-skill-diff-page-head h1 {
+    max-width: 75ch;
+    margin: 0;
+    color: var(--portal-text);
+    font-size: 1.25rem;
+    font-weight: 850;
+    line-height: 1.4;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+}
+
+.wow-skill-diff-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem 0.9rem;
+    margin-top: 0.75rem;
+    color: var(--portal-text-secondary);
+    font-size: 0.76rem;
+    line-height: 1.5;
+}
+
+.wow-skill-diff-meta span {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.35rem;
+}
+
+.wow-skill-diff-meta b {
+    color: var(--portal-text-muted);
+    font-weight: 700;
+}
+
+.wow-skill-diff-standalone-link {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.5rem;
+    padding: 0.55rem 0.85rem;
+    border: 1px solid rgba(102, 87, 200, 0.35);
+    border-radius: 0.65rem;
+    background: var(--portal-accent-primary-soft);
+    color: var(--portal-accent-primary);
+    font-size: 0.78rem;
+    font-weight: 750;
+    text-decoration: none;
+}
+
+.wow-skill-diff-standalone-link:hover {
+    border-color: var(--portal-accent-primary);
+    background: rgba(102, 87, 200, 0.17);
+}
+
+.wow-skill-diff-standalone-link:focus-visible {
+    outline: 3px solid rgba(102, 87, 200, 0.28);
+    outline-offset: 2px;
+}
+
+.wow-skill-diff-embedded-html {
+    min-width: 0;
+}
+
+/* Portal 已提供完整报告标题，嵌入时隐藏静态报告自身的重复标题。 */
+.wow-skill-diff-embedded-html > .card > .hero,
+.wow-skill-diff-embedded-html > .skill-report > .report-hero {
+    display: none;
+}
+
+.wow-skill-diff-embedded-html > .card,
+.wow-skill-diff-embedded-html > .skill-report {
+    max-width: none;
+    margin: 0;
+}
+
+.wow-skill-diff-embedded-html > .legacy-skill-report-enhanced {
+    color: var(--portal-text);
+    background: var(--portal-surface-raised);
+    border-color: var(--portal-border);
+    box-shadow: 0 16px 42px var(--portal-shadow);
+}
+
+.wow-skill-diff-embedded-html .legacy-skill-report-enhanced .summary {
+    margin-top: 0;
+}
+
+.wow-skill-diff-embedded-html .legacy-skill-report-enhanced .metric,
+.wow-skill-diff-embedded-html .legacy-skill-report-enhanced .toc,
+.wow-skill-diff-embedded-html .legacy-skill-report-enhanced .toc-item,
+.wow-skill-diff-embedded-html .legacy-skill-report-enhanced .class-section,
+.wow-skill-diff-embedded-html .legacy-skill-report-enhanced .spell {
+    color: var(--portal-text);
+    background: var(--portal-surface-raised);
+    border-color: var(--portal-border);
+}
+
+.wow-skill-diff-embedded-html .legacy-skill-report-enhanced .class-section {
+    margin-top: 1.5rem;
+    padding: 0;
+    border: 0;
+}
+
+.wow-skill-diff-embedded-html .legacy-skill-report-enhanced .class-head {
+    padding-bottom: 0.55rem;
+    border-bottom: 2px solid rgba(102, 87, 200, 0.32);
+}
+
+.wow-skill-diff-embedded-html .legacy-skill-report-enhanced .spec-section {
+    border-top: 0;
+}
+
+.wow-skill-diff-embedded-html .legacy-skill-report-enhanced .spell {
+    padding: 1rem;
+    box-shadow: 0 2px 8px var(--portal-shadow);
+}
+
+.wow-skill-diff-embedded-html .legacy-skill-report-enhanced .spell[data-tone="buff"] { border-color: rgba(8, 127, 91, 0.38); }
+.wow-skill-diff-embedded-html .legacy-skill-report-enhanced .spell[data-tone="nerf"] { border-color: rgba(180, 35, 24, 0.36); }
+.wow-skill-diff-embedded-html .legacy-skill-report-enhanced .spell[data-tone="mixed"] { border-color: rgba(121, 80, 178, 0.38); }
+.wow-skill-diff-embedded-html .legacy-skill-report-enhanced .spell[data-tone="mechanic"] { border-color: rgba(154, 103, 0, 0.34); }
+
+.wow-skill-diff-embedded-html .legacy-skill-report-enhanced .dot {
+    display: none;
+}
+
+.legacy-tone-badge,
+.legacy-delta-badge {
+    display: inline-flex;
+    align-items: center;
+    width: max-content;
+    margin-right: 0.45rem;
+    padding: 0.1rem 0.48rem;
+    border-radius: 9999px;
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.legacy-tone-badge.buff,
+.legacy-delta-badge.buff { color: #087f5b; background: #e8f7f1; }
+.legacy-tone-badge.nerf,
+.legacy-delta-badge.nerf { color: #b42318; background: #fff0ee; }
+.legacy-tone-badge.mixed { color: #6941c6; background: #f4f0ff; }
+.legacy-tone-badge.mechanic,
+.legacy-delta-badge.mechanic { color: #9a6700; background: #fff7dc; }
+
+.legacy-impact-overview {
+    margin: 0.9rem 0;
+    padding: 0.8rem 0.9rem;
+    border: 1px solid var(--portal-border);
+    border-radius: 0.8rem;
+    background: var(--portal-surface-muted);
+}
+
+.legacy-impact-overview-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.65rem;
+}
+
+.legacy-impact-overview-head strong {
+    font-size: 0.86rem;
+}
+
+.legacy-impact-overview-head span {
+    color: var(--portal-text-secondary);
+    font-size: 0.72rem;
+}
+
+.legacy-tone-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.legacy-tone-tabs button {
+    min-height: 2.5rem;
+    padding: 0.42rem 0.7rem;
+    border: 1px solid var(--portal-border);
+    border-radius: 0.65rem;
+    background: var(--portal-surface-raised);
+    color: var(--portal-text-secondary);
+    cursor: pointer;
+    font-size: 0.78rem;
+    font-weight: 750;
+}
+
+.legacy-tone-tabs button:hover,
+.legacy-tone-tabs button[aria-pressed="true"] {
+    border-color: var(--portal-accent-primary);
+    color: var(--portal-accent-primary);
+    background: var(--portal-accent-primary-soft);
+}
+
+.legacy-tone-tabs button:focus-visible,
+.legacy-tech-details summary:focus-visible {
+    outline: 3px solid rgba(102, 87, 200, 0.28);
+    outline-offset: 2px;
+}
+
+.legacy-impact-block {
+    margin-top: 0.8rem;
+}
+
+.legacy-impact-block-title {
+    margin-bottom: 0.45rem;
+    color: var(--portal-text-secondary);
+    font-size: 0.75rem;
+    font-weight: 850;
+}
+
+.legacy-impact-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.legacy-impact-row {
+    display: grid;
+    grid-template-columns: minmax(10rem, 1fr) auto;
+    align-items: center;
+    gap: 0.8rem;
+    padding: 0.55rem 0.65rem;
+    border: 1px solid var(--portal-border-subtle);
+    border-radius: 0.55rem;
+    background: var(--portal-surface-muted);
+}
+
+.legacy-impact-label {
+    display: block;
+    color: var(--portal-text);
+    font-size: 0.8rem;
+    font-weight: 780;
+}
+
+.legacy-impact-evidence {
+    display: block;
+    margin-top: 0.05rem;
+    color: var(--portal-text-secondary);
+    font-size: 0.69rem;
+}
+
+.legacy-value-flow {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.42rem;
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.legacy-old-value {
+    color: #9f2f28;
+    text-decoration: line-through;
+}
+
+.legacy-new-value {
+    color: #087f5b;
+    font-weight: 800;
+}
+
+.legacy-change-arrow {
+    color: var(--portal-text-muted);
+}
+
+.legacy-tech-details {
+    margin-top: 0.75rem;
+    padding-top: 0.55rem;
+    border-top: 1px solid var(--portal-border-subtle);
+}
+
+.legacy-tech-details summary {
+    display: flex;
+    align-items: center;
+    min-height: 2rem;
+    color: var(--portal-text-secondary);
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-weight: 750;
+}
+
+.wow-skill-diff-embedded-html .legacy-tech-details .line {
+    margin-top: 0.45rem;
+    padding: 0.5rem 0.6rem;
+    border-radius: 0.5rem;
+    background: var(--portal-surface-muted);
+    color: var(--portal-text-secondary);
+    font-size: 0.75rem;
+    overflow-wrap: anywhere;
+}
+
+html.portal-theme-dark .legacy-tone-badge.buff,
+html.portal-theme-dark .legacy-delta-badge.buff { color: #85e2c1; background: rgba(8, 127, 91, 0.25); }
+html.portal-theme-dark .legacy-tone-badge.nerf,
+html.portal-theme-dark .legacy-delta-badge.nerf { color: #ffaaa3; background: rgba(180, 35, 24, 0.24); }
+html.portal-theme-dark .legacy-tone-badge.mixed { color: #d6c2ff; background: rgba(105, 65, 198, 0.26); }
+html.portal-theme-dark .legacy-tone-badge.mechanic,
+html.portal-theme-dark .legacy-delta-badge.mechanic { color: #f4cc72; background: rgba(154, 103, 0, 0.24); }
+html.portal-theme-dark .legacy-old-value { color: #ffaaa3; }
+html.portal-theme-dark .legacy-new-value { color: #85e2c1; }
+
+html.portal-theme-dark .wow-skill-diff-standalone-link {
+    color: #d8d3ff;
+    background: rgba(102, 87, 200, 0.22);
+}
+
+@media (max-width: 720px) {
+    .wow-skill-diff-page-head {
+        display: block;
+        padding: 1rem;
+    }
+
+    .wow-skill-diff-page-head h1 {
+        font-size: 1.08rem;
+    }
+
+    .wow-skill-diff-standalone-link {
+        width: 100%;
+        min-height: 2.75rem;
+        margin-top: 1rem;
+    }
+
+    .legacy-impact-overview-head {
+        display: block;
+    }
+
+    .legacy-impact-overview-head span {
+        display: block;
+        margin-top: 0.25rem;
+        line-height: 1.5;
+    }
+
+    .legacy-tone-tabs button {
+        min-height: 2.75rem;
+    }
+
+    .legacy-impact-row {
+        grid-template-columns: 1fr;
+        gap: 0.35rem;
+    }
+
+    .legacy-value-flow {
+        justify-content: flex-start;
+        flex-wrap: wrap;
+    }
+}
 /* Tailwind utility classes occur throughout Portal templates and API-rendered
  * fragments. Map their neutral palette to Portal tokens so dark mode never
  * leaves black or dark-slate text on charcoal surfaces. */
