@@ -58,6 +58,17 @@ RAIDBOTS_STATS = {
     'vers': 'versatility', 'leech': 'leech', 'avoidance': 'avoidance',
     'runspeed': 'speed',
 }
+PRIMARY_STATS_BY_ITEM_MOD = {
+    3: ('agility',), 4: ('strength',), 5: ('intellect',),
+    71: ('strength', 'agility', 'intellect'), 72: ('strength', 'agility'),
+    73: ('agility', 'intellect'), 74: ('strength', 'intellect'),
+}
+ARMOR_TYPE_NAMES = {1: '布甲', 2: '皮甲', 3: '锁甲', 4: '板甲', 6: '盾牌'}
+WEAPON_TYPE_NAMES = {
+    0: '单手斧', 1: '双手斧', 2: '弓', 3: '枪械', 4: '单手锤', 5: '双手锤',
+    6: '长柄武器', 7: '单手剑', 8: '双手剑', 9: '战刃', 10: '法杖',
+    13: '拳套', 15: '匕首', 18: '弩', 19: '魔杖',
+}
 
 
 class CatalogSourceError(RuntimeError):
@@ -383,6 +394,14 @@ class CurrentGearCatalogSource:
     def _base_item(raw, catalog_type, slots):
         item_id = _safe_int(raw.get('id') or raw.get('itemId'))
         slot_key = slots[0] if len(slots) == 1 else ('weapon' if any(value.endswith('hand') for value in slots) else '')
+        item_class = _safe_int(raw.get('itemClass'))
+        item_subclass = _safe_int(raw.get('itemSubClass'))
+        inventory_type = _safe_int(raw.get('inventoryType'))
+        primary_options = sorted({
+            primary
+            for stat in (raw.get('stats') or []) if isinstance(stat, dict)
+            for primary in PRIMARY_STATS_BY_ITEM_MOD.get(_safe_int(stat.get('id')), ())
+        })
         return {
             'item_id': item_id,
             'name': str(raw.get('name') or raw.get('itemName') or ''),
@@ -391,10 +410,13 @@ class CurrentGearCatalogSource:
             'icon': str(raw.get('icon') or raw.get('itemIcon') or ''),
             'quality': _safe_int(raw.get('quality')),
             'catalog_type': catalog_type,
-            'inventory_type': _safe_int(raw.get('inventoryType')),
+            'inventory_type': inventory_type,
             'slot_key': slot_key,
-            'item_class_id': _safe_int(raw.get('itemClass')),
-            'item_subclass_id': _safe_int(raw.get('itemSubClass')),
+            'item_class_id': item_class,
+            'item_subclass_id': item_subclass,
+            'armor_type': ARMOR_TYPE_NAMES.get(item_subclass, '') if item_class == 4 and inventory_type in {1, 3, 5, 6, 7, 8, 9, 10, 14, 20} else '',
+            'weapon_type': WEAPON_TYPE_NAMES.get(item_subclass, '') if item_class == 2 else '',
+            'allowable_class_mask': _safe_int(raw.get('allowableClasses') or raw.get('allowableClassMask')),
             'eligible_specs': [
                 f'{identity[0]}:{identity[1]}'
                 for spec_id in (raw.get('specs') or [])
@@ -405,6 +427,8 @@ class CurrentGearCatalogSource:
             'simc_token': re.sub(r'[^a-z0-9]+', '_', str(raw.get('name') or raw.get('itemName') or '').lower()).strip('_'),
             'metadata': {
                 'raidbots_stats_alloc': raw.get('stats') or [],
+                'primary_stat_options': primary_options,
+                'two_handed': inventory_type == 17,
                 'native_socket_types': [
                     str(row.get('type') or 'PRISMATIC').lower()
                     for row in ((raw.get('socketInfo') or {}).get('sockets') or [])

@@ -9,6 +9,7 @@ from django.core.management import call_command
 from django.test import TestCase, override_settings
 
 from botend.models import SeasonMeta, WowItemSnapshot, WowItemVariantSnapshot
+from botend.services.gear_builder import stats_for_identity
 from botend.services.gear_builder_catalog_source import CurrentGearCatalogSource, _tooltip_details
 from botend.services.gear_builder_icon_sync import GearBuilderIconSync
 
@@ -41,6 +42,10 @@ class GearBuilderTestDataMixin:
             quality=4,
             catalog_type='equipment',
             slot_key='head',
+            item_class_id=4,
+            item_subclass_id=4,
+            inventory_type=1,
+            armor_type='板甲',
             eligible_specs=['Warrior:Fury'],
         )
         self.hero = WowItemVariantSnapshot.objects.create(
@@ -82,6 +87,10 @@ class GearBuilderTestDataMixin:
             name_zh='锻造头盔',
             catalog_type='crafted_equipment',
             slot_key='head',
+            item_class_id=4,
+            item_subclass_id=4,
+            inventory_type=1,
+            armor_type='板甲',
         )
         self.crafted = WowItemVariantSnapshot.objects.create(
             item=self.crafted_item,
@@ -212,6 +221,66 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         self.assertEqual(source['instance_zh'], '烈毒之渊')
         self.assertEqual(source['encounter_zh'], '乌拉特克')
         self.assertEqual(source['difficulty_zh'], '史诗')
+
+    def test_catalog_strictly_filters_armor_primary_stat_and_weapon_slot(self):
+        cloth = WowItemSnapshot.objects.create(
+            item_id=10008, name='Intellect Cloth Hood', catalog_type='equipment', slot_key='head',
+            item_class_id=4, item_subclass_id=1, inventory_type=1, armor_type='布甲',
+            metadata={'raidbots_stats_alloc': [{'id': 5, 'alloc': 5000}]},
+        )
+        WowItemVariantSnapshot.objects.create(
+            item=cloth, season=self.season, batch_key='test-batch', variant_key='cloth-hero',
+            variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT, item_level=710,
+            compatible_slots=['head'], stats_json={'intellect': 900, 'stamina': 4000, 'haste': 300},
+        )
+        intellect_sword = WowItemSnapshot.objects.create(
+            item_id=10009, name='Intellect Sword', catalog_type='equipment', slot_key='weapon',
+            item_class_id=2, item_subclass_id=7, inventory_type=13, weapon_type='单手剑',
+            metadata={'raidbots_stats_alloc': [{'id': 5, 'alloc': 5000}]},
+        )
+        WowItemVariantSnapshot.objects.create(
+            item=intellect_sword, season=self.season, batch_key='test-batch', variant_key='int-sword',
+            variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT, item_level=710,
+            compatible_slots=['main_hand', 'off_hand'], stats_json={'intellect': 900, 'haste': 300},
+        )
+        strength_two_hand = WowItemSnapshot.objects.create(
+            item_id=10010, name='Strength Greatsword', catalog_type='equipment', slot_key='main_hand',
+            item_class_id=2, item_subclass_id=8, inventory_type=17, weapon_type='双手剑',
+            metadata={'raidbots_stats_alloc': [{'id': 4, 'alloc': 5000}]},
+        )
+        WowItemVariantSnapshot.objects.create(
+            item=strength_two_hand, season=self.season, batch_key='test-batch', variant_key='strength-2h',
+            variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT, item_level=710,
+            compatible_slots=['main_hand'], stats_json={'strength': 900, 'crit': 300},
+        )
+
+        fury_head = self.client.get('/portal/api/gear-builder/catalog/', {
+            'class': 'Warrior', 'spec': 'Fury', 'slot': 'head',
+        }).json()['items']
+        self.assertNotIn(cloth.item_id, [row['item_id'] for row in fury_head])
+        fire_head = self.client.get('/portal/api/gear-builder/catalog/', {
+            'class': 'Mage', 'spec': 'Fire', 'slot': 'head',
+        }).json()['items']
+        self.assertIn(cloth.item_id, [row['item_id'] for row in fire_head])
+        self.assertNotIn(self.helm.item_id, [row['item_id'] for row in fire_head])
+
+        fury_weapons = self.client.get('/portal/api/gear-builder/catalog/', {
+            'class': 'Warrior', 'spec': 'Fury', 'slot': 'main_hand',
+        }).json()['items']
+        self.assertNotIn(intellect_sword.item_id, [row['item_id'] for row in fury_weapons])
+        fire_weapons = self.client.get('/portal/api/gear-builder/catalog/', {
+            'class': 'Mage', 'spec': 'Fire', 'slot': 'main_hand',
+        }).json()['items']
+        self.assertIn(intellect_sword.item_id, [row['item_id'] for row in fire_weapons])
+        self.assertEqual(fire_weapons[0]['variants'][0]['stats'], {'intellect': 900, 'haste': 300})
+        fury_offhand = self.client.get('/portal/api/gear-builder/catalog/', {
+            'class': 'Warrior', 'spec': 'Fury', 'slot': 'off_hand',
+        }).json()['items']
+        self.assertIn(strength_two_hand.item_id, [row['item_id'] for row in fury_offhand])
+        arms_offhand = self.client.get('/portal/api/gear-builder/catalog/', {
+            'class': 'Warrior', 'spec': 'Arms', 'slot': 'off_hand',
+        }).json()['items']
+        self.assertNotIn(strength_two_hand.item_id, [row['item_id'] for row in arms_offhand])
 
     def test_enhancements_only_offer_embellishment_for_crafted_equipment(self):
         drop = self.client.get('/portal/api/gear-builder/enhancements/', {
@@ -388,6 +457,11 @@ class GearBuilderImportCommandTests(TestCase):
 
 
 class GearBuilderCurrentSourceTests(TestCase):
+    def test_identity_stats_remove_other_primary_attributes(self):
+        raw = {'strength': 500, 'agility': 500, 'intellect': 500, 'crit': 200}
+        self.assertEqual(stats_for_identity(raw, {}, 'Warrior', 'Fury'), {'strength': 500, 'crit': 200})
+        self.assertEqual(stats_for_identity(raw, {}, 'Mage', 'Fire'), {'intellect': 500, 'crit': 200})
+
     def test_special_mythic_drop_adds_344_variant_and_native_socket(self):
         item = {
             'inventory_type': 1,
@@ -465,7 +539,7 @@ class GearBuilderFrontendContractTests(TestCase):
         script = (root / 'static/portal/js/gear_builder.js').read_text(encoding='utf-8')
         self.assertIn('/portal/gear-builder/', header)
         self.assertIn('职业配装器', header)
-        for value in ('装备', '强化', '美化', '宝石', '永久附魔', '导入 SimC'):
+        for value in ('装备', '强化', '美化', '宝石', '永久附魔', '导入 SimC', '绿字'):
             self.assertIn(value, template)
         self.assertIn('gear-add-socket', template)
         for value in ('localStorage', 'CompressionStream', 'parse', 'crafted_stats', 'data-wow-item-tooltip'):
@@ -474,3 +548,4 @@ class GearBuilderFrontendContractTests(TestCase):
             self.assertIn(value, script)
         self.assertIn('data-select-item', script)
         self.assertNotIn('data-add-item', script)
+        self.assertIn('SECONDARY_STATS.has(key)', script)

@@ -75,6 +75,56 @@ AGILITY_SPECS = {
     'Shaman:Enhancement', 'Monk:Brewmaster', 'Monk:Windwalker',
     'Druid:Feral', 'Druid:Guardian',
 }
+PRIMARY_STAT_KEYS = {'strength', 'agility', 'intellect'}
+PRIMARY_STATS_BY_ITEM_MOD = {
+    3: {'agility'}, 4: {'strength'}, 5: {'intellect'},
+    71: {'strength', 'agility', 'intellect'},
+    72: {'strength', 'agility'}, 73: {'agility', 'intellect'}, 74: {'strength', 'intellect'},
+}
+ARMOR_SUBCLASS_BY_CLASS = {
+    'Mage': 1, 'Priest': 1, 'Warlock': 1,
+    'DemonHunter': 2, 'Druid': 2, 'Monk': 2, 'Rogue': 2,
+    'Evoker': 3, 'Hunter': 3, 'Shaman': 3,
+    'DeathKnight': 4, 'Paladin': 4, 'Warrior': 4,
+}
+PRIMARY_ARMOR_INVENTORY_TYPES = {1, 3, 5, 6, 7, 8, 9, 10, 20}
+WEAPON_SUBCLASSES_BY_CLASS = {
+    'DeathKnight': {0, 1, 4, 5, 6, 7, 8},
+    'DemonHunter': {0, 7, 9, 13, 15},
+    'Druid': {4, 5, 6, 10, 13, 15},
+    'Evoker': {4, 7, 10, 15},
+    'Hunter': {0, 1, 2, 3, 6, 7, 8, 10, 13, 18},
+    'Mage': {7, 10, 15, 19},
+    'Monk': {0, 4, 6, 7, 10, 13},
+    'Paladin': {0, 1, 4, 5, 6, 7, 8},
+    'Priest': {4, 10, 15, 19},
+    'Rogue': {0, 4, 7, 13, 15},
+    'Shaman': {0, 4, 10, 13, 15},
+    'Warlock': {7, 10, 15, 19},
+    'Warrior': {0, 1, 4, 5, 6, 7, 8, 13, 15},
+}
+SPEC_WEAPON_INVENTORY_TYPES = {
+    'Warrior:Arms': {17}, 'Warrior:Fury': {13, 17, 21}, 'Warrior:Protection': {13, 21},
+    'Paladin:Holy': {13, 17, 21}, 'Paladin:Protection': {13, 21}, 'Paladin:Retribution': {17},
+    'DeathKnight:Blood': {17}, 'DeathKnight:Frost': {13, 17, 21}, 'DeathKnight:Unholy': {17},
+    'Hunter:BeastMastery': {15, 26}, 'Hunter:Marksmanship': {15, 26}, 'Hunter:Survival': {17},
+    'Rogue:Assassination': {13, 21}, 'Rogue:Outlaw': {13, 21}, 'Rogue:Subtlety': {13, 21},
+    'DemonHunter:Havoc': {13, 21}, 'DemonHunter:Vengeance': {13, 21}, 'DemonHunter:Devourer': {13, 21},
+    'Shaman:Enhancement': {13, 21}, 'Shaman:Elemental': {13, 17, 21}, 'Shaman:Restoration': {13, 17, 21},
+    'Monk:Brewmaster': {13, 17, 21}, 'Monk:Windwalker': {13, 17, 21}, 'Monk:Mistweaver': {13, 17, 21},
+    'Druid:Balance': {13, 17, 21}, 'Druid:Feral': {17}, 'Druid:Guardian': {17}, 'Druid:Restoration': {13, 17, 21},
+    'Mage:Arcane': {13, 17, 21, 26}, 'Mage:Fire': {13, 17, 21, 26}, 'Mage:Frost': {13, 17, 21, 26},
+    'Priest:Discipline': {13, 17, 21, 26}, 'Priest:Holy': {13, 17, 21, 26}, 'Priest:Shadow': {13, 17, 21, 26},
+    'Warlock:Affliction': {13, 17, 21, 26}, 'Warlock:Demonology': {13, 17, 21, 26}, 'Warlock:Destruction': {13, 17, 21, 26},
+    'Evoker:Devastation': {13, 17, 21}, 'Evoker:Preservation': {13, 17, 21}, 'Evoker:Augmentation': {13, 17, 21},
+}
+DUAL_WIELD_SPECS = {
+    'Warrior:Fury', 'DeathKnight:Frost', 'Rogue:Assassination', 'Rogue:Outlaw', 'Rogue:Subtlety',
+    'DemonHunter:Havoc', 'DemonHunter:Vengeance', 'DemonHunter:Devourer', 'Shaman:Enhancement',
+    'Monk:Brewmaster', 'Monk:Windwalker',
+}
+SHIELD_SPECS = {'Warrior:Protection', 'Paladin:Holy', 'Paladin:Protection', 'Shaman:Elemental', 'Shaman:Restoration'}
+HELD_OFFHAND_SPECS = INTELLECT_SPECS - {'Paladin:Holy', 'Shaman:Elemental', 'Shaman:Restoration'}
 
 
 class GearBuilderError(ValueError):
@@ -119,6 +169,8 @@ def stats_for_identity(raw, metadata, class_name='', spec_name=''):
         primary = 'agility'
     else:
         primary = 'strength'
+    for key in PRIMARY_STAT_KEYS - {primary}:
+        stats.pop(key, None)
     metadata = metadata if isinstance(metadata, dict) else {}
     values = metadata.get('primary_stat_values') if isinstance(metadata.get('primary_stat_values'), dict) else {}
     amount = values.get(primary) or metadata.get('primary_stat_amount') or 0
@@ -199,27 +251,79 @@ def canonical_spec(class_name, spec_name):
     return identity
 
 
-def slot_matches(variant, slot):
+def slot_matches(variant, slot, class_name='', spec_name=''):
     family = SLOT_FAMILIES.get(slot, slot)
     compatible = [str(value) for value in (variant.compatible_slots or []) if value]
     item_slot = str(variant.item.slot_key or '')
-    return not compatible or slot in compatible or family in compatible or item_slot in (slot, family)
+    matched = not compatible or slot in compatible or family in compatible or item_slot in (slot, family)
+    if not matched and slot == 'off_hand' and f'{class_name}:{spec_name}' == 'Warrior:Fury':
+        matched = int(variant.item.item_class_id or 0) == 2 and int(variant.item.inventory_type or 0) == 17
+    return matched
 
 
-def spec_matches(item, class_name, spec_name):
+def _expected_primary_stat(class_name, spec_name):
+    identity = f'{class_name}:{spec_name}'
+    if identity in INTELLECT_SPECS:
+        return 'intellect'
+    if class_name in AGILITY_CLASSES or identity in AGILITY_SPECS:
+        return 'agility'
+    return 'strength'
+
+
+def _item_primary_options(item, variant=None):
+    options = set()
+    metadata = item.metadata if isinstance(item.metadata, dict) else {}
+    options.update(str(value) for value in (metadata.get('primary_stat_options') or []) if value)
+    for row in metadata.get('raidbots_stats_alloc') or []:
+        if isinstance(row, dict):
+            options.update(PRIMARY_STATS_BY_ITEM_MOD.get(int(row.get('id') or 0), set()))
+    if variant:
+        variant_metadata = variant.metadata if isinstance(variant.metadata, dict) else {}
+        values = variant_metadata.get('primary_stat_values') if isinstance(variant_metadata.get('primary_stat_values'), dict) else {}
+        options.update(key for key, value in values.items() if key in PRIMARY_STAT_KEYS and _number(value))
+        options.update(key for key, value in normalize_stats(variant.stats_json).items() if key in PRIMARY_STAT_KEYS and _number(value))
+    return options
+
+
+def spec_matches(item, class_name, spec_name, variant=None, slot=''):
     class_mask = int(item.allowable_class_mask or 0)
     expected_mask = CLASS_MASKS.get(str(class_name or '').casefold(), 0)
     if class_mask > 0 and expected_mask and not class_mask & expected_mask:
         return False
     eligible = [str(value).casefold() for value in (item.eligible_specs or []) if value]
-    if not eligible:
-        return True
-    candidates = {
-        f'{class_name}:{spec_name}'.casefold(),
-        f'{class_name}_{spec_name}'.casefold(),
-        spec_name.casefold(),
-    }
-    return bool(candidates.intersection(eligible))
+    identity = f'{class_name}:{spec_name}'
+    if eligible:
+        candidates = {
+            identity.casefold(),
+            f'{class_name}_{spec_name}'.casefold(),
+            spec_name.casefold(),
+        }
+        if not candidates.intersection(eligible):
+            return False
+
+    item_class = int(item.item_class_id or 0)
+    subclass = int(item.item_subclass_id or 0)
+    inventory_type = int(item.inventory_type or 0)
+    if item_class == 4 and inventory_type in PRIMARY_ARMOR_INVENTORY_TYPES:
+        if subclass in {1, 2, 3, 4} and subclass != ARMOR_SUBCLASS_BY_CLASS.get(class_name):
+            return False
+    if item_class == 4 and subclass == 6 and identity not in SHIELD_SPECS:
+        return False
+    if item_class == 4 and inventory_type == 23 and identity not in HELD_OFFHAND_SPECS:
+        return False
+    if item_class == 2:
+        if subclass not in WEAPON_SUBCLASSES_BY_CLASS.get(class_name, set()):
+            return False
+        allowed_inventory = SPEC_WEAPON_INVENTORY_TYPES.get(identity)
+        if allowed_inventory and inventory_type not in allowed_inventory:
+            return False
+        if slot == 'off_hand' and inventory_type in {13, 17} and identity not in DUAL_WIELD_SPECS:
+            return False
+
+    primary_options = _item_primary_options(item, variant)
+    if primary_options and _expected_primary_stat(class_name, spec_name) not in primary_options:
+        return False
+    return True
 
 
 def _source_matches(variant, source_type):
@@ -231,6 +335,8 @@ def _source_matches(variant, source_type):
 
 def serialize_variant(variant, class_name='', spec_name=''):
     item = variant.item
+    metadata = {**(item.metadata or {}), **(variant.metadata or {})}
+    metadata.setdefault('two_handed', int(item.inventory_type or 0) == 17)
     return {
         'id': variant.id,
         'key': variant.variant_key,
@@ -253,7 +359,7 @@ def serialize_variant(variant, class_name='', spec_name=''):
         'unique_group': variant.unique_group or item.unique_group,
         'max_equipped': variant.max_equipped,
         'is_intrinsic_embellishment': variant.is_intrinsic_embellishment,
-        'metadata': variant.metadata or {},
+        'metadata': metadata,
     }
 
 
@@ -308,7 +414,9 @@ def catalog_items(*, class_name, spec_name, slot, source_type='all', query='', p
         (WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT, WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT),
         query,
     ):
-        if not slot_matches(variant, slot) or not spec_matches(variant.item, class_name, spec_name):
+        if not slot_matches(variant, slot, class_name, spec_name) or not spec_matches(
+            variant.item, class_name, spec_name, variant, slot,
+        ):
             continue
         if not _source_matches(variant, source_type):
             continue
@@ -352,12 +460,12 @@ def enhancement_items(*, class_name, spec_name, slot, equipment_variant_id=None)
     grouped = defaultdict(list)
     highest_quality = {}
     for variant in _catalog_queryset(season, tuple(type_to_group)):
-        if not spec_matches(variant.item, class_name, spec_name):
+        if not spec_matches(variant.item, class_name, spec_name, variant, slot):
             continue
         if variant.variant_type == WowItemVariantSnapshot.TYPE_EMBELLISHMENT:
             if not equipment_variant or equipment_variant.variant_type != WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT:
                 continue
-        if not slot_matches(variant, slot):
+        if not slot_matches(variant, slot, class_name, spec_name):
             continue
         if variant.variant_type in (WowItemVariantSnapshot.TYPE_GEM, WowItemVariantSnapshot.TYPE_ENCHANT):
             if int(variant.item.quality or 0) < 3:

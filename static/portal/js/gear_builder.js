@@ -34,6 +34,7 @@
     strength: "#cf2f2f", agility: "#1e9a50", intellect: "#3978d9", stamina: "#7d59c4",
     crit: "#ed7b2d", haste: "#24a7bd", mastery: "#7c3aed", versatility: "#c59d28",
   };
+  const SECONDARY_STATS = new Set(["crit", "haste", "mastery", "versatility"]);
   const SOURCE_LABELS = {
     mythic_plus: "大秘境", great_vault: "宏伟宝库", raid: "团队副本", delve: "地下堡",
     crafted: "专业制造", profession: "专业制造", bonus_roll: "额外掉落",
@@ -130,11 +131,11 @@
     return sourceText(variant).split("\n").map((line) => `<span>${escapeHtml(line)}</span>`).join("");
   }
 
-  function statMarkup(stats, limit = 3) {
-    const rows = Object.entries(stats || {}).filter(([, value]) => number(value)).slice(0, limit);
+  function statMarkup(stats, limit = 4) {
+    const rows = Object.entries(stats || {}).filter(([key, value]) => SECONDARY_STATS.has(key) && number(value)).slice(0, limit);
     return rows.length
       ? rows.map(([key, value]) => `<span>${escapeHtml(STAT_LABELS[key] || key)} ${formatNumber(value)}</span>`).join("")
-      : "<span>特效装备</span>";
+      : "<span>无常驻绿字</span>";
   }
 
   function variantLabel(variant) {
@@ -421,7 +422,8 @@
   }
 
   function validateEquipment(variant, targetSlot) {
-    if (targetSlot === "off_hand" && state.equipment.main_hand?.variant?.metadata?.two_handed) {
+    const furyTitanGrip = state.className === "Warrior" && state.specName === "Fury";
+    if (targetSlot === "off_hand" && state.equipment.main_hand?.variant?.metadata?.two_handed && !furyTitanGrip) {
       return "主手已装备双手武器，不能同时装备副手。";
     }
     const group = variant.unique_group;
@@ -447,7 +449,8 @@
       return;
     }
     const replacing = Boolean(current);
-    if (state.selectedSlot === "main_hand" && variant.metadata?.two_handed && state.equipment.off_hand) {
+    const furyTitanGrip = state.className === "Warrior" && state.specName === "Fury";
+    if (state.selectedSlot === "main_hand" && variant.metadata?.two_handed && state.equipment.off_hand && !furyTitanGrip) {
       delete state.equipment.off_hand;
       toast("已装备双手武器，副手装备已移除。")
     }
