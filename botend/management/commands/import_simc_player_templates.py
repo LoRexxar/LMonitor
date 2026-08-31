@@ -180,15 +180,18 @@ class Command(BaseCommand):
             self.stderr.write(f'缺少专精基线: {missing}')
         if not options['dry_run'] and errors == 0:
             with transaction.atomic():
+                active_system_keys = {
+                    f'simc_upstream:{spec_key}' for spec_key, *_rest in validated
+                }
                 SimcProfile.objects.filter(
                     user_id__isnull=True,
                     source=SimcProfile.SOURCE_SIMC_UPSTREAM,
                     system_key__startswith='simc_upstream:',
                     is_active=True,
-                ).update(is_active=False, system_key=None)
-                active_talent_keys = {
-                    f'simc_upstream:{spec_key}' for spec_key, *_rest in validated
-                }
+                ).exclude(system_key__in=active_system_keys).update(
+                    is_active=False, system_key=None,
+                )
+                active_talent_keys = active_system_keys
                 SimcTalentString.objects.filter(
                     owner_user_id__isnull=True,
                     is_system=True,
@@ -211,26 +214,38 @@ class Command(BaseCommand):
                         raise CommandError(
                             f'系统天赋键已被非系统资源占用: {talent_system_key}'
                         )
-                    SimcProfile.objects.create(
-                        system_key=f'simc_upstream:{spec_key}',
-                        user_id=None,
-                        source=SimcProfile.SOURCE_SIMC_UPSTREAM,
-                        name=f'{current_profile_set} 默认玩家 {spec_key}',
-                        class_name=class_name,
-                        version=current_profile_version,
-                        profile_set=current_profile_set,
-                        spec=spec_key,
-                        player_config_mode='manual_equipment',
-                        use_ptr=bool(options.get('use_ptr', False)),
-                        player_equipment=profile_baseline,
-                        talent='',
-                        gear_strength=None,
-                        gear_crit=None,
-                        gear_haste=None,
-                        gear_mastery=None,
-                        gear_versatility=None,
-                        sync_version=options['sync_version'],
-                        is_active=True,
+                    existing_profile = SimcProfile.objects.select_for_update().filter(
+                        system_key=talent_system_key,
+                    ).first()
+                    if existing_profile and (
+                        existing_profile.user_id is not None
+                        or existing_profile.source != SimcProfile.SOURCE_SIMC_UPSTREAM
+                    ):
+                        raise CommandError(
+                            f'系统 Profile 键已被非上游资源占用: {talent_system_key}'
+                        )
+                    SimcProfile.objects.update_or_create(
+                        system_key=talent_system_key,
+                        defaults={
+                            'user_id': None,
+                            'source': SimcProfile.SOURCE_SIMC_UPSTREAM,
+                            'name': f'{current_profile_set} 默认玩家 {spec_key}',
+                            'class_name': class_name,
+                            'version': current_profile_version,
+                            'profile_set': current_profile_set,
+                            'spec': spec_key,
+                            'player_config_mode': 'manual_equipment',
+                            'use_ptr': bool(options.get('use_ptr', False)),
+                            'player_equipment': profile_baseline,
+                            'talent': '',
+                            'gear_strength': None,
+                            'gear_crit': None,
+                            'gear_haste': None,
+                            'gear_mastery': None,
+                            'gear_versatility': None,
+                            'sync_version': options['sync_version'],
+                            'is_active': True,
+                        },
                     )
                     SimcTalentString.objects.update_or_create(
                         system_key=talent_system_key,
