@@ -17,6 +17,7 @@ class Command(BaseCommand):
         parser.add_argument('--workers', type=int, default=4, help='有界并发数，默认 4，最大 12')
         parser.add_argument('--timeout', type=int, default=20, help='单张图标请求超时秒数')
         parser.add_argument('--force', action='store_true', help='不检查 OSS，强制覆盖上传')
+        parser.add_argument('--no-proxy', action='store_true', help='忽略项目代理和系统环境代理（仅用于排障）')
 
     def handle(self, *args, **options):
         seasons = SeasonMeta.objects.all()
@@ -37,7 +38,8 @@ class Command(BaseCommand):
         try:
             service = GearBuilderIconSync(
                 size=options['size'], prefix=options['prefix'], workers=options['workers'],
-                timeout=options['timeout'], force=options['force'], progress=self.stdout.write,
+                timeout=options['timeout'], force=options['force'], no_proxy=options['no_proxy'],
+                progress=self.stdout.write,
             )
             report = service.sync(icons)
         except GearBuilderIconSyncError as exc:

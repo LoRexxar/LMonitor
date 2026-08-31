@@ -353,7 +353,7 @@ class GearBuilderCurrentSourceTests(TestCase):
 @override_settings(OSS_CONFIG={
     'access_key_id': 'test', 'access_key_secret': 'test', 'region': 'cn-test',
     'bucket_name': 'test', 'base_url': 'https://oss.example.test',
-})
+}, PROXY_CONFIG={'http': 'socks5://proxy.test:1080', 'https': 'socks5://proxy.test:1080'})
 class GearBuilderIconSyncTests(TestCase):
     @patch('botend.services.gear_builder_icon_sync.ossUploadBytes', return_value='https://oss.example.test/icon.jpg')
     @patch('botend.services.gear_builder_icon_sync.requests.get')
@@ -369,6 +369,12 @@ class GearBuilderIconSyncTests(TestCase):
             b'\xff\xd8\xff' + b'x' * 200,
             'wow_icons_oss/medium/inv_missing.jpg',
         )
+        self.assertEqual(get.call_args.kwargs['proxies'], {
+            'http': 'socks5://proxy.test:1080', 'https': 'socks5://proxy.test:1080',
+        })
+        self.assertEqual(head.call_args.kwargs['proxies'], {
+            'http': 'socks5://proxy.test:1080', 'https': 'socks5://proxy.test:1080',
+        })
 
 
 class GearBuilderFrontendContractTests(TestCase):

@@ -14,6 +14,7 @@ from urllib.parse import urlencode
 import requests
 
 from botend.constants.wow import SPEC_IDENTITY_MAP
+from botend.services.article_image_service import _get_configured_proxies
 
 
 WAGO_DB2_HOME = 'https://wago.tools/db2'
@@ -124,6 +125,10 @@ class CurrentGearCatalogSource:
         self.session = requests.Session()
         self.session.headers.update({'User-Agent': 'Mozilla/5.0 (compatible; LMonitor-GearBuilder/1.0)'})
         self.session.trust_env = not no_proxy
+        if not no_proxy:
+            configured_proxies = _get_configured_proxies()
+            if configured_proxies:
+                self.session.proxies.update(configured_proxies)
 
     def build(self, *, season_key='', include_wowhead=True):
         self.progress('正在读取 Wago 正式服构建号……')

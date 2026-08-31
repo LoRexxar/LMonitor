@@ -119,6 +119,7 @@ class Command(BaseCommand):
                 size='medium',
                 prefix=options['icon_prefix'],
                 workers=options['icon_workers'],
+                no_proxy=options['no_proxy'],
                 stdout=self.stdout,
                 stderr=self.stderr,
             )

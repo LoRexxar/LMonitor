@@ -9,6 +9,7 @@ import requests
 from django.conf import settings
 
 from botend.interface.ossupload import ossUploadBytes
+from botend.services.article_image_service import _get_configured_proxies
 
 
 class GearBuilderIconSyncError(RuntimeError):
@@ -27,7 +28,10 @@ def normalize_icon_name(value):
 class GearBuilderIconSync:
     """每次只在内存中保留有限数量的小图标，不落整批本地文件。"""
 
-    def __init__(self, *, size='medium', prefix='wow_icons_oss', workers=4, timeout=20, force=False, progress=None):
+    def __init__(
+        self, *, size='medium', prefix='wow_icons_oss', workers=4, timeout=20,
+        force=False, no_proxy=False, progress=None,
+    ):
         if size not in ('tiny', 'small', 'medium'):
             raise GearBuilderIconSyncError(f'不支持的图标尺寸：{size}')
         self.size = size
@@ -35,6 +39,11 @@ class GearBuilderIconSync:
         self.workers = max(1, min(12, int(workers or 4)))
         self.timeout = max(5, int(timeout or 20))
         self.force = bool(force)
+        self.no_proxy = bool(no_proxy)
+        self.proxies = (
+            {'http': None, 'https': None, 'no_proxy': '*'}
+            if self.no_proxy else _get_configured_proxies()
+        )
         self.progress = progress or (lambda _message: None)
         if not self.prefix:
             raise GearBuilderIconSyncError('OSS 图标前缀不能为空。')
@@ -43,6 +52,14 @@ class GearBuilderIconSync:
         if missing:
             raise GearBuilderIconSyncError(f'OSS_CONFIG 缺少配置：{", ".join(missing)}')
         self.base_url = str(config['base_url']).rstrip('/')
+        self.progress(
+            '图标网络代理：'
+            + (
+                '已显式禁用'
+                if self.no_proxy else
+                ('使用项目 PROXY_CONFIG/REQUEST_CONFIG' if self.proxies else '未配置项目代理，遵循系统环境或直连')
+            )
+        )
 
     def sync(self, icon_names):
         iterator = (normalize_icon_name(value) for value in icon_names)
@@ -97,6 +114,7 @@ class GearBuilderIconSync:
                 source_url,
                 timeout=self.timeout,
                 headers={'User-Agent': 'Mozilla/5.0 (compatible; LMonitor-GearIcon/1.0)'},
+                proxies=self.proxies,
             )
             content = response.content
         except requests.RequestException as exc:
@@ -118,6 +136,7 @@ class GearBuilderIconSync:
                 timeout=min(self.timeout, 10),
                 allow_redirects=True,
                 headers={'User-Agent': 'Mozilla/5.0 (compatible; LMonitor-GearIcon/1.0)'},
+                proxies=self.proxies,
             )
             return response.status_code == 200
         except requests.RequestException:
