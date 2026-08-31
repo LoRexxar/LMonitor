@@ -1,7 +1,7 @@
 import json
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from bs4 import BeautifulSoup
 
 from botend.services.article_content_service import (
@@ -21,6 +21,16 @@ from botend.services.article_translation_service import (
     build_translation_service,
 )
 from botend.services.wow_news_glossary_service import WowNewsGlossary
+from botend.models import (
+    MythicDungeon,
+    MythicDungeonAbility,
+    MythicDungeonDataVersion,
+    MythicDungeonEnemy,
+    MythicDungeonFloor,
+    WowItemSnapshot,
+    WowSpellSnapshot,
+    WowSpellSnapshotState,
+)
 
 
 class FakeEngine:
@@ -62,15 +72,41 @@ class FakeArticle:
         self.saved_fields.append(list(update_fields or []))
 
 
+class WowNewsGlossaryBuiltinTests(SimpleTestCase):
+    def test_builtin_terms_cover_class_spec_hero_tree_and_dungeon_names(self):
+        glossary = WowNewsGlossary.from_builtin_terms()
+
+        protected = glossary.protect(
+            "Death Knight Frost and Sentinel enter Ruby Life Pools."
+        )
+        restored = glossary.restore(protected.text, protected.replacements)
+
+        self.assertEqual(restored, "死亡骑士 冰霜 and 哨兵 enter 红玉新生法池.")
+
+    def test_builtin_terms_match_source_names_case_insensitively(self):
+        glossary = WowNewsGlossary.from_builtin_terms()
+
+        protected = glossary.protect("death knight enters ruby life pools.")
+        restored = glossary.restore(protected.text, protected.replacements)
+
+        self.assertEqual(restored, "死亡骑士 enters 红玉新生法池.")
+
+
 class ArticleTranslationServiceTests(SimpleTestCase):
     def setUp(self):
-        self.glossary_loader = patch.object(
-            WowNewsGlossary,
-            "from_active_talent_metadata",
-            return_value=WowNewsGlossary.empty(),
-        )
-        self.glossary_loader.start()
-        self.addCleanup(self.glossary_loader.stop)
+        self.glossary_loaders = [
+            patch.object(WowNewsGlossary, method, return_value=WowNewsGlossary.empty())
+            for method in (
+                "from_builtin_terms",
+                "from_active_talent_metadata",
+                "from_active_mythic_dungeon_metadata",
+                "from_current_spell_metadata",
+                "from_current_item_metadata",
+            )
+        ]
+        for loader in self.glossary_loaders:
+            loader.start()
+            self.addCleanup(loader.stop)
 
     def test_translate_title_strips_quotes(self):
         svc = ArticleTranslationService(engine=FakeEngine(['"中文标题"']), sleep_func=lambda _: None)
@@ -269,6 +305,29 @@ class ArticleTranslationServiceTests(SimpleTestCase):
         self.assertIn("红玉新生法池：梅莉杜莎·寒妆与柯姬雅·焰蹄。", article.content_cn)
         self.assertEqual(loads_blocks(article.content_blocks_cn)[0]["text"], "红玉新生法池：梅莉杜莎·寒妆与柯姬雅·焰蹄。")
 
+    def test_dungeon_glossary_no_longer_requires_midnight_literal(self):
+        article = FakeArticle()
+        article.title = "Ruby Life Pools Dungeon Test"
+        article.content = "Melidrussa Chillworn uses Frost Overload."
+        mdt_glossary = WowNewsGlossary.from_trusted_pairs([
+            ("Ruby Life Pools", "红玉新生法池"),
+            ("Melidrussa Chillworn", "梅莉杜莎·寒妆"),
+            ("Frost Overload", "冰霜过载"),
+        ])
+        svc = ArticleTranslationService(
+            engine=FakeEngine(),
+            glossary=WowNewsGlossary.empty(),
+            sleep_func=lambda _: None,
+        )
+
+        with patch.object(WowNewsGlossary, "from_active_mythic_dungeon_metadata", return_value=mdt_glossary) as loader:
+            glossary = svc._glossary_for_article(article)
+
+        protected = glossary.protect("Ruby Life Pools: Melidrussa Chillworn uses Frost Overload.")
+        restored = glossary.restore(protected.text, protected.replacements)
+        self.assertEqual(restored, "红玉新生法池: 梅莉杜莎·寒妆 uses 冰霜过载.")
+        loader.assert_called_once_with(source_text="Ruby Life Pools Dungeon Test Melidrussa Chillworn uses Frost Overload.")
+
     def test_translate_article_fields_saves_title_when_content_translation_fails(self):
         article = FakeArticle()
         svc = ArticleTranslationService(
@@ -340,16 +399,147 @@ class ArticleTranslationServiceTests(SimpleTestCase):
         self.assertTrue(svc.available())
 
 
+class WowNewsGlossaryDatabaseTests(TestCase):
+    def test_current_spell_metadata_uses_only_active_snapshot_build(self):
+        WowSpellSnapshotState.objects.create(
+            branch="wow",
+            locale="zhCN",
+            snapshot_build="12.1.0-current",
+        )
+        WowSpellSnapshot.objects.create(
+            branch="wow",
+            locale="zhCN",
+            spell_id=1001,
+            name="Arcane Surge",
+            name_zh="奥术涌动",
+            snapshot_build="12.1.0-current",
+        )
+        WowSpellSnapshot.objects.create(
+            branch="wow",
+            locale="zhCN",
+            spell_id=1002,
+            name="Arcane Barrage",
+            name_zh="奥术弹幕",
+            snapshot_build="12.0.0-stale",
+        )
+        WowSpellSnapshot.objects.create(
+            branch="wow",
+            locale="zhCN",
+            spell_id=1003,
+            name="Blink",
+            name_zh="闪现术",
+            snapshot_build="12.1.0-current",
+        )
+
+        glossary = WowNewsGlossary.from_current_spell_metadata(
+            "Arcane changes: Arcane Surge, Arcane Barrage, and Blink."
+        )
+        protected = glossary.protect("Arcane Surge, Arcane Barrage, and Blink.")
+        restored = glossary.restore(protected.text, protected.replacements)
+
+        self.assertEqual(restored, "奥术涌动, Arcane Barrage, and 闪现术.")
+
+    def test_single_word_spell_requires_class_context(self):
+        WowSpellSnapshotState.objects.create(
+            branch="wow",
+            locale="zhCN",
+            snapshot_build="12.1.0-current",
+        )
+        WowSpellSnapshot.objects.create(
+            branch="wow",
+            locale="zhCN",
+            spell_id=1004,
+            name="Blink",
+            name_zh="闪现术",
+            snapshot_build="12.1.0-current",
+        )
+
+        glossary = WowNewsGlossary.from_current_spell_metadata(
+            "Movement updates include Blink."
+        )
+
+        self.assertEqual(glossary.protect("Blink").text, "Blink")
+
+    def test_dungeon_entities_are_scoped_to_dungeon_mentioned_in_article(self):
+        version = MythicDungeonDataVersion.objects.create(
+            key="glossary-test",
+            label="术语测试",
+            is_active=True,
+        )
+        matched_dungeon = MythicDungeon.objects.create(
+            data_version=version,
+            key="test-depths",
+            name="Test Depths",
+            name_zh="测试深渊",
+        )
+        matched_enemy = MythicDungeonEnemy.objects.create(
+            dungeon=matched_dungeon,
+            key="stoneguard",
+            name="Stoneguard",
+            name_zh="石卫",
+        )
+        MythicDungeonFloor.objects.create(
+            dungeon=matched_dungeon,
+            key="lower-depths",
+            floor_index=1,
+            name="Lower Depths",
+            name_zh="深渊下层",
+        )
+        MythicDungeonAbility.objects.create(
+            enemy=matched_enemy,
+            spell_id=2001,
+            name="Crushing Blow",
+            name_zh="碾压猛击",
+        )
+        other_dungeon = MythicDungeon.objects.create(
+            data_version=version,
+            key="other-halls",
+            name="Other Halls",
+            name_zh="其他大厅",
+        )
+        MythicDungeonEnemy.objects.create(
+            dungeon=other_dungeon,
+            key="watcher",
+            name="Watcher",
+            name_zh="监视者",
+        )
+
+        glossary = WowNewsGlossary.from_active_mythic_dungeon_metadata(
+            source_text="Test Depths: Stoneguard uses Crushing Blow in Lower Depths. Watcher waits."
+        )
+        protected = glossary.protect(
+            "Test Depths: Stoneguard uses Crushing Blow in Lower Depths. Watcher waits."
+        )
+        restored = glossary.restore(protected.text, protected.replacements)
+
+        self.assertEqual(restored, "测试深渊: 石卫 uses 碾压猛击 in 深渊下层. Watcher waits.")
+
+    def test_current_item_metadata_reuses_multiword_item_snapshot(self):
+        WowItemSnapshot.objects.create(
+            item_id=3001,
+            name="Crown of the Cosmos",
+            name_zh="宇宙之冠",
+        )
+
+        glossary = WowNewsGlossary.from_current_item_metadata(
+            "Crown of the Cosmos receives a new effect."
+        )
+        protected = glossary.protect("Crown of the Cosmos receives a new effect.")
+        restored = glossary.restore(protected.text, protected.replacements)
+
+        self.assertEqual(restored, "宇宙之冠 receives a new effect.")
+
+
 
 class ArticleContentServiceTests(SimpleTestCase):
     def setUp(self):
-        self.glossary_loader = patch.object(
-            WowNewsGlossary,
-            "from_active_talent_metadata",
-            return_value=WowNewsGlossary.empty(),
-        )
-        self.glossary_loader.start()
-        self.addCleanup(self.glossary_loader.stop)
+        self.glossary_loaders = [
+            patch.object(WowNewsGlossary, method, return_value=WowNewsGlossary.empty())
+            for method in ("from_builtin_terms", "from_active_talent_metadata")
+        ]
+        for loader in self.glossary_loaders:
+            loader.start()
+            self.addCleanup(loader.stop)
 
     def test_extract_structured_article_keeps_source_html(self):
         html = """

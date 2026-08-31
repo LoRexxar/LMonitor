@@ -148,7 +148,10 @@ class ArticleTranslationService:
     def __init__(self, engine: Any = None, engine_name: str = "fallback", sleep_func: Callable[[float], None] = time.sleep, glossary: Optional[WowNewsGlossary] = None):
         self.engine = engine if engine is not None else build_translation_engine(engine_name)
         self.sleep_func = sleep_func
-        self.glossary = glossary if glossary is not None else WowNewsGlossary.from_active_talent_metadata()
+        self.glossary = glossary if glossary is not None else WowNewsGlossary.prioritized(
+            WowNewsGlossary.from_builtin_terms(),
+            WowNewsGlossary.from_active_talent_metadata(),
+        )
 
     def _translation_prompt(self, batch: List[str]) -> str:
         return (
@@ -472,18 +475,16 @@ class ArticleTranslationService:
         return any_translated
 
     def _glossary_for_article(self, article) -> WowNewsGlossary:
-        """Choose only glossary datasets whose game-version context is explicit."""
+        """按稳定术语、地下城上下文、当前构建法术的顺序构建文章词表。"""
         source_text = " ".join([
             getattr(article, "title", "") or "",
             getattr(article, "content", "") or "",
         ])
-        # The active MDT dataset is currently a Midnight dataset. Do not apply it
-        # to unrelated Retail/PTR/Beta news merely because a name happens to match.
-        if "Midnight" not in source_text:
-            return self.glossary
-        return WowNewsGlossary.merged(
+        return WowNewsGlossary.prioritized(
             self.glossary,
-            WowNewsGlossary.from_active_mythic_dungeon_metadata(),
+            WowNewsGlossary.from_active_mythic_dungeon_metadata(source_text=source_text),
+            WowNewsGlossary.from_current_spell_metadata(source_text),
+            WowNewsGlossary.from_current_item_metadata(source_text),
         )
 
 
