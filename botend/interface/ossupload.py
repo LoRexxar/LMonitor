@@ -96,6 +96,43 @@ def ossUploadObject(file_path: str, object_key: str = ""):
         return ""
 
 
+def ossUploadBytes(content: bytes, object_key: str):
+    """直接上传小型二进制对象，供图标同步使用。"""
+    object_key = str(object_key or '').lstrip('/')
+    if not object_key or not isinstance(content, (bytes, bytearray, memoryview)) or not content:
+        logger.error("二进制对象上传失败: 参数为空")
+        return ""
+    required_keys = ["access_key_id", "access_key_secret", "region", "bucket_name", "base_url"]
+    missing_keys = [key for key in required_keys if not OSS_CONFIG.get(key)]
+    if missing_keys:
+        logger.warning("二进制对象上传跳过: OSS_CONFIG 缺少 {}".format(",".join(missing_keys)))
+        return ""
+    try:
+        import alibabacloud_oss_v2 as oss
+    except Exception as exc:
+        logger.error("二进制对象上传失败: OSS SDK 未安装 {}".format(str(exc)))
+        return ""
+
+    credentials_provider = oss.credentials.StaticCredentialsProvider(
+        access_key_id=OSS_CONFIG["access_key_id"],
+        access_key_secret=OSS_CONFIG["access_key_secret"],
+    )
+    cfg = oss.config.load_default()
+    cfg.credentials_provider = credentials_provider
+    cfg.region = OSS_CONFIG["region"]
+    cfg.disable_ssl = True
+    client = oss.Client(cfg)
+    result = client.put_object(oss.PutObjectRequest(
+        bucket=OSS_CONFIG["bucket_name"],
+        key=object_key,
+        body=bytes(content),
+    ))
+    if result.status_code == 200:
+        return _build_public_url(object_key)
+    logger.error("二进制对象上传失败: status={}".format(result.status_code))
+    return ""
+
+
 def ossUpload(file_path: str):
     return bool(ossUploadObject(file_path))
 

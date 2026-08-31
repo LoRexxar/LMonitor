@@ -37,6 +37,9 @@ class Command(BaseCommand):
         parser.add_argument('--cache-dir', default='.cache/gear_builder', help='远端数据缓存目录')
         parser.add_argument('--output', default='', help='可选：把自动生成的规范化目录同时保存为 JSON')
         parser.add_argument('--no-proxy', action='store_true', help='忽略服务端代理环境变量')
+        parser.add_argument('--sync-icons', action='store_true', help='写入目录后流式下载并立即上传当前批次图标')
+        parser.add_argument('--icon-workers', type=int, default=4, help='图标同步有界并发数，默认 4')
+        parser.add_argument('--icon-prefix', default='wow_icons_oss', help='图标 OSS 对象前缀')
 
     def handle(self, *args, **options):
         if options['fetch_current']:
@@ -108,6 +111,17 @@ class Command(BaseCommand):
         db_report = self._audit_batch(season, batch_key)
         if db_report['blocking_errors']:
             raise CommandError('数据库批次审计失败，当前赛季未切换')
+        if options['sync_icons']:
+            call_command(
+                'sync_gear_builder_icons',
+                season_key=season_key,
+                batch_key=batch_key,
+                size='medium',
+                prefix=options['icon_prefix'],
+                workers=options['icon_workers'],
+                stdout=self.stdout,
+                stderr=self.stderr,
+            )
         if options['activate']:
             with transaction.atomic():
                 locked = SeasonMeta.objects.select_for_update().get(pk=season.pk)

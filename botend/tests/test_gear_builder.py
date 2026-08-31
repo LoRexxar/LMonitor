@@ -2,13 +2,15 @@ import json
 import tempfile
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.core.management import call_command
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from botend.models import SeasonMeta, WowItemSnapshot, WowItemVariantSnapshot
 from botend.services.gear_builder_catalog_source import _tooltip_details
+from botend.services.gear_builder_icon_sync import GearBuilderIconSync
 
 
 class GearBuilderTestDataMixin:
@@ -346,6 +348,27 @@ class GearBuilderCurrentSourceTests(TestCase):
         self.assertEqual(details['primary_options'], {'strength': 138, 'intellect': 138})
         self.assertEqual(details['secondary_total'], 148)
         self.assertEqual(details['effects'][0]['description_zh'], '装备：测试效果。')
+
+
+@override_settings(OSS_CONFIG={
+    'access_key_id': 'test', 'access_key_secret': 'test', 'region': 'cn-test',
+    'bucket_name': 'test', 'base_url': 'https://oss.example.test',
+})
+class GearBuilderIconSyncTests(TestCase):
+    @patch('botend.services.gear_builder_icon_sync.ossUploadBytes', return_value='https://oss.example.test/icon.jpg')
+    @patch('botend.services.gear_builder_icon_sync.requests.get')
+    @patch('botend.services.gear_builder_icon_sync.requests.head')
+    def test_streams_missing_icons_directly_and_skips_existing_objects(self, head, get, upload):
+        head.side_effect = [SimpleNamespace(status_code=404), SimpleNamespace(status_code=200)]
+        get.return_value = SimpleNamespace(status_code=200, content=b'\xff\xd8\xff' + b'x' * 200)
+        report = GearBuilderIconSync(workers=1).sync(['inv_missing', 'inv_existing'])
+        self.assertEqual(report['uploaded'], 1)
+        self.assertEqual(report['skipped'], 1)
+        self.assertEqual(report['failed'], 0)
+        upload.assert_called_once_with(
+            b'\xff\xd8\xff' + b'x' * 200,
+            'wow_icons_oss/medium/inv_missing.jpg',
+        )
 
 
 class GearBuilderFrontendContractTests(TestCase):
