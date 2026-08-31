@@ -3777,6 +3777,14 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         )[0]
 
         self.assertIn('id="simc-skill-damage-hero-tree"', template)
+        self.assertLess(
+            template.index('id="simc-skill-damage-spec"'),
+            template.index('id="simc-skill-damage-target-tabs"'),
+        )
+        self.assertLess(
+            template.index('id="simc-skill-damage-hero-tree"'),
+            template.index('id="simc-skill-damage-target-tabs"'),
+        )
         for target_count in ('1', '2', '5', '10', '20'):
             self.assertIn(f'data-target-count="{target_count}"', template)
         self.assertIn(".simc-skill-damage-target-tab", script)

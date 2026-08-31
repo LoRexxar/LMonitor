@@ -1774,17 +1774,17 @@
                                     </div>
                                 </div>
                                 <div id="simc-skill-damage-status" class="mt-4 rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-700">正在读取最近成功快照…</div>
+                                <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,220px)_minmax(0,220px)_minmax(0,1fr)]">
+                                    <select id="simc-skill-damage-spec" class="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-gray-800"><option value="">请选择专精</option></select>
+                                    <select id="simc-skill-damage-hero-tree" class="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-gray-800" disabled><option value="">请选择英雄天赋</option></select>
+                                    <input id="simc-skill-damage-search" type="search" class="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-gray-800" placeholder="搜索技能名称、技能 ID 或单项天赋">
+                                </div>
                                 <div id="simc-skill-damage-target-tabs" class="mt-4 flex flex-wrap gap-2" role="tablist" aria-label="目标数量">
                                     <button type="button" role="tab" aria-selected="true" data-target-count="1" class="simc-skill-damage-target-tab rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white">1目标</button>
                                     <button type="button" role="tab" aria-selected="false" data-target-count="2" class="simc-skill-damage-target-tab rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">2目标</button>
                                     <button type="button" role="tab" aria-selected="false" data-target-count="5" class="simc-skill-damage-target-tab rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">5目标</button>
                                     <button type="button" role="tab" aria-selected="false" data-target-count="10" class="simc-skill-damage-target-tab rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">10目标</button>
                                     <button type="button" role="tab" aria-selected="false" data-target-count="20" class="simc-skill-damage-target-tab rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">20目标</button>
-                                </div>
-                                <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,220px)_minmax(0,220px)_minmax(0,1fr)]">
-                                    <select id="simc-skill-damage-spec" class="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-gray-800"><option value="">请选择专精</option></select>
-                                    <select id="simc-skill-damage-hero-tree" class="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-gray-800" disabled><option value="">请选择英雄天赋</option></select>
-                                    <input id="simc-skill-damage-search" type="search" class="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-gray-800" placeholder="搜索技能名称、技能 ID 或单项天赋">
                                 </div>
                                 <div id="simc-skill-damage-global-modifiers" class="mt-4 hidden rounded-xl border border-indigo-200 bg-indigo-50 p-4"></div>
                                 <div class="simc-skill-damage-table mt-4 overflow-x-auto rounded-xl border border-stone-300 bg-stone-50">
