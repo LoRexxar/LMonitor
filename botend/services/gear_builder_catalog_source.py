@@ -176,8 +176,27 @@ class CurrentGearCatalogSource:
                 'wago_build': game_build,
                 'raidbots_build': raidbots_build,
             },
+            'rules': {
+                'socket_additions': self._socket_addition_rules(active),
+                'add_socket_item': active.get('addSocketItem') or {},
+            },
             'items': items,
         }
+
+    @staticmethod
+    def _socket_addition_rules(active):
+        slot_aliases = {'wrist': 'wrists', 'rings': 'finger'}
+        rules = []
+        for row in active.get('sockets') or []:
+            slot = slot_aliases.get(str(row.get('slot') or ''), str(row.get('slot') or ''))
+            maximum = _safe_int(row.get('extraSockets') or row.get('vault'))
+            if slot and maximum:
+                rules.append({
+                    'slot': slot,
+                    'max_additional': maximum,
+                    'source': 'great_vault' if row.get('vault') else 'socket_item',
+                })
+        return rules
 
     def _get(self, url, **kwargs):
         try:
@@ -225,6 +244,12 @@ class CurrentGearCatalogSource:
         if not mplus or not delve or not raid_group:
             raise CatalogSourceError('无法定位当前赛季的大秘境、团本或地下堡来源集合。')
         raid_ids = sorted({_safe_int(row.get('sourceInstanceId')) for row in raid_group.get('encounters') or [] if _safe_int(row.get('sourceInstanceId')) > 0})
+        raid_encounter_meta = {
+            (_safe_int(row.get('sourceInstanceId')), _safe_int(row.get('id'))): row
+            for row in raid_group.get('encounters') or []
+            if _safe_int(row.get('sourceInstanceId')) > 0 and _safe_int(row.get('id')) > 0
+        }
+        final_sequence = max((_safe_int(row.get('itemSequenceLevel')) for row in raid_encounter_meta.values()), default=0)
         profession_type = f'profession{str(active.get("name") or "").split(" Season ", 1)[0].replace(" ", "")}Epic'
         profession = next((row for row in instances if row.get('type') == profession_type), None)
         if not profession:
@@ -250,12 +275,16 @@ class CurrentGearCatalogSource:
                 if instance_id not in source_groups:
                     continue
                 source_type, instance = source_groups[instance_id]
+                raid_meta = raid_encounter_meta.get((instance_id, _safe_int(source.get('encounterId'))), {})
                 matched.append({
                     'type': source_type,
                     'instance_id': instance_id,
                     'instance': str(instance.get('name') or ''),
                     'encounter_id': _safe_int(source.get('encounterId')),
                     'encounter': encounter_names.get((instance_id, _safe_int(source.get('encounterId'))), ''),
+                    'encounter_order': _safe_int(raid_meta.get('order')),
+                    'item_sequence_level': _safe_int(raid_meta.get('itemSequenceLevel')),
+                    'very_rare': bool(source.get('veryRare')),
                 })
             if not matched:
                 continue
@@ -268,7 +297,14 @@ class CurrentGearCatalogSource:
                 if source_type == 'crafted':
                     self._add_crafted_variants(item, profile, sources)
                 else:
-                    self._add_drop_variants(item, profile, source_type, sources)
+                    special_mythic = source_type == 'raid' and any(
+                        row.get('very_rare') or (
+                            final_sequence and row.get('item_sequence_level') == final_sequence
+                            and row.get('encounter_order', 0) >= 7
+                        )
+                        for row in sources
+                    )
+                    self._add_drop_variants(item, profile, source_type, sources, special_mythic=special_mythic)
             by_id[item['item_id']] = item
 
         for reagent in (crafting.get('reagents') or []):
@@ -292,7 +328,7 @@ class CurrentGearCatalogSource:
                 'metadata': {'reagent_slot_ids': reagent.get('reagentSlotIds') or []},
             })
 
-        for raw in enchantments:
+        for raw in self._highest_quality_enhancements(enchantments):
             item_id = _safe_int(raw.get('itemId'))
             if _safe_int(raw.get('expansion')) != 11 or not item_id:
                 continue
@@ -367,12 +403,19 @@ class CurrentGearCatalogSource:
             ],
             'unique_group': f'item-{item_id}' if raw.get('uniqueEquipped') else '',
             'simc_token': re.sub(r'[^a-z0-9]+', '_', str(raw.get('name') or raw.get('itemName') or '').lower()).strip('_'),
-            'metadata': {'raidbots_stats_alloc': raw.get('stats') or []},
+            'metadata': {
+                'raidbots_stats_alloc': raw.get('stats') or [],
+                'native_socket_types': [
+                    str(row.get('type') or 'PRISMATIC').lower()
+                    for row in ((raw.get('socketInfo') or {}).get('sockets') or [])
+                ],
+            },
             'variants': [],
         }
 
     @staticmethod
-    def _add_drop_variants(item, profile, source_type, sources):
+    def _add_drop_variants(item, profile, source_type, sources, special_mythic=False):
+        socket_types = list((item.get('metadata') or {}).get('native_socket_types') or [])
         for track, levels in profile['tracks'].items():
             for rank, item_level in enumerate(levels, 1):
                 item['variants'].append({
@@ -380,20 +423,50 @@ class CurrentGearCatalogSource:
                     'type': 'drop_equipment', 'item_level': item_level,
                     'upgrade_track': track, 'track_rank': rank, 'track_max_rank': len(levels),
                     'compatible_slots': list(INVENTORY_SLOTS.get(item['inventory_type'], ())),
+                    'socket_count': len(socket_types), 'socket_types': socket_types,
                     'sources': sources,
                 })
+        if special_mythic:
+            item['variants'].append({
+                'key': f'{source_type}-myth-9-344',
+                'type': 'drop_equipment', 'item_level': 344,
+                'upgrade_track': 'myth', 'track_rank': 9, 'track_max_rank': 6,
+                'compatible_slots': list(INVENTORY_SLOTS.get(item['inventory_type'], ())),
+                'socket_count': len(socket_types), 'socket_types': socket_types,
+                'sources': [dict(row, difficulty='Mythic · Myth 9/6') for row in sources],
+                'metadata': {'special_mythic_drop': True},
+            })
 
     @staticmethod
     def _add_crafted_variants(item, profile, sources):
+        socket_types = list((item.get('metadata') or {}).get('native_socket_types') or [])
         for tier, levels in profile['crafted'].items():
             for quality, item_level in enumerate(levels, 1):
                 item['variants'].append({
                     'key': f'crafted-{tier}-q{quality}-{item_level}',
                     'type': 'crafted_equipment', 'item_level': item_level, 'crafting_quality': quality,
                     'compatible_slots': list(INVENTORY_SLOTS.get(item['inventory_type'], ())),
+                    'socket_count': len(socket_types), 'socket_types': socket_types,
                     'crafting_options': {'stat_count': 2, 'stat_pool': ['crit', 'haste', 'mastery', 'versatility']},
                     'sources': sources,
                 })
+
+    @staticmethod
+    def _highest_quality_enhancements(enchantments):
+        """只保留当前资料片成品的高阶品质及最高制造星级。"""
+        selected = {}
+        for raw in enchantments:
+            if _safe_int(raw.get('expansion')) != 11 or not _safe_int(raw.get('itemId')):
+                continue
+            if _safe_int(raw.get('quality')) < 3:
+                continue
+            token = re.sub(r'_\d+$', '', str(raw.get('tokenizedName') or raw.get('itemName') or raw.get('itemId')).lower())
+            key = ('gem' if raw.get('slot') == 'socket' else 'enchant', token, str(raw.get('categoryName') or ''))
+            score = (_safe_int(raw.get('craftingQuality')), _safe_int(raw.get('quality')), _safe_int(raw.get('itemId')))
+            previous = selected.get(key)
+            if not previous or score > previous[0]:
+                selected[key] = (score, raw)
+        return [value[1] for value in selected.values()]
 
     @staticmethod
     def _raidbots_stats(rows):

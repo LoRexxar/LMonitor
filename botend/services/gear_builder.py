@@ -171,8 +171,11 @@ def specs_payload():
 
 
 def bootstrap_payload():
+    season = active_season()
+    sync_report = season.gear_sync_report if season and isinstance(season.gear_sync_report, dict) else {}
+    catalog_rules = sync_report.get('catalog_rules') if isinstance(sync_report.get('catalog_rules'), dict) else {}
     return {
-        'catalog': catalog_context(),
+        'catalog': catalog_context(season),
         'classes': specs_payload(),
         'slots': [{'key': key, 'label': label, 'family': SLOT_FAMILIES.get(key, key)} for key, label in EQUIPMENT_SLOTS],
         'stats': [{'key': key, 'label': label} for key, label in STAT_LABELS.items()],
@@ -183,6 +186,7 @@ def bootstrap_payload():
             'max_share_length': 8000,
             'crafted_secondary_count': 2,
             'temporary_enchants_supported': False,
+            **catalog_rules,
         },
     }
 
@@ -345,6 +349,7 @@ def enhancement_items(*, class_name, spec_name, slot, equipment_variant_id=None)
         WowItemVariantSnapshot.TYPE_ENCHANT: 'enchants',
     }
     grouped = defaultdict(list)
+    highest_quality = {}
     for variant in _catalog_queryset(season, tuple(type_to_group)):
         if not spec_matches(variant.item, class_name, spec_name):
             continue
@@ -353,6 +358,19 @@ def enhancement_items(*, class_name, spec_name, slot, equipment_variant_id=None)
                 continue
         if not slot_matches(variant, slot):
             continue
+        if variant.variant_type in (WowItemVariantSnapshot.TYPE_GEM, WowItemVariantSnapshot.TYPE_ENCHANT):
+            if int(variant.item.quality or 0) < 3:
+                continue
+            metadata = variant.metadata if isinstance(variant.metadata, dict) else {}
+            family = str(metadata.get('simc_name') or variant.item.simc_token or variant.item_id).casefold()
+            family = family.rsplit('_', 1)[0] if family.rsplit('_', 1)[-1].isdigit() else family
+            key = (variant.variant_type, family, str(metadata.get('category_name') or ''))
+            score = (int(variant.crafting_quality or 0), int(variant.item.quality or 0), int(variant.item_id))
+            if key not in highest_quality or score > highest_quality[key][0]:
+                highest_quality[key] = (score, variant)
+            continue
+        grouped[(variant.variant_type, variant.item_id)].append(variant)
+    for _score, variant in highest_quality.values():
         grouped[(variant.variant_type, variant.item_id)].append(variant)
     for (variant_type, _item_id), variants in grouped.items():
         groups[type_to_group[variant_type]].append(serialize_item(variants[0].item, variants, class_name, spec_name))
@@ -361,7 +379,9 @@ def enhancement_items(*, class_name, spec_name, slot, equipment_variant_id=None)
     return {'groups': groups, 'catalog': catalog_context(season)}
 
 
-def resolve_crafted_variant(*, variant_id, selected_stats=None, embellishment_variant_id=None):
+def resolve_crafted_variant(*, variant_id, selected_stats=None, embellishment_variant_id=None,
+                             class_name='Warrior', spec_name='Fury'):
+    class_name, spec_name = canonical_spec(class_name, spec_name)
     season = active_season()
     if not season or not season.gear_batch_key:
         raise GearBuilderError('当前赛季装备目录尚未同步')
@@ -380,7 +400,7 @@ def resolve_crafted_variant(*, variant_id, selected_stats=None, embellishment_va
     if len(selected) != required_count or any(value not in allowed for value in selected):
         raise GearBuilderError(f'请选择 {required_count} 项合法制造绿字')
 
-    stats = normalize_stats(variant.stats_json)
+    stats = stats_for_identity(variant.stats_json, variant.metadata, class_name, spec_name)
     total = _number(options.get('secondary_total') or (variant.stats_json or {}).get('secondary_total'))
     explicit = options.get('stat_values') if isinstance(options.get('stat_values'), dict) else {}
     if explicit:
@@ -406,11 +426,11 @@ def resolve_crafted_variant(*, variant_id, selected_stats=None, embellishment_va
         effects.extend(embellishment.effects_json or [])
 
     return {
-        'variant': serialize_item(variant.item, [variant]),
+        'variant': serialize_item(variant.item, [variant], class_name, spec_name),
         'resolved_stats': stats,
         'selected_stats': selected,
         'effects': effects,
-        'embellishment': serialize_item(embellishment.item, [embellishment]) if embellishment else None,
+        'embellishment': serialize_item(embellishment.item, [embellishment], class_name, spec_name) if embellishment else None,
         'simc': {
             'item_id': variant.item.item_id,
             'ilevel': variant.item_level,

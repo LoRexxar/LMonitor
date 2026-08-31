@@ -17,6 +17,7 @@
     "gear-mode-enhancement", "gear-equipment-browser", "gear-enhancement-browser",
     "gear-search-input", "gear-source-filter", "gear-candidate-list", "gear-load-more",
     "gear-embellishment-list", "gear-gem-list", "gear-enchant-list", "gear-socket-summary",
+    "gear-add-socket-option", "gear-add-socket", "gear-add-socket-copy", "gear-stats-context",
     "gear-detail-panel", "gear-detail-content", "gear-detail-close", "gear-stat-grid",
     "gear-effect-list", "gear-save-status", "gear-import-simc", "gear-copy-share", "gear-clear",
     "gear-simc-dialog", "gear-simc-input", "gear-simc-submit", "gear-simc-message", "gear-toast-root",
@@ -28,7 +29,7 @@
     leech: "吸血", avoidance: "闪避", speed: "速度", weapon_dps: "武器秒伤",
     min_damage: "最低伤害", max_damage: "最高伤害",
   };
-  const SUMMARY_STATS = ["strength", "agility", "intellect", "stamina", "crit", "haste", "mastery", "versatility"];
+  const SUMMARY_STATS = ["strength", "stamina", "armor", "crit", "haste", "mastery", "versatility", "weapon_dps"];
   const STAT_COLORS = {
     strength: "#cf2f2f", agility: "#1e9a50", intellect: "#3978d9", stamina: "#7d59c4",
     crit: "#ed7b2d", haste: "#24a7bd", mastery: "#7c3aed", versatility: "#c59d28",
@@ -206,6 +207,38 @@
     return state.equipment[state.selectedSlot] || null;
   }
 
+  function slotFamily(slot = state.selectedSlot) {
+    return bootstrap?.slots?.find((row) => row.key === slot)?.family || slot;
+  }
+
+  function socketRule(slot = state.selectedSlot) {
+    const family = slotFamily(slot);
+    return (bootstrap?.rules?.socket_additions || []).find((row) => row.slot === slot || row.slot === family) || null;
+  }
+
+  function socketCapacity(entry = selectedEntry()) {
+    if (!entry) return 0;
+    const nativeCount = Number(entry.variant?.socket_count || 0);
+    return nativeCount + (entry.addedSocket ? Number(socketRule()?.max_additional || 0) : 0);
+  }
+
+  function primaryStatKey() {
+    const identity = `${state.className}:${state.specName}`;
+    const intellect = new Set([
+      "Paladin:Holy", "Priest:Discipline", "Priest:Holy", "Priest:Shadow",
+      "Shaman:Elemental", "Shaman:Restoration", "Mage:Arcane", "Mage:Fire", "Mage:Frost",
+      "Warlock:Affliction", "Warlock:Demonology", "Warlock:Destruction", "Monk:Mistweaver",
+      "Druid:Balance", "Druid:Restoration", "Evoker:Devastation", "Evoker:Preservation", "Evoker:Augmentation",
+    ]);
+    const agility = new Set([
+      "Hunter", "Rogue", "DemonHunter", "Shaman:Enhancement", "Monk:Brewmaster",
+      "Monk:Windwalker", "Druid:Feral", "Druid:Guardian",
+    ]);
+    if (intellect.has(identity)) return "intellect";
+    if (agility.has(state.className) || agility.has(identity)) return "agility";
+    return "strength";
+  }
+
   function equippedCount() {
     return Object.values(state.equipment).filter((entry) => entry?.item).length;
   }
@@ -324,10 +357,16 @@
 
   function optionRow(item, kind) {
     const variant = item.variants?.[0];
-    return `<article class="gear-option-row">
-      <div class="gear-option-main"${tooltipAttrs(item, variant)}>${iconMarkup(item)}<span class="gear-option-copy"><strong class="gear-option-name">${escapeHtml(item.name)}</strong><small class="gear-option-stat">${escapeHtml(statMarkupText(variant?.stats) || effectText(variant?.effects?.[0]) || "查看效果说明")}</small></span></div>
-      <button type="button" data-add-enhancement="${kind}" data-item-id="${item.item_id}" data-variant-id="${variant?.id || ""}">应用</button>
-    </article>`;
+    const entry = selectedEntry();
+    const selectedCount = kind === "gem"
+      ? (entry?.gems || []).filter((row) => Number(row.variant?.id) === Number(variant?.id)).length
+      : Number(entry?.[kind]?.variant?.id) === Number(variant?.id) ? 1 : 0;
+    const description = [statMarkupText(variant?.stats), ...(variant?.effects || []).map(effectText)]
+      .filter(Boolean).join(" · ") || "无常驻属性说明";
+    return `<label class="gear-option-row">
+      <input class="gear-option-check" type="checkbox" data-add-enhancement="${kind}" data-item-id="${item.item_id}" data-variant-id="${variant?.id || ""}"${selectedCount ? " checked" : ""}>
+      <span class="gear-option-copy"><strong class="gear-option-name">${escapeHtml(item.name)}${selectedCount > 1 ? ` ×${selectedCount}` : ""}</strong><small class="gear-option-stat">${escapeHtml(description)}</small></span>
+    </label>`;
   }
 
   function statMarkupText(stats) {
@@ -353,12 +392,20 @@
       renderOptionGroup(els.embellishment_list, enhancementGroups.embellishments, "embellishment", entry?.variant?.type === "crafted_equipment" ? "当前制造装备没有兼容美化。" : "美化只能应用到制造装备。" );
       renderOptionGroup(els.gem_list, enhancementGroups.gems, "gem", entry ? "当前装备没有可用插槽或宝石。" : "请先为该槽位选择装备。" );
       renderOptionGroup(els.enchant_list, enhancementGroups.enchants, "enchant", entry ? "当前槽位没有永久附魔。" : "请先为该槽位选择装备。" );
-      const socketCount = entry?.variant?.socket_count || 0;
+      const rule = entry ? socketRule() : null;
+      els.add_socket_option.hidden = !entry || !rule;
+      els.add_socket.checked = Boolean(entry?.addedSocket && rule);
+      if (rule) {
+        const itemName = bootstrap?.rules?.add_socket_item?.name || bootstrap?.rules?.add_socket_item?.itemName || "当前赛季插槽物品";
+        els.add_socket_copy.textContent = `${itemName} · 最多增加 ${Number(rule.max_additional || 1)} 个`;
+      }
+      const socketCount = socketCapacity(entry);
       els.socket_summary.textContent = socketCount ? `${(entry.gems || []).length}/${socketCount} 个插槽` : "当前装备无插槽";
     } catch (error) {
       renderOptionGroup(els.embellishment_list, [], "embellishment", error.message);
       renderOptionGroup(els.gem_list, [], "gem", error.message);
       renderOptionGroup(els.enchant_list, [], "enchant", error.message);
+      els.add_socket_option.hidden = true;
     }
   }
 
@@ -400,6 +447,7 @@
       embellishment: null,
       gems: [],
       enchant: null,
+      addedSocket: false,
       external: false,
     };
     if (variant.type === "crafted_equipment") {
@@ -427,7 +475,7 @@
     const entry = selectedEntry();
     if (!entry) return "请先选择装备。";
     if (kind === "embellishment" && entry.variant?.type !== "crafted_equipment") return "美化只能应用到制造装备。";
-    if (kind === "gem" && !Number(entry.variant?.socket_count || 0)) return "当前装备没有宝石插槽。";
+    if (kind === "gem" && !socketCapacity(entry)) return "请先为当前装备增加宝石插槽。";
     if (kind === "embellishment" && variant.unique_group && variant.max_equipped) {
       const replacingSame = entry.embellishment?.variant?.unique_group === variant.unique_group;
       const conflicts = [];
@@ -450,7 +498,7 @@
       entry.embellishment = value;
       if (entry.selectedStats?.length) await resolveCraftedEntry(entry);
     } else if (kind === "gem") {
-      const capacity = Number(entry.variant?.socket_count || 0);
+      const capacity = socketCapacity(entry);
       entry.gems = Array.isArray(entry.gems) ? entry.gems : [];
       if (entry.gems.length < capacity) entry.gems.push(value);
       else entry.gems[capacity - 1] = value;
@@ -473,6 +521,8 @@
           variant_id: entry.variant.id,
           selected_stats: entry.selectedStats || [],
           embellishment_variant_id: entry.embellishment?.variant?.id || null,
+          class_name: state.className,
+          spec_name: state.specName,
         }),
       });
       entry.resolvedStats = payload.resolved_stats || null;
@@ -533,9 +583,14 @@
   function totalsAndEffects() {
     const totals = {};
     const effects = [];
+    let equipped = 0;
+    let missingStats = 0;
     Object.values(state.equipment).forEach((entry) => {
       if (!entry) return;
-      addStats(totals, entry.resolvedStats || entry.variant?.stats);
+      equipped += 1;
+      const equipmentStats = entry.resolvedStats || entry.variant?.stats || {};
+      if (!Object.values(equipmentStats).some((value) => number(value))) missingStats += 1;
+      addStats(totals, equipmentStats);
       (entry.gems || []).forEach((gem) => addStats(totals, gem.variant?.stats));
       addStats(totals, entry.enchant?.variant?.stats);
       addStats(totals, entry.embellishment?.variant?.stats);
@@ -544,14 +599,12 @@
       if (!entry.resolvedEffects) (entry.embellishment?.variant?.effects || []).forEach((effect) => effects.push({slot: entry.embellishment.item.name, text: effectText(effect)}));
       (entry.enchant?.variant?.effects || []).forEach((effect) => effects.push({slot: entry.enchant.item.name, text: effectText(effect)}));
     });
-    return {totals, effects: effects.filter((row) => row.text)};
+    return {totals, effects: effects.filter((row) => row.text), equipped, missingStats};
   }
 
   function renderStats() {
-    const {totals, effects} = totalsAndEffects();
-    const meaningful = SUMMARY_STATS.filter((key) => number(totals[key]));
-    const keys = [...meaningful, ...Object.keys(totals).filter((key) => !meaningful.includes(key))].slice(0, 8);
-    while (keys.length < 8) keys.push(SUMMARY_STATS.find((key) => !keys.includes(key)) || `empty_${keys.length}`);
+    const {totals, effects, equipped, missingStats} = totalsAndEffects();
+    const keys = [primaryStatKey(), ...SUMMARY_STATS.slice(1)];
     const max = Math.max(1, ...keys.map((key) => number(totals[key])));
     els.stat_grid.innerHTML = keys.map((key) => {
       const value = number(totals[key]);
@@ -560,6 +613,9 @@
     els.effect_list.innerHTML = effects.length
       ? effects.map((row) => `<div class="gear-effect-line"><strong>${escapeHtml(row.slot)}：</strong>${escapeHtml(row.text)}</div>`).join("")
       : '<span class="gear-no-effects">当前配装没有触发型特效。</span>';
+    els.stats_context.textContent = missingStats
+      ? `已装备 ${equipped}/16 · 实时汇总中，${missingStats} 件缺少静态属性数据`
+      : `已装备 ${equipped}/16 · 装备、制造绿字、宝石和附魔实时汇总`;
   }
 
   function renderMobileView() {
@@ -605,7 +661,7 @@
     entry.variant = structuredClone(variant);
     entry.resolvedStats = null;
     entry.resolvedEffects = null;
-    entry.gems = (entry.gems || []).slice(0, Number(variant.socket_count || 0));
+    entry.gems = (entry.gems || []).slice(0, socketCapacity(entry));
     if (variant.type === "crafted_equipment") {
       const pool = variant.crafting_options?.stat_pool || ["crit", "haste", "mastery", "versatility"];
       entry.selectedStats = (entry.selectedStats || []).filter((key) => pool.includes(key)).slice(0, Number(variant.crafting_options?.stat_count || 2));
@@ -736,6 +792,7 @@
           embellishment: null,
           gems: (row.gems || []).map((gem) => gem.item && gem.variant ? compactEnhancement(gem.item, gem.variant) : {item: {item_id: gem.item_id, name: gem.name}, variant: gem.variant || {stats: {}, effects: []}, external: true}),
           enchant: row.enchant ? (row.enchant.item && row.enchant.variant ? compactEnhancement(row.enchant.item, row.enchant.variant) : {item: {item_id: row.enchant.item_id, name: row.enchant.name}, variant: row.enchant.variant || {stats: {}, effects: []}, external: true}) : null,
+          addedSocket: Boolean((row.gems || []).length > Number(row.variant?.socket_count || 0) && socketRule(row.slot)),
           external: Boolean(row.external),
           rawValue: row.raw_value || "",
         };
@@ -796,15 +853,34 @@
       const item = findCandidate(row.dataset.itemId);
       if (item?.variants?.[0]) openCandidatePreview(item, item.variants[0]);
     });
-    els.enhancement_browser.addEventListener("click", (event) => {
-      const button = event.target.closest("[data-add-enhancement]");
-      if (!button) return;
-      const groupKey = button.dataset.addEnhancement;
-      const root = button.closest(".gear-option-list");
+    els.enhancement_browser.addEventListener("change", (event) => {
+      const control = event.target.closest("[data-add-enhancement]");
+      if (!control) return;
+      const groupKey = control.dataset.addEnhancement;
+      const root = control.closest(".gear-option-list");
       const sourceRows = root === els.embellishment_list ? enhancementGroups.embellishments : root === els.gem_list ? enhancementGroups.gems : enhancementGroups.enchants;
-      const item = sourceRows?.find((row) => Number(row.item_id) === Number(button.dataset.itemId));
-      const variant = item?.variants?.find((row) => Number(row.id) === Number(button.dataset.variantId));
+      const item = sourceRows?.find((row) => Number(row.item_id) === Number(control.dataset.itemId));
+      const variant = item?.variants?.find((row) => Number(row.id) === Number(control.dataset.variantId));
+      if (!control.checked) {
+        if (groupKey === "gem") {
+          const index = (selectedEntry()?.gems || []).findIndex((row) => Number(row.variant?.id) === Number(control.dataset.variantId));
+          if (index >= 0) removeEnhancement(`gem:${index}`);
+        } else {
+          removeEnhancement(groupKey);
+        }
+        if (state.mode === "enhancement") loadEnhancements();
+        return;
+      }
       if (item && variant) applyEnhancement(groupKey, item, variant);
+    });
+    els.add_socket.addEventListener("change", () => {
+      const entry = selectedEntry();
+      if (!entry || !socketRule()) return;
+      entry.addedSocket = els.add_socket.checked;
+      entry.gems = (entry.gems || []).slice(0, socketCapacity(entry));
+      persist();
+      renderAll();
+      loadEnhancements();
     });
     els.detail_content.addEventListener("change", (event) => {
       if (event.target.id === "gear-detail-variant") switchVariant(event.target.value);

@@ -9,7 +9,7 @@ from django.core.management import call_command
 from django.test import TestCase, override_settings
 
 from botend.models import SeasonMeta, WowItemSnapshot, WowItemVariantSnapshot
-from botend.services.gear_builder_catalog_source import _tooltip_details
+from botend.services.gear_builder_catalog_source import CurrentGearCatalogSource, _tooltip_details
 from botend.services.gear_builder_icon_sync import GearBuilderIconSync
 
 
@@ -25,6 +25,12 @@ class GearBuilderTestDataMixin:
             game_build='12.1.0.99999',
             gear_batch_key='test-batch',
             gear_sync_status='ready',
+            gear_sync_report={
+                'catalog_rules': {
+                    'socket_additions': [{'slot': 'head', 'max_additional': 1, 'source': 'great_vault'}],
+                    'add_socket_item': {'name': '辉耀珠宝钳'},
+                },
+            },
         )
         self.helm = WowItemSnapshot.objects.create(
             item_id=10001,
@@ -118,6 +124,7 @@ class GearBuilderTestDataMixin:
             name='Quick Gem',
             name_zh='迅捷宝石',
             catalog_type='gem',
+            quality=4,
         )
         self.gem = WowItemVariantSnapshot.objects.create(
             item=self.gem_item,
@@ -125,8 +132,10 @@ class GearBuilderTestDataMixin:
             batch_key='test-batch',
             variant_key='gem-q3',
             variant_type=WowItemVariantSnapshot.TYPE_GEM,
+            crafting_quality=2,
             compatible_slots=['head', 'finger'],
             stats_json={'haste': 120},
+            metadata={'simc_name': 'quick_gem_2'},
             source_json=[{'type': 'profession', 'profession_zh': '珠宝加工'}],
         )
         self.enchant_item = WowItemSnapshot.objects.create(
@@ -135,6 +144,7 @@ class GearBuilderTestDataMixin:
             name_zh='头部附魔',
             catalog_type='enchant',
             enchantment_id=8001,
+            quality=4,
         )
         self.enchant = WowItemVariantSnapshot.objects.create(
             item=self.enchant_item,
@@ -142,8 +152,10 @@ class GearBuilderTestDataMixin:
             batch_key='test-batch',
             variant_key='enchant-q3',
             variant_type=WowItemVariantSnapshot.TYPE_ENCHANT,
+            crafting_quality=2,
             compatible_slots=['head'],
             stats_json={'crit': 100},
+            metadata={'simc_name': 'helm_enchant_2'},
             source_json=[{'type': 'profession', 'profession_zh': '附魔'}],
         )
 
@@ -162,6 +174,7 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         self.assertTrue(payload['catalog']['available'])
         self.assertEqual(payload['catalog']['batch_key'], 'test-batch')
         self.assertEqual(len(payload['slots']), 16)
+        self.assertEqual(payload['rules']['socket_additions'][0]['slot'], 'head')
 
     def test_catalog_groups_legal_variants_and_filters_spec_slot_and_source(self):
         response = self.client.get('/portal/api/gear-builder/catalog/', {
@@ -197,6 +210,30 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
             'class': 'Warrior', 'spec': 'Fury', 'slot': 'head', 'variant_id': self.crafted.id,
         }).json()['groups']
         self.assertEqual(crafted['embellishments'][0]['item_id'], 10003)
+
+    def test_enhancements_hide_low_quality_and_keep_highest_rank(self):
+        low_item = WowItemSnapshot.objects.create(
+            item_id=10006, name='Quick Gem Rank 1', catalog_type='gem', quality=2,
+        )
+        WowItemVariantSnapshot.objects.create(
+            item=low_item, season=self.season, batch_key='test-batch',
+            variant_key='gem-q1', variant_type=WowItemVariantSnapshot.TYPE_GEM,
+            compatible_slots=['head'], crafting_quality=1,
+            metadata={'simc_name': 'quick_gem_1'},
+        )
+        lower_rank_item = WowItemSnapshot.objects.create(
+            item_id=10007, name='Quick Gem Lower Rank', catalog_type='gem', quality=4,
+        )
+        WowItemVariantSnapshot.objects.create(
+            item=lower_rank_item, season=self.season, batch_key='test-batch',
+            variant_key='gem-q2-low', variant_type=WowItemVariantSnapshot.TYPE_GEM,
+            compatible_slots=['head'], crafting_quality=1,
+            metadata={'simc_name': 'quick_gem_1'},
+        )
+        groups = self.client.get('/portal/api/gear-builder/enhancements/', {
+            'class': 'Warrior', 'spec': 'Fury', 'slot': 'head', 'variant_id': self.hero.id,
+        }).json()['groups']
+        self.assertEqual([row['item_id'] for row in groups['gems']], [10004])
 
     def test_crafted_resolver_applies_two_stats_and_embellishment_effect(self):
         response = self.client.post(
@@ -259,6 +296,7 @@ class GearBuilderImportCommandTests(TestCase):
             'batch_key': 'batch-20260831',
             'game_build': '12.1.0.99999',
             'provider': {'structure': 'wago_db2', 'display': 'wowhead'},
+            'rules': {'socket_additions': [{'slot': 'head', 'max_additional': 1}]},
             'items': [{
                 'item_id': 20001,
                 'name': 'Imported Helm',
@@ -302,6 +340,7 @@ class GearBuilderImportCommandTests(TestCase):
         self.assertEqual(self.season.gear_sync_status, 'ready')
         self.assertEqual(self.season.gear_sync_report['variant_counts']['drop_equipment'], 1)
         self.assertEqual(self.season.gear_sync_report['missing_counts']['compatible_slots'], 0)
+        self.assertEqual(self.season.gear_sync_report['catalog_rules']['socket_additions'][0]['slot'], 'head')
 
     def test_dry_run_and_invalid_track_do_not_write(self):
         self.run_import(self.catalog_payload(), '--dry-run')
@@ -334,6 +373,32 @@ class GearBuilderImportCommandTests(TestCase):
 
 
 class GearBuilderCurrentSourceTests(TestCase):
+    def test_special_mythic_drop_adds_344_variant_and_native_socket(self):
+        item = {
+            'inventory_type': 1,
+            'metadata': {'native_socket_types': ['prismatic']},
+            'variants': [],
+        }
+        profile = {'tracks': {'champion': [300], 'hero': [315], 'myth': [328]}}
+        CurrentGearCatalogSource._add_drop_variants(
+            item, profile, 'raid', [{'type': 'raid', 'encounter': '最终首领'}], special_mythic=True,
+        )
+        special = next(row for row in item['variants'] if row['item_level'] == 344)
+        self.assertEqual((special['upgrade_track'], special['track_rank'], special['track_max_rank']), ('myth', 9, 6))
+        self.assertEqual(special['socket_count'], 1)
+        self.assertTrue(special['metadata']['special_mythic_drop'])
+
+    def test_enhancement_source_keeps_only_highest_current_quality(self):
+        rows = [
+            {'itemId': 1, 'expansion': 11, 'quality': 2, 'craftingQuality': 1, 'slot': 'socket', 'tokenizedName': 'gem_1'},
+            {'itemId': 2, 'expansion': 11, 'quality': 4, 'craftingQuality': 1, 'slot': 'socket', 'tokenizedName': 'gem_1'},
+            {'itemId': 3, 'expansion': 11, 'quality': 4, 'craftingQuality': 2, 'slot': 'socket', 'tokenizedName': 'gem_2'},
+        ]
+        self.assertEqual(
+            [row['itemId'] for row in CurrentGearCatalogSource._highest_quality_enhancements(rows)],
+            [3],
+        )
+
     def test_wowhead_tooltip_parser_extracts_scaled_stats_and_crafted_options(self):
         details = _tooltip_details({
             'name': '破法者的步伐', 'quality': 4, 'icon': 'inv_boot',
@@ -387,5 +452,8 @@ class GearBuilderFrontendContractTests(TestCase):
         self.assertIn('职业配装器', header)
         for value in ('装备', '强化', '美化', '宝石', '永久附魔', '导入 SimC'):
             self.assertIn(value, template)
+        self.assertIn('gear-add-socket', template)
         for value in ('localStorage', 'CompressionStream', 'parse', 'crafted_stats', 'data-wow-item-tooltip'):
+            self.assertIn(value, script)
+        for value in ('socketCapacity', 'addedSocket', 'totalsAndEffects', 'gear-option-check'):
             self.assertIn(value, script)

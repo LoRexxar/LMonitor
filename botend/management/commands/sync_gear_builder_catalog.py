@@ -109,6 +109,7 @@ class Command(BaseCommand):
             call_command('fetch_item_metadata', item_id=item_ids)
 
         db_report = self._audit_batch(season, batch_key)
+        db_report['catalog_rules'] = payload.get('rules') or {}
         if db_report['blocking_errors']:
             raise CommandError('数据库批次审计失败，当前赛季未切换')
         if options['sync_icons']:

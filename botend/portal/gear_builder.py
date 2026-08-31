@@ -81,6 +81,8 @@ class PortalGearBuilderCraftedResolveAPIView(View):
                 variant_id=body.get('variant_id'),
                 selected_stats=body.get('selected_stats') or [],
                 embellishment_variant_id=body.get('embellishment_variant_id') or None,
+                class_name=body.get('class_name') or 'Warrior',
+                spec_name=body.get('spec_name') or 'Fury',
             )
         except GearBuilderError as exc:
             return _error_response(exc)

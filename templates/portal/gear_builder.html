@@ -10,7 +10,7 @@
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260808_portal_theme_v2"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260821_mythicstats_clean_light_v7">
     <link rel="stylesheet" href="{% static 'shared/css/wow-item-tooltip.css' %}?v=20260813_simc_equipment_icon">
-    <link rel="stylesheet" href="{% static 'portal/css/gear_builder.css' %}?v=20260831_gear_builder_v1">
+    <link rel="stylesheet" href="{% static 'portal/css/gear_builder.css' %}?v=20260831_gear_builder_v2">
 </head>
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
@@ -114,6 +114,10 @@
                     </section>
                     <section class="gear-enhancement-section">
                         <div class="gear-enhancement-heading"><h3>宝石</h3><span id="gear-socket-summary">需要装备插槽</span></div>
+                        <label id="gear-add-socket-option" class="gear-socket-option" hidden>
+                            <input id="gear-add-socket" type="checkbox">
+                            <span><strong>增加宝石插槽</strong><small id="gear-add-socket-copy">使用当前赛季的插槽物品</small></span>
+                        </label>
                         <div id="gear-gem-list" class="gear-option-list"></div>
                     </section>
                     <section class="gear-enhancement-section">
@@ -135,7 +139,7 @@
 
         <section class="gear-panel gear-stats-panel" data-gear-mobile-panel="stats" aria-live="polite">
             <div class="gear-stats-heading">
-                <div><h2>当前配装属性</h2><span>不包含临时增益与随机第三属性</span></div>
+                <div><h2>当前配装属性</h2><span id="gear-stats-context">不包含临时增益与随机第三属性</span></div>
                 <span id="gear-save-status" class="gear-save-status">保存在当前浏览器</span>
             </div>
             <div id="gear-stat-grid" class="gear-stat-grid"></div>
@@ -163,6 +167,6 @@
 
     <div id="gear-toast-root" class="gear-toast-root" aria-live="polite"></div>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
-    <script src="{% static 'portal/js/gear_builder.js' %}?v=20260831_gear_builder_v1"></script>
+    <script src="{% static 'portal/js/gear_builder.js' %}?v=20260831_gear_builder_v2"></script>
 </body>
 </html>
