@@ -69,6 +69,8 @@ WEAPON_TYPE_NAMES = {
     6: '长柄武器', 7: '单手剑', 8: '双手剑', 9: '战刃', 10: '法杖',
     13: '拳套', 15: '匕首', 18: '弩', 19: '魔杖',
 }
+JEWELRY_INVENTORY_TYPES = {2, 11}
+ADDITIONAL_SOCKET_SLOTS = {'head', 'wrists', 'waist'}
 
 
 class CatalogSourceError(RuntimeError):
@@ -206,7 +208,7 @@ class CurrentGearCatalogSource:
         for row in active.get('sockets') or []:
             slot = slot_aliases.get(str(row.get('slot') or ''), str(row.get('slot') or ''))
             maximum = _safe_int(row.get('extraSockets') or row.get('vault'))
-            if slot and maximum:
+            if slot in ADDITIONAL_SOCKET_SLOTS and maximum:
                 rules.append({
                     'slot': slot,
                     'max_additional': maximum,
@@ -405,6 +407,15 @@ class CurrentGearCatalogSource:
         item_class = _safe_int(raw.get('itemClass'))
         item_subclass = _safe_int(raw.get('itemSubClass'))
         inventory_type = _safe_int(raw.get('inventoryType'))
+        source_socket_types = [
+            str(row.get('type') or 'PRISMATIC').lower()
+            for row in ((raw.get('socketInfo') or {}).get('sockets') or [])
+        ]
+        if inventory_type in JEWELRY_INVENTORY_TYPES:
+            # 项链与戒指固定有一个基础孔；源数据中显式声明的孔是特殊装备的额外天然孔。
+            native_socket_types = (['prismatic'] + source_socket_types)[:2]
+        else:
+            native_socket_types = source_socket_types
         primary_options = sorted({
             primary
             for stat in (raw.get('stats') or []) if isinstance(stat, dict)
@@ -446,10 +457,8 @@ class CurrentGearCatalogSource:
                 'raidbots_stats_alloc': raw.get('stats') or [],
                 'primary_stat_options': primary_options,
                 'two_handed': inventory_type == 17,
-                'native_socket_types': [
-                    str(row.get('type') or 'PRISMATIC').lower()
-                    for row in ((raw.get('socketInfo') or {}).get('sockets') or [])
-                ],
+                'native_socket_types': native_socket_types,
+                'jewelry_socket_baseline_applied': inventory_type in JEWELRY_INVENTORY_TYPES,
             },
             'variants': [],
         }

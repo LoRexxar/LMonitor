@@ -35,6 +35,7 @@
     crit: "#ed7b2d", haste: "#24a7bd", mastery: "#7c3aed", versatility: "#c59d28",
   };
   const SECONDARY_STATS = new Set(["crit", "haste", "mastery", "versatility"]);
+  const ADDITIONAL_SOCKET_SLOTS = new Set(["head", "wrists", "waist"]);
   const SOURCE_LABELS = {
     mythic_plus: "大秘境", great_vault: "宏伟宝库", raid: "团队副本", delve: "地下堡",
     crafted: "专业制造", profession: "专业制造", bonus_roll: "额外掉落",
@@ -222,6 +223,7 @@
 
   function socketRule(slot = state.selectedSlot) {
     const family = slotFamily(slot);
+    if (!ADDITIONAL_SOCKET_SLOTS.has(family)) return null;
     return (bootstrap?.rules?.socket_additions || []).find((row) => row.slot === slot || row.slot === family) || null;
   }
 

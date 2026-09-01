@@ -46,7 +46,13 @@ class GearBuilderTestDataMixin:
             gear_sync_status='ready',
             gear_sync_report={
                 'catalog_rules': {
-                    'socket_additions': [{'slot': 'head', 'max_additional': 1, 'source': 'great_vault'}],
+                    'socket_additions': [
+                        {'slot': 'head', 'max_additional': 1, 'source': 'great_vault'},
+                        {'slot': 'wrists', 'max_additional': 1, 'source': 'great_vault'},
+                        {'slot': 'waist', 'max_additional': 1, 'source': 'great_vault'},
+                        {'slot': 'neck', 'max_additional': 1, 'source': 'socket_item'},
+                        {'slot': 'finger', 'max_additional': 1, 'source': 'socket_item'},
+                    ],
                     'add_socket_item': {'name': '辉耀珠宝钳'},
                 },
             },
@@ -201,7 +207,10 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         self.assertTrue(payload['catalog']['available'])
         self.assertEqual(payload['catalog']['batch_key'], 'test-batch')
         self.assertEqual(len(payload['slots']), 16)
-        self.assertEqual(payload['rules']['socket_additions'][0]['slot'], 'head')
+        self.assertEqual(
+            [row['slot'] for row in payload['rules']['socket_additions']],
+            ['head', 'wrists', 'waist'],
+        )
         conversion = payload['rules']['secondary_stat_conversion']['Warrior:Fury']
         self.assertEqual(conversion['crit_per_percent'], 46)
         self.assertEqual(conversion['haste_per_percent'], 44)
@@ -230,6 +239,38 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
             'class': 'Warrior', 'spec': 'Fury', 'slot': 'head',
         }).json()
         self.assertNotIn(10001, [row['item_id'] for row in wrong_class_mask['items']])
+
+    def test_catalog_normalizes_legacy_jewelry_to_one_or_two_native_sockets(self):
+        neck = WowItemSnapshot.objects.create(
+            item_id=10012, name='Legacy Neck', catalog_type='equipment', slot_key='neck',
+            item_class_id=4, inventory_type=2,
+        )
+        WowItemVariantSnapshot.objects.create(
+            item=neck, season=self.season, batch_key='test-batch', variant_key='neck-legacy',
+            variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT, item_level=710,
+            compatible_slots=['neck'], socket_count=0, socket_types=[],
+        )
+        special_ring = WowItemSnapshot.objects.create(
+            item_id=10013, name='Legacy Special Ring', catalog_type='equipment', slot_key='finger',
+            item_class_id=4, inventory_type=11,
+        )
+        WowItemVariantSnapshot.objects.create(
+            item=special_ring, season=self.season, batch_key='test-batch', variant_key='ring-legacy',
+            variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT, item_level=710,
+            compatible_slots=['finger'], socket_count=1, socket_types=['prismatic'],
+        )
+
+        neck_rows = self.client.get('/portal/api/gear-builder/catalog/', {
+            'class': 'Warrior', 'spec': 'Fury', 'slot': 'neck',
+        }).json()['items']
+        ring_rows = self.client.get('/portal/api/gear-builder/catalog/', {
+            'class': 'Warrior', 'spec': 'Fury', 'slot': 'finger1',
+        }).json()['items']
+        neck_variant = next(row for row in neck_rows if row['item_id'] == neck.item_id)['variants'][0]
+        ring_variant = next(row for row in ring_rows if row['item_id'] == special_ring.item_id)['variants'][0]
+        self.assertEqual((neck_variant['socket_count'], neck_variant['socket_types']), (1, ['prismatic']))
+        self.assertEqual((ring_variant['socket_count'], ring_variant['socket_types']), (2, ['prismatic', 'prismatic']))
+        self.assertTrue(neck_variant['metadata']['jewelry_socket_baseline_applied'])
 
     def test_catalog_localizes_raw_english_sources(self):
         self.hero.source_json = [{
@@ -534,6 +575,34 @@ class GearBuilderCurrentSourceTests(TestCase):
         self.assertEqual(special['socket_count'], 1)
         self.assertTrue(special['metadata']['special_mythic_drop'])
 
+    def test_jewelry_gets_one_base_socket_and_preserves_one_extra_native_socket(self):
+        normal_neck = CurrentGearCatalogSource._base_item(
+            {'id': 31, 'name': 'Normal Neck', 'inventoryType': 2, 'itemClass': 4},
+            'equipment', ('neck',),
+        )
+        special_ring = CurrentGearCatalogSource._base_item(
+            {
+                'id': 32, 'name': 'Special Ring', 'inventoryType': 11, 'itemClass': 4,
+                'socketInfo': {'sockets': [{'type': 'PRISMATIC'}]},
+            },
+            'equipment', ('finger',),
+        )
+        self.assertEqual(normal_neck['metadata']['native_socket_types'], ['prismatic'])
+        self.assertEqual(special_ring['metadata']['native_socket_types'], ['prismatic', 'prismatic'])
+        self.assertTrue(normal_neck['metadata']['jewelry_socket_baseline_applied'])
+
+    def test_only_head_wrists_and_waist_can_receive_added_sockets(self):
+        rules = CurrentGearCatalogSource._socket_addition_rules({
+            'sockets': [
+                {'slot': 'head', 'vault': 1},
+                {'slot': 'wrist', 'vault': 1},
+                {'slot': 'waist', 'vault': 1},
+                {'slot': 'finger', 'extraSockets': 1},
+                {'slot': 'neck', 'extraSockets': 1},
+            ],
+        })
+        self.assertEqual([row['slot'] for row in rules], ['head', 'wrists', 'waist'])
+
     def test_delve_drop_variants_stop_at_hero_six(self):
         item = {'inventory_type': 1, 'metadata': {}, 'variants': []}
         profile = {
@@ -681,6 +750,8 @@ class GearBuilderFrontendContractTests(TestCase):
         self.assertIn('const SUMMARY_STATS = ["crit", "haste", "mastery", "versatility"]', script)
         self.assertIn('secondary_stat_conversion', script)
         self.assertIn('gear-stat-percent', script)
+        self.assertIn('const ADDITIONAL_SOCKET_SLOTS = new Set(["head", "wrists", "waist"])', script)
+        self.assertIn('if (!ADDITIONAL_SOCKET_SLOTS.has(family)) return null;', script)
         self.assertIn('data-select-item', script)
         self.assertNotIn('data-add-item', script)
         self.assertIn('SECONDARY_STATS.has(key)', script)

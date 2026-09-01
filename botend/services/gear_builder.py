@@ -69,6 +69,8 @@ STAT_LABELS = {
     'min_damage': '最低伤害', 'max_damage': '最高伤害',
 }
 UPGRADE_TRACK_LABELS = {'champion': '勇士', 'hero': '英雄', 'myth': '神话'}
+ADDITIONAL_SOCKET_SLOTS = {'head', 'wrists', 'waist'}
+JEWELRY_INVENTORY_TYPES = {2, 11}
 CLASS_MASKS = {
     'warrior': 1, 'paladin': 2, 'hunter': 4, 'rogue': 8, 'priest': 16,
     'deathknight': 32, 'shaman': 64, 'mage': 128, 'warlock': 256,
@@ -270,6 +272,13 @@ def bootstrap_payload():
     season = active_season()
     sync_report = season.gear_sync_report if season and isinstance(season.gear_sync_report, dict) else {}
     catalog_rules = sync_report.get('catalog_rules') if isinstance(sync_report.get('catalog_rules'), dict) else {}
+    catalog_rules = {
+        **catalog_rules,
+        'socket_additions': [
+            row for row in (catalog_rules.get('socket_additions') or [])
+            if isinstance(row, dict) and str(row.get('slot') or '') in ADDITIONAL_SOCKET_SLOTS
+        ],
+    }
     return {
         'catalog': catalog_context(season),
         'classes': specs_payload(),
@@ -391,6 +400,17 @@ def serialize_variant(variant, class_name='', spec_name=''):
     item = variant.item
     metadata = {**(item.metadata or {}), **(variant.metadata or {})}
     metadata.setdefault('two_handed', int(item.inventory_type or 0) == 17)
+    socket_types = list(variant.socket_types or [])
+    socket_count = max(int(variant.socket_count or 0), len(socket_types))
+    if int(item.inventory_type or 0) in JEWELRY_INVENTORY_TYPES:
+        if not metadata.get('jewelry_socket_baseline_applied'):
+            # 兼容旧批次：旧数据保存的是源数据显式孔数量，尚未计入首饰基础孔。
+            socket_count += 1
+        socket_count = min(2, max(1, socket_count))
+        while len(socket_types) < socket_count:
+            socket_types.append('prismatic')
+        socket_types = socket_types[:socket_count]
+        metadata['jewelry_socket_baseline_applied'] = True
     return {
         'id': variant.id,
         'key': variant.variant_key,
@@ -404,8 +424,8 @@ def serialize_variant(variant, class_name='', spec_name=''):
         'crafting_quality': variant.crafting_quality,
         'bonus_ids': variant.bonus_ids or [],
         'compatible_slots': variant.compatible_slots or [],
-        'socket_types': variant.socket_types or [],
-        'socket_count': variant.socket_count,
+        'socket_types': socket_types,
+        'socket_count': socket_count,
         'stats': stats_for_identity(variant.stats_json, variant.metadata, class_name, spec_name),
         'effects': variant.effects_json or [],
         'sources': [localize_gear_source(row) for row in (variant.source_json or []) if isinstance(row, dict)],
