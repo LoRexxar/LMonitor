@@ -9,6 +9,7 @@
     catalog: page.dataset.catalogUrl,
     enhancements: page.dataset.enhancementsUrl,
     crafted: page.dataset.craftedUrl,
+    share: page.dataset.shareUrl,
     simc: page.dataset.simcUrl,
   };
   const els = Object.fromEntries([
@@ -39,6 +40,7 @@
     crit: "#ed7b2d", haste: "#24a7bd", mastery: "#7c3aed", versatility: "#c59d28",
   };
   const SECONDARY_STATS = new Set(["crit", "haste", "mastery", "versatility"]);
+  const SHARE_FORMAT_VERSION = 2;
   const BASE_SECONDARY_PERCENTAGES = Object.freeze({
     crit: 5,
     mastery: 8,
@@ -849,6 +851,69 @@
     return Uint8Array.from(binary, (character) => character.charCodeAt(0));
   }
 
+  function shareEntryNeedsSnapshot(entry) {
+    if (!entry?.variant?.id || entry.external) return true;
+    const enhancements = [entry.embellishment, ...(entry.gems || []), entry.enchant].filter(Boolean);
+    return enhancements.some((row) => !row?.variant?.id || row.external);
+  }
+
+  function compactShareState(currentState) {
+    const equipment = Object.entries(currentState.equipment || {}).map(([slot, entry]) => {
+      if (shareEntryNeedsSnapshot(entry)) {
+        return [slot, 0, 0, [], 0, [], 0, entry?.addedSocket ? 1 : 0, structuredClone(entry)];
+      }
+      return [
+        slot,
+        Number(entry.item?.item_id || 0),
+        Number(entry.variant?.id || 0),
+        Array.isArray(entry.selectedStats) ? entry.selectedStats : [],
+        Number(entry.embellishment?.variant?.id || 0),
+        (entry.gems || []).map((row) => Number(row.variant?.id || 0)).filter(Boolean),
+        Number(entry.enchant?.variant?.id || 0),
+        entry.addedSocket ? 1 : 0,
+      ];
+    });
+    return {
+      v: SHARE_FORMAT_VERSION,
+      c: currentState.className,
+      s: currentState.specName,
+      b: currentState.batchKey || bootstrap?.catalog?.batch_key || "",
+      u: [currentState.selectedSlot, currentState.mode, currentState.viewMode, currentState.mobileView],
+      e: equipment,
+    };
+  }
+
+  async function hydrateSharePayload(payload) {
+    if (Number(payload?.v) !== SHARE_FORMAT_VERSION || !Array.isArray(payload?.e)) {
+      return normalizeState(payload);
+    }
+    const ui = Array.isArray(payload.u) ? payload.u : [];
+    const next = normalizeState({
+      className: payload.c,
+      specName: payload.s,
+      batchKey: payload.b,
+      selectedSlot: ui[0],
+      mode: ui[1],
+      viewMode: ui[2],
+      mobileView: ui[3],
+      equipment: {},
+    });
+    const response = await requestJson(endpoints.share, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({...payload, e: payload.e.map((row) => Array.isArray(row) ? row.slice(0, 8) : row)}),
+    });
+    next.equipment = response.equipment || {};
+    payload.e.forEach((row) => {
+      if (!Array.isArray(row) || !row[8] || next.equipment[row[0]]) return;
+      const external = row[8];
+      if (!external || typeof external !== "object") return;
+      next.equipment[row[0]] = {...external, item: compactItem(external.item), external: true};
+    });
+    (response.warnings || []).slice(0, 3).forEach((warning) => toast(warning, true));
+    return next;
+  }
+
   async function encodeShare(payload) {
     const bytes = new TextEncoder().encode(JSON.stringify(payload));
     if ("CompressionStream" in window) {
@@ -871,23 +936,23 @@
   }
 
   async function copyShare() {
-    const code = await encodeShare(state);
+    const code = await encodeShare(compactShareState(state));
     const url = new URL(location.href);
     url.search = "";
     url.searchParams.set("code", code);
     if (url.toString().length > Number(bootstrap?.rules?.max_share_length || 8000)) {
-      toast("分享链接过长，请先移除部分目录外装备。", true);
+      toast("分享链接仍然过长，请减少目录外装备后重试。", true);
       return;
     }
     await navigator.clipboard.writeText(url.toString());
-    toast("自包含分享链接已复制。")
+    toast(`紧凑分享链接已复制（${url.toString().length} 字符）。`)
   }
 
   async function restoreShareIfPresent() {
     const code = new URLSearchParams(location.search).get("code");
     if (!code) return false;
     try {
-      state = normalizeState(await decodeShare(code));
+      state = await hydrateSharePayload(await decodeShare(code));
       toast("已从分享链接恢复配装。")
       return true;
     } catch (error) {

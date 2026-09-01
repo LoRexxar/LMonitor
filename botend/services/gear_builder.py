@@ -287,7 +287,7 @@ def bootstrap_payload():
         'upgrade_tracks': [{'key': key, 'label': label} for key, label in UPGRADE_TRACK_LABELS.items()],
         'rules': {
             'state_version': 1,
-            'share_version': 1,
+            'share_version': 2,
             'max_share_length': 8000,
             'crafted_secondary_count': 2,
             'temporary_enchants_supported': False,
@@ -571,20 +571,7 @@ def enhancement_items(*, class_name, spec_name, slot, equipment_variant_id=None)
     return {'groups': groups, 'catalog': catalog_context(season)}
 
 
-def resolve_crafted_variant(*, variant_id, selected_stats=None, embellishment_variant_id=None,
-                             class_name='Warrior', spec_name='Fury'):
-    class_name, spec_name = canonical_spec(class_name, spec_name)
-    season = active_season()
-    if not season or not season.gear_batch_key:
-        raise GearBuilderError('当前赛季装备目录尚未同步')
-    variant = WowItemVariantSnapshot.objects.filter(
-        id=variant_id,
-        season=season,
-        batch_key=season.gear_batch_key,
-        variant_type=WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT,
-    ).select_related('item').first()
-    if not variant:
-        raise GearBuilderError('制造装备变体不存在或已过期')
+def _resolve_crafted_rows(variant, selected_stats, embellishment, class_name, spec_name, target_slot=''):
     options = variant.crafting_options or {}
     allowed = [str(value) for value in (options.get('stat_pool') or ('crit', 'haste', 'mastery', 'versatility'))]
     required_count = int(options.get('stat_count') or 2)
@@ -604,8 +591,30 @@ def resolve_crafted_variant(*, variant_id, selected_stats=None, embellishment_va
         for index, key in enumerate(selected):
             stats[key] = base + (1 if index < remainder else 0)
 
-    embellishment = None
     effects = list(variant.effects_json or [])
+    if embellishment:
+        slot = target_slot or variant.item.slot_key or (variant.compatible_slots or [''])[0]
+        if embellishment.variant_type != WowItemVariantSnapshot.TYPE_EMBELLISHMENT or not slot_matches(embellishment, slot):
+            raise GearBuilderError('所选美化与该制造装备不兼容')
+        effects.extend(embellishment.effects_json or [])
+    return stats, selected, effects
+
+
+def resolve_crafted_variant(*, variant_id, selected_stats=None, embellishment_variant_id=None,
+                             class_name='Warrior', spec_name='Fury'):
+    class_name, spec_name = canonical_spec(class_name, spec_name)
+    season = active_season()
+    if not season or not season.gear_batch_key:
+        raise GearBuilderError('当前赛季装备目录尚未同步')
+    variant = WowItemVariantSnapshot.objects.filter(
+        id=variant_id,
+        season=season,
+        batch_key=season.gear_batch_key,
+        variant_type=WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT,
+    ).select_related('item').first()
+    if not variant:
+        raise GearBuilderError('制造装备变体不存在或已过期')
+    embellishment = None
     if embellishment_variant_id:
         embellishment = WowItemVariantSnapshot.objects.filter(
             id=embellishment_variant_id,
@@ -613,9 +622,11 @@ def resolve_crafted_variant(*, variant_id, selected_stats=None, embellishment_va
             batch_key=season.gear_batch_key,
             variant_type=WowItemVariantSnapshot.TYPE_EMBELLISHMENT,
         ).select_related('item').first()
-        if not embellishment or not slot_matches(embellishment, variant.item.slot_key or (variant.compatible_slots or [''])[0]):
-            raise GearBuilderError('所选美化与该制造装备不兼容')
-        effects.extend(embellishment.effects_json or [])
+        if not embellishment:
+            raise GearBuilderError('所选美化不存在或已过期')
+    stats, selected, effects = _resolve_crafted_rows(
+        variant, selected_stats or [], embellishment, class_name, spec_name,
+    )
 
     return {
         'variant': serialize_item(variant.item, [variant], class_name, spec_name),
@@ -631,6 +642,135 @@ def resolve_crafted_variant(*, variant_id, selected_stats=None, embellishment_va
             'crafting_quality': variant.crafting_quality,
         },
     }
+
+
+def _state_item_and_variant(variant, class_name, spec_name):
+    payload = serialize_item(variant.item, [variant], class_name, spec_name)
+    variant_payload = payload.pop('variants')[0]
+    payload.pop('metadata', None)
+    return payload, variant_payload
+
+
+def hydrate_shared_state(*, class_name, spec_name, batch_key, entries):
+    """按批次和变体引用恢复紧凑分享数据，不保存任何用户配装。"""
+    class_name, spec_name = canonical_spec(class_name, spec_name)
+    batch_key = str(batch_key or '').strip()
+    if not batch_key or len(batch_key) > 160:
+        raise GearBuilderError('分享链接缺少有效装备批次')
+    if not isinstance(entries, list) or len(entries) > len(EQUIPMENT_SLOTS):
+        raise GearBuilderError('分享链接中的装备槽位数量无效')
+
+    parsed = []
+    variant_ids = set()
+    seen_slots = set()
+    for row in entries:
+        if not isinstance(row, list) or len(row) < 3:
+            raise GearBuilderError('分享链接中的装备引用格式无效')
+        slot = str(row[0] or '')
+        if slot not in SLOT_LABELS or slot in seen_slots:
+            raise GearBuilderError('分享链接包含未知或重复装备槽位')
+        seen_slots.add(slot)
+        try:
+            item_id = int(row[1] or 0)
+            equipment_id = int(row[2] or 0)
+            embellishment_id = int(row[4] or 0) if len(row) > 4 else 0
+            gem_ids = [int(value) for value in (row[5] or [])] if len(row) > 5 and isinstance(row[5], list) else []
+            enchant_id = int(row[6] or 0) if len(row) > 6 else 0
+        except (TypeError, ValueError):
+            raise GearBuilderError('分享链接包含无效物品 ID')
+        if len(gem_ids) > 3:
+            raise GearBuilderError('分享链接中的宝石数量无效')
+        selected_stats = [str(value) for value in (row[3] or [])][:4] if len(row) > 3 and isinstance(row[3], list) else []
+        added_socket = bool(row[7]) if len(row) > 7 else False
+        parsed.append((slot, item_id, equipment_id, selected_stats, embellishment_id, gem_ids, enchant_id, added_socket))
+        variant_ids.update(value for value in [equipment_id, embellishment_id, enchant_id, *gem_ids] if value)
+
+    variants = {
+        row.id: row for row in WowItemVariantSnapshot.objects.filter(
+            id__in=variant_ids, batch_key=batch_key,
+        ).select_related('item')
+    }
+    equipment = {}
+    warnings = []
+    for slot, item_id, equipment_id, selected_stats, embellishment_id, gem_ids, enchant_id, added_socket in parsed:
+        if not equipment_id:
+            continue
+        variant = variants.get(equipment_id)
+        if not variant:
+            warnings.append(f'{SLOT_LABELS[slot]}的装备引用已失效')
+            continue
+        if variant.item.item_id != item_id:
+            raise GearBuilderError('分享链接中的物品与变体引用不匹配')
+        if variant.variant_type not in (
+            WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
+            WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT,
+        ) or not slot_matches(variant, slot, class_name, spec_name) or not spec_matches(
+            variant.item, class_name, spec_name, variant, slot,
+        ):
+            raise GearBuilderError(f'{SLOT_LABELS[slot]}的装备不适用于当前专精')
+
+        item_payload, variant_payload = _state_item_and_variant(variant, class_name, spec_name)
+        enhancement_rows = {}
+        for key, reference_id, expected_type in (
+            ('embellishment', embellishment_id, WowItemVariantSnapshot.TYPE_EMBELLISHMENT),
+            ('enchant', enchant_id, WowItemVariantSnapshot.TYPE_ENCHANT),
+        ):
+            enhancement = variants.get(reference_id) if reference_id else None
+            if (
+                enhancement
+                and enhancement.variant_type == expected_type
+                and slot_matches(enhancement, slot, class_name, spec_name)
+                and spec_matches(enhancement.item, class_name, spec_name, enhancement, slot)
+            ):
+                enhancement_item, enhancement_variant = _state_item_and_variant(enhancement, class_name, spec_name)
+                enhancement_rows[key] = {'item': enhancement_item, 'variant': enhancement_variant}
+            else:
+                enhancement_rows[key] = None
+                if reference_id:
+                    warnings.append(f'{SLOT_LABELS[slot]}的{("美化" if key == "embellishment" else "附魔")}引用已失效')
+
+        gems = []
+        socket_family = SLOT_FAMILIES.get(slot, slot)
+        added_socket = bool(added_socket and socket_family in ADDITIONAL_SOCKET_SLOTS)
+        capacity = int(variant_payload.get('socket_count') or 0) + (1 if added_socket else 0)
+        for reference_id in gem_ids[:capacity]:
+            gem = variants.get(reference_id)
+            if (
+                not gem
+                or gem.variant_type != WowItemVariantSnapshot.TYPE_GEM
+                or not slot_matches(gem, slot, class_name, spec_name)
+                or not spec_matches(gem.item, class_name, spec_name, gem, slot)
+            ):
+                warnings.append(f'{SLOT_LABELS[slot]}的宝石引用已失效')
+                continue
+            gem_item, gem_variant = _state_item_and_variant(gem, class_name, spec_name)
+            gems.append({'item': gem_item, 'variant': gem_variant})
+
+        resolved_stats = None
+        resolved_effects = None
+        if variant.variant_type == WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT and selected_stats:
+            resolved_stats, selected_stats, resolved_effects = _resolve_crafted_rows(
+                variant,
+                selected_stats,
+                variants.get(embellishment_id) if enhancement_rows['embellishment'] else None,
+                class_name,
+                spec_name,
+                slot,
+            )
+        equipment[slot] = {
+            'item': item_payload,
+            'variant': variant_payload,
+            'itemLevel': variant.item_level,
+            'selectedStats': selected_stats,
+            'resolvedStats': resolved_stats,
+            'resolvedEffects': resolved_effects,
+            'embellishment': enhancement_rows['embellishment'],
+            'gems': gems,
+            'enchant': enhancement_rows['enchant'],
+            'addedSocket': added_socket,
+            'external': False,
+        }
+    return {'equipment': equipment, 'warnings': warnings[:16]}
 
 
 def _simc_item_id(payload):

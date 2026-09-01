@@ -60,6 +60,7 @@ from botend.portal.gear_builder import (
     PortalGearBuilderCatalogAPIView,
     PortalGearBuilderCraftedResolveAPIView,
     PortalGearBuilderEnhancementsAPIView,
+    PortalGearBuilderShareResolveAPIView,
     PortalGearBuilderSimcImportAPIView,
     PortalGearBuilderView,
 )
@@ -187,6 +188,7 @@ urlpatterns = [
     path('portal/api/gear-builder/catalog/', PortalGearBuilderCatalogAPIView.as_view(), name='portal_gear_builder_catalog'),
     path('portal/api/gear-builder/enhancements/', PortalGearBuilderEnhancementsAPIView.as_view(), name='portal_gear_builder_enhancements'),
     path('portal/api/gear-builder/resolve-crafted/', csrf_exempt(PortalGearBuilderCraftedResolveAPIView.as_view()), name='portal_gear_builder_resolve_crafted'),
+    path('portal/api/gear-builder/resolve-share/', csrf_exempt(PortalGearBuilderShareResolveAPIView.as_view()), name='portal_gear_builder_resolve_share'),
     path('portal/api/gear-builder/import-simc/', csrf_exempt(PortalGearBuilderSimcImportAPIView.as_view()), name='portal_gear_builder_import_simc'),
     path('portal/api/mythic-planner/catalog/', MythicPlannerCatalogAPIView.as_view(), name='mythic_planner_catalog'),
     path('portal/api/mythic-planner/dungeons/<slug:dungeon_key>/', MythicPlannerDungeonAPIView.as_view(), name='mythic_planner_dungeon'),

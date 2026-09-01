@@ -13,6 +13,7 @@ from botend.services.gear_builder import (
     bootstrap_payload,
     catalog_items,
     enhancement_items,
+    hydrate_shared_state,
     import_simc_profile,
     resolve_crafted_variant,
 )
@@ -83,6 +84,21 @@ class PortalGearBuilderCraftedResolveAPIView(View):
                 embellishment_variant_id=body.get('embellishment_variant_id') or None,
                 class_name=body.get('class_name') or 'Warrior',
                 spec_name=body.get('spec_name') or 'Fury',
+            )
+        except GearBuilderError as exc:
+            return _error_response(exc)
+        return JsonResponse({'success': True, **payload})
+
+
+class PortalGearBuilderShareResolveAPIView(View):
+    def post(self, request):
+        try:
+            body = _json_body(request)
+            payload = hydrate_shared_state(
+                class_name=body.get('c') or 'Warrior',
+                spec_name=body.get('s') or 'Fury',
+                batch_key=body.get('b') or '',
+                entries=body.get('e') or [],
             )
         except GearBuilderError as exc:
             return _error_response(exc)

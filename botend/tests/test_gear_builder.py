@@ -207,6 +207,7 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         self.assertTrue(payload['success'])
         self.assertTrue(payload['catalog']['available'])
         self.assertEqual(payload['catalog']['batch_key'], 'test-batch')
+        self.assertEqual(payload['rules']['share_version'], 2)
         self.assertEqual(len(payload['slots']), 16)
         self.assertEqual(
             [row['slot'] for row in payload['rules']['socket_additions']],
@@ -438,6 +439,45 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         invalid = self.client.post(
             '/portal/api/gear-builder/resolve-crafted/',
             data=json.dumps({'variant_id': self.crafted.id, 'selected_stats': ['crit', 'crit']}),
+            content_type='application/json',
+        )
+        self.assertEqual(invalid.status_code, 400)
+
+    def test_compact_share_resolves_catalog_references_from_original_batch(self):
+        self.season.gear_batch_key = 'new-active-batch'
+        self.season.save(update_fields=['gear_batch_key'])
+        response = self.client.post(
+            '/portal/api/gear-builder/resolve-share/',
+            data=json.dumps({
+                'v': 2,
+                'c': 'Warrior',
+                's': 'Fury',
+                'b': 'test-batch',
+                'e': [[
+                    'head', self.crafted_item.item_id, self.crafted.id,
+                    ['crit', 'mastery'], self.embellishment.id,
+                    [self.gem.id], self.enchant.id, 1,
+                ]],
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        entry = response.json()['equipment']['head']
+        self.assertEqual(entry['item']['name'], '锻造头盔')
+        self.assertEqual(entry['variant']['id'], self.crafted.id)
+        self.assertEqual(entry['resolvedStats']['crit'], 350)
+        self.assertEqual(entry['resolvedStats']['mastery'], 350)
+        self.assertEqual(entry['embellishment']['variant']['id'], self.embellishment.id)
+        self.assertEqual(entry['gems'][0]['variant']['id'], self.gem.id)
+        self.assertEqual(entry['enchant']['variant']['id'], self.enchant.id)
+        self.assertTrue(entry['addedSocket'])
+
+        invalid = self.client.post(
+            '/portal/api/gear-builder/resolve-share/',
+            data=json.dumps({
+                'c': 'Warrior', 's': 'Fury', 'b': 'test-batch',
+                'e': [['head', 99999, self.hero.id]],
+            }),
             content_type='application/json',
         )
         self.assertEqual(invalid.status_code, 400)
@@ -771,6 +811,9 @@ class GearBuilderFrontendContractTests(TestCase):
         self.assertNotIn('<details class="gear-enhancement-section" open>', template)
         for value in ('localStorage', 'CompressionStream', 'parse', 'crafted_stats', 'data-wow-item-tooltip'):
             self.assertIn(value, script)
+        for value in ('SHARE_FORMAT_VERSION = 2', 'compactShareState', 'hydrateSharePayload', 'endpoints.share', 'row.slice(0, 8)'):
+            self.assertIn(value, script)
+        self.assertIn('return normalizeState(payload);', script)
         for value in ('socketCapacity', 'addedSocket', 'totalsAndEffects', 'gear-option-check'):
             self.assertIn(value, script)
         for value in ('enhancementSummary', 'gear-slot-enhancements', 'item.description'):
