@@ -39,6 +39,10 @@
     crit: "#ed7b2d", haste: "#24a7bd", mastery: "#7c3aed", versatility: "#c59d28",
   };
   const SECONDARY_STATS = new Set(["crit", "haste", "mastery", "versatility"]);
+  const BASE_SECONDARY_PERCENTAGES = Object.freeze({
+    crit: 5,
+    mastery: 8,
+  });
   const ADDITIONAL_SOCKET_SLOTS = new Set(["head", "wrists", "waist"]);
   const PREVIEW_LEFT_SLOTS = ["head", "neck", "shoulders", "back", "chest", "wrists", "hands", "waist"];
   const PREVIEW_RIGHT_SLOTS = ["legs", "feet", "finger1", "finger2", "trinket1", "trinket2", "main_hand", "off_hand"];
@@ -659,7 +663,15 @@
     const perPercent = number(conversion[`${key}_per_percent`]);
     if (!perPercent) return null;
     const coefficient = key === "mastery" ? number(conversion.mastery_coefficient) || 1 : 1;
-    return number(value) / perPercent * coefficient;
+    const basePercent = number(BASE_SECONDARY_PERCENTAGES[key]);
+    const ratingPercent = number(value) / perPercent;
+    return (basePercent + ratingPercent) * coefficient;
+  }
+
+  function secondaryPercentageTitle(key) {
+    if (key === "crit") return "含 5% 基础暴击";
+    if (key === "mastery") return "含 8% 基础精通，并应用当前专精精通系数";
+    return "无增益状态下按固定比例换算";
   }
 
   function renderStats() {
@@ -671,15 +683,15 @@
       const percent = secondaryPercentage(key, value);
       const percentageMarkup = percent === null
         ? ""
-        : `<small class="gear-stat-percent">/ ${formatNumber(percent)}%</small>`;
+        : `<small class="gear-stat-percent" title="${escapeHtml(secondaryPercentageTitle(key))}">/ ${formatNumber(percent)}%</small>`;
       return `<div class="gear-stat-card"><span class="gear-stat-label">${escapeHtml(STAT_LABELS[key] || "属性")}</span><strong class="gear-stat-value">${formatNumber(value)}${percentageMarkup}</strong><span class="gear-stat-bar" style="--stat-progress:${Math.max(value ? 8 : 0, value / max * 100)}%;--stat-color:${STAT_COLORS[key] || "#64748b"}"></span></div>`;
     }).join("");
     els.effect_list.innerHTML = effects.length
       ? effects.map((row) => `<div class="gear-effect-line"><strong>${escapeHtml(row.slot)}：</strong>${escapeHtml(row.text)}</div>`).join("")
       : '<span class="gear-no-effects">当前配装没有触发型特效。</span>';
     els.stats_context.textContent = missingStats
-      ? `已装备 ${equipped}/16 · 实时汇总中，${missingStats} 件缺少静态属性数据`
-      : `已装备 ${equipped}/16 · 绿字百分比按固定比例换算，精通应用当前专精系数`;
+      ? `已装备 ${equipped}/16 · ${missingStats} 件缺少静态属性数据；百分比仍包含 5% 基础暴击与 8% 基础精通`
+      : `已装备 ${equipped}/16 · 含 5% 基础暴击；8% 基础精通与装备精通一并乘以当前专精系数`;
   }
 
   function previewSlotMarkup(slotKey) {
@@ -732,7 +744,7 @@
     els.preview_stats.innerHTML = statKeys.map((key) => {
       const value = number(totals[key]);
       const percent = secondaryPercentage(key, value);
-      return `<div class="gear-preview-stat"><span>${escapeHtml(STAT_LABELS[key] || key)}</span><strong>${formatNumber(value)}</strong>${percent === null ? "" : `<small>${formatNumber(percent)}%</small>`}</div>`;
+      return `<div class="gear-preview-stat"><span>${escapeHtml(STAT_LABELS[key] || key)}</span><strong>${formatNumber(value)}</strong>${percent === null ? "" : `<small title="${escapeHtml(secondaryPercentageTitle(key))}">${formatNumber(percent)}%</small>`}</div>`;
     }).join("");
     els.preview_effects.innerHTML = effects.length
       ? effects.map((row) => `<div><strong>${escapeHtml(row.slot)}</strong><span>${escapeHtml(row.text)}</span></div>`).join("")
