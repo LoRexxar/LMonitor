@@ -344,10 +344,16 @@
 .gear-enhancement-intro { display: flex; align-items: baseline; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--gear-border); background: var(--gear-surface-muted); }
 .gear-enhancement-intro strong { font-size: .8rem; }
 .gear-enhancement-intro span { color: var(--gear-muted); font-size: .7rem; }
-.gear-enhancement-section { padding: 14px 16px 2px; }
-.gear-enhancement-heading { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
+.gear-enhancement-section { border-bottom: 1px solid var(--gear-border); }
+.gear-enhancement-heading { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 43px; padding: 8px 16px; cursor: pointer; list-style: none; }
+.gear-enhancement-heading::-webkit-details-marker { display: none; }
+.gear-enhancement-heading::after { content: ''; width: 7px; height: 7px; border-right: 1.5px solid var(--gear-muted); border-bottom: 1.5px solid var(--gear-muted); transform: rotate(45deg) translate(-1px, 1px); transition: transform 180ms cubic-bezier(.22, 1, .36, 1); }
+.gear-enhancement-section[open] .gear-enhancement-heading::after { transform: rotate(225deg) translate(-1px, 1px); }
+.gear-enhancement-heading:hover { background: var(--gear-surface-muted); }
+.gear-enhancement-heading:focus-visible { outline: 2px solid rgba(37, 86, 216, .32); outline-offset: -2px; }
 .gear-enhancement-heading h3 { font-size: .82rem; font-weight: 820; }
-.gear-enhancement-heading span { color: var(--gear-muted); font-size: .68rem; }
+.gear-enhancement-heading span { justify-self: end; overflow: hidden; color: var(--gear-muted); font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
+.gear-enhancement-content { padding: 0 16px 12px; }
 .gear-socket-option { display: flex; align-items: flex-start; gap: 9px; margin-bottom: 8px; padding: 9px 10px; border: 1px solid var(--gear-border); border-radius: 7px; background: var(--gear-surface-muted); cursor: pointer; }
 .gear-socket-option[hidden] { display: none; }
 .gear-socket-option input,

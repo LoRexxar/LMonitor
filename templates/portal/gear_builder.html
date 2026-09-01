@@ -10,7 +10,7 @@
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260808_portal_theme_v2"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260821_mythicstats_clean_light_v7">
     <link rel="stylesheet" href="{% static 'shared/css/wow-item-tooltip.css' %}?v=20260813_simc_equipment_icon">
-    <link rel="stylesheet" href="{% static 'portal/css/gear_builder.css' %}?v=20260901_gear_builder_v7">
+    <link rel="stylesheet" href="{% static 'portal/css/gear_builder.css' %}?v=20260901_gear_builder_v8">
 </head>
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
@@ -112,22 +112,28 @@
                         <strong>装备强化</strong>
                         <span>根据当前装备的槽位、插槽和制造规则显示可用选项。</span>
                     </div>
-                    <section class="gear-enhancement-section">
-                        <div class="gear-enhancement-heading"><h3>美化</h3><span>仅制造装备</span></div>
-                        <div id="gear-embellishment-list" class="gear-option-list"></div>
-                    </section>
-                    <section class="gear-enhancement-section">
-                        <div class="gear-enhancement-heading"><h3>宝石</h3><span id="gear-socket-summary">需要装备插槽</span></div>
-                        <label id="gear-add-socket-option" class="gear-socket-option" hidden>
-                            <input id="gear-add-socket" type="checkbox">
-                            <span><strong>增加宝石插槽</strong><small id="gear-add-socket-copy">使用当前赛季的插槽物品</small></span>
-                        </label>
-                        <div id="gear-gem-list" class="gear-option-list"></div>
-                    </section>
-                    <section class="gear-enhancement-section">
-                        <div class="gear-enhancement-heading"><h3>永久附魔</h3><span>按槽位兼容</span></div>
-                        <div id="gear-enchant-list" class="gear-option-list"></div>
-                    </section>
+                    <details class="gear-enhancement-section">
+                        <summary class="gear-enhancement-heading"><h3>美化</h3><span>仅制造装备</span></summary>
+                        <div class="gear-enhancement-content">
+                            <div id="gear-embellishment-list" class="gear-option-list"></div>
+                        </div>
+                    </details>
+                    <details class="gear-enhancement-section">
+                        <summary class="gear-enhancement-heading"><h3>宝石</h3><span id="gear-socket-summary">需要装备插槽</span></summary>
+                        <div class="gear-enhancement-content">
+                            <label id="gear-add-socket-option" class="gear-socket-option" hidden>
+                                <input id="gear-add-socket" type="checkbox">
+                                <span><strong>增加宝石插槽</strong><small id="gear-add-socket-copy">使用当前赛季的插槽物品</small></span>
+                            </label>
+                            <div id="gear-gem-list" class="gear-option-list"></div>
+                        </div>
+                    </details>
+                    <details class="gear-enhancement-section">
+                        <summary class="gear-enhancement-heading"><h3>永久附魔</h3><span>按槽位兼容</span></summary>
+                        <div class="gear-enhancement-content">
+                            <div id="gear-enchant-list" class="gear-option-list"></div>
+                        </div>
+                    </details>
                 </div>
             </section>
 

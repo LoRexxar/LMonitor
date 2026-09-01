@@ -765,6 +765,9 @@ class GearBuilderFrontendContractTests(TestCase):
         for value in ('装备', '强化', '美化', '宝石', '永久附魔', '导入 SimC', '绿字', '游戏预览', '角色装备预览'):
             self.assertIn(value, template)
         self.assertIn('gear-add-socket', template)
+        self.assertEqual(template.count('<details class="gear-enhancement-section">'), 3)
+        self.assertEqual(template.count('<summary class="gear-enhancement-heading">'), 3)
+        self.assertNotIn('<details class="gear-enhancement-section" open>', template)
         for value in ('localStorage', 'CompressionStream', 'parse', 'crafted_stats', 'data-wow-item-tooltip'):
             self.assertIn(value, script)
         for value in ('socketCapacity', 'addedSocket', 'totalsAndEffects', 'gear-option-check'):
