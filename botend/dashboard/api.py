@@ -8293,14 +8293,25 @@ class SimcSkillDamageSnapshotAPIView(View):
                 'game_build': display_snapshot.game_build,
                 'schema_revision': display_snapshot.schema_revision,
             }
-            snapshot = {**(display_snapshot.payload or {}), 'identity': identity}
+            materialized_payload, materialized_metrics = (
+                SimcSkillDamageSnapshotService._materialize_snapshot_payload_and_metrics(
+                    display_snapshot
+                )
+            )
+            snapshot = {**materialized_payload, 'identity': identity}
             snapshot['identity'] = identity
             snapshot['id'] = display_snapshot.pk
             snapshot['status'] = display_snapshot.status
             snapshot['completed_at'] = _fmt_dt(display_snapshot.completed_at)
-            snapshot['spec_count'] = display_snapshot.generated_spec_count
+            snapshot['spec_count'] = (
+                materialized_metrics['spec_count']
+                if materialized_metrics else display_snapshot.generated_spec_count
+            )
             snapshot['action_count'] = snapshot.get('display_action_count', 0)
-            snapshot['raw_action_count'] = display_snapshot.generated_action_count
+            snapshot['raw_action_count'] = (
+                materialized_metrics['raw_action_count']
+                if materialized_metrics else display_snapshot.generated_action_count
+            )
         return JsonResponse({
             'success': True,
             'data': {

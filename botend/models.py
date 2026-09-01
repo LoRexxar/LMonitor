@@ -1599,6 +1599,39 @@ class SimcSkillDamageSnapshot(models.Model):
         return cls.objects.filter(status=cls.STATUS_SUCCEEDED).order_by('-completed_at', '-id').first()
 
 
+class SimcSkillDamageSnapshotActor(models.Model):
+    """One independently persisted product actor for a skill-damage snapshot."""
+
+    snapshot = models.ForeignKey(
+        SimcSkillDamageSnapshot,
+        on_delete=models.CASCADE,
+        related_name='actor_rows',
+    )
+    ordinal = models.PositiveIntegerField()
+    class_name = models.CharField(max_length=64)
+    specialization = models.CharField(max_length=64)
+    actor_payload = models.JSONField(default=dict)
+    unresolved_payload = models.JSONField(default=list, blank=True)
+    raw_action_count = models.PositiveIntegerField(default=0)
+    display_action_count = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'simc_skill_damage_snapshot_actor'
+        ordering = ['ordinal', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['snapshot', 'class_name', 'specialization'],
+                name='simc_skill_snapshot_actor_identity_uniq',
+            ),
+            models.UniqueConstraint(
+                fields=['snapshot', 'ordinal'],
+                name='simc_skill_snapshot_actor_ordinal_uniq',
+            ),
+        ]
+
+
+
 class SimcBackendBinary(models.Model):
     identifier = models.SlugField(max_length=64, unique=True, help_text="稳定标识，如 production/ptr")
     name = models.CharField(max_length=100, help_text="展示名称，如 正式服/PTR")

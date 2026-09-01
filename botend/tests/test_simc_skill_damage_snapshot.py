@@ -8,7 +8,8 @@ from types import SimpleNamespace
 from unittest import mock
 
 from django.contrib.auth import get_user_model
-from django.db import IntegrityError, transaction
+from django.apps import apps
+from django.db import IntegrityError, connection, transaction
 from django.test import RequestFactory, TestCase, override_settings
 
 from botend.models import (
@@ -2745,7 +2746,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             self.assertEqual(snapshot.status, SimcSkillDamageSnapshot.STATUS_RUNNING)
             self.assertEqual(snapshot.generated_spec_count, 1)
             self.assertEqual(
-                [actor['specialization'] for actor in snapshot.payload['actors']],
+                list(snapshot.actor_rows.values_list('specialization', flat=True)),
                 ['fury'],
             )
             gc.collect()
@@ -2812,7 +2813,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             snapshot.refresh_from_db()
             self.assertEqual(snapshot.generated_spec_count, 1)
             self.assertEqual(
-                [actor['specialization'] for actor in snapshot.payload['actors']],
+                list(snapshot.actor_rows.values_list('specialization', flat=True)),
                 ['fury'],
             )
             yield profiles[1]
@@ -2839,9 +2840,48 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         snapshot.refresh_from_db()
         self.assertEqual(snapshot.status, snapshot.STATUS_SUCCEEDED)
         self.assertEqual(
-            [actor['specialization'] for actor in snapshot.payload['actors']],
+            list(snapshot.actor_rows.values_list('specialization', flat=True)),
             ['fury', 'arms'],
         )
+
+    def test_isolated_generation_persists_actor_shards_without_mutating_snapshot_actors_json(self):
+        actor_model = apps.get_model('botend', 'SimcSkillDamageSnapshotActor')
+        snapshot = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='9' * 40, game_build='12.1.0.69300', schema_revision=20,
+        )
+        profiles = [
+            SimpleNamespace(pk=1, spec='warrior_fury', class_name='warrior'),
+            SimpleNamespace(pk=2, spec='warrior_arms', class_name='warrior'),
+        ]
+        actors = [
+            ({
+                'class': 'warrior', 'specialization': specialization,
+                'variant_model': 'single_talent_runtime',
+                'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
+                'actions': [],
+            }, [], 1)
+            for specialization in ('fury', 'arms')
+        ]
+        service = SimcSkillDamageSnapshotService(snapshot)
+        statements = []
+
+        def capture_sql(execute, sql, params, many, context):
+            statements.append(sql)
+            return execute(sql, params, many, context)
+
+        with mock.patch.object(service, '_profiles', return_value=profiles), \
+             mock.patch.object(
+                 service, '_generate_profile_product_actor_isolated', side_effect=actors,
+             ), connection.execute_wrapper(capture_sql):
+            self.assertIsNone(service.generate(isolate_profiles=True, materialize_result=False))
+
+        snapshot.refresh_from_db()
+        self.assertEqual(actor_model.objects.filter(snapshot_id=snapshot.pk).count(), 2)
+        self.assertNotIn('actors', snapshot.payload)
+        generation_sql = '\n'.join(statements).upper()
+        self.assertNotIn('JSON_ARRAY_APPEND', generation_sql)
+        self.assertNotIn('$.ACTORS[#]', generation_sql)
+        self.assertNotIn("'$.ACTORS'", generation_sql)
 
     def test_resume_uses_published_count_manifest_without_replacing_actors(self):
         existing_actor = {
@@ -2895,8 +2935,8 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertEqual(snapshot.generated_spec_count, 2)
         self.assertEqual(snapshot.generated_action_count, 5)
         self.assertEqual(
-            snapshot.payload['completed_profile_identities'],
-            [['warrior', 'arms'], ['warrior', 'fury']],
+            list(snapshot.actor_rows.values_list('class_name', 'specialization')),
+            [('warrior', 'fury'), ('warrior', 'arms')],
         )
 
     def test_isolated_generation_closes_stale_db_connection_after_each_profile(self):
@@ -3670,6 +3710,57 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         )
         self.assertNotIn('profile_id', body['data'])
         self.assertFalse(body['data']['can_generate'])
+
+    def test_get_materializes_per_spec_actor_rows_as_existing_wire_payload(self):
+        snapshot = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='8' * 40,
+            game_build='12.1.0.69300',
+            schema_revision=20,
+            status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+            generated_spec_count=1,
+            generated_action_count=2,
+            payload={
+                'payload_format': 'skill_damage_product_v1',
+                'storage_format': 'per_spec_actor_rows_v1',
+                'total_spec_count': 2,
+            },
+        )
+        actor_model = apps.get_model('botend', 'SimcSkillDamageSnapshotActor')
+        for ordinal, specialization in enumerate(('fury', 'arms')):
+            actor_model.objects.create(
+                snapshot=snapshot,
+                ordinal=ordinal,
+                class_name='warrior',
+                specialization=specialization,
+                actor_payload={
+                    'class': 'warrior',
+                    'specialization': specialization,
+                    'actions': [{'token': f'{specialization}-action'}],
+                },
+                unresolved_payload=[{'reason': 'shared'}],
+                raw_action_count=ordinal + 2,
+                display_action_count=1,
+            )
+        request = self.factory.get('/api/simc-skill-damage/')
+        request.user = self.user
+
+        response = SimcSkillDamageSnapshotAPIView.as_view()(request)
+        body = json.loads(response.content)['data']['snapshot']
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [actor['specialization'] for actor in body['actors']],
+            ['fury', 'arms'],
+        )
+        self.assertEqual(body['display_action_count'], 2)
+        self.assertEqual(body['spec_count'], 2)
+        self.assertEqual(body['raw_action_count'], 5)
+        self.assertEqual(
+            body['completed_profile_identities'],
+            [['warrior', 'arms'], ['warrior', 'fury']],
+        )
+        self.assertEqual(body['unresolved'], [{'reason': 'shared'}])
+        self.assertNotIn('storage_format', body)
 
     def test_get_does_not_render_legacy_schema_as_single_talent_rows(self):
         SimcSkillDamageSnapshot.objects.create(

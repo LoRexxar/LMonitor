@@ -13,7 +13,6 @@ from pathlib import Path
 from django.conf import settings
 from django.db import close_old_connections, connection, models, transaction
 from django.db.models.expressions import RawSQL
-from django.db.models.fields.json import KeyTransform, KeyTextTransform
 from django.utils import timezone
 
 from botend.constants.hero_talents import (
@@ -21,7 +20,8 @@ from botend.constants.hero_talents import (
 )
 from botend.models import (
     SimcAplSymbol, SimcAplSymbolScope, SimcBackendBinary, SimcProfile,
-    SimcSkillDamageSnapshot, WowSpellSnapshot, WowTalentNodeMetadata,
+    SimcSkillDamageSnapshot, SimcSkillDamageSnapshotActor, WowSpellSnapshot,
+    WowTalentNodeMetadata,
 )
 from botend.services.simc_composer import SimcComposer
 from botend.services.simc_player_config import (
@@ -2921,13 +2921,21 @@ class SimcSkillDamageSnapshotService:
         game_build = str(backend.game_build or '').strip()
         latest = SimcSkillDamageSnapshot.latest_success()
         revision = str(backend.current_version or '').strip().lower()
-        latest_actors = (latest.payload or {}).get('actors') or [] if latest else []
-        latest_has_complete_actor_data = bool(latest_actors) and all(
-            isinstance(actor, dict)
-            and actor.get('variant_model') == 'single_talent_runtime'
-            and actor.get('action_universe') == 'dbc_spellbook_selected_traits_and_derived_actions'
-            for actor in latest_actors
-        )
+        latest_has_complete_actor_data = False
+        if latest:
+            shard_count = latest.actor_rows.count()
+            if shard_count:
+                latest_has_complete_actor_data = (
+                    shard_count == latest.generated_spec_count and shard_count > 0
+                )
+            else:
+                latest_actors = (latest.payload or {}).get('actors') or []
+                latest_has_complete_actor_data = bool(latest_actors) and all(
+                    isinstance(actor, dict)
+                    and actor.get('variant_model') == 'single_talent_runtime'
+                    and actor.get('action_universe') == 'dbc_spellbook_selected_traits_and_derived_actions'
+                    for actor in latest_actors
+                )
         if latest and (
             latest.simc_revision == revision
             and latest.game_build == game_build
@@ -2958,30 +2966,27 @@ class SimcSkillDamageSnapshotService:
                 schema_revision=cls.DATASET_SCHEMA_REVISION,
                 defaults={'requested_by_id': requested_by_id},
             )
-            if connection.vendor == 'mysql':
-                actor_count_expression = RawSQL(
-                    "COALESCE(JSON_LENGTH(payload, '$.actors'), 0)", [],
-                    output_field=models.IntegerField(),
+            snapshot = deferred_snapshots.select_for_update().get(pk=snapshot.pk)
+            shard_count = snapshot.actor_rows.count()
+            legacy_complete = False
+            if (
+                shard_count == 0
+                and snapshot.generated_spec_count > 0
+                and snapshot.status == SimcSkillDamageSnapshot.STATUS_SUCCEEDED
+            ):
+                legacy_actor_count, legacy_payload_format, _legacy_total = (
+                    cls(snapshot, backend=backend)._legacy_payload_metadata()
                 )
-            elif connection.vendor == 'sqlite':
-                actor_count_expression = RawSQL(
-                    "COALESCE(json_array_length(payload, '$.actors'), 0)", [],
-                    output_field=models.IntegerField(),
+                legacy_complete = (
+                    int(legacy_actor_count or 0) == snapshot.generated_spec_count
+                    and legacy_payload_format == 'skill_damage_product_v1'
                 )
-            else:
-                raise RuntimeError(f'技能伤害快照认领不支持数据库后端：{connection.vendor}')
-            snapshot = (
-                deferred_snapshots.select_for_update()
-                .annotate(
-                    actor_count_value=actor_count_expression,
-                    payload_format_value=KeyTextTransform('payload_format', 'payload'),
-                )
-                .get(pk=snapshot.pk)
-            )
             has_complete_actor_data = (
-                snapshot.actor_count_value > 0
-                and snapshot.actor_count_value == snapshot.generated_spec_count
-                and snapshot.payload_format_value == 'skill_damage_product_v1'
+                snapshot.generated_spec_count > 0
+                and (
+                    shard_count == snapshot.generated_spec_count
+                    or legacy_complete
+                )
             )
             if not created and (
                 snapshot.status == SimcSkillDamageSnapshot.STATUS_RUNNING
@@ -4062,65 +4067,173 @@ class SimcSkillDamageSnapshotService:
             'current_specialization': current_specialization,
         }
 
-    def _payload_json_expression(self, *, current_specialization, actor=None, unresolved=None,
-                                 display_action_count=None, total_spec_count=None,
-                                 completed_identities=None):
-        """Update JSON paths in SQL so the parent never reloads published actor graphs."""
+    def _storage_payload(self, *, total_spec_count, current_specialization=''):
+        payload = self._progress_payload(
+            [], [], total_spec_count=total_spec_count,
+            current_specialization=current_specialization,
+        )
+        payload.pop('actors')
+        payload.pop('unresolved')
+        payload.pop('display_action_count')
+        payload['storage_format'] = 'per_spec_actor_rows_v1'
+        return payload
+
+    def _legacy_payload_metadata(self):
+        table = connection.ops.quote_name(SimcSkillDamageSnapshot._meta.db_table)
+        payload = connection.ops.quote_name('payload')
+        pk = connection.ops.quote_name(SimcSkillDamageSnapshot._meta.pk.column)
+        if connection.vendor == 'mysql':
+            sql = (
+                f"SELECT COALESCE(JSON_LENGTH({payload}, '$.actors'), 0), "
+                f"JSON_UNQUOTE(JSON_EXTRACT({payload}, '$.payload_format')), "
+                f"JSON_UNQUOTE(JSON_EXTRACT({payload}, '$.total_spec_count')) "
+                f"FROM {table} WHERE {pk} = %s"
+            )
+        elif connection.vendor == 'sqlite':
+            sql = (
+                f"SELECT COALESCE(json_array_length({payload}, '$.actors'), 0), "
+                f"json_extract({payload}, '$.payload_format'), "
+                f"json_extract({payload}, '$.total_spec_count') "
+                f"FROM {table} WHERE {pk} = %s"
+            )
+        else:
+            raise RuntimeError(f'技能伤害旧断点读取不支持数据库后端：{connection.vendor}')
+        with connection.cursor() as cursor:
+            cursor.execute(sql, [self.snapshot.pk])
+            row = cursor.fetchone()
+        return row or (0, None, None)
+
+    def _legacy_payload_value(self, path):
+        table = connection.ops.quote_name(SimcSkillDamageSnapshot._meta.db_table)
+        payload = connection.ops.quote_name('payload')
+        pk = connection.ops.quote_name(SimcSkillDamageSnapshot._meta.pk.column)
+        if connection.vendor == 'mysql':
+            sql = f'SELECT JSON_EXTRACT({payload}, %s) FROM {table} WHERE {pk} = %s'
+        elif connection.vendor == 'sqlite':
+            sql = f'SELECT json_extract({payload}, %s) FROM {table} WHERE {pk} = %s'
+        else:
+            raise RuntimeError(f'技能伤害旧断点读取不支持数据库后端：{connection.vendor}')
+        with connection.cursor() as cursor:
+            cursor.execute(sql, [path, self.snapshot.pk])
+            row = cursor.fetchone()
+        value = row[0] if row else None
+        if isinstance(value, memoryview):
+            value = value.tobytes()
+        if isinstance(value, bytes):
+            value = value.decode('utf-8')
+        if isinstance(value, str):
+            return json.loads(value)
+        return value
+
+    def _convert_legacy_partial_to_actor_rows(self, profile_identity_rows, total_spec_count,
+                                              generated_spec_count,
+                                              generated_action_count):
+        """Convert one old actor at a time; never materialize the giant parent payload."""
+        actor_count, payload_format, persisted_total = self._legacy_payload_metadata()
+        try:
+            persisted_total = int(persisted_total or 0)
+        except (TypeError, ValueError):
+            return False
+        if not (
+            generated_spec_count > 0
+            and int(actor_count or 0) == generated_spec_count
+            and generated_spec_count <= total_spec_count
+            and persisted_total == total_spec_count
+            and payload_format == 'skill_damage_product_v1'
+            and len(profile_identity_rows) == total_spec_count
+        ):
+            return False
+        unresolved = self._legacy_payload_value('$.unresolved') or []
+        if not isinstance(unresolved, list) or not all(isinstance(row, dict) for row in unresolved):
+            return False
+        with transaction.atomic():
+            locked = SimcSkillDamageSnapshot.objects.defer('payload').select_for_update().get(
+                pk=self.snapshot.pk
+            )
+            if locked.actor_rows.exists():
+                return True
+            if locked.generated_spec_count != generated_spec_count:
+                return False
+            for ordinal in range(generated_spec_count):
+                actor = self._legacy_payload_value(f'$.actors[{ordinal}]')
+                if not isinstance(actor, dict):
+                    raise ValueError(f'旧技能伤害断点 actor[{ordinal}] 无效')
+                profile_identity = profile_identity_rows[ordinal]
+                SimcSkillDamageSnapshotActor.objects.create(
+                    snapshot_id=self.snapshot.pk,
+                    ordinal=ordinal,
+                    class_name=profile_identity[0],
+                    specialization=profile_identity[1],
+                    actor_payload=actor,
+                    unresolved_payload=unresolved if ordinal == 0 else [],
+                    raw_action_count=generated_action_count if ordinal == 0 else 0,
+                    display_action_count=len(actor.get('actions') or []),
+                )
+                del actor
+            SimcSkillDamageSnapshot.objects.filter(pk=self.snapshot.pk).update(
+                payload=self._storage_payload(total_spec_count=total_spec_count),
+            )
+        return True
+
+    @staticmethod
+    def _materialize_snapshot_payload_and_metrics(snapshot):
+        payload = dict(snapshot.payload or {})
+        rows = list(snapshot.actor_rows.order_by('ordinal', 'id').values(
+            'class_name', 'specialization', 'actor_payload', 'unresolved_payload',
+            'raw_action_count', 'display_action_count',
+        ))
+        if not rows:
+            return payload, None
+        actors = []
+        unresolved = []
+        unresolved_keys = set()
+        display_action_count = 0
+        raw_action_count = 0
+        completed_profile_identities = []
+        for row in rows:
+            actors.append(row['actor_payload'])
+            raw_action_count += int(row['raw_action_count'] or 0)
+            display_action_count += int(row['display_action_count'] or 0)
+            completed_profile_identities.append([
+                row['class_name'], row['specialization'],
+            ])
+            for unresolved_row in row['unresolved_payload'] or []:
+                key = json.dumps(unresolved_row, ensure_ascii=False, sort_keys=True)
+                if key not in unresolved_keys:
+                    unresolved_keys.add(key)
+                    unresolved.append(unresolved_row)
+        payload.pop('storage_format', None)
+        payload.update({
+            'actors': actors,
+            'unresolved': unresolved,
+            'display_action_count': display_action_count,
+            'completed_profile_identities': sorted(completed_profile_identities),
+        })
+        return payload, {
+            'spec_count': len(rows),
+            'raw_action_count': raw_action_count,
+        }
+
+    @staticmethod
+    def materialize_snapshot_payload(snapshot):
+        """Assemble the existing wire payload from bounded per-specialization rows."""
+        payload, _metrics = (
+            SimcSkillDamageSnapshotService._materialize_snapshot_payload_and_metrics(snapshot)
+        )
+        return payload
+
+    def _payload_json_expression(self, *, current_specialization):
+        """Update only the small parent metadata document, never the actor payloads."""
         payload_column = connection.ops.quote_name('payload')
         if connection.vendor == 'mysql':
             expression = f'COALESCE({payload_column}, JSON_OBJECT())'
-            params = []
-            if actor is not None:
-                expression = (
-                    f"JSON_ARRAY_APPEND({expression}, '$.actors', CAST(%s AS JSON))"
-                )
-                params.append(json.dumps(actor, ensure_ascii=False, separators=(',', ':')))
-            assignments = [("$.current_specialization", '%s', current_specialization)]
-            for path, value in (
-                ('$.unresolved', unresolved),
-                ('$.display_action_count', display_action_count),
-                ('$.total_spec_count', total_spec_count),
-                ('$.completed_profile_identities', completed_identities),
-            ):
-                if value is None:
-                    continue
-                if path in ('$.unresolved', '$.completed_profile_identities'):
-                    assignments.append((path, 'CAST(%s AS JSON)', json.dumps(
-                        value, ensure_ascii=False, separators=(',', ':'),
-                    )))
-                else:
-                    assignments.append((path, '%s', value))
         elif connection.vendor == 'sqlite':
             expression = f"COALESCE({payload_column}, '{{}}')"
-            params = []
-            if actor is not None:
-                expression = f"json_insert({expression}, '$.actors[#]', json(%s))"
-                params.append(json.dumps(actor, ensure_ascii=False, separators=(',', ':')))
-            assignments = [("$.current_specialization", '%s', current_specialization)]
-            for path, value in (
-                ('$.unresolved', unresolved),
-                ('$.display_action_count', display_action_count),
-                ('$.total_spec_count', total_spec_count),
-                ('$.completed_profile_identities', completed_identities),
-            ):
-                if value is None:
-                    continue
-                if path in ('$.unresolved', '$.completed_profile_identities'):
-                    assignments.append((path, 'json(%s)', json.dumps(
-                        value, ensure_ascii=False, separators=(',', ':'),
-                    )))
-                else:
-                    assignments.append((path, '%s', value))
         else:
-            raise RuntimeError(f'技能伤害增量 JSON 发布不支持数据库后端：{connection.vendor}')
-
-        json_set_args = []
-        for path, placeholder, value in assignments:
-            json_set_args.extend([f"'{path}'", placeholder])
-            params.append(value)
+            raise RuntimeError(f'技能伤害进度 JSON 发布不支持数据库后端：{connection.vendor}')
         return RawSQL(
-            f"JSON_SET({expression}, {', '.join(json_set_args)})",
-            params,
+            f"JSON_SET({expression}, '$.current_specialization', %s)",
+            [current_specialization],
             output_field=models.JSONField(),
         )
 
@@ -4130,21 +4243,25 @@ class SimcSkillDamageSnapshotService:
             **update_fields,
         )
 
-    def _publish_profile_product_actor(self, actor, *, unresolved, display_action_count,
-                                       total_spec_count, completed_identities,
+    def _publish_profile_product_actor(self, actor, *, ordinal, profile_identity,
+                                       unresolved, raw_action_count,
                                        generated_spec_count, generated_action_count):
-        return SimcSkillDamageSnapshot.objects.filter(pk=self.snapshot.pk).update(
-            payload=self._payload_json_expression(
-                current_specialization='',
-                actor=actor,
-                unresolved=unresolved,
-                display_action_count=display_action_count,
-                total_spec_count=total_spec_count,
-                completed_identities=completed_identities,
-            ),
-            generated_spec_count=generated_spec_count,
-            generated_action_count=generated_action_count,
-        )
+        with transaction.atomic():
+            SimcSkillDamageSnapshotActor.objects.create(
+                snapshot_id=self.snapshot.pk,
+                ordinal=ordinal,
+                class_name=profile_identity[0],
+                specialization=profile_identity[1],
+                actor_payload=actor,
+                unresolved_payload=unresolved,
+                raw_action_count=raw_action_count,
+                display_action_count=len(actor.get('actions') or []),
+            )
+            return SimcSkillDamageSnapshot.objects.filter(pk=self.snapshot.pk).update(
+                payload=self._payload_json_expression(current_specialization=''),
+                generated_spec_count=generated_spec_count,
+                generated_action_count=generated_action_count,
+            )
 
     def generate(self, *, isolate_profiles=False, materialize_result=None):
         if materialize_result is None:
@@ -4170,122 +4287,63 @@ class SimcSkillDamageSnapshotService:
                 else []
             )
             profile_identity_set = set(profile_identity_rows)
-            if connection.vendor == 'mysql':
-                actor_count_expression = RawSQL(
-                    "COALESCE(JSON_LENGTH(payload, '$.actors'), 0)", [],
-                    output_field=models.IntegerField(),
-                )
-            elif connection.vendor == 'sqlite':
-                actor_count_expression = RawSQL(
-                    "COALESCE(json_array_length(payload, '$.actors'), 0)", [],
-                    output_field=models.IntegerField(),
-                )
-            else:
-                raise RuntimeError(f'技能伤害断点元数据不支持数据库后端：{connection.vendor}')
-            persisted_state = (
-                SimcSkillDamageSnapshot.objects.filter(pk=self.snapshot.pk)
-                .annotate(
-                    actor_count_value=actor_count_expression,
-                    unresolved_value=KeyTransform('unresolved', 'payload'),
-                    completed_identities_value=KeyTransform(
-                        'completed_profile_identities', 'payload',
-                    ),
-                    display_action_count_value=KeyTextTransform(
-                        'display_action_count', 'payload',
-                    ),
-                    total_spec_count_value=KeyTextTransform('total_spec_count', 'payload'),
-                    payload_format_value=KeyTextTransform('payload_format', 'payload'),
-                )
-                .values(
-                    'generated_spec_count', 'generated_action_count', 'actor_count_value',
-                    'unresolved_value', 'completed_identities_value',
-                    'display_action_count_value', 'total_spec_count_value',
-                    'payload_format_value',
-                )
-                .get()
-            )
-            generated_spec_count = int(persisted_state['generated_spec_count'] or 0)
-            actor_count = int(persisted_state['actor_count_value'] or 0)
-            unresolved = persisted_state['unresolved_value'] or []
-            completed_identity_rows = persisted_state['completed_identities_value'] or []
-            try:
-                persisted_total_spec_count = int(
-                    persisted_state['total_spec_count_value'] or total_spec_count
-                )
-                display_action_count = int(
-                    persisted_state['display_action_count_value'] or 0
-                )
-            except (TypeError, ValueError):
-                persisted_total_spec_count = -1
-                display_action_count = 0
-            manifest_valid = (
-                isinstance(completed_identity_rows, list)
-                and len(completed_identity_rows) == generated_spec_count
-                and len({
-                    json.dumps(identity, ensure_ascii=False, sort_keys=True)
-                    for identity in completed_identity_rows
-                }) == generated_spec_count
-                and all(
-                    isinstance(identity, list)
-                    and len(identity) == 2
-                    and tuple(identity) in profile_identity_set
-                    for identity in completed_identity_rows
+            persisted_counts = SimcSkillDamageSnapshot.objects.values(
+                'generated_spec_count', 'generated_action_count',
+            ).get(pk=self.snapshot.pk)
+            persisted_rows = list(
+                self.snapshot.actor_rows.order_by('ordinal', 'id').values(
+                    'ordinal', 'class_name', 'specialization', 'raw_action_count',
                 )
             )
-            if not completed_identity_rows and generated_spec_count > 0:
-                # Legacy partial snapshots were appended strictly in profile order.
-                # Derive their small resume manifest from the atomic published count.
-                completed_identity_rows = [
-                    list(identity) for identity in profile_identity_rows[:generated_spec_count]
-                ]
-                manifest_valid = len(completed_identity_rows) == generated_spec_count
+            if not persisted_rows and int(persisted_counts['generated_spec_count'] or 0) > 0:
+                self._convert_legacy_partial_to_actor_rows(
+                    profile_identity_rows,
+                    total_spec_count,
+                    int(persisted_counts['generated_spec_count'] or 0),
+                    int(persisted_counts['generated_action_count'] or 0),
+                )
+                persisted_rows = list(
+                    self.snapshot.actor_rows.order_by('ordinal', 'id').values(
+                        'ordinal', 'class_name', 'specialization', 'raw_action_count',
+                    )
+                )
+            completed_identities = {
+                (row['class_name'], row['specialization']) for row in persisted_rows
+            }
             resume_valid = (
-                generated_spec_count > 0
-                and actor_count == generated_spec_count
-                and generated_spec_count <= total_spec_count
-                and persisted_total_spec_count == total_spec_count
-                and persisted_state['payload_format_value'] == 'skill_damage_product_v1'
-                and isinstance(unresolved, list)
-                and all(isinstance(row, dict) for row in unresolved)
-                and manifest_valid
+                bool(persisted_rows)
+                and len(persisted_rows) == len(completed_identities)
+                and len(persisted_rows) <= total_spec_count
+                and all(identity in profile_identity_set for identity in completed_identities)
+                and all(
+                    row['ordinal'] < len(profile_identity_rows)
+                    and profile_identity_rows[row['ordinal']]
+                    == (row['class_name'], row['specialization'])
+                    for row in persisted_rows
+                )
             )
             if resume_valid:
-                completed_identities = {tuple(identity) for identity in completed_identity_rows}
-                raw_action_count = int(persisted_state['generated_action_count'] or 0)
-                # Preserve the large actors array in MySQL/SQLite and update only small metadata.
+                raw_action_count = sum(
+                    int(row['raw_action_count'] or 0) for row in persisted_rows
+                )
                 SimcSkillDamageSnapshot.objects.filter(pk=self.snapshot.pk).update(
-                    payload=self._payload_json_expression(
-                        current_specialization='',
-                        unresolved=unresolved,
-                        display_action_count=display_action_count,
-                        total_spec_count=total_spec_count,
-                        completed_identities=completed_identity_rows,
-                    ),
+                    payload=self._storage_payload(total_spec_count=total_spec_count),
+                    generated_spec_count=len(persisted_rows),
+                    generated_action_count=raw_action_count,
                 )
             else:
-                unresolved = []
+                self.snapshot.actor_rows.all().delete()
                 completed_identities = set()
-                completed_identity_rows = []
-                display_action_count = 0
                 raw_action_count = 0
-                initial_payload = self._progress_payload(
-                    [], unresolved, total_spec_count=total_spec_count,
-                )
-                initial_payload['completed_profile_identities'] = []
                 SimcSkillDamageSnapshot.objects.filter(pk=self.snapshot.pk).update(
-                    payload=initial_payload,
+                    payload=self._storage_payload(total_spec_count=total_spec_count),
                     generated_spec_count=0,
                     generated_action_count=0,
                 )
-                del initial_payload
-            unresolved_keys = {
-                json.dumps(row, ensure_ascii=False, sort_keys=True)
-                for row in unresolved
-            }
             # The command may have received a non-deferred snapshot from an older caller.
             self.snapshot.payload = None
-            del persisted_state
-            for profile in profiles:
+            del persisted_rows
+            for ordinal, profile in enumerate(profiles):
                 profile_identity = canonical_simc_profile_identity(
                     getattr(profile, 'spec', ''), getattr(profile, 'class_name', ''),
                 )
@@ -4304,20 +4362,13 @@ class SimcSkillDamageSnapshotService:
                         self._generate_profile_product_actor(profile)
                     )
                 completed_identities.add(profile_identity)
-                completed_identity_rows = [list(identity) for identity in sorted(completed_identities)]
                 raw_action_count += profile_raw_action_count
-                display_action_count += len(actor.get('actions') or [])
-                for row in profile_unresolved:
-                    key = json.dumps(row, ensure_ascii=False, sort_keys=True)
-                    if key not in unresolved_keys:
-                        unresolved_keys.add(key)
-                        unresolved.append(row)
                 self._publish_profile_product_actor(
                     actor,
-                    unresolved=unresolved,
-                    display_action_count=display_action_count,
-                    total_spec_count=total_spec_count,
-                    completed_identities=completed_identity_rows,
+                    ordinal=ordinal,
+                    profile_identity=profile_identity,
+                    unresolved=profile_unresolved,
+                    raw_action_count=profile_raw_action_count,
                     generated_spec_count=len(completed_identities),
                     generated_action_count=raw_action_count,
                 )
@@ -4331,9 +4382,8 @@ class SimcSkillDamageSnapshotService:
                 error_text='',
             )
             if materialize_result:
-                return SimcSkillDamageSnapshot.objects.values_list(
-                    'payload', flat=True,
-                ).get(pk=self.snapshot.pk)
+                persisted_snapshot = SimcSkillDamageSnapshot.objects.get(pk=self.snapshot.pk)
+                return self.materialize_snapshot_payload(persisted_snapshot)
             return None
         except Exception as exc:
             SimcSkillDamageSnapshot.objects.filter(pk=self.snapshot.pk).update(
