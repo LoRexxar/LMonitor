@@ -21,6 +21,9 @@
     "gear-add-socket-option", "gear-add-socket", "gear-add-socket-copy", "gear-stats-context",
     "gear-detail-panel", "gear-detail-content", "gear-detail-close", "gear-stat-grid",
     "gear-effect-list", "gear-save-status", "gear-import-simc", "gear-copy-share", "gear-clear",
+    "gear-loadout-manager", "gear-save-loadout", "gear-loadout-toggle", "gear-loadout-count",
+    "gear-loadout-panel", "gear-loadout-summary", "gear-loadout-close", "gear-loadout-save-form",
+    "gear-loadout-name", "gear-loadout-submit", "gear-loadout-list",
     "gear-simc-dialog", "gear-simc-input", "gear-simc-submit", "gear-simc-message", "gear-toast-root",
     "gear-view-editor", "gear-view-preview", "gear-preview", "gear-preview-left", "gear-preview-right",
     "gear-preview-season", "gear-preview-count", "gear-preview-spec-icon", "gear-preview-spec-fallback", "gear-preview-class",
@@ -41,6 +44,8 @@
   };
   const SECONDARY_STATS = new Set(["crit", "haste", "mastery", "versatility"]);
   const SHARE_FORMAT_VERSION = 2;
+  const LOADOUT_LIBRARY_KEY = "wowdaily:gear-builder:loadouts:v1";
+  const MAX_SAVED_LOADOUTS = 30;
   const BASE_SECONDARY_PERCENTAGES = Object.freeze({
     crit: 5,
     mastery: 8,
@@ -64,6 +69,7 @@
   let candidateLoading = false;
   let searchTimer = 0;
   let enhancementGroups = {embellishments: [], gems: [], enchants: []};
+  let savedLoadouts = [];
   let state = freshState();
 
   function freshState() {
@@ -935,6 +941,129 @@
     return JSON.parse(new TextDecoder().decode(bytes));
   }
 
+  function readSavedLoadouts() {
+    try {
+      const rows = JSON.parse(localStorage.getItem(LOADOUT_LIBRARY_KEY) || "[]");
+      if (!Array.isArray(rows)) return [];
+      return rows.filter((row) => row && typeof row === "object" && typeof row.code === "string" && ["z", "j"].includes(row.code[0]))
+        .slice(0, MAX_SAVED_LOADOUTS)
+        .map((row) => ({
+          id: String(row.id || ""),
+          name: String(row.name || "未命名配装").slice(0, 40),
+          className: String(row.className || ""),
+          specName: String(row.specName || ""),
+          equippedCount: Math.max(0, Math.min(16, Number(row.equippedCount) || 0)),
+          createdAt: String(row.createdAt || row.updatedAt || ""),
+          updatedAt: String(row.updatedAt || row.createdAt || ""),
+          code: row.code,
+        }));
+    } catch (_error) {
+      return [];
+    }
+  }
+
+  function writeSavedLoadouts() {
+    try {
+      localStorage.setItem(LOADOUT_LIBRARY_KEY, JSON.stringify(savedLoadouts));
+    } catch (_error) {
+      throw new Error("浏览器本地存储空间不足，无法继续保存配装。");
+    }
+  }
+
+  function loadoutIdentity(record) {
+    const classRow = bootstrap?.classes?.find((row) => row.key === record.className);
+    const specRow = classRow?.specs?.find((row) => row.key === record.specName);
+    return `${classRow?.name || record.className} · ${specRow?.name || record.specName}`;
+  }
+
+  function loadoutTime(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "时间未知";
+    return date.toLocaleString("zh-CN", {month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit"});
+  }
+
+  function renderSavedLoadouts() {
+    els.loadout_count.textContent = String(savedLoadouts.length);
+    els.loadout_summary.textContent = savedLoadouts.length ? `${savedLoadouts.length} 个方案 · 仅此浏览器` : "保存在当前浏览器";
+    els.loadout_list.innerHTML = savedLoadouts.length
+      ? savedLoadouts.map((record) => `<article class="gear-loadout-row" data-loadout-id="${escapeHtml(record.id)}">
+          <div class="gear-loadout-info"><strong title="${escapeHtml(record.name)}">${escapeHtml(record.name)}</strong><span>${escapeHtml(loadoutIdentity(record))} · ${record.equippedCount}/16 · ${escapeHtml(loadoutTime(record.updatedAt))}</span></div>
+          <div class="gear-loadout-actions"><button type="button" data-load-loadout>载入</button><button type="button" data-overwrite-loadout>覆盖</button><button type="button" data-delete-loadout>删除</button></div>
+        </article>`).join("")
+      : '<div class="gear-loadout-empty"><strong>还没有保存的配装</strong><br>输入名称后保存当前装备与强化选择。</div>';
+  }
+
+  function defaultLoadoutName() {
+    const currentSpec = specPayload()?.name || state.specName || "当前专精";
+    return `${currentSpec}配装 ${new Date().toLocaleDateString("zh-CN", {month: "2-digit", day: "2-digit"})}`;
+  }
+
+  function setLoadoutPanel(open, focusName = false) {
+    els.loadout_panel.hidden = !open;
+    els.loadout_toggle.setAttribute("aria-expanded", String(open));
+    if (!open) return;
+    renderSavedLoadouts();
+    if (focusName) {
+      if (!els.loadout_name.value.trim()) els.loadout_name.value = defaultLoadoutName();
+      requestAnimationFrame(() => { els.loadout_name.focus(); els.loadout_name.select(); });
+    }
+  }
+
+  function loadoutRecordId() {
+    return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  async function saveCurrentLoadout(name, existingId = "") {
+    const normalizedName = String(name || "").trim().slice(0, 40);
+    if (!normalizedName) throw new Error("请输入配装方案名称。");
+    const count = equippedCount();
+    if (!count) throw new Error("请至少选择一件装备后再保存。");
+    let index = existingId ? savedLoadouts.findIndex((row) => row.id === existingId) : -1;
+    if (index < 0) {
+      index = savedLoadouts.findIndex((row) => row.className === state.className && row.specName === state.specName && row.name.toLocaleLowerCase() === normalizedName.toLocaleLowerCase());
+    }
+    if (index < 0 && savedLoadouts.length >= MAX_SAVED_LOADOUTS) {
+      throw new Error(`本地最多保存 ${MAX_SAVED_LOADOUTS} 个配装方案，请先删除不需要的方案。`);
+    }
+    const now = new Date().toISOString();
+    const previous = index >= 0 ? savedLoadouts[index] : null;
+    const record = {
+      id: previous?.id || loadoutRecordId(),
+      name: normalizedName,
+      className: state.className,
+      specName: state.specName,
+      equippedCount: count,
+      createdAt: previous?.createdAt || now,
+      updatedAt: now,
+      code: await encodeShare(compactShareState(state)),
+    };
+    if (index >= 0) savedLoadouts.splice(index, 1);
+    savedLoadouts.unshift(record);
+    writeSavedLoadouts();
+    renderSavedLoadouts();
+    return {record, overwritten: Boolean(previous)};
+  }
+
+  async function loadSavedLoadout(record) {
+    state = await hydrateSharePayload(await decodeShare(record.code));
+    syncSelectors();
+    persist();
+    renderCatalogStatus();
+    renderAll();
+    await loadCandidates(true);
+    if (state.mode === "enhancement") await loadEnhancements();
+    setLoadoutPanel(false);
+    toast(`已载入“${record.name}”。`);
+  }
+
+  function deleteSavedLoadout(record) {
+    if (!window.confirm(`删除本地配装“${record.name}”？`)) return;
+    savedLoadouts = savedLoadouts.filter((row) => row.id !== record.id);
+    writeSavedLoadouts();
+    renderSavedLoadouts();
+    toast(`已删除“${record.name}”。`);
+  }
+
   async function copyShare() {
     const code = await encodeShare(compactShareState(state));
     const url = new URL(location.href);
@@ -1013,6 +1142,53 @@
   }
 
   function bindEvents() {
+    els.save_loadout.addEventListener("click", () => setLoadoutPanel(true, true));
+    els.loadout_toggle.addEventListener("click", () => setLoadoutPanel(els.loadout_panel.hidden));
+    els.loadout_close.addEventListener("click", () => setLoadoutPanel(false));
+    els.loadout_save_form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      els.loadout_submit.disabled = true;
+      try {
+        const result = await saveCurrentLoadout(els.loadout_name.value);
+        els.loadout_name.value = "";
+        toast(result.overwritten ? `已覆盖“${result.record.name}”。` : `已保存“${result.record.name}”。`);
+      } catch (error) {
+        toast(error.message, true);
+      } finally {
+        els.loadout_submit.disabled = false;
+      }
+    });
+    els.loadout_list.addEventListener("click", async (event) => {
+      const row = event.target.closest("[data-loadout-id]");
+      const record = savedLoadouts.find((item) => item.id === row?.dataset.loadoutId);
+      if (!record) return;
+      if (event.target.closest("[data-delete-loadout]")) {
+        deleteSavedLoadout(record);
+        return;
+      }
+      if (event.target.closest("[data-overwrite-loadout]")) {
+        try {
+          const result = await saveCurrentLoadout(record.name, record.id);
+          toast(`已用当前配装覆盖“${result.record.name}”。`);
+        } catch (error) {
+          toast(error.message, true);
+        }
+        return;
+      }
+      if (event.target.closest("[data-load-loadout]")) {
+        try {
+          await loadSavedLoadout(record);
+        } catch (error) {
+          toast(error.message || "本地配装解析失败。", true);
+        }
+      }
+    });
+    document.addEventListener("click", (event) => {
+      if (!els.loadout_panel.hidden && !els.loadout_manager.contains(event.target)) setLoadoutPanel(false);
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !els.loadout_panel.hidden) setLoadoutPanel(false);
+    });
     els.preview_spec_icon.addEventListener("load", () => {
       els.preview_spec_icon.hidden = false;
       els.preview_spec_fallback.hidden = true;
@@ -1146,6 +1322,8 @@
       if (!restored) state = loadStored(state.className, state.specName);
       if (!state.batchKey) state.batchKey = bootstrap.catalog?.batch_key || "";
       syncSelectors();
+      savedLoadouts = readSavedLoadouts();
+      renderSavedLoadouts();
       renderCatalogStatus();
       bindEvents();
       renderAll();
