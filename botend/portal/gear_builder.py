@@ -95,6 +95,7 @@ class PortalGearBuilderShareResolveAPIView(View):
         try:
             body = _json_body(request)
             payload = hydrate_shared_state(
+                share_version=body.get('v'),
                 class_name=body.get('c') or 'Warrior',
                 spec_name=body.get('s') or 'Fury',
                 batch_key=body.get('b') or '',

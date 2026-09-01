@@ -207,7 +207,7 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         self.assertTrue(payload['success'])
         self.assertTrue(payload['catalog']['available'])
         self.assertEqual(payload['catalog']['batch_key'], 'test-batch')
-        self.assertEqual(payload['rules']['share_version'], 3)
+        self.assertEqual(payload['rules']['share_version'], 4)
         self.assertEqual(len(payload['slots']), 16)
         self.assertEqual(
             [row['slot'] for row in payload['rules']['socket_additions']],
@@ -443,20 +443,22 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         )
         self.assertEqual(invalid.status_code, 400)
 
-    def test_compact_share_resolves_catalog_references_from_original_batch(self):
+    def test_compact_share_resolves_stable_catalog_references_from_original_batch(self):
         self.season.gear_batch_key = 'new-active-batch'
         self.season.save(update_fields=['gear_batch_key'])
         response = self.client.post(
             '/portal/api/gear-builder/resolve-share/',
             data=json.dumps({
-                'v': 2,
+                'v': 4,
                 'c': 'Warrior',
                 's': 'Fury',
                 'b': 'test-batch',
                 'e': [[
-                    'head', self.crafted_item.item_id, self.crafted.id,
-                    ['crit', 'mastery'], self.embellishment.id,
-                    [self.gem.id], self.enchant.id, 1,
+                    'head', self.crafted_item.item_id, self.crafted.variant_key,
+                    ['crit', 'mastery'],
+                    [self.embellishment_item.item_id, self.embellishment.variant_key],
+                    [[self.gem_item.item_id, self.gem.variant_key]],
+                    [self.enchant_item.item_id, self.enchant.variant_key], 1,
                 ]],
             }),
             content_type='application/json',
@@ -472,46 +474,24 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         self.assertEqual(entry['enchant']['variant']['id'], self.enchant.id)
         self.assertTrue(entry['addedSocket'])
 
-        invalid = self.client.post(
-            '/portal/api/gear-builder/resolve-share/',
-            data=json.dumps({
-                'c': 'Warrior', 's': 'Fury', 'b': 'test-batch',
-                'e': [['head', 99999, self.hero.id]],
-            }),
-            content_type='application/json',
-        )
-        self.assertEqual(invalid.status_code, 400)
-
-    def test_v3_share_recovers_stale_ids_by_stable_variant_reference(self):
+    def test_v4_share_selects_exact_variant_key_without_database_id(self):
         response = self.client.post(
             '/portal/api/gear-builder/resolve-share/',
             data=json.dumps({
-                'v': 3,
+                'v': 4,
                 'c': 'Warrior',
                 's': 'Fury',
                 'b': 'test-batch',
-                'e': [[
-                    'head', self.crafted_item.item_id,
-                    [999991, self.crafted_item.item_id, self.crafted.variant_key, self.crafted.item_level],
-                    ['crit', 'mastery'],
-                    [999992, self.embellishment_item.item_id, self.embellishment.variant_key, self.embellishment.item_level],
-                    [[999993, self.gem_item.item_id, self.gem.variant_key, self.gem.item_level]],
-                    [999994, self.enchant_item.item_id, self.enchant.variant_key, self.enchant.item_level],
-                    1,
-                ]],
+                'e': [['head', self.helm.item_id, self.hero.variant_key]],
             }),
             content_type='application/json',
         )
         self.assertEqual(response.status_code, 200, response.content)
         payload = response.json()
-        entry = payload['equipment']['head']
-        self.assertEqual(entry['variant']['id'], self.crafted.id)
-        self.assertEqual(entry['embellishment']['variant']['id'], self.embellishment.id)
-        self.assertEqual(entry['gems'][0]['variant']['id'], self.gem.id)
-        self.assertEqual(entry['enchant']['variant']['id'], self.enchant.id)
+        self.assertEqual(payload['equipment']['head']['variant']['id'], self.hero.id)
         self.assertEqual(payload['warnings'], [])
 
-    def test_v2_share_recovers_stale_equipment_as_current_highest_grade(self):
+    def test_share_rejects_outdated_primary_key_encoding(self):
         response = self.client.post(
             '/portal/api/gear-builder/resolve-share/',
             data=json.dumps({
@@ -519,14 +499,12 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
                 'c': 'Warrior',
                 's': 'Fury',
                 'b': 'test-batch',
-                'e': [['head', self.helm.item_id, 999999]],
+                'e': [['head', self.helm.item_id, self.hero.id]],
             }),
             content_type='application/json',
         )
-        self.assertEqual(response.status_code, 200, response.content)
-        payload = response.json()
-        self.assertEqual(payload['equipment']['head']['variant']['id'], self.myth.id)
-        self.assertTrue(any('当前最高品级' in warning for warning in payload['warnings']))
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('版本已过期', response.json()['error'])
 
     def test_simc_import_maps_catalog_and_preserves_external_item(self):
         profile = '\n'.join((
@@ -857,9 +835,10 @@ class GearBuilderFrontendContractTests(TestCase):
         self.assertNotIn('<details class="gear-enhancement-section" open>', template)
         for value in ('localStorage', 'CompressionStream', 'parse', 'crafted_stats', 'data-wow-item-tooltip'):
             self.assertIn(value, script)
-        for value in ('SHARE_FORMAT_VERSION = 3', 'compactShareState', 'compactVariantReference', 'hydrateSharePayload', 'endpoints.share', 'row.slice(0, 8)'):
+        for value in ('SHARE_FORMAT_VERSION = 4', 'compactShareState', 'compactVariantReference', 'hydrateSharePayload', 'endpoints.share', 'row.slice(0, 8)'):
             self.assertIn(value, script)
-        self.assertIn('[2, SHARE_FORMAT_VERSION].includes', script)
+        self.assertIn('Number(payload?.v) !== SHARE_FORMAT_VERSION', script)
+        self.assertIn('分享链接版本已过期', script)
         self.assertIn('return normalizeState(payload);', script)
         for value in ('LOADOUT_LIBRARY_KEY', 'MAX_SAVED_LOADOUTS = 30', 'readSavedLoadouts', 'saveCurrentLoadout', 'loadSavedLoadout', 'deleteSavedLoadout'):
             self.assertIn(value, script)

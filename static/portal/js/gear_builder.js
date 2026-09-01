@@ -43,7 +43,7 @@
     crit: "#ed7b2d", haste: "#24a7bd", mastery: "#7c3aed", versatility: "#c59d28",
   };
   const SECONDARY_STATS = new Set(["crit", "haste", "mastery", "versatility"]);
-  const SHARE_FORMAT_VERSION = 3;
+  const SHARE_FORMAT_VERSION = 4;
   const LOADOUT_LIBRARY_KEY = "wowdaily:gear-builder:loadouts:v1";
   const MAX_SAVED_LOADOUTS = 30;
   const BASE_SECONDARY_PERCENTAGES = Object.freeze({
@@ -864,12 +864,10 @@
   }
 
   function compactVariantReference(row) {
-    if (!row?.variant?.id) return 0;
+    if (!row?.item?.item_id || !row?.variant?.key) return 0;
     return [
-      Number(row.variant.id),
-      Number(row.item?.item_id || row.variant?.item_id || 0),
-      String(row.variant.key || ""),
-      Number(row.variant.item_level || 0),
+      Number(row.item.item_id),
+      String(row.variant.key),
     ];
   }
 
@@ -881,7 +879,7 @@
       return [
         slot,
         Number(entry.item?.item_id || 0),
-        compactVariantReference(entry),
+        String(entry.variant?.key || ""),
         Array.isArray(entry.selectedStats) ? entry.selectedStats : [],
         compactVariantReference(entry.embellishment),
         (entry.gems || []).map(compactVariantReference).filter(Boolean),
@@ -900,8 +898,11 @@
   }
 
   async function hydrateSharePayload(payload) {
-    if (![2, SHARE_FORMAT_VERSION].includes(Number(payload?.v)) || !Array.isArray(payload?.e)) {
+    if (!Array.isArray(payload?.e)) {
       return normalizeState(payload);
+    }
+    if (Number(payload?.v) !== SHARE_FORMAT_VERSION) {
+      throw new Error("分享链接版本已过期，请使用当前配装器重新生成。");
     }
     const ui = Array.isArray(payload.u) ? payload.u : [];
     const next = normalizeState({

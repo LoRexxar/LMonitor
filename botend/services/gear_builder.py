@@ -287,7 +287,7 @@ def bootstrap_payload():
         'upgrade_tracks': [{'key': key, 'label': label} for key, label in UPGRADE_TRACK_LABELS.items()],
         'rules': {
             'state_version': 1,
-            'share_version': 3,
+            'share_version': 4,
             'max_share_length': 8000,
             'crafted_secondary_count': 2,
             'temporary_enchants_supported': False,
@@ -652,63 +652,47 @@ def _state_item_and_variant(variant, class_name, spec_name):
 
 
 def _parse_share_variant_ref(value, fallback_item_id=0):
-    """兼容 v2 数字主键和 v3 稳定变体引用。"""
+    """解析 v4 稳定引用；装备为变体键，强化为 [物品 ID, 变体键]。"""
     try:
-        if isinstance(value, list):
-            return {
-                'id': int(value[0] or 0) if value else 0,
-                'item_id': int(value[1] or fallback_item_id or 0) if len(value) > 1 else int(fallback_item_id or 0),
-                'variant_key': str(value[2] or '')[:160] if len(value) > 2 else '',
-                'item_level': int(value[3] or 0) if len(value) > 3 else 0,
-                'legacy': False,
-            }
-        return {
-            'id': int(value or 0),
-            'item_id': int(fallback_item_id or 0),
-            'variant_key': '',
-            'item_level': 0,
-            'legacy': True,
-        }
+        fallback_item_id = int(fallback_item_id or 0)
     except (TypeError, ValueError):
         raise GearBuilderError('分享链接包含无效物品 ID')
 
-
-def _resolve_share_variant(reference, expected_types, variants_by_id, variants_by_item, *, legacy_equipment=False):
-    if not reference.get('id') and not reference.get('item_id'):
-        return None, False
-
-    expected_types = set(expected_types)
-    direct = variants_by_id.get(reference.get('id'))
-    if direct and direct.variant_type in expected_types:
-        item_matches = not reference.get('item_id') or direct.item.item_id == reference['item_id']
-        key_matches = not reference.get('variant_key') or direct.variant_key == reference['variant_key']
-        level_matches = (
-            reference.get('variant_key')
-            or not reference.get('item_level')
-            or direct.item_level == reference['item_level']
-        )
-        if item_matches and key_matches and level_matches:
-            return direct, False
-
-    candidates = [
-        row for row in variants_by_item.get(reference.get('item_id'), [])
-        if row.variant_type in expected_types
-    ]
-    if reference.get('variant_key'):
-        exact = next((row for row in candidates if row.variant_key == reference['variant_key']), None)
-        if exact:
-            return exact, direct is None or exact.id != direct.id
-    if reference.get('item_level'):
-        exact_level = next((row for row in candidates if row.item_level == reference['item_level']), None)
-        if exact_level:
-            return exact_level, direct is None or exact_level.id != direct.id
-    if legacy_equipment and reference.get('legacy') and candidates:
-        return max(candidates, key=lambda row: (row.item_level, row.track_rank, row.id)), True
-    return None, False
+    if value in (None, 0, ''):
+        return None
+    if fallback_item_id:
+        if not isinstance(value, str) or not value or len(value) > 160:
+            raise GearBuilderError('分享链接中的装备变体键无效')
+        return fallback_item_id, value
+    if not isinstance(value, list) or len(value) != 2:
+        raise GearBuilderError('分享链接中的强化引用格式无效')
+    try:
+        item_id = int(value[0] or 0)
+    except (TypeError, ValueError):
+        raise GearBuilderError('分享链接包含无效物品 ID')
+    variant_key = str(value[1] or '')
+    if item_id <= 0 or not variant_key or len(variant_key) > 160:
+        raise GearBuilderError('分享链接中的强化引用无效')
+    return item_id, variant_key
 
 
-def hydrate_shared_state(*, class_name, spec_name, batch_key, entries):
+def _resolve_share_variant(reference, expected_types, variants_by_reference):
+    if not reference:
+        return None
+    variant = variants_by_reference.get(reference)
+    if variant and variant.variant_type in set(expected_types):
+        return variant
+    return None
+
+
+def hydrate_shared_state(*, share_version, class_name, spec_name, batch_key, entries):
     """按批次和变体引用恢复紧凑分享数据，不保存任何用户配装。"""
+    try:
+        share_version = int(share_version or 0)
+    except (TypeError, ValueError):
+        share_version = 0
+    if share_version != 4:
+        raise GearBuilderError('分享链接版本已过期，请使用当前配装器重新生成')
     class_name, spec_name = canonical_spec(class_name, spec_name)
     batch_key = str(batch_key or '').strip()
     if not batch_key or len(batch_key) > 160:
@@ -717,7 +701,6 @@ def hydrate_shared_state(*, class_name, spec_name, batch_key, entries):
         raise GearBuilderError('分享链接中的装备槽位数量无效')
 
     parsed = []
-    variant_ids = set()
     item_ids = set()
     seen_slots = set()
     for row in entries:
@@ -740,44 +723,28 @@ def hydrate_shared_state(*, class_name, spec_name, batch_key, entries):
             raise GearBuilderError('分享链接中的宝石数量无效')
         selected_stats = [str(value) for value in (row[3] or [])][:4] if len(row) > 3 and isinstance(row[3], list) else []
         added_socket = bool(row[7]) if len(row) > 7 else False
-        references = [equipment_ref, embellishment_ref, enchant_ref, *gem_refs]
         parsed.append((slot, item_id, equipment_ref, selected_stats, embellishment_ref, gem_refs, enchant_ref, added_socket))
-        variant_ids.update(reference['id'] for reference in references if reference['id'])
-        item_ids.update(reference['item_id'] for reference in references if reference['item_id'])
+        item_ids.update(reference[0] for reference in [equipment_ref, embellishment_ref, enchant_ref, *gem_refs] if reference)
 
-    variants_by_id = {
-        row.id: row for row in WowItemVariantSnapshot.objects.filter(id__in=variant_ids).select_related('item')
-    }
     batch_variants = list(WowItemVariantSnapshot.objects.filter(
         batch_key=batch_key, item__item_id__in=item_ids,
     ).select_related('item'))
-    variants_by_item = {}
-    for row in batch_variants:
-        variants_by_item.setdefault(row.item.item_id, []).append(row)
+    variants_by_reference = {
+        (row.item.item_id, row.variant_key): row for row in batch_variants
+    }
     equipment = {}
     warnings = []
     for slot, item_id, equipment_ref, selected_stats, embellishment_ref, gem_refs, enchant_ref, added_socket in parsed:
-        if not equipment_ref['id'] and not equipment_ref['item_id']:
+        if not equipment_ref:
             continue
-        direct = variants_by_id.get(equipment_ref['id'])
-        if (
-            equipment_ref['legacy'] and direct and direct.batch_key == batch_key
-            and direct.item.item_id != item_id
-        ):
-            raise GearBuilderError('分享链接中的物品与变体引用不匹配')
-        variant, recovered = _resolve_share_variant(
+        variant = _resolve_share_variant(
             equipment_ref,
             (WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT, WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT),
-            variants_by_id,
-            variants_by_item,
-            legacy_equipment=True,
+            variants_by_reference,
         )
         if not variant:
             warnings.append(f'{SLOT_LABELS[slot]}的装备引用已失效')
             continue
-        if recovered:
-            if equipment_ref['legacy']:
-                warnings.append(f'{SLOT_LABELS[slot]}为旧版分享引用，已恢复为该物品当前最高品级')
         if variant.variant_type not in (
             WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
             WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT,
@@ -793,8 +760,8 @@ def hydrate_shared_state(*, class_name, spec_name, batch_key, entries):
             ('embellishment', embellishment_ref, WowItemVariantSnapshot.TYPE_EMBELLISHMENT),
             ('enchant', enchant_ref, WowItemVariantSnapshot.TYPE_ENCHANT),
         ):
-            enhancement, _ = _resolve_share_variant(
-                reference, (expected_type,), variants_by_id, variants_by_item,
+            enhancement = _resolve_share_variant(
+                reference, (expected_type,), variants_by_reference,
             )
             if (
                 enhancement
@@ -807,7 +774,7 @@ def hydrate_shared_state(*, class_name, spec_name, batch_key, entries):
                 resolved_enhancements[key] = enhancement
             else:
                 enhancement_rows[key] = None
-                if reference['id'] or reference['item_id']:
+                if reference:
                     warnings.append(f'{SLOT_LABELS[slot]}的{("美化" if key == "embellishment" else "附魔")}引用已失效')
 
         gems = []
@@ -815,8 +782,8 @@ def hydrate_shared_state(*, class_name, spec_name, batch_key, entries):
         added_socket = bool(added_socket and socket_family in ADDITIONAL_SOCKET_SLOTS)
         capacity = int(variant_payload.get('socket_count') or 0) + (1 if added_socket else 0)
         for reference in gem_refs[:capacity]:
-            gem, _ = _resolve_share_variant(
-                reference, (WowItemVariantSnapshot.TYPE_GEM,), variants_by_id, variants_by_item,
+            gem = _resolve_share_variant(
+                reference, (WowItemVariantSnapshot.TYPE_GEM,), variants_by_reference,
             )
             if (
                 not gem
