@@ -13,7 +13,6 @@ from botend.models import (
     SimcMasteryCoefficient,
     SimcSecondaryStatRule,
     WowItemSnapshot,
-    WowSpellSnapshot,
     WowTalentNodeMetadata,
 )
 from botend.services.simc_consumables import simc_consumable_option
@@ -36,6 +35,73 @@ SPEC_CLASS = {
     'affliction': 'warlock', 'demonology': 'warlock', 'destruction': 'warlock',
     'blood': 'deathknight', 'frost_dk': 'deathknight', 'unholy': 'deathknight',
     'devourer': 'demonhunter',
+}
+
+
+# SimC 12.0.7+ 会把万奥宝典导出为独立的 rune_of_* 标识；这里的 Spell ID
+# 是符文本身的真实技能 ID，不能与旧版导出的 TraitNodeEntry.entryID 混用。
+OMNIUM_RUNE_METADATA = {
+    'rune_of_unleashed_fire': {
+        'spell_id': 1279599, 'name_zh': '释放火焰符文',
+        'description_zh': '你的法术和技能有几率释放火焰，对敌人造成伤害或治疗附近受伤最重的盟友。',
+    },
+    'rune_of_voidtouched_orbs': {
+        'spell_id': 1279596, 'name_zh': '虚空之触宝珠符文',
+        'description_zh': '周期性获得虚空之触宝珠；造成伤害或施放治疗时消耗宝珠，对目标造成伤害或治疗盟友。',
+    },
+    'rune_of_selfmending': {
+        'spell_id': 1279603, 'name_zh': '自愈符文',
+        'description_zh': '核心符文触发时，若你的生命值低于 75%，则为你恢复生命值。',
+    },
+    'rune_of_void_infused_shell': {
+        'spell_id': 1279604, 'name_zh': '虚空侵染外壳符文',
+        'description_zh': '单次受到较高伤害时获得吸收护盾；护盾结束后会对你造成部分伤害，且有触发冷却。',
+    },
+    'rune_of_lynxlike_reflexes': {
+        'spell_id': 1279605, 'name_zh': '山猫敏捷符文',
+        'description_zh': '受到伤害时短暂提高移动速度，且有触发冷却。',
+    },
+    'rune_of_lingering': {
+        'spell_id': 1287555, 'name_zh': '萦绕符文',
+        'description_zh': '核心符文会追加持续性宇宙伤害或治疗，并优先选择尚未受到萦绕影响的目标。',
+    },
+    'rune_of_critical_power': {
+        'spell_id': 1279609, 'name_zh': '爆击力量符文',
+        'description_zh': '核心符文激活时获得可叠加的爆击加成。',
+    },
+    'rune_of_burning_haste': {
+        'spell_id': 1279610, 'name_zh': '燃烧急速符文',
+        'description_zh': '核心符文激活时获得可叠加的急速加成。',
+    },
+    'rune_of_masterful_cunning': {
+        'spell_id': 1279612, 'name_zh': '精通狡诈符文',
+        'description_zh': '核心符文激活时获得可叠加的精通加成。',
+    },
+    'rune_of_the_versatile_warrior': {
+        'spell_id': 1279613, 'name_zh': '全能勇士符文',
+        'description_zh': '核心符文激活时获得可叠加的全能加成。',
+    },
+    'rune_of_overload': {
+        'spell_id': 1279614, 'name_zh': '过载符文',
+        'description_zh': '提高核心符文的伤害和治疗效果。',
+    },
+    'rune_of_residual_energy': {
+        'spell_id': 1279615, 'name_zh': '残余能量符文',
+        'description_zh': '提高萦绕符文的伤害和治疗效果。',
+    },
+    'rune_of_echoes': {
+        'spell_id': 1279616, 'name_zh': '回响符文',
+        'description_zh': '核心符文留下回响诅咒，累计核心符文和萦绕符文的部分效果，并在结束时结算。',
+    },
+}
+
+# 旧版 AddOn 只导出 TraitNodeEntry.entryID。以下三项在全部旧 Profile 中是
+# 固定的公共选择，并可由新版 SimC 的同配置 rune_of_* 输出稳定对应；其余选择
+# 必须等待 TraitDefinition 关系命中，不能按相邻 ID 猜测。
+OMNIUM_ENTRY_RUNE_TOKENS = {
+    136822: 'rune_of_unleashed_fire',
+    136817: 'rune_of_lingering',
+    136814: 'rune_of_overload',
 }
 
 SPEC_ALIASES = {
@@ -358,95 +424,81 @@ def _enchant_meta(enchantment_id, item_snapshots, enchantment_snapshots):
 
 
 def _enrich_omnium_talents(detail):
-    """用天赋节点/技能快照补全万奥宝典，未命中时保留 ID/rank。"""
+    """补全独立的万奥符文；数字 ID 只按 TraitNodeEntry.entryID 解析。"""
     entries = detail.get('omnium_talents') or []
-    node_ids = {_number(row.get('id')) for row in entries if (_number(row.get('id')) or 0) > 0}
-    if not node_ids:
+    entry_ids = {_number(row.get('id')) for row in entries if (_number(row.get('id')) or 0) > 0}
+    if not entries:
         return detail
 
-    identity = detail.get('identity') or {}
-    class_name = str(identity.get('class_name') or '').strip().lower()
-    spec_name = str(identity.get('spec') or '').strip().lower()
     rows = list(
-        WowTalentNodeMetadata.objects.filter(
-            Q(node_id__in=node_ids) | Q(talent_id__in=node_ids) | Q(spell_id__in=node_ids)
-        ).select_related('talent_version')
+        WowTalentNodeMetadata.objects.filter(node_id__in=entry_ids).select_related('talent_version')
     )
-    spell_rows = list(WowSpellSnapshot.objects.filter(spell_id__in=node_ids))
 
     def preference(row):
         version_active = bool(row.talent_version and row.talent_version.is_active)
-        row_class = str(row.class_name or '').strip().lower()
-        row_spec = str(row.spec_name or '').strip().lower()
         return (
             int(version_active),
-            int(row_class == class_name),
-            int(row_spec == spec_name),
+            int(str(row.tree_type or '').strip().lower() == 'omnium'),
+            int(not (row.class_name or '').strip() and not (row.spec_name or '').strip()),
             int(bool((row.name_zh or '').strip())),
             row.last_updated,
         )
 
     matches = {}
     for row in rows:
-        for candidate_id in (row.node_id, row.talent_id, row.spell_id):
-            if candidate_id in node_ids:
-                previous = matches.get(int(candidate_id))
-                if previous is None or preference(row) > preference(previous):
-                    matches[int(candidate_id)] = row
-
-    def spell_preference(row):
-        return (
-            int(str(row.branch or '').lower() == 'wow'),
-            int(str(row.locale or '').lower() == 'zhcn'),
-            int(bool((row.name_zh or '').strip())),
-            int(bool((row.description or row.aura_description or '').strip())),
-            row.updated_at,
-        )
-
-    spell_matches = {}
-    for row in spell_rows:
-        previous = spell_matches.get(int(row.spell_id))
-        if previous is None or spell_preference(row) > spell_preference(previous):
-            spell_matches[int(row.spell_id)] = row
+        if row.node_id not in entry_ids:
+            continue
+        previous = matches.get(int(row.node_id))
+        if previous is None or preference(row) > preference(previous):
+            matches[int(row.node_id)] = row
 
     for entry in entries:
         entry_id = _number(entry.get('id')) or 0
+        token = str(entry.get('token') or '').strip().lower()
+        mapped_token = token or OMNIUM_ENTRY_RUNE_TOKENS.get(entry_id, '')
+        rune_metadata = OMNIUM_RUNE_METADATA.get(mapped_token)
         row = matches.get(entry_id)
-        spell_row = spell_matches.get(entry_id)
-        if not row and not spell_row:
+        linked_spell_id = int(
+            (row.display_spell_id or row.spell_id if row else 0)
+            or (rune_metadata or {}).get('spell_id')
+            or 0
+        )
+        if not row and not rune_metadata:
             continue
         if row:
-            name = row.name or (spell_row.name if spell_row else '')
-            name_zh = row.name_zh or (spell_row.name_zh if spell_row else '')
+            name = row.name or ''
+            name_zh = row.name_zh or ''
             description = row.description or ''
             description_zh = row.description_zh or ''
-            if spell_row and not (description or description_zh):
-                description = spell_row.description or spell_row.aura_description or ''
-            icon = row.icon or (spell_row.icon if spell_row else '')
+            icon = row.icon or ''
             entry.update({
+                'entry_id': entry_id,
                 'node_id': row.node_id,
                 'talent_id': row.talent_id,
-                'spell_id': row.display_spell_id or row.spell_id or entry_id,
-                'tree_type': row.tree_type or '',
+                'spell_id': linked_spell_id or None,
+                'tree_type': 'omnium',
                 'row': row.row,
                 'column': row.column,
                 'max_rank': row.max_points,
-                'source': 'talent_metadata',
+                'source': 'trait_node_entry',
             })
         else:
-            name = spell_row.name or ''
-            name_zh = spell_row.name_zh or ''
-            description = spell_row.description or spell_row.aura_description or ''
-            description_zh = ''
-            icon = spell_row.icon or ''
+            name = ''
+            name_zh = rune_metadata['name_zh']
+            description = ''
+            description_zh = rune_metadata.get('description_zh') or ''
+            icon = ''
             entry.update({
-                'spell_id': spell_row.spell_id,
-                'source': 'spell_snapshot',
+                'entry_id': entry_id or None,
+                'token': mapped_token,
+                'spell_id': linked_spell_id,
+                'tree_type': 'omnium',
+                'source': 'simc_rune_token' if token else 'trait_entry_rune_map',
             })
         entry.update({
             'name': name,
             'name_zh': name_zh,
-            'display_name': name_zh or name or f'万奥能力 #{entry_id}',
+            'display_name': name_zh or name or (token or f'万奥条目 #{entry_id}'),
             'description': description,
             'description_zh': description_zh,
             'display_description': description_zh or description,
@@ -454,6 +506,37 @@ def _enrich_omnium_talents(detail):
             'icon_url': wow_icon_oss_url(icon) if icon else '',
         })
     return detail
+
+
+def _parse_omnium_talents(raw_value):
+    """兼容旧版 EntryID:rank 与新版 rune_of_* 两种 SimC 导出格式。"""
+    entries = []
+    for raw_entry in str(raw_value or '').split('/'):
+        raw_entry = raw_entry.strip()
+        if not raw_entry:
+            continue
+        identifier, separator, raw_rank = raw_entry.partition(':')
+        rank = _number(raw_rank) if separator else 1
+        entry_id = _number(identifier)
+        if entry_id:
+            entries.append({'id': entry_id, 'rank': rank or 1})
+            continue
+        token = identifier.strip().lower()
+        if not re.fullmatch(r'[a-z][a-z0-9_]*', token):
+            continue
+        metadata = OMNIUM_RUNE_METADATA.get(token) or {}
+        entries.append({
+            'token': token,
+            'rank': rank or 1,
+            'spell_id': metadata.get('spell_id'),
+            'name_zh': metadata.get('name_zh') or '',
+            'display_name': metadata.get('name_zh') or token.replace('_', ' ').title(),
+            'description_zh': metadata.get('description_zh') or '',
+            'display_description': metadata.get('description_zh') or '',
+            'tree_type': 'omnium',
+            'source': 'simc_rune_token',
+        })
+    return entries
 
 
 def _secondary_stat_detail(rating, per_percent, coefficient=1):
@@ -584,10 +667,7 @@ def parse_manual_player_config(player_equipment, spec):
             else:
                 parsed['talents']['build_code'] = raw_value
         elif key == 'omnium_talents':
-            parsed['omnium_talents'] = [
-                {'id': _number(entry.partition(':')[0]), 'rank': _number(entry.partition(':')[2])}
-                for entry in raw_value.split('/') if _number(entry.partition(':')[0])
-            ]
+            parsed['omnium_talents'] = _parse_omnium_talents(raw_value)
         elif key in EQUIPMENT_SLOTS or key in EQUIPMENT_SLOT_ALIASES:
             canonical_slot = EQUIPMENT_SLOT_ALIASES.get(key, key)
             if _number(values.get('id')):

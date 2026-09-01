@@ -4219,10 +4219,12 @@ class SimcPlayerConfigDetailTests(TestCase):
         )
         WowTalentNodeMetadata.objects.create(
             talent_version=talent_version,
-            class_name='warrior',
-            spec_name='fury',
-            tree_type='class',
+            class_name='',
+            spec_name='',
+            tree_type='omnium',
             node_id=136817,
+            talent_id=900001,
+            spell_id=1279599,
             name='Omnium Test Node',
             name_zh='万奥测试节点',
             description_zh='这是万奥节点的中文说明。',
@@ -4231,8 +4233,8 @@ class SimcPlayerConfigDetailTests(TestCase):
         )
         WowSpellSnapshot.objects.create(
             branch='wow', locale='zhCN', spell_id=136819,
-            name='Second Omnium Power', name_zh='第二个万奥能力',
-            description='这是从技能快照解析的中文说明。',
+            name='Unrelated Legacy Spell', name_zh='错误的同号旧技能',
+            description='这个技能与万奥宝典无关。',
             icon='ability_warrior_battleshout',
         )
         from botend.models import SimcSecondaryStatRule
@@ -4296,9 +4298,10 @@ class SimcPlayerConfigDetailTests(TestCase):
         self.assertEqual(detail['omnium_talents'][0]['max_rank'], 2)
         self.assertEqual(detail['omnium_talents'][0]['display_description'], '这是万奥节点的中文说明。')
         self.assertTrue(detail['omnium_talents'][0]['icon_url'].endswith('/small/spell_nature_bloodlust.jpg'))
-        self.assertEqual(detail['omnium_talents'][1]['display_name'], '第二个万奥能力')
-        self.assertEqual(detail['omnium_talents'][1]['source'], 'spell_snapshot')
-        self.assertEqual(detail['omnium_talents'][1]['display_description'], '这是从技能快照解析的中文说明。')
+        self.assertEqual(detail['omnium_talents'][0]['entry_id'], 136817)
+        self.assertEqual(detail['omnium_talents'][0]['spell_id'], 1279599)
+        self.assertEqual(detail['omnium_talents'][0]['source'], 'trait_node_entry')
+        self.assertEqual(detail['omnium_talents'][1], {'id': 136819, 'rank': 1})
         self.assertEqual(detail['consumable_details']['flask']['label'], '血骑士合剂')
         self.assertEqual(detail['consumable_details']['potion']['label'], '鲁莽药水')
         self.assertEqual(detail['consumable_details']['food']['label'], '皇家烤肉')
@@ -4668,7 +4671,29 @@ main_hand=,id=251117,enchant_id=8041,bonus_id=13440/6652
         self.assertEqual(detail['equipment'][0]['gems'][0]['id'], 240892)
         self.assertEqual(detail['equipment'][2]['crafted_stats'], ['精通', '全能'])
         self.assertEqual(detail['equipment'][2]['crafting_quality'], 5)
-        self.assertEqual(detail['omnium_talents'], [{'id': 136817, 'rank': 1}, {'id': 136819, 'rank': 1}])
+        self.assertEqual(detail['omnium_talents'][0]['entry_id'], 136817)
+        self.assertEqual(detail['omnium_talents'][0]['display_name'], '萦绕符文')
+        self.assertEqual(detail['omnium_talents'][0]['spell_id'], 1287555)
+        self.assertEqual(detail['omnium_talents'][1], {'id': 136819, 'rank': 1})
+
+    def test_current_simc_omnium_rune_tokens_are_parsed_as_independent_abilities(self):
+        detail = parse_manual_player_config(
+            '\n'.join([
+                'priest="Omnium"',
+                'spec=shadow',
+                'omnium_talents=rune_of_unleashed_fire/rune_of_selfmending/rune_of_lingering/rune_of_critical_power/rune_of_overload',
+            ]),
+            'shadow',
+        )
+
+        self.assertEqual(len(detail['omnium_talents']), 5)
+        self.assertEqual(detail['omnium_talents'][0]['token'], 'rune_of_unleashed_fire')
+        self.assertEqual(detail['omnium_talents'][0]['spell_id'], 1279599)
+        self.assertEqual(detail['omnium_talents'][0]['display_name'], '释放火焰符文')
+        self.assertIn('释放火焰', detail['omnium_talents'][0]['display_description'])
+        self.assertEqual(detail['omnium_talents'][1]['display_name'], '自愈符文')
+        self.assertEqual(detail['omnium_talents'][2]['spell_id'], 1287555)
+        self.assertTrue(all(row['source'] == 'simc_rune_token' for row in detail['omnium_talents']))
 
     def test_player_config_detail_returns_battlenet_identity_and_explicit_missing_detail(self):
         response = self.client.post(

@@ -217,6 +217,11 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('display_description', MAIN)
         omnium_renderer = MAIN[MAIN.index('function renderSimcOmniumTalents'):MAIN.index('function renderSimcProfileFormEquipmentPreview')]
         self.assertIn('icon_url', omnium_renderer)
+        self.assertIn('entry.token', omnium_renderer)
+        self.assertIn('`Entry ${entryId}`', omnium_renderer)
+        self.assertIn('万奥符文', omnium_renderer)
+        self.assertNotIn('spell_snapshot', omnium_renderer)
+        self.assertIn('独立玩家能力系统，不属于职业天赋树', detail_renderer)
         self.assertNotIn('data-profile-equipment-slot', detail_renderer)
         self.assertNotIn('simcWbSaveProfileEquipment', detail_renderer)
         self.assertNotIn('保存装备修改', detail_renderer)
@@ -247,7 +252,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('item.enchant?.enchantment_id', renderer)
         self.assertIn('item.enchant?.display_name', renderer)
         self.assertIn('附魔 #${enchantId}', renderer)
-        self.assertIn("dashboard/js/main.js' %}?v=20260901c_simc_profile_localized", HTML)
+        self.assertIn("dashboard/js/main.js' %}?v=20260901d_omnium_runes", HTML)
 
     def test_profile_list_renders_spec_icon_with_authoritative_class_color(self):
         badge = MAIN[MAIN.index('function renderSpecBadgeHtml'):MAIN.index('function syncSimcTaskInputMode')]

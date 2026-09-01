@@ -2094,24 +2094,24 @@ function renderSimcOmniumTalents(items) {
     const entries = Array.isArray(items) ? items : [];
     if (!entries.length) return '';
     return entries.map(entry => {
-        const nodeId = entry.id || '-';
+        const entryId = entry.entry_id || entry.id || '';
+        const token = String(entry.token || '').trim();
+        const nodeKey = entryId || token || '-';
         const rank = entry.rank ?? '-';
         const displayName = entry.display_name || entry.name_zh || entry.name || '';
         const description = entry.display_description || entry.description_zh || entry.description || '';
         const iconUrl = String(entry.icon_url || '').trim();
         const maxRank = Number(entry.max_rank || 0);
         const rankLabel = maxRank >= Number(rank) ? `${rank}/${maxRank} 级` : `${rank} 级`;
-        const treeLabels = { class: '职业', spec: '专精', hero: '英雄', omnium: '万奥' };
-        const typeLabel = treeLabels[entry.tree_type] || (entry.source === 'spell_snapshot' ? '万奥能力' : '万奥节点');
         const identifiers = [
-            `ID ${nodeId}`,
-            entry.spell_id && Number(entry.spell_id) !== Number(nodeId) ? `Spell ${entry.spell_id}` : '',
-            entry.talent_id ? `Talent ${entry.talent_id}` : '',
+            entryId ? `Entry ${entryId}` : '',
+            token,
+            entry.spell_id ? `Spell ${entry.spell_id}` : '',
         ].filter(Boolean).join(' · ');
         const icon = iconUrl
             ? `<img class="h-9 w-9 shrink-0 rounded-md border border-amber-200 bg-white object-cover" src="${escapeHtml(iconUrl)}" alt="" loading="lazy">`
             : '<span class="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-amber-200 bg-white text-sm text-amber-600">✦</span>';
-        return `<article class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5" data-omnium-node-id="${escapeHtml(String(nodeId))}"><div class="flex items-start gap-2.5">${icon}<div class="min-w-0 flex-1"><div class="flex flex-wrap items-center gap-1.5"><strong class="text-sm text-amber-950">${escapeHtml(String(displayName || `万奥能力 #${nodeId}`))}</strong><span class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">${escapeHtml(typeLabel)}</span><span class="rounded bg-white px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">${escapeHtml(rankLabel)}</span></div><div class="mt-1 font-mono text-[11px] text-amber-700">${escapeHtml(identifiers)}</div>${description ? `<p class="mt-1.5 text-xs leading-5 text-amber-900/80">${escapeHtml(String(description))}</p>` : ''}</div></div></article>`;
+        return `<article class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5" data-omnium-entry="${escapeHtml(String(nodeKey))}"><div class="flex items-start gap-2.5">${icon}<div class="min-w-0 flex-1"><div class="flex flex-wrap items-center gap-1.5"><strong class="text-sm text-amber-950">${escapeHtml(String(displayName || `万奥条目 #${nodeKey}`))}</strong><span class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">万奥符文</span><span class="rounded bg-white px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">${escapeHtml(rankLabel)}</span></div><div class="mt-1 font-mono text-[11px] text-amber-700">${escapeHtml(identifiers)}</div>${description ? `<p class="mt-1.5 text-xs leading-5 text-amber-900/80">${escapeHtml(String(description))}</p>` : ''}</div></div></article>`;
     }).join('');
 }
 
@@ -2121,7 +2121,7 @@ function renderSimcProfileFormEquipmentPreview(detail, formWrap = document.getEl
     const omniumTalents = renderSimcOmniumTalents(detail?.omnium_talents);
     const omniumContent = omniumTalents || '<div class="rounded-lg border border-dashed border-amber-200 bg-amber-50/50 px-3 py-3 text-xs text-amber-700">当前 Profile 未解析到 <code class="font-mono">omnium_talents=</code>。请确认原始 SimC 配置包含该行后重新保存。</div>';
     target.className = 'mt-3 space-y-3';
-    target.innerHTML = `<section data-profile-omnium-talents><h6 class="mb-2 text-sm font-semibold text-amber-900">万奥宝典</h6><div class="grid gap-2 sm:grid-cols-2">${omniumContent}</div></section><div class="grid gap-2 sm:grid-cols-2">${renderSimcProfileEquipmentCards(detail?.equipment, { compact: true })}</div>`;
+    target.innerHTML = `<section data-profile-omnium-talents><h6 class="text-sm font-semibold text-amber-900">万奥宝典</h6><p class="mb-2 mt-0.5 text-[11px] text-amber-700">独立玩家能力系统，不属于职业天赋树</p><div class="grid gap-2 sm:grid-cols-2">${omniumContent}</div></section><div class="grid gap-2 sm:grid-cols-2">${renderSimcProfileEquipmentCards(detail?.equipment, { compact: true })}</div>`;
 }
 
 function renderSimcProfileDetailDialog(detail) {
@@ -2180,7 +2180,7 @@ function renderSimcProfileDetailDialog(detail) {
     const body = document.getElementById('simc-dialog-body');
     if (!body) return;
     const syncNotice = profile.is_system ? '<p class="mt-2 text-xs text-amber-700">这是由上游同步维护的系统配置。</p>' : '';
-    body.innerHTML = `<div class="space-y-5"><header class="border-b border-slate-200 pb-4"><div class="flex flex-wrap items-start justify-between gap-3"><div><h3 class="text-lg font-bold text-slate-900">${esc(profile.name)}</h3><p class="mt-1 text-sm text-slate-500">${esc(profile.spec_label || profile.spec)} · ${esc(sourceLabel)}</p></div><span class="rounded-full px-2.5 py-1 text-xs font-medium ${profile.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}">${profile.is_active ? '生效中' : '未生效'}</span></div>${syncNotice}</header><section class="grid grid-cols-2 gap-2 sm:grid-cols-5">${statRows}</section><section class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-violet-100 bg-violet-50/60 p-3"><div class="min-w-0"><h4 class="font-semibold text-slate-900">天赋配置</h4><p class="mt-1 max-w-xl break-all font-mono text-xs text-slate-500">${esc(profile.talent)}</p></div>${talentLink}</section>${talentStringRows ? `<section><h4 class="mb-2 font-semibold text-slate-900">天赋字符串拆解</h4><div class="rounded-lg border border-slate-200 px-3">${talentStringRows}</div></section>` : ''}<section data-profile-omnium-talents><h4 class="mb-3 font-semibold text-slate-900">万奥宝典</h4><div class="grid gap-2 sm:grid-cols-2">${omniumContent}</div></section>${consumableRows.length ? `<section><h4 class="mb-3 font-semibold text-slate-900">消耗品与临时附魔</h4><div class="grid grid-cols-2 gap-2 sm:grid-cols-3">${consumableRows.join('')}</div></section>` : ''}<section><h4 class="mb-3 font-semibold text-slate-900">装备、附魔与宝石</h4><div class="grid gap-2 sm:grid-cols-2">${equipment}</div></section><details class="rounded-lg border border-slate-200 bg-slate-50"><summary class="cursor-pointer px-3 py-2 text-sm font-semibold text-slate-700">原始玩家配置</summary><pre class="max-h-[28rem] overflow-auto border-t border-slate-200 bg-slate-950 p-3 text-xs leading-5 text-slate-100 whitespace-pre-wrap">${esc(profile.raw_player_equipment)}</pre></details></div>`;
+    body.innerHTML = `<div class="space-y-5"><header class="border-b border-slate-200 pb-4"><div class="flex flex-wrap items-start justify-between gap-3"><div><h3 class="text-lg font-bold text-slate-900">${esc(profile.name)}</h3><p class="mt-1 text-sm text-slate-500">${esc(profile.spec_label || profile.spec)} · ${esc(sourceLabel)}</p></div><span class="rounded-full px-2.5 py-1 text-xs font-medium ${profile.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}">${profile.is_active ? '生效中' : '未生效'}</span></div>${syncNotice}</header><section class="grid grid-cols-2 gap-2 sm:grid-cols-5">${statRows}</section><section class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-violet-100 bg-violet-50/60 p-3"><div class="min-w-0"><h4 class="font-semibold text-slate-900">天赋配置</h4><p class="mt-1 max-w-xl break-all font-mono text-xs text-slate-500">${esc(profile.talent)}</p></div>${talentLink}</section>${talentStringRows ? `<section><h4 class="mb-2 font-semibold text-slate-900">天赋字符串拆解</h4><div class="rounded-lg border border-slate-200 px-3">${talentStringRows}</div></section>` : ''}<section data-profile-omnium-talents><h4 class="font-semibold text-slate-900">万奥宝典</h4><p class="mb-3 mt-0.5 text-xs text-slate-500">独立玩家能力系统，不属于职业天赋树</p><div class="grid gap-2 sm:grid-cols-2">${omniumContent}</div></section>${consumableRows.length ? `<section><h4 class="mb-3 font-semibold text-slate-900">消耗品与临时附魔</h4><div class="grid grid-cols-2 gap-2 sm:grid-cols-3">${consumableRows.join('')}</div></section>` : ''}<section><h4 class="mb-3 font-semibold text-slate-900">装备、附魔与宝石</h4><div class="grid gap-2 sm:grid-cols-2">${equipment}</div></section><details class="rounded-lg border border-slate-200 bg-slate-50"><summary class="cursor-pointer px-3 py-2 text-sm font-semibold text-slate-700">原始玩家配置</summary><pre class="max-h-[28rem] overflow-auto border-t border-slate-200 bg-slate-950 p-3 text-xs leading-5 text-slate-100 whitespace-pre-wrap">${esc(profile.raw_player_equipment)}</pre></details></div>`;
 }
 async function simcWbViewProfile(id) {
     try {
