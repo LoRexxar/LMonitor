@@ -21,6 +21,10 @@
     "gear-detail-panel", "gear-detail-content", "gear-detail-close", "gear-stat-grid",
     "gear-effect-list", "gear-save-status", "gear-import-simc", "gear-copy-share", "gear-clear",
     "gear-simc-dialog", "gear-simc-input", "gear-simc-submit", "gear-simc-message", "gear-toast-root",
+    "gear-view-editor", "gear-view-preview", "gear-preview", "gear-preview-left", "gear-preview-right",
+    "gear-preview-season", "gear-preview-count", "gear-preview-spec-icon", "gear-preview-spec-fallback", "gear-preview-class",
+    "gear-preview-spec", "gear-preview-item-level", "gear-preview-progress-bar", "gear-preview-progress-copy",
+    "gear-preview-stats", "gear-preview-effects",
   ].map((id) => [id.replace(/^gear-/, "").replaceAll("-", "_"), document.getElementById(id)]));
 
   const STAT_LABELS = {
@@ -36,6 +40,8 @@
   };
   const SECONDARY_STATS = new Set(["crit", "haste", "mastery", "versatility"]);
   const ADDITIONAL_SOCKET_SLOTS = new Set(["head", "wrists", "waist"]);
+  const PREVIEW_LEFT_SLOTS = ["head", "neck", "shoulders", "back", "chest", "wrists", "hands", "waist"];
+  const PREVIEW_RIGHT_SLOTS = ["legs", "feet", "finger1", "finger2", "trinket1", "trinket2", "main_hand", "off_hand"];
   const SOURCE_LABELS = {
     mythic_plus: "大秘境", great_vault: "宏伟宝库", raid: "团队副本", delve: "地下堡",
     crafted: "专业制造", profession: "专业制造", bonus_roll: "额外掉落",
@@ -62,6 +68,7 @@
       batchKey: "",
       selectedSlot: "head",
       mode: "equipment",
+      viewMode: "editor",
       mobileView: "browser",
       equipment: {},
     };
@@ -178,6 +185,7 @@
     next.batchKey = String(raw.batchKey || "");
     next.selectedSlot = String(raw.selectedSlot || next.selectedSlot);
     next.mode = raw.mode === "enhancement" ? "enhancement" : "equipment";
+    next.viewMode = raw.viewMode === "preview" ? "preview" : "editor";
     next.mobileView = ["slots", "browser", "stats"].includes(raw.mobileView) ? raw.mobileView : "browser";
     next.equipment = raw.equipment && typeof raw.equipment === "object" ? raw.equipment : {};
     return next;
@@ -256,6 +264,11 @@
 
   function classPayload() {
     return bootstrap?.classes?.find((row) => row.key === state.className) || bootstrap?.classes?.[0];
+  }
+
+  function specPayload() {
+    const currentClass = classPayload();
+    return currentClass?.specs?.find((row) => row.key === state.specName) || currentClass?.specs?.[0];
   }
 
   function syncSelectors() {
@@ -640,16 +653,22 @@
     return {totals, effects: effects.filter((row) => row.text), equipped, missingStats};
   }
 
+  function secondaryPercentage(key, value) {
+    if (!SECONDARY_STATS.has(key)) return null;
+    const conversion = bootstrap?.rules?.secondary_stat_conversion?.[`${state.className}:${state.specName}`] || {};
+    const perPercent = number(conversion[`${key}_per_percent`]);
+    if (!perPercent) return null;
+    const coefficient = key === "mastery" ? number(conversion.mastery_coefficient) || 1 : 1;
+    return number(value) / perPercent * coefficient;
+  }
+
   function renderStats() {
     const {totals, effects, equipped, missingStats} = totalsAndEffects();
     const keys = [primaryStatKey(), ...SUMMARY_STATS];
     const max = Math.max(1, ...keys.map((key) => number(totals[key])));
     els.stat_grid.innerHTML = keys.map((key) => {
       const value = number(totals[key]);
-      const conversion = bootstrap?.rules?.secondary_stat_conversion?.[`${state.className}:${state.specName}`] || {};
-      const perPercent = number(conversion[`${key}_per_percent`]);
-      const coefficient = key === "mastery" ? number(conversion.mastery_coefficient) || 1 : 1;
-      const percent = SECONDARY_STATS.has(key) && perPercent ? value / perPercent * coefficient : null;
+      const percent = secondaryPercentage(key, value);
       const percentageMarkup = percent === null
         ? ""
         : `<small class="gear-stat-percent">/ ${formatNumber(percent)}%</small>`;
@@ -663,6 +682,73 @@
       : `已装备 ${equipped}/16 · 绿字百分比按固定比例换算，精通应用当前专精系数`;
   }
 
+  function previewSlotMarkup(slotKey) {
+    const slot = bootstrap?.slots?.find((row) => row.key === slotKey) || {key: slotKey, label: slotKey};
+    const entry = state.equipment[slotKey];
+    const item = entry?.item;
+    const variant = entry?.variant;
+    const enhancements = enhancementSummary(entry);
+    const tooltip = item ? tooltipAttrs(item, variant) : "";
+    return `<button type="button" class="gear-preview-slot${item ? "" : " is-empty"}" data-preview-slot="${escapeHtml(slotKey)}"${tooltip}>
+      ${item ? iconMarkup(item, "gear-preview-slot-icon") : '<span class="gear-preview-slot-icon gear-preview-slot-placeholder" aria-hidden="true">◇</span>'}
+      <span class="gear-preview-slot-copy">
+        <span class="gear-preview-slot-label">${escapeHtml(slot.label)}</span>
+        <strong>${escapeHtml(item?.name || "未装备")}</strong>
+        ${enhancements ? `<small title="${escapeHtml(enhancements)}">${escapeHtml(enhancements)}</small>` : ""}
+      </span>
+      <span class="gear-preview-slot-level">${variant?.item_level || entry?.itemLevel || "—"}</span>
+    </button>`;
+  }
+
+  function renderPreview() {
+    if (!els.preview) return;
+    const currentClass = classPayload() || {};
+    const currentSpec = specPayload() || {};
+    const {totals, effects, equipped} = totalsAndEffects();
+    const levels = Object.values(state.equipment)
+      .map((entry) => number(entry?.variant?.item_level || entry?.itemLevel))
+      .filter((value) => value > 0);
+    const averageLevel = levels.length ? Math.round(levels.reduce((sum, value) => sum + value, 0) / levels.length) : 0;
+    const completion = Math.min(100, equipped / 16 * 100);
+    const catalog = bootstrap?.catalog || {};
+    els.preview_left.innerHTML = PREVIEW_LEFT_SLOTS.map(previewSlotMarkup).join("");
+    els.preview_right.innerHTML = PREVIEW_RIGHT_SLOTS.map(previewSlotMarkup).join("");
+    els.preview_class.textContent = currentClass.name || state.className;
+    els.preview_spec.textContent = currentSpec.name || state.specName;
+    els.preview_spec_fallback.textContent = String(currentSpec.name || state.specName || "专").slice(0, 1);
+    const specIconUrl = currentSpec.icon || "";
+    if (!specIconUrl) els.preview_spec_icon.removeAttribute("src");
+    else if (els.preview_spec_icon.getAttribute("src") !== specIconUrl) els.preview_spec_icon.src = specIconUrl;
+    const specIconLoaded = Boolean(specIconUrl && els.preview_spec_icon.complete && els.preview_spec_icon.naturalWidth);
+    els.preview_spec_icon.alt = specIconUrl ? `${currentSpec.name || state.specName}专精图标` : "";
+    els.preview_spec_icon.hidden = !specIconLoaded;
+    els.preview_spec_fallback.hidden = specIconLoaded;
+    els.preview_item_level.textContent = String(averageLevel || 0);
+    els.preview_count.textContent = `${equipped} / 16`;
+    els.preview_season.textContent = `${catalog.season?.name || "当前赛季"} · ${catalog.game_build || "正式服"}`;
+    els.preview_progress_bar.style.width = `${completion}%`;
+    els.preview_progress_copy.textContent = equipped ? `已完成 ${equipped} 个装备槽位` : "尚未选择装备";
+    const statKeys = [primaryStatKey(), ...SUMMARY_STATS];
+    els.preview_stats.innerHTML = statKeys.map((key) => {
+      const value = number(totals[key]);
+      const percent = secondaryPercentage(key, value);
+      return `<div class="gear-preview-stat"><span>${escapeHtml(STAT_LABELS[key] || key)}</span><strong>${formatNumber(value)}</strong>${percent === null ? "" : `<small>${formatNumber(percent)}%</small>`}</div>`;
+    }).join("");
+    els.preview_effects.innerHTML = effects.length
+      ? effects.map((row) => `<div><strong>${escapeHtml(row.slot)}</strong><span>${escapeHtml(row.text)}</span></div>`).join("")
+      : '<span class="gear-preview-empty-effects">当前配装没有触发型特效。</span>';
+  }
+
+  function renderView() {
+    const preview = state.viewMode === "preview";
+    document.querySelectorAll("[data-gear-editor]").forEach((node) => { node.hidden = preview; });
+    els.preview.hidden = !preview;
+    els.view_editor.classList.toggle("is-active", !preview);
+    els.view_editor.setAttribute("aria-selected", String(!preview));
+    els.view_preview.classList.toggle("is-active", preview);
+    els.view_preview.setAttribute("aria-selected", String(preview));
+  }
+
   function renderMobileView() {
     page.dataset.mobileView = state.mobileView;
     document.querySelectorAll("[data-mobile-view]").forEach((button) => button.classList.toggle("is-active", button.dataset.mobileView === state.mobileView));
@@ -673,6 +759,8 @@
     renderMode();
     renderDetail();
     renderStats();
+    renderPreview();
+    renderView();
     renderMobileView();
     renderCandidates();
   }
@@ -808,9 +896,11 @@
         body: JSON.stringify({profile}),
       });
       if (payload.identity?.class_name && payload.identity?.spec_name) {
+        const viewMode = state.viewMode;
         state = loadStored(payload.identity.class_name, payload.identity.spec_name);
         state.className = payload.identity.class_name;
         state.specName = payload.identity.spec_name;
+        state.viewMode = viewMode;
         syncSelectors();
       }
       (payload.equipment || []).forEach((row) => {
@@ -846,19 +936,52 @@
   }
 
   function bindEvents() {
+    els.preview_spec_icon.addEventListener("load", () => {
+      els.preview_spec_icon.hidden = false;
+      els.preview_spec_fallback.hidden = true;
+    });
+    els.preview_spec_icon.addEventListener("error", () => {
+      els.preview_spec_icon.hidden = true;
+      els.preview_spec_fallback.hidden = false;
+    });
+    els.view_editor.addEventListener("click", () => {
+      state.viewMode = "editor";
+      persist();
+      renderView();
+    });
+    els.view_preview.addEventListener("click", () => {
+      state.viewMode = "preview";
+      persist();
+      renderPreview();
+      renderView();
+    });
+    els.preview.addEventListener("click", async (event) => {
+      const slot = event.target.closest("[data-preview-slot]")?.dataset.previewSlot;
+      if (!slot) return;
+      state.selectedSlot = slot;
+      state.viewMode = "editor";
+      state.mobileView = "browser";
+      persist();
+      renderAll();
+      if (state.mode === "enhancement") await loadEnhancements(); else await loadCandidates(true);
+    });
     els.class_select.addEventListener("change", async () => {
       const className = els.class_select.value;
       const selectedClass = bootstrap.classes.find((row) => row.key === className);
       const specName = selectedClass?.specs?.[0]?.key || "";
+      const viewMode = state.viewMode;
       state = loadStored(className, specName);
       state.className = className;
       state.specName = specName;
+      state.viewMode = viewMode;
       syncSelectors(); persist(); renderAll(); await loadCandidates(true);
     });
     els.spec_select.addEventListener("change", async () => {
+      const viewMode = state.viewMode;
       state = loadStored(state.className, els.spec_select.value);
       state.className = els.class_select.value;
       state.specName = els.spec_select.value;
+      state.viewMode = viewMode;
       persist(); renderAll(); await loadCandidates(true);
     });
     els.slot_list.addEventListener("click", async (event) => {

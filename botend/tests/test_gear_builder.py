@@ -762,7 +762,7 @@ class GearBuilderFrontendContractTests(TestCase):
         script = (root / 'static/portal/js/gear_builder.js').read_text(encoding='utf-8')
         self.assertIn('/portal/gear-builder/', header)
         self.assertIn('职业配装器', header)
-        for value in ('装备', '强化', '美化', '宝石', '永久附魔', '导入 SimC', '绿字'):
+        for value in ('装备', '强化', '美化', '宝石', '永久附魔', '导入 SimC', '绿字', '游戏预览', '角色装备预览'):
             self.assertIn(value, template)
         self.assertIn('gear-add-socket', template)
         for value in ('localStorage', 'CompressionStream', 'parse', 'crafted_stats', 'data-wow-item-tooltip'):
@@ -779,3 +779,5 @@ class GearBuilderFrontendContractTests(TestCase):
         self.assertIn('data-select-item', script)
         self.assertNotIn('data-add-item', script)
         self.assertIn('SECONDARY_STATS.has(key)', script)
+        for value in ('renderPreview', 'data-preview-slot', 'preview_item_level', 'state.viewMode === "preview"'):
+            self.assertIn(value, script)

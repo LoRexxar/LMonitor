@@ -10,7 +10,7 @@
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260808_portal_theme_v2"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260821_mythicstats_clean_light_v7">
     <link rel="stylesheet" href="{% static 'shared/css/wow-item-tooltip.css' %}?v=20260813_simc_equipment_icon">
-    <link rel="stylesheet" href="{% static 'portal/css/gear_builder.css' %}?v=20260901_gear_builder_v6">
+    <link rel="stylesheet" href="{% static 'portal/css/gear_builder.css' %}?v=20260901_gear_builder_v7">
 </head>
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
@@ -28,6 +28,10 @@
             <div class="gear-builder-heading">
                 <h1>职业配装器</h1>
                 <span id="gear-catalog-status" class="gear-catalog-status">正在读取装备目录</span>
+            </div>
+            <div class="gear-view-switch" role="tablist" aria-label="切换配装与预览">
+                <button type="button" id="gear-view-editor" class="is-active" role="tab" aria-selected="true">编辑配装</button>
+                <button type="button" id="gear-view-preview" role="tab" aria-selected="false">游戏预览</button>
             </div>
             <div class="gear-builder-controls">
                 <label class="gear-select-control">
@@ -51,13 +55,13 @@
             </div>
         </header>
 
-        <nav class="gear-mobile-tabs" aria-label="配装器区域">
+        <nav class="gear-mobile-tabs" data-gear-editor aria-label="配装器区域">
             <button type="button" data-mobile-view="slots" class="is-active">装备 <span id="gear-mobile-count">0/16</span></button>
             <button type="button" data-mobile-view="browser">候选与强化</button>
             <button type="button" data-mobile-view="stats">属性汇总</button>
         </nav>
 
-        <section class="gear-builder-workspace" aria-label="职业配装工作区">
+        <section class="gear-builder-workspace" data-gear-editor aria-label="职业配装工作区">
             <aside class="gear-panel gear-slots-panel" data-gear-mobile-panel="slots">
                 <div class="gear-panel-heading">
                     <h2>装备栏位</h2>
@@ -137,7 +141,7 @@
             </aside>
         </section>
 
-        <section class="gear-panel gear-stats-panel" data-gear-mobile-panel="stats" aria-live="polite">
+        <section class="gear-panel gear-stats-panel" data-gear-editor data-gear-mobile-panel="stats" aria-live="polite">
             <div class="gear-stats-heading">
                 <div><h2>当前配装属性</h2><span id="gear-stats-context">不包含临时增益与随机第三属性</span></div>
                 <span id="gear-save-status" class="gear-save-status">保存在当前浏览器</span>
@@ -147,6 +151,50 @@
                 <h3>装备与强化特效</h3>
                 <div id="gear-effect-list"></div>
             </div>
+        </section>
+
+        <section id="gear-preview" class="gear-preview" aria-label="游戏内风格配装预览" hidden>
+            <header class="gear-preview-head">
+                <div>
+                    <h2>角色装备预览</h2>
+                    <p>最终配装展示 · 点击任意装备返回对应槽位编辑</p>
+                </div>
+                <div class="gear-preview-head-meta">
+                    <span id="gear-preview-season">当前赛季</span>
+                    <strong id="gear-preview-count">0 / 16</strong>
+                </div>
+            </header>
+            <div class="gear-preview-stage">
+                <div id="gear-preview-left" class="gear-preview-column" aria-label="左侧装备"></div>
+                <section class="gear-preview-character" aria-label="职业专精信息">
+                    <div class="gear-preview-emblem" aria-hidden="true">
+                        <span class="gear-preview-emblem-ring"></span>
+                        <img id="gear-preview-spec-icon" alt="">
+                        <strong id="gear-preview-spec-fallback" class="gear-preview-spec-fallback">专</strong>
+                    </div>
+                    <span id="gear-preview-class" class="gear-preview-class">职业</span>
+                    <h3 id="gear-preview-spec">专精</h3>
+                    <div class="gear-preview-item-level">
+                        <strong id="gear-preview-item-level">0</strong>
+                        <span>平均物品等级</span>
+                    </div>
+                    <div class="gear-preview-progress" aria-label="装备完成度">
+                        <span id="gear-preview-progress-bar"></span>
+                    </div>
+                    <small id="gear-preview-progress-copy">尚未选择装备</small>
+                </section>
+                <div id="gear-preview-right" class="gear-preview-column" aria-label="右侧装备"></div>
+            </div>
+            <footer class="gear-preview-summary">
+                <section>
+                    <h3>战斗属性</h3>
+                    <div id="gear-preview-stats" class="gear-preview-stats"></div>
+                </section>
+                <section class="gear-preview-effects-wrap">
+                    <h3>装备与强化特效</h3>
+                    <div id="gear-preview-effects" class="gear-preview-effects"></div>
+                </section>
+            </footer>
         </section>
     </main>
 
@@ -167,6 +215,6 @@
 
     <div id="gear-toast-root" class="gear-toast-root" aria-live="polite"></div>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
-    <script src="{% static 'portal/js/gear_builder.js' %}?v=20260901_gear_builder_v7"></script>
+    <script src="{% static 'portal/js/gear_builder.js' %}?v=20260901_gear_builder_v9"></script>
 </body>
 </html>
