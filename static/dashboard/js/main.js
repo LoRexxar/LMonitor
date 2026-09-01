@@ -115,6 +115,9 @@ document.addEventListener('DOMContentLoaded', function() {
         if (defaultSectionId === 'user-groups' && window.loadDashboardUserGroups) {
             window.loadDashboardUserGroups();
         }
+        if (defaultSectionId === 'gear-builder-management' && window.loadGearBuilderManagement) {
+            window.loadGearBuilderManagement();
+        }
     }
 
     // 默认展开数据库表菜单（但不激活）
@@ -579,6 +582,9 @@ function initNavigation() {
                 }
                 if (sectionId === 'user-groups' && window.loadDashboardUserGroups) {
                     window.loadDashboardUserGroups();
+                }
+                if (sectionId === 'gear-builder-management' && window.loadGearBuilderManagement) {
+                    window.loadGearBuilderManagement();
                 }
                 if (isSimcDashboardSection(sectionId)) {
                     const simcPage = Object.keys(SIMC_DASHBOARD_SECTIONS)

@@ -17,6 +17,7 @@ DASHBOARD_PAGE_PERMISSIONS = OrderedDict((item['code'], item) for item in (
     {'code': 'mythic.config', 'label': '规划器设置', 'section': 'mythic-planner-config', 'parent': '大秘境规划器'},
     {'code': 'mythic.positions', 'label': '位置标记', 'section': 'mythic-planner-positions', 'parent': '大秘境规划器'},
     {'code': 'mythic.routes', 'label': '路线管理', 'section': 'mythic-planner-routes', 'parent': '大秘境规划器'},
+    {'code': 'gear-builder.manage', 'label': '职业配装管理', 'section': 'gear-builder-management', 'parent': '职业配装器'},
     {'code': 'simc.workflow', 'label': '工作流', 'section': 'simc-workflow', 'parent': 'SimC'},
     {'code': 'simc.history', 'label': '历史任务', 'section': 'simc-history', 'parent': 'SimC'},
     {'code': 'simc.advanced', 'label': '高级设置', 'section': 'simc-advanced', 'parent': 'SimC'},

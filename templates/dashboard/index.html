@@ -476,8 +476,9 @@
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260831_skill_damage_target_tabs"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260901_gear_builder_management"></script>
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806c" defer></script>
+    <script src="{% static 'dashboard/js/gear_builder_management.js' %}?v=20260901a" defer></script>
     <script src="{% static 'dashboard/js/simc-result-report.js' %}?v=20260817_result_config_panel"></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260818_task_compare_selection"></script>
     <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260819_benchmark_rerun_snapshot"></script>
@@ -675,6 +676,12 @@
                         </ul>
                     </li>
                     {% endif %}
+                    <li class="nav-item" data-section="gear-builder-management">
+                        <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                            <i class="fas fa-shield-alt mr-3"></i>
+                            职业配装管理
+                        </a>
+                    </li>
                     <li class="nav-item has-submenu open" data-section="simc">
                         <a href="#" aria-expanded="true" aria-controls="simc-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-microchip mr-3"></i>
@@ -779,6 +786,71 @@
                 {% include 'dashboard/_mythic_planner_routes_content.html' %}
             </div>
             {% endif %}
+            <div
+                id="gear-builder-management"
+                class="content-section"
+                data-loadouts-url="{% url 'dashboard_gear_builder_management' resource='loadouts' %}"
+                data-shares-url="{% url 'dashboard_gear_builder_management' resource='shares' %}"
+                style="display: none;"
+            >
+                <div class="mb-6 flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                        <h2 class="text-3xl font-bold text-gray-800 mb-2">职业配装管理</h2>
+                        <p class="text-gray-600">管理用户保存到线上账号的配装字符串，以及公开分享短链接。</p>
+                    </div>
+                    <a href="{% url 'portal_gear_builder' %}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:border-blue-400 hover:bg-blue-100">
+                        <i class="fas fa-arrow-up-right-from-square mr-2"></i>打开职业配装器
+                    </a>
+                </div>
+
+                <div class="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-6">
+                    <article class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm"><p class="text-sm text-gray-500">线上配装</p><strong id="gear-builder-management-loadout-count" class="mt-2 block text-3xl text-gray-900">—</strong></article>
+                    <article class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm"><p class="text-sm text-gray-500">短链接总数</p><strong id="gear-builder-management-share-count" class="mt-2 block text-3xl text-gray-900">—</strong></article>
+                    <article class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm"><p class="text-sm text-gray-500">有效短链接</p><strong id="gear-builder-management-active-share-count" class="mt-2 block text-3xl text-emerald-700">—</strong></article>
+                </div>
+
+                <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div class="border-b border-gray-200 p-4 flex flex-wrap items-center justify-between gap-4">
+                        <div class="inline-flex rounded-lg bg-gray-100 p-1" role="tablist" aria-label="切换配装管理数据">
+                            <button type="button" data-gear-builder-resource="loadouts" class="rounded-md bg-white px-4 py-2 text-sm font-semibold text-blue-700 shadow-sm" role="tab" aria-selected="true">线上配装</button>
+                            <button type="button" data-gear-builder-resource="shares" class="rounded-md px-4 py-2 text-sm font-semibold text-gray-600" role="tab" aria-selected="false">分享短链接</button>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <label class="relative">
+                                <i class="fas fa-search absolute left-3 top-3 text-xs text-gray-400"></i>
+                                <input id="gear-builder-management-search" type="search" autocomplete="off" placeholder="搜索用户、名称、短码或专精" class="w-72 max-w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm">
+                            </label>
+                            <select id="gear-builder-management-status" aria-label="短链接状态" class="hidden rounded-lg border border-gray-300 px-3 py-2 text-sm"><option value="all">全部状态</option><option value="active">仅有效</option><option value="inactive">仅停用</option></select>
+                            <select id="gear-builder-management-page-size" aria-label="每页数量" class="rounded-lg border border-gray-300 px-3 py-2 text-sm"><option value="25">25 条</option><option value="50">50 条</option><option value="100">100 条</option></select>
+                            <button id="gear-builder-management-refresh" type="button" class="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><i class="fas fa-rotate-right mr-2"></i>刷新</button>
+                        </div>
+                    </div>
+                    <div id="gear-builder-management-message" class="hidden border-b px-4 py-3 text-sm"></div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full">
+                            <thead class="bg-gray-50"><tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">名称 / 短码</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">用户</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">职业专精</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">批次</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">状态 / 访问</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">更新时间</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500">操作</th>
+                            </tr></thead>
+                            <tbody id="gear-builder-management-table-body" class="divide-y divide-gray-200"></tbody>
+                        </table>
+                    </div>
+                    <div class="border-t bg-gray-50 px-4 py-3 flex flex-wrap items-center justify-between gap-3"><span id="gear-builder-management-page-info" class="text-sm text-gray-600"></span><div id="gear-builder-management-pagination" class="flex gap-2"></div></div>
+                </div>
+
+                <div id="gear-builder-management-detail" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-black/65 p-4" role="dialog" aria-modal="true" aria-labelledby="gear-builder-management-detail-title">
+                    <div class="w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+                        <div class="flex items-center justify-between border-b px-6 py-4"><div><h3 id="gear-builder-management-detail-title" class="text-xl font-bold text-gray-900">记录详情</h3><p id="gear-builder-management-detail-summary" class="mt-1 text-sm text-gray-500"></p></div><button type="button" data-gear-builder-detail-close class="text-2xl text-gray-400 hover:text-gray-700" aria-label="关闭">×</button></div>
+                        <div class="max-h-[70vh] overflow-y-auto p-6"><dl id="gear-builder-management-detail-meta" class="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2"></dl><div class="mt-5"><div class="mb-2 flex items-center justify-between"><h4 class="font-semibold text-gray-800">配装编码字符串</h4><button id="gear-builder-management-copy-code" type="button" class="rounded-lg border border-blue-200 px-3 py-1.5 text-sm text-blue-700 hover:bg-blue-50">复制编码</button></div><pre id="gear-builder-management-detail-code" class="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-xl bg-slate-950 p-4 text-xs leading-5 text-slate-100"></pre></div></div>
+                        <div class="flex justify-end border-t bg-gray-50 px-6 py-4"><button type="button" data-gear-builder-detail-close class="rounded-lg border border-gray-300 px-4 py-2 text-sm">关闭</button></div>
+                    </div>
+                </div>
+            </div>
             <!-- 首页内容区域 -->
             <div class="content-section" id="dashboard-home" style="display: none;">
                 <div class="mb-8">

@@ -67,6 +67,7 @@ from botend.portal.gear_builder import (
     PortalGearBuilderOnlineLoadoutAPIView,
     PortalGearBuilderView,
 )
+from botend.dashboard.gear_builder_management import DashboardGearBuilderManagementAPIView
 from botend.portal.api import (
     PortalBluepostsAPIView,
     PortalNgaHotAPIView,
@@ -151,6 +152,8 @@ urlpatterns = [
     path('api/dashboard/users/<int:user_id>/', DashboardUserDetailAPIView.as_view(), name='dashboard_user_detail'),
     path('api/dashboard/user-groups/', DashboardUserGroupListAPIView.as_view(), name='dashboard_user_group_list'),
     path('api/dashboard/user-groups/<int:group_id>/', DashboardUserGroupDetailAPIView.as_view(), name='dashboard_user_group_detail'),
+    path('api/dashboard/gear-builder/<str:resource>/', DashboardGearBuilderManagementAPIView.as_view(), name='dashboard_gear_builder_management'),
+    path('api/dashboard/gear-builder/<str:resource>/<int:object_id>/', DashboardGearBuilderManagementAPIView.as_view(), name='dashboard_gear_builder_management_detail'),
     path('dashboard/mythic-planner/', DashboardMythicPlannerView.as_view(), name='dashboard_mythic_planner'),
     path('dashboard/mythic-planner/positions/', DashboardMythicPlannerPositionsView.as_view(), name='dashboard_mythic_planner_positions'),
     path('dashboard/mythic-planner/routes/', DashboardMythicPlannerRoutesView.as_view(), name='dashboard_mythic_planner_routes'),
