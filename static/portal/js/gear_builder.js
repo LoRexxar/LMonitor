@@ -43,7 +43,7 @@
     crit: "#ed7b2d", haste: "#24a7bd", mastery: "#7c3aed", versatility: "#c59d28",
   };
   const SECONDARY_STATS = new Set(["crit", "haste", "mastery", "versatility"]);
-  const SHARE_FORMAT_VERSION = 2;
+  const SHARE_FORMAT_VERSION = 3;
   const LOADOUT_LIBRARY_KEY = "wowdaily:gear-builder:loadouts:v1";
   const MAX_SAVED_LOADOUTS = 30;
   const BASE_SECONDARY_PERCENTAGES = Object.freeze({
@@ -863,6 +863,16 @@
     return enhancements.some((row) => !row?.variant?.id || row.external);
   }
 
+  function compactVariantReference(row) {
+    if (!row?.variant?.id) return 0;
+    return [
+      Number(row.variant.id),
+      Number(row.item?.item_id || row.variant?.item_id || 0),
+      String(row.variant.key || ""),
+      Number(row.variant.item_level || 0),
+    ];
+  }
+
   function compactShareState(currentState) {
     const equipment = Object.entries(currentState.equipment || {}).map(([slot, entry]) => {
       if (shareEntryNeedsSnapshot(entry)) {
@@ -871,11 +881,11 @@
       return [
         slot,
         Number(entry.item?.item_id || 0),
-        Number(entry.variant?.id || 0),
+        compactVariantReference(entry),
         Array.isArray(entry.selectedStats) ? entry.selectedStats : [],
-        Number(entry.embellishment?.variant?.id || 0),
-        (entry.gems || []).map((row) => Number(row.variant?.id || 0)).filter(Boolean),
-        Number(entry.enchant?.variant?.id || 0),
+        compactVariantReference(entry.embellishment),
+        (entry.gems || []).map(compactVariantReference).filter(Boolean),
+        compactVariantReference(entry.enchant),
         entry.addedSocket ? 1 : 0,
       ];
     });
@@ -890,7 +900,7 @@
   }
 
   async function hydrateSharePayload(payload) {
-    if (Number(payload?.v) !== SHARE_FORMAT_VERSION || !Array.isArray(payload?.e)) {
+    if (![2, SHARE_FORMAT_VERSION].includes(Number(payload?.v)) || !Array.isArray(payload?.e)) {
       return normalizeState(payload);
     }
     const ui = Array.isArray(payload.u) ? payload.u : [];

@@ -207,7 +207,7 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         self.assertTrue(payload['success'])
         self.assertTrue(payload['catalog']['available'])
         self.assertEqual(payload['catalog']['batch_key'], 'test-batch')
-        self.assertEqual(payload['rules']['share_version'], 2)
+        self.assertEqual(payload['rules']['share_version'], 3)
         self.assertEqual(len(payload['slots']), 16)
         self.assertEqual(
             [row['slot'] for row in payload['rules']['socket_additions']],
@@ -481,6 +481,52 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
             content_type='application/json',
         )
         self.assertEqual(invalid.status_code, 400)
+
+    def test_v3_share_recovers_stale_ids_by_stable_variant_reference(self):
+        response = self.client.post(
+            '/portal/api/gear-builder/resolve-share/',
+            data=json.dumps({
+                'v': 3,
+                'c': 'Warrior',
+                's': 'Fury',
+                'b': 'test-batch',
+                'e': [[
+                    'head', self.crafted_item.item_id,
+                    [999991, self.crafted_item.item_id, self.crafted.variant_key, self.crafted.item_level],
+                    ['crit', 'mastery'],
+                    [999992, self.embellishment_item.item_id, self.embellishment.variant_key, self.embellishment.item_level],
+                    [[999993, self.gem_item.item_id, self.gem.variant_key, self.gem.item_level]],
+                    [999994, self.enchant_item.item_id, self.enchant.variant_key, self.enchant.item_level],
+                    1,
+                ]],
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        payload = response.json()
+        entry = payload['equipment']['head']
+        self.assertEqual(entry['variant']['id'], self.crafted.id)
+        self.assertEqual(entry['embellishment']['variant']['id'], self.embellishment.id)
+        self.assertEqual(entry['gems'][0]['variant']['id'], self.gem.id)
+        self.assertEqual(entry['enchant']['variant']['id'], self.enchant.id)
+        self.assertEqual(payload['warnings'], [])
+
+    def test_v2_share_recovers_stale_equipment_as_current_highest_grade(self):
+        response = self.client.post(
+            '/portal/api/gear-builder/resolve-share/',
+            data=json.dumps({
+                'v': 2,
+                'c': 'Warrior',
+                's': 'Fury',
+                'b': 'test-batch',
+                'e': [['head', self.helm.item_id, 999999]],
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        payload = response.json()
+        self.assertEqual(payload['equipment']['head']['variant']['id'], self.myth.id)
+        self.assertTrue(any('当前最高品级' in warning for warning in payload['warnings']))
 
     def test_simc_import_maps_catalog_and_preserves_external_item(self):
         profile = '\n'.join((
@@ -811,8 +857,9 @@ class GearBuilderFrontendContractTests(TestCase):
         self.assertNotIn('<details class="gear-enhancement-section" open>', template)
         for value in ('localStorage', 'CompressionStream', 'parse', 'crafted_stats', 'data-wow-item-tooltip'):
             self.assertIn(value, script)
-        for value in ('SHARE_FORMAT_VERSION = 2', 'compactShareState', 'hydrateSharePayload', 'endpoints.share', 'row.slice(0, 8)'):
+        for value in ('SHARE_FORMAT_VERSION = 3', 'compactShareState', 'compactVariantReference', 'hydrateSharePayload', 'endpoints.share', 'row.slice(0, 8)'):
             self.assertIn(value, script)
+        self.assertIn('[2, SHARE_FORMAT_VERSION].includes', script)
         self.assertIn('return normalizeState(payload);', script)
         for value in ('LOADOUT_LIBRARY_KEY', 'MAX_SAVED_LOADOUTS = 30', 'readSavedLoadouts', 'saveCurrentLoadout', 'loadSavedLoadout', 'deleteSavedLoadout'):
             self.assertIn(value, script)
