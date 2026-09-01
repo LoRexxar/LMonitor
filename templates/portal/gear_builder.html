@@ -10,7 +10,7 @@
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260808_portal_theme_v2"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260821_mythicstats_clean_light_v7">
     <link rel="stylesheet" href="{% static 'shared/css/wow-item-tooltip.css' %}?v=20260813_simc_equipment_icon">
-    <link rel="stylesheet" href="{% static 'portal/css/gear_builder.css' %}?v=20260901_gear_builder_v12">
+    <link rel="stylesheet" href="{% static 'portal/css/gear_builder.css' %}?v=20260901_gear_builder_v13">
 </head>
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
@@ -48,27 +48,9 @@
                     <select id="gear-spec-select" aria-label="选择专精"></select>
                 </label>
                 <span class="gear-control-divider" aria-hidden="true"></span>
-                <button type="button" id="gear-import-simc" class="gear-btn gear-btn--primary">
-                    <span aria-hidden="true">⇧</span> 导入 SimC
-                </button>
-                <button type="button" id="gear-copy-simc" class="gear-btn">
-                    <span aria-hidden="true">⧉</span> 复制 SimC
-                </button>
-                <button type="button" id="gear-copy-share" class="gear-btn">
-                    <span aria-hidden="true">↗</span> 复制分享链接
-                </button>
-                {% if request.user.is_authenticated %}
-                <button type="button" id="gear-save-online" class="gear-btn">
-                    <span aria-hidden="true">☁</span> 保存配装到线上
-                </button>
-                <button type="button" id="gear-copy-short-share" class="gear-btn">
-                    <span aria-hidden="true">↗</span> 分享短链接
-                </button>
-                {% endif %}
                 <div id="gear-loadout-manager" class="gear-loadout-manager">
-                    <button type="button" id="gear-save-loadout" class="gear-btn">保存配装</button>
                     <button type="button" id="gear-loadout-toggle" class="gear-btn" aria-expanded="false" aria-controls="gear-loadout-panel">
-                        配装列表 <span id="gear-loadout-count" class="gear-loadout-count">0</span>
+                        配装方案 <span id="gear-loadout-count" class="gear-loadout-count">0</span><span class="gear-menu-chevron" aria-hidden="true">⌄</span>
                     </button>
                     <section id="gear-loadout-panel" class="gear-loadout-panel" aria-label="配装列表" hidden>
                         <header class="gear-loadout-head">
@@ -85,9 +67,30 @@
                         <div id="gear-loadout-list" class="gear-loadout-list"></div>
                     </section>
                 </div>
-                <button type="button" id="gear-clear" class="gear-btn gear-btn--danger-quiet">
-                    清空
-                </button>
+                <div id="gear-action-manager" class="gear-action-manager">
+                    <button type="button" id="gear-actions-toggle" class="gear-btn gear-btn--primary" aria-expanded="false" aria-controls="gear-actions-panel">
+                        更多操作 <span class="gear-menu-chevron" aria-hidden="true">⌄</span>
+                    </button>
+                    <section id="gear-actions-panel" class="gear-actions-panel" role="menu" aria-label="配装操作" hidden>
+                        <div class="gear-actions-group">
+                            <span class="gear-actions-label">SimC</span>
+                            <button type="button" id="gear-import-simc" class="gear-action-item" role="menuitem"><span aria-hidden="true">⇧</span><span><strong>导入 SimC</strong><small>解析并写入玩家装备 Profile</small></span></button>
+                            <button type="button" id="gear-copy-simc" class="gear-action-item" role="menuitem"><span aria-hidden="true">⧉</span><span><strong>复制 SimC</strong><small>导出当前装备 Profile</small></span></button>
+                        </div>
+                        <div class="gear-actions-group">
+                            <span class="gear-actions-label">保存与分享</span>
+                            <button type="button" id="gear-save-loadout" class="gear-action-item" role="menuitem"><span aria-hidden="true">▣</span><span><strong>保存配装</strong><small>保存到当前浏览器</small></span></button>
+                            <button type="button" id="gear-copy-share" class="gear-action-item" role="menuitem"><span aria-hidden="true">↗</span><span><strong>复制分享链接</strong><small>生成完整配置链接</small></span></button>
+                            {% if request.user.is_authenticated %}
+                            <button type="button" id="gear-save-online" class="gear-action-item" role="menuitem"><span aria-hidden="true">☁</span><span><strong>保存配装到线上</strong><small>同步到当前登录账号</small></span></button>
+                            <button type="button" id="gear-copy-short-share" class="gear-action-item" role="menuitem"><span aria-hidden="true">↗</span><span><strong>分享短链接</strong><small>生成适合发送的短地址</small></span></button>
+                            {% endif %}
+                        </div>
+                        <div class="gear-actions-danger">
+                            <button type="button" id="gear-clear" class="gear-action-item gear-action-item--danger" role="menuitem"><span aria-hidden="true">×</span><span><strong>清空当前配装</strong><small>移除当前专精的全部选择</small></span></button>
+                        </div>
+                    </section>
+                </div>
             </div>
         </header>
 
@@ -281,6 +284,6 @@
 
     <div id="gear-toast-root" class="gear-toast-root" aria-live="polite"></div>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
-    <script src="{% static 'portal/js/gear_builder.js' %}?v=20260901_gear_builder_v15"></script>
+    <script src="{% static 'portal/js/gear_builder.js' %}?v=20260901_gear_builder_v16"></script>
 </body>
 </html>

@@ -29,6 +29,7 @@
     "gear-loadout-manager", "gear-save-loadout", "gear-loadout-toggle", "gear-loadout-count",
     "gear-loadout-panel", "gear-loadout-summary", "gear-loadout-close", "gear-loadout-save-form",
     "gear-loadout-name", "gear-loadout-submit", "gear-loadout-list",
+    "gear-action-manager", "gear-actions-toggle", "gear-actions-panel",
     "gear-simc-dialog", "gear-simc-input", "gear-simc-submit", "gear-simc-message", "gear-toast-root",
     "gear-view-editor", "gear-view-preview", "gear-preview", "gear-preview-left", "gear-preview-right",
     "gear-preview-season", "gear-preview-count", "gear-preview-spec-icon", "gear-preview-spec-fallback", "gear-preview-class",
@@ -420,6 +421,7 @@
     } finally {
       candidateLoading = false;
       renderCandidates();
+      renderDetail();
     }
   }
 
@@ -505,6 +507,7 @@
     if (error) { toast(error, true); return; }
     const current = selectedEntry();
     if (Number(current?.item?.item_id) === Number(item.item_id) && Number(current?.variant?.id) === Number(variant.id)) {
+      renderDetail();
       openDetail();
       return;
     }
@@ -1039,6 +1042,7 @@
   }
 
   function setLoadoutPanel(open, focusName = false) {
+    if (open) setActionPanel(false);
     els.loadout_panel.hidden = !open;
     els.loadout_toggle.setAttribute("aria-expanded", String(open));
     if (!open) return;
@@ -1050,6 +1054,12 @@
       if (!els.loadout_name.value.trim()) els.loadout_name.value = defaultLoadoutName();
       requestAnimationFrame(() => { els.loadout_name.focus(); els.loadout_name.select(); });
     }
+  }
+
+  function setActionPanel(open) {
+    if (open) setLoadoutPanel(false);
+    els.actions_panel.hidden = !open;
+    els.actions_toggle.setAttribute("aria-expanded", String(open));
   }
 
   function loadoutRecordId() {
@@ -1371,6 +1381,11 @@
     });
     els.save_loadout.addEventListener("click", () => setLoadoutPanel(true, true));
     els.loadout_toggle.addEventListener("click", () => setLoadoutPanel(els.loadout_panel.hidden));
+    els.actions_toggle.addEventListener("click", () => setActionPanel(els.actions_panel.hidden));
+    els.actions_panel.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (event.target.closest(".gear-action-item")) setActionPanel(false);
+    });
     els.loadout_close.addEventListener("click", () => setLoadoutPanel(false));
     els.loadout_save_form.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -1424,9 +1439,11 @@
     });
     document.addEventListener("click", (event) => {
       if (!els.loadout_panel.hidden && !els.loadout_manager.contains(event.target)) setLoadoutPanel(false);
+      if (!els.actions_panel.hidden && !els.action_manager.contains(event.target)) setActionPanel(false);
     });
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && !els.loadout_panel.hidden) setLoadoutPanel(false);
+      if (event.key === "Escape" && !els.actions_panel.hidden) setActionPanel(false);
     });
     els.preview_spec_icon.addEventListener("load", () => {
       els.preview_spec_icon.hidden = false;

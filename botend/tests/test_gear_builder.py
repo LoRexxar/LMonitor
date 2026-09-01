@@ -980,8 +980,21 @@ class GearBuilderFrontendContractTests(TestCase):
         for value in ('LOADOUT_LIBRARY_KEY', 'MAX_SAVED_LOADOUTS = 30', 'readSavedLoadouts', 'saveCurrentLoadout', 'loadSavedLoadout', 'deleteSavedLoadout'):
             self.assertIn(value, script)
         self.assertIn('code: await encodeShare(compactShareState(state))', script)
-        self.assertIn("portal/js/gear_builder.js' %}?v=20260901_gear_builder_v15", template)
+        self.assertIn("portal/js/gear_builder.js' %}?v=20260901_gear_builder_v16", template)
+        self.assertIn("portal/css/gear_builder.css' %}?v=20260901_gear_builder_v13", template)
         self.assertIn('.gear-loadout-panel', styles)
+        self.assertIn('id="gear-actions-toggle"', template)
+        self.assertIn('id="gear-actions-panel"', template)
+        self.assertIn('class="gear-actions-label">SimC', template)
+        self.assertIn('class="gear-actions-label">保存与分享', template)
+        self.assertIn('.gear-actions-panel[hidden]', styles)
+        self.assertIn('renderCandidates();\n      renderDetail();', script)
+        current_item_branch = script[
+            script.index('Number(current?.item?.item_id) === Number(item.item_id)'):
+            script.index('const replacing = Boolean(current);')
+        ]
+        self.assertIn('renderDetail();', current_item_branch)
+        self.assertIn('openDetail();', current_item_branch)
         for value in ('socketCapacity', 'addedSocket', 'totalsAndEffects', 'gear-option-check'):
             self.assertIn(value, script)
         for value in ('enhancementSummary', 'gear-slot-enhancements', 'item.description'):
