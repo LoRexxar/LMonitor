@@ -188,6 +188,17 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('renderSimcProfileDetailDialog', MAIN)
         self.assertIn('raw_player_equipment', MAIN)
 
+    def test_profile_management_links_to_gear_builder(self):
+        profile_panel = BeautifulSoup(
+            HTML[HTML.index('id="simc-workbench-profiles-panel"'):HTML.index('id="simc-workbench-talent-strings-panel"')],
+            "html.parser",
+        )
+        link = profile_panel.select_one('#simc-wb-open-gear-builder')
+        self.assertIsNotNone(link)
+        self.assertEqual(link.get('href'), "{% url 'portal_gear_builder' %}")
+        self.assertEqual(link.get('target'), '_blank')
+        self.assertIn('职业配装器', link.get_text())
+
     def test_profile_view_is_read_only_and_edit_form_shows_structured_equipment(self):
         detail_start = MAIN.index('function renderSimcProfileDetailDialog')
         detail_end = MAIN.index('async function simcWbViewProfile', detail_start)

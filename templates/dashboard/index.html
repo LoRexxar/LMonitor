@@ -1434,6 +1434,9 @@
                                         <p class="text-sm text-gray-500 mt-1">统一查看个人配置与迁移后的 SimC 系统默认玩家；系统配置只读，由上游同步维护。</p>
                                     </div>
                                     <div class="flex items-center gap-2">
+                                        <a href="{% url 'portal_gear_builder' %}" target="_blank" rel="noopener noreferrer" id="simc-wb-open-gear-builder" class="inline-flex items-center rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-sm font-medium text-violet-700 transition hover:border-violet-400 hover:bg-violet-100" title="打开职业配装器并生成 SimC 装备 Profile">
+                                            <i class="fas fa-shield-alt mr-1"></i>职业配装器
+                                        </a>
                                         <button type="button" id="simc-wb-profile-add" data-profile-form-action="create" class="px-3 py-1.5 text-sm rounded-lg bg-blue-600 hover:bg-blue-700 text-white">
                                             <i class="fas fa-plus mr-1"></i>新增配置
                                         </button>
