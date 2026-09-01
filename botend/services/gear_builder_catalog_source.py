@@ -146,12 +146,14 @@ class CurrentGearCatalogSource:
 
     def build(self, *, season_key='', include_wowhead=True):
         self.progress('正在读取 Wago 正式服构建号……')
-        game_build = self._wago_current_build()
+        wago_build = self._wago_current_build()
         metadata = self._get_json(f'{RAIDBOTS_LIVE_ROOT}/metadata.json')
         raidbots_build = str(metadata.get('wowBuild') or metadata.get('wow_build') or '')
-        if raidbots_build != game_build:
-            raise CatalogSourceError(
-                f'Wago 构建 {game_build} 与 Raidbots 构建 {raidbots_build or "未知"} 不一致，拒绝激活混合批次。'
+        game_build, build_sync_status = self._resolve_catalog_build(wago_build, raidbots_build)
+        if build_sync_status != 'aligned':
+            self.progress(
+                f'提示：Wago 最新构建为 {wago_build}，Raidbots 装备目录为 {raidbots_build}；'
+                f'将以实际目录构建 {game_build} 生成批次，并在审计报告中保留上游延迟提示。'
             )
 
         self.progress(f'已锁定正式服构建 {game_build}，正在下载结构化目录……')
@@ -191,8 +193,10 @@ class CurrentGearCatalogSource:
                 'structure': 'wago_db2',
                 'normalized_projection': 'raidbots_static',
                 'display': 'wowhead_zhcn',
-                'wago_build': game_build,
+                'catalog_build': game_build,
+                'wago_build': wago_build,
                 'raidbots_build': raidbots_build,
+                'build_sync_status': build_sync_status,
             },
             'rules': {
                 'socket_additions': self._socket_addition_rules(active),
@@ -244,6 +248,25 @@ class CurrentGearCatalogSource:
         if not re.fullmatch(r'\d+\.\d+\.\d+\.\d+', build):
             raise CatalogSourceError(f'Wago 返回了异常构建号：{build or "空"}')
         return build
+
+    @staticmethod
+    def _resolve_catalog_build(wago_build, raidbots_build):
+        """热修订号可短暂不同，但目录批次始终使用其真实 Raidbots 构建号。"""
+        build_pattern = r'\d+\.\d+\.\d+\.\d+'
+        if not re.fullmatch(build_pattern, str(raidbots_build or '')):
+            raise CatalogSourceError(f'Raidbots 返回了异常构建号：{raidbots_build or "空"}')
+        if not re.fullmatch(build_pattern, str(wago_build or '')):
+            raise CatalogSourceError(f'Wago 返回了异常构建号：{wago_build or "空"}')
+        wago_parts = str(wago_build).split('.')
+        raidbots_parts = str(raidbots_build).split('.')
+        if wago_parts[:3] != raidbots_parts[:3]:
+            raise CatalogSourceError(
+                f'Wago 构建 {wago_build} 与 Raidbots 构建 {raidbots_build} 跨版本不一致，拒绝激活目录。'
+            )
+        if wago_build == raidbots_build:
+            return raidbots_build, 'aligned'
+        status = 'raidbots_lagging' if int(raidbots_parts[3]) < int(wago_parts[3]) else 'wago_lagging'
+        return raidbots_build, status
 
     @staticmethod
     def _season_key(active):

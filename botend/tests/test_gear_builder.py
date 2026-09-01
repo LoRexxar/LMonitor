@@ -15,8 +15,9 @@ from botend.models import (
     WowItemSnapshot,
     WowItemVariantSnapshot,
 )
+from botend.management.commands.sync_gear_builder_catalog import Command as SyncGearBuilderCatalogCommand
 from botend.services.gear_builder import stats_for_identity
-from botend.services.gear_builder_catalog_source import CurrentGearCatalogSource, _tooltip_details
+from botend.services.gear_builder_catalog_source import CatalogSourceError, CurrentGearCatalogSource, _tooltip_details
 from botend.services.gear_builder_icon_sync import GearBuilderIconSync
 
 
@@ -533,6 +534,18 @@ class GearBuilderImportCommandTests(TestCase):
             self.run_import(payload, '--activate')
         self.assertFalse(WowItemSnapshot.objects.exists())
 
+    def test_audit_reports_tolerated_upstream_build_lag(self):
+        payload = self.catalog_payload()
+        payload['game_build'] = '12.1.0.69497'
+        payload['provider'].update({
+            'catalog_build': '12.1.0.69497',
+            'wago_build': '12.1.0.69587',
+            'raidbots_build': '12.1.0.69497',
+            'build_sync_status': 'raidbots_lagging',
+        })
+        report = SyncGearBuilderCatalogCommand()._audit_payload(payload)
+        self.assertTrue(any('上游构建尚未完全同步' in value for value in report['warnings']))
+
     @patch('botend.management.commands.sync_gear_builder_catalog.CurrentGearCatalogSource.build')
     def test_fetch_current_can_create_and_activate_season_without_input_file(self, build):
         payload = self.catalog_payload()
@@ -559,6 +572,17 @@ class GearBuilderCurrentSourceTests(TestCase):
         raw = {'strength': 500, 'agility': 500, 'intellect': 500, 'crit': 200}
         self.assertEqual(stats_for_identity(raw, {}, 'Warrior', 'Fury'), {'strength': 500, 'crit': 200})
         self.assertEqual(stats_for_identity(raw, {}, 'Mage', 'Fire'), {'intellect': 500, 'crit': 200})
+
+    def test_same_patch_family_uses_real_raidbots_catalog_build(self):
+        build, status = CurrentGearCatalogSource._resolve_catalog_build(
+            '12.1.0.69587', '12.1.0.69497',
+        )
+        self.assertEqual(build, '12.1.0.69497')
+        self.assertEqual(status, 'raidbots_lagging')
+
+    def test_cross_patch_build_mismatch_still_blocks_activation(self):
+        with self.assertRaisesMessage(CatalogSourceError, '跨版本不一致'):
+            CurrentGearCatalogSource._resolve_catalog_build('12.1.5.70000', '12.1.0.69497')
 
     def test_special_mythic_drop_adds_344_variant_and_native_socket(self):
         item = {

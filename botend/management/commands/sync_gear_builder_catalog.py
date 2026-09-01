@@ -168,6 +168,14 @@ class Command(BaseCommand):
             warnings.append('provider 未声明 Wago 来源。')
         if 'wowhead' not in provider_text:
             warnings.append('provider 未声明 Wowhead 来源。')
+        build_sync_status = str(provider.get('build_sync_status') or 'aligned')
+        if build_sync_status != 'aligned':
+            warnings.append(
+                '上游构建尚未完全同步：'
+                f'目录使用 {provider.get("catalog_build") or payload.get("game_build") or "未知"}，'
+                f'Wago={provider.get("wago_build") or "未知"}，'
+                f'Raidbots={provider.get("raidbots_build") or "未知"}。'
+            )
         for item_index, item in enumerate(payload.get('items') or []):
             item_id = item.get('item_id')
             if not isinstance(item_id, int) or item_id <= 0:
