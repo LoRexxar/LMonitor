@@ -319,6 +319,24 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         }).json()['groups']
         self.assertEqual([row['item_id'] for row in groups['gems']], [10004])
 
+    def test_enhancements_keep_only_highest_embellishment_quality(self):
+        lower_item = WowItemSnapshot.objects.create(
+            item_id=10011, name='Rift Lining', name_zh='裂隙内衬',
+            catalog_type='embellishment', quality=3,
+        )
+        WowItemVariantSnapshot.objects.create(
+            item=lower_item, season=self.season, batch_key='test-batch',
+            variant_key='embellishment-q1', variant_type=WowItemVariantSnapshot.TYPE_EMBELLISHMENT,
+            crafting_quality=1, compatible_slots=['head'], unique_group='embellishment-limit',
+            max_equipped=2, effects_json=[{'description_zh': '较低数值效果'}],
+        )
+        self.embellishment.crafting_quality = 2
+        self.embellishment.save(update_fields=['crafting_quality'])
+        groups = self.client.get('/portal/api/gear-builder/enhancements/', {
+            'class': 'Warrior', 'spec': 'Fury', 'slot': 'head', 'variant_id': self.crafted.id,
+        }).json()['groups']
+        self.assertEqual([row['item_id'] for row in groups['embellishments']], [10003])
+
     def test_crafted_resolver_applies_two_stats_and_embellishment_effect(self):
         response = self.client.post(
             '/portal/api/gear-builder/resolve-crafted/',
@@ -488,6 +506,49 @@ class GearBuilderCurrentSourceTests(TestCase):
             [3],
         )
 
+    def test_embellishment_source_keeps_only_highest_effect_value(self):
+        rows = [
+            {
+                'id': 21, 'name': 'Sunfire Lining', 'expansion': 11, 'quality': 3,
+                'craftingQuality': 1, 'craftingCategoryId': 7,
+                'itemLimit': {'category': 512, 'quantity': 2},
+            },
+            {
+                'id': 22, 'name': 'Sunfire Lining', 'expansion': 11, 'quality': 3,
+                'craftingQuality': 2, 'craftingCategoryId': 7,
+                'itemLimit': {'category': 512, 'quantity': 2},
+            },
+        ]
+        selected = CurrentGearCatalogSource._highest_quality_embellishments(rows)
+        self.assertEqual([row['id'] for row in selected], [22])
+
+    def test_current_catalyst_tier_sets_are_added_as_raid_equipment(self):
+        by_id = {}
+        CurrentGearCatalogSource._add_tier_set_items(
+            by_id,
+            [{
+                'id': 271454, 'name': 'Tier Shoulders', 'expansion': 11,
+                'itemSetId': 2067, 'itemClass': 4, 'itemSubClass': 4,
+                'inventoryType': 3, 'allowableClasses': [1],
+                'sources': [{'instanceId': -100, 'encounterId': -100}],
+            }],
+            [{
+                'id': 2067, 'name': 'Jade Warlord', 'items': [271454],
+                'spells': [{'spellId': 1296645, 'reqItems': 2, 'specId': 72}],
+            }],
+            {'tracks': {'champion': [292], 'hero': [305], 'myth': [318]}},
+            {'id': -100, 'type': 'catalyst'},
+            [1302],
+            {1302: {'id': 1302, 'name': 'The Venomous Abyss'}},
+        )
+        item = by_id[271454]
+        self.assertEqual(item['allowable_class_mask'], 1)
+        self.assertTrue(item['metadata']['is_tier_set'])
+        self.assertEqual(item['effect_refs'][0]['spec_id'], 72)
+        self.assertEqual({row['upgrade_track'] for row in item['variants']}, {'champion', 'hero', 'myth'})
+        self.assertEqual(item['variants'][0]['sources'][0]['type'], 'raid')
+        self.assertEqual(item['variants'][0]['sources'][0]['encounter_zh'], '职业套装（首领兑换或化生）')
+
     def test_wowhead_tooltip_parser_extracts_scaled_stats_and_crafted_options(self):
         details = _tooltip_details({
             'name': '破法者的步伐', 'quality': 4, 'icon': 'inv_boot',
@@ -502,6 +563,19 @@ class GearBuilderCurrentSourceTests(TestCase):
         self.assertEqual(details['primary_options'], {'strength': 138, 'intellect': 138})
         self.assertEqual(details['secondary_total'], 148)
         self.assertEqual(details['effects'][0]['description_zh'], '装备：测试效果。')
+
+    def test_wowhead_tooltip_parser_keeps_embellishment_and_tier_descriptions(self):
+        details = _tooltip_details({
+            'name': '圣佑穿山甲护符', 'quality': 3,
+            'tooltip': (
+                '<div>提供下列属性：你的增益性技能有几率赋予全能。</div><br>'
+                '<span>(2) 组合 狂怒: 怒击的伤害提高15%。</span><br>'
+                '<span>(4) 组合 狂怒: 嗜血的伤害提高10%。</span>'
+            ),
+        })
+        self.assertIn('提供下列属性', details['description_zh'])
+        self.assertIn('(2) 组合 狂怒', details['description_zh'])
+        self.assertEqual(len(details['effects']), 3)
 
 
 @override_settings(OSS_CONFIG={
@@ -545,6 +619,8 @@ class GearBuilderFrontendContractTests(TestCase):
         for value in ('localStorage', 'CompressionStream', 'parse', 'crafted_stats', 'data-wow-item-tooltip'):
             self.assertIn(value, script)
         for value in ('socketCapacity', 'addedSocket', 'totalsAndEffects', 'gear-option-check'):
+            self.assertIn(value, script)
+        for value in ('enhancementSummary', 'gear-slot-enhancements', 'item.description'):
             self.assertIn(value, script)
         self.assertIn('data-select-item', script)
         self.assertNotIn('data-add-item', script)

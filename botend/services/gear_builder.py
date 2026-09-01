@@ -467,11 +467,18 @@ def enhancement_items(*, class_name, spec_name, slot, equipment_variant_id=None)
                 continue
         if not slot_matches(variant, slot, class_name, spec_name):
             continue
-        if variant.variant_type in (WowItemVariantSnapshot.TYPE_GEM, WowItemVariantSnapshot.TYPE_ENCHANT):
-            if int(variant.item.quality or 0) < 3:
+        if variant.variant_type in (
+            WowItemVariantSnapshot.TYPE_EMBELLISHMENT,
+            WowItemVariantSnapshot.TYPE_GEM,
+            WowItemVariantSnapshot.TYPE_ENCHANT,
+        ):
+            if variant.variant_type != WowItemVariantSnapshot.TYPE_EMBELLISHMENT and int(variant.item.quality or 0) < 3:
                 continue
             metadata = variant.metadata if isinstance(variant.metadata, dict) else {}
-            family = str(metadata.get('simc_name') or variant.item.simc_token or variant.item_id).casefold()
+            family = str(
+                metadata.get('simc_name') or variant.item.simc_token
+                or variant.item.name_zh or variant.item.name or variant.item_id
+            ).casefold()
             family = family.rsplit('_', 1)[0] if family.rsplit('_', 1)[-1].isdigit() else family
             key = (variant.variant_type, family, str(metadata.get('category_name') or ''))
             score = (int(variant.crafting_quality or 0), int(variant.item.quality or 0), int(variant.item_id))

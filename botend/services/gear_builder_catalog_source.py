@@ -101,8 +101,9 @@ def _tooltip_details(payload):
         stats[key] = max(stats.get(key, 0), _safe_int(amount.replace(',', '').replace('.', '')))
     effects = []
     for line in tooltip.splitlines():
-        if line.startswith(('装备：', '使用：')):
+        if line.startswith(('装备：', '使用：', '提供下列属性：')) or re.match(r'^\([24]\)\s*(?:组合|套装)', line):
             effects.append({'description_zh': line})
+    effects = list({row['description_zh']: row for row in effects}.values())
     primary_options = {}
     for amount, labels in re.findall(r'\+?([0-9][0-9,.]*)\s*\[([^\]]*(?:力量|敏捷|智力)[^\]]*)\]', tooltip):
         parsed = _safe_int(amount.replace(',', '').replace('.', ''))
@@ -155,6 +156,8 @@ class CurrentGearCatalogSource:
         seasons = self._get_json(f'{RAIDBOTS_LIVE_ROOT}/seasons.json')
         instances = self._get_json(f'{RAIDBOTS_LIVE_ROOT}/instances.json')
         encounter_items = self._get_json(f'{RAIDBOTS_LIVE_ROOT}/encounter-items.json')
+        catalyst_items = self._get_json(f'{RAIDBOTS_LIVE_ROOT}/export-items-catalyst.json')
+        item_sets = self._get_json(f'{RAIDBOTS_LIVE_ROOT}/item-sets.json')
         crafting = self._get_json(f'{RAIDBOTS_LIVE_ROOT}/crafting.json')
         enchantments = self._get_json(f'{RAIDBOTS_LIVE_ROOT}/enchantments.json')
         active = next((row for row in seasons if row.get('active')), None)
@@ -166,7 +169,9 @@ class CurrentGearCatalogSource:
             raise CatalogSourceError(f'当前赛季 {short_name or active.get("name")} 尚未配置合法装等范围。')
 
         normalized_season_key = season_key.strip() or self._season_key(active)
-        items, season_info = self._build_items(active, profile, instances, encounter_items, crafting, enchantments)
+        items, season_info = self._build_items(
+            active, profile, instances, encounter_items, catalyst_items, item_sets, crafting, enchantments,
+        )
         if include_wowhead:
             self._enrich_wowhead(items, game_build)
         else:
@@ -245,13 +250,14 @@ class CurrentGearCatalogSource:
         number = re.search(r'(\d+)$', short_name)
         return f'{expansion}-s{number.group(1)}' if expansion and number else short_name or 'current-season'
 
-    def _build_items(self, active, profile, instances, encounter_items, crafting, enchantments):
+    def _build_items(self, active, profile, instances, encounter_items, catalyst_items, item_sets, crafting, enchantments):
         instance_by_id = {_safe_int(row.get('id')): row for row in instances}
         short_name = str(active.get('shortName') or '')
         season_number = (re.search(r'(\d+)$', short_name) or [None, ''])[1]
         mplus = next((row for row in instances if row.get('type') == 'mplus-chest'), None)
         delve = next((row for row in instances if row.get('type') == f'delve-{short_name}'), None)
         raid_group = next((row for row in instances if row.get('type') == 'raid' and row.get('id', 0) < 0 and str(row.get('name')) == f'Season {season_number} Raids'), None)
+        catalyst = next((row for row in instances if row.get('type') == 'catalyst' and str(row.get('name')) == f'Catalyst Season {season_number}'), None)
         if not mplus or not delve or not raid_group:
             raise CatalogSourceError('无法定位当前赛季的大秘境、团本或地下堡来源集合。')
         raid_ids = sorted({_safe_int(row.get('sourceInstanceId')) for row in raid_group.get('encounters') or [] if _safe_int(row.get('sourceInstanceId')) > 0})
@@ -318,10 +324,12 @@ class CurrentGearCatalogSource:
                     self._add_drop_variants(item, profile, source_type, sources, special_mythic=special_mythic)
             by_id[item['item_id']] = item
 
-        for reagent in (crafting.get('reagents') or []):
+        self._add_tier_set_items(
+            by_id, catalyst_items, item_sets, profile, catalyst, raid_ids, instance_by_id,
+        )
+
+        for reagent in self._highest_quality_embellishments(crafting.get('reagents') or []):
             limit = reagent.get('itemLimit') or {}
-            if _safe_int(reagent.get('expansion')) != 11 or _safe_int(limit.get('category')) != 512:
-                continue
             item_id = _safe_int(reagent.get('id') or reagent.get('itemId'))
             if not item_id:
                 continue
@@ -402,6 +410,15 @@ class CurrentGearCatalogSource:
             for stat in (raw.get('stats') or []) if isinstance(stat, dict)
             for primary in PRIMARY_STATS_BY_ITEM_MOD.get(_safe_int(stat.get('id')), ())
         })
+        allowable_classes = raw.get('allowableClasses') or raw.get('allowableClassMask')
+        if isinstance(allowable_classes, (list, tuple, set)):
+            allowable_class_mask = sum(
+                1 << (_safe_int(class_id) - 1)
+                for class_id in allowable_classes
+                if _safe_int(class_id) > 0
+            )
+        else:
+            allowable_class_mask = _safe_int(allowable_classes)
         return {
             'item_id': item_id,
             'name': str(raw.get('name') or raw.get('itemName') or ''),
@@ -416,7 +433,7 @@ class CurrentGearCatalogSource:
             'item_subclass_id': item_subclass,
             'armor_type': ARMOR_TYPE_NAMES.get(item_subclass, '') if item_class == 4 and inventory_type in {1, 3, 5, 6, 7, 8, 9, 10, 14, 20} else '',
             'weapon_type': WEAPON_TYPE_NAMES.get(item_subclass, '') if item_class == 2 else '',
-            'allowable_class_mask': _safe_int(raw.get('allowableClasses') or raw.get('allowableClassMask')),
+            'allowable_class_mask': allowable_class_mask,
             'eligible_specs': [
                 f'{identity[0]}:{identity[1]}'
                 for spec_id in (raw.get('specs') or [])
@@ -436,6 +453,68 @@ class CurrentGearCatalogSource:
             },
             'variants': [],
         }
+
+    @classmethod
+    def _add_tier_set_items(cls, by_id, catalyst_items, item_sets, profile, catalyst, raid_ids, instance_by_id):
+        """把当前赛季化生目录中的职业套装映射为团本可获取装备。"""
+        if not catalyst:
+            return
+        catalyst_id = _safe_int(catalyst.get('id'))
+        sets_by_id = {_safe_int(row.get('id')): row for row in item_sets}
+        sources = []
+        for raid_id in raid_ids:
+            raid = instance_by_id.get(raid_id) or {}
+            localized = localize_gear_source({
+                'type': 'raid',
+                'instance_id': raid_id,
+                'instance': str(raid.get('name') or ''),
+                'encounter': 'Tier Set / Catalyst',
+                'encounter_zh': '职业套装（首领兑换或化生）',
+                'difficulty': 'Normal / Heroic / Mythic',
+            })
+            sources.append(localized)
+        for raw in catalyst_items:
+            set_id = _safe_int(raw.get('itemSetId'))
+            if not set_id or _safe_int(raw.get('expansion')) != 11:
+                continue
+            if not any(_safe_int(row.get('instanceId')) == catalyst_id for row in raw.get('sources') or []):
+                continue
+            slots = list(INVENTORY_SLOTS.get(_safe_int(raw.get('inventoryType')), ()))
+            if not slots:
+                continue
+            item = by_id.setdefault(_safe_int(raw.get('id')), cls._base_item(raw, 'equipment', slots))
+            item_set = sets_by_id.get(set_id) or {}
+            item.setdefault('metadata', {}).update({
+                'is_tier_set': True,
+                'item_set_id': set_id,
+                'item_set_name': str(item_set.get('name') or ''),
+            })
+            item['effect_refs'] = [
+                {
+                    'spell_id': _safe_int(row.get('spellId')),
+                    'required_items': _safe_int(row.get('reqItems')),
+                    'spec_id': _safe_int(row.get('specId')),
+                }
+                for row in item_set.get('spells') or []
+                if _safe_int(row.get('spellId'))
+            ]
+            cls._add_drop_variants(item, profile, 'raid', sources)
+
+    @staticmethod
+    def _highest_quality_embellishments(reagents):
+        """同名美化只保留效果数值最高的制造品质。"""
+        selected = {}
+        for raw in reagents:
+            limit = raw.get('itemLimit') or {}
+            if _safe_int(raw.get('expansion')) != 11 or _safe_int(limit.get('category')) != 512:
+                continue
+            name = re.sub(r'\s+', ' ', str(raw.get('name') or raw.get('itemName') or '')).strip().casefold()
+            key = (name or str(raw.get('craftingCategoryId') or raw.get('id')), _safe_int(raw.get('craftingCategoryId')))
+            score = (_safe_int(raw.get('craftingQuality')), _safe_int(raw.get('quality')), _safe_int(raw.get('id') or raw.get('itemId')))
+            previous = selected.get(key)
+            if not previous or score > previous[0]:
+                selected[key] = (score, raw)
+        return [value[1] for value in selected.values()]
 
     @staticmethod
     def _add_drop_variants(item, profile, source_type, sources, special_mythic=False):

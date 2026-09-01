@@ -208,6 +208,16 @@
     white-space: nowrap;
 }
 .gear-slot-row.is-empty .gear-slot-item { color: #93a0b3; }
+.gear-slot-enhancements {
+    display: block;
+    overflow: hidden;
+    margin-top: 2px;
+    color: var(--gear-muted);
+    font-size: .61rem;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 .gear-slot-level { color: var(--gear-muted); font-size: .72rem; font-variant-numeric: tabular-nums; }
 
 .gear-browser-head {
@@ -316,12 +326,12 @@
 .gear-socket-option strong { font-size: .72rem; }
 .gear-socket-option small { color: var(--gear-muted); font-size: .64rem; }
 .gear-option-list { display: grid; grid-template-columns: 1fr; gap: 6px; }
-.gear-option-row { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: start; gap: 9px; min-width: 0; padding: 9px 10px; border: 1px solid var(--gear-border); border-radius: 7px; background: var(--gear-surface); cursor: pointer; }
+.gear-option-row { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: center; gap: 8px; min-width: 0; padding: 6px 9px; border: 1px solid var(--gear-border); border-radius: 7px; background: var(--gear-surface); cursor: pointer; }
 .gear-option-row:hover { border-color: #94aff1; background: var(--gear-blue-soft); }
 .gear-option-row:focus-within { outline: 2px solid rgba(37, 86, 216, .2); outline-offset: 1px; }
-.gear-option-copy { min-width: 0; }
-.gear-option-name { display: block; color: var(--gear-text); font-size: .72rem; font-weight: 760; }
-.gear-option-stat { display: block; margin-top: 3px; color: var(--gear-muted); font-size: .64rem; line-height: 1.45; }
+.gear-option-copy { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.gear-option-name { flex: 0 0 auto; color: var(--gear-text); font-size: .72rem; font-weight: 760; }
+.gear-option-stat { display: block; min-width: 0; overflow: hidden; color: var(--gear-muted); font-size: .64rem; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .gear-option-empty { padding: 12px; border: 1px dashed var(--gear-border); border-radius: 8px; color: var(--gear-muted); font-size: .7rem; text-align: center; }
 
 .gear-stats-panel { margin-top: 12px; border-radius: 10px; overflow: hidden; }

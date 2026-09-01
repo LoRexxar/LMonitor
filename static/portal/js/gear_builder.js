@@ -275,14 +275,34 @@
       : "装备目录尚未同步";
   }
 
+  function compactNames(rows) {
+    const counts = new Map();
+    (rows || []).forEach((row) => {
+      const name = row?.item?.name;
+      if (name) counts.set(name, (counts.get(name) || 0) + 1);
+    });
+    return [...counts].map(([name, count]) => `${name}${count > 1 ? `×${count}` : ""}`).join("、");
+  }
+
+  function enhancementSummary(entry) {
+    if (!entry) return "";
+    const parts = [];
+    if (entry.embellishment?.item?.name) parts.push(`美化：${entry.embellishment.item.name}`);
+    const gems = compactNames(entry.gems);
+    if (gems) parts.push(`宝石：${gems}`);
+    if (entry.enchant?.item?.name) parts.push(`附魔：${entry.enchant.item.name}`);
+    return parts.join(" · ");
+  }
+
   function renderSlots() {
     els.slot_list.innerHTML = (bootstrap?.slots || []).map((slot) => {
       const entry = state.equipment[slot.key];
       const item = entry?.item;
       const active = slot.key === state.selectedSlot;
+      const enhancements = enhancementSummary(entry);
       return `<button type="button" class="gear-slot-row${active ? " is-active" : ""}${item ? "" : " is-empty"}" data-slot="${escapeHtml(slot.key)}" role="option" aria-selected="${active}">
         ${item ? iconMarkup(item, "gear-slot-icon") : '<span class="gear-slot-placeholder" aria-hidden="true">◇</span>'}
-        <span class="gear-slot-copy"><span class="gear-slot-label">${escapeHtml(slot.label)}</span><span class="gear-slot-item">${escapeHtml(item?.name || "未选择")}</span></span>
+        <span class="gear-slot-copy"><span class="gear-slot-label">${escapeHtml(slot.label)}</span><span class="gear-slot-item">${escapeHtml(item?.name || "未选择")}</span>${enhancements ? `<small class="gear-slot-enhancements" title="${escapeHtml(enhancements)}">${escapeHtml(enhancements)}</small>` : ""}</span>
         <span class="gear-slot-level">${entry?.variant?.item_level || entry?.itemLevel || ""}</span>
       </button>`;
     }).join("");
@@ -369,11 +389,11 @@
     const selectedCount = kind === "gem"
       ? (entry?.gems || []).filter((row) => Number(row.variant?.id) === Number(variant?.id)).length
       : Number(entry?.[kind]?.variant?.id) === Number(variant?.id) ? 1 : 0;
-    const description = [statMarkupText(variant?.stats), ...(variant?.effects || []).map(effectText)]
-      .filter(Boolean).join(" · ") || "无常驻属性说明";
-    return `<label class="gear-option-row">
+    const description = [...new Set([item.description, statMarkupText(variant?.stats), ...(variant?.effects || []).map(effectText)].filter(Boolean))]
+      .join(" · ") || "无常驻属性说明";
+    return `<label class="gear-option-row"${tooltipAttrs(item, variant)}>
       <input class="gear-option-check" type="checkbox" data-add-enhancement="${kind}" data-item-id="${item.item_id}" data-variant-id="${variant?.id || ""}"${selectedCount ? " checked" : ""}>
-      <span class="gear-option-copy"><strong class="gear-option-name">${escapeHtml(item.name)}${selectedCount > 1 ? ` ×${selectedCount}` : ""}</strong><small class="gear-option-stat">${escapeHtml(description)}</small></span>
+      <span class="gear-option-copy"><strong class="gear-option-name">${escapeHtml(item.name)}${selectedCount > 1 ? ` ×${selectedCount}` : ""}</strong><small class="gear-option-stat" title="${escapeHtml(description)}">${escapeHtml(description)}</small></span>
     </label>`;
   }
 
