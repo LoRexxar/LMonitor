@@ -2585,6 +2585,68 @@ class WowItemVariantSnapshot(models.Model):
         return f'{self.item_id}/{self.variant_type}/{self.variant_key}'
 
 
+class GearBuilderShareLink(models.Model):
+    """登录用户创建的职业配装器短链接与压缩状态对照。"""
+
+    id = models.BigAutoField(primary_key=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='gear_builder_share_links',
+    )
+    token = models.CharField(max_length=16, unique=True)
+    encoded_state = models.TextField()
+    state_hash = models.CharField(max_length=64, db_index=True)
+    class_name = models.CharField(max_length=32)
+    spec_name = models.CharField(max_length=64)
+    batch_key = models.CharField(max_length=160)
+    access_count = models.PositiveIntegerField(default=0)
+    last_accessed_at = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'gear_builder_share_link'
+        ordering = ('-created_at', '-id')
+        indexes = [
+            models.Index(fields=('user', '-created_at'), name='gear_share_user_created_idx'),
+            models.Index(fields=('token', 'is_active'), name='gear_share_token_active_idx'),
+        ]
+
+
+class GearBuilderUserLoadout(models.Model):
+    """账号级职业配装字符串；正文继续使用配装器压缩编码。"""
+
+    id = models.BigAutoField(primary_key=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='gear_builder_loadouts',
+    )
+    name = models.CharField(max_length=80)
+    encoded_state = models.TextField()
+    state_hash = models.CharField(max_length=64, db_index=True)
+    class_name = models.CharField(max_length=32)
+    spec_name = models.CharField(max_length=64)
+    batch_key = models.CharField(max_length=160)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'gear_builder_user_loadout'
+        ordering = ('-updated_at', '-id')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('user', 'class_name', 'spec_name', 'name'),
+                name='uniq_gear_loadout_user_spec_name',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=('user', '-updated_at'), name='gear_loadout_user_updated_idx'),
+        ]
+
+
 class MythicDungeonDataVersion(models.Model):
     """大秘境路线规划器的数据版本。"""
 

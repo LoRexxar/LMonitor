@@ -11,6 +11,9 @@
     crafted: page.dataset.craftedUrl,
     share: page.dataset.shareUrl,
     simc: page.dataset.simcUrl,
+    onlineLoadouts: page.dataset.onlineLoadoutsUrl,
+    shortLinks: page.dataset.shortLinksUrl,
+    shortLinkDetail: page.dataset.shortLinkDetailTemplate,
   };
   const els = Object.fromEntries([
     "gear-class-select", "gear-spec-select", "gear-catalog-status", "gear-slot-list",
@@ -21,6 +24,8 @@
     "gear-add-socket-option", "gear-add-socket", "gear-add-socket-copy", "gear-stats-context",
     "gear-detail-panel", "gear-detail-content", "gear-detail-close", "gear-stat-grid",
     "gear-effect-list", "gear-save-status", "gear-import-simc", "gear-copy-simc", "gear-copy-share", "gear-clear",
+    "gear-save-online", "gear-copy-short-share", "gear-online-dialog", "gear-online-name", "gear-online-submit",
+    "gear-online-message", "gear-online-list",
     "gear-loadout-manager", "gear-save-loadout", "gear-loadout-toggle", "gear-loadout-count",
     "gear-loadout-panel", "gear-loadout-summary", "gear-loadout-close", "gear-loadout-save-form",
     "gear-loadout-name", "gear-loadout-submit", "gear-loadout-list",
@@ -71,6 +76,7 @@
   let searchTimer = 0;
   let enhancementGroups = {embellishments: [], gems: [], enchants: []};
   let savedLoadouts = [];
+  let onlineLoadouts = [];
   let state = freshState();
 
   function freshState() {
@@ -233,6 +239,11 @@
     try { payload = await response.json(); } catch (_error) { /* 使用统一错误 */ }
     if (!response.ok || payload.success === false) throw new Error(payload.error || `请求失败（${response.status}）`);
     return payload;
+  }
+
+  function csrfHeaders() {
+    const token = document.querySelector('input[name="csrfmiddlewaretoken"]')?.value || "";
+    return token ? {"X-CSRFToken": token} : {};
   }
 
   function selectedEntry() {
@@ -1077,6 +1088,81 @@
     toast(`已删除“${record.name}”。`);
   }
 
+  function renderOnlineLoadouts() {
+    if (!els.online_list) return;
+    els.online_list.innerHTML = onlineLoadouts.length
+      ? onlineLoadouts.map((record) => `<article class="gear-loadout-row" data-online-loadout-id="${Number(record.id)}">
+          <div class="gear-loadout-info"><strong title="${escapeHtml(record.name)}">${escapeHtml(record.name)}</strong><span>${escapeHtml(loadoutIdentity({className: record.class_name, specName: record.spec_name}))} · ${escapeHtml(loadoutTime(record.updated_at))}</span></div>
+          <div class="gear-loadout-actions"><button type="button" data-load-online>载入</button><button type="button" data-delete-online>删除</button></div>
+        </article>`).join("")
+      : '<div class="gear-loadout-empty"><strong>还没有线上配装</strong><br>输入名称后保存，之后可在其他浏览器登录并载入。</div>';
+  }
+
+  async function refreshOnlineLoadouts() {
+    if (!endpoints.onlineLoadouts || !els.online_list) return;
+    els.online_list.innerHTML = '<div class="gear-loadout-empty">正在读取线上配装…</div>';
+    const payload = await requestJson(endpoints.onlineLoadouts);
+    onlineLoadouts = Array.isArray(payload.loadouts) ? payload.loadouts : [];
+    renderOnlineLoadouts();
+  }
+
+  async function openOnlineLoadouts() {
+    if (!els.online_dialog) return;
+    if (!els.online_name.value.trim()) els.online_name.value = defaultLoadoutName();
+    els.online_message.textContent = "";
+    els.online_dialog.showModal();
+    try {
+      await refreshOnlineLoadouts();
+    } catch (error) {
+      els.online_message.textContent = error.message;
+    }
+  }
+
+  async function saveOnlineLoadout() {
+    const name = els.online_name?.value.trim() || "";
+    if (!name) throw new Error("请输入线上配装名称。");
+    if (!equippedCount()) throw new Error("请至少选择一件装备后再保存。");
+    els.online_submit.disabled = true;
+    try {
+      const code = await encodeShare(compactShareState(state));
+      const payload = await requestJson(endpoints.onlineLoadouts, {
+        method: "POST",
+        headers: {"Content-Type": "application/json", ...csrfHeaders()},
+        body: JSON.stringify({name, code}),
+      });
+      els.online_name.value = "";
+      els.online_message.textContent = "";
+      await refreshOnlineLoadouts();
+      toast(`已保存线上配装“${payload.loadout.name}”。`);
+    } finally {
+      els.online_submit.disabled = false;
+    }
+  }
+
+  async function loadOnlineLoadout(record) {
+    const payload = await requestJson(`${endpoints.onlineLoadouts}${Number(record.id)}/`);
+    state = await hydrateSharePayload(await decodeShare(payload.loadout.code));
+    syncSelectors();
+    persist();
+    renderCatalogStatus();
+    renderAll();
+    await loadCandidates(true);
+    if (state.mode === "enhancement") await loadEnhancements();
+    els.online_dialog.close();
+    toast(`已载入线上配装“${record.name}”。`);
+  }
+
+  async function deleteOnlineLoadout(record) {
+    if (!window.confirm(`删除线上配装“${record.name}”？`)) return;
+    await requestJson(`${endpoints.onlineLoadouts}${Number(record.id)}/`, {
+      method: "DELETE",
+      headers: csrfHeaders(),
+    });
+    onlineLoadouts = onlineLoadouts.filter((row) => Number(row.id) !== Number(record.id));
+    renderOnlineLoadouts();
+    toast(`已删除线上配装“${record.name}”。`);
+  }
+
   async function copyShare() {
     const code = await encodeShare(compactShareState(state));
     const url = new URL(location.href);
@@ -1088,6 +1174,19 @@
     }
     await navigator.clipboard.writeText(url.toString());
     toast(`紧凑分享链接已复制（${url.toString().length} 字符）。`)
+  }
+
+  async function copyShortShare() {
+    if (!equippedCount()) throw new Error("请至少选择一件装备后再创建短链接。");
+    const code = await encodeShare(compactShareState(state));
+    const payload = await requestJson(endpoints.shortLinks, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", ...csrfHeaders()},
+      body: JSON.stringify({code}),
+    });
+    const url = new URL(`/g/${payload.token}/`, location.origin).toString();
+    await navigator.clipboard.writeText(url);
+    toast(`分享短链接已复制（${url.length} 字符）。`);
   }
 
   function simcToken(value, fallback) {
@@ -1168,7 +1267,13 @@
   }
 
   async function restoreShareIfPresent() {
-    const code = new URLSearchParams(location.search).get("code");
+    const params = new URLSearchParams(location.search);
+    const shortToken = String(page.dataset.initialShareToken || params.get("share") || "").trim();
+    let code = params.get("code");
+    if (shortToken) {
+      const url = endpoints.shortLinkDetail.replace("__TOKEN__", encodeURIComponent(shortToken));
+      code = (await requestJson(url)).code;
+    }
     if (!code) return false;
     try {
       state = await hydrateSharePayload(await decodeShare(code));
@@ -1232,6 +1337,16 @@
   }
 
   function bindEvents() {
+    if (els.save_online) els.save_online.addEventListener("click", () => openOnlineLoadouts());
+    if (els.copy_short_share) els.copy_short_share.addEventListener("click", () => copyShortShare().catch((error) => toast(error.message, true)));
+    if (els.online_submit) els.online_submit.addEventListener("click", () => saveOnlineLoadout().catch((error) => { els.online_message.textContent = error.message; }));
+    if (els.online_list) els.online_list.addEventListener("click", (event) => {
+      const row = event.target.closest("[data-online-loadout-id]");
+      const record = onlineLoadouts.find((item) => Number(item.id) === Number(row?.dataset.onlineLoadoutId));
+      if (!record) return;
+      if (event.target.closest("[data-load-online]")) loadOnlineLoadout(record).catch((error) => { els.online_message.textContent = error.message; });
+      if (event.target.closest("[data-delete-online]")) deleteOnlineLoadout(record).catch((error) => { els.online_message.textContent = error.message; });
+    });
     els.save_loadout.addEventListener("click", () => setLoadoutPanel(true, true));
     els.loadout_toggle.addEventListener("click", () => setLoadoutPanel(els.loadout_panel.hidden));
     els.loadout_close.addEventListener("click", () => setLoadoutPanel(false));

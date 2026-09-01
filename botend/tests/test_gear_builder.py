@@ -1,3 +1,5 @@
+import base64
+import gzip
 import json
 import tempfile
 from io import StringIO
@@ -6,10 +8,13 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.core.management import call_command
+from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 
 from botend.models import (
     SeasonMeta,
+    GearBuilderShareLink,
+    GearBuilderUserLoadout,
     SimcMasteryCoefficient,
     SimcSecondaryStatRule,
     WowItemSnapshot,
@@ -195,6 +200,18 @@ class GearBuilderTestDataMixin:
 
 
 class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
+    def encoded_share_code(self):
+        payload = {
+            'v': 4,
+            'c': 'Warrior',
+            's': 'Fury',
+            'b': 'test-batch',
+            'u': ['head', 'equipment', 'editor', 'browser'],
+            'e': [['head', self.helm.item_id, self.hero.variant_key, [], 0, [], 0, 0]],
+        }
+        compressed = gzip.compress(json.dumps(payload, separators=(',', ':')).encode('utf-8'))
+        return 'z' + base64.urlsafe_b64encode(compressed).decode('ascii').rstrip('=')
+
     def test_page_and_bootstrap_expose_current_catalog(self):
         page = self.client.get('/portal/gear-builder/')
         self.assertEqual(page.status_code, 200)
@@ -546,6 +563,103 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         self.assertEqual([row['item_id'] for row in entry['gems']], [10004, 10004])
         self.assertEqual(entry['enchant']['item_id'], 8001)
 
+    def test_online_storage_buttons_only_render_for_authenticated_users(self):
+        anonymous = self.client.get('/portal/gear-builder/')
+        self.assertNotContains(anonymous, 'id="gear-save-online"')
+        self.assertNotContains(anonymous, 'id="gear-copy-short-share"')
+
+        user = get_user_model().objects.create_user(username='gear-owner', password='test-password')
+        self.client.force_login(user)
+        authenticated = self.client.get('/portal/gear-builder/')
+        self.assertContains(authenticated, 'id="gear-save-online"')
+        self.assertContains(authenticated, '保存配装到线上')
+        self.assertContains(authenticated, 'id="gear-copy-short-share"')
+        self.assertContains(authenticated, '分享短链接')
+
+    def test_online_loadouts_require_login_and_isolate_owners(self):
+        code = self.encoded_share_code()
+        anonymous = self.client.post(
+            '/portal/api/gear-builder/online-loadouts/',
+            data=json.dumps({'name': '线上配装', 'code': code}),
+            content_type='application/json',
+        )
+        self.assertEqual(anonymous.status_code, 401)
+
+        owner = get_user_model().objects.create_user(username='gear-owner', password='test-password')
+        other = get_user_model().objects.create_user(username='gear-other', password='test-password')
+        self.client.force_login(owner)
+        saved = self.client.post(
+            '/portal/api/gear-builder/online-loadouts/',
+            data=json.dumps({'name': '线上配装', 'code': code}),
+            content_type='application/json',
+        )
+        self.assertEqual(saved.status_code, 200, saved.content)
+        loadout_id = saved.json()['loadout']['id']
+        self.assertEqual(GearBuilderUserLoadout.objects.get(id=loadout_id).user, owner)
+        listing = self.client.get('/portal/api/gear-builder/online-loadouts/').json()['loadouts']
+        self.assertEqual([row['name'] for row in listing], ['线上配装'])
+        self.assertNotIn('code', listing[0])
+        detail = self.client.get(f'/portal/api/gear-builder/online-loadouts/{loadout_id}/')
+        self.assertEqual(detail.json()['loadout']['code'], code)
+
+        self.client.force_login(other)
+        forbidden = self.client.get(f'/portal/api/gear-builder/online-loadouts/{loadout_id}/')
+        self.assertEqual(forbidden.status_code, 404)
+        self.assertEqual(self.client.get('/portal/api/gear-builder/online-loadouts/').json()['loadouts'], [])
+
+    def test_short_link_creation_requires_login_and_public_read_is_stable(self):
+        code = self.encoded_share_code()
+        anonymous = self.client.post(
+            '/portal/api/gear-builder/short-links/',
+            data=json.dumps({'code': code}),
+            content_type='application/json',
+        )
+        self.assertEqual(anonymous.status_code, 401)
+
+        owner = get_user_model().objects.create_user(username='short-owner', password='test-password')
+        self.client.force_login(owner)
+        first = self.client.post(
+            '/portal/api/gear-builder/short-links/',
+            data=json.dumps({'code': code}),
+            content_type='application/json',
+        )
+        second = self.client.post(
+            '/portal/api/gear-builder/short-links/',
+            data=json.dumps({'code': code}),
+            content_type='application/json',
+        )
+        self.assertEqual(first.status_code, 200, first.content)
+        self.assertEqual(first.json()['token'], second.json()['token'])
+        token = first.json()['token']
+        self.assertEqual(GearBuilderShareLink.objects.filter(user=owner).count(), 1)
+
+        self.client.logout()
+        detail = self.client.get(f'/portal/api/gear-builder/short-links/{token}/')
+        self.assertEqual(detail.status_code, 200, detail.content)
+        self.assertEqual(detail.json()['code'], code)
+        short_page = self.client.get(f'/g/{token}/')
+        self.assertEqual(short_page.status_code, 200)
+        self.assertContains(short_page, f'data-initial-share-token="{token}"')
+        self.assertNotContains(short_page, 'id="gear-save-online"')
+        row = GearBuilderShareLink.objects.get(token=token)
+        self.assertEqual(row.access_count, 1)
+
+    def test_online_loadout_can_be_deleted_only_by_owner(self):
+        owner = get_user_model().objects.create_user(username='delete-owner', password='test-password')
+        row = GearBuilderUserLoadout.objects.create(
+            user=owner,
+            name='待删除',
+            encoded_state=self.encoded_share_code(),
+            state_hash='a' * 64,
+            class_name='Warrior',
+            spec_name='Fury',
+            batch_key='test-batch',
+        )
+        self.client.force_login(owner)
+        response = self.client.delete(f'/portal/api/gear-builder/online-loadouts/{row.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(GearBuilderUserLoadout.objects.filter(id=row.id).exists())
+
 
 class GearBuilderImportCommandTests(TestCase):
     def setUp(self):
@@ -844,7 +958,7 @@ class GearBuilderFrontendContractTests(TestCase):
         styles = (root / 'static/portal/css/gear_builder.css').read_text(encoding='utf-8')
         self.assertIn('/portal/gear-builder/', header)
         self.assertIn('职业配装器', header)
-        for value in ('装备', '强化', '美化', '宝石', '永久附魔', '导入 SimC', '复制 SimC', '绿字', '游戏预览', '角色装备预览', '保存配装', '配装列表', '本地配装'):
+        for value in ('装备', '强化', '美化', '宝石', '永久附魔', '导入 SimC', '复制 SimC', '绿字', '游戏预览', '角色装备预览', '保存配装', '配装列表', '本地配装', '保存配装到线上', '分享短链接', '线上配装'):
             self.assertIn(value, template)
         self.assertIn('gear-add-socket', template)
         self.assertEqual(template.count('<details class="gear-enhancement-section">'), 3)
@@ -857,6 +971,8 @@ class GearBuilderFrontendContractTests(TestCase):
         self.assertIn('Number(payload?.v) !== SHARE_FORMAT_VERSION', script)
         self.assertIn('分享链接版本已过期', script)
         for value in ('buildSimcProfile', 'simcEquipmentLine', 'SIMC_CRAFTED_STAT_IDS', 'gem_id=', 'enchant_id=', 'navigator.clipboard.writeText(profile)'):
+            self.assertIn(value, script)
+        for value in ('refreshOnlineLoadouts', 'saveOnlineLoadout', 'loadOnlineLoadout', 'deleteOnlineLoadout', 'copyShortShare', 'initialShareToken'):
             self.assertIn(value, script)
         self.assertIn('return normalizeState(payload);', script)
         for value in ('LOADOUT_LIBRARY_KEY', 'MAX_SAVED_LOADOUTS = 30', 'readSavedLoadouts', 'saveCurrentLoadout', 'loadSavedLoadout', 'deleteSavedLoadout'):

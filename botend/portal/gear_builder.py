@@ -6,7 +6,9 @@ import json
 
 from django.http import JsonResponse
 from django.shortcuts import render
+from django.utils.decorators import method_decorator
 from django.views import View
+from django.views.decorators.csrf import ensure_csrf_cookie
 
 from botend.services.gear_builder import (
     GearBuilderError,
@@ -16,6 +18,15 @@ from botend.services.gear_builder import (
     hydrate_shared_state,
     import_simc_profile,
     resolve_crafted_variant,
+)
+from botend.services.gear_builder_storage import (
+    GearBuilderStorageError,
+    create_short_link,
+    delete_user_loadout,
+    get_user_loadout,
+    list_user_loadouts,
+    resolve_short_link,
+    save_user_loadout,
 )
 
 
@@ -33,9 +44,12 @@ def _error_response(exc, status=400):
     return JsonResponse({'success': False, 'error': str(exc)}, status=status)
 
 
+@method_decorator(ensure_csrf_cookie, name='dispatch')
 class PortalGearBuilderView(View):
-    def get(self, request):
-        return render(request, 'portal/gear_builder.html')
+    def get(self, request, share_token=''):
+        return render(request, 'portal/gear_builder.html', {
+            'initial_share_token': str(share_token or ''),
+        })
 
 
 class PortalGearBuilderBootstrapAPIView(View):
@@ -115,4 +129,66 @@ class PortalGearBuilderSimcImportAPIView(View):
             return _error_response(exc)
         except Exception:
             return _error_response('SimC Profile 解析失败，请确认内容来自当前版本 SimulationCraft。')
+        return JsonResponse({'success': True, **payload})
+
+
+class PortalGearBuilderOnlineLoadoutAPIView(View):
+    def _unauthorized(self):
+        return _error_response('请登录后使用线上配装', status=401)
+
+    def get(self, request, loadout_id=None):
+        if not request.user.is_authenticated:
+            return self._unauthorized()
+        try:
+            if loadout_id is None:
+                return JsonResponse({'success': True, 'loadouts': list_user_loadouts(request.user)})
+            return JsonResponse({'success': True, 'loadout': get_user_loadout(request.user, loadout_id)})
+        except GearBuilderStorageError as exc:
+            return _error_response(exc, status=404)
+
+    def post(self, request, loadout_id=None):
+        if not request.user.is_authenticated:
+            return self._unauthorized()
+        try:
+            body = _json_body(request)
+            payload = save_user_loadout(
+                request.user,
+                name=body.get('name'),
+                code=body.get('code'),
+                loadout_id=loadout_id or body.get('id'),
+            )
+        except (GearBuilderError, GearBuilderStorageError) as exc:
+            return _error_response(exc)
+        return JsonResponse({'success': True, 'loadout': payload})
+
+    def delete(self, request, loadout_id=None):
+        if not request.user.is_authenticated:
+            return self._unauthorized()
+        try:
+            if loadout_id is None:
+                raise GearBuilderStorageError('缺少线上配装 ID')
+            delete_user_loadout(request.user, loadout_id)
+        except GearBuilderStorageError as exc:
+            return _error_response(exc, status=404)
+        return JsonResponse({'success': True})
+
+
+class PortalGearBuilderShortLinkAPIView(View):
+    def post(self, request):
+        if not request.user.is_authenticated:
+            return _error_response('请登录后创建配装短链接', status=401)
+        try:
+            body = _json_body(request)
+            row = create_short_link(request.user, body.get('code'))
+        except (GearBuilderError, GearBuilderStorageError) as exc:
+            return _error_response(exc)
+        return JsonResponse({'success': True, 'token': row.token})
+
+
+class PortalGearBuilderShortLinkDetailAPIView(View):
+    def get(self, request, share_token):
+        try:
+            payload = resolve_short_link(share_token)
+        except GearBuilderStorageError as exc:
+            return _error_response(exc, status=404)
         return JsonResponse({'success': True, **payload})

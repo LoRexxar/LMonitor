@@ -10,7 +10,7 @@
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260808_portal_theme_v2"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260821_mythicstats_clean_light_v7">
     <link rel="stylesheet" href="{% static 'shared/css/wow-item-tooltip.css' %}?v=20260813_simc_equipment_icon">
-    <link rel="stylesheet" href="{% static 'portal/css/gear_builder.css' %}?v=20260901_gear_builder_v10">
+    <link rel="stylesheet" href="{% static 'portal/css/gear_builder.css' %}?v=20260901_gear_builder_v11">
 </head>
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
@@ -23,6 +23,10 @@
         data-crafted-url="{% url 'portal_gear_builder_resolve_crafted' %}"
         data-share-url="{% url 'portal_gear_builder_resolve_share' %}"
         data-simc-url="{% url 'portal_gear_builder_import_simc' %}"
+        data-online-loadouts-url="{% url 'portal_gear_builder_online_loadouts' %}"
+        data-short-links-url="{% url 'portal_gear_builder_short_links' %}"
+        data-short-link-detail-template="{% url 'portal_gear_builder_short_link_detail' share_token='__TOKEN__' %}"
+        data-initial-share-token="{{ initial_share_token|default:'' }}"
         aria-busy="true"
     >
         <header class="gear-builder-toolbar">
@@ -53,6 +57,14 @@
                 <button type="button" id="gear-copy-share" class="gear-btn">
                     <span aria-hidden="true">↗</span> 复制分享链接
                 </button>
+                {% if request.user.is_authenticated %}
+                <button type="button" id="gear-save-online" class="gear-btn">
+                    <span aria-hidden="true">☁</span> 保存配装到线上
+                </button>
+                <button type="button" id="gear-copy-short-share" class="gear-btn">
+                    <span aria-hidden="true">↗</span> 分享短链接
+                </button>
+                {% endif %}
                 <div id="gear-loadout-manager" class="gear-loadout-manager">
                     <button type="button" id="gear-save-loadout" class="gear-btn">保存配装</button>
                     <button type="button" id="gear-loadout-toggle" class="gear-btn" aria-expanded="false" aria-controls="gear-loadout-panel">
@@ -243,8 +255,32 @@
         </form>
     </dialog>
 
+    {% if request.user.is_authenticated %}
+    <dialog id="gear-online-dialog" class="gear-dialog">
+        <form method="dialog" class="gear-dialog-card gear-online-dialog-card">
+            {% csrf_token %}
+            <div class="gear-dialog-head">
+                <div><h2>线上配装</h2><p>配装字符串保存在当前登录账号中，可在其他浏览器载入。</p></div>
+                <button type="submit" value="cancel" class="gear-icon-btn" aria-label="关闭">×</button>
+            </div>
+            <div class="gear-online-save-row">
+                <label for="gear-online-name">配装名称</label>
+                <div>
+                    <input id="gear-online-name" type="text" maxlength="80" autocomplete="off" placeholder="例如：团本单体配装">
+                    <button type="button" id="gear-online-submit" class="gear-btn gear-btn--primary">保存当前配装</button>
+                </div>
+            </div>
+            <div id="gear-online-message" class="gear-dialog-message" aria-live="polite"></div>
+            <div id="gear-online-list" class="gear-online-list"></div>
+            <div class="gear-dialog-actions">
+                <button type="submit" value="cancel" class="gear-btn">关闭</button>
+            </div>
+        </form>
+    </dialog>
+    {% endif %}
+
     <div id="gear-toast-root" class="gear-toast-root" aria-live="polite"></div>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
-    <script src="{% static 'portal/js/gear_builder.js' %}?v=20260901_gear_builder_v13"></script>
+    <script src="{% static 'portal/js/gear_builder.js' %}?v=20260901_gear_builder_v14"></script>
 </body>
 </html>

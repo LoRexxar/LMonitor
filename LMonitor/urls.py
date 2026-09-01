@@ -61,7 +61,10 @@ from botend.portal.gear_builder import (
     PortalGearBuilderCraftedResolveAPIView,
     PortalGearBuilderEnhancementsAPIView,
     PortalGearBuilderShareResolveAPIView,
+    PortalGearBuilderShortLinkAPIView,
+    PortalGearBuilderShortLinkDetailAPIView,
     PortalGearBuilderSimcImportAPIView,
+    PortalGearBuilderOnlineLoadoutAPIView,
     PortalGearBuilderView,
 )
 from botend.portal.api import (
@@ -128,6 +131,7 @@ urlpatterns = [
     path('portal/article/<int:article_id>/', PortalArticleView.as_view(), name='portal_article'),
     path('portal/talents/', PortalTalentSimulatorView.as_view(), name='portal_talent_simulator'),
     path('portal/gear-builder/', PortalGearBuilderView.as_view(), name='portal_gear_builder'),
+    path('g/<slug:share_token>/', PortalGearBuilderView.as_view(), name='portal_gear_builder_short_link'),
     path('portal/mythic-planner/', PortalMythicPlannerView.as_view(), name='portal_mythic_planner'),
     path('m/<slug:share_token>', PortalMythicPlannerView.as_view(), name='portal_mythic_planner_short_link'),
 
@@ -190,6 +194,10 @@ urlpatterns = [
     path('portal/api/gear-builder/resolve-crafted/', csrf_exempt(PortalGearBuilderCraftedResolveAPIView.as_view()), name='portal_gear_builder_resolve_crafted'),
     path('portal/api/gear-builder/resolve-share/', csrf_exempt(PortalGearBuilderShareResolveAPIView.as_view()), name='portal_gear_builder_resolve_share'),
     path('portal/api/gear-builder/import-simc/', csrf_exempt(PortalGearBuilderSimcImportAPIView.as_view()), name='portal_gear_builder_import_simc'),
+    path('portal/api/gear-builder/online-loadouts/', PortalGearBuilderOnlineLoadoutAPIView.as_view(), name='portal_gear_builder_online_loadouts'),
+    path('portal/api/gear-builder/online-loadouts/<int:loadout_id>/', PortalGearBuilderOnlineLoadoutAPIView.as_view(), name='portal_gear_builder_online_loadout_detail'),
+    path('portal/api/gear-builder/short-links/', PortalGearBuilderShortLinkAPIView.as_view(), name='portal_gear_builder_short_links'),
+    path('portal/api/gear-builder/short-links/<slug:share_token>/', PortalGearBuilderShortLinkDetailAPIView.as_view(), name='portal_gear_builder_short_link_detail'),
     path('portal/api/mythic-planner/catalog/', MythicPlannerCatalogAPIView.as_view(), name='mythic_planner_catalog'),
     path('portal/api/mythic-planner/dungeons/<slug:dungeon_key>/', MythicPlannerDungeonAPIView.as_view(), name='mythic_planner_dungeon'),
     path('portal/api/mythic-planner/share-code/', MythicPlannerShareCodeAPIView.as_view(), name='mythic_planner_share_code'),
