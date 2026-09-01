@@ -958,7 +958,7 @@ class GearBuilderFrontendContractTests(TestCase):
         styles = (root / 'static/portal/css/gear_builder.css').read_text(encoding='utf-8')
         self.assertIn('/portal/gear-builder/', header)
         self.assertIn('职业配装器', header)
-        for value in ('装备', '强化', '美化', '宝石', '永久附魔', '导入 SimC', '复制 SimC', '绿字', '游戏预览', '角色装备预览', '保存配装', '配装列表', '本地配装', '保存配装到线上', '分享短链接', '线上配装'):
+        for value in ('装备', '强化', '美化', '宝石', '永久附魔', '导入 SimC', '复制 SimC', '绿字', '游戏预览', '角色装备预览', '保存配装', '配装列表', '保存配装到线上', '分享短链接', '线上配装'):
             self.assertIn(value, template)
         self.assertIn('gear-add-socket', template)
         self.assertEqual(template.count('<details class="gear-enhancement-section">'), 3)
@@ -974,10 +974,13 @@ class GearBuilderFrontendContractTests(TestCase):
             self.assertIn(value, script)
         for value in ('refreshOnlineLoadouts', 'saveOnlineLoadout', 'loadOnlineLoadout', 'deleteOnlineLoadout', 'copyShortShare', 'initialShareToken'):
             self.assertIn(value, script)
+        for value in ('data-loadout-source', 'data-load-online-loadout', 'data-delete-online-loadout', '本地 ${savedLoadouts.length} · 线上 ${onlineLoadouts.length}'):
+            self.assertIn(value, script)
         self.assertIn('return normalizeState(payload);', script)
         for value in ('LOADOUT_LIBRARY_KEY', 'MAX_SAVED_LOADOUTS = 30', 'readSavedLoadouts', 'saveCurrentLoadout', 'loadSavedLoadout', 'deleteSavedLoadout'):
             self.assertIn(value, script)
         self.assertIn('code: await encodeShare(compactShareState(state))', script)
+        self.assertIn("portal/js/gear_builder.js' %}?v=20260901_gear_builder_v15", template)
         self.assertIn('.gear-loadout-panel', styles)
         for value in ('socketCapacity', 'addedSocket', 'totalsAndEffects', 'gear-option-check'):
             self.assertIn(value, script)

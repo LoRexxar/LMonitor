@@ -2097,7 +2097,21 @@ function renderSimcOmniumTalents(items) {
         const nodeId = entry.id || '-';
         const rank = entry.rank ?? '-';
         const displayName = entry.display_name || entry.name_zh || entry.name || '';
-        return `<div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2" data-omnium-node-id="${escapeHtml(String(nodeId))}">${displayName ? `<div class="text-xs font-semibold text-amber-900">${escapeHtml(String(displayName))}</div>` : ''}<div class="${displayName ? 'mt-0.5 ' : ''}font-mono text-xs text-amber-700">ID ${escapeHtml(String(nodeId))} / rank ${escapeHtml(String(rank))}</div></div>`;
+        const description = entry.display_description || entry.description_zh || entry.description || '';
+        const iconUrl = String(entry.icon_url || '').trim();
+        const maxRank = Number(entry.max_rank || 0);
+        const rankLabel = maxRank >= Number(rank) ? `${rank}/${maxRank} 级` : `${rank} 级`;
+        const treeLabels = { class: '职业', spec: '专精', hero: '英雄', omnium: '万奥' };
+        const typeLabel = treeLabels[entry.tree_type] || (entry.source === 'spell_snapshot' ? '万奥能力' : '万奥节点');
+        const identifiers = [
+            `ID ${nodeId}`,
+            entry.spell_id && Number(entry.spell_id) !== Number(nodeId) ? `Spell ${entry.spell_id}` : '',
+            entry.talent_id ? `Talent ${entry.talent_id}` : '',
+        ].filter(Boolean).join(' · ');
+        const icon = iconUrl
+            ? `<img class="h-9 w-9 shrink-0 rounded-md border border-amber-200 bg-white object-cover" src="${escapeHtml(iconUrl)}" alt="" loading="lazy">`
+            : '<span class="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-amber-200 bg-white text-sm text-amber-600">✦</span>';
+        return `<article class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5" data-omnium-node-id="${escapeHtml(String(nodeId))}"><div class="flex items-start gap-2.5">${icon}<div class="min-w-0 flex-1"><div class="flex flex-wrap items-center gap-1.5"><strong class="text-sm text-amber-950">${escapeHtml(String(displayName || `万奥能力 #${nodeId}`))}</strong><span class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">${escapeHtml(typeLabel)}</span><span class="rounded bg-white px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">${escapeHtml(rankLabel)}</span></div><div class="mt-1 font-mono text-[11px] text-amber-700">${escapeHtml(identifiers)}</div>${description ? `<p class="mt-1.5 text-xs leading-5 text-amber-900/80">${escapeHtml(String(description))}</p>` : ''}</div></div></article>`;
     }).join('');
 }
 
@@ -2122,15 +2136,25 @@ function renderSimcProfileDetailDialog(detail) {
     const omniumTalents = renderSimcOmniumTalents(detail.omnium_talents);
     const omniumContent = omniumTalents || '<div class="rounded-lg border border-dashed border-amber-200 bg-amber-50/50 px-3 py-3 text-sm text-amber-700">当前 Profile 未解析到 <code class="font-mono">omnium_talents=</code>。请检查下方原始玩家配置，并重新导入包含该行的 SimC Profile。</div>';
     const consumables = detail.consumables || {};
+    const consumableDetails = detail.consumable_details || {};
+    const localizedConsumable = (key, fallback) => {
+        const row = consumableDetails[key];
+        if (row && typeof row === 'object') return row;
+        return { value: fallback || '', label: fallback || '' };
+    };
     const consumableLabels = {
         flask: '合剂', potion: '药水', food: '食物', augmentation: '增幅符文',
     };
     const consumableRows = Object.entries(consumableLabels)
         .filter(([key]) => consumables[key])
-        .map(([key, label]) => `<div class="rounded-lg bg-slate-50 px-3 py-2"><div class="text-[11px] text-slate-400">${label}</div><div class="mt-0.5 break-all font-mono text-xs font-semibold text-slate-700">${esc(consumables[key])}</div></div>`);
+        .map(([key, label]) => {
+            const row = localizedConsumable(key, consumables[key]);
+            return `<div class="rounded-lg bg-slate-50 px-3 py-2" title="${esc(row.value)}"><div class="text-[11px] text-slate-400">${label}</div><div class="mt-0.5 text-xs font-semibold text-slate-700">${esc(row.label)}</div></div>`;
+        });
     const temporaryEnchantLabels = { main_hand: '主手临时附魔', off_hand: '副手临时附魔' };
     Object.entries(consumables.temporary_enchant || {}).forEach(([slot, value]) => {
-        consumableRows.push(`<div class="rounded-lg bg-slate-50 px-3 py-2"><div class="text-[11px] text-slate-400">${esc(temporaryEnchantLabels[slot] || slot)}</div><div class="mt-0.5 break-all font-mono text-xs font-semibold text-slate-700">${esc(value)}</div></div>`);
+        const detailRow = consumableDetails.temporary_enchant?.[slot] || { value, label: value };
+        consumableRows.push(`<div class="rounded-lg bg-slate-50 px-3 py-2" title="${esc(detailRow.value)}"><div class="text-[11px] text-slate-400">${esc(temporaryEnchantLabels[slot] || slot)}</div><div class="mt-0.5 text-xs font-semibold text-slate-700">${esc(detailRow.label)}</div></div>`);
     });
     const talentStringLabels = {
         talents: '导入字符串', class_talents: '职业天赋', spec_talents: '专精天赋', hero_talents: '英雄天赋',

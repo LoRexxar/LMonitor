@@ -13,9 +13,12 @@ from botend.models import (
     SimcMasteryCoefficient,
     SimcSecondaryStatRule,
     WowItemSnapshot,
+    WowSpellSnapshot,
     WowTalentNodeMetadata,
 )
+from botend.services.simc_consumables import simc_consumable_option
 from botend.services.wow_item_display import item_display_metadata
+from botend.templatetags.wow_tags import wow_icon_oss_url
 
 
 SPEC_CLASS = {
@@ -355,7 +358,7 @@ def _enchant_meta(enchantment_id, item_snapshots, enchantment_snapshots):
 
 
 def _enrich_omnium_talents(detail):
-    """用现有 DBC 天赋节点元数据补全万奥宝典名称，未命中时保留 ID/rank。"""
+    """用天赋节点/技能快照补全万奥宝典，未命中时保留 ID/rank。"""
     entries = detail.get('omnium_talents') or []
     node_ids = {_number(row.get('id')) for row in entries if (_number(row.get('id')) or 0) > 0}
     if not node_ids:
@@ -369,6 +372,7 @@ def _enrich_omnium_talents(detail):
             Q(node_id__in=node_ids) | Q(talent_id__in=node_ids) | Q(spell_id__in=node_ids)
         ).select_related('talent_version')
     )
+    spell_rows = list(WowSpellSnapshot.objects.filter(spell_id__in=node_ids))
 
     def preference(row):
         version_active = bool(row.talent_version and row.talent_version.is_active)
@@ -390,16 +394,64 @@ def _enrich_omnium_talents(detail):
                 if previous is None or preference(row) > preference(previous):
                     matches[int(candidate_id)] = row
 
+    def spell_preference(row):
+        return (
+            int(str(row.branch or '').lower() == 'wow'),
+            int(str(row.locale or '').lower() == 'zhcn'),
+            int(bool((row.name_zh or '').strip())),
+            int(bool((row.description or row.aura_description or '').strip())),
+            row.updated_at,
+        )
+
+    spell_matches = {}
+    for row in spell_rows:
+        previous = spell_matches.get(int(row.spell_id))
+        if previous is None or spell_preference(row) > spell_preference(previous):
+            spell_matches[int(row.spell_id)] = row
+
     for entry in entries:
-        row = matches.get(_number(entry.get('id')) or 0)
-        if not row:
+        entry_id = _number(entry.get('id')) or 0
+        row = matches.get(entry_id)
+        spell_row = spell_matches.get(entry_id)
+        if not row and not spell_row:
             continue
+        if row:
+            name = row.name or (spell_row.name if spell_row else '')
+            name_zh = row.name_zh or (spell_row.name_zh if spell_row else '')
+            description = row.description or ''
+            description_zh = row.description_zh or ''
+            if spell_row and not (description or description_zh):
+                description = spell_row.description or spell_row.aura_description or ''
+            icon = row.icon or (spell_row.icon if spell_row else '')
+            entry.update({
+                'node_id': row.node_id,
+                'talent_id': row.talent_id,
+                'spell_id': row.display_spell_id or row.spell_id or entry_id,
+                'tree_type': row.tree_type or '',
+                'row': row.row,
+                'column': row.column,
+                'max_rank': row.max_points,
+                'source': 'talent_metadata',
+            })
+        else:
+            name = spell_row.name or ''
+            name_zh = spell_row.name_zh or ''
+            description = spell_row.description or spell_row.aura_description or ''
+            description_zh = ''
+            icon = spell_row.icon or ''
+            entry.update({
+                'spell_id': spell_row.spell_id,
+                'source': 'spell_snapshot',
+            })
         entry.update({
-            'name': row.name or '',
-            'name_zh': row.name_zh or '',
-            'display_name': row.name_zh or row.name or '',
-            'spell_id': row.display_spell_id or row.spell_id,
-            'icon': row.icon or '',
+            'name': name,
+            'name_zh': name_zh,
+            'display_name': name_zh or name or f'万奥能力 #{entry_id}',
+            'description': description,
+            'description_zh': description_zh,
+            'display_description': description_zh or description,
+            'icon': icon,
+            'icon_url': wow_icon_oss_url(icon) if icon else '',
         })
     return detail
 
@@ -455,6 +507,15 @@ def _enrich_player_detail(detail):
         'food': raw_fields.get('food', ''),
         'augmentation': raw_fields.get('augmentation', ''),
         'temporary_enchant': _parse_temporary_enchants(raw_fields.get('temporary_enchant', '')),
+    }
+    detail['consumable_details'] = {
+        key: simc_consumable_option(value)
+        for key, value in detail['consumables'].items()
+        if key != 'temporary_enchant' and value
+    }
+    detail['consumable_details']['temporary_enchant'] = {
+        slot: simc_consumable_option(value)
+        for slot, value in detail['consumables']['temporary_enchant'].items() if value
     }
     values = {
         'talents': talents.get('build_code', ''),

@@ -1774,6 +1774,8 @@ finger1=,id=299002,ilevel=655
         )
         self.assertEqual(detail['consumables']['potion'], 'potion_of_testing')
         self.assertEqual(detail['consumables']['temporary_enchant']['main_hand'], 'oil_a')
+        self.assertEqual(detail['consumable_details']['augmentation']['label'], '虚触强化符文')
+        self.assertEqual(detail['consumable_details']['potion']['value'], 'potion_of_testing')
         self.assertEqual(detail['talent_strings']['talents']['value'], 'MODEL_BUILD')
         self.assertEqual(detail['talent_strings']['class_talents']['value'], 's207104:1/s444040:2')
         self.assertEqual(detail['talent_strings']['class_talents']['entries'][1], {'spell_id': 444040, 'rank': 2})
@@ -4223,6 +4225,15 @@ class SimcPlayerConfigDetailTests(TestCase):
             node_id=136817,
             name='Omnium Test Node',
             name_zh='万奥测试节点',
+            description_zh='这是万奥节点的中文说明。',
+            icon='spell_nature_bloodlust',
+            max_points=2,
+        )
+        WowSpellSnapshot.objects.create(
+            branch='wow', locale='zhCN', spell_id=136819,
+            name='Second Omnium Power', name_zh='第二个万奥能力',
+            description='这是从技能快照解析的中文说明。',
+            icon='ability_warrior_battleshout',
         )
         from botend.models import SimcSecondaryStatRule
         SimcSecondaryStatRule.objects.update_or_create(
@@ -4246,6 +4257,11 @@ class SimcPlayerConfigDetailTests(TestCase):
                     'spec=fury',
                     'talents=BUILDCODE',
                     'omnium_talents=136817:2/136819:1',
+                    'flask=blood_knights_2',
+                    'potion=potion_of_recklessness_2',
+                    'food=royal_roast',
+                    'augmentation=void_touched',
+                    'temporary_enchant=main_hand:thalassian_phoenix_oil_2',
                     'head=,id=212048,ilevel=639,enchant_id=71543,gems=213479/213480',
                     'main_hand=,id=224638,ilevel=646',
                     'crit_rating=10730',
@@ -4277,7 +4293,20 @@ class SimcPlayerConfigDetailTests(TestCase):
         self.assertEqual(detail['equipment'][0]['gems'][0]['display_name'], '测试宝石')
         self.assertEqual(detail['omnium_talents'][0]['display_name'], '万奥测试节点')
         self.assertEqual(detail['omnium_talents'][0]['rank'], 2)
-        self.assertNotIn('display_name', detail['omnium_talents'][1])
+        self.assertEqual(detail['omnium_talents'][0]['max_rank'], 2)
+        self.assertEqual(detail['omnium_talents'][0]['display_description'], '这是万奥节点的中文说明。')
+        self.assertTrue(detail['omnium_talents'][0]['icon_url'].endswith('/small/spell_nature_bloodlust.jpg'))
+        self.assertEqual(detail['omnium_talents'][1]['display_name'], '第二个万奥能力')
+        self.assertEqual(detail['omnium_talents'][1]['source'], 'spell_snapshot')
+        self.assertEqual(detail['omnium_talents'][1]['display_description'], '这是从技能快照解析的中文说明。')
+        self.assertEqual(detail['consumable_details']['flask']['label'], '血骑士合剂')
+        self.assertEqual(detail['consumable_details']['potion']['label'], '鲁莽药水')
+        self.assertEqual(detail['consumable_details']['food']['label'], '皇家烤肉')
+        self.assertEqual(detail['consumable_details']['augmentation']['label'], '虚触强化符文')
+        self.assertEqual(
+            detail['consumable_details']['temporary_enchant']['main_hand']['label'],
+            '萨拉斯凤凰之油',
+        )
         self.assertEqual(detail['stats']['secondary']['crit']['rating'], 10730)
         self.assertAlmostEqual(detail['stats']['secondary']['crit']['percent'], 233.26, places=2)
         self.assertEqual(SimcTask.objects.count(), 0)

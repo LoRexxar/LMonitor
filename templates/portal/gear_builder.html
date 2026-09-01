@@ -10,7 +10,7 @@
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260808_portal_theme_v2"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260821_mythicstats_clean_light_v7">
     <link rel="stylesheet" href="{% static 'shared/css/wow-item-tooltip.css' %}?v=20260813_simc_equipment_icon">
-    <link rel="stylesheet" href="{% static 'portal/css/gear_builder.css' %}?v=20260901_gear_builder_v11">
+    <link rel="stylesheet" href="{% static 'portal/css/gear_builder.css' %}?v=20260901_gear_builder_v12">
 </head>
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
@@ -70,9 +70,9 @@
                     <button type="button" id="gear-loadout-toggle" class="gear-btn" aria-expanded="false" aria-controls="gear-loadout-panel">
                         配装列表 <span id="gear-loadout-count" class="gear-loadout-count">0</span>
                     </button>
-                    <section id="gear-loadout-panel" class="gear-loadout-panel" aria-label="浏览器本地配装" hidden>
+                    <section id="gear-loadout-panel" class="gear-loadout-panel" aria-label="配装列表" hidden>
                         <header class="gear-loadout-head">
-                            <div><strong>本地配装</strong><small id="gear-loadout-summary">保存在当前浏览器</small></div>
+                            <div><strong>配装列表</strong><small id="gear-loadout-summary">正在读取本地与线上配装</small></div>
                             <button type="button" id="gear-loadout-close" class="gear-icon-btn" aria-label="关闭配装列表">×</button>
                         </header>
                         <form id="gear-loadout-save-form" class="gear-loadout-save-form">
@@ -281,6 +281,6 @@
 
     <div id="gear-toast-root" class="gear-toast-root" aria-live="polite"></div>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
-    <script src="{% static 'portal/js/gear_builder.js' %}?v=20260901_gear_builder_v14"></script>
+    <script src="{% static 'portal/js/gear_builder.js' %}?v=20260901_gear_builder_v15"></script>
 </body>
 </html>

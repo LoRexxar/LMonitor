@@ -139,11 +139,15 @@
 .gear-loadout-row:last-child { border-bottom: 0; }
 .gear-loadout-info { min-width: 0; }
 .gear-loadout-info strong { display: block; overflow: hidden; font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
+.gear-loadout-source { display: inline-flex; align-items: center; margin-left: 4px; padding: 1px 5px; border-radius: 999px; font-size: .56rem; font-style: normal; font-weight: 760; vertical-align: 1px; }
+.gear-loadout-source--local { background: var(--gear-surface-muted); color: var(--gear-muted); }
+.gear-loadout-source--online { background: #e8f0ff; color: var(--gear-blue); }
 .gear-loadout-info span { display: block; margin-top: 4px; overflow: hidden; color: var(--gear-muted); font-size: .62rem; text-overflow: ellipsis; white-space: nowrap; }
 .gear-loadout-actions { display: flex; gap: 3px; }
 .gear-loadout-actions button { min-height: 28px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; color: var(--gear-blue); cursor: pointer; font-size: .66rem; font-weight: 720; }
 .gear-loadout-actions button:hover { background: var(--gear-blue-soft); }
-.gear-loadout-actions button[data-delete-loadout] { color: var(--gear-red); }
+.gear-loadout-actions button[data-delete-local-loadout],
+.gear-loadout-actions button[data-delete-online-loadout] { color: var(--gear-red); }
 .gear-loadout-actions button:focus-visible { outline: 2px solid color-mix(in srgb, var(--gear-blue) 40%, transparent); outline-offset: 1px; }
 
 .gear-mobile-tabs { display: none; }

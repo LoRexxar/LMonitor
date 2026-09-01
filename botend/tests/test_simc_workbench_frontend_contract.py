@@ -205,6 +205,8 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         detail_renderer = MAIN[detail_start:detail_end]
         self.assertIn('renderSimcProfileEquipmentCards', detail_renderer)
         self.assertIn('detail.consumables', detail_renderer)
+        self.assertIn('detail.consumable_details', detail_renderer)
+        self.assertIn('localizedConsumable', detail_renderer)
         self.assertIn('detail.talent_strings', detail_renderer)
         self.assertIn('detail.omnium_talents', detail_renderer)
         self.assertIn('renderSimcOmniumTalents', detail_renderer)
@@ -212,6 +214,9 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('消耗品与临时附魔', detail_renderer)
         self.assertIn('天赋字符串拆解', detail_renderer)
         self.assertIn('万奥宝典', detail_renderer)
+        self.assertIn('display_description', MAIN)
+        omnium_renderer = MAIN[MAIN.index('function renderSimcOmniumTalents'):MAIN.index('function renderSimcProfileFormEquipmentPreview')]
+        self.assertIn('icon_url', omnium_renderer)
         self.assertNotIn('data-profile-equipment-slot', detail_renderer)
         self.assertNotIn('simcWbSaveProfileEquipment', detail_renderer)
         self.assertNotIn('保存装备修改', detail_renderer)
@@ -242,7 +247,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('item.enchant?.enchantment_id', renderer)
         self.assertIn('item.enchant?.display_name', renderer)
         self.assertIn('附魔 #${enchantId}', renderer)
-        self.assertIn("dashboard/js/main.js' %}?v=20260901b_simc_profile_omnium_enchant", HTML)
+        self.assertIn("dashboard/js/main.js' %}?v=20260901c_simc_profile_localized", HTML)
 
     def test_profile_list_renders_spec_icon_with_authoritative_class_color(self):
         badge = MAIN[MAIN.index('function renderSpecBadgeHtml'):MAIN.index('function syncSimcTaskInputMode')]

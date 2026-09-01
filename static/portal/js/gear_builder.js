@@ -1007,13 +1007,29 @@
   }
 
   function renderSavedLoadouts() {
-    els.loadout_count.textContent = String(savedLoadouts.length);
-    els.loadout_summary.textContent = savedLoadouts.length ? `${savedLoadouts.length} 个方案 · 仅此浏览器` : "保存在当前浏览器";
-    els.loadout_list.innerHTML = savedLoadouts.length
-      ? savedLoadouts.map((record) => `<article class="gear-loadout-row" data-loadout-id="${escapeHtml(record.id)}">
-          <div class="gear-loadout-info"><strong title="${escapeHtml(record.name)}">${escapeHtml(record.name)}</strong><span>${escapeHtml(loadoutIdentity(record))} · ${record.equippedCount}/16 · ${escapeHtml(loadoutTime(record.updatedAt))}</span></div>
-          <div class="gear-loadout-actions"><button type="button" data-load-loadout>载入</button><button type="button" data-overwrite-loadout>覆盖</button><button type="button" data-delete-loadout>删除</button></div>
-        </article>`).join("")
+    const records = [
+      ...savedLoadouts.map((record) => ({...record, loadoutSource: "local", sortTime: record.updatedAt})),
+      ...onlineLoadouts.map((record) => ({...record, loadoutSource: "online", sortTime: record.updated_at})),
+    ].sort((left, right) => new Date(right.sortTime || 0) - new Date(left.sortTime || 0));
+    els.loadout_count.textContent = String(records.length);
+    els.loadout_summary.textContent = records.length
+      ? `本地 ${savedLoadouts.length} · 线上 ${onlineLoadouts.length}`
+      : "本地与线上均无配装";
+    els.loadout_list.innerHTML = records.length
+      ? records.map((record) => {
+          const online = record.loadoutSource === "online";
+          const className = online ? record.class_name : record.className;
+          const specName = online ? record.spec_name : record.specName;
+          const updatedAt = online ? record.updated_at : record.updatedAt;
+          const equipmentCopy = online ? "" : ` · ${record.equippedCount}/16`;
+          const actions = online
+            ? '<button type="button" data-load-online-loadout>载入</button><button type="button" data-delete-online-loadout>删除</button>'
+            : '<button type="button" data-load-local-loadout>载入</button><button type="button" data-overwrite-local-loadout>覆盖</button><button type="button" data-delete-local-loadout>删除</button>';
+          return `<article class="gear-loadout-row" data-loadout-source="${record.loadoutSource}" data-loadout-id="${escapeHtml(record.id)}">
+            <div class="gear-loadout-info"><strong title="${escapeHtml(record.name)}">${escapeHtml(record.name)} <em class="gear-loadout-source gear-loadout-source--${record.loadoutSource}">${online ? "线上" : "本地"}</em></strong><span>${escapeHtml(loadoutIdentity({className, specName}))}${equipmentCopy} · ${escapeHtml(loadoutTime(updatedAt))}</span></div>
+            <div class="gear-loadout-actions">${actions}</div>
+          </article>`;
+        }).join("")
       : '<div class="gear-loadout-empty"><strong>还没有保存的配装</strong><br>输入名称后保存当前装备与强化选择。</div>';
   }
 
@@ -1027,6 +1043,9 @@
     els.loadout_toggle.setAttribute("aria-expanded", String(open));
     if (!open) return;
     renderSavedLoadouts();
+    if (els.online_list) {
+      refreshOnlineLoadouts().catch((error) => toast(error.message || "线上配装读取失败。", true));
+    }
     if (focusName) {
       if (!els.loadout_name.value.trim()) els.loadout_name.value = defaultLoadoutName();
       requestAnimationFrame(() => { els.loadout_name.focus(); els.loadout_name.select(); });
@@ -1104,6 +1123,7 @@
     const payload = await requestJson(endpoints.onlineLoadouts);
     onlineLoadouts = Array.isArray(payload.loadouts) ? payload.loadouts : [];
     renderOnlineLoadouts();
+    renderSavedLoadouts();
   }
 
   async function openOnlineLoadouts() {
@@ -1148,7 +1168,8 @@
     renderAll();
     await loadCandidates(true);
     if (state.mode === "enhancement") await loadEnhancements();
-    els.online_dialog.close();
+    if (els.online_dialog?.open) els.online_dialog.close();
+    setLoadoutPanel(false);
     toast(`已载入线上配装“${record.name}”。`);
   }
 
@@ -1160,6 +1181,7 @@
     });
     onlineLoadouts = onlineLoadouts.filter((row) => Number(row.id) !== Number(record.id));
     renderOnlineLoadouts();
+    renderSavedLoadouts();
     toast(`已删除线上配装“${record.name}”。`);
   }
 
@@ -1365,13 +1387,25 @@
     });
     els.loadout_list.addEventListener("click", async (event) => {
       const row = event.target.closest("[data-loadout-id]");
-      const record = savedLoadouts.find((item) => item.id === row?.dataset.loadoutId);
+      const source = row?.dataset.loadoutSource;
+      const record = source === "online"
+        ? onlineLoadouts.find((item) => Number(item.id) === Number(row?.dataset.loadoutId))
+        : savedLoadouts.find((item) => item.id === row?.dataset.loadoutId);
       if (!record) return;
-      if (event.target.closest("[data-delete-loadout]")) {
+      if (source === "online") {
+        try {
+          if (event.target.closest("[data-delete-online-loadout]")) await deleteOnlineLoadout(record);
+          if (event.target.closest("[data-load-online-loadout]")) await loadOnlineLoadout(record);
+        } catch (error) {
+          toast(error.message || "线上配装操作失败。", true);
+        }
+        return;
+      }
+      if (event.target.closest("[data-delete-local-loadout]")) {
         deleteSavedLoadout(record);
         return;
       }
-      if (event.target.closest("[data-overwrite-loadout]")) {
+      if (event.target.closest("[data-overwrite-local-loadout]")) {
         try {
           const result = await saveCurrentLoadout(record.name, record.id);
           toast(`已用当前配装覆盖“${result.record.name}”。`);
@@ -1380,7 +1414,7 @@
         }
         return;
       }
-      if (event.target.closest("[data-load-loadout]")) {
+      if (event.target.closest("[data-load-local-loadout]")) {
         try {
           await loadSavedLoadout(record);
         } catch (error) {
@@ -1533,6 +1567,7 @@
       renderCatalogStatus();
       bindEvents();
       renderAll();
+      if (els.online_list) refreshOnlineLoadouts().catch((error) => toast(error.message || "线上配装读取失败。", true));
       await loadCandidates(true);
       if (state.mode === "enhancement") await loadEnhancements();
     } catch (error) {
