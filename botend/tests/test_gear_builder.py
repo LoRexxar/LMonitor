@@ -760,6 +760,7 @@ class GearBuilderFrontendContractTests(TestCase):
         header = (root / 'templates/portal/_header.html').read_text(encoding='utf-8')
         template = (root / 'templates/portal/gear_builder.html').read_text(encoding='utf-8')
         script = (root / 'static/portal/js/gear_builder.js').read_text(encoding='utf-8')
+        styles = (root / 'static/portal/css/gear_builder.css').read_text(encoding='utf-8')
         self.assertIn('/portal/gear-builder/', header)
         self.assertIn('职业配装器', header)
         for value in ('装备', '强化', '美化', '宝石', '永久附魔', '导入 SimC', '绿字', '游戏预览', '角色装备预览'):
@@ -790,3 +791,6 @@ class GearBuilderFrontendContractTests(TestCase):
         self.assertIn('SECONDARY_STATS.has(key)', script)
         for value in ('renderPreview', 'data-preview-slot', 'preview_item_level', 'state.viewMode === "preview"'):
             self.assertIn(value, script)
+        self.assertIn('background: #eef3f8;', styles)
+        for dark_preview_color in ('#0a1020', '#101827', '#151f32', '#080d17'):
+            self.assertNotIn(dark_preview_color, styles)
