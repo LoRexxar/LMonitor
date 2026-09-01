@@ -16,8 +16,19 @@ from botend.constants.wow import (
     canonical_class_spec,
     localize_gear_source,
 )
-from botend.models import SeasonMeta, WowItemVariantSnapshot, WowWagoMonitorState
-from botend.services.simc_player_config import parse_simc_player_profile
+from botend.models import (
+    SeasonMeta,
+    SimcMasteryCoefficient,
+    SimcSecondaryStatRule,
+    WowItemVariantSnapshot,
+    WowWagoMonitorState,
+)
+from botend.services.simc_player_config import (
+    canonical_simc_profile_key,
+    parse_simc_player_profile,
+    secondary_rule_class_key,
+    simc_spec_slug,
+)
 from botend.templatetags.wow_tags import wow_icon_oss_url
 
 
@@ -223,6 +234,38 @@ def specs_payload():
     return payload
 
 
+def secondary_stat_conversion_rules():
+    """按职业/专精读取现有绿字比例及精通系数，生成前端只读换算表。"""
+    fields = ('crit_per_percent', 'haste_per_percent', 'mastery_per_percent', 'versatility_per_percent')
+    defaults = {
+        field: float(SimcSecondaryStatRule._meta.get_field(field).get_default())
+        for field in fields
+    }
+    class_rules = {
+        str(row.class_name or '').casefold(): row
+        for row in SimcSecondaryStatRule.objects.all()
+    }
+    mastery_rules = {
+        str(row.spec or '').casefold(): float(row.mastery_coefficient or 1)
+        for row in SimcMasteryCoefficient.objects.all()
+    }
+    payload = {}
+    for class_name, spec_names in CLASS_SPEC_MAP.items():
+        class_rule = class_rules.get(secondary_rule_class_key(class_name).casefold())
+        ratios = {
+            field: float(getattr(class_rule, field, defaults[field]) or defaults[field])
+            for field in fields
+        }
+        for spec_name in spec_names:
+            full_key = canonical_simc_profile_key(spec_name, class_name).casefold()
+            short_key = simc_spec_slug(spec_name).casefold()
+            payload[f'{class_name}:{spec_name}'] = {
+                **ratios,
+                'mastery_coefficient': mastery_rules.get(full_key, mastery_rules.get(short_key, 1.0)),
+            }
+    return payload
+
+
 def bootstrap_payload():
     season = active_season()
     sync_report = season.gear_sync_report if season and isinstance(season.gear_sync_report, dict) else {}
@@ -239,6 +282,7 @@ def bootstrap_payload():
             'max_share_length': 8000,
             'crafted_secondary_count': 2,
             'temporary_enchants_supported': False,
+            'secondary_stat_conversion': secondary_stat_conversion_rules(),
             **catalog_rules,
         },
     }

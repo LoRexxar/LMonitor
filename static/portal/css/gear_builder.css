@@ -339,11 +339,12 @@
 .gear-stats-heading h2 { font-size: .9rem; font-weight: 820; }
 .gear-stats-heading div span { color: var(--gear-muted); font-size: .67rem; }
 .gear-save-status { color: var(--gear-green); font-size: .7rem; }
-.gear-stat-grid { display: grid; grid-template-columns: repeat(8, minmax(88px, 1fr)); }
+.gear-stat-grid { display: grid; grid-template-columns: repeat(5, minmax(100px, 1fr)); }
 .gear-stat-card { min-height: 82px; padding: 13px 14px; border-right: 1px solid var(--gear-border); }
 .gear-stat-card:last-child { border-right: 0; }
 .gear-stat-label { color: var(--gear-muted); font-size: .68rem; font-weight: 700; }
 .gear-stat-value { display: block; margin-top: 5px; color: var(--gear-text); font-size: 1rem; font-weight: 760; font-variant-numeric: tabular-nums; transition: color 120ms ease; }
+.gear-stat-percent { margin-left: 7px; color: var(--gear-muted); font-size: .72rem; font-weight: 680; }
 .gear-stat-bar { display: block; width: 100%; height: 3px; margin-top: 9px; border-radius: 9px; background: var(--gear-border); overflow: hidden; }
 .gear-stat-bar::after { content: ''; display: block; width: var(--stat-progress, 0%); height: 100%; border-radius: inherit; background: var(--stat-color, var(--gear-blue)); }
 .gear-effect-summary { padding: 12px 16px 15px; border-top: 1px solid var(--gear-border); }
@@ -382,9 +383,7 @@ html.portal-theme-dark .gear-detail-field select { color-scheme: dark; }
     .gear-builder-workspace { grid-template-columns: 290px minmax(470px, 1fr) 280px; }
     .gear-table-head,
     .gear-candidate-row { grid-template-columns: minmax(170px, 1.2fr) 68px 78px minmax(120px, .9fr) minmax(105px, .8fr); }
-    .gear-stat-grid { grid-template-columns: repeat(4, 1fr); }
-    .gear-stat-card:nth-child(4) { border-right: 0; }
-    .gear-stat-card:nth-child(-n+4) { border-bottom: 1px solid var(--gear-border); }
+    .gear-stat-grid { grid-template-columns: repeat(5, minmax(88px, 1fr)); }
 }
 
 @media (max-width: 940px) {
@@ -438,9 +437,12 @@ html.portal-theme-dark .gear-detail-field select { color-scheme: dark; }
     .gear-stat-copy { display: none; }
     .gear-stats-panel { margin: 14px; border-radius: 10px; }
     .gear-stat-grid { grid-template-columns: repeat(2, 1fr); }
-    .gear-stat-card:nth-child(2n) { border-right: 0; }
-    .gear-stat-card:nth-child(-n+6) { border-bottom: 1px solid var(--gear-border); }
-    .gear-stat-card:nth-child(4) { border-right: 0; }
+    .gear-stat-card { border-right: 1px solid var(--gear-border); border-bottom: 0; }
+    .gear-stat-card:first-child { grid-column: 1 / -1; }
+    .gear-stat-card:nth-child(1),
+    .gear-stat-card:nth-child(3),
+    .gear-stat-card:nth-child(5) { border-right: 0; }
+    .gear-stat-card:nth-child(-n+3) { border-bottom: 1px solid var(--gear-border); }
     .gear-stats-heading { align-items: flex-start; }
     .gear-save-status { text-align: right; }
     .gear-dialog { width: calc(100vw - 16px); }

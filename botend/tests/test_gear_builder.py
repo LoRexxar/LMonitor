@@ -8,7 +8,13 @@ from unittest.mock import patch
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 
-from botend.models import SeasonMeta, WowItemSnapshot, WowItemVariantSnapshot
+from botend.models import (
+    SeasonMeta,
+    SimcMasteryCoefficient,
+    SimcSecondaryStatRule,
+    WowItemSnapshot,
+    WowItemVariantSnapshot,
+)
 from botend.services.gear_builder import stats_for_identity
 from botend.services.gear_builder_catalog_source import CurrentGearCatalogSource, _tooltip_details
 from botend.services.gear_builder_icon_sync import GearBuilderIconSync
@@ -17,6 +23,18 @@ from botend.services.gear_builder_icon_sync import GearBuilderIconSync
 class GearBuilderTestDataMixin:
     def setUp(self):
         super().setUp()
+        SimcSecondaryStatRule.objects.update_or_create(
+            class_name='warrior',
+            defaults={
+                'crit_per_percent': 46,
+                'haste_per_percent': 44,
+                'mastery_per_percent': 46,
+                'versatility_per_percent': 54,
+            },
+        )
+        SimcMasteryCoefficient.objects.update_or_create(
+            spec='fury', defaults={'mastery_coefficient': 1.4},
+        )
         self.season = SeasonMeta.objects.create(
             season_key='midnight-s2-test',
             season_name='午夜 S2 测试',
@@ -184,6 +202,12 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         self.assertEqual(payload['catalog']['batch_key'], 'test-batch')
         self.assertEqual(len(payload['slots']), 16)
         self.assertEqual(payload['rules']['socket_additions'][0]['slot'], 'head')
+        conversion = payload['rules']['secondary_stat_conversion']['Warrior:Fury']
+        self.assertEqual(conversion['crit_per_percent'], 46)
+        self.assertEqual(conversion['haste_per_percent'], 44)
+        self.assertEqual(conversion['mastery_per_percent'], 46)
+        self.assertEqual(conversion['versatility_per_percent'], 54)
+        self.assertEqual(conversion['mastery_coefficient'], 1.4)
 
     def test_catalog_groups_legal_variants_and_filters_spec_slot_and_source(self):
         response = self.client.get('/portal/api/gear-builder/catalog/', {
@@ -654,6 +678,9 @@ class GearBuilderFrontendContractTests(TestCase):
             self.assertIn(value, script)
         for value in ('enhancementSummary', 'gear-slot-enhancements', 'item.description'):
             self.assertIn(value, script)
+        self.assertIn('const SUMMARY_STATS = ["crit", "haste", "mastery", "versatility"]', script)
+        self.assertIn('secondary_stat_conversion', script)
+        self.assertIn('gear-stat-percent', script)
         self.assertIn('data-select-item', script)
         self.assertNotIn('data-add-item', script)
         self.assertIn('SECONDARY_STATS.has(key)', script)

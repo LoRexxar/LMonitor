@@ -29,7 +29,7 @@
     leech: "吸血", avoidance: "闪避", speed: "速度", weapon_dps: "武器秒伤",
     min_damage: "最低伤害", max_damage: "最高伤害",
   };
-  const SUMMARY_STATS = ["strength", "stamina", "armor", "crit", "haste", "mastery", "versatility", "weapon_dps"];
+  const SUMMARY_STATS = ["crit", "haste", "mastery", "versatility"];
   const STAT_COLORS = {
     strength: "#cf2f2f", agility: "#1e9a50", intellect: "#3978d9", stamina: "#7d59c4",
     crit: "#ed7b2d", haste: "#24a7bd", mastery: "#7c3aed", versatility: "#c59d28",
@@ -640,18 +640,25 @@
 
   function renderStats() {
     const {totals, effects, equipped, missingStats} = totalsAndEffects();
-    const keys = [primaryStatKey(), ...SUMMARY_STATS.slice(1)];
+    const keys = [primaryStatKey(), ...SUMMARY_STATS];
     const max = Math.max(1, ...keys.map((key) => number(totals[key])));
     els.stat_grid.innerHTML = keys.map((key) => {
       const value = number(totals[key]);
-      return `<div class="gear-stat-card"><span class="gear-stat-label">${escapeHtml(STAT_LABELS[key] || "属性")}</span><strong class="gear-stat-value">${formatNumber(value)}</strong><span class="gear-stat-bar" style="--stat-progress:${Math.max(value ? 8 : 0, value / max * 100)}%;--stat-color:${STAT_COLORS[key] || "#64748b"}"></span></div>`;
+      const conversion = bootstrap?.rules?.secondary_stat_conversion?.[`${state.className}:${state.specName}`] || {};
+      const perPercent = number(conversion[`${key}_per_percent`]);
+      const coefficient = key === "mastery" ? number(conversion.mastery_coefficient) || 1 : 1;
+      const percent = SECONDARY_STATS.has(key) && perPercent ? value / perPercent * coefficient : null;
+      const percentageMarkup = percent === null
+        ? ""
+        : `<small class="gear-stat-percent">/ ${formatNumber(percent)}%</small>`;
+      return `<div class="gear-stat-card"><span class="gear-stat-label">${escapeHtml(STAT_LABELS[key] || "属性")}</span><strong class="gear-stat-value">${formatNumber(value)}${percentageMarkup}</strong><span class="gear-stat-bar" style="--stat-progress:${Math.max(value ? 8 : 0, value / max * 100)}%;--stat-color:${STAT_COLORS[key] || "#64748b"}"></span></div>`;
     }).join("");
     els.effect_list.innerHTML = effects.length
       ? effects.map((row) => `<div class="gear-effect-line"><strong>${escapeHtml(row.slot)}：</strong>${escapeHtml(row.text)}</div>`).join("")
       : '<span class="gear-no-effects">当前配装没有触发型特效。</span>';
     els.stats_context.textContent = missingStats
       ? `已装备 ${equipped}/16 · 实时汇总中，${missingStats} 件缺少静态属性数据`
-      : `已装备 ${equipped}/16 · 装备、制造绿字、宝石和附魔实时汇总`;
+      : `已装备 ${equipped}/16 · 绿字百分比按固定比例换算，精通应用当前专精系数`;
   }
 
   function renderMobileView() {
