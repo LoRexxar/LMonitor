@@ -2074,7 +2074,9 @@ function renderSimcProfileEquipmentCards(items, { compact = false } = {}) {
         const esc = value => escapeHtml(String(value == null || value === '' ? '-' : value));
         const itemId = item.item_id || item.id || '';
         const itemMeta = [item.item_level ? `装等 ${esc(item.item_level)}` : '', itemId ? `#${esc(itemId)}` : ''].filter(Boolean).join(' · ');
-        const enchant = item.enchant ? `<div class="mt-1 text-xs text-violet-700"><i class="fas fa-magic mr-1"></i>${esc(item.enchant.display_name)}</div>` : '';
+        const enchantId = item.enchant?.enchantment_id || item.enchant?.id || '';
+        const enchantName = item.enchant?.display_name || item.enchant?.name_zh || item.enchant?.name || item.enchant?.simc_name || (enchantId ? `附魔 #${enchantId}` : '');
+        const enchant = enchantName ? `<div class="mt-1 text-xs text-violet-700"><i class="fas fa-magic mr-1"></i>${esc(enchantName)}${enchantId ? `<span class="ml-1 text-violet-400">#${esc(enchantId)}</span>` : ''}</div>` : '';
         const gems = (item.gems || []).length ? `<div class="mt-1 text-xs text-cyan-700"><i class="fas fa-gem mr-1"></i>${item.gems.map(gem => esc(gem.display_name)).join('、')}</div>` : '';
         const tooltipDescription = String(item.display_description || '').trim();
         const iconUrl = String(item.icon_url || '').trim();
@@ -2088,11 +2090,23 @@ function renderSimcProfileEquipmentCards(items, { compact = false } = {}) {
     }).join('');
 }
 
+function renderSimcOmniumTalents(items) {
+    const entries = Array.isArray(items) ? items : [];
+    if (!entries.length) return '';
+    return entries.map(entry => {
+        const nodeId = entry.id || '-';
+        const rank = entry.rank ?? '-';
+        const displayName = entry.display_name || entry.name_zh || entry.name || '';
+        return `<div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2" data-omnium-node-id="${escapeHtml(String(nodeId))}">${displayName ? `<div class="text-xs font-semibold text-amber-900">${escapeHtml(String(displayName))}</div>` : ''}<div class="${displayName ? 'mt-0.5 ' : ''}font-mono text-xs text-amber-700">ID ${escapeHtml(String(nodeId))} / rank ${escapeHtml(String(rank))}</div></div>`;
+    }).join('');
+}
+
 function renderSimcProfileFormEquipmentPreview(detail, formWrap = document.getElementById('simc-wb-profile-form')) {
     const target = formWrap?.querySelector('[data-profile-equipment-preview-content]');
     if (!target) return;
-    target.className = 'mt-3 grid gap-2 sm:grid-cols-2';
-    target.innerHTML = renderSimcProfileEquipmentCards(detail?.equipment, { compact: true });
+    const omniumTalents = renderSimcOmniumTalents(detail?.omnium_talents);
+    target.className = 'mt-3 space-y-3';
+    target.innerHTML = `${omniumTalents ? `<section data-profile-omnium-talents><h6 class="mb-2 text-sm font-semibold text-amber-900">万奥宝典</h6><div class="grid gap-2 sm:grid-cols-2">${omniumTalents}</div></section>` : ''}<div class="grid gap-2 sm:grid-cols-2">${renderSimcProfileEquipmentCards(detail?.equipment, { compact: true })}</div>`;
 }
 
 function renderSimcProfileDetailDialog(detail) {
@@ -2104,6 +2118,7 @@ function renderSimcProfileDetailDialog(detail) {
         ? `<a data-profile-detail-talent-link href="${escapeHtml(talentUrl)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center rounded-lg border border-violet-200 bg-white px-3 py-1.5 text-sm font-medium text-violet-700 transition hover:border-violet-400 hover:bg-violet-50"><i class="fas fa-project-diagram mr-1.5"></i>打开天赋模拟器</a>`
         : '<span class="text-xs text-slate-400">当前配置没有可查看的天赋码</span>';
     const equipment = renderSimcProfileEquipmentCards(detail.equipment);
+    const omniumTalents = renderSimcOmniumTalents(detail.omnium_talents);
     const consumables = detail.consumables || {};
     const consumableLabels = {
         flask: '合剂', potion: '药水', food: '食物', augmentation: '增幅符文',
@@ -2139,7 +2154,7 @@ function renderSimcProfileDetailDialog(detail) {
     const body = document.getElementById('simc-dialog-body');
     if (!body) return;
     const syncNotice = profile.is_system ? '<p class="mt-2 text-xs text-amber-700">这是由上游同步维护的系统配置。</p>' : '';
-    body.innerHTML = `<div class="space-y-5"><header class="border-b border-slate-200 pb-4"><div class="flex flex-wrap items-start justify-between gap-3"><div><h3 class="text-lg font-bold text-slate-900">${esc(profile.name)}</h3><p class="mt-1 text-sm text-slate-500">${esc(profile.spec_label || profile.spec)} · ${esc(sourceLabel)}</p></div><span class="rounded-full px-2.5 py-1 text-xs font-medium ${profile.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}">${profile.is_active ? '生效中' : '未生效'}</span></div>${syncNotice}</header><section class="grid grid-cols-2 gap-2 sm:grid-cols-5">${statRows}</section><section class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-violet-100 bg-violet-50/60 p-3"><div class="min-w-0"><h4 class="font-semibold text-slate-900">天赋配置</h4><p class="mt-1 max-w-xl break-all font-mono text-xs text-slate-500">${esc(profile.talent)}</p></div>${talentLink}</section>${talentStringRows ? `<section><h4 class="mb-2 font-semibold text-slate-900">天赋字符串拆解</h4><div class="rounded-lg border border-slate-200 px-3">${talentStringRows}</div></section>` : ''}${consumableRows.length ? `<section><h4 class="mb-3 font-semibold text-slate-900">消耗品与临时附魔</h4><div class="grid grid-cols-2 gap-2 sm:grid-cols-3">${consumableRows.join('')}</div></section>` : ''}<section><h4 class="mb-3 font-semibold text-slate-900">装备、附魔与宝石</h4><div class="grid gap-2 sm:grid-cols-2">${equipment}</div></section><details class="rounded-lg border border-slate-200 bg-slate-50"><summary class="cursor-pointer px-3 py-2 text-sm font-semibold text-slate-700">原始玩家配置</summary><pre class="max-h-[28rem] overflow-auto border-t border-slate-200 bg-slate-950 p-3 text-xs leading-5 text-slate-100 whitespace-pre-wrap">${esc(profile.raw_player_equipment)}</pre></details></div>`;
+    body.innerHTML = `<div class="space-y-5"><header class="border-b border-slate-200 pb-4"><div class="flex flex-wrap items-start justify-between gap-3"><div><h3 class="text-lg font-bold text-slate-900">${esc(profile.name)}</h3><p class="mt-1 text-sm text-slate-500">${esc(profile.spec_label || profile.spec)} · ${esc(sourceLabel)}</p></div><span class="rounded-full px-2.5 py-1 text-xs font-medium ${profile.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}">${profile.is_active ? '生效中' : '未生效'}</span></div>${syncNotice}</header><section class="grid grid-cols-2 gap-2 sm:grid-cols-5">${statRows}</section><section class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-violet-100 bg-violet-50/60 p-3"><div class="min-w-0"><h4 class="font-semibold text-slate-900">天赋配置</h4><p class="mt-1 max-w-xl break-all font-mono text-xs text-slate-500">${esc(profile.talent)}</p></div>${talentLink}</section>${talentStringRows ? `<section><h4 class="mb-2 font-semibold text-slate-900">天赋字符串拆解</h4><div class="rounded-lg border border-slate-200 px-3">${talentStringRows}</div></section>` : ''}${omniumTalents ? `<section data-profile-omnium-talents><h4 class="mb-3 font-semibold text-slate-900">万奥宝典</h4><div class="grid gap-2 sm:grid-cols-2">${omniumTalents}</div></section>` : ''}${consumableRows.length ? `<section><h4 class="mb-3 font-semibold text-slate-900">消耗品与临时附魔</h4><div class="grid grid-cols-2 gap-2 sm:grid-cols-3">${consumableRows.join('')}</div></section>` : ''}<section><h4 class="mb-3 font-semibold text-slate-900">装备、附魔与宝石</h4><div class="grid gap-2 sm:grid-cols-2">${equipment}</div></section><details class="rounded-lg border border-slate-200 bg-slate-50"><summary class="cursor-pointer px-3 py-2 text-sm font-semibold text-slate-700">原始玩家配置</summary><pre class="max-h-[28rem] overflow-auto border-t border-slate-200 bg-slate-950 p-3 text-xs leading-5 text-slate-100 whitespace-pre-wrap">${esc(profile.raw_player_equipment)}</pre></details></div>`;
 }
 async function simcWbViewProfile(id) {
     try {

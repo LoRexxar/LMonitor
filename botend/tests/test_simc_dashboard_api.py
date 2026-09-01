@@ -16,7 +16,7 @@ from botend.management.commands.update_simc_binary import Command as UpdateSimcB
 from botend.services.simc_player_config import build_player_config_detail, parse_manual_player_config, parse_manual_simc_candidates, parse_simc_player_profile
 from botend.services.simc_composer import SimcComposer
 from botend.services.simc_task_service import append_candidate_runs
-from botend.models import DashboardUserGroup, DashboardUserGroupMembership, PlayerSpecTopPlayer, SeasonMeta, SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate, SimcProfile, SimcResourceVersion, SimcTalentString, SimcTask, SimcTaskArtifact, SimulationRun, WowItemSnapshot, WowSpellSnapshot, WowTalentVersion
+from botend.models import DashboardUserGroup, DashboardUserGroupMembership, PlayerSpecTopPlayer, SeasonMeta, SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate, SimcProfile, SimcResourceVersion, SimcTalentString, SimcTask, SimcTaskArtifact, SimulationRun, WowItemSnapshot, WowSpellSnapshot, WowTalentNodeMetadata, WowTalentVersion
 from botend.tests.simc_apl_symbol_test_utils import get_or_create_symbol_scope
 
 
@@ -4203,8 +4203,27 @@ class SimcPlayerConfigDetailTests(TestCase):
 
     def test_player_config_detail_returns_structured_manual_player_detail_with_items_and_stats(self):
         WowItemSnapshot.objects.create(item_id=212048, name='Helm of Tests', name_zh='测试头盔', icon='inv_helmet_01')
-        WowItemSnapshot.objects.create(item_id=71543, name='Swift Enchant', name_zh='迅捷附魔')
+        WowItemSnapshot.objects.create(
+            item_id=299001,
+            enchantment_id=71543,
+            name='Swift Enchant',
+            name_zh='迅捷附魔',
+        )
         WowItemSnapshot.objects.create(item_id=213479, name='Test Gem', name_zh='测试宝石')
+        talent_version = WowTalentVersion.objects.create(
+            key='omnium-player-detail-test',
+            branch='retail',
+            is_active=True,
+        )
+        WowTalentNodeMetadata.objects.create(
+            talent_version=talent_version,
+            class_name='warrior',
+            spec_name='fury',
+            tree_type='class',
+            node_id=136817,
+            name='Omnium Test Node',
+            name_zh='万奥测试节点',
+        )
         from botend.models import SimcSecondaryStatRule
         SimcSecondaryStatRule.objects.update_or_create(
             class_name='warrior',
@@ -4226,6 +4245,7 @@ class SimcPlayerConfigDetailTests(TestCase):
                     'server=死亡之翼',
                     'spec=fury',
                     'talents=BUILDCODE',
+                    'omnium_talents=136817:2/136819:1',
                     'head=,id=212048,ilevel=639,enchant_id=71543,gems=213479/213480',
                     'main_hand=,id=224638,ilevel=646',
                     'crit_rating=10730',
@@ -4251,7 +4271,13 @@ class SimcPlayerConfigDetailTests(TestCase):
         self.assertEqual(detail['equipment'][0]['display_name'], '测试头盔')
         self.assertEqual(detail['equipment'][0]['item_level'], 639)
         self.assertEqual(detail['equipment'][0]['enchant']['display_name'], '迅捷附魔')
+        self.assertEqual(detail['equipment'][0]['enchant']['id'], 71543)
+        self.assertEqual(detail['equipment'][0]['enchant']['enchantment_id'], 71543)
+        self.assertEqual(detail['equipment'][0]['enchant']['item_id'], 299001)
         self.assertEqual(detail['equipment'][0]['gems'][0]['display_name'], '测试宝石')
+        self.assertEqual(detail['omnium_talents'][0]['display_name'], '万奥测试节点')
+        self.assertEqual(detail['omnium_talents'][0]['rank'], 2)
+        self.assertNotIn('display_name', detail['omnium_talents'][1])
         self.assertEqual(detail['stats']['secondary']['crit']['rating'], 10730)
         self.assertAlmostEqual(detail['stats']['secondary']['crit']['percent'], 233.26, places=2)
         self.assertEqual(SimcTask.objects.count(), 0)

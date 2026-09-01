@@ -206,8 +206,11 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('renderSimcProfileEquipmentCards', detail_renderer)
         self.assertIn('detail.consumables', detail_renderer)
         self.assertIn('detail.talent_strings', detail_renderer)
+        self.assertIn('detail.omnium_talents', detail_renderer)
+        self.assertIn('renderSimcOmniumTalents', detail_renderer)
         self.assertIn('消耗品与临时附魔', detail_renderer)
         self.assertIn('天赋字符串拆解', detail_renderer)
+        self.assertIn('万奥宝典', detail_renderer)
         self.assertNotIn('data-profile-equipment-slot', detail_renderer)
         self.assertNotIn('simcWbSaveProfileEquipment', detail_renderer)
         self.assertNotIn('保存装备修改', detail_renderer)
@@ -223,6 +226,21 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         edit_flow = MAIN[edit_start:edit_end]
         self.assertIn('/api/simc-player-config-detail/?profile_id=', edit_flow)
         self.assertIn('renderSimcProfileFormEquipmentPreview', edit_flow)
+
+        preview_start = MAIN.index('function renderSimcProfileFormEquipmentPreview')
+        preview_end = MAIN.index('function renderSimcProfileDetailDialog', preview_start)
+        preview_renderer = MAIN[preview_start:preview_end]
+        self.assertIn('detail?.omnium_talents', preview_renderer)
+        self.assertIn('data-profile-omnium-talents', preview_renderer)
+
+    def test_profile_equipment_enchant_uses_enchantment_id_and_readable_name(self):
+        renderer_start = MAIN.index('function renderSimcProfileEquipmentCards')
+        renderer_end = MAIN.index('function renderSimcOmniumTalents', renderer_start)
+        renderer = MAIN[renderer_start:renderer_end]
+        self.assertIn('item.enchant?.enchantment_id', renderer)
+        self.assertIn('item.enchant?.display_name', renderer)
+        self.assertIn('附魔 #${enchantId}', renderer)
+        self.assertIn("dashboard/js/main.js' %}?v=20260901_simc_profile_omnium_enchant", HTML)
 
     def test_profile_list_renders_spec_icon_with_authoritative_class_color(self):
         badge = MAIN[MAIN.index('function renderSpecBadgeHtml'):MAIN.index('function syncSimcTaskInputMode')]

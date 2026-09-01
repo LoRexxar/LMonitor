@@ -6,8 +6,15 @@ from __future__ import annotations
 
 import re
 
+from django.db.models import Q
+
 from botend.constants.wow import CLASS_SPEC_MAP
-from botend.models import SimcMasteryCoefficient, SimcSecondaryStatRule, WowItemSnapshot
+from botend.models import (
+    SimcMasteryCoefficient,
+    SimcSecondaryStatRule,
+    WowItemSnapshot,
+    WowTalentNodeMetadata,
+)
 from botend.services.wow_item_display import item_display_metadata
 
 
@@ -334,6 +341,69 @@ def _item_meta(item_id, snapshots):
     return item_display_metadata(item_id, snapshot)
 
 
+def _enchant_meta(enchantment_id, item_snapshots, enchantment_snapshots):
+    """按 SimC Enchantment ID 解析附魔，并兼容旧的物品 ID 输入。"""
+    normalized_id = _number(enchantment_id)
+    snapshot = enchantment_snapshots.get(normalized_id) or item_snapshots.get(normalized_id)
+    metadata = item_display_metadata(snapshot.item_id if snapshot else normalized_id, snapshot)
+    metadata['id'] = normalized_id
+    metadata['enchantment_id'] = normalized_id
+    if snapshot:
+        metadata['item_id'] = int(snapshot.item_id)
+        metadata['simc_name'] = snapshot.simc_token or ''
+    return metadata
+
+
+def _enrich_omnium_talents(detail):
+    """用现有 DBC 天赋节点元数据补全万奥宝典名称，未命中时保留 ID/rank。"""
+    entries = detail.get('omnium_talents') or []
+    node_ids = {_number(row.get('id')) for row in entries if (_number(row.get('id')) or 0) > 0}
+    if not node_ids:
+        return detail
+
+    identity = detail.get('identity') or {}
+    class_name = str(identity.get('class_name') or '').strip().lower()
+    spec_name = str(identity.get('spec') or '').strip().lower()
+    rows = list(
+        WowTalentNodeMetadata.objects.filter(
+            Q(node_id__in=node_ids) | Q(talent_id__in=node_ids) | Q(spell_id__in=node_ids)
+        ).select_related('talent_version')
+    )
+
+    def preference(row):
+        version_active = bool(row.talent_version and row.talent_version.is_active)
+        row_class = str(row.class_name or '').strip().lower()
+        row_spec = str(row.spec_name or '').strip().lower()
+        return (
+            int(version_active),
+            int(row_class == class_name),
+            int(row_spec == spec_name),
+            int(bool((row.name_zh or '').strip())),
+            row.last_updated,
+        )
+
+    matches = {}
+    for row in rows:
+        for candidate_id in (row.node_id, row.talent_id, row.spell_id):
+            if candidate_id in node_ids:
+                previous = matches.get(int(candidate_id))
+                if previous is None or preference(row) > preference(previous):
+                    matches[int(candidate_id)] = row
+
+    for entry in entries:
+        row = matches.get(_number(entry.get('id')) or 0)
+        if not row:
+            continue
+        entry.update({
+            'name': row.name or '',
+            'name_zh': row.name_zh or '',
+            'display_name': row.name_zh or row.name or '',
+            'spell_id': row.display_spell_id or row.spell_id,
+            'icon': row.icon or '',
+        })
+    return detail
+
+
 def _secondary_stat_detail(rating, per_percent, coefficient=1):
     percent = None
     if rating is not None and per_percent:
@@ -396,7 +466,7 @@ def _enrich_player_detail(detail):
         key: {'value': value, 'entries': _parse_talent_string_entries(value)}
         for key, value in values.items() if value
     }
-    return detail
+    return _enrich_omnium_talents(detail)
 
 
 def parse_manual_player_config(player_equipment, spec):
@@ -412,7 +482,7 @@ def parse_manual_player_config(player_equipment, spec):
         'talents': {'build_code': '', 'saved_loadouts': []}, 'omnium_talents': [],
         'equipment': [], 'stats': {'primary': {}, 'secondary': {}}, 'raw_fields': {}, 'missing_fields': [],
     }
-    item_ids, equipment_rows = set(), []
+    item_ids, enchantment_ids, equipment_rows = set(), set(), []
     item_hint, in_bag_section, saved_loadout = ('', None), False, None
     for raw_line in str(player_equipment or '').splitlines():
         line = raw_line.strip()
@@ -459,8 +529,10 @@ def parse_manual_player_config(player_equipment, spec):
             ]
         elif key in EQUIPMENT_SLOTS or key in EQUIPMENT_SLOT_ALIASES:
             canonical_slot = EQUIPMENT_SLOT_ALIASES.get(key, key)
-            for item_id in [values.get('id'), values.get('enchant_id')]:
-                if _number(item_id): item_ids.add(_number(item_id))
+            if _number(values.get('id')):
+                item_ids.add(_number(values.get('id')))
+            if _number(values.get('enchant_id')):
+                enchantment_ids.add(_number(values.get('enchant_id')))
             for gem_field in ('gem_id', 'gems'):
                 for gem_id in re.split(r'[/;:]', values.get(gem_field, '')):
                     if _number(gem_id): item_ids.add(_number(gem_id))
@@ -469,12 +541,21 @@ def parse_manual_player_config(player_equipment, spec):
             parsed['raw_fields'][key] = raw_value
         item_hint = ('', None)
 
-    snapshots = {int(row.item_id): row for row in WowItemSnapshot.objects.filter(item_id__in=item_ids)}
+    snapshot_rows = list(
+        WowItemSnapshot.objects.filter(
+            Q(item_id__in=item_ids | enchantment_ids) | Q(enchantment_id__in=enchantment_ids)
+        ).order_by('-updated_at', '-item_id')
+    )
+    snapshots = {int(row.item_id): row for row in snapshot_rows}
+    enchantment_snapshots = {}
+    for row in snapshot_rows:
+        if int(row.enchantment_id or 0) > 0:
+            enchantment_snapshots.setdefault(int(row.enchantment_id), row)
     for slot, values, raw_value, hint in equipment_rows:
         item = _item_meta(values.get('id'), snapshots)
         if hint[0] and item['display_name'].startswith('#'):
             item['display_name'], item['export_name'] = hint[0], hint[0]
-        enchant = _item_meta(values.get('enchant_id'), snapshots) if values.get('enchant_id') else None
+        enchant = _enchant_meta(values.get('enchant_id'), snapshots, enchantment_snapshots) if values.get('enchant_id') else None
         gem_ids = [
             gem_id
             for gem_field in ('gem_id', 'gems')
