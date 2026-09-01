@@ -829,6 +829,16 @@ def _simc_item_id(payload):
     return int(payload.get('item_id') or payload.get('id') or 0)
 
 
+def _canonical_crafted_stats(values):
+    aliases = {
+        '40': 'crit', '暴击': 'crit', 'crit': 'crit',
+        '49': 'haste', '急速': 'haste', 'haste': 'haste',
+        '32': 'mastery', '精通': 'mastery', 'mastery': 'mastery',
+        '36': 'versatility', '全能': 'versatility', 'vers': 'versatility', 'versatility': 'versatility',
+    }
+    return [aliases[value] for value in map(str, values or []) if value in aliases]
+
+
 def import_simc_profile(profile_text):
     if not str(profile_text or '').strip():
         raise GearBuilderError('请粘贴 SimC Profile')
@@ -895,7 +905,7 @@ def import_simc_profile(profile_text):
             'item': serialize_item(selected.item, [selected]) if selected else None,
             'external': external,
             'bonus_ids': row.get('bonus_ids') or [],
-            'crafted_stats': row.get('crafted_stats') or [],
+            'crafted_stats': _canonical_crafted_stats(row.get('crafted_stats')),
             'crafting_quality': row.get('crafting_quality') or 0,
             'gems': gem_rows,
             'enchant': {

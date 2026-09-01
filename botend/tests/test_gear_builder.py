@@ -529,6 +529,23 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         self.assertTrue(by_slot['neck']['external'])
         self.assertTrue(payload['warnings'])
 
+    def test_simc_import_round_trips_multiple_gems_and_crafted_stats(self):
+        profile = '\n'.join((
+            'warrior="WowDaily Gear Builder"',
+            'spec=fury',
+            'head=forged_helm,id=10002,ilevel=720,crafted_stats=40/32,crafting_quality=5,gem_id=10004/10004,enchant_id=8001',
+        ))
+        response = self.client.post(
+            '/portal/api/gear-builder/import-simc/',
+            data=json.dumps({'profile': profile}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        entry = response.json()['equipment'][0]
+        self.assertEqual(entry['crafted_stats'], ['crit', 'mastery'])
+        self.assertEqual([row['item_id'] for row in entry['gems']], [10004, 10004])
+        self.assertEqual(entry['enchant']['item_id'], 8001)
+
 
 class GearBuilderImportCommandTests(TestCase):
     def setUp(self):
@@ -827,7 +844,7 @@ class GearBuilderFrontendContractTests(TestCase):
         styles = (root / 'static/portal/css/gear_builder.css').read_text(encoding='utf-8')
         self.assertIn('/portal/gear-builder/', header)
         self.assertIn('职业配装器', header)
-        for value in ('装备', '强化', '美化', '宝石', '永久附魔', '导入 SimC', '绿字', '游戏预览', '角色装备预览', '保存配装', '配装列表', '本地配装'):
+        for value in ('装备', '强化', '美化', '宝石', '永久附魔', '导入 SimC', '复制 SimC', '绿字', '游戏预览', '角色装备预览', '保存配装', '配装列表', '本地配装'):
             self.assertIn(value, template)
         self.assertIn('gear-add-socket', template)
         self.assertEqual(template.count('<details class="gear-enhancement-section">'), 3)
@@ -839,6 +856,8 @@ class GearBuilderFrontendContractTests(TestCase):
             self.assertIn(value, script)
         self.assertIn('Number(payload?.v) !== SHARE_FORMAT_VERSION', script)
         self.assertIn('分享链接版本已过期', script)
+        for value in ('buildSimcProfile', 'simcEquipmentLine', 'SIMC_CRAFTED_STAT_IDS', 'gem_id=', 'enchant_id=', 'navigator.clipboard.writeText(profile)'):
+            self.assertIn(value, script)
         self.assertIn('return normalizeState(payload);', script)
         for value in ('LOADOUT_LIBRARY_KEY', 'MAX_SAVED_LOADOUTS = 30', 'readSavedLoadouts', 'saveCurrentLoadout', 'loadSavedLoadout', 'deleteSavedLoadout'):
             self.assertIn(value, script)

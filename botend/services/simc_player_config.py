@@ -459,10 +459,11 @@ def parse_manual_player_config(player_equipment, spec):
             ]
         elif key in EQUIPMENT_SLOTS or key in EQUIPMENT_SLOT_ALIASES:
             canonical_slot = EQUIPMENT_SLOT_ALIASES.get(key, key)
-            for item_id in [values.get('id'), values.get('enchant_id'), values.get('gem_id')]:
+            for item_id in [values.get('id'), values.get('enchant_id')]:
                 if _number(item_id): item_ids.add(_number(item_id))
-            for gem_id in re.split(r'[/;:]', values.get('gems', '')):
-                if _number(gem_id): item_ids.add(_number(gem_id))
+            for gem_field in ('gem_id', 'gems'):
+                for gem_id in re.split(r'[/;:]', values.get(gem_field, '')):
+                    if _number(gem_id): item_ids.add(_number(gem_id))
             equipment_rows.append((canonical_slot, values, raw_value, item_hint))
         else:
             parsed['raw_fields'][key] = raw_value
@@ -474,7 +475,12 @@ def parse_manual_player_config(player_equipment, spec):
         if hint[0] and item['display_name'].startswith('#'):
             item['display_name'], item['export_name'] = hint[0], hint[0]
         enchant = _item_meta(values.get('enchant_id'), snapshots) if values.get('enchant_id') else None
-        gem_ids = ([values['gem_id']] if values.get('gem_id') else []) + [x for x in re.split(r'[/;:]', values.get('gems', '')) if x]
+        gem_ids = [
+            gem_id
+            for gem_field in ('gem_id', 'gems')
+            for gem_id in re.split(r'[/;:]', values.get(gem_field, ''))
+            if gem_id
+        ]
         crafted = [CRAFTED_STAT_LABELS.get(value, value) for value in re.split(r'[/;:]', values.get('crafted_stats', '')) if value]
         parsed['equipment'].append({
             **item, 'item_id': item['id'], 'slot': slot, 'slot_label': SLOT_LABELS[slot], 'item_level': hint[1] or _number(values.get('ilevel') or values.get('item_level')),

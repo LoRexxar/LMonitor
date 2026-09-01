@@ -20,7 +20,7 @@
     "gear-embellishment-list", "gear-gem-list", "gear-enchant-list", "gear-socket-summary",
     "gear-add-socket-option", "gear-add-socket", "gear-add-socket-copy", "gear-stats-context",
     "gear-detail-panel", "gear-detail-content", "gear-detail-close", "gear-stat-grid",
-    "gear-effect-list", "gear-save-status", "gear-import-simc", "gear-copy-share", "gear-clear",
+    "gear-effect-list", "gear-save-status", "gear-import-simc", "gear-copy-simc", "gear-copy-share", "gear-clear",
     "gear-loadout-manager", "gear-save-loadout", "gear-loadout-toggle", "gear-loadout-count",
     "gear-loadout-panel", "gear-loadout-summary", "gear-loadout-close", "gear-loadout-save-form",
     "gear-loadout-name", "gear-loadout-submit", "gear-loadout-list",
@@ -53,6 +53,7 @@
   const ADDITIONAL_SOCKET_SLOTS = new Set(["head", "wrists", "waist"]);
   const PREVIEW_LEFT_SLOTS = ["head", "neck", "shoulders", "back", "chest", "wrists", "hands", "waist"];
   const PREVIEW_RIGHT_SLOTS = ["legs", "feet", "finger1", "finger2", "trinket1", "trinket2", "main_hand", "off_hand"];
+  const SIMC_CRAFTED_STAT_IDS = Object.freeze({crit: 40, haste: 49, mastery: 32, versatility: 36});
   const SOURCE_LABELS = {
     mythic_plus: "大秘境", great_vault: "宏伟宝库", raid: "团队副本", delve: "地下堡",
     crafted: "专业制造", profession: "专业制造", bonus_roll: "额外掉落",
@@ -186,6 +187,7 @@
       weapon_type: item.weapon_type || "",
       unique_group: item.unique_group || "",
       simc_token: item.simc_token || "",
+      enchantment_id: Number(item.enchantment_id || 0),
     };
   }
 
@@ -1088,6 +1090,83 @@
     toast(`紧凑分享链接已复制（${url.toString().length} 字符）。`)
   }
 
+  function simcToken(value, fallback) {
+    const token = String(value || "")
+      .normalize("NFKD")
+      .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+      .toLowerCase()
+      .replace(/[’']/g, "")
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    return token || fallback;
+  }
+
+  function simcActorToken(value) {
+    return String(value || "warrior").toLowerCase().replace(/[^a-z]/g, "") || "warrior";
+  }
+
+  function simcVariantBonusIds(entry) {
+    return [...(entry?.variant?.bonus_ids || []), ...(entry?.embellishment?.variant?.bonus_ids || [])]
+      .map((value) => Number(value))
+      .filter((value) => value > 0);
+  }
+
+  function simcEquipmentLine(slot, entry) {
+    const itemId = Number(entry?.item?.item_id || 0);
+    if (!itemId) return "";
+    const itemToken = simcToken(entry.item?.simc_token || entry.item?.name_en, `item_${itemId}`);
+    const fields = [`id=${itemId}`];
+    const itemLevel = Number(entry.variant?.item_level || entry.itemLevel || 0);
+    if (itemLevel > 0) fields.push(`ilevel=${itemLevel}`);
+    const bonusIds = simcVariantBonusIds(entry);
+    if (bonusIds.length) fields.push(`bonus_id=${bonusIds.join("/")}`);
+    const craftedStats = (entry.selectedStats || []).map((key) => SIMC_CRAFTED_STAT_IDS[key]).filter(Boolean);
+    if (craftedStats.length) fields.push(`crafted_stats=${craftedStats.join("/")}`);
+    const quality = Number(entry.variant?.crafting_quality || 0);
+    if (quality > 0) fields.push(`crafting_quality=${quality}`);
+    const gemIds = (entry.gems || []).map((row) => Number(row?.item?.item_id || 0)).filter(Boolean);
+    if (gemIds.length) fields.push(`gem_id=${gemIds.join("/")}`);
+    const enchantId = Number(
+      entry.enchant?.item?.enchantment_id
+      || entry.enchant?.variant?.metadata?.enchantment_id
+      || entry.enchant?.item?.item_id
+      || 0
+    );
+    if (enchantId > 0) fields.push(`enchant_id=${enchantId}`);
+    return `${slot}=${itemToken},${fields.join(",")}`;
+  }
+
+  function buildSimcProfile() {
+    const actor = simcActorToken(state.className);
+    const spec = simcToken(state.specName, "fury");
+    const lines = [
+      "# WowDaily 职业配装器导出",
+      `${actor}="WowDaily Gear Builder"`,
+      "level=90",
+      `spec=${spec}`,
+      "",
+    ];
+    (bootstrap?.slots || []).forEach((slot) => {
+      const entry = state.equipment[slot.key];
+      const equipmentLine = simcEquipmentLine(slot.key, entry);
+      if (!equipmentLine) return;
+      const itemLevel = Number(entry.variant?.item_level || entry.itemLevel || 0);
+      lines.push(`# ${entry.item?.name || `物品 #${entry.item?.item_id}`}${itemLevel ? ` (${itemLevel})` : ""}`);
+      lines.push(equipmentLine);
+    });
+    return lines.join("\n").trim();
+  }
+
+  async function copySimcProfile() {
+    if (!equippedCount()) {
+      toast("请至少选择一件装备后再复制 SimC。", true);
+      return;
+    }
+    const profile = buildSimcProfile();
+    await navigator.clipboard.writeText(profile);
+    toast(`已复制 ${equippedCount()} 件装备的 SimC Profile。`);
+  }
+
   async function restoreShareIfPresent() {
     const code = new URLSearchParams(location.search).get("code");
     if (!code) return false;
@@ -1125,7 +1204,7 @@
         const item = row.item || {item_id: row.item_id, name: row.name || `物品 #${row.item_id}`};
         state.equipment[row.slot] = {
           item: compactItem(item),
-          variant: row.variant || {id: null, item_level: row.item_level, stats: {}, effects: [], type: "external", bonus_ids: row.bonus_ids || []},
+          variant: row.variant || {id: null, item_level: row.item_level, stats: {}, effects: [], type: "external", bonus_ids: row.bonus_ids || [], crafting_quality: row.crafting_quality || 0},
           itemLevel: row.item_level || 0,
           selectedStats: row.crafted_stats || [],
           resolvedStats: null,
@@ -1317,6 +1396,7 @@
     document.querySelectorAll("[data-mobile-view]").forEach((button) => button.addEventListener("click", () => { state.mobileView = button.dataset.mobileView; persist(); renderMobileView(); }));
     els.detail_close.addEventListener("click", closeDetail);
     els.import_simc.addEventListener("click", () => els.simc_dialog.showModal());
+    els.copy_simc.addEventListener("click", () => copySimcProfile().catch((error) => toast(error.message || "复制 SimC 失败。", true)));
     els.simc_submit.addEventListener("click", importSimc);
     els.copy_share.addEventListener("click", () => copyShare().catch((error) => toast(error.message, true)));
     els.clear.addEventListener("click", () => {
