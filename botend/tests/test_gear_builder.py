@@ -222,6 +222,21 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         self.assertEqual(source['encounter_zh'], '乌拉特克')
         self.assertEqual(source['difficulty_zh'], '史诗')
 
+    def test_catalog_hides_invalid_myth_track_from_legacy_delve_batch(self):
+        invalid_delve = WowItemVariantSnapshot.objects.create(
+            item=self.helm, season=self.season, batch_key='test-batch',
+            game_build='12.1.0.99999', variant_key='delve-myth-invalid',
+            variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
+            item_level=720, upgrade_track='myth', track_rank=1, track_max_rank=6,
+            compatible_slots=['head'], stats_json={'strength': 1000, 'crit': 350},
+            source_json=[{'type': 'delve', 'instance_zh': '地下堡'}],
+        )
+        rows = self.client.get('/portal/api/gear-builder/catalog/', {
+            'class': 'Warrior', 'spec': 'Fury', 'slot': 'head', 'source': 'all',
+        }).json()['items']
+        variant_ids = [variant['id'] for row in rows for variant in row['variants']]
+        self.assertNotIn(invalid_delve.id, variant_ids)
+
     def test_catalog_strictly_filters_armor_primary_stat_and_weapon_slot(self):
         cloth = WowItemSnapshot.objects.create(
             item_id=10008, name='Intellect Cloth Hood', catalog_type='equipment', slot_key='head',
@@ -494,6 +509,23 @@ class GearBuilderCurrentSourceTests(TestCase):
         self.assertEqual((special['upgrade_track'], special['track_rank'], special['track_max_rank']), ('myth', 9, 6))
         self.assertEqual(special['socket_count'], 1)
         self.assertTrue(special['metadata']['special_mythic_drop'])
+
+    def test_delve_drop_variants_stop_at_hero_six(self):
+        item = {'inventory_type': 1, 'metadata': {}, 'variants': []}
+        profile = {
+            'tracks': {
+                'champion': [292, 295, 298, 302, 305, 308],
+                'hero': [305, 308, 311, 315, 318, 321],
+                'myth': [318, 321, 324, 328, 331, 334],
+            },
+        }
+        CurrentGearCatalogSource._add_drop_variants(
+            item, profile, 'delve', [{'type': 'delve', 'instance': 'Delves Season 2'}],
+        )
+        self.assertEqual({row['upgrade_track'] for row in item['variants']}, {'champion', 'hero'})
+        highest = max(item['variants'], key=lambda row: row['item_level'])
+        self.assertEqual((highest['upgrade_track'], highest['track_rank'], highest['track_max_rank']), ('hero', 6, 6))
+        self.assertEqual(highest['item_level'], 321)
 
     def test_enhancement_source_keeps_only_highest_current_quality(self):
         rows = [

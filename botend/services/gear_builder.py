@@ -333,6 +333,16 @@ def _source_matches(variant, source_type):
                for row in (variant.source_json or []) if isinstance(row, dict))
 
 
+def _source_track_is_valid(variant):
+    """阻止旧批次中的地下堡神话轨道记录继续进入候选列表。"""
+    source_types = {
+        str(row.get('type') or '').casefold()
+        for row in (variant.source_json or [])
+        if isinstance(row, dict) and row.get('type')
+    }
+    return not (source_types == {'delve'} and str(variant.upgrade_track or '').casefold() == 'myth')
+
+
 def serialize_variant(variant, class_name='', spec_name=''):
     item = variant.item
     metadata = {**(item.metadata or {}), **(variant.metadata or {})}
@@ -414,6 +424,8 @@ def catalog_items(*, class_name, spec_name, slot, source_type='all', query='', p
         (WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT, WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT),
         query,
     ):
+        if not _source_track_is_valid(variant):
+            continue
         if not slot_matches(variant, slot, class_name, spec_name) or not spec_matches(
             variant.item, class_name, spec_name, variant, slot,
         ):

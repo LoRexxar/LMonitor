@@ -519,7 +519,10 @@ class CurrentGearCatalogSource:
     @staticmethod
     def _add_drop_variants(item, profile, source_type, sources, special_mythic=False):
         socket_types = list((item.get('metadata') or {}).get('native_socket_types') or [])
+        allowed_tracks = ('champion', 'hero') if source_type == 'delve' else tuple(profile['tracks'])
         for track, levels in profile['tracks'].items():
+            if track not in allowed_tracks:
+                continue
             for rank, item_level in enumerate(levels, 1):
                 item['variants'].append({
                     'key': f'{source_type}-{track}-{rank}-{item_level}',
