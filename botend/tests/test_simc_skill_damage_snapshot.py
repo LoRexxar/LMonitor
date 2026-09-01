@@ -62,6 +62,74 @@ class SimcSkillDamageSnapshotModelTests(TestCase):
 
 
 class SimcSkillDamageSnapshotServiceTests(TestCase):
+    def test_profile_export_discards_empty_runtime_component_shells(self):
+        snapshot = SimpleNamespace(simc_revision='a' * 40, game_build='12.1.0.69497')
+        profile = SimpleNamespace(class_name='druid', spec='druid_balance', talent='')
+        service = SimcSkillDamageSnapshotService(snapshot, backend=SimpleNamespace())
+        empty_tick = {
+            'hit': None, 'crit': None, 'expected': None,
+            'crit_multiplier': 2.0, 'crit_chance': 0.2,
+            'crit_chance_uncapped': 0.2,
+        }
+        validation_payloads = []
+
+        def validate_export(payload, **_kwargs):
+            validation_payloads.append(copy.deepcopy(payload))
+
+        def run_export(command, **_kwargs):
+            output_path = next(
+                value.split('=', 1)[1]
+                for value in command
+                if value.startswith('skill_damage_export=')
+            )
+            Path(output_path).write_text(json.dumps({
+                'actors': [{
+                    'name': 'skill_damage_base',
+                    'actions': [{
+                        'baseline': {'direct': {'hit': 100.0}, 'tick': empty_tick},
+                        'scenarios': [{
+                            'values': {'direct': {'hit': 110.0}, 'tick': empty_tick},
+                        }],
+                    }, {
+                        'baseline': {'direct': None, 'tick': empty_tick},
+                        'scenarios': [],
+                    }],
+                }],
+            }), encoding='utf-8')
+            return SimpleNamespace(returncode=0, stderr='', stdout='')
+
+        with mock.patch(
+            'botend.services.simc_skill_damage.SimcComposer.compose_validation_input',
+            return_value='druid="reference"\nspec=balance\n',
+        ), mock.patch(
+            'botend.services.simc_skill_damage.build_single_talent_actor_input',
+            return_value='druid="skill_damage_base"\nspec=balance\n',
+        ), mock.patch.object(
+            service, '_binary_path', return_value='/tmp/simc',
+        ), mock.patch.object(
+            service, '_validate_export', side_effect=validate_export,
+        ), mock.patch(
+            'botend.services.simc_skill_damage.subprocess.run', side_effect=run_export,
+        ):
+            result = service._run_profile_export(profile, [])
+
+        action = result['actors'][0]['actions'][0]
+        self.assertIsNone(action['baseline']['tick'])
+        self.assertIsNone(action['scenarios'][0]['values']['tick'])
+        empty_action = result['actors'][0]['actions'][1]
+        self.assertEqual(
+            empty_action['baseline']['unresolved_reason'],
+            'runtime_non_finite_amount',
+        )
+        self.assertEqual(len(validation_payloads), 2)
+        first_action = validation_payloads[0]['actors'][0]['actions'][0]
+        self.assertIsNotNone(first_action['baseline']['tick'])
+        self.assertEqual(
+            first_action['baseline']['unresolved_reason'],
+            'runtime_non_finite_amount',
+        )
+        self.assertNotIn('unresolved_reason', action['baseline'])
+
     def test_apex_entries_add_authoritative_stage_prerequisites(self):
         stage_one = SimpleNamespace(
             pk=1, node_id=101, talent_id=900, max_points=None,

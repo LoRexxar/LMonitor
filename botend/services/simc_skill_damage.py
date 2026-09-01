@@ -561,6 +561,59 @@ _AMOUNT_COMPONENT_SIGNATURE_FIELDS = (
 _SKILL_DAMAGE_TARGET_COUNTS = (1, 2, 5, 10, 20)
 
 
+def _mark_empty_runtime_amount_components_unresolved(payload):
+    """Make empty component shells validatable without discarding their structure."""
+    core_amount_fields = ('hit', 'crit', 'expected')
+    marked_amounts = {}
+    for actor in payload.get('actors') or []:
+        if not isinstance(actor, dict):
+            continue
+        for action in actor.get('actions') or []:
+            if not isinstance(action, dict):
+                continue
+            amounts = [action.get('baseline')]
+            amounts.extend(
+                scenario.get('values')
+                for scenario in action.get('scenarios') or []
+                if isinstance(scenario, dict)
+            )
+            for amount in amounts:
+                if not isinstance(amount, dict):
+                    continue
+                for component_name in ('direct', 'tick'):
+                    component = amount.get(component_name)
+                    if (
+                        isinstance(component, dict)
+                        and all(field in component for field in core_amount_fields)
+                        and all(component[field] is None for field in core_amount_fields)
+                    ):
+                        marked_amounts.setdefault(
+                            id(amount), (amount, amount.get('unresolved_reason')),
+                        )
+                        if not amount.get('unresolved_reason'):
+                            amount['unresolved_reason'] = 'runtime_non_finite_amount'
+    return list(marked_amounts.values())
+
+
+def _discard_empty_runtime_amount_components(marked_amounts):
+    """Discard shells only after the ordinary validator accepted their structure."""
+    core_amount_fields = ('hit', 'crit', 'expected')
+    for amount, original_unresolved_reason in marked_amounts:
+        for component_name in ('direct', 'tick'):
+            component = amount.get(component_name)
+            if (
+                isinstance(component, dict)
+                and all(field in component for field in core_amount_fields)
+                and all(component[field] is None for field in core_amount_fields)
+            ):
+                amount[component_name] = None
+        if amount.get('direct') is not None or amount.get('tick') is not None:
+            if original_unresolved_reason:
+                amount['unresolved_reason'] = original_unresolved_reason
+            else:
+                amount.pop('unresolved_reason', None)
+
+
 def _amount_expected(amount):
     """Return a display-only aggregate; never use it to decide whether facts differ."""
     if not isinstance(amount, dict) or amount.get('unresolved_reason'):
@@ -3316,6 +3369,11 @@ class SimcSkillDamageSnapshotService:
                 *(f'skill_damage_reference_{talent.pk}_trait_{talent.node_id}' for talent in talents),
                 *(f'skill_damage_talent_{talent.pk}_trait_{talent.node_id}' for talent in talents),
             }
+        marked_amounts = _mark_empty_runtime_amount_components_unresolved(payload)
+        self._validate_export(
+            payload, profile=profile, expected_actor_names=expected_actor_names,
+        )
+        _discard_empty_runtime_amount_components(marked_amounts)
         self._validate_export(
             payload, profile=profile, expected_actor_names=expected_actor_names,
         )
