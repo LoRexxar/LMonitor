@@ -9,7 +9,11 @@
 '''
 
 from django.views import View
-from django.http import JsonResponse, HttpResponse, FileResponse, HttpResponseRedirect
+from django.http import (
+    JsonResponse, HttpResponse, FileResponse, HttpResponseRedirect,
+    StreamingHttpResponse,
+)
+from django.core.serializers.json import DjangoJSONEncoder
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.contrib.auth.decorators import login_required
@@ -8252,6 +8256,82 @@ class SimcSkillDamageSnapshotAPIView(View):
         )).order_by('-created_at', '-id').values(*fields).first()
         return active or jobs.order_by('-created_at', '-id').values(*fields).first()
 
+    @staticmethod
+    def _sharded_snapshot_response(display_snapshot, *, job, can_generate):
+        """Stream the immutable successful snapshot without materializing all actors."""
+        actor_rows = list(display_snapshot.actor_rows.order_by('ordinal', 'id').values(
+            'id', 'class_name', 'specialization', 'unresolved_payload',
+            'raw_action_count', 'display_action_count',
+        ))
+        unresolved = []
+        unresolved_keys = set()
+        for row in actor_rows:
+            for unresolved_row in row['unresolved_payload'] or []:
+                key = json.dumps(unresolved_row, ensure_ascii=False, sort_keys=True)
+                if key not in unresolved_keys:
+                    unresolved_keys.add(key)
+                    unresolved.append(unresolved_row)
+
+        payload = dict(display_snapshot.payload or {})
+        payload.pop('storage_format', None)
+        actor_placeholder = f'__lmonitor_actor_stream_{uuid.uuid4().hex}__'
+        payload.update({
+            'actors': actor_placeholder,
+            'unresolved': unresolved,
+            'display_action_count': sum(
+                int(row['display_action_count'] or 0) for row in actor_rows
+            ),
+            'completed_profile_identities': sorted([
+                [row['class_name'], row['specialization']] for row in actor_rows
+            ]),
+        })
+        identity = {
+            'simc_revision': display_snapshot.simc_revision,
+            'game_build': display_snapshot.game_build,
+            'schema_revision': display_snapshot.schema_revision,
+        }
+        snapshot = {**payload, 'identity': identity}
+        snapshot['identity'] = identity
+        snapshot['id'] = display_snapshot.pk
+        snapshot['status'] = display_snapshot.status
+        snapshot['completed_at'] = _fmt_dt(display_snapshot.completed_at)
+        snapshot['spec_count'] = len(actor_rows)
+        snapshot['action_count'] = snapshot.get('display_action_count', 0)
+        snapshot['raw_action_count'] = sum(
+            int(row['raw_action_count'] or 0) for row in actor_rows
+        )
+        envelope = {
+            'success': True,
+            'data': {
+                'snapshot': snapshot,
+                'snapshot_unavailable_reason': None,
+                'job': job,
+                'can_generate': can_generate,
+            },
+        }
+        encoded = json.dumps(envelope, cls=DjangoJSONEncoder)
+        encoded_placeholder = json.dumps(actor_placeholder, cls=DjangoJSONEncoder)
+        if encoded.count(encoded_placeholder) != 1:
+            raise RuntimeError('技能伤害流式响应 actor 占位符无效')
+        prefix, suffix = encoded.split(encoded_placeholder, 1)
+        actor_ids = [row['id'] for row in actor_rows]
+
+        def content():
+            yield prefix.encode('utf-8')
+            yield b'['
+            for index, actor_id in enumerate(actor_ids):
+                if index:
+                    yield b', '
+                actor = display_snapshot.actor_rows.filter(
+                    pk=actor_id,
+                ).values_list('actor_payload', flat=True).get()
+                yield json.dumps(actor, cls=DjangoJSONEncoder).encode('utf-8')
+                del actor
+            yield b']'
+            yield suffix.encode('utf-8')
+
+        return StreamingHttpResponse(content(), content_type='application/json')
+
     def get(self, request):
         if request.GET.get('summary') == '1':
             return JsonResponse({
@@ -8278,6 +8358,12 @@ class SimcSkillDamageSnapshotAPIView(View):
         display_snapshot_meta = latest
         if display_snapshot_meta:
             display_snapshot = SimcSkillDamageSnapshot.objects.get(pk=display_snapshot_meta.pk)
+            job = self._summary_job_data(self._summary_job())
+            can_generate = bool(request.user.is_staff)
+            if (display_snapshot.payload or {}).get('storage_format') == 'per_spec_actor_rows_v1':
+                return self._sharded_snapshot_response(
+                    display_snapshot, job=job, can_generate=can_generate,
+                )
             identity = {
                 'simc_revision': display_snapshot.simc_revision,
                 'game_build': display_snapshot.game_build,

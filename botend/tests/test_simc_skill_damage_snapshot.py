@@ -10,6 +10,7 @@ from unittest import mock
 from django.contrib.auth import get_user_model
 from django.apps import apps
 from django.db import IntegrityError, connection, transaction
+from django.core.serializers.json import DjangoJSONEncoder
 from django.test import RequestFactory, TestCase, override_settings
 
 from botend.models import (
@@ -3927,7 +3928,12 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
                 actor_payload={
                     'class': 'warrior',
                     'specialization': specialization,
-                    'actions': [{'token': f'{specialization}-action'}],
+                    'actions': [{
+                        'token': f'{specialization}-action',
+                        'display_name': '测试技能',
+                        'optional': None,
+                        'nested': {'enabled': True},
+                    }],
                 },
                 unresolved_payload=[{'reason': 'shared'}],
                 raw_action_count=ordinal + 2,
@@ -3936,10 +3942,22 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         request = self.factory.get('/api/simc-skill-damage/')
         request.user = self.user
 
-        response = SimcSkillDamageSnapshotAPIView.as_view()(request)
-        body = json.loads(response.content)['data']['snapshot']
+        with mock.patch.object(
+            SimcSkillDamageSnapshotService,
+            '_materialize_snapshot_payload_and_metrics',
+            side_effect=AssertionError('分片完整 GET 不得一次性物化全部 actor'),
+        ):
+            response = SimcSkillDamageSnapshotAPIView.as_view()(request)
+            self.assertTrue(response.streaming)
+            wire_payload = b''.join(response.streaming_content)
+            decoded_payload = json.loads(wire_payload)
+            body = decoded_payload['data']['snapshot']
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            wire_payload,
+            json.dumps(decoded_payload, cls=DjangoJSONEncoder).encode('utf-8'),
+        )
         self.assertEqual(
             [actor['specialization'] for actor in body['actors']],
             ['fury', 'arms'],
@@ -3952,6 +3970,40 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
             [['warrior', 'arms'], ['warrior', 'fury']],
         )
         self.assertEqual(body['unresolved'], [{'reason': 'shared'}])
+        self.assertNotIn('storage_format', body)
+
+    def test_get_streams_empty_sharded_snapshot_without_materializer_fallback(self):
+        SimcSkillDamageSnapshot.objects.create(
+            simc_revision='9' * 40,
+            game_build='12.1.0.69300',
+            schema_revision=20,
+            status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+            generated_spec_count=0,
+            generated_action_count=0,
+            payload={
+                'payload_format': 'skill_damage_product_v1',
+                'storage_format': 'per_spec_actor_rows_v1',
+                'total_spec_count': 0,
+            },
+        )
+        request = self.factory.get('/api/simc-skill-damage/')
+        request.user = self.user
+
+        with mock.patch.object(
+            SimcSkillDamageSnapshotService,
+            '_materialize_snapshot_payload_and_metrics',
+            side_effect=AssertionError('空分片快照也不得回退全量 materializer'),
+        ):
+            response = SimcSkillDamageSnapshotAPIView.as_view()(request)
+            self.assertTrue(response.streaming)
+            body = json.loads(b''.join(response.streaming_content))['data']['snapshot']
+
+        self.assertEqual(body['actors'], [])
+        self.assertEqual(body['unresolved'], [])
+        self.assertEqual(body['completed_profile_identities'], [])
+        self.assertEqual(body['spec_count'], 0)
+        self.assertEqual(body['action_count'], 0)
+        self.assertEqual(body['raw_action_count'], 0)
         self.assertNotIn('storage_format', body)
 
     def test_get_does_not_render_legacy_schema_as_single_talent_rows(self):
