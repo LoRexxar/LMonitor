@@ -19,6 +19,7 @@ from botend.models import (
 )
 from botend.services.simc_skill_damage import (
     SimcSkillDamageSnapshotService,
+    _CanonicalActorSpool,
     _base_damage_layer_candidate,
     _player_skill_actions,
     _runtime_layer_candidate,
@@ -2898,6 +2899,292 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         })
         self.assertNotIn('talent', result['identity'])
 
+    def test_profile_generation_releases_raw_actor_graph_before_next_config_batch(self):
+        snapshot = SimpleNamespace(
+            simc_revision='b' * 40,
+            game_build='12.1.0.69299',
+            schema_revision=21,
+        )
+        profile = SimpleNamespace(
+            pk=1, spec='warrior_fury', class_name='warrior',
+        )
+        talents = [
+            SimpleNamespace(
+                pk=11 + index,
+                node_id=136454 + index,
+                tree_type='spec',
+                max_points=1,
+                name=f'Talent {index}',
+                name_zh=f'天赋 {index}',
+                description='',
+                description_zh='',
+                talent_version_id=None,
+                db2_subtree_id=None,
+            )
+            for index in range(4)
+        ]
+
+        class RawActor(dict):
+            pass
+
+        raw_actor_refs = []
+        observed_calls = []
+
+        def export_batch(
+            _profile, batch, *, scaffold_talents,
+            talent_prerequisites=None, target_health, actor_plan=None,
+        ):
+            self.assertEqual(batch, [])
+            gc.collect()
+            self.assertTrue(
+                all(ref() is None for ref in raw_actor_refs),
+                '开始下一 actor-config batch 时仍保留先前 batch 的 raw actor 图',
+            )
+            names = tuple(spec['name'] for spec in actor_plan or [])
+            observed_calls.append((target_health, names))
+            actors = []
+            for actor_spec in actor_plan or []:
+                actor = RawActor({
+                    'name': actor_spec['name'],
+                    'class': 'warrior',
+                    'spec': 'fury',
+                    'talent_effectiveness': (
+                        'inactive' if actor_spec['name'] == 'skill_damage_base' else 'active'
+                    ),
+                    'action_universe': (
+                        'dbc_spellbook_selected_traits_and_derived_actions'
+                    ),
+                    'actions': [],
+                })
+                raw_actor_refs.append(weakref.ref(actor))
+                actors.append(actor)
+            return {'actors': actors, 'unresolved': []}
+
+        service = SimcSkillDamageSnapshotService(snapshot)
+        service.ACTOR_CONFIG_BATCH_SIZE = 3
+        with mock.patch.object(service, '_talent_entries', return_value=talents), \
+             mock.patch.object(service, '_hero_talent_trees', return_value=[]), \
+             mock.patch.object(service, '_spec_root_scaffold', return_value=[]), \
+             mock.patch.object(service, '_implicit_prerequisite_nodes', return_value=[]), \
+             mock.patch.object(
+                 service,
+                 '_talent_prerequisite_map',
+                 return_value={talent.pk: [] for talent in talents},
+             ), \
+             mock.patch.object(service, '_run_profile_export', side_effect=export_batch):
+            actor, unresolved, raw_action_count = service._generate_profile_product_actor(profile)
+
+        self.assertEqual(
+            [(health, len(names)) for health, names in observed_calls],
+            [(100, 3), (100, 2), (34, 3), (34, 2)],
+        )
+        gc.collect()
+        self.assertTrue(all(ref() is None for ref in raw_actor_refs))
+        self.assertEqual(actor['specialization'], 'fury')
+        self.assertEqual(unresolved, [])
+        self.assertEqual(raw_action_count, 0)
+
+    def test_profile_consumers_release_previous_lazy_actor_set_before_next_pass(self):
+        snapshot = SimpleNamespace(
+            simc_revision='b' * 40,
+            game_build='12.1.0.69299',
+            schema_revision=21,
+        )
+        profile = SimpleNamespace(
+            pk=1, spec='warrior_fury', class_name='warrior',
+        )
+        talents = [
+            SimpleNamespace(
+                pk=31 + index,
+                node_id=156454 + index,
+                tree_type='spec',
+                max_points=1,
+                name=f'Talent {index}',
+                name_zh=f'天赋 {index}',
+                description=(
+                    'Increases your damage dealt by 10%.' if index == 0 else ''
+                ),
+                description_zh='',
+                talent_version_id=None,
+                db2_subtree_id=None,
+            )
+            for index in range(6)
+        ]
+
+        def export_batch(
+            _profile, batch, *, scaffold_talents,
+            talent_prerequisites=None, target_health, actor_plan=None,
+        ):
+            return {
+                'actors': [{
+                    'name': actor_spec['name'],
+                    'class': 'warrior',
+                    'spec': 'fury',
+                    'action_universe': (
+                        'dbc_spellbook_selected_traits_and_derived_actions'
+                    ),
+                    'actions': [],
+                } for actor_spec in actor_plan or []],
+                'unresolved': [],
+            }
+
+        class LoadedGraphProbe:
+            pass
+
+        original_load = _CanonicalActorSpool.load
+        initial_baselines = set()
+        loaded_refs = []
+        peak_live = 0
+        peak_context = None
+
+        def tracked_load(spool, target_health, canonical_name):
+            nonlocal peak_live, peak_context
+            actor = original_load(spool, target_health, canonical_name)
+            key = (target_health, canonical_name)
+            if canonical_name == 'skill_damage_base' and key not in initial_baselines:
+                initial_baselines.add(key)
+                return actor
+            gc.collect()
+            probe = LoadedGraphProbe()
+            probe.identity = (len(loaded_refs) + 1, target_health, canonical_name)
+            actor['_loaded_graph_probe'] = probe
+            loaded_refs.append(weakref.ref(probe))
+            live_probes = [ref() for ref in loaded_refs if ref() is not None]
+            live_count = len(live_probes)
+            if live_count > peak_live:
+                peak_live = live_count
+                peak_context = [probe.identity for probe in live_probes]
+            return actor
+
+        service = SimcSkillDamageSnapshotService(snapshot)
+        service.ACTOR_CONFIG_BATCH_SIZE = 4
+        with mock.patch.object(service, '_talent_entries', return_value=talents), \
+             mock.patch.object(service, '_hero_talent_trees', return_value=[]), \
+             mock.patch.object(service, '_spec_root_scaffold', return_value=[]), \
+             mock.patch.object(service, '_implicit_prerequisite_nodes', return_value=[]), \
+             mock.patch.object(
+                 service,
+                 '_talent_prerequisite_map',
+                 return_value={talent.pk: [] for talent in talents},
+             ), \
+             mock.patch.object(service, '_run_profile_export', side_effect=export_batch), \
+             mock.patch.object(_CanonicalActorSpool, 'load', new=tracked_load):
+            service._generate_profile_product_actor(profile)
+
+        self.assertLessEqual(
+            peak_live,
+            8,
+            f'跨分类/压平轮次保留了超过“上一天赋 + 当前天赋”的 actor graph: {peak_context}',
+        )
+        gc.collect()
+        self.assertTrue(all(ref() is None for ref in loaded_refs))
+
+    def test_disk_spooled_profile_output_is_identical_across_actor_batch_sizes(self):
+        snapshot = SimpleNamespace(
+            simc_revision='d' * 40,
+            game_build='12.1.0.69299',
+            schema_revision=21,
+        )
+        profile = SimpleNamespace(
+            pk=1, spec='warrior_fury', class_name='warrior',
+        )
+        talents = [
+            SimpleNamespace(
+                pk=21 + index,
+                node_id=146454 + index,
+                tree_type='spec',
+                max_points=1,
+                name=f'Talent {index}',
+                name_zh=f'天赋 {index}',
+                description='',
+                description_zh='',
+                talent_version_id=None,
+                db2_subtree_id=None,
+            )
+            for index in range(4)
+        ]
+
+        def render(batch_size):
+            service = SimcSkillDamageSnapshotService(snapshot)
+            service.ACTOR_CONFIG_BATCH_SIZE = batch_size
+
+            def export_batch(
+                _profile, batch, *, scaffold_talents,
+                talent_prerequisites=None, target_health, actor_plan=None,
+            ):
+                actors = [{
+                    'name': actor_spec['name'],
+                    'class': 'warrior',
+                    'spec': 'fury',
+                    'action_universe': (
+                        'dbc_spellbook_selected_traits_and_derived_actions'
+                    ),
+                    'actions': [],
+                    '_fixture_marker': f"{target_health}:{actor_spec['name']}",
+                } for actor_spec in actor_plan or []]
+                unresolved = [{
+                    'target_health_percentage': target_health,
+                    'actor_name': actor_spec['name'],
+                } for actor_spec in actor_plan or []]
+                return {'actors': actors, 'unresolved': unresolved}
+
+            def flatten_fixture(
+                _base_high, _base_low, variants, *, global_effects=None,
+            ):
+                return [{
+                    'token': f"talent_{item['talent']['id']}",
+                    'variant': {'talent_id': item['talent']['id']},
+                    '_fixture_pair': {
+                        key: (item.get(key) or {}).get('_fixture_marker')
+                        for key in ('reference_high', 'reference_low', 'high', 'low')
+                    },
+                } for item in variants]
+
+            with mock.patch.object(service, '_talent_entries', return_value=talents), \
+                 mock.patch.object(service, '_hero_talent_trees', return_value=[]), \
+                 mock.patch.object(service, '_spec_root_scaffold', return_value=[]), \
+                 mock.patch.object(service, '_implicit_prerequisite_nodes', return_value=[]), \
+                 mock.patch.object(
+                     service,
+                     '_talent_prerequisite_map',
+                     return_value={talent.pk: [] for talent in talents},
+                 ), \
+                 mock.patch.object(service, '_run_profile_export', side_effect=export_batch), \
+                 mock.patch(
+                     'botend.services.simc_skill_damage.flatten_single_talent_damage_variants',
+                     side_effect=flatten_fixture,
+                 ), \
+                 mock.patch(
+                     'botend.services.simc_skill_damage.project_skill_damage_product_payload',
+                     side_effect=copy.deepcopy,
+                 ), \
+                 mock.patch(
+                     'botend.services.simc_skill_damage.localize_skill_damage_payload',
+                     side_effect=copy.deepcopy,
+                 ):
+                return service._generate_profile_product_actor(profile)
+
+        one_batch = render(100)
+        many_batches = render(3)
+
+        self.assertEqual(many_batches, one_batch)
+        actor, unresolved, raw_action_count = many_batches
+        self.assertEqual(
+            [row['variant']['talent_id'] for row in actor['actions']],
+            [talent.pk for talent in talents],
+        )
+        self.assertEqual(raw_action_count, len(talents))
+        self.assertEqual(
+            [row['target_health_percentage'] for row in unresolved],
+            [100] * 5 + [34] * 5,
+        )
+        self.assertEqual(actor['actions'][0]['_fixture_pair'], {
+            'reference_high': '100:skill_damage_base',
+            'reference_low': '34:skill_damage_base',
+            'high': '100:skill_damage_talent_21_trait_146454',
+            'low': '34:skill_damage_talent_21_trait_146454',
+        })
+
     def test_generate_releases_completed_profile_raw_export_graph_before_next_profile(self):
         snapshot = SimcSkillDamageSnapshot.objects.create(
             simc_revision='b' * 40, game_build='12.1.0.69299', schema_revision=21,
@@ -2918,9 +3205,6 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         }
         first_profile_raw_refs = []
 
-        class RawGraphProbe:
-            pass
-
         def iter_profiles():
             yield profiles[0]
             snapshot.refresh_from_db()
@@ -2938,26 +3222,24 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             )
             yield profiles[1]
 
-        def run_target(profile, profile_talents, **_kwargs):
-            base = {
-                'name': 'skill_damage_base', 'class': 'warrior',
-                'spec': 'fury' if profile.pk == 1 else 'arms',
-                'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
-                'actions': [],
-            }
-            actor_map = {}
-            for talent in profile_talents:
-                identity = f'{talent.pk}_trait_{talent.node_id}'
-                for prefix in ('reference', 'talent'):
-                    probe = RawGraphProbe()
-                    if profile.pk == 1:
-                        first_profile_raw_refs.append(weakref.ref(probe))
-                    actor_map[f'skill_damage_{prefix}_{identity}'] = {
-                        'name': f'skill_damage_{prefix}_{identity}',
-                        'class': 'warrior', 'spec': base['spec'], 'actions': [],
-                        '_raw_graph_probe': probe,
-                    }
-            return base, actor_map, []
+        class RawActor(dict):
+            pass
+
+        def run_target(profile, _profile_talents, **kwargs):
+            actors = []
+            for actor_spec in kwargs['actor_plan']['actors']:
+                actor = RawActor({
+                    'name': actor_spec['name'],
+                    'class': 'warrior',
+                    'spec': 'fury' if profile.pk == 1 else 'arms',
+                    'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
+                    'actions': [],
+                })
+                if profile.pk == 1:
+                    first_profile_raw_refs.append(weakref.ref(actor))
+                actors.append(actor)
+            kwargs['actor_spool'].store_many(kwargs['target_health'], actors)
+            return []
 
         service = SimcSkillDamageSnapshotService(snapshot)
         with mock.patch.object(service, '_profiles', side_effect=iter_profiles), \
@@ -3336,6 +3618,12 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 })
             return {'actors': actors, 'unresolved': []}
 
+        captured_variants = []
+
+        def capture_variants(_base_high, _base_low, variants, **_kwargs):
+            captured_variants.extend(list(variants))
+            return []
+
         service = SimcSkillDamageSnapshotService(snapshot)
         with mock.patch.object(service, '_profiles', return_value=[profile]), \
              mock.patch.object(service, '_talent_entries', return_value=[talent]), \
@@ -3344,10 +3632,13 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                  {'id': 72, 'name': 'Dark Ranger', 'name_zh': '黑暗游侠'},
              ]), \
              mock.patch.object(service, '_run_profile_export', side_effect=export_batch), \
-             mock.patch('botend.services.simc_skill_damage.flatten_single_talent_damage_variants', return_value=[]) as flatten:
+             mock.patch(
+                 'botend.services.simc_skill_damage.flatten_single_talent_damage_variants',
+                 side_effect=capture_variants,
+             ):
             result = service.generate()
 
-        variants = flatten.call_args.args[2]
+        variants = captured_variants
         self.assertEqual(len(variants), 1)
         self.assertEqual(variants[0]['high']['name'], 'skill_damage_talent_11_trait_137059')
         self.assertIsNone(variants[0]['low'])
