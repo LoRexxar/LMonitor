@@ -28,7 +28,7 @@ index 62064e8..d83173f 100644
      bool present = false;
    } direct_amount, tick_amount;
    bool direct = false, periodic = false;
-@@ -590,6 +603,20 @@ bool skill_damage_amount_changed( const skill_damage_amount_t& a, const skill_da
+@@ -590,6 +603,22 @@ bool skill_damage_amount_changed( const skill_damage_amount_t& a, const skill_da
           changed( a.tick_amount.damage_equivalent_count, b.tick_amount.damage_equivalent_count );
  }
  

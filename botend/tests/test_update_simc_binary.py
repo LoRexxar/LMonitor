@@ -19,6 +19,20 @@ from botend.tests.simc_apl_symbol_test_utils import create_symbol_scope
 
 
 class UpdateSimcBinaryCommandTests(TestCase):
+    def test_repository_managed_simc_patches_have_valid_numstat_syntax(self):
+        patch_dir = Path(settings.BASE_DIR) / 'simc_patches'
+        failures = []
+        for patch_path in sorted(patch_dir.glob('*.patch')):
+            result = subprocess.run(
+                ['git', 'apply', '-z', '--numstat', '-'],
+                input=patch_path.read_bytes(),
+                capture_output=True,
+            )
+            if result.returncode != 0:
+                detail = (result.stderr or result.stdout).decode('utf-8', errors='replace').strip()
+                failures.append(f'{patch_path.name}: {detail}')
+        self.assertEqual(failures, [])
+
     @override_settings(SIMC_CONFIG={})
     def test_wow_build_resolution_uses_new_binary_identity_among_multiple_candidates(self):
         from botend.management.commands.update_simc_binary import Command
