@@ -37,7 +37,9 @@ index 62064e8..d83173f 100644
 +  skill_damage_runtime_layers_t layers;
 +  layers.action_multiplier = periodic ? state->ta_multiplier : state->da_multiplier;
 +  layers.player_multiplier = state->player_multiplier;
-+  layers.versus_multiplier = state->versus_multiplier;
++  // Keep the legacy schema key neutral: this SimC action_state has no
++  // independent versus multiplier in composite_da/ta_multiplier().
++  layers.versus_multiplier = 1.0;
 +  layers.persistent_multiplier = state->persistent_multiplier;
 +  layers.target_multiplier = periodic ? state->target_ta_multiplier : state->target_da_multiplier;
 +  layers.versatility = state->versatility;

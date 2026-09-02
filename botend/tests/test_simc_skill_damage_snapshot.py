@@ -13,7 +13,7 @@ from django.db import IntegrityError, connection, transaction
 from django.test import RequestFactory, TestCase, override_settings
 
 from botend.models import (
-    SimcAplSymbol, SimcAplSymbolScope, SimcBackendBinary,
+    SimcAplSymbol, SimcAplSymbolScope, SimcBackendBinary, SimcProfile,
     SimcSkillDamageSnapshot, WowSpellSnapshot, WowTalentNodeMetadata, WowTalentVersion,
 )
 from botend.services.simc_skill_damage import (
@@ -25,6 +25,7 @@ from botend.services.simc_skill_damage import (
     _scenario_has_target_marginal_change,
     _scenario_token_universe,
     _talent_declares_all_damage_modifier,
+    _validate_required_profile_identities,
     attach_runtime_product_metrics,
     build_single_talent_actor_input,
     plan_unique_talent_actor_configs,
@@ -62,6 +63,35 @@ class SimcSkillDamageSnapshotModelTests(TestCase):
 
 
 class SimcSkillDamageSnapshotServiceTests(TestCase):
+    def test_required_profile_identity_validation_rejects_missing_duplicate_and_extra_specs(self):
+        required = {('warrior', 'arms'), ('mage', 'frost')}
+        _validate_required_profile_identities(
+            [('warrior', 'arms'), ('mage', 'frost')], required=required,
+        )
+        for identities, expected in (
+            ([('warrior', 'arms')], 'missing=mage_frost'),
+            ([('warrior', 'arms'), ('warrior', 'arms'), ('mage', 'frost')],
+             'duplicate=warrior_arms'),
+            ([('warrior', 'arms'), ('mage', 'frost'), ('rogue', 'outlaw')],
+             'extra=rogue_outlaw'),
+        ):
+            with self.subTest(identities=identities):
+                with self.assertRaisesRegex(ValueError, expected):
+                    _validate_required_profile_identities(identities, required=required)
+
+    def test_profile_selection_validates_duplicates_before_selecting_latest(self):
+        duplicate = [
+            SimpleNamespace(spec='warrior_arms', class_name='warrior'),
+            SimpleNamespace(spec='arms', class_name='warrior'),
+        ]
+        rows = mock.Mock()
+        rows.order_by.return_value = duplicate
+        with mock.patch.object(SimcProfile.objects, 'filter', return_value=rows), mock.patch(
+            'botend.services.simc_skill_damage._validate_required_profile_identities'
+        ) as validate:
+            SimcSkillDamageSnapshotService(mock.Mock())._profiles()
+        validate.assert_called_once_with([('warrior', 'arms'), ('warrior', 'arms')])
+
     def test_profile_export_discards_empty_runtime_component_shells(self):
         snapshot = SimpleNamespace(simc_revision='a' * 40, game_build='12.1.0.69497')
         profile = SimpleNamespace(class_name='druid', spec='druid_balance', talent='')
@@ -1457,6 +1487,14 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             "Increases damage dealt by Hand of Gul'dan to its main target by 10%.",
             'Spending extra Energy on Ferocious Bite increases damage dealt by up to 25%.',
             '你对目标施放的锁喉、割裂和致命药膏造成的伤害提高20%。',
+            'While wielding two-handed weapons your damage is increased by 6%.',
+            'While wielding one-handed weapons your damage is increased by 6%.',
+            'While dual wielding your damage is increased by 6%.',
+            'While dual-wielding your damage is increased by 6%.',
+            'While you are wielding two-handed weapons your damage is increased by 6%.',
+            '装备双手武器时，你的伤害提高6%。',
+            '装备单手武器时，你的伤害提高6%。',
+            '装备双持武器时，你的伤害提高6%。',
         )
         for description in accepted:
             with self.subTest(description=description):
@@ -1947,7 +1985,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         non_player_rows = flatten_single_talent_damage_variants(
             {'actions': []}, {'actions': []}, [global_with_non_player_change],
         )
-        self.assertEqual([row['token'] for row in non_player_rows], ['racial'])
+        self.assertEqual(non_player_rows, [])
 
         identity_drift = {
             'talent': talent,
@@ -2012,6 +2050,41 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         missing_low.pop('reference_low')
         missing_low.pop('low')
         self.assertEqual(classify_global_damage_modifiers([missing_low]), [])
+
+    def test_flatten_excludes_non_player_base_actions_but_keeps_talent_created_actions(self):
+        def action(token, *, player_skill):
+            return {
+                'token': token, 'name': token, 'spell_id': token,
+                'supported': True, 'player_skill': player_skill,
+                'reporting_root_token': token, 'reporting_root_spell_id': token,
+                'reporting_root_component': True,
+                'baseline': {
+                    'direct': {
+                        'hit': 100.0, 'crit': 200.0, 'crit_multiplier': 2.0,
+                        'crit_chance': 0.2, 'expected': 120.0,
+                    },
+                    'tick': None, 'unresolved_reason': None,
+                },
+                'scenarios': [],
+            }
+
+        own = action('own_skill', player_skill=True)
+        racial = action('racial_skill', player_skill=False)
+        base = {'actions': [own, racial]}
+        talent_action = action('talent_created_skill', player_skill=False)
+        variant = {
+            'talent': {'id': 42, 'name': 'Created action'},
+            'reference_high': base,
+            'high': {'actions': [own, racial, talent_action]},
+            'reference_low': base,
+            'low': {'actions': [own, racial, talent_action]},
+        }
+
+        rows = flatten_single_talent_damage_variants(base, base, [variant])
+        self.assertEqual(
+            {(row['token'], row['variant']['talent_id']) for row in rows},
+            {('own_skill', None), ('talent_created_skill', 42)},
+        )
 
     def test_variant_only_uniform_debuff_is_global_and_stripped_from_action_rows(self):
         def amount(multiplier):
@@ -2390,10 +2463,10 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         runtime_only_effects = classify_global_skill_effects(
             copy.deepcopy(base_actor), copy.deepcopy(base_actor), [runtime_only_variant],
         )
-        runtime_only_weapon = {
-            effect['effect_id']: effect for effect in runtime_only_effects
-        }['talent:9:passive']
-        self.assertAlmostEqual(runtime_only_weapon['projections'][0]['value'], 1.06)
+        self.assertNotIn(
+            'talent:9:passive',
+            {effect['effect_id'] for effect in runtime_only_effects},
+        )
 
         effects = classify_global_skill_effects(
             copy.deepcopy(base_actor), copy.deepcopy(base_actor), variants,
@@ -2402,7 +2475,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         avatar = by_source['runtime_state:buff.avatar']
         recklessness = by_source['runtime_state:buff.recklessness']
         compound = by_source['runtime_state:buff.compound_global']
-        weapon = by_source['talent:9:passive']
+        self.assertNotIn('talent:9:passive', by_source)
         self.assertEqual(avatar['projections'][0]['kind'], 'damage_multiplier')
         self.assertAlmostEqual(avatar['projections'][0]['value'], 1.20)
         self.assertEqual(recklessness['projections'][0]['kind'], 'crit_chance')
@@ -2411,8 +2484,6 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             {projection['kind'] for projection in compound['projections']},
             {'damage_multiplier', 'crit_chance'},
         )
-        self.assertEqual(weapon['projections'][0]['kind'], 'damage_multiplier')
-        self.assertAlmostEqual(weapon['projections'][0]['value'], 1.06)
 
         base_layer_evidence = _base_damage_layer_candidate(weapon_reference, weapon_selected)
         self.assertAlmostEqual(base_layer_evidence['multiplier'], 1.06)
@@ -2439,7 +2510,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         rows = flatten_single_talent_damage_variants(
             base_actor, base_actor, variants, global_effects=effects,
         )
-        self.assertFalse(any((row.get('variant') or {}).get('talent_id') == 9 for row in rows))
+        self.assertTrue(any((row.get('variant') or {}).get('talent_id') == 9 for row in rows))
         self.assertFalse(any(
             set((row.get('variant') or {}).get('scenario_tokens') or [])
             & {'buff.avatar', 'buff.recklessness'}
@@ -2579,6 +2650,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             {tuple(row.get('hero_subtree_ids') or ()) for row in derived_rows},
             {(61,)},
         )
+
 
     def test_global_modifier_requires_positive_unique_talent_id_and_never_deletes_bad_ids(self):
         component = {
@@ -3973,7 +4045,8 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertNotIn('formulaBaseLabels', renderer)
         self.assertNotIn('component.base_multiplier', renderer)
         self.assertNotIn('baseFactorFormula', renderer)
-        self.assertNotIn('formatSimcSkillDamageNumber(group.baseDamage)', renderer)
+        self.assertIn('group.baseDamage += baseDamage', renderer)
+        self.assertIn('formatSimcSkillDamageFactor(group.baseDamage)', renderer)
         self.assertIn(
             'const renderSimcTalentProbeCondition = (runtimeCondition, scenarioTokens, talentName)',
             renderer,
@@ -3998,6 +4071,35 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn('${escapeHtml(name)}', identity_renderer)
         self.assertIn('技能 ID：${escapeHtml(spellId)}', identity_renderer)
         self.assertNotIn('</div><div', identity_renderer)
+
+    def test_skill_damage_condition_tabs_filter_rows_by_structured_talent_and_buff_identity(self):
+        template = Path('templates/dashboard/index.html').read_text(encoding='utf-8')
+        script = Path('static/dashboard/js/main.js').read_text(encoding='utf-8')
+        renderer = script.split('function renderSimcSkillDamageSnapshot(snapshot) {', 1)[1].split(
+            'function initSimcSkillDamagePanel()', 1,
+        )[0]
+        initializer = script.split('function initSimcSkillDamagePanel() {', 1)[1].split(
+            'function initSimcBackendUploadTool()', 1,
+        )[0]
+
+        for element_id in (
+            'simc-skill-damage-condition-filters',
+            'simc-skill-damage-filter-tab-talents',
+            'simc-skill-damage-filter-tab-buffs',
+            'simc-skill-damage-filter-talents',
+            'simc-skill-damage-filter-buffs',
+        ):
+            self.assertIn(f'id="{element_id}"', template)
+        self.assertIn('variant.talent_id', renderer)
+        self.assertIn('variant.runtime_conditions', renderer)
+        self.assertIn("`talent:${variant.talent_id}`", renderer)
+        self.assertIn("`state:${scope}:${identity}`", renderer)
+        self.assertNotIn('condition.stacks', renderer)
+        self.assertIn('rowConditionKeys.some(key => excludedFilterKeys.has(key))', renderer)
+        self.assertLess(renderer.index('const candidateRows = []'), renderer.index('const query ='))
+        self.assertIn('excludedConditionKeysByScope', initializer)
+        self.assertIn("filterTabs.forEach(tab => tab.addEventListener('click'", initializer)
+        self.assertIn("conditionFilters.addEventListener('change'", initializer)
 
     def test_global_effects_are_semantically_deduplicated_and_rendered_as_compact_cards(self):
         script = Path('static/dashboard/js/main.js').read_text(encoding='utf-8')

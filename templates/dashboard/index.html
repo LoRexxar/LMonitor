@@ -1861,6 +1861,18 @@
                                     <button type="button" role="tab" aria-selected="false" data-target-count="10" class="simc-skill-damage-target-tab rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">10目标</button>
                                     <button type="button" role="tab" aria-selected="false" data-target-count="20" class="simc-skill-damage-target-tab rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">20目标</button>
                                 </div>
+                                <div id="simc-skill-damage-condition-filters" class="mt-4 hidden rounded-xl border border-stone-200 bg-stone-50 p-3">
+                                    <div class="flex flex-wrap items-center justify-between gap-3">
+                                        <div class="text-sm font-bold text-stone-800">条件筛选</div>
+                                        <div class="inline-flex rounded-lg border border-stone-300 bg-white p-1" role="tablist" aria-label="技能伤害条件类型">
+                                            <button id="simc-skill-damage-filter-tab-talents" type="button" role="tab" aria-selected="true" data-filter-scope="talents" class="simc-skill-damage-filter-tab rounded-md bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white">天赋</button>
+                                            <button id="simc-skill-damage-filter-tab-buffs" type="button" role="tab" aria-selected="false" data-filter-scope="buffs" class="simc-skill-damage-filter-tab rounded-md px-3 py-1.5 text-xs font-semibold text-stone-700">Buff</button>
+                                        </div>
+                                    </div>
+                                    <p class="mt-2 text-xs text-stone-500">默认全部展示；取消勾选后，所有包含该天赋或 Buff 条件的伤害行都会隐藏。</p>
+                                    <div id="simc-skill-damage-filter-talents" data-filter-panel="talents" class="mt-3 flex flex-wrap gap-2"></div>
+                                    <div id="simc-skill-damage-filter-buffs" data-filter-panel="buffs" class="mt-3 hidden flex flex-wrap gap-2"></div>
+                                </div>
                                 <div id="simc-skill-damage-global-modifiers" class="mt-4 hidden rounded-xl border border-indigo-200 bg-indigo-50 p-4"></div>
                                 <div class="simc-skill-damage-table mt-4 overflow-x-auto rounded-xl border border-stone-300 bg-stone-50">
                                     <table class="min-w-full border-collapse text-sm">

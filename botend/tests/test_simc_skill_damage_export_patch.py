@@ -31,6 +31,7 @@ EQUIPMENT_ACTION_PROVENANCE_PATCH = PATCH_DIR / "0028-exclude-equipment-actions.
 RUNTIME_BUFF_STACKS_PATCH = PATCH_DIR / "0029-export-all-runtime-buff-stacks.patch"
 MULTI_TARGET_DAMAGE_PATCH = PATCH_DIR / "0030-export-multi-target-skill-damage.patch"
 PARTIAL_MONK_HERO_PROBE_PATCH = PATCH_DIR / "0031-allow-partial-monk-hero-talent-probes.patch"
+NATIVE_AOE_RUNTIME_PATCH = PATCH_DIR / "0032-fix-native-aoe-runtime-projection.patch"
 
 
 class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
@@ -63,6 +64,7 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         cls.runtime_buff_stacks_text = RUNTIME_BUFF_STACKS_PATCH.read_text(encoding="utf-8")
         cls.multi_target_damage_text = MULTI_TARGET_DAMAGE_PATCH.read_text(encoding="utf-8")
         cls.partial_monk_hero_probe_text = PARTIAL_MONK_HERO_PROBE_PATCH.read_text(encoding="utf-8")
+        cls.native_aoe_runtime_text = NATIVE_AOE_RUNTIME_PATCH.read_text(encoding="utf-8")
 
     def test_partial_monk_hero_tree_validation_is_bypassed_only_for_skill_damage_export(self):
         text = self.partial_monk_hero_probe_text
@@ -95,6 +97,79 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         )
         for forbidden in ('warrior', 'fury', 'whirlwind', 'thunder_blast'):
             self.assertNotIn(forbidden, added_lines.lower())
+
+    def test_native_aoe_runtime_patch_retains_target_only_scenario_changes(self):
+        text = self.native_aoe_runtime_text
+        self.assertIn('target_hit', text)
+        self.assertRegex(
+            text,
+            r'skill_damage_amount_changed[\s\S]*?direct_amount\.target_hit[\s\S]*?tick_amount\.target_hit',
+        )
+
+    def test_native_aoe_runtime_patch_preserves_resolved_direct_curves_when_periodic_count_is_unavailable(self):
+        text = self.native_aoe_runtime_text
+        self.assertIn('periodic_damage_count_unavailable', text)
+        self.assertIn(
+            'if ( amount.direct )\n+          skill_damage_populate_target_scenarios( action, amount );',
+            text,
+        )
+
+    def test_native_aoe_runtime_patch_resets_probe_rng_for_reproducible_runtime_layers_and_hits(self):
+        text = self.native_aoe_runtime_text
+        self.assertIn('skill_damage_reset_probe_rng', text)
+        self.assertIn('action.sim->rng().seed( skill_damage_probe_seed )', text)
+        self.assertRegex(
+            text,
+            r'skill_damage_target_hit[\s\S]*?snapshot_state[\s\S]*?skill_damage_reset_probe_rng[\s\S]*?calculate_',
+        )
+        self.assertGreaterEqual(text.count('skill_damage_reset_probe_rng( action )'), 8)
+        added_lines = '\n'.join(
+            line[1:] for line in text.splitlines()
+            if line.startswith('+') and not line.startswith('+++')
+        )
+        for forbidden in ('chaotic_disposition', 'chaos_strike', 'demon_hunter'):
+            self.assertNotIn(forbidden, added_lines.lower())
+
+    def test_native_aoe_runtime_patch_binds_all_audited_missing_soft_caps_to_dbc(self):
+        text = self.native_aoe_runtime_text
+        for action_type in (
+            'struct thunder_clap_t', 'struct thunder_blast_t', 'struct azure_sweep_t',
+            'struct revenge_t', 'struct collective_anguish_t', 'struct inner_demon_t',
+            'struct divine_storm_tempest_t', 'struct divine_storm_second_sunrise_t',
+        ):
+            self.assertIn(action_type, text)
+        for binding in (
+            'reduced_aoe_targets = data().effectN( 5 ).base_value();',
+            'reduced_aoe_targets = data().effectN( 1 ).base_value();',
+            'p->find_spell( 198013 )->effectN( 5 ).base_value()',
+            'p->talent.havoc.inner_demon->effectN( 2 ).base_value()',
+            'player->talent.windwalker.jade_ignition->effectN( 3 ).base_value()',
+            'p->talents.divine_storm->effectN( 2 ).base_value()',
+        ):
+            self.assertIn(binding, text)
+        self.assertIn('SpellDescriptionVariables for Revenge defines $cap=${5}', text)
+        self.assertEqual(text.count('reduced_aoe_targets = 5;'), 1)
+
+    def test_native_aoe_runtime_patch_exposes_full_synthetic_target_list_to_class_formulas(self):
+        text = self.native_aoe_runtime_text
+        self.assertIn('saved_non_sleeping_targets', text)
+        self.assertIn('target_non_sleeping_list.assign_without_callbacks', text)
+        self.assertIn('void assign_without_callbacks( size_t count, const T& value )', text)
+        self.assertIn('void assign_without_callbacks( const std::vector<T>& values )', text)
+
+    def test_native_aoe_runtime_patch_uses_dbc_family_ownership_without_action_name_filters(self):
+        text = self.native_aoe_runtime_text
+        self.assertIn('reporting_root->data().class_family()', text)
+        self.assertIn('spell->class_family() == reporting_family', text)
+        added_lines = '\n'.join(
+            line[1:] for line in text.splitlines()
+            if line.startswith('+') and not line.startswith('+++')
+        )
+        for forbidden in (
+            'infernos_blessing', 'blistering_scales_damage', 'fate_mirror_damage',
+            'breath_of_eons_damage', 'bombardments',
+        ):
+            self.assertNotIn(forbidden, added_lines)
 
     def test_runtime_buff_stacks_are_exported_as_distinct_schema_eleven_scenarios(self):
         text = self.runtime_buff_stacks_text
@@ -279,7 +354,21 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         self.assertNotIn("reset_skill_damage_state", added_lines)
 
     def test_external_recipient_actions_are_not_probed_as_player_damage(self):
+        # 0013 originally introduced a name blacklist. 0032 must replace it with
+        # native action provenance so newly added external-recipient actions are
+        # excluded without teaching the exporter spell names.
         self.assertIn("skill_damage_external_recipient_action", self.external_recipient_text)
+        text = self.native_aoe_runtime_text
+        self.assertIn("virtual bool external_recipient_action() const", text)
+        self.assertIn("bool external_recipient_action() const override", text)
+        self.assertRegex(
+            text,
+            r"action->external_recipient_action\(\)[\s\S]*?continue",
+        )
+        added_lines = "\n".join(
+            line[1:] for line in text.splitlines()
+            if line.startswith("+") and not line.startswith("+++")
+        )
         for token in (
             "infernos_blessing",
             "blistering_scales_damage",
@@ -288,11 +377,7 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
             "breath_of_eons_damage",
             "bombardments",
         ):
-            self.assertIn(token, self.external_recipient_text)
-        self.assertIsNotNone(re.search(
-            r"skill_damage_external_recipient_action\( \*action \)[\s\S]*?continue",
-            self.external_recipient_text,
-        ))
+            self.assertNotIn(token, added_lines)
 
     def test_residual_actions_are_retained_but_not_standalone_probed(self):
         text = self.residual_action_text
@@ -512,6 +597,11 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         self.assertIn("action_name == \"dismiss_pet\"", self.dbc_universe_text)
         self.assertIn("ignored_non_damage_utility && !has_non_ignored_mapping", added_lines)
         self.assertNotIn("action_priority_list", self.dbc_universe_text)
+
+    def test_runtime_layers_keep_legacy_versus_key_neutral_when_engine_has_no_such_state_layer(self):
+        text = self.global_damage_runtime_text
+        self.assertIn('layers.versus_multiplier = 1.0;', text)
+        self.assertNotIn('state->versus_multiplier', text)
 
     def test_scenario_change_detection_includes_all_runtime_layers(self):
         text = self.runtime_layer_scenario_change_text

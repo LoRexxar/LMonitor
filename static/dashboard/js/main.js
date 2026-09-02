@@ -5893,10 +5893,14 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     const nameSortHeader = document.getElementById('simc-skill-damage-sort-name-header');
     const finalSortHeader = document.getElementById('simc-skill-damage-sort-final-header');
     const globalModifiersEl = document.getElementById('simc-skill-damage-global-modifiers');
+    const conditionFilters = document.getElementById('simc-skill-damage-condition-filters');
+    const talentFilterList = document.getElementById('simc-skill-damage-filter-talents');
+    const buffFilterList = document.getElementById('simc-skill-damage-filter-buffs');
     const targetTabs = Array.from(document.querySelectorAll('.simc-skill-damage-target-tab'));
     if (!body || !identityEl || !unresolvedEl || !specSelect || !heroTreeSelect || !searchInput
         || !nameSortButton || !finalSortButton || !nameSortHeader || !finalSortHeader
-        || !globalModifiersEl || !targetTabs.length) return;
+        || !globalModifiersEl || !conditionFilters || !talentFilterList || !buffFilterList
+        || !targetTabs.length) return;
     const activeTargetTab = targetTabs.find(tab => tab.getAttribute('aria-selected') === 'true');
     const targetCount = String(activeTargetTab ? activeTargetTab.dataset.targetCount : '1');
 
@@ -5958,7 +5962,6 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         heroTreeSelect.value = previousHeroTree;
     }
     const selectedHeroTree = heroTreeSelect.value;
-    const query = String(searchInput.value || '').trim().toLowerCase();
     const sortMode = nameSortButton.dataset.active === 'true' ? 'name' : 'final';
     const activeSortButton = sortMode === 'name' ? nameSortButton : finalSortButton;
     const sortDirection = activeSortButton.dataset.direction === 'asc' ? 'asc' : 'desc';
@@ -5972,6 +5975,9 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         : 'none');
     globalModifiersEl.classList.add('hidden');
     globalModifiersEl.innerHTML = '';
+    conditionFilters.classList.add('hidden');
+    talentFilterList.innerHTML = '';
+    buffFilterList.innerHTML = '';
     if (!selectedSpec) {
         body.innerHTML = '<tr><td colspan="5" class="px-4 py-8 text-center text-stone-500">请先选择专精</td></tr>';
         return;
@@ -6042,26 +6048,81 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         globalModifiersEl.classList.remove('hidden');
     }
 
-    const rows = [];
+    const candidateRows = [];
+    const talentConditions = new Map();
+    const buffConditions = new Map();
     selectedActors.forEach(actor => {
-        const actions = Array.isArray(actor.actions) ? actor.actions.filter(item => item && typeof item === 'object') : [];
+        const actions = Array.isArray(actor.actions)
+            ? actor.actions.filter(item => item && typeof item === 'object' && item.player_skill !== false)
+            : [];
         actions.forEach(action => {
             const variant = action.variant && typeof action.variant === 'object' ? action.variant : {};
             if (variant.hero_subtree_id != null && String(variant.hero_subtree_id) !== selectedHeroTree) return;
             const heroSubtreeIds = Array.isArray(action.hero_subtree_ids) ? action.hero_subtree_ids : [];
             if (heroSubtreeIds.length && !heroSubtreeIds.some(id => String(id) === selectedHeroTree)) return;
-            const haystack = `${action.display_name || ''} ${action.name || ''} ${action.spell_id || ''} ${variant.talent_name || ''} ${variant.talent_name_zh || ''} ${variant.runtime_condition || ''}`.toLowerCase();
-            if (query && !haystack.includes(query)) return;
-            const product = action.product && typeof action.product === 'object' ? action.product : {};
-            const damageByTarget = product.final_normalized_damage_by_target;
-            const selectedFinalDamage = targetCount === '1'
-                ? product.final_normalized_damage
-                : (damageByTarget && typeof damageByTarget === 'object' ? damageByTarget[targetCount] : null);
-            const finalSortValue = hasFiniteSimcSkillDamageNumber(selectedFinalDamage)
-                ? selectedFinalDamage
-                : Number.NEGATIVE_INFINITY;
-            rows.push({action, product, selectedFinalDamage, finalSortValue, sourceIndex: rows.length});
+
+            const conditionKeys = [];
+            if (variant.talent_id != null && Number(variant.talent_id) > 0) {
+                const conditionKey = `talent:${variant.talent_id}`;
+                const talentLabel = variant.talent_name_zh || variant.talent_name || `天赋 ${variant.talent_id}`;
+                conditionKeys.push(conditionKey);
+                if (!talentConditions.has(conditionKey)) talentConditions.set(conditionKey, String(talentLabel));
+            }
+            const runtimeConditions = Array.isArray(variant.runtime_conditions)
+                ? variant.runtime_conditions.filter(condition => condition && typeof condition === 'object')
+                : [];
+            runtimeConditions.forEach(condition => {
+                const scope = String(condition.scope || 'self') === 'target' ? 'target' : 'self';
+                const spellId = Number(condition.spell_id);
+                const token = String(condition.token || '').trim();
+                const identity = Number.isInteger(spellId) && spellId > 0 ? `spell:${spellId}` : `token:${token}`;
+                if (!token && !(Number.isInteger(spellId) && spellId > 0)) return;
+                const conditionKey = `state:${scope}:${identity}`;
+                const fallbackToken = token.includes('.') ? token.slice(token.indexOf('.') + 1) : token;
+                const conditionName = condition.name_zh || condition.name || fallbackToken || spellId;
+                const conditionLabel = `${scope === 'target' ? '目标' : '自身'}：${conditionName}`;
+                if (!conditionKeys.includes(conditionKey)) conditionKeys.push(conditionKey);
+                if (!buffConditions.has(conditionKey)) buffConditions.set(conditionKey, String(conditionLabel));
+            });
+            candidateRows.push({action, variant, rowConditionKeys: conditionKeys});
         });
+    });
+
+    const panel = document.getElementById('simc-skill-damage-panel');
+    const filterState = panel && panel.__simcSkillDamageFilterState;
+    const excludedConditionKeysByScope = filterState && filterState.excludedConditionKeysByScope instanceof Map
+        ? filterState.excludedConditionKeysByScope
+        : new Map();
+    const filterScopeKey = `${selectedSpec}:${selectedHeroTree}`;
+    const excludedConditionKeys = excludedConditionKeysByScope.get(filterScopeKey) || new Set();
+    const renderConditionFilterOptions = conditionMap => Array.from(conditionMap.entries())
+        .sort((left, right) => left[1].localeCompare(right[1], 'zh-CN', {numeric: true, sensitivity: 'base'}))
+        .map(([conditionKey, label]) => (
+            `<label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-2 text-xs text-stone-700 hover:bg-stone-100"><input type="checkbox" data-condition-key="${escapeHtml(conditionKey)}" class="rounded border-stone-300 text-blue-700"${excludedConditionKeys.has(conditionKey) ? '' : ' checked'}><span>${escapeHtml(label)}</span></label>`
+        )).join('');
+    talentFilterList.innerHTML = renderConditionFilterOptions(talentConditions)
+        || '<span class="text-xs text-stone-500">当前列表没有单项天赋条件</span>';
+    buffFilterList.innerHTML = renderConditionFilterOptions(buffConditions)
+        || '<span class="text-xs text-stone-500">当前列表没有 Buff 条件</span>';
+    if (talentConditions.size || buffConditions.size) conditionFilters.classList.remove('hidden');
+
+    const query = String(searchInput.value || '').trim().toLowerCase();
+    const rows = [];
+    const excludedFilterKeys = excludedConditionKeys;
+    candidateRows.forEach(({action, rowConditionKeys}) => {
+        const variant = action.variant && typeof action.variant === 'object' ? action.variant : {};
+        const haystack = `${action.display_name || ''} ${action.name || ''} ${action.spell_id || ''} ${variant.talent_name || ''} ${variant.talent_name_zh || ''} ${variant.runtime_condition || ''}`.toLowerCase();
+        if (query && !haystack.includes(query)) return;
+        if (rowConditionKeys.some(key => excludedFilterKeys.has(key))) return;
+        const product = action.product && typeof action.product === 'object' ? action.product : {};
+        const damageByTarget = product.final_normalized_damage_by_target;
+        const selectedFinalDamage = targetCount === '1'
+            ? product.final_normalized_damage
+            : (damageByTarget && typeof damageByTarget === 'object' ? damageByTarget[targetCount] : null);
+        const finalSortValue = hasFiniteSimcSkillDamageNumber(selectedFinalDamage)
+            ? selectedFinalDamage
+            : Number.NEGATIVE_INFINITY;
+        rows.push({action, product, selectedFinalDamage, finalSortValue, sourceIndex: rows.length});
     });
     rows.sort((left, right) => {
         const leftName = String(left.action.display_name || left.action.name || '');
@@ -6122,10 +6183,12 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 : 1;
             const factorKey = JSON.stringify([runtimeFactors, multiTargetFactor]);
             const group = formulaGroups.get(factorKey) || {
+                baseDamage: 0,
                 finalDamage: 0,
                 runtimeFactors,
                 multiTargetFactor,
             };
+            group.baseDamage += baseDamage;
             group.finalDamage += componentFinal;
             formulaGroups.set(factorKey, group);
         });
@@ -6136,7 +6199,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             const multiTargetFormula = targetCount !== '1'
                 ? ` × ${formatSimcSkillDamageFactor(group.multiTargetFactor)}（多目标）`
                 : '';
-            const term = `${formulaBaseLabel}${factorFormula}${multiTargetFormula}`;
+            const term = `${formulaBaseLabel} ${formatSimcSkillDamageFactor(group.baseDamage)}${factorFormula}${multiTargetFormula}`;
             return formulaGroups.size > 1 ? `(${term})` : term;
         });
         if (formulaTerms.length && hasFiniteSimcSkillDamageNumber(finalDamage)) {
@@ -6157,7 +6220,11 @@ function initSimcSkillDamagePanel() {
     const searchInput = document.getElementById('simc-skill-damage-search');
     const nameSortButton = document.getElementById('simc-skill-damage-sort-name');
     const finalSortButton = document.getElementById('simc-skill-damage-sort-final');
+    const conditionFilters = document.getElementById('simc-skill-damage-condition-filters');
+    const filterTabs = Array.from(panel.querySelectorAll('.simc-skill-damage-filter-tab'));
     const targetTabs = Array.from(panel.querySelectorAll('.simc-skill-damage-target-tab'));
+    const excludedConditionKeysByScope = new Map();
+    panel.__simcSkillDamageFilterState = {excludedConditionKeysByScope};
     let currentSnapshot = null;
     let loadedJobId = null;
     let loadedSpecCount = 0;
@@ -6244,6 +6311,34 @@ function initSimcSkillDamagePanel() {
     };
 
     refreshBtn.addEventListener('click', () => loadFullSnapshot().catch(error => showMessage(error.message, 'error')));
+    filterTabs.forEach(tab => tab.addEventListener('click', () => {
+        const selectedScope = String(tab.dataset.filterScope || 'talents');
+        filterTabs.forEach(candidate => {
+            const active = candidate === tab;
+            candidate.setAttribute('aria-selected', active ? 'true' : 'false');
+            candidate.classList.toggle('bg-blue-700', active);
+            candidate.classList.toggle('text-white', active);
+            candidate.classList.toggle('text-stone-700', !active);
+        });
+        panel.querySelectorAll('[data-filter-panel]').forEach(filterPanel => {
+            filterPanel.classList.toggle('hidden', filterPanel.dataset.filterPanel !== selectedScope);
+        });
+    }));
+    conditionFilters.addEventListener('change', event => {
+        const input = event.target instanceof HTMLInputElement
+            ? event.target.closest('input[data-condition-key]')
+            : null;
+        if (!input) return;
+        const conditionKey = String(input.dataset.conditionKey || '');
+        const filterScopeKey = `${specSelect.value}:${heroTreeSelect.value}`;
+        if (!conditionKey || !specSelect.value || !heroTreeSelect.value) return;
+        const excludedConditionKeys = new Set(excludedConditionKeysByScope.get(filterScopeKey) || []);
+        if (input.checked) excludedConditionKeys.delete(conditionKey);
+        else excludedConditionKeys.add(conditionKey);
+        if (excludedConditionKeys.size) excludedConditionKeysByScope.set(filterScopeKey, excludedConditionKeys);
+        else excludedConditionKeysByScope.delete(filterScopeKey);
+        renderSimcSkillDamageSnapshot(currentSnapshot);
+    });
     targetTabs.forEach(tab => tab.addEventListener('click', () => {
         targetTabs.forEach(candidate => {
             const active = candidate === tab;

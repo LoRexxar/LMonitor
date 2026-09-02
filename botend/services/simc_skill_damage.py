@@ -18,6 +18,7 @@ from django.utils import timezone
 from botend.constants.hero_talents import (
     hero_subtree_name_by_id, hero_subtree_name_zh, spec_hero_subtree_names,
 )
+from botend.constants.simc_specs import SIMC_REQUIRED_PROFILE_SPECS
 from botend.models import (
     SimcAplSymbol, SimcAplSymbolScope, SimcBackendBinary, SimcProfile,
     SimcSkillDamageSnapshot, SimcSkillDamageSnapshotActor, WowSpellSnapshot,
@@ -32,6 +33,24 @@ from botend.wow.talents.metadata import TalentMetadataProvider
 
 
 _SKILL_DAMAGE_PRIMARY_STAT_BASE = 100.0
+
+
+def _validate_required_profile_identities(identities, *, required=SIMC_REQUIRED_PROFILE_SPECS):
+    identities = list(identities)
+    identity_set = set(identities)
+    duplicates = sorted({identity for identity in identities if identities.count(identity) > 1})
+    missing = sorted(set(required) - identity_set)
+    extra = sorted(identity_set - set(required))
+    if not (duplicates or missing or extra):
+        return
+
+    def labels(rows):
+        return ','.join(f'{class_name}_{spec}' for class_name, spec in rows) or '-'
+
+    raise ValueError(
+        'SimC 上游 Profile 专精集合不完整：'
+        f'missing={labels(missing)}; duplicate={labels(duplicates)}; extra={labels(extra)}'
+    )
 
 
 def _text_key(value):
@@ -1476,6 +1495,20 @@ def _talent_declares_all_damage_modifier(talent):
                 clause,
             ):
                 continue
+            # Equipment/loadout-gated passives are not player-wide runtime buffs.
+            # Their effect belongs on the selected talent/loadout rows even when
+            # every currently initialized action happens to scale by one ratio.
+            if re.search(
+                r'\b(?:while|when)\s+(?:(?:you\s+are\s+)?|dual[-\s]+)wielding\b|'
+                r'\b(?:while|when)\s+(?:you\s+are\s+)?equipp(?:ed|ing)\b',
+                clause,
+            ):
+                continue
+            if re.search(
+                r'(?:装备|持有|使用|双持)[^，。；]*(?:武器|剑|斧|锤|长柄武器|匕首)[^，。；]*时',
+                clause,
+            ):
+                continue
             if any(re.search(pattern, clause) for pattern in english_patterns):
                 return True
             if any(re.search(pattern, clause) for pattern in chinese_patterns):
@@ -2249,12 +2282,16 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
     base_high_actions = {
         _action_identity(action): action
         for action in (base_high.get('actions') or [])
-        if isinstance(action, dict) and action.get('supported') is True
+        if isinstance(action, dict)
+        and action.get('supported') is True
+        and action.get('player_skill') is not False
     }
     base_low_actions = {
         _action_identity(action): action
         for action in (base_low.get('actions') or [])
-        if isinstance(action, dict) and action.get('supported') is True
+        if isinstance(action, dict)
+        and action.get('supported') is True
+        and action.get('player_skill') is not False
     }
     rows = []
     hero_subtree_by_trait_entry = {}
@@ -2434,6 +2471,26 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
             )
         rows.append(row)
 
+    def talent_owns_non_player_action(action, reference_action, talent):
+        if not isinstance(action, dict):
+            return False
+        if action.get('player_skill') is not False or reference_action is None:
+            return True
+        trait_entry_id = talent.get('node_id')
+        if isinstance(trait_entry_id, int) and not isinstance(trait_entry_id, bool):
+            if any(
+                isinstance(effect, dict)
+                and effect.get('trait_entry_id') == trait_entry_id
+                for effect in action.get('selected_trait_effects') or []
+            ):
+                return True
+        hero_subtree_id = talent.get('hero_subtree_id')
+        return (
+            isinstance(hero_subtree_id, int)
+            and not isinstance(hero_subtree_id, bool)
+            and hero_subtree_id in native_hero_ownership(action)
+        )
+
     no_talent = {'id': None, 'name': '', 'name_zh': '', 'tree_type': '', 'node_id': None}
     for identity in dict.fromkeys([*base_high_actions, *base_low_actions]):
         high_action = base_high_actions.get(identity)
@@ -2495,6 +2552,7 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
 
             if (
                 _amount_state(high_amount)[0] == 'resolved'
+                and talent_owns_non_player_action(high_action, base_high_action, talent)
                 and _effect_changed(base_high_amount, high_amount)
             ):
                 candidates.append((
@@ -2511,7 +2569,11 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
                 if includes_global_scenario(tokens):
                     continue
                 reference = base_high_scenarios.get(tokens, base_high_amount)
-                if _amount_state(amount)[0] == 'resolved' and _effect_changed(reference, amount):
+                if (
+                    _amount_state(amount)[0] == 'resolved'
+                    and talent_owns_non_player_action(high_action, base_high_action, talent)
+                    and _effect_changed(reference, amount)
+                ):
                     candidates.append((
                         high_action, amount, reference,
                         _talent_probe_condition(talent), tokens,
@@ -2519,6 +2581,7 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
 
             if (
                 _amount_state(low_amount)[0] == 'resolved'
+                and talent_owns_non_player_action(low_action, base_low_action, talent)
                 and _paired_effect_changed(
                     base_high_amount, high_amount, base_low_amount, low_amount,
                 )
@@ -2534,8 +2597,12 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
                 low_reference = base_low_scenarios.get(tokens, base_low_amount)
                 high_current = high_scenarios.get(tokens, high_amount)
                 high_reference = base_high_scenarios.get(tokens, base_high_amount)
-                if _amount_state(amount)[0] == 'resolved' and _paired_effect_changed(
-                    high_reference, high_current, low_reference, amount,
+                if (
+                    _amount_state(amount)[0] == 'resolved'
+                    and talent_owns_non_player_action(low_action, base_low_action, talent)
+                    and _paired_effect_changed(
+                        high_reference, high_current, low_reference, amount,
+                    )
                 ):
                     candidates.append((
                         low_action, amount, low_reference,
@@ -3069,16 +3136,22 @@ class SimcSkillDamageSnapshotService:
             user_id__isnull=True,
             source=SimcProfile.SOURCE_SIMC_UPSTREAM,
         ).order_by('class_name', 'spec', '-id')
+        profiles_with_identities = [
+            (profile, canonical_simc_profile_identity(
+                getattr(profile, 'spec', ''), getattr(profile, 'class_name', ''),
+            ))
+            for profile in rows
+        ]
+        _validate_required_profile_identities([
+            identity for _profile, identity in profiles_with_identities
+        ])
         selected = []
         seen = set()
-        for profile in rows:
-            key = (str(profile.class_name or '').lower(), str(profile.spec or '').lower())
+        for profile, key in profiles_with_identities:
             if key in seen:
                 continue
             seen.add(key)
             selected.append(profile)
-        if not selected:
-            raise ValueError('没有可用于初始化职业模块的 active SimC 上游 Profile。')
         return selected
 
     def _talent_entries(self, profile):

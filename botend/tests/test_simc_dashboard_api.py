@@ -3659,6 +3659,11 @@ class SimcNewConfigModeTests(TestCase):
 
         main_js = (Path(__file__).resolve().parents[2] / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
         self.assertIn("'skill-damage': 'simc-skill-damage'", main_js)
+        renderer = main_js[
+            main_js.index('function renderSimcSkillDamageSnapshot'):
+            main_js.index('function initSimcSkillDamagePanel')
+        ]
+        self.assertIn('item.player_skill !== false', renderer)
 
     def test_simc_workbench_panels_are_grouped_by_l1_information_architecture(self):
         from bs4 import BeautifulSoup

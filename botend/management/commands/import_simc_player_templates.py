@@ -5,37 +5,15 @@ import re
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
+from botend.constants.simc_specs import (
+    SIMC_KNOWN_SPECS as KNOWN_SPECS,
+    SIMC_REQUIRED_PROFILE_SPECS as REQUIRED_PROFILE_SPECS,
+)
 from botend.models import SimcProfile, SimcTalentString
 from botend.services.simc_player_config import validate_default_player_baseline, validate_player_baseline
 
 
 DEFAULT_SOURCE_DIR = '/home/lighthouse/simc/profiles/MID1'
-KNOWN_SPECS = {
-    'deathknight': {'blood', 'frost', 'unholy'},
-    'demonhunter': {'devourer', 'havoc', 'vengeance'},
-    'druid': {'balance', 'feral', 'guardian', 'restoration'},
-    'evoker': {'augmentation', 'devastation', 'preservation'},
-    'hunter': {'beast_mastery', 'marksmanship', 'survival'},
-    'mage': {'arcane', 'fire', 'frost'},
-    'monk': {'brewmaster', 'mistweaver', 'windwalker'},
-    'paladin': {'holy', 'protection', 'retribution'},
-    'priest': {'discipline', 'holy', 'shadow'},
-    'rogue': {'assassination', 'outlaw', 'subtlety'},
-    'shaman': {'elemental', 'enhancement', 'restoration'},
-    'warlock': {'affliction', 'demonology', 'destruction'},
-    'warrior': {'arms', 'fury', 'protection'},
-}
-MID1_UNSUPPORTED_PROFILE_SPECS = {
-    ('druid', 'restoration'), ('evoker', 'augmentation'),
-    ('evoker', 'preservation'), ('monk', 'mistweaver'),
-    ('paladin', 'holy'), ('priest', 'discipline'),
-    ('priest', 'holy'), ('shaman', 'restoration'),
-}
-REQUIRED_PROFILE_SPECS = {
-    (class_name, spec)
-    for class_name, specs in KNOWN_SPECS.items()
-    for spec in specs
-} - MID1_UNSUPPORTED_PROFILE_SPECS
 CLASS_NAMES = sorted(KNOWN_SPECS, key=len, reverse=True)
 ALLOWED_SCALARS = {
     'level', 'race', 'region', 'server', 'realm', 'role', 'position', 'professions',
