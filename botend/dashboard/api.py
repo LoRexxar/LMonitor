@@ -8271,21 +8271,11 @@ class SimcSkillDamageSnapshotAPIView(View):
                 status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             ).exists()
         )
-        active_job = SimcSkillDamageSnapshot.objects.defer('payload').filter(
-            status__in=(
-                SimcSkillDamageSnapshot.STATUS_PENDING,
-                SimcSkillDamageSnapshot.STATUS_RUNNING,
-            ),
-        ).order_by('-created_at', '-id').first()
         snapshot = None
-        running_partial = (
-            active_job
-            if active_job
-            and active_job.schema_revision == SimcSkillDamageSnapshotService.DATASET_SCHEMA_REVISION
-            and active_job.generated_spec_count > 0
-            else None
-        )
-        display_snapshot_meta = running_partial or latest
+        # A running snapshot is an unpublished partial dataset. Keep serving the
+        # latest successful snapshot until all specializations are complete;
+        # progress is exposed separately through the lightweight job summary.
+        display_snapshot_meta = latest
         if display_snapshot_meta:
             display_snapshot = SimcSkillDamageSnapshot.objects.get(pk=display_snapshot_meta.pk)
             identity = {

@@ -6226,8 +6226,6 @@ function initSimcSkillDamagePanel() {
     const excludedConditionKeysByScope = new Map();
     panel.__simcSkillDamageFilterState = {excludedConditionKeysByScope};
     let currentSnapshot = null;
-    let loadedJobId = null;
-    let loadedSpecCount = 0;
     let pollTimer = null;
     let pollInFlight = false;
 
@@ -6283,9 +6281,6 @@ function initSimcSkillDamagePanel() {
         const data = payload.data || {};
         currentSnapshot = data.snapshot || null;
         renderSimcSkillDamageSnapshot(currentSnapshot);
-        const job = data.job;
-        loadedJobId = job ? job.id : null;
-        loadedSpecCount = Number(job && job.spec_count) || 0;
         const running = renderStatus(data);
         if (managePolling) {
             if (running) schedulePoll();
@@ -6300,10 +6295,7 @@ function initSimcSkillDamagePanel() {
         const data = payload.data || {};
         const job = data.job;
         const running = renderStatus(data);
-        const specCount = Number(job && job.spec_count) || 0;
-        const hasNewPartial = running && job && specCount > 0
-            && (job.id !== loadedJobId || specCount > loadedSpecCount);
-        if (hasNewPartial || (job && !running)) {
+        if (job && !running) {
             await loadFullSnapshot({managePolling: false});
         }
         if (running) schedulePoll();

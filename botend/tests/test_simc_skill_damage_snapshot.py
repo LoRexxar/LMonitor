@@ -3821,6 +3821,58 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         self.assertNotIn('large-private-action', response.content.decode())
         self.assertNotIn('large-private-unresolved', response.content.decode())
 
+    def test_get_prefers_latest_success_over_running_partial_actor_rows(self):
+        latest = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='7' * 40,
+            game_build='12.1.0.69299',
+            schema_revision=20,
+            status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+            generated_spec_count=1,
+            payload={
+                'payload_format': 'skill_damage_product_v1',
+                'actors': [{'specialization': 'fury', 'actions': [
+                    {'token': 'published-action'},
+                ]}],
+            },
+        )
+        running = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='8' * 40,
+            game_build='12.1.0.69300',
+            schema_revision=20,
+            status=SimcSkillDamageSnapshot.STATUS_RUNNING,
+            generated_spec_count=1,
+            payload={
+                'payload_format': 'skill_damage_product_v1',
+                'storage_format': 'per_spec_actor_rows_v1',
+                'total_spec_count': 32,
+            },
+        )
+        apps.get_model('botend', 'SimcSkillDamageSnapshotActor').objects.create(
+            snapshot=running,
+            ordinal=0,
+            class_name='mage',
+            specialization='frost',
+            actor_payload={
+                'class': 'mage',
+                'specialization': 'frost',
+                'actions': [{'token': 'private-running-action'}],
+            },
+            unresolved_payload=[],
+            raw_action_count=1,
+            display_action_count=1,
+        )
+        request = self.factory.get('/api/simc-skill-damage/')
+        request.user = self.user
+
+        response = SimcSkillDamageSnapshotAPIView.as_view()(request)
+        body = json.loads(response.content)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(body['data']['snapshot']['id'], latest.pk)
+        self.assertEqual(body['data']['job']['status'], SimcSkillDamageSnapshot.STATUS_RUNNING)
+        self.assertIn('published-action', response.content.decode())
+        self.assertNotIn('private-running-action', response.content.decode())
+
     def test_get_returns_frozen_schema_eighteen_product_without_reprojection(self):
         SimcSkillDamageSnapshot.objects.create(
             simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=20,
@@ -4142,7 +4194,9 @@ class SimcSkillDamageDashboardContractTests(TestCase):
             'function initSimcBackendUploadTool()', 1,
         )[0]
         self.assertIn('/api/simc-skill-damage/?summary=1', panel_initializer)
-        self.assertIn('specCount > loadedSpecCount', panel_initializer)
+        self.assertNotIn('specCount > loadedSpecCount', panel_initializer)
+        self.assertNotIn('hasNewPartial', panel_initializer)
+        self.assertIn('if (job && !running)', panel_initializer)
         self.assertIn('setTimeout(async () =>', panel_initializer)
         self.assertNotIn('setInterval(', panel_initializer)
         self.assertIn('renderSimcSkillDamageSnapshot', script)
