@@ -2347,60 +2347,10 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
         if not isinstance(action, dict):
             return []
         return sorted(hero_ownership_by_action.get(_action_identity(action)) or ())
-    if global_effects is None:
-        classified_global_modifiers = classify_global_damage_modifiers(variants)
-        passive_global_talent_ids = {
-            modifier.get('talent_id')
-            for modifier in classified_global_modifiers
-            if not modifier.get('scenario_tokens')
-        }
-        passive_global_multipliers = {
-            modifier.get('talent_id'): modifier.get('damage_multiplier')
-            for modifier in classified_global_modifiers
-            if not modifier.get('scenario_tokens')
-        }
-        global_scenario_identities = {
-            tuple((str(token), '', 0, 1) for token in (modifier.get('scenario_tokens') or []))
-            for modifier in classified_global_modifiers
-            if modifier.get('scenario_tokens')
-        }
-    else:
-        passive_global_talent_ids = {
-            effect.get('talent_id')
-            for effect in global_effects
-            if effect.get('source_type') == 'talent'
-            and effect.get('talent_id') is not None
-            and not effect.get('scenario_tokens')
-        }
-        passive_global_multipliers = {
-            effect.get('talent_id'): projection.get('value')
-            for effect in global_effects
-            if effect.get('source_type') == 'talent'
-            and not effect.get('scenario_tokens')
-            for projection in (effect.get('projections') or [])
-            if projection.get('kind') == 'damage_multiplier'
-        }
-        global_scenario_identities = {
-            _scenario_identity({'buffs': effect.get('runtime_conditions')})
-            if isinstance(effect.get('runtime_conditions'), list)
-            and effect.get('runtime_conditions')
-            else tuple(
-                (str(token), '', 0, 1) for token in (effect.get('scenario_tokens') or [])
-            )
-            for effect in global_effects
-            if effect.get('scenario_tokens')
-        }
-
-    def includes_global_scenario(tokens):
-        identity_set = set(
-            item if isinstance(item, tuple) and len(item) == 4
-            else (str(item), '', 0, 1)
-            for item in tokens or ()
-        )
-        return any(
-            set(global_identity).issubset(identity_set)
-            for global_identity in global_scenario_identities
-        )
+    # Global-effect evidence remains available for diagnostics, but it must not
+    # remove ordinary talent/Buff rows. The browser owns condition filtering and
+    # therefore needs every complete action fact in the product payload.
+    _ = global_effects
 
     def append_row(action, amount, *, talent, condition, comparison, scenario_tokens=()):
         if not isinstance(action, dict) or _amount_state(amount)[0] != 'resolved':
@@ -2511,9 +2461,33 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
                 comparison=low_amount,
             )
 
+        high_scenarios = _scenario_amounts(high_action)
+        low_scenarios = _scenario_amounts(low_action)
+        for tokens, amount in high_scenarios.items():
+            if (
+                _amount_state(amount)[0] == 'resolved'
+                and _effect_changed(high_amount, amount)
+            ):
+                append_row(
+                    high_action, amount, talent=no_talent,
+                    condition='', comparison=high_amount, scenario_tokens=tokens,
+                )
+        for tokens, amount in low_scenarios.items():
+            high_current = high_scenarios.get(tokens, high_amount)
+            if (
+                _amount_state(amount)[0] == 'resolved'
+                and _paired_effect_changed(
+                    high_amount, high_current, low_amount, amount,
+                )
+            ):
+                append_row(
+                    low_action, amount, talent=no_talent,
+                    condition='血量低于35%', comparison=low_amount,
+                    scenario_tokens=tokens,
+                )
+
     for item in variants:
         talent = item.get('talent') or {}
-        passive_global_talent = talent.get('id') in passive_global_talent_ids
         reference_high_actions = {
             _action_identity(action): action
             for action in ((item.get('reference_high') or {}).get('actions') or [])
@@ -2537,11 +2511,7 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
         for identity in dict.fromkeys([*high_actions, *low_actions]):
             high_action = high_actions.get(identity)
             low_action = low_actions.get(identity)
-            if passive_global_talent and any(
-                action and action.get('player_skill') is True
-                for action in (high_action, low_action)
-            ):
-                continue
+
             base_high_action = reference_high_actions.get(identity)
             base_low_action = reference_low_actions.get(identity)
             high_amount = high_action.get('baseline') if high_action else None
@@ -2566,8 +2536,6 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
             low_scenarios = _scenario_amounts(low_action)
 
             for tokens, amount in high_scenarios.items():
-                if includes_global_scenario(tokens):
-                    continue
                 reference = base_high_scenarios.get(tokens, base_high_amount)
                 if (
                     _amount_state(amount)[0] == 'resolved'
@@ -2592,8 +2560,6 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
                 ))
 
             for tokens, amount in low_scenarios.items():
-                if includes_global_scenario(tokens):
-                    continue
                 low_reference = base_low_scenarios.get(tokens, base_low_amount)
                 high_current = high_scenarios.get(tokens, high_amount)
                 high_reference = base_high_scenarios.get(tokens, base_high_amount)
@@ -2611,17 +2577,9 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
 
             seen_candidates = set()
             for source_action, amount, comparison, condition, tokens in candidates:
-                if (
-                    passive_global_talent
-                    and source_action.get('player_skill') is not True
-                    and _amount_change_only_global_multiplier(
-                        comparison, amount,
-                        passive_global_multipliers.get(talent.get('id')),
-                    )
-                ):
-                    continue
                 identity_key = (
                     condition,
+                    tokens,
                     json.dumps(amount, ensure_ascii=False, sort_keys=True, separators=(',', ':')),
                 )
                 if identity_key in seen_candidates:
@@ -3018,7 +2976,7 @@ class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
     EXPORTER_SCHEMA_REVISION = 12
-    DATASET_SCHEMA_REVISION = 20
+    DATASET_SCHEMA_REVISION = 21
     TALENT_BATCH_SIZE = 12
     ACTOR_CONFIG_BATCH_SIZE = 24
     FIXED_PRESET = {

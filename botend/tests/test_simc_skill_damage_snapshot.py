@@ -521,6 +521,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
               row['baseline']['direct']['hit']) for row in rows],
             [
                 ('', '', 200.0),
+                ('', '', 180.0),
                 ('血之气息', '点出血之气息天赋', 240.0),
                 ('恶毒蔑视', '血量低于35%', 300.0),
                 ('恶毒蔑视', '点出恶毒蔑视天赋，血量低于35%', 270.0),
@@ -678,6 +679,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertEqual(observed, [
             ('', 100, 100),
             ('血量低于35%', 80, 100),
+            ('', 110, 100),
             ('', 110, 90),
             ('点出真实天赋', 150, 100),
             ('点出真实天赋', 140, 100),
@@ -801,7 +803,9 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             }
 
         reference = {'actions': [action(1.0)]}
-        selected = {'actions': [action(1.0, ((1, 1.10), (2, 1.20)))]}
+        # Distinct stack identities remain filterable even when their runtime
+        # damage happens to be numerically identical.
+        selected = {'actions': [action(1.0, ((1, 1.20), (2, 1.20)))]}
         rows = flatten_single_talent_damage_variants(
             {'actions': []}, {'actions': []}, [{
                 'talent': {'id': 901, 'name': 'Stack Probe', 'name_zh': '叠层探针'},
@@ -825,7 +829,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         projected_damage = sorted(
             row['product']['final_normalized_damage'] for row in projected
         )
-        self.assertAlmostEqual(projected_damage[0], 110.0)
+        self.assertAlmostEqual(projected_damage[0], 120.0)
         self.assertAlmostEqual(projected_damage[1], 120.0)
 
         stack_two_global = [{
@@ -848,7 +852,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             row['variant']['runtime_conditions'][0].get('stacks', 1)
             for row in retained if row['variant']['scenario_tokens'] == ['buff.stack_probe']
         ]
-        self.assertEqual(retained_scenarios, [1])
+        self.assertEqual(retained_scenarios, [1, 2])
 
     def test_low_scenario_formula_decomposes_health_and_scenario_runtime_factors(self):
         def amount(multiplier):
@@ -1983,10 +1987,18 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             [global_with_non_player_change],
         )
         self.assertEqual(len(non_player_modifiers), 1)
-        non_player_rows = flatten_single_talent_damage_variants(
+        filterable_rows = flatten_single_talent_damage_variants(
             {'actions': []}, {'actions': []}, [global_with_non_player_change],
         )
-        self.assertEqual(non_player_rows, [])
+        self.assertEqual(len(filterable_rows), 2)
+        self.assertEqual(
+            {row['token'] for row in filterable_rows},
+            {'a', 'b'},
+        )
+        self.assertEqual(
+            {row['variant']['talent_id'] for row in filterable_rows},
+            {talent['id']},
+        )
 
         identity_drift = {
             'talent': talent,
@@ -2087,7 +2099,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             {('own_skill', None), ('talent_created_skill', 42)},
         )
 
-    def test_variant_only_uniform_debuff_is_global_and_stripped_from_action_rows(self):
+    def test_variant_only_uniform_debuff_stays_in_filterable_action_rows(self):
         def amount(multiplier):
             layers = {
                 name: 1.0 for name in (
@@ -2179,7 +2191,22 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         rows = flatten_single_talent_damage_variants(
             {'actions': []}, {'actions': []}, [variant], global_effects=effects,
         )
-        self.assertFalse(any(
+        exposed_rows = [
+            row for row in rows
+            if (row.get('variant') or {}).get('scenario_tokens') == ['debuff.exposed']
+        ]
+        self.assertEqual(len(exposed_rows), 2)
+        self.assertTrue(all(
+            (row.get('variant') or {}).get('talent_id') == 903
+            for row in exposed_rows
+        ))
+        self.assertTrue(all(
+            (row.get('variant') or {}).get('runtime_conditions') == [{
+                'token': 'debuff.exposed', 'scope': 'target', 'spell_id': 90001,
+            }]
+            for row in exposed_rows
+        ))
+        self.assertTrue(any(
             (row.get('variant') or {}).get('scenario_tokens') == ['debuff.exposed']
             for row in rows
         ))
@@ -2194,7 +2221,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             [],
         )
 
-    def test_global_scenario_is_stripped_from_every_talent_actor(self):
+    def test_uniform_talent_scenarios_stay_in_filterable_action_rows(self):
         direct_layers = (
             'da_multiplier', 'player_multiplier', 'versus_multiplier',
             'persistent_multiplier', 'target_da_multiplier', 'versatility',
@@ -2305,7 +2332,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         rows = flatten_single_talent_damage_variants(
             {'actions': []}, {'actions': []}, variants, global_effects=effects,
         )
-        self.assertFalse(any(
+        self.assertTrue(any(
             {'buff.avatar', 'buff.avatar_secondary'}
             & set((row.get('variant') or {}).get('scenario_tokens', []))
             for row in rows
@@ -2477,6 +2504,19 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         recklessness = by_source['runtime_state:buff.recklessness']
         compound = by_source['runtime_state:buff.compound_global']
         self.assertNotIn('talent:9:passive', by_source)
+        rows = flatten_single_talent_damage_variants(
+            copy.deepcopy(base_actor), copy.deepcopy(base_actor), variants,
+            global_effects=effects,
+        )
+        base_runtime_rows = [
+            row for row in rows
+            if (row.get('variant') or {}).get('talent_id') is None
+            and (row.get('variant') or {}).get('scenario_tokens')
+        ]
+        self.assertTrue(any(
+            (row.get('variant') or {}).get('scenario_tokens') == ['buff.recklessness']
+            for row in base_runtime_rows
+        ))
         self.assertEqual(avatar['projections'][0]['kind'], 'damage_multiplier')
         self.assertAlmostEqual(avatar['projections'][0]['value'], 1.20)
         self.assertEqual(recklessness['projections'][0]['kind'], 'crit_chance')
@@ -2512,7 +2552,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             base_actor, base_actor, variants, global_effects=effects,
         )
         self.assertTrue(any((row.get('variant') or {}).get('talent_id') == 9 for row in rows))
-        self.assertFalse(any(
+        self.assertTrue(any(
             set((row.get('variant') or {}).get('scenario_tokens') or [])
             & {'buff.avatar', 'buff.recklessness'}
             for row in rows
@@ -2774,7 +2814,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         service = SimcSkillDamageSnapshotService.create_for_current_backend()
 
         self.assertNotEqual(service.snapshot.pk, existing.pk)
-        self.assertEqual(service.snapshot.schema_revision, 20)
+        self.assertEqual(service.snapshot.schema_revision, 21)
         self.assertEqual(service.snapshot.status, SimcSkillDamageSnapshot.STATUS_PENDING)
         self.assertEqual(service.backend.pk, backend.pk)
 
@@ -2860,7 +2900,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
     def test_generate_releases_completed_profile_raw_export_graph_before_next_profile(self):
         snapshot = SimcSkillDamageSnapshot.objects.create(
-            simc_revision='b' * 40, game_build='12.1.0.69299', schema_revision=20,
+            simc_revision='b' * 40, game_build='12.1.0.69299', schema_revision=21,
         )
         profiles = [
             SimpleNamespace(pk=1, spec='warrior_fury', class_name='warrior'),
@@ -2932,7 +2972,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
     def test_isolated_generate_releases_published_product_actor_before_next_profile(self):
         snapshot = SimcSkillDamageSnapshot.objects.create(
-            simc_revision='b' * 40, game_build='12.1.0.69299', schema_revision=20,
+            simc_revision='b' * 40, game_build='12.1.0.69299', schema_revision=21,
         )
         profiles = [
             SimpleNamespace(pk=1, spec='warrior_fury', class_name='warrior'),
@@ -2988,7 +3028,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
     def test_isolated_generation_persists_actor_shards_without_mutating_snapshot_actors_json(self):
         actor_model = apps.get_model('botend', 'SimcSkillDamageSnapshotActor')
         snapshot = SimcSkillDamageSnapshot.objects.create(
-            simc_revision='9' * 40, game_build='12.1.0.69300', schema_revision=20,
+            simc_revision='9' * 40, game_build='12.1.0.69300', schema_revision=21,
         )
         profiles = [
             SimpleNamespace(pk=1, spec='warrior_fury', class_name='warrior'),
@@ -3035,7 +3075,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         snapshot = SimcSkillDamageSnapshot.objects.create(
             simc_revision='a' * 40,
             game_build='12.1.0.69300',
-            schema_revision=20,
+            schema_revision=21,
             status=SimcSkillDamageSnapshot.STATUS_FAILED,
             generated_spec_count=1,
             generated_action_count=3,
@@ -3082,7 +3122,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
     def test_isolated_generation_closes_stale_db_connection_after_each_profile(self):
         snapshot = SimcSkillDamageSnapshot.objects.create(
-            simc_revision='b' * 40, game_build='12.1.0.69299', schema_revision=20,
+            simc_revision='b' * 40, game_build='12.1.0.69299', schema_revision=21,
         )
         profiles = [
             SimpleNamespace(pk=1, spec='warrior_fury', class_name='warrior'),
@@ -3763,7 +3803,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             },
         )
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=20,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=21,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={'actors': [{
                 'specialization': 'fury',
@@ -3794,7 +3834,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
 
     def test_get_summary_returns_progress_without_materializing_snapshot_payload(self):
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='f' * 40, game_build='12.1.0.69300', schema_revision=20,
+            simc_revision='f' * 40, game_build='12.1.0.69300', schema_revision=21,
             status=SimcSkillDamageSnapshot.STATUS_RUNNING,
             generated_spec_count=1,
             generated_action_count=27,
@@ -3826,7 +3866,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         latest = SimcSkillDamageSnapshot.objects.create(
             simc_revision='7' * 40,
             game_build='12.1.0.69299',
-            schema_revision=20,
+            schema_revision=21,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             generated_spec_count=1,
             payload={
@@ -3839,7 +3879,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         running = SimcSkillDamageSnapshot.objects.create(
             simc_revision='8' * 40,
             game_build='12.1.0.69300',
-            schema_revision=20,
+            schema_revision=21,
             status=SimcSkillDamageSnapshot.STATUS_RUNNING,
             generated_spec_count=1,
             payload={
@@ -3876,7 +3916,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
 
     def test_get_returns_frozen_schema_eighteen_product_without_reprojection(self):
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=20,
+            simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=21,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload={
                 'payload_format': 'skill_damage_product_v1',
@@ -3908,7 +3948,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         snapshot = SimcSkillDamageSnapshot.objects.create(
             simc_revision='8' * 40,
             game_build='12.1.0.69300',
-            schema_revision=20,
+            schema_revision=21,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             generated_spec_count=1,
             generated_action_count=2,
@@ -3976,7 +4016,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         SimcSkillDamageSnapshot.objects.create(
             simc_revision='9' * 40,
             game_build='12.1.0.69300',
-            schema_revision=20,
+            schema_revision=21,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             generated_spec_count=0,
             generated_action_count=0,
@@ -4020,7 +4060,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(body['data']['snapshot'])
-        self.assertIn('schema 20', body['data']['snapshot_unavailable_reason'])
+        self.assertIn('schema 21', body['data']['snapshot_unavailable_reason'])
 
     def test_get_localizes_skill_identity_and_left_cell_only_shows_name_and_spell_id(self):
         version = WowTalentVersion.objects.create(key='current', is_active=True)
@@ -4047,7 +4087,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
             name='Stale Action', name_zh='过期版本中文名', snapshot_build='12.1.0.69299',
         )
         SimcSkillDamageSnapshot.objects.create(
-            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=20,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=21,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             payload=localize_skill_damage_payload(project_skill_damage_product_payload({'actors': [{
                 'class': 'warrior', 'specialization': 'fury',
@@ -4200,6 +4240,7 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn("`state:${scope}:${identity}`", renderer)
         self.assertNotIn('condition.stacks', renderer)
         self.assertIn('rowConditionKeys.some(key => excludedFilterKeys.has(key))', renderer)
+        self.assertIn("excludedConditionKeys.has(conditionKey) ? '' : ' checked'", renderer)
         self.assertLess(renderer.index('const candidateRows = []'), renderer.index('const query ='))
         self.assertIn('excludedConditionKeysByScope', initializer)
         self.assertIn("filterTabs.forEach(tab => tab.addEventListener('click'", initializer)
@@ -4213,7 +4254,7 @@ class SimcSkillDamageDashboardContractTests(TestCase):
 
         self.assertIn('globalEffectDisplayKey(effect)', renderer)
         self.assertIn('globalEffectDisplayPriority(effect)', renderer)
-        self.assertIn("effect.source_type === 'talent'", renderer)
+        self.assertIn(".filter(effect => effect.source_type === 'specialization_passive')", renderer)
         self.assertIn('grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3', renderer)
         self.assertNotIn('flex items-center justify-between gap-4 border-t', renderer)
 
