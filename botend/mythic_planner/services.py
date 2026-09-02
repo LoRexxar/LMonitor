@@ -28,6 +28,9 @@ from botend.mythic_planner.mdt_route_codec import (
 
 MAX_PULLS = 100
 MAX_ANNOTATIONS = 500
+MODEL_PREVIEW_BASE_URL = (
+    'https://oss.wowdaily.cn/mythic-planner/model-previews'
+)
 logger = logging.getLogger(__name__)
 
 
@@ -105,23 +108,16 @@ def planner_config_dict():
 
 
 def default_route_compatibility(route):
-    """校验推荐路线是否仍与其当前 MDT 数据版本兼容。"""
+    """按路线实际引用的地下城和刷新点校验推荐路线。"""
 
     route_data = route.route_data if isinstance(route.route_data, dict) else {}
     try:
         if not route_data:
             raise ValueError('路线内容为空，请管理员重新发布。')
-        route_version_key = str(
-            route_data.get('data_version_key') or ''
-        ).strip()
-        current_version_key = str(route.dungeon.data_version.key or '').strip()
-        if route_version_key and route_version_key != current_version_key:
-            raise ValueError(
-                f'路线基于数据版本 {route_version_key}，当前版本为 '
-                f'{current_version_key}，请管理员重新发布。'
-            )
         validated = validate_route_payload(route_data, route.dungeon)
-        route_code = encode_share_code(validated.payload)
+        canonical_payload = dict(validated.payload)
+        canonical_payload['data_version_key'] = route.dungeon.data_version.key
+        route_code = encode_share_code(canonical_payload)
     except Exception as exc:  # 单条坏路线不能拖垮整个公开目录。
         expected_error = isinstance(exc, (TypeError, ValueError, OverflowError))
         reason = str(exc).strip() if expected_error else ''
@@ -378,6 +374,22 @@ def _serialize_poi(poi):
     }
 
 
+def _enemy_model_preview_url(enemy):
+    """模型图使用稳定 OSS 键，避免依赖数据库是否重新导入过图片字段。"""
+
+    metadata = enemy.metadata if isinstance(enemy.metadata, dict) else {}
+    try:
+        display_id = int(metadata.get('display_id') or 0)
+    except (TypeError, ValueError):
+        return ''
+    if display_id <= 0:
+        return ''
+    icon_url = str(enemy.icon_url or '').strip()
+    if '/mythic-planner/model-previews/' in icon_url:
+        return icon_url
+    return f'{MODEL_PREVIEW_BASE_URL}/{display_id}.webp'
+
+
 def serialize_dungeon(dungeon):
     floors = list(dungeon.floors.all())
     enemies = list(dungeon.enemies.all())
@@ -427,6 +439,7 @@ def serialize_dungeon(dungeon):
                 'level': enemy.level,
                 'creature_type': enemy.creature_type,
                 'icon_url': enemy.icon_url,
+                'model_preview_url': _enemy_model_preview_url(enemy),
                 'marker_color': enemy.marker_color,
                 'is_boss': enemy.is_boss,
                 'traits': enemy.traits or {},

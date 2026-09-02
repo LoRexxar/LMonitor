@@ -1137,7 +1137,7 @@
         const health = scaledHealth(enemy.base_health, state.route.dungeon_level);
         const portraitInitial = escapeHtml(initials(enemy.display_name));
         const displayId = enemyDisplayId(enemy);
-        const modelPreviewUrl = String(enemy.icon_url || '').trim();
+        const modelPreviewUrl = String(enemy.model_preview_url || '').trim();
         const wowheadPageUrl = enemy.npc_id
             ? `https://www.wowhead.com/npc=${Number(enemy.npc_id)}`
             : '';

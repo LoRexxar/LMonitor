@@ -2837,6 +2837,17 @@ class MythicPlannerPublicApiTests(TestCase):
         }
 
     def test_catalog_and_dungeon_payload_include_planning_data(self):
+        guardian_record = MythicDungeonEnemy.objects.get(
+            dungeon__key='gloamvault',
+            key='vault-guardian',
+        )
+        guardian_record.metadata = {
+            **(guardian_record.metadata or {}),
+            'display_id': 139997,
+        }
+        guardian_record.icon_url = ''
+        guardian_record.save(update_fields=['metadata', 'icon_url'])
+
         catalog_response = self.client.get('/portal/api/mythic-planner/catalog/')
         self.assertEqual(catalog_response.status_code, 200)
         catalog = catalog_response.json()['data']
@@ -2850,6 +2861,13 @@ class MythicPlannerPublicApiTests(TestCase):
         self.assertEqual(len(dungeon['floors']), 2)
         guardian = next(row for row in dungeon['enemies'] if row['key'] == 'vault-guardian')
         self.assertEqual(guardian['enemy_forces'], 5)
+        self.assertEqual(
+            guardian['model_preview_url'],
+            (
+                'https://oss.wowdaily.cn/mythic-planner/'
+                'model-previews/139997.webp'
+            ),
+        )
         self.assertTrue(guardian['abilities'])
         self.assertTrue(guardian['spawns'][0]['uid'].startswith('vault-guardian:'))
 
@@ -2896,7 +2914,7 @@ class MythicPlannerPublicApiTests(TestCase):
             405,
         )
 
-    def test_catalog_marks_invalid_default_routes_without_returning_500(self):
+    def test_catalog_uses_spawn_compatibility_instead_of_version_key(self):
         dungeon = get_active_dungeon('gloamvault')
         old_version_payload = self.share_payload(name='旧版本推荐路线')
         old_version_payload['data_version_key'] = 'mdt-old-version'
@@ -2924,13 +2942,11 @@ class MythicPlannerPublicApiTests(TestCase):
             row['id']: row
             for row in response.json()['data']['default_routes']
         }
-        self.assertFalse(rows[old_version_route.id]['is_valid'])
-        self.assertEqual(rows[old_version_route.id]['validity'], 'invalid')
-        self.assertIn(
-            '路线基于数据版本 mdt-old-version',
-            rows[old_version_route.id]['invalid_reason'],
-        )
-        self.assertEqual(rows[old_version_route.id]['route_code'], '')
+        self.assertTrue(rows[old_version_route.id]['is_valid'])
+        self.assertEqual(rows[old_version_route.id]['validity'], 'valid')
+        self.assertEqual(rows[old_version_route.id]['invalid_reason'], '')
+        decoded = decode_share_code(rows[old_version_route.id]['route_code'])
+        self.assertEqual(decoded['data_version_key'], 'lmonitor-demo-1')
         self.assertFalse(rows[stale_spawn_route.id]['is_valid'])
         self.assertIn(
             '路线包含不存在的怪物刷新点',
@@ -3542,7 +3558,7 @@ class MythicPlannerDashboardTests(TestCase):
         self.assertContains(dashboard_home, 'dashboard/js/main.js')
         self.assertNotContains(dashboard_home, 'dashboard/js/dashboard_shell.js')
 
-    def test_management_snapshot_marks_stale_default_route_as_invalid(self):
+    def test_management_snapshot_allows_compatible_old_version_route(self):
         self.client.force_login(self.staff)
         dungeon = get_active_dungeon('gloamvault')
         payload = MythicPlannerPublicApiTests.share_payload(
@@ -3566,10 +3582,11 @@ class MythicPlannerDashboardTests(TestCase):
             for item in response.json()['data']['default_routes']
             if item['id'] == route.id
         )
-        self.assertFalse(row['is_valid'])
-        self.assertEqual(row['validity'], 'invalid')
-        self.assertIn('mdt-retired-version', row['invalid_reason'])
-        self.assertEqual(row['route_code'], '')
+        self.assertTrue(row['is_valid'])
+        self.assertEqual(row['validity'], 'valid')
+        self.assertEqual(row['invalid_reason'], '')
+        decoded = decode_share_code(row['route_code'])
+        self.assertEqual(decoded['data_version_key'], 'lmonitor-demo-1')
 
     def test_planner_frontend_does_not_expose_management_entry(self):
         anonymous = self.client.get('/portal/mythic-planner/')
@@ -4572,7 +4589,10 @@ class MythicPlannerPageContractTests(SimpleTestCase):
         self.assertIn('.mdt-library-row.is-invalid', planner_css)
         self.assertIn("row.is_valid === false", dashboard_js)
         self.assertIn('mp-admin-status is-invalid', dashboard_js)
-        self.assertIn('const modelPreviewUrl = String(enemy.icon_url', portal_js)
+        self.assertIn(
+            'const modelPreviewUrl = String(enemy.model_preview_url',
+            portal_js,
+        )
         self.assertNotIn('modelviewer/live/webthumbs/npc/', portal_js)
         self.assertNotIn('render.worldofwarcraft.com/us/npcs/zoom/', portal_js)
         self.assertIn('模型预览', portal_js)
