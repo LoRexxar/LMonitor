@@ -132,6 +132,7 @@
             <div class="section-head">
                 <h4>热门天赋树</h4>
             </div>
+            <div class="popularity-section-note">单级天赋显示选过率；多级天赋分别显示投入 1 点、2 点等各档位的真实选择率。</div>
             {% if render_model.layout.width and render_model.layout.height %}
             <div class="talent-stage-scroll">
                 <div class="talent-stage-scale-wrapper" data-stage-width="{{ render_model.layout.width }}" data-stage-height="{{ render_model.layout.height }}">
@@ -212,7 +213,13 @@
                                     <span>ID</span>
                                     {% endif %}
                                 </div>
+                                {% if node.max_points > 1 %}
+                                <span class="talent-node-usage is-rank-distribution">
+                                    {% for rank in node.point_distribution %}<span>{{ rank.points }}点 {{ rank.pct }}%</span>{% endfor %}
+                                </span>
+                                {% else %}
                                 <span class="talent-node-usage">{{ node.usage_pct }}%</span>
+                                {% endif %}
                                 {% if node.is_choice_node and node.choice_options %}
                                 <div class="talent-choice-popup">
                                     {% for option in node.choice_options %}
@@ -253,6 +260,16 @@
                                     <div class="talent-node-tooltip-desc">{{ node.description_zh }}</div>
                                     {% elif node.description %}
                                     <div class="talent-node-tooltip-desc">{{ node.description }}</div>
+                                    {% endif %}
+                                    {% if node.max_points > 1 %}
+                                    <div class="talent-node-tooltip-ranks">
+                                        <div>选过 {{ node.selection_pct }}%（{{ node.count }} 人）</div>
+                                        <div class="talent-node-tooltip-rank-list">
+                                            {% for rank in node.point_distribution %}
+                                            <span>{{ rank.points }} 点：{{ rank.pct }}%（{{ rank.count }} 人）</span>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
                                     {% endif %}
                                     {% if node.top_players %}
                                     <div class="talent-tooltip-top-players">
@@ -302,7 +319,7 @@
                     </div>
                     <div class="talent-usage-right">
                         <span class="talent-card-pct">{{ node.usage_pct }}%</span>
-                        <span class="talent-card-count">{{ node.count }} 人</span>
+                        <span class="talent-card-count">{% if node.max_points > 1 %}{% for rank in node.point_distribution %}{{ rank.points }}点 {{ rank.pct }}%{% if not forloop.last %} / {% endif %}{% endfor %} · {% endif %}{{ node.count }} 人选过</span>
                     </div>
                 </div>
                 {% endfor %}
@@ -312,7 +329,7 @@
 
         <div class="section-block talent-build-section">
             <h4>天赋字符串使用率</h4>
-            <div class="popularity-section-note">按当前样本的原始天赋导入字符串聚合；每个英雄天赋树独立选取使用人数最多的基准字符串，并仅展示该英雄天赋树内的多选/少选差异。</div>
+            <div class="popularity-section-note">按解码后的节点、精确点数和二选一选项归类；语义一致的不同原始字符串会合并，并展示相对基准的完整天赋差异。</div>
             {% if boss_detail.talent_build_popularity.hero_groups %}
             <div class="talent-build-summary">
                 <span>有效样本：<strong>{{ boss_detail.talent_build_popularity.total }}</strong> 人</span>
@@ -334,6 +351,7 @@
                                 {% if build.is_template %}<span class="talent-build-badge">模板</span>{% endif %}
                                 <strong>{{ build.count }} 人</strong>
                                 <span>{{ build.pct }}%</span>
+                                {% if build.merged_code_count > 1 %}<span class="talent-build-merged-count">合并 {{ build.merged_code_count }} 种等价字符串</span>{% endif %}
                                 {% if build.diff_count %}<span class="talent-build-diff-count">差异 {{ build.diff_count }} 个</span>{% else %}<span class="talent-build-diff-count">无差异</span>{% endif %}
                             </div>
                             <div class="talent-build-code-wrap{% if build.top_players %} has-players{% endif %}">
@@ -364,9 +382,9 @@
                             <a class="talent-build-copy talent-build-simulator" href="/portal/talents/?class={{ class_name|urlencode }}&amp;spec={{ spec_name|urlencode }}&amp;code={{ build.code|urlencode }}" aria-label="打开天赋模拟器" title="打开天赋模拟器">模拟器</a>
                         </div>
                     </div>
-                    {% if build.added_talents or build.missing_talents %}
+                    {% if build.added_talents or build.missing_talents or build.changed_talents %}
                     <div class="talent-build-diffs">
-                        <div class="talent-build-diff-label">普通天赋差异</div>
+                        <div class="talent-build-diff-label">天赋差异</div>
                         <div class="talent-build-talent-list">
                             {% for talent in build.added_talents %}
                             <span class="talent-build-talent-chip is-added">
@@ -380,6 +398,18 @@
                                 <span class="talent-build-diff-symbol">−</span>
                                 {% if talent.icon %}<img src="{% wow_icon talent.icon "tiny" %}" alt="{{ talent.name }}">{% endif %}
                                 {{ talent.name }}
+                            </span>
+                            {% endfor %}
+                            {% for talent in build.changed_talents %}
+                            <span class="talent-build-talent-chip is-changed">
+                                <span class="talent-build-diff-symbol">↔</span>
+                                {% if talent.icon %}<img src="{% wow_icon talent.icon "tiny" %}" alt="{{ talent.name }}">{% endif %}
+                                {{ talent.name }}：
+                                {% if talent.template_choice_name or talent.choice_name %}
+                                {{ talent.template_choice_name|default:"未解析选项" }} → {{ talent.choice_name|default:"未解析选项" }}
+                                {% else %}
+                                {{ talent.template_points }} 点 → {{ talent.points }} 点
+                                {% endif %}
                             </span>
                             {% endfor %}
                         </div>
@@ -788,6 +818,34 @@
     font-size: 12px;
     line-height: 1.5;
     white-space: normal;
+}
+.talent-node-usage.is-rank-distribution {
+    right: 50%;
+    bottom: -10px;
+    width: max-content;
+    height: auto;
+    line-height: 1.25;
+    padding: 2px 4px;
+    transform: translateX(50%);
+    display: inline-flex;
+    gap: 5px;
+    white-space: nowrap;
+}
+.talent-node-tooltip-ranks {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(148,163,184,.22);
+    color: #bfdbfe;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: normal;
+}
+.talent-node-tooltip-rank-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 8px;
+    margin-top: 3px;
+    color: #cbd5e1;
 }
 .talent-tooltip-top-players {
     margin-top: 8px;
@@ -1316,7 +1374,7 @@
     font-size: 0.92em;
 }
 .talent-build-title strong { color: #1e293b; }
-.talent-build-badge, .talent-build-diff-count {
+.talent-build-badge, .talent-build-diff-count, .talent-build-merged-count {
     display: inline-flex;
     align-items: center;
     padding: 2px 7px;
@@ -1332,6 +1390,11 @@
     color: #1d4ed8;
     background: #eff6ff;
     border: 1px solid #bfdbfe;
+}
+.talent-build-merged-count {
+    color: #0f766e;
+    background: #f0fdfa;
+    border: 1px solid #99f6e4;
 }
 .talent-build-code-wrap {
     position: relative;
@@ -1445,6 +1508,11 @@
     background: #f0fdf4;
     border-color: #bbf7d0;
     color: #166534;
+}
+.talent-build-talent-chip.is-changed {
+    background: #fff7ed;
+    border-color: #fed7aa;
+    color: #9a3412;
 }
 .talent-build-diff-symbol {
     display: inline-flex;

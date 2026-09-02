@@ -65,8 +65,25 @@ def _talent_tree_has_hero(detail):
     return any(t.get('tree_type') == 'hero' and (t.get('nodes') or []) for t in trees)
 
 
+def _talent_usage_has_point_statistics(detail):
+    """判断聚合结果是否已经包含多级天赋的点数口径。"""
+    talent_tree = (detail or {}).get('talent_popularity_tree') or {}
+    if talent_tree.get('point_statistics_version') != 2:
+        return False
+    usage = talent_tree.get('usage') or []
+    return bool(usage) and all(
+        isinstance(item, dict)
+        and 'selection_pct' in item
+        and 'point_distribution' in item
+        for item in usage
+    )
+
+
 def _talent_build_popularity_has_builds(detail, class_name='', spec_name=''):
-    builds = (((detail or {}).get('talent_build_popularity') or {}).get('builds') or [])
+    popularity = (detail or {}).get('talent_build_popularity') or {}
+    if popularity.get('semantic_state_version') != 2:
+        return False
+    builds = popularity.get('builds') or []
     if not builds:
         return False
     for build in builds:
@@ -261,6 +278,7 @@ class SpecDetailDungeonView(View):
                         # 兼容旧聚合 JSON：若天赋树缺英雄天赋、新维度缺失或天赋字符串为空，则实时重算该详情对象
                         if (
                             (not _talent_tree_has_hero(detail))
+                            or (not _talent_usage_has_point_statistics(detail))
                             or ('secondary_stats' not in detail)
                             or (not _talent_build_popularity_has_builds(detail, class_name, spec_name))
                             or _detail_item_metadata_is_stale(detail)
@@ -328,6 +346,7 @@ class SpecDetailRaidView(View):
                         # 兼容旧聚合 JSON：若天赋树缺英雄天赋、新维度缺失或天赋字符串为空，则实时重算该详情对象
                         if (
                             (not _talent_tree_has_hero(detail))
+                            or (not _talent_usage_has_point_statistics(detail))
                             or ('secondary_stats' not in detail)
                             or (not _talent_build_popularity_has_builds(detail, class_name, spec_name))
                             or _detail_item_metadata_is_stale(detail)

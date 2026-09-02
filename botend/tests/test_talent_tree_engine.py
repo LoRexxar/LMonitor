@@ -16,6 +16,7 @@ from botend.services.spec_stats_service import (
     _compute_enchant_popularity,
     _compute_gear_popularity,
     _compute_talent_build_popularity,
+    _compute_talent_popularity,
     _compute_talent_popularity_tree,
 )
 from botend.management.commands.backfill_talent_spell_names import Command as BackfillTalentSpellNamesCommand
@@ -3044,6 +3045,50 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
 
         self.assertFalse(_talent_build_popularity_has_builds(detail, 'Warrior', 'Fury'))
 
+    def test_cached_talent_build_grouping_without_semantic_version_is_stale(self):
+        from botend.portal.spec_detail_views import _talent_build_popularity_has_builds
+
+        old_detail = {
+            'talent_build_popularity': {
+                'builds': [{'code': 'CODE_A', 'top_players': []}],
+            },
+        }
+        new_detail = {
+            'talent_build_popularity': {
+                'semantic_state_version': 2,
+                'builds': [{'code': 'CODE_A', 'top_players': []}],
+            },
+        }
+
+        self.assertFalse(_talent_build_popularity_has_builds(old_detail, 'Warrior', 'Fury'))
+        self.assertTrue(_talent_build_popularity_has_builds(new_detail, 'Warrior', 'Fury'))
+
+    def test_cached_talent_usage_without_point_statistics_is_stale(self):
+        from botend.portal.spec_detail_views import _talent_usage_has_point_statistics
+
+        old_detail = {
+            'talent_popularity_tree': {
+                'usage': [{'node_key': 'spec:200', 'count': 4, 'usage_pct': 100.0}],
+            },
+        }
+        new_detail = {
+            'talent_popularity_tree': {
+                'point_statistics_version': 2,
+                'usage': [{
+                    'node_key': 'spec:200',
+                    'count': 4,
+                    'selection_pct': 100.0,
+                    'point_distribution': [
+                        {'points': 1, 'count': 2, 'pct': 50.0},
+                        {'points': 2, 'count': 2, 'pct': 50.0},
+                    ],
+                }],
+            },
+        }
+
+        self.assertFalse(_talent_usage_has_point_statistics(old_detail))
+        self.assertTrue(_talent_usage_has_point_statistics(new_detail))
+
     def test_fury_profile_ignores_active_arms_code_without_erasing_verified_fury_code(self):
         monitor = SpecDetailPlayerMonitor(MagicMock(), MagicMock())
         monitor.fetch_raiderio_character = MagicMock(return_value={
@@ -3233,6 +3278,171 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
             [player['name'] for player in result['builds'][1]['missing_talents'][0]['top_players']],
             ['TemplateTwo', 'TemplateOne'],
         )
+
+    @patch('botend.services.spec_stats_service.TalentMetadataProvider')
+    def test_talent_build_popularity_merges_different_codes_with_same_semantic_state(self, mock_provider_cls):
+        provider = mock_provider_cls.return_value
+        provider.merge_into_node.side_effect = lambda node, class_name='', spec_name='': node
+        provider.get_decoder_node_list.return_value = []
+        records = [
+            {
+                'talent_build_code': code,
+                'character_name': name,
+                'talents_json': [
+                    {'node_id': 1, 'spell_id': 101, 'name': '同一天赋', 'tree_type': 'spec', 'points': 1},
+                ],
+            }
+            for code, name in (('CODE_A', '玩家甲'), ('CODE_B', '玩家乙'))
+        ]
+
+        result = _compute_talent_build_popularity(records, 'Warrior', 'Fury', top_n=10)
+
+        self.assertEqual(result['semantic_state_version'], 2)
+        self.assertEqual(result['total'], 2)
+        self.assertEqual(len(result['builds']), 1)
+        self.assertEqual(result['builds'][0]['code'], 'CODE_A')
+        self.assertEqual(result['builds'][0]['count'], 2)
+        self.assertEqual(result['builds'][0]['merged_code_count'], 2)
+
+    @patch('botend.services.spec_stats_service.TalentBuildCodeDecoder.decode_node_states')
+    @patch('botend.services.spec_stats_service.TalentMetadataProvider')
+    def test_talent_build_popularity_merges_codes_with_same_decoded_state(self, mock_provider_cls, mock_decode):
+        provider = mock_provider_cls.return_value
+        provider.merge_into_node.side_effect = lambda node, class_name='', spec_name='': node
+        provider.get_decoder_node_list.return_value = [{
+            'node_id': 100,
+            'spell_id': 101,
+            'name': '规范节点',
+            'tree_type': 'spec',
+            'max_points': 2,
+        }]
+        mock_decode.return_value = {
+            'spec:100': {
+                'selected': True,
+                'points': 2,
+                'is_choice_node': False,
+                'choice_selection': 0,
+            },
+        }
+        records = [
+            {
+                'talent_build_code': code,
+                'talents_json': [
+                    {'spell_id': 101, 'name': '规范节点', 'tree_type': 'spec', 'points': 2, 'max_points': 2},
+                ],
+            }
+            for code in ('ENCODED_A', 'ENCODED_B')
+        ]
+
+        result = _compute_talent_build_popularity(records, 'Warrior', 'Fury', top_n=10)
+
+        self.assertEqual(len(result['builds']), 1)
+        self.assertEqual(result['builds'][0]['count'], 2)
+        self.assertEqual(result['builds'][0]['merged_code_count'], 2)
+        self.assertEqual(result['builds'][0]['code'], 'ENCODED_A')
+
+    @patch('botend.services.spec_stats_service.TalentMetadataProvider')
+    def test_talent_build_popularity_keeps_rank_changes_as_distinct_builds(self, mock_provider_cls):
+        provider = mock_provider_cls.return_value
+        provider.merge_into_node.side_effect = lambda node, class_name='', spec_name='': node
+        provider.get_decoder_node_list.return_value = []
+        records = [
+            {
+                'talent_build_code': 'TWO_POINTS',
+                'character_name': f'两点玩家{index}',
+                'talents_json': [
+                    {
+                        'node_id': 1,
+                        'spell_id': 101,
+                        'name': '两级天赋',
+                        'tree_type': 'spec',
+                        'points': 2,
+                        'max_points': 2,
+                    },
+                ],
+            }
+            for index in range(2)
+        ] + [{
+            'talent_build_code': 'ONE_POINT',
+            'character_name': '一点玩家',
+            'talents_json': [
+                {
+                    'node_id': 1,
+                    'spell_id': 101,
+                    'name': '两级天赋',
+                    'tree_type': 'spec',
+                    'points': 1,
+                    'max_points': 2,
+                },
+            ],
+        }]
+
+        result = _compute_talent_build_popularity(records, 'Warrior', 'Fury', top_n=10)
+
+        self.assertEqual([build['code'] for build in result['builds']], ['TWO_POINTS', 'ONE_POINT'])
+        variant = result['builds'][1]
+        self.assertEqual(variant['diff_count'], 1)
+        self.assertEqual(variant['added_talents'], [])
+        self.assertEqual(variant['missing_talents'], [])
+        self.assertEqual(len(variant['changed_talents']), 1)
+        self.assertEqual(variant['changed_talents'][0]['name'], '两级天赋')
+        self.assertEqual(variant['changed_talents'][0]['template_points'], 2)
+        self.assertEqual(variant['changed_talents'][0]['points'], 1)
+
+    @patch('botend.services.spec_stats_service.TalentMetadataProvider')
+    def test_talent_build_popularity_keeps_choice_changes_as_distinct_builds(self, mock_provider_cls):
+        provider = mock_provider_cls.return_value
+        provider.merge_into_node.side_effect = lambda node, class_name='', spec_name='': node
+        provider.get_decoder_node_list.return_value = []
+        choice_options = [
+            {'spell_id': 101, 'name': '左侧选项'},
+            {'spell_id': 102, 'name': '右侧选项'},
+        ]
+        records = [
+            {
+                'talent_build_code': 'LEFT_CHOICE',
+                'talents_json': [{
+                    'node_id': 1,
+                    'name': '二选一天赋',
+                    'tree_type': 'spec',
+                    'points': 1,
+                    'is_choice_node': True,
+                    'choice_selection': 0,
+                    'choice_options': choice_options,
+                }],
+            },
+            {
+                'talent_build_code': 'LEFT_CHOICE',
+                'talents_json': [{
+                    'node_id': 1,
+                    'name': '二选一天赋',
+                    'tree_type': 'spec',
+                    'points': 1,
+                    'is_choice_node': True,
+                    'choice_selection': 0,
+                    'choice_options': choice_options,
+                }],
+            },
+            {
+                'talent_build_code': 'RIGHT_CHOICE',
+                'talents_json': [{
+                    'node_id': 1,
+                    'name': '二选一天赋',
+                    'tree_type': 'spec',
+                    'points': 1,
+                    'is_choice_node': True,
+                    'choice_selection': 1,
+                    'choice_options': choice_options,
+                }],
+            },
+        ]
+
+        result = _compute_talent_build_popularity(records, 'Warrior', 'Fury', top_n=10)
+
+        self.assertEqual([build['code'] for build in result['builds']], ['LEFT_CHOICE', 'RIGHT_CHOICE'])
+        changed = result['builds'][1]['changed_talents'][0]
+        self.assertEqual(changed['template_choice_name'], '左侧选项')
+        self.assertEqual(changed['choice_name'], '右侧选项')
 
     def test_talent_build_popularity_does_not_treat_structured_nodes_as_an_import_string(self):
         result = _compute_talent_build_popularity(
@@ -3639,6 +3849,63 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         self.assertEqual(render_model['trees'][0]['paths'][0]['child_key'], 'spec:20')
         self.assertEqual(render_model['trees'][0]['nodes'][1]['usage_pct'], 100.0)
         self.assertEqual(detail['talent_popularity_tree']['preserved_parent_edges'], 1)
+
+    @patch('botend.services.spec_stats_service.TalentMetadataProvider')
+    def test_popularity_tree_reports_each_multi_rank_choice_separately(self, mock_provider_cls):
+        provider = mock_provider_cls.return_value
+        provider.merge_into_node.side_effect = lambda node, class_name='', spec_name='': node
+        provider.get_decoder_node_list.return_value = []
+        provider.get_full_tree_nodes.return_value = [{
+            'node_id': 200,
+            'talent_id': 20,
+            'spell_id': 2020,
+            'name': '两级天赋',
+            'tree_type': 'spec',
+            'row': 3,
+            'column': 2,
+            'max_points': 2,
+        }]
+        records = [
+            {
+                'character_name': f'玩家{index}',
+                'talents_json': [{
+                    'node_id': 200,
+                    'talent_id': 20,
+                    'spell_id': 2020,
+                    'name': '两级天赋',
+                    'tree_type': 'spec',
+                    'row': 3,
+                    'column': 2,
+                    'points': points,
+                    'max_points': 2,
+                }],
+            }
+            for index, points in enumerate((1, 1, 2, 2), start=1)
+        ]
+
+        talent_tree = _compute_talent_popularity_tree(
+            records=records,
+            class_name='Warrior',
+            spec_name='Fury',
+            top_n=10,
+        )
+
+        node = talent_tree['render_model']['trees'][0]['nodes'][0]
+        self.assertEqual(node['usage_pct'], 100.0)
+        self.assertEqual(node['selection_pct'], 100.0)
+        self.assertEqual(node['count'], 4)
+        self.assertEqual(node['point_distribution'], [
+            {'points': 1, 'count': 2, 'pct': 50.0},
+            {'points': 2, 'count': 2, 'pct': 50.0},
+        ])
+        popularity = _compute_talent_popularity(records, top_n=10)['2020']
+        self.assertEqual(popularity['pct'], 100.0)
+        self.assertEqual(popularity['selection_pct'], 100.0)
+        self.assertEqual(popularity['max_points'], 2)
+        self.assertEqual(popularity['point_distribution'], [
+            {'points': 1, 'count': 2, 'pct': 50.0},
+            {'points': 2, 'count': 2, 'pct': 50.0},
+        ])
 
     @patch('botend.services.spec_stats_service.TalentMetadataProvider')
     def test_popularity_tree_merges_same_position_nodes_into_choice_options(self, mock_provider_cls):
@@ -4098,6 +4365,7 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
                 'tree_type': 'spec',
                 'row': 3,
                 'column': 2,
+                'max_points': 2,
                 'parents': [10],
             },
         ]
@@ -4121,6 +4389,7 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
                             'row': 3,
                             'column': 2,
                             'points': 1,
+                            'max_points': 2,
                             'parents': [10],
                         },
                     ],
@@ -4160,7 +4429,11 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         self.assertIn('data-parent-key="spec:10"', html)
         self.assertIn('data-child-key="spec:20"', html)
         self.assertIn('热门节点', html)
-        self.assertIn('100.0%', html)
+        self.assertIn('多级天赋分别显示投入 1 点、2 点等各档位的真实选择率', html)
+        self.assertIn('<span>1点 100.0%</span><span>2点 0.0%</span>', html)
+        self.assertIn('选过 100.0%（1 人）', html)
+        self.assertIn('1 点：100.0%（1 人）', html)
+        self.assertIn('2 点：0.0%（0 人）', html)
 
     @patch('botend.services.spec_stats_service.WowTalentNodeMetadata')
     @patch('botend.services.spec_stats_service.TalentMetadataProvider')
@@ -4268,12 +4541,13 @@ class SpecStatsTalentBuildDiffTooltipTemplateTests(SimpleTestCase):
                     'count': 1,
                     'pct': 33.3,
                     'is_template': False,
+                    'merged_code_count': 2,
                     'top_players': [
                         {'name': 'VariantOne', 'realm': 'RealmB', 'dps_fmt': '3,000'},
                         {'name': 'VariantTwo', 'realm': 'RealmC', 'dps_fmt': '2,500'},
                     ],
                     'hero_talent_summary': [],
-                    'diff_count': 2,
+                    'diff_count': 3,
                     'added_talents': [
                         {
                             'name': '变体天赋',
@@ -4286,6 +4560,17 @@ class SpecStatsTalentBuildDiffTooltipTemplateTests(SimpleTestCase):
                             'name': '模板天赋',
                             'icon': '',
                             'top_players': [{'name': 'TemplateTwo', 'realm': 'RealmA', 'dps_fmt': '2,000'}],
+                        },
+                    ],
+                    'changed_talents': [
+                        {
+                            'name': '两级天赋',
+                            'icon': '',
+                            'template_points': 2,
+                            'points': 1,
+                            'template_choice_name': '',
+                            'choice_name': '',
+                            'top_players': [],
                         },
                     ],
                     },
@@ -4329,6 +4614,10 @@ class SpecStatsTalentBuildDiffTooltipTemplateTests(SimpleTestCase):
             self.assertNotIn('version=retail-12.0.7', html)
             self.assertIn('打开天赋模拟器', html)
             self.assertIn('class="talent-build-actions"', html)
+            self.assertIn('按解码后的节点、精确点数和二选一选项归类', html)
+            self.assertIn('合并 2 种等价字符串', html)
+            self.assertIn('两级天赋：', html)
+            self.assertIn('2 点 → 1 点', html)
             self.assertNotIn('选取该天赋 Top5', html)
             self.assertNotIn('模板选取 Top5', html)
             self.assertIn('VariantOne-RealmB', html)

@@ -487,7 +487,9 @@ class SpecStatsService:
         gear_limit = 5 if full else 3
         usage_snapshot = _build_talent_usage_snapshot(records, class_name, spec_name)
         stats['talent_sample_size'] = usage_snapshot.get('total', 0)
-        stats['talent_popularity'] = _compute_talent_popularity(records, top_n=talent_limit)
+        stats['talent_popularity'] = _compute_talent_popularity(
+            records, top_n=talent_limit, snapshot=usage_snapshot,
+        )
         stats['talent_usage'] = _compute_talent_usage(
             records,
             class_name,
@@ -685,7 +687,9 @@ class SpecStatsService:
         gear_limit = 5 if full else 3
         usage_snapshot = _build_talent_usage_snapshot(records, class_name, spec_name)
         stats['talent_sample_size'] = usage_snapshot.get('total', 0)
-        stats['talent_popularity'] = _compute_talent_popularity(records, top_n=talent_limit)
+        stats['talent_popularity'] = _compute_talent_popularity(
+            records, top_n=talent_limit, snapshot=usage_snapshot,
+        )
         stats['talent_usage'] = _compute_talent_usage(
             records,
             class_name,
@@ -1054,13 +1058,17 @@ def _build_talent_usage_snapshot(records, class_name, spec_name):
                 'icon': node.icon or '',
                 'points': 0,
                 'max_points': node.max_points or 1,
+                '_point_counts': Counter(),
                 'count': 0,
                 'top_players': [],
                 '_player_keys': set(),
             })
+            max_points = max(1, int(node.max_points or 1))
+            selected_points = min(max(1, int(node.points or 1)), max_points)
             usage_item['count'] += 1
-            usage_item['points'] = max(usage_item.get('points') or 0, node.points or 1)
-            usage_item['max_points'] = max(usage_item.get('max_points') or 1, node.max_points or 1)
+            usage_item['points'] = max(usage_item.get('points') or 0, selected_points)
+            usage_item['max_points'] = max(usage_item.get('max_points') or 1, max_points)
+            usage_item['_point_counts'][selected_points] += 1
             player_payload = _talent_usage_player_payload(record, record_index)
             player_key = player_payload.get('player_key')
             if player_key and player_key not in usage_item['_player_keys']:
@@ -1087,7 +1095,16 @@ def _build_talent_usage_snapshot(records, class_name, spec_name):
 
     usage_list = []
     for node_key, item in usage.items():
-        pct = round(item['count'] / total * 100, 1) if total else 0
+        max_points = max(1, int(item.get('max_points') or 1))
+        selection_pct = round(item['count'] / total * 100, 1) if total else 0
+        point_distribution = [
+            {
+                'points': points,
+                'count': (item.get('_point_counts') or {}).get(points, 0),
+                'pct': round((item.get('_point_counts') or {}).get(points, 0) / total * 100, 1) if total else 0,
+            }
+            for points in range(1, max_points + 1)
+        ]
         top_players = sorted(
             item.get('top_players') or [],
             key=lambda player: (player.get('sort_score') or 0, player.get('dps') or 0),
@@ -1096,12 +1113,14 @@ def _build_talent_usage_snapshot(records, class_name, spec_name):
         clean_item = {
             key: value
             for key, value in item.items()
-            if key not in {'_player_keys', 'top_players'}
+            if key not in {'_player_keys', '_point_counts', 'top_players'}
         }
         usage_list.append({
             **clean_item,
-            'usage_pct': pct,
-            'pct': pct,
+            'usage_pct': selection_pct,
+            'pct': selection_pct,
+            'selection_pct': selection_pct,
+            'point_distribution': point_distribution,
             'top_players': [
                 {key: value for key, value in player.items() if key not in {'player_key', 'sort_score'}}
                 for player in top_players
@@ -1143,10 +1162,29 @@ def _talent_usage_player_payload(record, record_index):
     }
 
 
-def _compute_talent_popularity(records, top_n=20):
+def _compute_talent_popularity(records, top_n=20, snapshot=None):
     """计算天赋选取率（以 spellID 为 key）"""
+    if snapshot is not None:
+        result = {}
+        for item in (snapshot.get('usage_list') or [])[:top_n]:
+            sid = item.get('spell_id') or item.get('talent_id')
+            if not sid:
+                continue
+            result[str(sid)] = {
+                'count': item.get('count', 0),
+                'max_points': item.get('max_points', 1),
+                'pct': item.get('usage_pct', 0),
+                'selection_pct': item.get('selection_pct', 0),
+                'point_distribution': item.get('point_distribution') or [],
+                'name': item.get('name', ''),
+                'icon': item.get('icon', ''),
+            }
+        return result
+
     records = _valid_talent_records(records)
     talent_counts = Counter()
+    talent_max_points = {}
+    talent_point_distributions = defaultdict(Counter)
     talent_info = {}  # spellID → {name, icon}
     total = len(records)
 
@@ -1158,20 +1196,43 @@ def _compute_talent_popularity(records, top_n=20):
             # 优先用 spellID（Wowhead 用），fallback 到 talentID
             sid = t.get('spell_id') or t.get('talent_id')
             if sid:
+                max_points = max(1, int(t.get('max_points') or 1))
+                selected_points = min(max(1, int(t.get('points') or 1)), max_points)
                 talent_counts[sid] += 1
+                talent_max_points[sid] = max(talent_max_points.get(sid, 1), max_points)
+                talent_point_distributions[sid][selected_points] += 1
                 if sid not in talent_info:
                     talent_info[sid] = {
                         'name': t.get('name', ''),
                         'icon': t.get('icon', ''),
                     }
 
-    # 按选取率降序
+    # 按选过该节点的人数降序；多级天赋的各点数选择率单独输出。
     result = {}
-    for sid, count in talent_counts.most_common(top_n):
+    ordered_talents = sorted(
+        talent_counts,
+        key=lambda sid: (
+            -talent_counts[sid],
+            str(sid),
+        ),
+    )[:top_n]
+    for sid in ordered_talents:
+        count = talent_counts[sid]
+        max_points = talent_max_points[sid]
         info = talent_info.get(sid, {})
         result[str(sid)] = {
             'count': count,
+            'max_points': max_points,
             'pct': round(count / total * 100, 1) if total else 0,
+            'selection_pct': round(count / total * 100, 1) if total else 0,
+            'point_distribution': [
+                {
+                    'points': points,
+                    'count': talent_point_distributions[sid].get(points, 0),
+                    'pct': round(talent_point_distributions[sid].get(points, 0) / total * 100, 1) if total else 0,
+                }
+                for points in range(1, max_points + 1)
+            ],
             'name': info.get('name', ''),
             'icon': info.get('icon', ''),
         }
@@ -1185,7 +1246,7 @@ def _compute_talent_usage(records, class_name, spec_name, top_n=20, snapshot=Non
 
 
 def _talent_build_record_state(record, provider, class_name, spec_name):
-    """Return selected talent node keys and display metadata for one ranking row."""
+    """返回一条排行记录的完整天赋状态，保留点数和二选一信息。"""
     nodes_by_key = {}
     hero_nodes_by_subtree = defaultdict(list)
     for raw in record.get('talents_json') or []:
@@ -1197,7 +1258,6 @@ def _talent_build_record_state(record, provider, class_name, spec_name):
             continue
         if node.tree_type == 'hero':
             hero_nodes_by_subtree[getattr(node, 'db2_subtree_id', 0) or 0].append(node)
-            continue
         existing = nodes_by_key.get(node_key)
         if existing is None or _score_talent_node(node) >= _score_talent_node(existing):
             nodes_by_key[node_key] = node
@@ -1215,10 +1275,143 @@ def _talent_build_record_state(record, provider, class_name, spec_name):
                 'node_id': node.node_id,
                 'name': node.name or (f"技能ID {node.spell_id or node.talent_id or node.node_id}"),
                 'icon': node.icon or '',
+                'points': max(1, int(node.points or 1)),
+                'max_points': max(1, int(node.max_points or 1)),
+                'is_choice_node': bool(node.is_choice_node),
+                'choice_selection': node.choice_selection,
+                'choice_key': (
+                    _talent_build_choice_payload(node.to_dict(), node.choice_selection).get('key')
+                    if node.is_choice_node else None
+                ),
+                'choice_name': (
+                    _talent_build_choice_payload(node.to_dict(), node.choice_selection).get('name')
+                    if node.is_choice_node else ''
+                ),
+                'choice_options': [dict(option) for option in (node.choice_options or [])],
             }
             for node_key, node in nodes_by_key.items()
         },
         'hero_talent_summary': hero_summary,
+    }
+
+
+def _talent_build_choice_payload(node, choice_selection):
+    """返回二选一节点实际选择的选项；无法解析时保留索引。"""
+    options = (node or {}).get('choice_options') or []
+    try:
+        choice_index = int(choice_selection)
+    except (TypeError, ValueError):
+        choice_index = 0
+    option = options[choice_index] if 0 <= choice_index < len(options) else {}
+    return {
+        'index': choice_index,
+        'key': (
+            option.get('node_id') or option.get('talent_id')
+            or option.get('spell_id') or option.get('display_spell_id')
+            or choice_index
+        ),
+        'name': option.get('name') or option.get('name_zh') or f'选项 {choice_index + 1}',
+        'spell_id': option.get('spell_id') or option.get('display_spell_id'),
+        'icon': option.get('icon') or '',
+    }
+
+
+def _talent_build_semantic_state(record, provider, class_name, spec_name, decoder_nodes, decoder_nodes_by_key):
+    """将原始字符串和结构化节点合并为可比较、可归类的规范状态。"""
+    structured_state = _talent_build_record_state(record, provider, class_name, spec_name)
+    structured_nodes = structured_state.get('nodes') or {}
+    structured_nodes_by_alias = {}
+    for structured_key, structured_node in structured_nodes.items():
+        structured_nodes_by_alias.setdefault(structured_key, structured_node)
+        for alias in TalentBuildCodeService._node_alias_keys_for_matching(structured_node):
+            structured_nodes_by_alias.setdefault(alias, structured_node)
+    decoder_keys_by_alias = {}
+    for decoder_key, decoder_node in decoder_nodes_by_key.items():
+        decoder_keys_by_alias.setdefault(decoder_key, decoder_key)
+        for alias in TalentBuildCodeService._node_alias_keys_for_matching(decoder_node):
+            decoder_keys_by_alias.setdefault(alias, decoder_key)
+    build_code = str(record.get('talent_build_code') or '').strip()
+    decoded_states = TalentBuildCodeDecoder.decode_node_states(build_code, decoder_nodes) if decoder_nodes else {}
+    if decoded_states:
+        decoded_states = TalentBuildCodeService._prefer_structured_nodes_when_build_code_looks_stale(
+            decoded_states,
+            record.get('talents_json') or [],
+            decoder_nodes,
+            class_name=class_name,
+            spec_name=spec_name,
+        )
+
+    if not decoded_states:
+        signature = tuple(sorted(
+            (
+                node_key,
+                max(1, int(node.get('points') or 1)),
+                int(node.get('choice_selection') or 0) if node.get('is_choice_node') else -1,
+            )
+            for node_key, node in structured_nodes.items()
+        ))
+        return signature, structured_state
+
+    semantic_nodes = {}
+    for node_key, decoded_state in decoded_states.items():
+        if not decoded_state.get('selected') or int(decoded_state.get('points') or 0) <= 0:
+            continue
+        canonical_node_key = node_key
+        decoder_node = decoder_nodes_by_key.get(canonical_node_key) or {}
+        structured_node = structured_nodes_by_alias.get(node_key)
+        if not decoder_node and structured_node:
+            for alias in TalentBuildCodeService._node_alias_keys_for_matching(structured_node):
+                mapped_key = decoder_keys_by_alias.get(alias)
+                if mapped_key:
+                    canonical_node_key = mapped_key
+                    decoder_node = decoder_nodes_by_key.get(mapped_key) or {}
+                    break
+        if not structured_node:
+            for alias in TalentBuildCodeService._node_alias_keys_for_matching(decoder_node):
+                structured_node = structured_nodes_by_alias.get(alias)
+                if structured_node:
+                    break
+        structured_node = structured_node or {}
+        source = dict(decoder_node)
+        source.update({
+            key: value
+            for key, value in structured_node.items()
+            if value not in (None, '', [])
+        })
+        points = max(1, int(decoded_state.get('points') or source.get('points') or 1))
+        is_choice_node = bool(decoded_state.get('is_choice_node') or source.get('is_choice_node'))
+        choice_selection = int(decoded_state.get('choice_selection') or 0) if is_choice_node else None
+        choice = _talent_build_choice_payload(source, choice_selection) if is_choice_node else {}
+        semantic_nodes[canonical_node_key] = {
+            'node_key': canonical_node_key,
+            'tree_type': source.get('tree_type') or canonical_node_key.partition(':')[0] or 'spec',
+            'tree_label': _talent_tree_label(source.get('tree_type') or canonical_node_key.partition(':')[0]),
+            'spell_id': choice.get('spell_id') or source.get('display_spell_id') or source.get('spell_id'),
+            'talent_id': source.get('talent_id'),
+            'node_id': source.get('node_id'),
+            'name': source.get('name') or canonical_node_key,
+            'icon': choice.get('icon') or source.get('icon') or '',
+            'points': points,
+            'max_points': max(1, int(source.get('max_points') or 1)),
+            'is_choice_node': is_choice_node,
+            'choice_selection': choice_selection,
+            'choice_key': choice.get('key') if is_choice_node else None,
+            'choice_name': choice.get('name') if is_choice_node else '',
+            'choice_options': [dict(option) for option in (source.get('choice_options') or [])],
+        }
+
+    signature = tuple(sorted(
+        (
+            node_key,
+            node.get('points') or 1,
+            node.get('choice_key') if node.get('is_choice_node') else -1,
+        )
+        for node_key, node in semantic_nodes.items()
+    ))
+    return signature, {
+        'keys': set(semantic_nodes.keys()),
+        'nodes': semantic_nodes,
+        'hero_talent_summary': structured_state.get('hero_talent_summary') or [],
     }
 
 
@@ -1252,51 +1445,42 @@ def _build_hero_talent_summary(hero_nodes_by_subtree, class_name, spec_name):
 
 
 def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
-    """按天赋导入字符串聚合，并输出与最热门模板字符串的差异。"""
-    provider = TalentMetadataProvider(usage=TalentVersionResolver.USAGE_STATS)
-    build_counter = Counter()
-    build_states = {}
-    build_players_by_key = {}
-    build_players = {}
-    total = 0
-    first_seen_order = {}
-
+    """按解码后的天赋语义聚合，并输出与最热门模板状态的完整差异。"""
+    candidate_records = []
     for record in _valid_talent_records(records):
-        # Ranking sources expose selected nodes, but not a frozen Blizzard import
-        # string.  Only aggregate a code explicitly supplied by the ranking row;
-        # deriving one from node data fabricates a partial/hybrid import string.
         build_code = str(record.get('talent_build_code') or '').strip()
         if not build_code:
             continue
         resolved_identity = TalentBuildCodeDecoder.resolve_spec_identity(build_code)
         if resolved_identity and resolved_identity != (class_name, spec_name):
             continue
-        total += 1
-        if build_code not in first_seen_order:
-            first_seen_order[build_code] = len(first_seen_order)
-        build_counter[build_code] += 1
-        if build_code not in build_states:
-            build_states[build_code] = _talent_build_record_state(record, provider, class_name, spec_name)
-        state = build_states.get(build_code) or {}
-        player_payload = _talent_usage_player_payload(record, total)
-        player_key = player_payload.get('player_key')
-        if player_key:
-            build_player_map = build_players.setdefault(build_code, {})
-            if player_key not in build_player_map:
-                build_player_map[player_key] = player_payload
-            players_by_key = build_players_by_key.setdefault(build_code, defaultdict(dict))
-            for node_key in state.get('keys') or set():
-                if player_key not in players_by_key[node_key]:
-                    players_by_key[node_key][player_key] = player_payload
+        candidate_records.append((record, build_code))
 
-    if not build_counter:
+    if not candidate_records:
         return {
+            'semantic_state_version': 2,
             'total': 0,
             'template_code': '',
             'template_count': 0,
             'hero_groups': [],
             'builds': [],
         }
+
+    provider = TalentMetadataProvider(usage=TalentVersionResolver.USAGE_STATS)
+    decoder_nodes = list(provider.get_decoder_node_list(class_name) or [])
+    decoder_nodes_by_key = {
+        TalentBuildCodeService._build_node_key(node): node
+        for node in decoder_nodes
+        if TalentBuildCodeService._build_node_key(node)
+    }
+    build_counter = Counter()
+    build_states = {}
+    build_players_by_key = {}
+    build_players = {}
+    raw_code_counts = defaultdict(Counter)
+    raw_code_first_seen = {}
+    total = 0
+    first_seen_order = {}
 
     def _hero_group(state):
         heroes = state.get('hero_talent_summary') or []
@@ -1307,22 +1491,70 @@ def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
             ' · '.join(hero.get('name') or '未解析英雄天赋' for hero in heroes),
         )
 
-    grouped_codes = {}
-    for build_code, count in build_counter.items():
-        state = build_states.get(build_code) or {}
+    for record, build_code in candidate_records:
+        total += 1
+        signature, state = _talent_build_semantic_state(
+            record, provider, class_name, spec_name, decoder_nodes, decoder_nodes_by_key,
+        )
         group_key, hero_talent_name = _hero_group(state)
+        # 无法得到任何节点状态时保留原始字符串边界，避免把未知数据错误合并。
+        if not signature:
+            signature = ((f'raw:{build_code}', 0, -1),)
+        build_key = (group_key, signature)
+        if build_key not in first_seen_order:
+            first_seen_order[build_key] = len(first_seen_order)
+            build_states[build_key] = state
+            build_states[build_key]['hero_talent_name'] = hero_talent_name
+        build_counter[build_key] += 1
+        raw_code_counts[build_key][build_code] += 1
+        raw_code_first_seen.setdefault(build_code, len(raw_code_first_seen))
+        player_payload = _talent_usage_player_payload(record, total)
+        player_key = player_payload.get('player_key')
+        if player_key:
+            build_player_map = build_players.setdefault(build_key, {})
+            if player_key not in build_player_map:
+                build_player_map[player_key] = player_payload
+            players_by_key = build_players_by_key.setdefault(build_key, defaultdict(dict))
+            for node_key in state.get('keys') or set():
+                if player_key not in players_by_key[node_key]:
+                    players_by_key[node_key][player_key] = player_payload
+
+    if not build_counter:
+        return {
+            'semantic_state_version': 2,
+            'total': 0,
+            'template_code': '',
+            'template_count': 0,
+            'hero_groups': [],
+            'builds': [],
+        }
+
+    def _representative_code(build_key):
+        counts = raw_code_counts.get(build_key) or {}
+        if not counts:
+            return ''
+        return min(
+            counts,
+            key=lambda code: (-counts[code], raw_code_first_seen.get(code, 0)),
+        )
+
+    grouped_codes = {}
+    for build_key, count in build_counter.items():
+        state = build_states.get(build_key) or {}
+        group_key = build_key[0]
+        hero_talent_name = state.get('hero_talent_name') or '未解析英雄天赋'
         group = grouped_codes.setdefault(group_key, {
             'hero_talent_name': hero_talent_name,
             'hero_talent_summary': state.get('hero_talent_summary') or [],
             'codes': [],
-            'first_seen_order': first_seen_order.get(build_code, 0),
+            'first_seen_order': first_seen_order.get(build_key, 0),
         })
-        group['codes'].append((build_code, count))
-        group['first_seen_order'] = min(group['first_seen_order'], first_seen_order.get(build_code, 0))
+        group['codes'].append((build_key, count))
+        group['first_seen_order'] = min(group['first_seen_order'], first_seen_order.get(build_key, 0))
 
-    def _node_payload(node_map, node_key, build_code_for_players, template_nodes):
+    def _node_payload(node_map, node_key, build_key_for_players, template_nodes):
         payload = dict(node_map.get(node_key) or template_nodes.get(node_key) or {'node_key': node_key, 'name': node_key, 'icon': ''})
-        players = list((build_players_by_key.get(build_code_for_players, {}).get(node_key) or {}).values())
+        players = list((build_players_by_key.get(build_key_for_players, {}).get(node_key) or {}).values())
         top_players = sorted(
             players,
             key=lambda player: (player.get('sort_score') or 0, player.get('dps') or 0),
@@ -1340,37 +1572,66 @@ def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
             group['codes'],
             key=lambda item: (-item[1], first_seen_order.get(item[0], 0)),
         )[:top_n]
-        template_code, template_count = ordered[0]
-        template_state = build_states.get(template_code) or {'keys': set(), 'nodes': {}}
+        template_key, template_count = ordered[0]
+        template_code = _representative_code(template_key)
+        template_state = build_states.get(template_key) or {'keys': set(), 'nodes': {}}
         template_keys = template_state.get('keys') or set()
         template_nodes = template_state.get('nodes') or {}
         group_total = sum(count for _, count in group['codes'])
         builds = []
-        for index, (build_code, count) in enumerate(ordered, start=1):
-            state = build_states.get(build_code) or {'keys': set(), 'nodes': {}}
+        for index, (build_key, count) in enumerate(ordered, start=1):
+            build_code = _representative_code(build_key)
+            state = build_states.get(build_key) or {'keys': set(), 'nodes': {}}
             keys = state.get('keys') or set()
             nodes = state.get('nodes') or {}
             build_top_players = sorted(
-                (build_players.get(build_code) or {}).values(),
+                (build_players.get(build_key) or {}).values(),
                 key=lambda player: (player.get('sort_score') or 0, player.get('dps') or 0),
                 reverse=True,
             )[:5]
             added_keys = sorted(keys - template_keys, key=lambda key: (nodes.get(key, {}).get('tree_type', ''), nodes.get(key, {}).get('name', key)))
             missing_keys = sorted(template_keys - keys, key=lambda key: (template_nodes.get(key, {}).get('tree_type', ''), template_nodes.get(key, {}).get('name', key)))
+            changed_keys = sorted(
+                (
+                    key for key in keys & template_keys
+                    if (
+                        int((nodes.get(key) or {}).get('points') or 1)
+                        != int((template_nodes.get(key) or {}).get('points') or 1)
+                    ) or (
+                        (nodes.get(key) or {}).get('choice_key')
+                        != (template_nodes.get(key) or {}).get('choice_key')
+                    )
+                ),
+                key=lambda key: (nodes.get(key, {}).get('tree_type', ''), nodes.get(key, {}).get('name', key)),
+            )
+            changed_talents = []
+            for node_key in changed_keys:
+                current_node = nodes.get(node_key) or {}
+                template_node = template_nodes.get(node_key) or {}
+                payload = _node_payload(nodes, node_key, build_key, template_nodes)
+                payload.update({
+                    'template_points': int(template_node.get('points') or 1),
+                    'points': int(current_node.get('points') or 1),
+                    'template_choice_name': template_node.get('choice_name') or '',
+                    'choice_name': current_node.get('choice_name') or '',
+                })
+                changed_talents.append(payload)
             builds.append({
                 'rank': index,
                 'code': build_code,
                 'count': count,
                 'pct': round(count / group_total * 100, 1) if group_total else 0,
-                'is_template': build_code == template_code,
+                'is_template': build_key == template_key,
+                'merged_code_count': len(raw_code_counts.get(build_key) or {}),
                 'top_players': [
                     {key: value for key, value in player.items() if key not in {'player_key', 'sort_score'}}
                     for player in build_top_players
                 ],
                 'hero_talent_summary': state.get('hero_talent_summary') or [],
-                'diff_count': len(added_keys) + len(missing_keys),
-                'added_talents': [_node_payload(nodes, key, build_code, template_nodes) for key in added_keys],
-                'missing_talents': [_node_payload(template_nodes, key, template_code, template_nodes) for key in missing_keys],
+                'diff_count': len(added_keys) + len(missing_keys) + len(changed_keys),
+                'added_talents': [_node_payload(nodes, key, build_key, template_nodes) for key in added_keys],
+                'missing_talents': [_node_payload(template_nodes, key, template_key, template_nodes) for key in missing_keys],
+                'changed_talents': changed_talents,
             })
         hero_groups.append({
             'hero_talent_name': group['hero_talent_name'],
@@ -1383,6 +1644,7 @@ def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
 
     first_group = hero_groups[0]
     return {
+        'semantic_state_version': 2,
         'total': total,
         'template_code': first_group['template_code'],
         'template_count': first_group['template_count'],
@@ -1560,6 +1822,8 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
                     'count': option_usage_count,
                     'usage_pct': option_usage_pct,
                     'pct': option_usage_pct,
+                    'selection_pct': option_usage.get('selection_pct', option_usage_pct),
+                    'point_distribution': option_usage.get('point_distribution') or [],
                     'top_players': option_usage.get('top_players') or [],
                     'is_active': option_usage_count > 0,
                 })
@@ -1699,6 +1963,7 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
     for tree in render_model.get('trees', []) or []:
         preserved_parent_edges += len(tree.get('paths') or [])
     return {
+        'point_statistics_version': 2,
         'sample_size': snapshot.get('total', 0),
         'highlighted_node_count': len(highlighted_keys),
         'rendered_node_count': total_nodes,
@@ -1717,6 +1982,7 @@ def _normalize_stats_talent_node(raw, provider, class_name, spec_name):
         'node_id': raw.get('node_id') or raw.get('nodeID') or raw.get('talent_id') or raw.get('talentID') or raw.get('spell_id') or raw.get('spellID'),
         'talent_id': raw.get('talent_id') or raw.get('talentID'),
         'spell_id': raw.get('spell_id') or raw.get('spellID') or raw.get('talent_id') or raw.get('talentID'),
+        'display_spell_id': raw.get('display_spell_id') or raw.get('displaySpellID'),
         'name': raw.get('name') or '',
         'icon': raw.get('icon', ''),
         'points': raw.get('points', 0) or 0,
@@ -1724,6 +1990,13 @@ def _normalize_stats_talent_node(raw, provider, class_name, spec_name):
         'row': raw.get('row') if raw.get('row') is not None else raw.get('tier'),
         'column': raw.get('column'),
         'selected': raw.get('selected', False),
+        'is_choice_node': raw.get('is_choice_node') or raw.get('isChoiceNode') or False,
+        'choice_selection': raw.get('choice_selection') if raw.get('choice_selection') is not None else raw.get('choiceSelection'),
+        'choice_options': [
+            dict(option)
+            for option in (raw.get('choice_options') or raw.get('choiceOptions') or [])
+            if isinstance(option, dict)
+        ],
         'source': raw.get('source', 'stats'),
         'parents': list(raw.get('parents') or raw.get('parents_json') or []),
         'db2_subtree_id': raw.get('db2_subtree_id') or raw.get('db2SubtreeID') or 0,
@@ -1802,6 +2075,8 @@ def _attach_usage_to_render_model(render_model, usage_map, highlighted_keys):
         node_payload['count'] = usage_item.get('count', fallback_count)
         node_payload['usage_pct'] = usage_item.get('usage_pct', fallback_pct)
         node_payload['pct'] = usage_item.get('usage_pct', fallback_pct)
+        node_payload['selection_pct'] = usage_item.get('selection_pct', node_payload['usage_pct'])
+        node_payload['point_distribution'] = usage_item.get('point_distribution', node_payload.get('point_distribution') or [])
         node_payload['top_players'] = usage_item.get('top_players', node_payload.get('top_players') or [])
         node_payload['is_highlighted'] = node_payload.get('node_key') in highlighted_set or bool(node_payload.get('selected'))
         choice_options = node_payload.get('choice_options') or []
@@ -1813,6 +2088,8 @@ def _attach_usage_to_render_model(render_model, usage_map, highlighted_keys):
             option['count'] = option_usage.get('count', 0)
             option['usage_pct'] = option_usage.get('usage_pct', 0)
             option['pct'] = option_usage.get('usage_pct', 0)
+            option['selection_pct'] = option_usage.get('selection_pct', option['usage_pct'])
+            option['point_distribution'] = option_usage.get('point_distribution') or []
             option['top_players'] = option_usage.get('top_players') or []
             option['is_active'] = option['count'] > 0
         if len(choice_options) > 1:
@@ -1825,7 +2102,10 @@ def _attach_usage_to_render_model(render_model, usage_map, highlighted_keys):
                 ):
                     node_payload[field_name] = preferred_option.get(field_name) or node_payload.get(field_name)
                 # 外层节点与图标已投影为该 option，展示概率和人数也必须使用同一事实。
-                for field_name in ('count', 'usage_pct', 'pct', 'top_players'):
+                for field_name in (
+                    'count', 'usage_pct', 'pct', 'selection_pct',
+                    'point_distribution', 'top_players',
+                ):
                     node_payload[field_name] = preferred_option.get(field_name)
         return node_payload
 
