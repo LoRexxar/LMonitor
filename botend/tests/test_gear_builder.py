@@ -702,6 +702,33 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         self.assertEqual(forbidden.status_code, 404)
         self.assertEqual(self.client.get('/portal/api/gear-builder/online-loadouts/').json()['loadouts'], [])
 
+    def test_online_loadout_post_can_replace_the_selected_record(self):
+        owner = get_user_model().objects.create_user(username='gear-overwrite-owner', password='test-password')
+        loadout = GearBuilderUserLoadout.objects.create(
+            user=owner,
+            name='待覆盖配装',
+            encoded_state='old-code',
+            state_hash='old-hash',
+            class_name='Warrior',
+            spec_name='Fury',
+            batch_key='old-batch',
+        )
+        self.client.force_login(owner)
+        code = self.encoded_share_code()
+
+        response = self.client.post(
+            '/portal/api/gear-builder/online-loadouts/',
+            data=json.dumps({'id': loadout.id, 'name': loadout.name, 'code': code}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['loadout']['id'], loadout.id)
+        self.assertEqual(GearBuilderUserLoadout.objects.filter(user=owner).count(), 1)
+        loadout.refresh_from_db()
+        self.assertEqual(loadout.encoded_state, code)
+        self.assertEqual(loadout.batch_key, 'test-batch')
+
     def test_short_link_creation_requires_login_and_public_read_is_stable(self):
         code = self.encoded_share_code()
         anonymous = self.client.post(
@@ -1207,6 +1234,16 @@ class GearBuilderIconSyncTests(TestCase):
 
 
 class GearBuilderFrontendContractTests(TestCase):
+    def test_current_state_can_overwrite_an_existing_online_loadout(self):
+        root = Path(__file__).resolve().parents[2]
+        script = (root / 'static/portal/js/gear_builder.js').read_text(encoding='utf-8')
+
+        self.assertIn('data-overwrite-online-loadout', script)
+        self.assertIn('data-overwrite-online', script)
+        self.assertIn('async function saveOnlineLoadout(existingRecord = null)', script)
+        self.assertIn('id: existingRecord?.id || undefined', script)
+        self.assertIn('await saveOnlineLoadout(record)', script)
+
     def test_candidate_requests_are_slot_scoped_and_stale_responses_are_ignored(self):
         root = Path(__file__).resolve().parents[2]
         script = (root / 'static/portal/js/gear_builder.js').read_text(encoding='utf-8')
@@ -1253,7 +1290,7 @@ class GearBuilderFrontendContractTests(TestCase):
         for value in ('LOADOUT_LIBRARY_KEY', 'MAX_SAVED_LOADOUTS = 30', 'readSavedLoadouts', 'saveCurrentLoadout', 'loadSavedLoadout', 'deleteSavedLoadout'):
             self.assertIn(value, script)
         self.assertIn('code: await encodeShare(compactShareState(state))', script)
-        self.assertIn("portal/js/gear_builder.js' %}?v=20260902_gear_builder_v22", template)
+        self.assertIn("portal/js/gear_builder.js' %}?v=20260902_gear_builder_v23", template)
         self.assertIn("wow-item-tooltip.js' %}?v=20260902_singleton", template)
         self.assertNotIn('class="gear-option-stat" title=', script)
         self.assertIn('const seen = new Set();', script)

@@ -1167,7 +1167,7 @@
           const updatedAt = online ? record.updated_at : record.updatedAt;
           const equipmentCopy = online ? "" : ` · ${record.equippedCount}/16`;
           const actions = online
-            ? '<button type="button" data-load-online-loadout>载入</button><button type="button" data-delete-online-loadout>删除</button>'
+            ? '<button type="button" data-load-online-loadout>载入</button><button type="button" data-overwrite-online-loadout>覆盖</button><button type="button" data-delete-online-loadout>删除</button>'
             : '<button type="button" data-load-local-loadout>载入</button><button type="button" data-overwrite-local-loadout>覆盖</button><button type="button" data-delete-local-loadout>删除</button>';
           return `<article class="gear-loadout-row" data-loadout-source="${record.loadoutSource}" data-loadout-id="${escapeHtml(record.id)}">
             <div class="gear-loadout-info"><strong title="${escapeHtml(record.name)}">${escapeHtml(record.name)} <em class="gear-loadout-source gear-loadout-source--${record.loadoutSource}">${online ? "线上" : "本地"}</em></strong><span>${escapeHtml(loadoutIdentity({className, specName}))}${equipmentCopy} · ${escapeHtml(loadoutTime(updatedAt))}</span></div>
@@ -1262,7 +1262,7 @@
     els.online_list.innerHTML = onlineLoadouts.length
       ? onlineLoadouts.map((record) => `<article class="gear-loadout-row" data-online-loadout-id="${Number(record.id)}">
           <div class="gear-loadout-info"><strong title="${escapeHtml(record.name)}">${escapeHtml(record.name)}</strong><span>${escapeHtml(loadoutIdentity({className: record.class_name, specName: record.spec_name}))} · ${escapeHtml(loadoutTime(record.updated_at))}</span></div>
-          <div class="gear-loadout-actions"><button type="button" data-load-online>载入</button><button type="button" data-delete-online>删除</button></div>
+          <div class="gear-loadout-actions"><button type="button" data-load-online>载入</button><button type="button" data-overwrite-online>覆盖</button><button type="button" data-delete-online>删除</button></div>
         </article>`).join("")
       : '<div class="gear-loadout-empty"><strong>还没有线上配装</strong><br>输入名称后保存，之后可在其他浏览器登录并载入。</div>';
   }
@@ -1288,8 +1288,8 @@
     }
   }
 
-  async function saveOnlineLoadout() {
-    const name = els.online_name?.value.trim() || "";
+  async function saveOnlineLoadout(existingRecord = null) {
+    const name = existingRecord?.name || els.online_name?.value.trim() || "";
     if (!name) throw new Error("请输入线上配装名称。");
     if (!equippedCount()) throw new Error("请至少选择一件装备后再保存。");
     els.online_submit.disabled = true;
@@ -1298,12 +1298,14 @@
       const payload = await requestJson(endpoints.onlineLoadouts, {
         method: "POST",
         headers: {"Content-Type": "application/json", ...csrfHeaders()},
-        body: JSON.stringify({name, code}),
+        body: JSON.stringify({id: existingRecord?.id || undefined, name, code}),
       });
-      els.online_name.value = "";
+      if (!existingRecord) els.online_name.value = "";
       els.online_message.textContent = "";
       await refreshOnlineLoadouts();
-      toast(`已保存线上配装“${payload.loadout.name}”。`);
+      toast(existingRecord
+        ? `已用当前配装覆盖线上配装“${payload.loadout.name}”。`
+        : `已保存线上配装“${payload.loadout.name}”。`);
     } finally {
       els.online_submit.disabled = false;
     }
@@ -1527,6 +1529,7 @@
       const record = onlineLoadouts.find((item) => Number(item.id) === Number(row?.dataset.onlineLoadoutId));
       if (!record) return;
       if (event.target.closest("[data-load-online]")) loadOnlineLoadout(record).catch((error) => { els.online_message.textContent = error.message; });
+      if (event.target.closest("[data-overwrite-online]")) saveOnlineLoadout(record).catch((error) => { els.online_message.textContent = error.message; });
       if (event.target.closest("[data-delete-online]")) deleteOnlineLoadout(record).catch((error) => { els.online_message.textContent = error.message; });
     });
     els.save_loadout.addEventListener("click", () => setLoadoutPanel(true, true));
@@ -1560,6 +1563,7 @@
       if (source === "online") {
         try {
           if (event.target.closest("[data-delete-online-loadout]")) await deleteOnlineLoadout(record);
+          if (event.target.closest("[data-overwrite-online-loadout]")) await saveOnlineLoadout(record);
           if (event.target.closest("[data-load-online-loadout]")) await loadOnlineLoadout(record);
         } catch (error) {
           toast(error.message || "线上配装操作失败。", true);
