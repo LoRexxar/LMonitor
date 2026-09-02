@@ -1215,7 +1215,7 @@ class GearBuilderFrontendContractTests(TestCase):
         for value in ('LOADOUT_LIBRARY_KEY', 'MAX_SAVED_LOADOUTS = 30', 'readSavedLoadouts', 'saveCurrentLoadout', 'loadSavedLoadout', 'deleteSavedLoadout'):
             self.assertIn(value, script)
         self.assertIn('code: await encodeShare(compactShareState(state))', script)
-        self.assertIn("portal/js/gear_builder.js' %}?v=20260902_gear_builder_v20", template)
+        self.assertIn("portal/js/gear_builder.js' %}?v=20260902_gear_builder_v21", template)
         self.assertIn("wow-item-tooltip.js' %}?v=20260902_singleton", template)
         self.assertNotIn('class="gear-option-stat" title=', script)
         self.assertIn('const seen = new Set();', script)
@@ -1223,7 +1223,11 @@ class GearBuilderFrontendContractTests(TestCase):
             self.assertIn(value, script)
         tooltip_script = (root / 'static/shared/js/wow-item-tooltip.js').read_text(encoding='utf-8')
         self.assertIn('window.__wowItemTooltipInitialized', tooltip_script)
-        self.assertIn("portal/css/gear_builder.css' %}?v=20260902_gear_builder_v14", template)
+        self.assertIn("portal/css/gear_builder.css' %}?v=20260902_gear_builder_v15", template)
+        for value in ('gear-owned-add-icon', 'gear-owned-add-label', 'is-saving', 'is-added', '再次点击会增加数量'):
+            self.assertIn(value, script)
+        self.assertIn('.gear-owned-add:focus-visible', styles)
+        self.assertIn('event.target.closest("button")', script)
         self.assertEqual(template.count('data-exclude-source='), 3)
         self.assertEqual(template.count('data-exclude-stat='), 4)
         self.assertIn('exclude_sources', script)

@@ -10,7 +10,7 @@
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260808_portal_theme_v2"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260821_mythicstats_clean_light_v7">
     <link rel="stylesheet" href="{% static 'shared/css/wow-item-tooltip.css' %}?v=20260813_simc_equipment_icon">
-    <link rel="stylesheet" href="{% static 'portal/css/gear_assistant.css' %}?v=20260902_gear_assistant_v2">
+    <link rel="stylesheet" href="{% static 'portal/css/gear_assistant.css' %}?v=20260902_gear_assistant_v3">
 </head>
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
@@ -36,73 +36,94 @@
         </header>
 
         <section class="gear-assistant-grid">
-            <aside class="assistant-panel assistant-setup-panel">
+            <aside class="assistant-panel assistant-equipment-panel">
                 <div class="assistant-panel-head">
-                    <div><span>账号装备库</span><h2>已有装备</h2></div>
-                    <button type="button" id="assistant-import-simc" class="assistant-link-btn">导入 SimC 背包</button>
+                    <div><span>模拟装备范围</span><h2>装备选择</h2></div>
+                    <button type="button" id="assistant-import-simc" class="assistant-link-btn">导入 SimC</button>
                 </div>
-                <div class="assistant-owned-tabs" role="tablist" aria-label="筛选已有装备">
-                    <button type="button" class="is-active" data-owned-filter="slot">按锁定槽位</button>
-                    <button type="button" data-owned-filter="all">全部</button>
+                <div class="assistant-library-tabs" role="tablist" aria-label="装备范围">
+                    <button type="button" id="assistant-tab-current" class="is-active" role="tab" aria-selected="true" aria-controls="assistant-current-pane" data-library-tab="current">当前配装 <span id="assistant-current-tab-count">0</span></button>
+                    <button type="button" id="assistant-tab-owned" role="tab" aria-selected="false" aria-controls="assistant-owned-pane" data-library-tab="owned">已有装备 <span id="assistant-owned-tab-count">0</span></button>
                 </div>
-                <div id="assistant-owned-list" class="assistant-owned-list"></div>
 
-                <div class="assistant-section-divider"></div>
-                <div class="assistant-section-title"><span>目标设定</span><h2>目标绿字</h2></div>
-                <div class="assistant-target-grid">
-                    <label><span>暴击</span><div><input id="target-crit" type="number" min="0" max="200" step="0.1" value="25"><b>%</b></div></label>
-                    <label><span>急速</span><div><input id="target-haste" type="number" min="0" max="200" step="0.1" value="20"><b>%</b></div></label>
-                    <label><span>精通</span><div><input id="target-mastery" type="number" min="0" max="200" step="0.1" value="30"><b>%</b></div></label>
-                    <label><span>全能</span><div><input id="target-versatility" type="number" min="0" max="200" step="0.1" value="10"><b>%</b></div></label>
-                </div>
-                <label class="assistant-wide-control"><span>属性合剂</span><select id="assistant-flask"><option value="auto">自动选择最接近目标</option></select></label>
-                <div class="assistant-checks">
-                    <div class="assistant-check-row">
-                        <strong>宝石</strong>
-                        <label><input id="assistant-gems" type="checkbox" checked><span>参与计算</span></label>
-                        <label><input id="assistant-lock-gems" type="checkbox" checked><span>锁定当前已选</span></label>
+                <div id="assistant-current-pane" class="assistant-library-pane" role="tabpanel" aria-labelledby="assistant-tab-current">
+                    <div class="assistant-equipment-actions">
+                        <span><strong id="assistant-fixed-count">0</strong> 件装备已锁定</span>
+                        <div>
+                            <button type="button" data-lock-action="all">全部锁定</button>
+                            <button type="button" data-lock-action="none">全部解锁</button>
+                        </div>
                     </div>
-                    <div class="assistant-check-row">
-                        <strong>附魔</strong>
-                        <label><input id="assistant-enchants" type="checkbox" checked><span>参与计算</span></label>
-                        <label><input id="assistant-lock-enchants" type="checkbox" checked><span>锁定当前已选</span></label>
-                    </div>
-                    <label><input id="assistant-ai" type="checkbox" checked><span>使用内置 AI 比较方案</span></label>
+                    <div id="assistant-equipment-list" class="assistant-equipment-list"></div>
+                    <p class="assistant-equipment-help">点击装备右侧“×”取消锁定；未锁定槽位会由模拟器重新选择。推荐结果出现后仍可继续调整并再次模拟。</p>
                 </div>
-                <button type="button" id="assistant-generate" class="assistant-btn assistant-btn--primary">生成三套配装方案</button>
 
-                <div class="assistant-fixed-summary">
-                    <div><strong>当前锁定装备</strong><span id="assistant-fixed-count">0 / 16</span></div>
-                    <p>职业配装器中已选择的槽位保持不变，空槽位由辅助配装补齐。</p>
-                    <div id="assistant-fixed-chips" class="assistant-fixed-chips"></div>
+                <div id="assistant-owned-pane" class="assistant-library-pane" role="tabpanel" aria-labelledby="assistant-tab-owned" hidden>
+                    <div class="assistant-owned-intro"><strong>账号装备库</strong><span>模拟时会自动用于“优先已有装备”方案</span></div>
+                    <div id="assistant-owned-list" class="assistant-owned-list"></div>
                 </div>
             </aside>
 
-            <section class="assistant-panel assistant-results-panel">
-                <div class="assistant-results-head">
-                    <div><span>组合模拟</span><h2>推荐方案</h2></div>
-                    <small id="assistant-catalog-status">正在读取当前赛季装备目录</small>
+            <section class="assistant-panel assistant-workbench-panel">
+                <div id="assistant-config-view" class="assistant-workbench-view">
+                    <div class="assistant-workbench-head">
+                        <div><span>模拟配置</span><h2>设置目标与约束</h2></div>
+                        <small id="assistant-catalog-status">正在读取当前赛季装备目录</small>
+                    </div>
+                    <div class="assistant-config-body">
+                        <section class="assistant-config-section">
+                            <div class="assistant-config-section-head"><div><h3>目标绿字</h3><p>填写希望最终配装接近的面板百分比。</p></div><span id="assistant-fixed-summary">锁定 0 件</span></div>
+                            <div class="assistant-target-grid">
+                                <label><span>暴击</span><div><input id="target-crit" type="number" min="0" max="200" step="0.1" value="25"><b>%</b></div></label>
+                                <label><span>急速</span><div><input id="target-haste" type="number" min="0" max="200" step="0.1" value="20"><b>%</b></div></label>
+                                <label><span>精通</span><div><input id="target-mastery" type="number" min="0" max="200" step="0.1" value="30"><b>%</b></div></label>
+                                <label><span>全能</span><div><input id="target-versatility" type="number" min="0" max="200" step="0.1" value="10"><b>%</b></div></label>
+                            </div>
+                        </section>
+
+                        <section class="assistant-config-section">
+                            <div class="assistant-config-section-head"><div><h3>强化与消耗品</h3><p>可保留当前强化，也可以允许模拟器重新选择。</p></div></div>
+                            <label class="assistant-wide-control"><span>属性合剂</span><select id="assistant-flask"><option value="auto">自动选择最接近目标</option></select></label>
+                            <div class="assistant-checks">
+                                <div class="assistant-check-row">
+                                    <strong>宝石</strong>
+                                    <label><input id="assistant-gems" type="checkbox" checked><span>参与计算</span></label>
+                                    <label><input id="assistant-lock-gems" type="checkbox" checked><span>锁定当前已选</span></label>
+                                </div>
+                                <div class="assistant-check-row">
+                                    <strong>附魔</strong>
+                                    <label><input id="assistant-enchants" type="checkbox" checked><span>参与计算</span></label>
+                                    <label><input id="assistant-lock-enchants" type="checkbox" checked><span>锁定当前已选</span></label>
+                                </div>
+                                <label class="assistant-ai-control"><input id="assistant-ai" type="checkbox" checked><span>使用内置 AI 比较已经计算出的方案</span></label>
+                            </div>
+                        </section>
+
+                        <div class="assistant-generate-row">
+                            <div><strong>将生成三套方案</strong><span>优先已有装备、全装备池、仅地下城装备</span></div>
+                            <button type="button" id="assistant-generate" class="assistant-btn assistant-btn--primary">开始模拟</button>
+                        </div>
+                    </div>
                 </div>
-                <div id="assistant-results" class="assistant-results">
-                    <div class="assistant-empty-state"><strong>先设置目标属性</strong><span>系统会返回已有优先、全装备池和仅地下城三套可应用方案。</span></div>
+
+                <div id="assistant-results-view" class="assistant-workbench-view" hidden>
+                    <div class="assistant-workbench-head assistant-results-head">
+                        <div><span>组合模拟</span><h2>推荐方案</h2></div>
+                        <div class="assistant-result-actions">
+                            <small id="assistant-result-lock-summary">锁定 0 件</small>
+                            <button type="button" id="assistant-edit-config" class="assistant-btn">调整配置</button>
+                            <button type="button" id="assistant-rerun" class="assistant-btn assistant-btn--primary">再次模拟</button>
+                        </div>
+                    </div>
+                    <div id="assistant-results" class="assistant-results">
+                        <div class="assistant-empty-state"><strong>正在准备模拟</strong><span>完成后将在这里展示三套推荐方案。</span></div>
+                    </div>
+                    <section class="assistant-insight">
+                        <div class="assistant-config-section-head"><div><h3>配装建议</h3><p>AI 只解释确定性计算结果，不会修改装备与来源。</p></div></div>
+                        <div id="assistant-explanation" class="assistant-explanation">组合由数据库规则计算。</div>
+                    </section>
                 </div>
             </section>
-
-            <aside class="assistant-panel assistant-insight-panel">
-                <div class="assistant-section-title"><span>方案解读</span><h2>配装建议</h2></div>
-                <div id="assistant-explanation" class="assistant-explanation">
-                    组合由数据库规则计算；AI 只比较已经算出的数值，不会替换装备或修改来源。
-                </div>
-                <div class="assistant-method-note">
-                    <strong>计算范围</strong>
-                    <ul>
-                        <li>锁定装备与已有装备</li>
-                        <li>当前赛季全部合法装备</li>
-                        <li>最高品质宝石、永久附魔</li>
-                        <li>当前最高品质属性合剂</li>
-                    </ul>
-                </div>
-            </aside>
         </section>
         <div id="assistant-toast-root" class="assistant-toast-root" aria-live="polite"></div>
 
@@ -118,6 +139,6 @@
         </dialog>
     </main>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260813_simc_equipment_icon"></script>
-    <script src="{% static 'portal/js/gear_assistant.js' %}?v=20260902_gear_assistant_v2"></script>
+    <script src="{% static 'portal/js/gear_assistant.js' %}?v=20260902_gear_assistant_v3"></script>
 </body>
 </html>

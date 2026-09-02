@@ -17,7 +17,11 @@
     classSelect: byId("assistant-class"), specSelect: byId("assistant-spec"), ownedList: byId("assistant-owned-list"),
     flask: byId("assistant-flask"), gems: byId("assistant-gems"), lockGems: byId("assistant-lock-gems"),
     enchants: byId("assistant-enchants"), lockEnchants: byId("assistant-lock-enchants"), ai: byId("assistant-ai"),
-    generate: byId("assistant-generate"), fixedCount: byId("assistant-fixed-count"), fixedChips: byId("assistant-fixed-chips"),
+    generate: byId("assistant-generate"), rerun: byId("assistant-rerun"), editConfig: byId("assistant-edit-config"),
+    fixedCount: byId("assistant-fixed-count"), fixedSummary: byId("assistant-fixed-summary"), resultLockSummary: byId("assistant-result-lock-summary"),
+    equipmentList: byId("assistant-equipment-list"), currentPane: byId("assistant-current-pane"), ownedPane: byId("assistant-owned-pane"),
+    currentTabCount: byId("assistant-current-tab-count"), ownedTabCount: byId("assistant-owned-tab-count"),
+    configView: byId("assistant-config-view"), resultsView: byId("assistant-results-view"),
     catalogStatus: byId("assistant-catalog-status"), results: byId("assistant-results"), explanation: byId("assistant-explanation"),
     importSimc: byId("assistant-import-simc"), simcDialog: byId("assistant-simc-dialog"), simcInput: byId("assistant-simc-input"),
     simcSubmit: byId("assistant-simc-submit"), simcMessage: byId("assistant-simc-message"), toastRoot: byId("assistant-toast-root"),
@@ -27,7 +31,9 @@
   let builderBootstrap = null;
   let assistantData = null;
   let currentState = null;
-  let ownedFilter = "slot";
+  let libraryTab = "current";
+  let lockedSlots = new Set();
+  let workbenchMode = "config";
   let lastPlans = [];
 
   function escapeHtml(value) {
@@ -81,17 +87,67 @@
     if (![...els.specSelect.options].some((row) => row.value === currentState.specName)) currentState.specName = els.specSelect.options[0]?.value || "";
     els.specSelect.value = currentState.specName;
   }
-  function renderFixed() {
-    const entries = Object.entries(currentState?.equipment || {}).filter(([, value]) => value?.item);
-    els.fixedCount.textContent = `${entries.length} / 16`;
-    els.fixedChips.innerHTML = entries.length ? entries.map(([slot, entry]) => `<span>${escapeHtml((builderBootstrap?.slots || []).find((row) => row.key === slot)?.label || slot)} · ${escapeHtml(entry.item.name)}</span>`).join("") : "<span>暂无锁定装备</span>";
+  function currentEquipmentEntries() {
+    return Object.entries(currentState?.equipment || {}).filter(([, value]) => value?.item);
+  }
+  function resetLockedSlots() {
+    lockedSlots = new Set(currentEquipmentEntries().map(([slot]) => slot));
+  }
+  function lockedEquipmentPayload() {
+    return Object.fromEntries(currentEquipmentEntries().filter(([slot]) => lockedSlots.has(slot)));
+  }
+  function renderLibraryTabs() {
+    document.querySelectorAll("[data-library-tab]").forEach((button) => {
+      const active = button.dataset.libraryTab === libraryTab;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-selected", String(active));
+    });
+    els.currentPane.hidden = libraryTab !== "current";
+    els.ownedPane.hidden = libraryTab !== "owned";
+  }
+  function equipmentIcon(entry) {
+    return entry?.item?.icon_url
+      ? `<img class="assistant-equipment-icon" src="${escapeHtml(entry.item.icon_url)}" alt="" loading="lazy">`
+      : '<span class="assistant-equipment-icon assistant-equipment-icon--empty"></span>';
+  }
+  function renderEquipment() {
+    const entries = currentState?.equipment || {};
+    const slots = builderBootstrap?.slots || [];
+    const equippedCount = currentEquipmentEntries().length;
+    const fixedCount = [...lockedSlots].filter((slot) => entries[slot]?.item).length;
+    els.currentTabCount.textContent = String(equippedCount);
+    els.fixedCount.textContent = String(fixedCount);
+    els.fixedSummary.textContent = `锁定 ${fixedCount} 件 · ${equippedCount - fixedCount} 件可替换`;
+    els.resultLockSummary.textContent = `锁定 ${fixedCount} 件`;
+    els.equipmentList.innerHTML = slots.map((slotRow) => {
+      const slot = slotRow.key;
+      const entry = entries[slot];
+      const equipped = Boolean(entry?.item);
+      const locked = equipped && lockedSlots.has(slot);
+      const itemLevel = entry?.itemLevel || entry?.variant?.item_level || 0;
+      return `<div class="assistant-equipment-row${equipped ? " is-equipped" : " is-empty"}${locked ? " is-locked" : " is-unlocked"}" data-equipment-slot="${escapeHtml(slot)}">
+        ${equipmentIcon(entry)}
+        <span class="assistant-equipment-copy"><small>${escapeHtml(slotRow.label)}</small><strong>${escapeHtml(entry?.item?.name || "空装备格")}</strong>${equipped ? `<em>${itemLevel ? `${itemLevel} 装等 · ` : ""}${locked ? "保持当前装备" : "允许模拟器替换"}</em>` : "<em>由模拟器选择装备</em>"}</span>
+        ${equipped ? `<button type="button" class="assistant-slot-lock${locked ? " is-locked" : ""}" data-toggle-slot-lock="${escapeHtml(slot)}" aria-pressed="${String(locked)}" aria-label="${locked ? `取消锁定${escapeHtml(slotRow.label)}` : `重新锁定${escapeHtml(slotRow.label)}`}" title="${locked ? "取消锁定，允许模拟器替换" : "重新锁定，保留当前装备"}">${locked ? '<span aria-hidden="true">×</span><b>取消锁定</b>' : '<span aria-hidden="true">↺</span><b>重新锁定</b>'}</button>` : '<span class="assistant-slot-open">待补齐</span>'}
+      </div>`;
+    }).join("");
+  }
+  function markResultsStale() {
+    if (workbenchMode !== "results" || !lastPlans.length) return;
+    els.resultLockSummary.textContent = `${els.resultLockSummary.textContent} · 条件已修改`;
+    els.resultLockSummary.classList.add("is-stale");
+  }
+  function setWorkbench(mode, {focus = false} = {}) {
+    workbenchMode = mode === "results" ? "results" : "config";
+    els.configView.hidden = workbenchMode !== "config";
+    els.resultsView.hidden = workbenchMode !== "results";
+    if (focus && window.matchMedia("(max-width: 760px)").matches) {
+      document.querySelector(".assistant-workbench-panel")?.scrollIntoView({behavior: "smooth", block: "start"});
+    }
   }
   function renderOwned() {
-    let rows = assistantData?.owned_items || [];
-    if (ownedFilter === "slot") {
-      const selectedSlots = new Set(Object.keys(currentState?.equipment || {}));
-      if (selectedSlots.size) rows = rows.filter((row) => selectedSlots.has(row.slot));
-    }
+    const rows = assistantData?.owned_items || [];
+    els.ownedTabCount.textContent = String(rows.length);
     if (!rows.length) {
       els.ownedList.innerHTML = '<div class="assistant-list-empty">还没有已有装备。可从职业配装器加入，或导入 SimC 背包。</div>';
       return;
@@ -130,13 +186,17 @@
   }
   async function generate() {
     els.generate.disabled = true;
-    els.generate.textContent = "正在组合装备…";
+    els.rerun.disabled = true;
+    els.generate.textContent = "正在模拟…";
+    els.rerun.textContent = "正在模拟…";
+    els.resultLockSummary.classList.remove("is-stale");
+    setWorkbench("results", {focus: true});
     els.results.innerHTML = '<div class="assistant-empty-state"><strong>正在搜索组合</strong><span>会依次计算已有优先、全装备池和仅地下城方案。</span></div>';
     try {
       const payload = await requestJson(endpoints.optimize, {
         method: "POST", headers: {"Content-Type": "application/json", ...csrfHeaders()},
         body: JSON.stringify({
-          class_name: currentState.className, spec_name: currentState.specName, equipment: currentState.equipment || {},
+          class_name: currentState.className, spec_name: currentState.specName, equipment: lockedEquipmentPayload(),
           target: targetPayload(), flask: els.flask.value, include_gems: els.gems.checked,
           lock_gems: els.lockGems.checked, include_enchants: els.enchants.checked,
           lock_enchants: els.lockEnchants.checked, use_ai: els.ai.checked,
@@ -151,7 +211,9 @@
       toast(error.message, true);
     } finally {
       els.generate.disabled = false;
-      els.generate.textContent = "生成三套配装方案";
+      els.rerun.disabled = false;
+      els.generate.textContent = "开始模拟";
+      els.rerun.textContent = "再次模拟";
     }
   }
   function applyPlan(key) {
@@ -192,16 +254,35 @@
     els.classSelect.addEventListener("change", async () => {
       const classRow = (builderBootstrap.classes || []).find((row) => row.key === els.classSelect.value);
       currentState = loadState(classRow.key, classRow.specs?.[0]?.key || "");
-      syncSelectors(); renderFixed(); await loadAssistantData();
+      lastPlans = [];
+      resetLockedSlots();
+      syncSelectors(); renderEquipment(); setWorkbench("config"); await loadAssistantData();
     });
     els.specSelect.addEventListener("change", async () => {
       currentState = loadState(els.classSelect.value, els.specSelect.value);
-      syncSelectors(); renderFixed(); await loadAssistantData();
+      lastPlans = [];
+      resetLockedSlots();
+      syncSelectors(); renderEquipment(); setWorkbench("config"); await loadAssistantData();
     });
-    document.querySelectorAll("[data-owned-filter]").forEach((button) => button.addEventListener("click", () => {
-      ownedFilter = button.dataset.ownedFilter;
-      document.querySelectorAll("[data-owned-filter]").forEach((row) => row.classList.toggle("is-active", row === button));
-      renderOwned();
+    document.querySelectorAll("[data-library-tab]").forEach((button) => button.addEventListener("click", () => {
+      libraryTab = button.dataset.libraryTab;
+      renderLibraryTabs();
+    }));
+    els.equipmentList.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-toggle-slot-lock]");
+      if (!button) return;
+      const slot = button.dataset.toggleSlotLock;
+      if (lockedSlots.has(slot)) lockedSlots.delete(slot);
+      else lockedSlots.add(slot);
+      renderEquipment();
+      markResultsStale();
+    });
+    document.querySelectorAll("[data-lock-action]").forEach((button) => button.addEventListener("click", () => {
+      lockedSlots = button.dataset.lockAction === "all"
+        ? new Set(currentEquipmentEntries().map(([slot]) => slot))
+        : new Set();
+      renderEquipment();
+      markResultsStale();
     }));
     els.ownedList.addEventListener("click", async (event) => {
       const button = event.target.closest("[data-delete-owned]");
@@ -213,6 +294,8 @@
       } catch (error) { toast(error.message, true); }
     });
     els.generate.addEventListener("click", generate);
+    els.rerun.addEventListener("click", generate);
+    els.editConfig.addEventListener("click", () => setWorkbench("config", {focus: true}));
     els.results.addEventListener("click", (event) => { const button = event.target.closest("[data-apply-plan]"); if (button) applyPlan(button.dataset.applyPlan); });
     els.importSimc.addEventListener("click", () => els.simcDialog.showModal());
     els.simcSubmit.addEventListener("click", importSimc);
@@ -221,11 +304,14 @@
     try {
       builderBootstrap = await requestJson(endpoints.builderBootstrap);
       currentState = readDraft();
-      syncSelectors(); renderFixed(); bindEvents();
+      resetLockedSlots();
+      syncSelectors(); renderEquipment(); renderLibraryTabs(); setWorkbench("config"); bindEvents();
       await loadAssistantData();
     } catch (error) {
       els.catalogStatus.textContent = "初始化失败";
+      els.resultLockSummary.textContent = "初始化失败";
       els.results.innerHTML = `<div class="assistant-empty-state"><strong>页面初始化失败</strong><span>${escapeHtml(error.message)}</span></div>`;
+      setWorkbench("results");
     } finally {
       page.setAttribute("aria-busy", "false");
     }
