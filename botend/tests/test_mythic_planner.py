@@ -78,10 +78,10 @@ from botend.management.commands.sync_mythic_dungeon_tools import (
     load_payload_seed,
 )
 from botend.wow.spell_text import SpellTextResolver
-from scripts.import_mdt_6_2_9 import (
-    SOURCE_VERSION_KEY as MDT_629_SOURCE_VERSION_KEY,
-    TARGET_VERSION_KEY as MDT_629_TARGET_VERSION_KEY,
-    validate_package as validate_629_package,
+from scripts.import_mdt_6_2_10 import (
+    SOURCE_VERSION_KEY as MDT_6210_SOURCE_VERSION_KEY,
+    TARGET_VERSION_KEY as MDT_6210_TARGET_VERSION_KEY,
+    validate_package as validate_6210_package,
 )
 from botend.mythic_planner.mdt_route_codec import (
     MDT2_PREFIX,
@@ -132,11 +132,11 @@ def assign_demo_mdt_indexes():
 
 
 class MythicPlannerImportTests(TestCase):
-    def test_builtin_629_upgrade_contract_starts_from_625(self):
-        self.assertEqual(MDT_629_SOURCE_VERSION_KEY, 'mdt-6-2-5')
-        self.assertEqual(MDT_629_TARGET_VERSION_KEY, 'mdt-6-2-9')
+    def test_builtin_6210_upgrade_contract_starts_from_629(self):
+        self.assertEqual(MDT_6210_SOURCE_VERSION_KEY, 'mdt-6-2-9')
+        self.assertEqual(MDT_6210_TARGET_VERSION_KEY, 'mdt-6-2-10')
 
-    def test_builtin_629_package_imports_complete_live_dataset(self):
+    def test_builtin_6210_package_imports_complete_live_dataset(self):
         call_command(
             'import_mythic_dungeon_data',
             activate=True,
@@ -145,10 +145,10 @@ class MythicPlannerImportTests(TestCase):
         )
 
         version = MythicDungeonDataVersion.objects.get(
-            key='mdt-6-2-9',
+            key='mdt-6-2-10',
             is_active=True,
         )
-        self.assertEqual(version.metadata['source_tag'], '6.2.9')
+        self.assertEqual(version.metadata['source_tag'], '6.2.10')
         self.assertEqual(version.metadata['spell_snapshot']['source_branch'], 'wow')
         self.assertEqual(version.metadata['spell_snapshot']['snapshot_build'], '12.1.0.69299')
         self.assertEqual(version.dungeons.filter(is_active=True).count(), 16)
@@ -164,14 +164,14 @@ class MythicPlannerImportTests(TestCase):
                 enemy__dungeon__data_version=version,
                 is_active=True,
             ).count(),
-            3071,
+            3068,
         )
         self.assertEqual(
             MythicDungeonAbility.objects.filter(
                 enemy__dungeon__data_version=version,
                 is_active=True,
             ).count(),
-            1665,
+            1673,
         )
         self.assertFalse(
             MythicDungeonAbility.objects.filter(
@@ -231,7 +231,7 @@ class MythicPlannerImportTests(TestCase):
         self.assertTrue(share_code.startswith(MDT2_PREFIX))
         self.assertEqual(decode_share_code(share_code), route_data)
 
-    def test_builtin_629_assets_resolve_to_current_short_oss_keys(self):
+    def test_builtin_6210_assets_resolve_to_current_short_oss_keys(self):
         call_command(
             'import_mythic_dungeon_data',
             activate=True,
@@ -239,12 +239,12 @@ class MythicPlannerImportTests(TestCase):
             verbosity=0,
         )
         version = MythicDungeonDataVersion.objects.get(
-            key='mdt-6-2-9',
+            key='mdt-6-2-10',
         )
         jobs, stats = SyncMythicDungeonAssetsCommand()._build_jobs(
             version=version,
             base_prefix='mythic-planner',
-            version_prefix='mythic-planner/versions/mdt-6-2-9',
+            version_prefix='mythic-planner/versions/mdt-6-2-10',
             oss_base_url='https://oss.wowdaily.cn/',
             force=False,
         )
@@ -674,16 +674,16 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             / 'data'
             / 'mythic_planner'
             / 'vendor'
-            / 'mythic-dungeon-tools-6.2.9'
+            / 'mythic-dungeon-tools-6.2.10'
         )
 
     def test_fixed_upstream_snapshot_converts_real_dungeons_and_assets(self):
         payload = build_payload(self.source_root())
 
-        self.assertEqual(payload['data_version']['key'], 'mdt-6-2-9')
+        self.assertEqual(payload['data_version']['key'], 'mdt-6-2-10')
         self.assertEqual(
             payload['data_version']['metadata']['source_commit'],
-            'a49bd78f843bb89d2cea3daefbc1cf7aed809c31',
+            'e214023441c425a6be2ecea33a5ceb0fc3b87d19',
         )
         self.assertEqual(payload['data_version']['metadata']['license'], 'GPL-2.0-only')
         self.assertEqual(len(payload['dungeons']), 16)
@@ -711,7 +711,7 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
                 for dungeon in payload['dungeons']
                 for enemy in dungeon['enemies']
             ),
-            3071,
+            3068,
         )
         blinding_vale = next(
             dungeon
@@ -752,7 +752,7 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             'midnight-season-2',
         )
         self.assertIn(
-            '/static/portal/mythic_planner/vendor/mdt-6.2.9/maps/',
+            '/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/',
             murder_row['floors'][0]['background_url'],
         )
         all_pois = [
@@ -799,11 +799,11 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
                 'LMonitorAbilitySupplement': 93,
             },
             'temple-of-sethraliss': {
-                'LMonitorAbilitySupplement': 108,
+                'LMonitorAbilitySupplement': 111,
                 'MythicDungeonTools': 7,
             },
             'kings-rest': {
-                'LMonitorAbilitySupplement': 77,
+                'LMonitorAbilitySupplement': 79,
                 'MythicDungeonTools': 3,
             },
         }
@@ -843,6 +843,27 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
                 dungeon_key,
             )
 
+        released_abilities = {
+            ('kings-rest', 138489): {1298304, 1309385},
+            ('temple-of-sethraliss', 134364): {1314082},
+            ('temple-of-sethraliss', 262530): {1288087, 1314051},
+            ('the-blinding-vale', 245473): {1314883, 1314884, 1314885},
+        }
+        for (dungeon_key, npc_id), expected_spell_ids in released_abilities.items():
+            dungeon = next(
+                row for row in payload['dungeons'] if row['key'] == dungeon_key
+            )
+            enemy = next(
+                row for row in dungeon['enemies'] if row['npc_id'] == npc_id
+            )
+            actual_spell_ids = {
+                ability['spell_id'] for ability in enemy['abilities']
+            }
+            self.assertTrue(
+                expected_spell_ids.issubset(actual_spell_ids),
+                (dungeon_key, npc_id),
+            )
+
         temple = next(
             row
             for row in payload['dungeons']
@@ -874,18 +895,18 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
                 for dungeon in payload['dungeons']
                 for enemy in dungeon['enemies']
             ),
-            1665,
+            1673,
         )
 
-    def test_builtin_629_package_passes_release_contract(self):
+    def test_builtin_6210_package_passes_release_contract(self):
         self.assertEqual(
-            validate_629_package(),
+            validate_6210_package(),
             {
                 'dungeons': 16,
                 'enemies': 462,
-                'spawns': 3071,
-                'abilities': 1665,
-                'spells': 1474,
+                'spawns': 3068,
+                'abilities': 1673,
+                'spells': 1482,
                 'pois': 64,
             },
         )
@@ -967,13 +988,13 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
         )
         self.assertEqual(metadata['spell_snapshot']['source_branch'], 'wowt')
 
-    def test_builtin_629_package_preserves_interactive_poi_assets(self):
+    def test_builtin_6210_package_preserves_interactive_poi_assets(self):
         package_path = (
             Path(settings.BASE_DIR)
             / 'botend'
             / 'data'
             / 'mythic_planner'
-            / 'mdt_6_2_9.json'
+            / 'mdt_6_2_10.json'
         )
         payload = json.loads(package_path.read_text(encoding='utf-8'))
         pois = [

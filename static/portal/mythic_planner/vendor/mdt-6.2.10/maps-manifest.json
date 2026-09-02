@@ -1,0 +1,225 @@
+{
+  "maps": [
+    {
+      "dungeon_key": "algethar-academy",
+      "texture_directory": "AlgetharAcademy",
+      "floor_index": 1,
+      "source_tiles": 150,
+      "output": "D:/program/LMonitor/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/algethar-academy/floor-1.webp",
+      "output_width": 1920,
+      "output_height": 1280,
+      "normalized_tiles": [],
+      "sha256": "2d8b7a383360bcb3715bc37eb9854d4ffbaf9c0e9e07818d1c11c6c5fcf0623d"
+    },
+    {
+      "dungeon_key": "altar-of-fangs",
+      "texture_directory": "AltarOfFangs",
+      "floor_index": 1,
+      "source_tiles": 150,
+      "output": "D:/program/LMonitor/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/altar-of-fangs/floor-1.webp",
+      "output_width": 1920,
+      "output_height": 1280,
+      "normalized_tiles": [],
+      "sha256": "ee4ef40712ca2cf2fd3ac91924d1251e5198e8beb246837ed2c6837ebf149db6"
+    },
+    {
+      "dungeon_key": "den-of-nalorakk",
+      "texture_directory": "DenOfNalorakk",
+      "floor_index": 1,
+      "source_tiles": 150,
+      "output": "D:/program/LMonitor/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/den-of-nalorakk/floor-1.webp",
+      "output_width": 1920,
+      "output_height": 1280,
+      "normalized_tiles": [],
+      "sha256": "83ec947857bb7227ef10eb58508f348d49ab6c2962e64e13d3a83901ea57ea34"
+    },
+    {
+      "dungeon_key": "kings-rest",
+      "texture_directory": "KingsRest",
+      "floor_index": 1,
+      "source_tiles": 150,
+      "output": "D:/program/LMonitor/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/kings-rest/floor-1.webp",
+      "output_width": 1920,
+      "output_height": 1280,
+      "normalized_tiles": [],
+      "sha256": "e757197029caba0966813d1618225b9961f49e3aacfedead7d492fc10107826d"
+    },
+    {
+      "dungeon_key": "magisters-terrace",
+      "texture_directory": "MagistersTerrace",
+      "floor_index": 1,
+      "source_tiles": 150,
+      "output": "D:/program/LMonitor/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/magisters-terrace/floor-1.webp",
+      "output_width": 1920,
+      "output_height": 1280,
+      "normalized_tiles": [],
+      "sha256": "84f52b102e79333550bce5ff50f2f20d9355d6b8c5d91171981995e82c32524d"
+    },
+    {
+      "dungeon_key": "maisara-caverns",
+      "texture_directory": "MaisaraCaverns",
+      "floor_index": 1,
+      "source_tiles": 150,
+      "output": "D:/program/LMonitor/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/maisara-caverns/floor-1.webp",
+      "output_width": 1920,
+      "output_height": 1280,
+      "normalized_tiles": [],
+      "sha256": "7533c5327526e432f81e360ab55c71aaa4b0797f6ae917bcc500c4365f2352e0"
+    },
+    {
+      "dungeon_key": "murder-row",
+      "texture_directory": "MurderRow",
+      "floor_index": 1,
+      "source_tiles": 150,
+      "output": "D:/program/LMonitor/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/murder-row/floor-1.webp",
+      "output_width": 1920,
+      "output_height": 1280,
+      "normalized_tiles": [],
+      "sha256": "508794307a2b0054eeb924344889cd4eaf01af4fa2f3ae206d6db12c6c59e30e"
+    },
+    {
+      "dungeon_key": "nexus-point-xenas",
+      "texture_directory": "NexusPointXenas",
+      "floor_index": 1,
+      "source_tiles": 150,
+      "output": "D:/program/LMonitor/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/nexus-point-xenas/floor-1.webp",
+      "output_width": 1920,
+      "output_height": 1280,
+      "normalized_tiles": [
+        {
+          "file": "1_56.png",
+          "source_size": [
+            256,
+            256
+          ]
+        }
+      ],
+      "sha256": "7f34ef4af1c356b95ea1647b52a7244434acb7694c11424b1b76bec3fd342ba0"
+    },
+    {
+      "dungeon_key": "pit-of-saron",
+      "texture_directory": "PitOfSaron",
+      "floor_index": 1,
+      "source_tiles": 150,
+      "output": "D:/program/LMonitor/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/pit-of-saron/floor-1.webp",
+      "output_width": 1920,
+      "output_height": 1280,
+      "normalized_tiles": [],
+      "sha256": "dad9e8d2323c68e5a496e230005c79bd6ec407ae981d946b7fdf3fda9d1adeb6"
+    },
+    {
+      "dungeon_key": "ruby-life-pools",
+      "texture_directory": "RubyLifePools",
+      "floor_index": 1,
+      "source_tiles": 150,
+      "output": "D:/program/LMonitor/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/ruby-life-pools/floor-1.webp",
+      "output_width": 1920,
+      "output_height": 1280,
+      "normalized_tiles": [],
+      "sha256": "470676d61b90aab2d54c613d6b28d881cba49fbe93718d9f4e4b1567beaf1c1e"
+    },
+    {
+      "dungeon_key": "seat-of-the-triumvirate",
+      "texture_directory": "SeatOfTheTriumvirate",
+      "floor_index": 1,
+      "source_tiles": 150,
+      "output": "D:/program/LMonitor/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/seat-of-the-triumvirate/floor-1.webp",
+      "output_width": 1920,
+      "output_height": 1280,
+      "normalized_tiles": [],
+      "sha256": "1299d74139bbee88d8964bd58d497893d258edfe4a2a8ab2a713cd91254bd2d3"
+    },
+    {
+      "dungeon_key": "skyreach",
+      "texture_directory": "Skyreach",
+      "floor_index": 1,
+      "source_tiles": 150,
+      "output": "D:/program/LMonitor/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/skyreach/floor-1.webp",
+      "output_width": 1920,
+      "output_height": 1280,
+      "normalized_tiles": [],
+      "sha256": "1c1dbe373c8f696bda39ac27936f12523eae24079c85130ed15f5ff43e30428d"
+    },
+    {
+      "dungeon_key": "temple-of-sethraliss",
+      "texture_directory": "TempleOfSethraliss",
+      "floor_index": 1,
+      "source_tiles": 150,
+      "output": "D:/program/LMonitor/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/temple-of-sethraliss/floor-1.webp",
+      "output_width": 1920,
+      "output_height": 1280,
+      "normalized_tiles": [],
+      "sha256": "59d2bd927119c9641fdf6e7ab2354ac26a7f65e621a9cd91cef0dfccd8dfa423"
+    },
+    {
+      "dungeon_key": "the-blinding-vale",
+      "texture_directory": "TheBlindingVale",
+      "floor_index": 1,
+      "source_tiles": 150,
+      "output": "D:/program/LMonitor/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/the-blinding-vale/floor-1.webp",
+      "output_width": 1920,
+      "output_height": 1280,
+      "normalized_tiles": [],
+      "sha256": "46180f2a77c34e83aec5b82ec133caf183dd748ac5976fa056d0a45cbf49eca7"
+    },
+    {
+      "dungeon_key": "voidscar-arena",
+      "texture_directory": "VoidscarArena",
+      "floor_index": 1,
+      "source_tiles": 150,
+      "output": "D:/program/LMonitor/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/voidscar-arena/floor-1.webp",
+      "output_width": 1920,
+      "output_height": 1280,
+      "normalized_tiles": [],
+      "sha256": "b1310acd629623d63f5de4cfc1f7c5400b366842b3eb91c6f0b24267fd0a6527"
+    },
+    {
+      "dungeon_key": "windrunner-spire",
+      "texture_directory": "WindrunnerSpire",
+      "floor_index": 1,
+      "source_tiles": 150,
+      "output": "D:/program/LMonitor/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/windrunner-spire/floor-1.webp",
+      "output_width": 1920,
+      "output_height": 1280,
+      "normalized_tiles": [],
+      "sha256": "6f64db70c8a8c8ab0b9302d96d22371a3a9efc7b525372b905c903666c66f792"
+    }
+  ],
+  "ui_assets": [
+    {
+      "source": "Textures/MDTFull.tga",
+      "output": "D:/program/LMonitor/static/portal/mythic_planner/vendor/mdt-6.2.10/assets/mdt-full.png",
+      "sha256": "bbfec2b0a10f573207976978edcf598b78ab2ec7c0ecfc275d7e3e87b61dde6d"
+    },
+    {
+      "source": "Textures/icons.tga",
+      "output": "D:/program/LMonitor/static/portal/mythic_planner/vendor/mdt-6.2.10/assets/icons.png",
+      "sha256": "d4d7f6edfe69299d5deb75f614c39b7dd5a79aac30295dcc80f96e3a62483a51"
+    },
+    {
+      "source": "Textures/ring.tga",
+      "output": "D:/program/LMonitor/static/portal/mythic_planner/vendor/mdt-6.2.10/assets/ring.png",
+      "sha256": "2cbc23ba497bfe755cc20d469c201135cd6950b80663f16365b5f3ad7b9395fd"
+    },
+    {
+      "source": "Textures/Circle_White.tga",
+      "output": "D:/program/LMonitor/static/portal/mythic_planner/vendor/mdt-6.2.10/assets/circle-white.png",
+      "sha256": "307de4ac43786175fd928455f919c39e7e7239d2ebbadd787e0eaffdab1b51e5"
+    },
+    {
+      "source": "Textures/arrows.tga",
+      "output": "D:/program/LMonitor/static/portal/mythic_planner/vendor/mdt-6.2.10/assets/arrows.png",
+      "sha256": "f09a83bdfeceddb3ebe4d65d744c3369799185563d65fc77234f747b07e94b6b"
+    },
+    {
+      "source": "Textures/triangle.tga",
+      "output": "D:/program/LMonitor/static/portal/mythic_planner/vendor/mdt-6.2.10/assets/triangle.png",
+      "sha256": "6c235ee509856346e505a59b7c5f6fbc4424bfebc78f367a94b1d311ef17c3e1"
+    },
+    {
+      "source": "Textures/line.tga",
+      "output": "D:/program/LMonitor/static/portal/mythic_planner/vendor/mdt-6.2.10/assets/line.png",
+      "sha256": "538dbc7bc6de31910bda151961886991fcaacc5e7b79487216f37a0d93dbcd30"
+    }
+  ]
+}

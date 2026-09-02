@@ -17,7 +17,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--file',
             default='',
-            help='要更新的数据包；默认使用 mdt_6_2_9.json。',
+            help='要更新的数据包；默认使用 mdt_6_2_10.json。',
         )
         parser.add_argument('--data-env', type=int, default=1)
         parser.add_argument('--difficulty-id', type=int, default=8)
@@ -32,7 +32,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         package_path = Path(options['file'] or (
             Path(settings.BASE_DIR)
-            / 'botend/data/mythic_planner/mdt_6_2_9.json'
+            / 'botend/data/mythic_planner/mdt_6_2_10.json'
         )).resolve()
         if not package_path.is_file():
             raise CommandError(f'MDT 数据包不存在：{package_path}')
