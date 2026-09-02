@@ -118,17 +118,43 @@
       : `<span class="${className} gear-slot-placeholder" aria-hidden="true">◇</span>`;
   }
 
+  function tooltipLineIdentity(line) {
+    return String(line || "").normalize("NFKC").trim()
+      .replace(/^(?:装备|使用)\s*[:：]\s*/, "")
+      .replace(/\s+/g, "")
+      .replace(/[。.!！]+$/, "")
+      .toLowerCase();
+  }
+
+  function isStandaloneTooltipStatLine(line) {
+    const statName = "(?:额外护甲|最低伤害|最高伤害|武器秒伤|力量|敏捷|智力|耐力|护甲|暴击|急速|精通|全能|吸血|闪避|躲闪|速度)";
+    const pattern = new RegExp(
+      `^[+＋]?\\s*[\\d,.，]+\\s*(?:点\\s*)?(?:\\[?\\s*${statName}(?:\\s*(?:or|或|/|、)\\s*${statName})*\\s*\\]?)$`,
+      "i",
+    );
+    return pattern.test(String(line || "").normalize("NFKC").trim());
+  }
+
+  function isRedundantDescriptionLine(line, variant) {
+    const normalized = String(line || "").normalize("NFKC").trim();
+    if (variant?.item_level && /^物品等级\s*[\d,.，]+$/.test(normalized)) return true;
+    return Object.keys(variant?.stats || {}).length > 0 && isStandaloneTooltipStatLine(normalized);
+  }
+
   function tooltipText(item, variant) {
     const values = [];
     if (variant?.item_level) values.push(`物品等级 ${variant.item_level}`);
     Object.entries(variant?.stats || {}).forEach(([key, value]) => values.push(`+${formatNumber(value)} ${STAT_LABELS[key] || key}`));
     (variant?.effects || []).forEach((effect) => values.push(effectText(effect)));
-    if (item?.description) values.push(item.description);
+    if (item?.description) {
+      values.push(String(item.description).replace(/\r\n?/g, "\n").split("\n")
+        .filter((line) => !isRedundantDescriptionLine(line, variant)).join("\n"));
+    }
     const seen = new Set();
     return values.flatMap((value) => String(value || "").replace(/\r\n?/g, "\n").split("\n"))
       .map((line) => line.trim()).filter((line) => {
         if (!line) return false;
-        const identity = line.replace(/\s+/g, " ");
+        const identity = tooltipLineIdentity(line);
         if (seen.has(identity)) return false;
         seen.add(identity);
         return true;

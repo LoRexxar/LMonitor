@@ -1073,10 +1073,12 @@ class GearBuilderFrontendContractTests(TestCase):
         for value in ('LOADOUT_LIBRARY_KEY', 'MAX_SAVED_LOADOUTS = 30', 'readSavedLoadouts', 'saveCurrentLoadout', 'loadSavedLoadout', 'deleteSavedLoadout'):
             self.assertIn(value, script)
         self.assertIn('code: await encodeShare(compactShareState(state))', script)
-        self.assertIn("portal/js/gear_builder.js' %}?v=20260902_gear_builder_v17", template)
+        self.assertIn("portal/js/gear_builder.js' %}?v=20260902_gear_builder_v18", template)
         self.assertIn("wow-item-tooltip.js' %}?v=20260902_singleton", template)
         self.assertNotIn('class="gear-option-stat" title=', script)
         self.assertIn('const seen = new Set();', script)
+        for value in ('tooltipLineIdentity', 'isStandaloneTooltipStatLine', 'isRedundantDescriptionLine'):
+            self.assertIn(value, script)
         tooltip_script = (root / 'static/shared/js/wow-item-tooltip.js').read_text(encoding='utf-8')
         self.assertIn('window.__wowItemTooltipInitialized', tooltip_script)
         self.assertIn("portal/css/gear_builder.css' %}?v=20260901_gear_builder_v13", template)
