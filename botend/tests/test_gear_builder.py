@@ -581,6 +581,28 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         self.assertEqual(payload['equipment']['head']['variant']['id'], self.hero.id)
         self.assertEqual(payload['warnings'], [])
 
+    def test_share_skips_wrong_slot_equipment_and_loads_other_slots(self):
+        response = self.client.post(
+            '/portal/api/gear-builder/resolve-share/',
+            data=json.dumps({
+                'v': 4,
+                'c': 'Warrior',
+                's': 'Fury',
+                'b': 'test-batch',
+                'e': [
+                    ['head', self.helm.item_id, self.hero.variant_key],
+                    ['neck', self.helm.item_id, self.hero.variant_key],
+                ],
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        payload = response.json()
+        self.assertEqual(set(payload['equipment']), {'head'})
+        self.assertEqual(payload['equipment']['head']['variant']['id'], self.hero.id)
+        self.assertIn('颈部的装备不适用于当前专精，已置空', payload['warnings'])
+
     def test_share_rejects_outdated_primary_key_encoding(self):
         response = self.client.post(
             '/portal/api/gear-builder/resolve-share/',
@@ -1185,6 +1207,22 @@ class GearBuilderIconSyncTests(TestCase):
 
 
 class GearBuilderFrontendContractTests(TestCase):
+    def test_candidate_requests_are_slot_scoped_and_stale_responses_are_ignored(self):
+        root = Path(__file__).resolve().parents[2]
+        script = (root / 'static/portal/js/gear_builder.js').read_text(encoding='utf-8')
+
+        self.assertNotIn('if (candidateLoading) return;', script)
+        self.assertIn('if (!reset && candidateLoading) return;', script)
+        self.assertIn('let candidateRequestId = 0;', script)
+        self.assertIn('const requestId = reset ? ++candidateRequestId : candidateRequestId;', script)
+        self.assertIn('const requestedPage = reset ? 1 : candidatePage + 1;', script)
+        self.assertIn('candidatePage = requestedPage;', script)
+        self.assertIn('if (requestId !== candidateRequestId) return;', script)
+        self.assertIn('data-candidate-slot=', script)
+        self.assertIn('async function addItem(item, variant, targetSlot = state.selectedSlot)', script)
+        self.assertIn('if (targetSlot !== state.selectedSlot)', script)
+        self.assertIn('state.equipment[targetSlot] = entry;', script)
+
     def test_shared_header_and_frontend_contract(self):
         root = Path(__file__).resolve().parents[2]
         header = (root / 'templates/portal/_header.html').read_text(encoding='utf-8')
@@ -1215,7 +1253,7 @@ class GearBuilderFrontendContractTests(TestCase):
         for value in ('LOADOUT_LIBRARY_KEY', 'MAX_SAVED_LOADOUTS = 30', 'readSavedLoadouts', 'saveCurrentLoadout', 'loadSavedLoadout', 'deleteSavedLoadout'):
             self.assertIn(value, script)
         self.assertIn('code: await encodeShare(compactShareState(state))', script)
-        self.assertIn("portal/js/gear_builder.js' %}?v=20260902_gear_builder_v21", template)
+        self.assertIn("portal/js/gear_builder.js' %}?v=20260902_gear_builder_v22", template)
         self.assertIn("wow-item-tooltip.js' %}?v=20260902_singleton", template)
         self.assertNotIn('class="gear-option-stat" title=', script)
         self.assertIn('const seen = new Set();', script)
@@ -1238,7 +1276,7 @@ class GearBuilderFrontendContractTests(TestCase):
         self.assertIn('class="gear-actions-label">SimC', template)
         self.assertIn('class="gear-actions-label">保存与分享', template)
         self.assertIn('.gear-actions-panel[hidden]', styles)
-        self.assertIn('renderCandidates();\n      renderDetail();', script)
+        self.assertIn('renderCandidates();\n        renderDetail();', script)
         current_item_branch = script[
             script.index('Number(current?.item?.item_id) === Number(item.item_id)'):
             script.index('const replacing = Boolean(current);')

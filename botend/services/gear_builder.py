@@ -855,7 +855,8 @@ def hydrate_shared_state(*, share_version, class_name, spec_name, batch_key, ent
         ) or not slot_matches(variant, slot, class_name, spec_name) or not spec_matches(
             variant.item, class_name, spec_name, variant, slot,
         ):
-            raise GearBuilderError(f'{SLOT_LABELS[slot]}的装备不适用于当前专精')
+            warnings.append(f'{SLOT_LABELS[slot]}的装备不适用于当前专精，已置空')
+            continue
 
         item_payload, variant_payload = _state_item_and_variant(variant, class_name, spec_name)
         enhancement_rows = {}

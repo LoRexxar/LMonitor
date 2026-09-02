@@ -77,6 +77,8 @@
   let candidateTotal = 0;
   let candidatePage = 1;
   let candidateLoading = false;
+  let candidateRequestId = 0;
+  let candidateSlot = "";
   let searchTimer = 0;
   let enhancementGroups = {embellishments: [], gems: [], enchants: []};
   let savedLoadouts = [];
@@ -435,7 +437,7 @@
         ? item.variants.find((row) => row.id === current.variant?.id) || item.variants[0]
         : item.variants[0];
       const equipped = current?.item?.item_id === item.item_id && current?.variant?.id === variant?.id;
-      return `<div class="gear-candidate-row${equipped ? " is-equipped" : ""}" role="button"${equipped ? ' aria-current="true"' : ""} data-select-item="${item.item_id}" data-variant-id="${variant.id}"${tooltipAttrs(item, variant)}>
+      return `<div class="gear-candidate-row${equipped ? " is-equipped" : ""}" role="button"${equipped ? ' aria-current="true"' : ""} data-select-item="${item.item_id}" data-variant-id="${variant.id}" data-candidate-slot="${escapeHtml(candidateSlot)}"${tooltipAttrs(item, variant)}>
         <div class="gear-candidate-name">${iconMarkup(item)}<span class="gear-candidate-copy"><strong class="gear-candidate-title">${escapeHtml(item.name)}</strong><small class="gear-candidate-subtitle">${escapeHtml(equipped ? "当前装备" : item.armor_type || item.weapon_type || (variant.type === "crafted_equipment" ? "制造装备" : "装备"))}</small></span>${endpoints.ownedItems ? `<button type="button" class="gear-owned-add" data-add-owned="${item.item_id}" data-owned-variant-id="${variant.id}" aria-label="将${escapeHtml(item.name)}加入已有装备" title="加入已有装备；再次加入会增加数量"><span class="gear-owned-add-icon" aria-hidden="true">＋</span><span class="gear-owned-add-label">已有</span></button>` : ""}</div>
         <div class="gear-candidate-level">${variant.item_level || "-"}</div>
         <div class="gear-track gear-track--${escapeHtml(variant.track || "crafted")}">${escapeHtml(variant.type === "crafted_equipment" ? `制造 ${variant.crafting_quality || ""}星` : `${variant.track_label || variant.track || "-"} ${variant.track_rank ? `${variant.track_rank}/${variant.track_max_rank}` : ""}`)}</div>
@@ -513,17 +515,25 @@
   }
 
   async function loadCandidates(reset = true) {
-    if (candidateLoading) return;
-    if (reset) { candidatePage = 1; candidates = []; candidateTotal = 0; }
+    if (!reset && candidateLoading) return;
+    const requestId = reset ? ++candidateRequestId : candidateRequestId;
+    const requestedSlot = state.selectedSlot;
+    const requestedPage = reset ? 1 : candidatePage + 1;
+    if (reset) {
+      candidatePage = 1;
+      candidates = [];
+      candidateTotal = 0;
+      candidateSlot = requestedSlot;
+    }
     candidateLoading = true;
     renderCandidates();
     const params = new URLSearchParams({
       class: state.className,
       spec: state.specName,
-      slot: state.selectedSlot,
+      slot: requestedSlot,
       source: els.source_filter.value,
       q: els.search_input.value.trim(),
-      page: String(candidatePage),
+      page: String(requestedPage),
       page_size: "60",
     });
     const excludedSources = [...els.quick_filters.querySelectorAll("[data-exclude-source]:checked")]
@@ -534,15 +544,21 @@
     if (excludedStats.length) params.set("exclude_stats", excludedStats.join(","));
     try {
       const payload = await requestJson(`${endpoints.catalog}?${params}`);
+      if (requestId !== candidateRequestId) return;
+      candidateSlot = requestedSlot;
       candidates = reset ? payload.items : candidates.concat(payload.items || []);
+      candidatePage = requestedPage;
       candidateTotal = payload.total || 0;
     } catch (error) {
+      if (requestId !== candidateRequestId) return;
       if (reset) candidates = [];
       toast(error.message, true);
     } finally {
-      candidateLoading = false;
-      renderCandidates();
-      renderDetail();
+      if (requestId === candidateRequestId) {
+        candidateLoading = false;
+        renderCandidates();
+        renderDetail();
+      }
     }
   }
 
@@ -623,10 +639,14 @@
     return "";
   }
 
-  async function addItem(item, variant) {
-    const error = validateEquipment(variant, state.selectedSlot);
+  async function addItem(item, variant, targetSlot = state.selectedSlot) {
+    if (targetSlot !== state.selectedSlot) {
+      toast("栏位已切换，请在当前栏位重新选择装备。", true);
+      return;
+    }
+    const error = validateEquipment(variant, targetSlot);
     if (error) { toast(error, true); return; }
-    const current = selectedEntry();
+    const current = state.equipment[targetSlot] || null;
     if (Number(current?.item?.item_id) === Number(item.item_id) && Number(current?.variant?.id) === Number(variant.id)) {
       renderDetail();
       openDetail();
@@ -634,7 +654,7 @@
     }
     const replacing = Boolean(current);
     const furyTitanGrip = state.className === "Warrior" && state.specName === "Fury";
-    if (state.selectedSlot === "main_hand" && variant.metadata?.two_handed && state.equipment.off_hand && !furyTitanGrip) {
+    if (targetSlot === "main_hand" && variant.metadata?.two_handed && state.equipment.off_hand && !furyTitanGrip) {
       delete state.equipment.off_hand;
       toast("已装备双手武器，副手装备已移除。")
     }
@@ -655,12 +675,12 @@
       const count = Number(variant.crafting_options?.stat_count || 2);
       entry.selectedStats = pool.slice(0, count);
     }
-    state.equipment[state.selectedSlot] = entry;
+    state.equipment[targetSlot] = entry;
     if (entry.selectedStats.length) await resolveCraftedEntry(entry);
     persist();
     renderAll();
-    openDetail();
-    toast(`${item.name} 已${replacing ? "替换" : "装备"}到${slotLabel(state.selectedSlot)}`);
+    if (targetSlot === state.selectedSlot) openDetail();
+    toast(`${item.name} 已${replacing ? "替换" : "装备"}到${slotLabel(targetSlot)}`);
   }
 
   function slotLabel(slot) {
@@ -1639,7 +1659,7 @@
       if (event.target.matches("[data-exclude-source], [data-exclude-stat]")) loadCandidates(true);
     });
     els.search_input.addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = window.setTimeout(() => loadCandidates(true), 250); });
-    els.load_more.addEventListener("click", () => { candidatePage += 1; loadCandidates(false); });
+    els.load_more.addEventListener("click", () => loadCandidates(false));
     els.candidate_list.addEventListener("click", (event) => {
       const ownButton = event.target.closest("[data-add-owned]");
       if (ownButton) {
@@ -1658,7 +1678,7 @@
       if (!row) return;
       const item = findCandidate(row.dataset.selectItem);
       const variant = item?.variants?.find((candidate) => Number(candidate.id) === Number(row.dataset.variantId));
-      if (item && variant) addItem(item, variant);
+      if (item && variant) addItem(item, variant, row.dataset.candidateSlot);
     });
     if (els.owned_list) els.owned_list.addEventListener("click", async (event) => {
       const remove = event.target.closest("[data-remove-owned]");
