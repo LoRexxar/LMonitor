@@ -283,6 +283,33 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         }).json()
         self.assertNotIn(10001, [row['item_id'] for row in wrong_class_mask['items']])
 
+    def test_catalog_quick_filters_exclude_sources_and_secondary_stats(self):
+        mythic_plus = WowItemVariantSnapshot.objects.create(
+            item=self.helm, season=self.season, batch_key='test-batch',
+            game_build='12.1.0.99999', variant_key='mythic-plus-mastery',
+            variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
+            item_level=715, upgrade_track='hero', track_rank=3, track_max_rank=6,
+            compatible_slots=['head'], stats_json={'strength': 950, 'mastery': 320},
+            source_json=[{'type': 'mythic_plus', 'instance_zh': '测试大秘境'}],
+        )
+        without_raid = self.client.get('/portal/api/gear-builder/catalog/', {
+            'class': 'Warrior', 'spec': 'Fury', 'slot': 'head', 'exclude_sources': 'raid',
+        }).json()['items']
+        helm = next(row for row in without_raid if row['item_id'] == self.helm.item_id)
+        self.assertEqual([row['id'] for row in helm['variants']], [mythic_plus.id])
+
+        without_mastery = self.client.get('/portal/api/gear-builder/catalog/', {
+            'class': 'Warrior', 'spec': 'Fury', 'slot': 'head', 'exclude_stats': 'mastery,versatility',
+        }).json()['items']
+        helm = next(row for row in without_mastery if row['item_id'] == self.helm.item_id)
+        self.assertNotIn(mythic_plus.id, [row['id'] for row in helm['variants']])
+
+        without_both = self.client.get('/portal/api/gear-builder/catalog/', {
+            'class': 'Warrior', 'spec': 'Fury', 'slot': 'head',
+            'exclude_sources': 'raid', 'exclude_stats': 'mastery',
+        }).json()['items']
+        self.assertNotIn(self.helm.item_id, [row['item_id'] for row in without_both])
+
     def test_catalog_normalizes_legacy_jewelry_to_one_or_two_native_sockets(self):
         neck = WowItemSnapshot.objects.create(
             item_id=10012, name='Legacy Neck', catalog_type='equipment', slot_key='neck',
@@ -376,6 +403,16 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
             variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT, item_level=710,
             compatible_slots=['main_hand'], stats_json={'strength': 900, 'crit': 300},
         )
+        strength_one_hand = WowItemSnapshot.objects.create(
+            item_id=10014, name='Strength One-Hander', catalog_type='equipment', slot_key='weapon',
+            item_class_id=2, item_subclass_id=7, inventory_type=13, weapon_type='单手剑',
+            metadata={'raidbots_stats_alloc': [{'id': 4, 'alloc': 5000}]},
+        )
+        WowItemVariantSnapshot.objects.create(
+            item=strength_one_hand, season=self.season, batch_key='test-batch', variant_key='strength-1h',
+            variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT, item_level=710,
+            compatible_slots=['main_hand', 'off_hand'], stats_json={'strength': 900, 'haste': 300},
+        )
 
         fury_head = self.client.get('/portal/api/gear-builder/catalog/', {
             'class': 'Warrior', 'spec': 'Fury', 'slot': 'head',
@@ -391,6 +428,11 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
             'class': 'Warrior', 'spec': 'Fury', 'slot': 'main_hand',
         }).json()['items']
         self.assertNotIn(intellect_sword.item_id, [row['item_id'] for row in fury_weapons])
+        self.assertNotIn(strength_one_hand.item_id, [row['item_id'] for row in fury_weapons])
+        protection_weapons = self.client.get('/portal/api/gear-builder/catalog/', {
+            'class': 'Warrior', 'spec': 'Protection', 'slot': 'main_hand',
+        }).json()['items']
+        self.assertIn(strength_one_hand.item_id, [row['item_id'] for row in protection_weapons])
         fire_weapons = self.client.get('/portal/api/gear-builder/catalog/', {
             'class': 'Mage', 'spec': 'Fire', 'slot': 'main_hand',
         }).json()['items']
@@ -1113,7 +1155,7 @@ class GearBuilderFrontendContractTests(TestCase):
         for value in ('LOADOUT_LIBRARY_KEY', 'MAX_SAVED_LOADOUTS = 30', 'readSavedLoadouts', 'saveCurrentLoadout', 'loadSavedLoadout', 'deleteSavedLoadout'):
             self.assertIn(value, script)
         self.assertIn('code: await encodeShare(compactShareState(state))', script)
-        self.assertIn("portal/js/gear_builder.js' %}?v=20260902_gear_builder_v19", template)
+        self.assertIn("portal/js/gear_builder.js' %}?v=20260902_gear_builder_v20", template)
         self.assertIn("wow-item-tooltip.js' %}?v=20260902_singleton", template)
         self.assertNotIn('class="gear-option-stat" title=', script)
         self.assertIn('const seen = new Set();', script)
@@ -1121,7 +1163,11 @@ class GearBuilderFrontendContractTests(TestCase):
             self.assertIn(value, script)
         tooltip_script = (root / 'static/shared/js/wow-item-tooltip.js').read_text(encoding='utf-8')
         self.assertIn('window.__wowItemTooltipInitialized', tooltip_script)
-        self.assertIn("portal/css/gear_builder.css' %}?v=20260901_gear_builder_v13", template)
+        self.assertIn("portal/css/gear_builder.css' %}?v=20260902_gear_builder_v14", template)
+        self.assertEqual(template.count('data-exclude-source='), 3)
+        self.assertEqual(template.count('data-exclude-stat='), 4)
+        self.assertIn('exclude_sources', script)
+        self.assertIn('exclude_stats', script)
         self.assertIn('.gear-loadout-panel', styles)
         self.assertIn('id="gear-actions-toggle"', template)
         self.assertIn('id="gear-actions-panel"', template)

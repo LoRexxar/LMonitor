@@ -10,7 +10,7 @@
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260808_portal_theme_v2"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260821_mythicstats_clean_light_v7">
     <link rel="stylesheet" href="{% static 'shared/css/wow-item-tooltip.css' %}?v=20260813_simc_equipment_icon">
-    <link rel="stylesheet" href="{% static 'portal/css/gear_builder.css' %}?v=20260901_gear_builder_v13">
+    <link rel="stylesheet" href="{% static 'portal/css/gear_builder.css' %}?v=20260902_gear_builder_v14">
 </head>
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
@@ -138,6 +138,25 @@
                                 <option value="crafted">制造</option>
                             </select>
                         </label>
+                    </div>
+                    <div id="gear-quick-filters" class="gear-quick-filters" aria-label="快速隐藏候选装备">
+                        <div class="gear-quick-filter-group">
+                            <span class="gear-quick-filter-label">隐藏来源</span>
+                            <div class="gear-filter-chips" role="group" aria-label="按来源隐藏">
+                                <label class="gear-filter-chip"><input type="checkbox" data-exclude-source="mythic_plus"><span>大秘境</span></label>
+                                <label class="gear-filter-chip"><input type="checkbox" data-exclude-source="raid"><span>团本</span></label>
+                                <label class="gear-filter-chip"><input type="checkbox" data-exclude-source="delve"><span>地下堡</span></label>
+                            </div>
+                        </div>
+                        <div class="gear-quick-filter-group">
+                            <span class="gear-quick-filter-label">隐藏绿字</span>
+                            <div class="gear-filter-chips" role="group" aria-label="按绿字隐藏">
+                                <label class="gear-filter-chip"><input type="checkbox" data-exclude-stat="crit"><span>暴击</span></label>
+                                <label class="gear-filter-chip"><input type="checkbox" data-exclude-stat="haste"><span>急速</span></label>
+                                <label class="gear-filter-chip"><input type="checkbox" data-exclude-stat="mastery"><span>精通</span></label>
+                                <label class="gear-filter-chip"><input type="checkbox" data-exclude-stat="versatility"><span>全能</span></label>
+                            </div>
+                        </div>
                     </div>
                     <div class="gear-table-head" aria-hidden="true">
                         <span>名称</span><span>物品等级</span><span>品级</span><span>来源</span><span>绿字</span>
@@ -284,6 +303,6 @@
 
     <div id="gear-toast-root" class="gear-toast-root" aria-live="polite"></div>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260902_singleton"></script>
-    <script src="{% static 'portal/js/gear_builder.js' %}?v=20260902_gear_builder_v19"></script>
+    <script src="{% static 'portal/js/gear_builder.js' %}?v=20260902_gear_builder_v20"></script>
 </body>
 </html>

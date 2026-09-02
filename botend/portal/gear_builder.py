@@ -65,6 +65,8 @@ class PortalGearBuilderCatalogAPIView(View):
                 spec_name=request.GET.get('spec') or 'Fury',
                 slot=request.GET.get('slot') or 'head',
                 source_type=request.GET.get('source') or 'all',
+                excluded_sources=request.GET.getlist('exclude_sources'),
+                excluded_stats=request.GET.getlist('exclude_stats'),
                 query=request.GET.get('q') or '',
                 page=request.GET.get('page') or 1,
                 page_size=request.GET.get('page_size') or 60,

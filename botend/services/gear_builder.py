@@ -117,7 +117,7 @@ WEAPON_SUBCLASSES_BY_CLASS = {
     'Warrior': {0, 1, 4, 5, 6, 7, 8, 13, 15},
 }
 SPEC_WEAPON_INVENTORY_TYPES = {
-    'Warrior:Arms': {17}, 'Warrior:Fury': {13, 17, 21}, 'Warrior:Protection': {13, 21},
+    'Warrior:Arms': {17}, 'Warrior:Fury': {17}, 'Warrior:Protection': {13, 21},
     'Paladin:Holy': {13, 17, 21}, 'Paladin:Protection': {13, 21}, 'Paladin:Retribution': {17},
     'DeathKnight:Blood': {17}, 'DeathKnight:Frost': {13, 17, 21}, 'DeathKnight:Unholy': {17},
     'Hunter:BeastMastery': {15, 26}, 'Hunter:Marksmanship': {15, 26}, 'Hunter:Survival': {17},
@@ -138,6 +138,12 @@ DUAL_WIELD_SPECS = {
 }
 SHIELD_SPECS = {'Warrior:Protection', 'Paladin:Holy', 'Paladin:Protection', 'Shaman:Elemental', 'Shaman:Restoration'}
 HELD_OFFHAND_SPECS = INTELLECT_SPECS - {'Paladin:Holy', 'Shaman:Elemental', 'Shaman:Restoration'}
+QUICK_SOURCE_FILTERS = {
+    'mythic_plus': {'mythic_plus', 'great_vault'},
+    'raid': {'raid'},
+    'delve': {'delve'},
+}
+FILTERABLE_SECONDARY_STATS = {'crit', 'haste', 'mastery', 'versatility'}
 
 
 class GearBuilderError(ValueError):
@@ -415,6 +421,31 @@ def _source_matches(variant, source_type):
                for row in (variant.source_json or []) if isinstance(row, dict))
 
 
+def _filter_values(raw_values, allowed):
+    values = [raw_values] if isinstance(raw_values, str) else list(raw_values or [])
+    parsed = {
+        value.strip().casefold()
+        for raw in values
+        for value in str(raw or '').split(',')
+        if value.strip()
+    }
+    return parsed.intersection(allowed)
+
+
+def _source_is_excluded(variant, excluded_sources):
+    source_types = {
+        str(row.get('type') or '').casefold()
+        for row in (variant.source_json or [])
+        if isinstance(row, dict) and row.get('type')
+    }
+    return any(source_types.intersection(QUICK_SOURCE_FILTERS[group]) for group in excluded_sources)
+
+
+def _secondary_stat_is_excluded(variant, excluded_stats):
+    stats = normalize_stats(variant.stats_json)
+    return any(_number(stats.get(key)) for key in excluded_stats)
+
+
 def _source_track_is_valid(variant):
     """阻止旧批次中的地下堡神话轨道记录继续进入候选列表。"""
     source_types = {
@@ -503,7 +534,10 @@ def _catalog_queryset(season, variant_types, query=''):
     return qs.order_by('-item_level', 'item__name_zh', 'item__name', 'variant_key')
 
 
-def catalog_items(*, class_name, spec_name, slot, source_type='all', query='', page=1, page_size=60):
+def catalog_items(
+    *, class_name, spec_name, slot, source_type='all', query='', page=1, page_size=60,
+    excluded_sources=(), excluded_stats=(),
+):
     class_name, spec_name = canonical_spec(class_name, spec_name)
     if slot not in SLOT_LABELS:
         raise GearBuilderError('未知装备槽位')
@@ -511,6 +545,8 @@ def catalog_items(*, class_name, spec_name, slot, source_type='all', query='', p
     if not season or not season.gear_batch_key:
         return {'items': [], 'total': 0, 'page': 1, 'page_size': page_size, 'catalog': catalog_context(season)}
 
+    excluded_sources = _filter_values(excluded_sources, set(QUICK_SOURCE_FILTERS))
+    excluded_stats = _filter_values(excluded_stats, FILTERABLE_SECONDARY_STATS)
     grouped = defaultdict(list)
     for variant in _catalog_queryset(
         season,
@@ -524,6 +560,10 @@ def catalog_items(*, class_name, spec_name, slot, source_type='all', query='', p
         ):
             continue
         if not _source_matches(variant, source_type):
+            continue
+        if _source_is_excluded(variant, excluded_sources):
+            continue
+        if _secondary_stat_is_excluded(variant, excluded_stats):
             continue
         grouped[variant.item_id].append(variant)
 

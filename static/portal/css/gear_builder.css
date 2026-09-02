@@ -320,6 +320,36 @@
 .gear-search:focus-within { border-color: #86a8f7; box-shadow: 0 0 0 3px rgba(37, 86, 216, .1); }
 .gear-search input { width: 100%; border: 0; outline: 0; background: transparent; color: var(--gear-text); font-size: .8rem; }
 .gear-filter-select { min-width: 150px; }
+.gear-quick-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    padding: 8px 16px 10px;
+    border-bottom: 1px solid var(--gear-border);
+    background: color-mix(in srgb, var(--gear-surface-muted) 48%, var(--gear-surface));
+}
+.gear-quick-filter-group,
+.gear-filter-chips { display: flex; align-items: center; gap: 6px; }
+.gear-quick-filter-label { margin-right: 2px; color: var(--gear-muted); font-size: .67rem; font-weight: 760; white-space: nowrap; }
+.gear-filter-chip { position: relative; cursor: pointer; }
+.gear-filter-chip input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.gear-filter-chip span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 25px;
+    padding: 0 9px;
+    border: 1px solid var(--gear-border);
+    border-radius: 999px;
+    background: var(--gear-surface);
+    color: var(--gear-text);
+    font-size: .67rem;
+    font-weight: 720;
+    transition: border-color .15s ease, background .15s ease, color .15s ease;
+}
+.gear-filter-chip span:hover { border-color: #9bb2ea; }
+.gear-filter-chip input:focus-visible + span { outline: 2px solid var(--gear-blue); outline-offset: 2px; }
+.gear-filter-chip input:checked + span { border-color: #ef9a91; background: #fff1ef; color: #b42318; }
+.gear-filter-chip input:checked + span::before { content: '×'; margin-right: 4px; font-size: .76rem; line-height: 1; }
 
 .gear-table-head,
 .gear-candidate-row {
@@ -664,6 +694,9 @@ html.portal-theme-dark .gear-detail-field select { color-scheme: dark; }
     .gear-table-head { display: none; }
     .gear-filter-row { align-items: stretch; flex-direction: column; }
     .gear-filter-select { justify-content: space-between; }
+    .gear-quick-filters { align-items: flex-start; flex-direction: column; gap: 8px; }
+    .gear-quick-filter-group { width: 100%; }
+    .gear-filter-chips { flex-wrap: wrap; }
     .gear-candidate-list { max-height: none; }
     .gear-candidate-row { grid-template-columns: minmax(0, 1fr) auto; gap: 7px 12px; min-height: 84px; padding: 10px 12px; }
     .gear-candidate-name { grid-column: 1 / -1; }

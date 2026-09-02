@@ -19,7 +19,7 @@
     "gear-class-select", "gear-spec-select", "gear-catalog-status", "gear-slot-list",
     "gear-equipped-count", "gear-mobile-count", "gear-browser-title", "gear-mode-equipment",
     "gear-mode-enhancement", "gear-equipment-browser", "gear-enhancement-browser",
-    "gear-search-input", "gear-source-filter", "gear-candidate-list", "gear-load-more",
+    "gear-search-input", "gear-source-filter", "gear-quick-filters", "gear-candidate-list", "gear-load-more",
     "gear-embellishment-list", "gear-gem-list", "gear-enchant-list", "gear-socket-summary",
     "gear-add-socket-option", "gear-add-socket", "gear-add-socket-copy", "gear-stats-context",
     "gear-detail-panel", "gear-detail-content", "gear-detail-close", "gear-stat-grid",
@@ -415,7 +415,7 @@
       return;
     }
     if (!candidates.length) {
-      els.candidate_list.innerHTML = '<div class="gear-empty-state"><div><strong>没有匹配装备</strong>尝试清空搜索词或切换来源。</div></div>';
+      els.candidate_list.innerHTML = '<div class="gear-empty-state"><div><strong>没有匹配装备</strong>尝试清空搜索词、切换来源或取消隐藏条件。</div></div>';
       els.load_more.hidden = true;
       return;
     }
@@ -451,6 +451,12 @@
       page: String(candidatePage),
       page_size: "60",
     });
+    const excludedSources = [...els.quick_filters.querySelectorAll("[data-exclude-source]:checked")]
+      .map((control) => control.dataset.excludeSource);
+    const excludedStats = [...els.quick_filters.querySelectorAll("[data-exclude-stat]:checked")]
+      .map((control) => control.dataset.excludeStat);
+    if (excludedSources.length) params.set("exclude_sources", excludedSources.join(","));
+    if (excludedStats.length) params.set("exclude_stats", excludedStats.join(","));
     try {
       const payload = await requestJson(`${endpoints.catalog}?${params}`);
       candidates = reset ? payload.items : candidates.concat(payload.items || []);
@@ -1544,6 +1550,9 @@
     els.mode_equipment.addEventListener("click", async () => { state.mode = "equipment"; persist(); renderMode(); await loadCandidates(true); });
     els.mode_enhancement.addEventListener("click", async () => { state.mode = "enhancement"; persist(); renderMode(); await loadEnhancements(); });
     els.source_filter.addEventListener("change", () => loadCandidates(true));
+    els.quick_filters.addEventListener("change", (event) => {
+      if (event.target.matches("[data-exclude-source], [data-exclude-stat]")) loadCandidates(true);
+    });
     els.search_input.addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = window.setTimeout(() => loadCandidates(true), 250); });
     els.load_more.addEventListener("click", () => { candidatePage += 1; loadCandidates(false); });
     els.candidate_list.addEventListener("click", (event) => {
