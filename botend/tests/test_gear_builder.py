@@ -23,7 +23,14 @@ from botend.models import (
     WowItemVariantSnapshot,
 )
 from botend.management.commands.sync_gear_builder_catalog import Command as SyncGearBuilderCatalogCommand
-from botend.services.gear_builder import active_season, catalog_context, stats_for_identity
+from botend.services.gear_builder import (
+    SPEC_WEAPON_INVENTORY_TYPES,
+    active_season,
+    catalog_context,
+    spec_matches,
+    stats_for_identity,
+)
+from botend.constants.wow import CLASS_SPEC_MAP
 from botend.services.gear_builder_catalog_source import CatalogSourceError, CurrentGearCatalogSource, _tooltip_details
 from botend.services.gear_builder_icon_sync import GearBuilderIconSync
 
@@ -906,6 +913,59 @@ class GearBuilderImportCommandTests(TestCase):
 
 
 class GearBuilderCurrentSourceTests(TestCase):
+    @staticmethod
+    def _weapon(subclass, inventory_type=13, primary='agility'):
+        return SimpleNamespace(
+            allowable_class_mask=0,
+            eligible_specs=[],
+            item_class_id=2,
+            item_subclass_id=subclass,
+            inventory_type=inventory_type,
+            metadata={'primary_stat_options': [primary]},
+        )
+
+    def test_every_current_specialization_has_an_explicit_weapon_inventory_rule(self):
+        identities = {
+            f'{class_name}:{spec_name}'
+            for class_name, spec_names in CLASS_SPEC_MAP.items()
+            for spec_name in spec_names
+        }
+        self.assertEqual(set(SPEC_WEAPON_INVENTORY_TYPES), identities)
+
+    def test_midnight_changed_specializations_use_current_weapon_rules(self):
+        agility_axe = self._weapon(0)
+        agility_dagger = self._weapon(15)
+        agility_staff = self._weapon(10, inventory_type=17)
+        intellect_dagger = self._weapon(15, primary='intellect')
+
+        # 《午夜》生存猎可双持单手斧、单手剑和匕首，同时保留传统双手武器。
+        self.assertTrue(spec_matches(agility_axe, 'Hunter', 'Survival', slot='main_hand'))
+        self.assertTrue(spec_matches(agility_axe, 'Hunter', 'Survival', slot='off_hand'))
+        self.assertTrue(spec_matches(agility_dagger, 'Hunter', 'Survival', slot='main_hand'))
+        self.assertTrue(spec_matches(agility_staff, 'Hunter', 'Survival', slot='main_hand'))
+        self.assertFalse(spec_matches(self._weapon(13), 'Hunter', 'Survival', slot='main_hand'))
+
+        # 吞噬是智力双持专精；浩劫和复仇不应取得吞噬使用的智力匕首。
+        self.assertTrue(spec_matches(intellect_dagger, 'DemonHunter', 'Devourer', slot='main_hand'))
+        self.assertTrue(spec_matches(intellect_dagger, 'DemonHunter', 'Devourer', slot='off_hand'))
+        self.assertFalse(spec_matches(agility_dagger, 'DemonHunter', 'Devourer', slot='main_hand'))
+        self.assertFalse(spec_matches(agility_dagger, 'DemonHunter', 'Havoc', slot='main_hand'))
+        self.assertTrue(spec_matches(self._weapon(7), 'DemonHunter', 'Havoc', slot='main_hand'))
+
+    def test_rogue_and_enhancement_weapon_subtypes_are_slot_aware(self):
+        dagger = self._weapon(15)
+        sword = self._weapon(7)
+        axe = self._weapon(0)
+
+        self.assertTrue(spec_matches(dagger, 'Rogue', 'Assassination', slot='main_hand'))
+        self.assertFalse(spec_matches(sword, 'Rogue', 'Assassination', slot='off_hand'))
+        self.assertFalse(spec_matches(dagger, 'Rogue', 'Outlaw', slot='main_hand'))
+        self.assertTrue(spec_matches(dagger, 'Rogue', 'Outlaw', slot='off_hand'))
+        self.assertTrue(spec_matches(dagger, 'Rogue', 'Subtlety', slot='main_hand'))
+        self.assertTrue(spec_matches(sword, 'Rogue', 'Subtlety', slot='off_hand'))
+        self.assertFalse(spec_matches(dagger, 'Shaman', 'Enhancement', slot='main_hand'))
+        self.assertTrue(spec_matches(axe, 'Shaman', 'Enhancement', slot='off_hand'))
+
     def test_current_midnight_season_uses_same_key_as_season_monitor(self):
         self.assertEqual(CurrentGearCatalogSource._season_key({
             'name': 'Midnight Season 2', 'shortName': 'mid2',

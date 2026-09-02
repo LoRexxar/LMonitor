@@ -81,6 +81,7 @@ INTELLECT_SPECS = {
     'Shaman:Elemental', 'Shaman:Restoration', 'Mage:Arcane', 'Mage:Fire', 'Mage:Frost',
     'Warlock:Affliction', 'Warlock:Demonology', 'Warlock:Destruction',
     'Monk:Mistweaver', 'Druid:Balance', 'Druid:Restoration',
+    'DemonHunter:Devourer',
     'Evoker:Devastation', 'Evoker:Preservation', 'Evoker:Augmentation',
 }
 AGILITY_CLASSES = {'Hunter', 'Rogue', 'DemonHunter'}
@@ -106,7 +107,7 @@ WEAPON_SUBCLASSES_BY_CLASS = {
     'DemonHunter': {0, 7, 9, 13, 15},
     'Druid': {4, 5, 6, 10, 13, 15},
     'Evoker': {4, 7, 10, 15},
-    'Hunter': {0, 1, 2, 3, 6, 7, 8, 10, 13, 18},
+    'Hunter': {0, 1, 2, 3, 6, 7, 8, 10, 13, 15, 18},
     'Mage': {7, 10, 15, 19},
     'Monk': {0, 4, 6, 7, 10, 13},
     'Paladin': {0, 1, 4, 5, 6, 7, 8},
@@ -120,7 +121,7 @@ SPEC_WEAPON_INVENTORY_TYPES = {
     'Warrior:Arms': {17}, 'Warrior:Fury': {17}, 'Warrior:Protection': {13, 21},
     'Paladin:Holy': {13, 17, 21}, 'Paladin:Protection': {13, 21}, 'Paladin:Retribution': {17},
     'DeathKnight:Blood': {17}, 'DeathKnight:Frost': {13, 17, 21}, 'DeathKnight:Unholy': {17},
-    'Hunter:BeastMastery': {15, 26}, 'Hunter:Marksmanship': {15, 26}, 'Hunter:Survival': {17},
+    'Hunter:BeastMastery': {15, 26}, 'Hunter:Marksmanship': {15, 26}, 'Hunter:Survival': {13, 17, 21},
     'Rogue:Assassination': {13, 21}, 'Rogue:Outlaw': {13, 21}, 'Rogue:Subtlety': {13, 21},
     'DemonHunter:Havoc': {13, 21}, 'DemonHunter:Vengeance': {13, 21}, 'DemonHunter:Devourer': {13, 21},
     'Shaman:Enhancement': {13, 21}, 'Shaman:Elemental': {13, 17, 21}, 'Shaman:Restoration': {13, 17, 21},
@@ -131,9 +132,40 @@ SPEC_WEAPON_INVENTORY_TYPES = {
     'Warlock:Affliction': {13, 17, 21, 26}, 'Warlock:Demonology': {13, 17, 21, 26}, 'Warlock:Destruction': {13, 17, 21, 26},
     'Evoker:Devastation': {13, 17, 21}, 'Evoker:Preservation': {13, 17, 21}, 'Evoker:Augmentation': {13, 17, 21},
 }
+# 仅靠职业武器白名单和单双手类型无法表达专精技能的实际要求。
+# 例如狂徒主手不能使用匕首、奇袭需要双匕首，而《午夜》的生存猎同时支持
+# 双持单手武器和传统双手武器。这里按专精与槽位收紧武器子类型，未列出的
+# 专精继续沿用职业白名单。
+SPEC_WEAPON_SUBCLASSES_BY_SLOT = {
+    'DemonHunter:Havoc': {
+        'main_hand': {0, 7, 9, 13}, 'off_hand': {0, 7, 9, 13},
+    },
+    'DemonHunter:Vengeance': {
+        'main_hand': {0, 7, 9, 13}, 'off_hand': {0, 7, 9, 13},
+    },
+    'DemonHunter:Devourer': {
+        'main_hand': {0, 7, 9, 13, 15}, 'off_hand': {0, 7, 9, 13, 15},
+    },
+    'Hunter:Survival': {
+        'main_hand': {0, 1, 6, 7, 10, 15}, 'off_hand': {0, 7, 15},
+    },
+    'Rogue:Assassination': {
+        'main_hand': {15}, 'off_hand': {15},
+    },
+    'Rogue:Outlaw': {
+        'main_hand': {0, 4, 7, 13}, 'off_hand': {0, 4, 7, 13, 15},
+    },
+    'Rogue:Subtlety': {
+        'main_hand': {15}, 'off_hand': {0, 4, 7, 13, 15},
+    },
+    'Shaman:Enhancement': {
+        'main_hand': {0, 4, 13}, 'off_hand': {0, 4, 13},
+    },
+}
 DUAL_WIELD_SPECS = {
     'Warrior:Fury', 'DeathKnight:Frost', 'Rogue:Assassination', 'Rogue:Outlaw', 'Rogue:Subtlety',
-    'DemonHunter:Havoc', 'DemonHunter:Vengeance', 'DemonHunter:Devourer', 'Shaman:Enhancement',
+    'DemonHunter:Havoc', 'DemonHunter:Vengeance', 'DemonHunter:Devourer', 'Hunter:Survival',
+    'Shaman:Enhancement',
     'Monk:Brewmaster', 'Monk:Windwalker',
 }
 SHIELD_SPECS = {'Warrior:Protection', 'Paladin:Holy', 'Paladin:Protection', 'Shaman:Elemental', 'Shaman:Restoration'}
@@ -404,6 +436,9 @@ def spec_matches(item, class_name, spec_name, variant=None, slot=''):
             return False
         allowed_inventory = SPEC_WEAPON_INVENTORY_TYPES.get(identity)
         if allowed_inventory and inventory_type not in allowed_inventory:
+            return False
+        allowed_subclasses = SPEC_WEAPON_SUBCLASSES_BY_SLOT.get(identity, {}).get(slot)
+        if allowed_subclasses and subclass not in allowed_subclasses:
             return False
         if slot == 'off_hand' and inventory_type in {13, 17} and identity not in DUAL_WIELD_SPECS:
             return False
