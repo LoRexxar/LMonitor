@@ -3782,7 +3782,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         self.assertEqual(snapshot.simc_revision, 'e' * 40)
         self.assertEqual(snapshot.game_build, '12.1.0.69301')
-        generate.assert_called_once_with()
+        generate.assert_called_once_with(isolate_profiles=True, materialize_result=False)
 
 
 class SimcSkillDamageSnapshotAPITests(TestCase):

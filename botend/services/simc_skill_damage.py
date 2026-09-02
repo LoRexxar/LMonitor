@@ -3064,7 +3064,10 @@ class SimcSkillDamageSnapshotService:
         ):
             return None
         service = cls.create_for_current_backend(claim=True)
-        service.generate()
+        # Backend maintenance can run inside lmweb's daemon thread. Keep every
+        # specialization in a short-lived process so its large temporary object
+        # graph is returned to the OS instead of accumulating in the web process.
+        service.generate(isolate_profiles=True, materialize_result=False)
         return service.snapshot
 
     @classmethod
