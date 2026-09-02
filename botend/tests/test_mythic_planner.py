@@ -2507,6 +2507,81 @@ class MythicPlannerClientTooltipCommandTests(TestCase):
 
 
 class MythicPlannerAssetPersistenceTests(TestCase):
+    def test_asset_sync_archives_and_deduplicates_enemy_model_previews(self):
+        version = MythicDungeonDataVersion.objects.create(
+            key='model-preview-test',
+            label='怪物模型预览测试',
+            is_active=True,
+        )
+        dungeon = MythicDungeon.objects.create(
+            data_version=version,
+            key='demo-dungeon',
+            name='Demo Dungeon',
+        )
+        enemies = [
+            MythicDungeonEnemy.objects.create(
+                dungeon=dungeon,
+                key=f'npc-{index}',
+                name=f'Demo Enemy {index}',
+                metadata={'display_id': 139997},
+            )
+            for index in range(1, 3)
+        ]
+        MythicDungeonEnemy.objects.create(
+            dungeon=dungeon,
+            key='npc-without-model',
+            name='No Model Enemy',
+        )
+
+        command = SyncMythicDungeonAssetsCommand()
+        jobs, stats = command._build_jobs(
+            version=version,
+            base_prefix='mythic-planner',
+            version_prefix='mythic-planner/versions/model-preview-test',
+            oss_base_url='https://oss.wowdaily.cn/',
+            force=False,
+            model_previews_only=True,
+        )
+
+        self.assertEqual(stats['enemies'], 2)
+        self.assertEqual(stats['empty'], 1)
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(len(jobs[0]['instances']), 2)
+        self.assertEqual(
+            jobs[0]['source_url'],
+            (
+                'https://wow.zamimg.com/modelviewer/live/webthumbs/npc/'
+                '221/139997.webp'
+            ),
+        )
+        self.assertEqual(
+            jobs[0]['object_key'],
+            'mythic-planner/model-previews/139997.webp',
+        )
+
+        public_url = (
+            'https://oss.wowdaily.cn/'
+            'mythic-planner/model-previews/139997.webp'
+        )
+        command._write_results(
+            version,
+            [(jobs[0], public_url)],
+            [],
+            'mythic-planner/versions/model-preview-test',
+            'https://oss.wowdaily.cn/',
+        )
+        for enemy in enemies:
+            enemy.refresh_from_db()
+            self.assertEqual(enemy.icon_url, public_url)
+            self.assertEqual(
+                enemy.metadata['model_preview_display_id'],
+                139997,
+            )
+            self.assertEqual(
+                enemy.metadata['model_preview_oss_object_key'],
+                'mythic-planner/model-previews/139997.webp',
+            )
+
     def test_asset_sync_archives_interactive_poi_icon_to_short_key(self):
         version = MythicDungeonDataVersion.objects.create(
             key='poi-asset-test',
@@ -4417,6 +4492,13 @@ class MythicPlannerPageContractTests(SimpleTestCase):
         self.assertIn('class="mdt-library-note-trigger"', portal_js)
         self.assertIn('aria-label="备注：', portal_js)
         self.assertNotIn('mdt-library-compact-code', portal_js)
+        self.assertIn('const modelPreviewUrl = String(enemy.icon_url', portal_js)
+        self.assertNotIn('modelviewer/live/webthumbs/npc/', portal_js)
+        self.assertNotIn('render.worldofwarcraft.com/us/npcs/zoom/', portal_js)
+        self.assertIn('模型预览', portal_js)
+        self.assertIn('查看 3D', portal_js)
+        self.assertIn('.mdt-enemy-model-preview', planner_css)
+        self.assertIn('.mdt-enemy-model:not(.is-error)', planner_css)
         self.assertIn("default_routes: ['versions', 'dungeons', 'default_routes']", dashboard_js)
         self.assertIn('delete cleaned.server_share_id', portal_js)
 

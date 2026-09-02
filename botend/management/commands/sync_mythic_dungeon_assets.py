@@ -81,6 +81,11 @@ class Command(BaseCommand):
             default=[],
             help='仅处理指定技能 ID；可重复传入，适合定向补图。',
         )
+        parser.add_argument(
+            '--model-previews-only',
+            action='store_true',
+            help='仅同步怪物静态模型预览图。',
+        )
 
     def handle(self, *args, **options):
         version = self._resolve_version(options.get('version_key'))
@@ -105,6 +110,7 @@ class Command(BaseCommand):
             oss_base_url=oss_base_url,
             force=bool(options.get('force')),
             spell_ids=target_spell_ids,
+            model_previews_only=bool(options.get('model_previews_only')),
         )
         limit = max(0, int(options.get('limit') or 0))
         if limit:
@@ -191,6 +197,7 @@ class Command(BaseCommand):
         oss_base_url,
         force,
         spell_ids=None,
+        model_previews_only=False,
     ):
         jobs = []
         target_spell_ids = {
@@ -211,7 +218,7 @@ class Command(BaseCommand):
 
         floors = (
             MythicDungeonFloor.objects.none()
-            if target_spell_ids
+            if target_spell_ids or model_previews_only
             else MythicDungeonFloor.objects.filter(
                 dungeon__data_version=version,
                 is_active=True,
@@ -267,7 +274,7 @@ class Command(BaseCommand):
 
         pois = (
             MythicDungeonPoi.objects.none()
-            if target_spell_ids
+            if target_spell_ids or model_previews_only
             else MythicDungeonPoi.objects.filter(
                 floor__dungeon__data_version=version,
                 floor__is_active=True,
@@ -328,6 +335,8 @@ class Command(BaseCommand):
             data_version=version,
             is_active=True,
         )
+        if model_previews_only:
+            spells = spells.none()
         if target_spell_ids:
             spells = spells.filter(spell_id__in=target_spell_ids)
         spells = spells.order_by('spell_id')
@@ -384,6 +393,45 @@ class Command(BaseCommand):
         )
         for enemy in enemies:
             current_url = str(enemy.icon_url or '').strip()
+            display_id = self._enemy_display_id(enemy)
+            model_object_key = (
+                f'{base_prefix}/model-previews/{display_id}.webp'
+                if display_id else ''
+            )
+            current_is_model_preview = bool(
+                model_object_key
+                and self._is_oss_object_url(
+                    current_url,
+                    oss_base_url,
+                    model_object_key,
+                )
+            )
+            if model_previews_only or current_is_model_preview or (
+                not current_url and display_id
+            ):
+                if not display_id:
+                    stats['empty'] += 1
+                    continue
+                if current_is_model_preview and not force:
+                    stats['already_oss'] += 1
+                    continue
+                source_url = str(
+                    (enemy.metadata or {}).get('model_preview_source_url') or ''
+                ).strip() or self._wowhead_model_preview_url(display_id)
+                jobs.append({
+                    'kind': 'enemy',
+                    'instance': enemy,
+                    'source': source_url,
+                    'source_url': source_url,
+                    'cache_path': (
+                        Path('model-previews') / f'{display_id}.webp'
+                    ),
+                    'refresh_download': force,
+                    'object_key': model_object_key,
+                    'model_display_id': display_id,
+                })
+                stats['enemies'] += 1
+                continue
             source_url = self._resolve_remote_source(
                 current_url,
                 enemy.metadata,
@@ -433,6 +481,8 @@ class Command(BaseCommand):
             enemy__dungeon__data_version=version,
             is_active=True,
         )
+        if model_previews_only:
+            abilities = abilities.none()
         if target_spell_ids:
             abilities = abilities.filter(spell_id__in=target_spell_ids)
         abilities = abilities.exclude(icon_url='').select_related(
@@ -602,6 +652,13 @@ class Command(BaseCommand):
                     'asset_oss_object_key': job['object_key'],
                     'asset_synced_at': now.isoformat(),
                 })
+                if job.get('model_display_id'):
+                    metadata.update({
+                        'model_preview_source_url': job.get('source_url') or '',
+                        'model_preview_oss_object_key': job['object_key'],
+                        'model_preview_display_id': job['model_display_id'],
+                        'model_preview_synced_at': now.isoformat(),
+                    })
                 instance.metadata = metadata
                 instance.updated_at = now
                 if job['kind'] == 'floor':
@@ -740,6 +797,24 @@ class Command(BaseCommand):
     def _safe_segment(value):
         cleaned = re.sub(r'[^a-zA-Z0-9._-]+', '-', str(value or '')).strip('-._')
         return cleaned or 'asset'
+
+    @staticmethod
+    def _enemy_display_id(enemy):
+        try:
+            display_id = int((enemy.metadata or {}).get('display_id') or 0)
+        except (TypeError, ValueError):
+            return 0
+        return display_id if display_id > 0 else 0
+
+    @staticmethod
+    def _wowhead_model_preview_url(display_id):
+        display_id = int(display_id or 0)
+        if display_id <= 0:
+            return ''
+        return (
+            'https://wow.zamimg.com/modelviewer/live/webthumbs/npc/'
+            f'{display_id % 256}/{display_id}.webp'
+        )
 
     @staticmethod
     def _image_extension(value, default):

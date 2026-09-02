@@ -737,6 +737,80 @@ button:disabled { cursor: not-allowed; opacity: .45; }
     padding: 16px 12px;
     text-align: center;
 }
+.mdt-enemy-model-preview {
+    width: 100%;
+    margin: 0;
+}
+.mdt-enemy-model {
+    display: grid;
+    place-items: center;
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1;
+    overflow: hidden;
+    border: 1px solid #4d5965;
+    border-radius: 4px;
+    background-color: #05080c;
+    background:
+        radial-gradient(circle at 50% 58%, color-mix(in srgb, var(--enemy-color) 24%, transparent), transparent 58%),
+        linear-gradient(180deg, #111923, #05080c);
+    color: #fff;
+    font-size: 42px;
+    font-weight: 900;
+    text-shadow: 0 2px 3px #000, 0 0 3px #000;
+    box-shadow: inset 0 0 24px #000, 0 8px 24px #0009;
+}
+.mdt-enemy-model::after {
+    content: '';
+    position: absolute;
+    inset: 5px;
+    border: 1px solid #ffffff14;
+    pointer-events: none;
+}
+.mdt-enemy-model > img,
+.mdt-enemy-model-fallback { grid-area: 1 / 1; }
+.mdt-enemy-model > img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+.mdt-enemy-model-fallback {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 100%;
+}
+.mdt-enemy-model:not(.is-error) .mdt-enemy-model-fallback { visibility: hidden; }
+.mdt-enemy-model-badge {
+    position: absolute;
+    z-index: 1;
+    top: 8px;
+    left: 8px;
+    padding: 3px 6px;
+    border: 1px solid #756741;
+    background: #090d12d9;
+    color: #d7c785;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-shadow: none;
+}
+.mdt-enemy-model-preview figcaption {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 6px;
+    color: #778491;
+    font-size: 8px;
+}
+.mdt-enemy-model-preview figcaption a {
+    color: #d7c785;
+    text-decoration: none;
+}
+.mdt-enemy-model-preview figcaption a:hover { color: #fff0ae; }
 .mdt-enemy-portrait {
     display: grid;
     place-items: center;
@@ -1054,6 +1128,20 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 }
 
 @media (max-width: 700px) {
+    .mdt-enemy-modal { padding: 8px; }
+    .mdt-enemy-dialog {
+        width: 96vw;
+        height: 94vh;
+        min-height: 0;
+    }
+    .mdt-enemy-detail-content { overflow-y: auto; }
+    .mdt-enemy-detail-layout {
+        height: auto;
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .mdt-enemy-model-preview { width: min(220px, 100%); }
+    .mdt-enemy-profile { padding: 12px; }
+    .mdt-enemy-spells { min-height: 320px; }
     .mdt-library-filter { align-items: stretch; flex-direction: column; gap: 8px; }
     .mdt-library-filter label { justify-content: space-between; }
     .mdt-library-filter select { min-width: 0; width: min(240px, 70vw); }

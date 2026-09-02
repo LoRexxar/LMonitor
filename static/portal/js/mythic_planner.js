@@ -130,6 +130,11 @@
         return value.split(/\s+/).map((word) => word[0]).join('').slice(0, 2).toUpperCase() || '?';
     }
 
+    function enemyDisplayId(enemy) {
+        const displayId = Math.trunc(Number(enemy?.metadata?.display_id || 0));
+        return Number.isSafeInteger(displayId) && displayId > 0 ? displayId : 0;
+    }
+
     function catalogSelectionGroups() {
         const groups = Array.isArray(state.catalog?.selection_groups)
             ? state.catalog.selection_groups.filter((group) => group?.key)
@@ -1131,28 +1136,51 @@
         }).join('');
         const health = scaledHealth(enemy.base_health, state.route.dungeon_level);
         const portraitInitial = escapeHtml(initials(enemy.display_name));
-        const portrait = enemy.icon_url
+        const displayId = enemyDisplayId(enemy);
+        const modelPreviewUrl = String(enemy.icon_url || '').trim();
+        const wowheadPageUrl = enemy.npc_id
+            ? `https://www.wowhead.com/npc=${Number(enemy.npc_id)}`
+            : '';
+        const modelPreview = displayId && modelPreviewUrl
             ? `
+                <figure class="mdt-enemy-model-preview">
+                    <div class="mdt-enemy-model">
+                        <span class="mdt-enemy-model-fallback" aria-hidden="true">${portraitInitial}</span>
+                        <img
+                            src="${escapeHtml(modelPreviewUrl)}"
+                            alt="${escapeHtml(enemy.display_name)}的模型预览"
+                            decoding="async"
+                            referrerpolicy="no-referrer"
+                            onerror="this.parentElement.classList.add('is-error');this.remove()"
+                        >
+                        <span class="mdt-enemy-model-badge">模型预览</span>
+                    </div>
+                    <figcaption>
+                        <span>Display ID ${displayId}</span>
+                        ${wowheadPageUrl ? `<a href="${escapeHtml(wowheadPageUrl)}" target="_blank" rel="noopener noreferrer">Wowhead · 查看 3D</a>` : ''}
+                    </figcaption>
+                </figure>
+            `
+            : (enemy.icon_url ? `
                 <div class="mdt-enemy-portrait">
                     <span class="mdt-enemy-portrait-fallback" aria-hidden="true">${portraitInitial}</span>
                     <img
                         src="${escapeHtml(enemy.icon_url)}"
-                        alt=""
+                        alt="${escapeHtml(enemy.display_name)}头像"
                         loading="lazy"
                         onerror="this.parentElement.classList.add('is-error');this.remove()"
                     >
                 </div>
-            `
-            : `
+            ` : `
                 <div class="mdt-enemy-portrait is-error" aria-hidden="true">
                     <span class="mdt-enemy-portrait-fallback">${portraitInitial}</span>
                 </div>
-            `;
+            `);
         els.enemyDetailTitle.textContent = enemy.display_name;
         els.enemyDetail.innerHTML = `
             <div class="mdt-enemy-detail-layout" style="--enemy-color:${escapeHtml(enemy.marker_color || '#94a3b8')}">
                 <section class="mdt-enemy-profile">
-                    ${portrait}
+                    ${modelPreview}
                     <div class="mdt-enemy-profile-copy">
                         <h3>${escapeHtml(enemy.display_name)}</h3>
                         <p>${escapeHtml(enemy.creature_type || '未知类型')}</p>
