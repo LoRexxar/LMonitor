@@ -36,6 +36,8 @@ class Command(BaseCommand):
         parser.add_argument('--workers', type=int, default=8, help='Wowhead 并发数，默认 8，最大 24')
         parser.add_argument('--timeout', type=int, default=45, help='单次远端请求超时秒数')
         parser.add_argument('--cache-dir', default='.cache/gear_builder', help='远端数据缓存目录')
+        parser.add_argument('--refresh-wowhead-cache', action='store_true', help='忽略已有 Wowhead Tooltip 缓存，重新抓取当前文本与特效')
+        parser.add_argument('--wowhead-cache-ttl-hours', type=int, default=6, help='Wowhead Tooltip 缓存有效小时数，默认 6；设为 0 表示每次重抓')
         parser.add_argument('--output', default='', help='可选：把自动生成的规范化目录同时保存为 JSON')
         parser.add_argument('--no-proxy', action='store_true', help='忽略服务端代理环境变量')
         parser.add_argument('--sync-icons', action='store_true', help='写入目录后流式下载并立即上传当前批次图标')
@@ -48,6 +50,8 @@ class Command(BaseCommand):
                 source = CurrentGearCatalogSource(
                     cache_dir=options['cache_dir'], workers=options['workers'], timeout=options['timeout'],
                     no_proxy=options['no_proxy'], progress=self.stdout.write,
+                    refresh_wowhead_cache=options['refresh_wowhead_cache'],
+                    wowhead_cache_ttl_hours=options['wowhead_cache_ttl_hours'],
                 )
                 payload = source.build(
                     season_key=str(options.get('season_key') or ''),

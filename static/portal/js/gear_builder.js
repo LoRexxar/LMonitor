@@ -141,15 +141,21 @@
     return Object.keys(variant?.stats || {}).length > 0 && isStandaloneTooltipStatLine(normalized);
   }
 
+  function variantEffectDescriptions(item, variant) {
+    const effects = (variant?.effects || []).map(effectText).filter(Boolean);
+    if (effects.length) return effects;
+    if (["drop_equipment", "crafted_equipment"].includes(variant?.type)) return [];
+    return item?.description ? [item.description] : [];
+  }
+
   function tooltipText(item, variant) {
     const values = [];
     if (variant?.item_level) values.push(`物品等级 ${variant.item_level}`);
     Object.entries(variant?.stats || {}).forEach(([key, value]) => values.push(`+${formatNumber(value)} ${STAT_LABELS[key] || key}`));
-    (variant?.effects || []).forEach((effect) => values.push(effectText(effect)));
-    if (item?.description) {
-      values.push(String(item.description).replace(/\r\n?/g, "\n").split("\n")
+    variantEffectDescriptions(item, variant).forEach((description) => {
+      values.push(String(description).replace(/\r\n?/g, "\n").split("\n")
         .filter((line) => !isRedundantDescriptionLine(line, variant)).join("\n"));
-    }
+    });
     const seen = new Set();
     return values.flatMap((value) => String(value || "").replace(/\r\n?/g, "\n").split("\n"))
       .map((line) => line.trim()).filter((line) => {
@@ -465,7 +471,7 @@
     const selectedCount = kind === "gem"
       ? (entry?.gems || []).filter((row) => Number(row.variant?.id) === Number(variant?.id)).length
       : Number(entry?.[kind]?.variant?.id) === Number(variant?.id) ? 1 : 0;
-    const description = [...new Set([item.description, statMarkupText(variant?.stats), ...(variant?.effects || []).map(effectText)].filter(Boolean))]
+    const description = [...new Set([...variantEffectDescriptions(item, variant), statMarkupText(variant?.stats)].filter(Boolean))]
       .join(" · ") || "无常驻属性说明";
     return `<label class="gear-option-row"${tooltipAttrs(item, variant)}>
       <input class="gear-option-check" type="checkbox" data-add-enhancement="${kind}" data-item-id="${item.item_id}" data-variant-id="${variant?.id || ""}"${selectedCount ? " checked" : ""}>

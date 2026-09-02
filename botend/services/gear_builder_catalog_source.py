@@ -6,6 +6,7 @@ import hashlib
 import html
 import json
 import re
+import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -133,11 +134,17 @@ def _tooltip_details(payload):
 class CurrentGearCatalogSource:
     """锁定 Wago 构建，并将 Raidbots/Wowhead 数据投影为导入目录。"""
 
-    def __init__(self, *, cache_dir='.cache/gear_builder', workers=8, timeout=45, no_proxy=False, progress=None):
+    def __init__(
+        self, *, cache_dir='.cache/gear_builder', workers=8, timeout=45,
+        no_proxy=False, progress=None, refresh_wowhead_cache=False,
+        wowhead_cache_ttl_hours=6,
+    ):
         self.cache_root = Path(cache_dir).expanduser().resolve()
         self.workers = max(1, min(24, int(workers or 8)))
         self.timeout = max(5, int(timeout or 45))
         self.progress = progress or (lambda _message: None)
+        self.refresh_wowhead_cache = bool(refresh_wowhead_cache)
+        self.wowhead_cache_ttl_seconds = max(0, int(wowhead_cache_ttl_hours or 0)) * 3600
         self.session = requests.Session()
         self.session.headers.update({'User-Agent': 'Mozilla/5.0 (compatible; LMonitor-GearBuilder/1.0)'})
         self.session.trust_env = not no_proxy
@@ -685,11 +692,17 @@ class CurrentGearCatalogSource:
 
     def _wowhead_tooltip(self, item_id, item_level, cache_dir):
         path = cache_dir / f'{item_id}-{item_level or "base"}.json'
-        if path.is_file():
+        cache_is_fresh = False
+        if path.is_file() and not self.refresh_wowhead_cache and self.wowhead_cache_ttl_seconds:
+            try:
+                cache_is_fresh = time.time() - path.stat().st_mtime <= self.wowhead_cache_ttl_seconds
+            except OSError:
+                cache_is_fresh = False
+        if cache_is_fresh:
             try:
                 return _tooltip_details(json.loads(path.read_text(encoding='utf-8')))
             except (OSError, json.JSONDecodeError):
-                pass
+                cache_is_fresh = False
         params = {'locale': 'zhcn'}
         if item_level:
             params['ilvl'] = item_level

@@ -849,6 +849,19 @@ class GearBuilderImportCommandTests(TestCase):
         self.assertEqual(season.game_build, '12.1.0.99999')
         self.assertIn('已激活装备目录批次', output.getvalue())
 
+    @patch('botend.management.commands.sync_gear_builder_catalog.CurrentGearCatalogSource')
+    def test_fetch_current_can_force_refresh_wowhead_tooltip_cache(self, source_class):
+        source_class.return_value.build.return_value = self.catalog_payload()
+        call_command(
+            'sync_gear_builder_catalog', '--fetch-current', '--dry-run',
+            '--refresh-wowhead-cache', '--wowhead-cache-ttl-hours', '0',
+            stdout=StringIO(),
+        )
+        source_class.assert_called_once()
+        source_options = source_class.call_args.kwargs
+        self.assertTrue(source_options['refresh_wowhead_cache'])
+        self.assertEqual(source_options['wowhead_cache_ttl_hours'], 0)
+
 
 class GearBuilderCurrentSourceTests(TestCase):
     def test_current_midnight_season_uses_same_key_as_season_monitor(self):
@@ -1014,6 +1027,33 @@ class GearBuilderCurrentSourceTests(TestCase):
         self.assertIn('(2) 组合 狂怒', details['description_zh'])
         self.assertEqual(len(details['effects']), 3)
 
+    def test_wowhead_tooltip_cache_can_be_forced_to_refresh_hotfixed_effects(self):
+        old_payload = {
+            'name': '无羁深仇腿甲',
+            'tooltip': '<span>装备：你的法术和技能有几率使你的精通提高378。</span>',
+        }
+        current_payload = {
+            'name': '无羁深仇腿甲',
+            'tooltip': '<span>装备：你的法术和技能有几率使你的暴击提高378。</span>',
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_dir = Path(temp_dir)
+            cache_path = cache_dir / '271878-344.json'
+            cache_path.write_text(json.dumps(old_payload, ensure_ascii=False), encoding='utf-8')
+
+            cached_source = CurrentGearCatalogSource(cache_dir=temp_dir, wowhead_cache_ttl_hours=6)
+            with patch.object(cached_source, '_get_json') as get_json:
+                cached = cached_source._wowhead_tooltip(271878, 344, cache_dir)
+            get_json.assert_not_called()
+            self.assertIn('精通提高', cached['description_zh'])
+
+            refresh_source = CurrentGearCatalogSource(cache_dir=temp_dir, refresh_wowhead_cache=True)
+            with patch.object(refresh_source, '_get_json', return_value=current_payload) as get_json:
+                refreshed = refresh_source._wowhead_tooltip(271878, 344, cache_dir)
+            get_json.assert_called_once()
+            self.assertIn('暴击提高', refreshed['description_zh'])
+            self.assertNotIn('精通提高', refreshed['description_zh'])
+
 
 @override_settings(OSS_CONFIG={
     'access_key_id': 'test', 'access_key_secret': 'test', 'region': 'cn-test',
@@ -1073,11 +1113,11 @@ class GearBuilderFrontendContractTests(TestCase):
         for value in ('LOADOUT_LIBRARY_KEY', 'MAX_SAVED_LOADOUTS = 30', 'readSavedLoadouts', 'saveCurrentLoadout', 'loadSavedLoadout', 'deleteSavedLoadout'):
             self.assertIn(value, script)
         self.assertIn('code: await encodeShare(compactShareState(state))', script)
-        self.assertIn("portal/js/gear_builder.js' %}?v=20260902_gear_builder_v18", template)
+        self.assertIn("portal/js/gear_builder.js' %}?v=20260902_gear_builder_v19", template)
         self.assertIn("wow-item-tooltip.js' %}?v=20260902_singleton", template)
         self.assertNotIn('class="gear-option-stat" title=', script)
         self.assertIn('const seen = new Set();', script)
-        for value in ('tooltipLineIdentity', 'isStandaloneTooltipStatLine', 'isRedundantDescriptionLine'):
+        for value in ('tooltipLineIdentity', 'isStandaloneTooltipStatLine', 'isRedundantDescriptionLine', 'variantEffectDescriptions'):
             self.assertIn(value, script)
         tooltip_script = (root / 'static/shared/js/wow-item-tooltip.js').read_text(encoding='utf-8')
         self.assertIn('window.__wowItemTooltipInitialized', tooltip_script)
