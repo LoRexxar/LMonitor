@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import OrderedDict, defaultdict
 from math import floor
 
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 
 from botend.constants.wow import (
     CLASS_CN,
@@ -193,7 +193,32 @@ def stats_for_identity(raw, metadata, class_name='', spec_name=''):
 
 
 def active_season():
-    return SeasonMeta.objects.filter(is_active=True).order_by('-updated_at', '-id').first()
+    active = SeasonMeta.objects.filter(is_active=True).annotate(
+        has_gear_catalog=Exists(
+            WowItemVariantSnapshot.objects.filter(
+                season_id=OuterRef('pk'),
+                batch_key=OuterRef('gear_batch_key'),
+            ),
+        ),
+    )
+    # 多条历史记录被误标为 active 时，优先选真实存在的已激活装备批次；
+    # 不再依赖 updated_at，避免赛季监控的普通刷新改变页面所读赛季。
+    return (
+        active.filter(has_gear_catalog=True).order_by('-gear_synced_at', '-id').first()
+        or active.order_by('-id').first()
+    )
+
+
+def _catalog_exists(season):
+    if not season or not season.gear_batch_key:
+        return False
+    annotated = getattr(season, 'has_gear_catalog', None)
+    if annotated is not None:
+        return bool(annotated)
+    return WowItemVariantSnapshot.objects.filter(
+        season_id=season.pk,
+        batch_key=season.gear_batch_key,
+    ).exists()
 
 
 def catalog_context(season=None):
@@ -205,8 +230,9 @@ def catalog_context(season=None):
             'game_build': str(getattr(monitor, 'build', '') or ''),
             'sync_status': 'missing_season', 'synced_at': None, 'sync_report': {},
         }
+    available = _catalog_exists(season)
     return {
-        'available': bool(season.gear_batch_key),
+        'available': available,
         'season': {
             'id': season.id,
             'key': season.season_key,
@@ -214,7 +240,10 @@ def catalog_context(season=None):
         },
         'batch_key': season.gear_batch_key,
         'game_build': season.game_build or str(getattr(monitor, 'build', '') or ''),
-        'sync_status': season.gear_sync_status or ('ready' if season.gear_batch_key else 'not_synced'),
+        'sync_status': (
+            season.gear_sync_status if available
+            else ('missing_batch' if season.gear_batch_key else 'not_synced')
+        ),
         'synced_at': season.gear_synced_at.isoformat() if season.gear_synced_at else None,
         'sync_report': season.gear_sync_report or {},
     }
@@ -829,6 +858,12 @@ def _simc_item_id(payload):
     return int(payload.get('item_id') or payload.get('id') or 0)
 
 
+def _simc_enchantment_id(payload):
+    if not isinstance(payload, dict):
+        return 0
+    return int(payload.get('enchantment_id') or payload.get('id') or payload.get('item_id') or 0)
+
+
 def _canonical_crafted_stats(values):
     aliases = {
         '40': 'crit', '暴击': 'crit', 'crit': 'crit',
@@ -853,7 +888,7 @@ def import_simc_profile(profile_text):
     enhancer_ids = []
     for row in equipment:
         enhancer_ids.extend(_simc_item_id(gem) for gem in (row.get('gems') or []))
-        enhancer_ids.append(_simc_item_id(row.get('enchant')))
+        enhancer_ids.append(_simc_enchantment_id(row.get('enchant')))
     requested_ids = [value for value in item_ids + enhancer_ids if value]
     variants = list(WowItemVariantSnapshot.objects.filter(
         Q(item__item_id__in=requested_ids) | Q(item__enchantment_id__in=requested_ids),
@@ -881,7 +916,7 @@ def import_simc_profile(profile_text):
         if external:
             warnings.append(f"{SLOT_LABELS.get(row.get('slot'), row.get('slot'))} 的物品 #{item_id} 不在当前目录中，已作为外部装备保留。")
         enchant_payload = row.get('enchant') or {}
-        enchant_id = _simc_item_id(enchant_payload)
+        enchant_id = _simc_enchantment_id(enchant_payload)
         enchant_candidates = by_item.get(enchant_id) or by_enchantment.get(enchant_id) or []
         gem_rows = []
         for gem in row.get('gems') or []:

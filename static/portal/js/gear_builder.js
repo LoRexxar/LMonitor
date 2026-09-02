@@ -119,12 +119,20 @@
   }
 
   function tooltipText(item, variant) {
-    const lines = [];
-    if (variant?.item_level) lines.push(`物品等级 ${variant.item_level}`);
-    Object.entries(variant?.stats || {}).forEach(([key, value]) => lines.push(`+${formatNumber(value)} ${STAT_LABELS[key] || key}`));
-    (variant?.effects || []).forEach((effect) => lines.push(effectText(effect)));
-    if (item?.description) lines.push(item.description);
-    return lines.filter(Boolean).join("\n");
+    const values = [];
+    if (variant?.item_level) values.push(`物品等级 ${variant.item_level}`);
+    Object.entries(variant?.stats || {}).forEach(([key, value]) => values.push(`+${formatNumber(value)} ${STAT_LABELS[key] || key}`));
+    (variant?.effects || []).forEach((effect) => values.push(effectText(effect)));
+    if (item?.description) values.push(item.description);
+    const seen = new Set();
+    return values.flatMap((value) => String(value || "").replace(/\r\n?/g, "\n").split("\n"))
+      .map((line) => line.trim()).filter((line) => {
+        if (!line) return false;
+        const identity = line.replace(/\s+/g, " ");
+        if (seen.has(identity)) return false;
+        seen.add(identity);
+        return true;
+      }).join("\n");
   }
 
   function tooltipAttrs(item, variant) {
@@ -435,7 +443,7 @@
       .join(" · ") || "无常驻属性说明";
     return `<label class="gear-option-row"${tooltipAttrs(item, variant)}>
       <input class="gear-option-check" type="checkbox" data-add-enhancement="${kind}" data-item-id="${item.item_id}" data-variant-id="${variant?.id || ""}"${selectedCount ? " checked" : ""}>
-      <span class="gear-option-copy"><strong class="gear-option-name">${escapeHtml(item.name)}${selectedCount > 1 ? ` ×${selectedCount}` : ""}</strong><small class="gear-option-stat" title="${escapeHtml(description)}">${escapeHtml(description)}</small></span>
+      <span class="gear-option-copy"><strong class="gear-option-name">${escapeHtml(item.name)}${selectedCount > 1 ? ` ×${selectedCount}` : ""}</strong><small class="gear-option-stat">${escapeHtml(description)}</small></span>
     </label>`;
   }
 
@@ -730,7 +738,7 @@
       <span class="gear-preview-slot-copy">
         <span class="gear-preview-slot-label">${escapeHtml(slot.label)}</span>
         <strong>${escapeHtml(item?.name || "未装备")}</strong>
-        ${enhancements ? `<small title="${escapeHtml(enhancements)}">${escapeHtml(enhancements)}</small>` : ""}
+        ${enhancements ? `<small>${escapeHtml(enhancements)}</small>` : ""}
       </span>
       <span class="gear-preview-slot-level">${variant?.item_level || entry?.itemLevel || "—"}</span>
     </button>`;

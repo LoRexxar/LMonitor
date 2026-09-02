@@ -1,6 +1,9 @@
 (() => {
   "use strict";
 
+  if (window.__wowItemTooltipInitialized) return;
+  window.__wowItemTooltipInitialized = true;
+
   const selector = "[data-wow-item-tooltip]";
   const template = document.createElement("template");
   template.innerHTML = '<div class="wow-item-tooltip" role="tooltip" hidden></div>';

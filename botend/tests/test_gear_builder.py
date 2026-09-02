@@ -1,5 +1,6 @@
 import base64
 import gzip
+import importlib
 import json
 import tempfile
 from io import StringIO
@@ -7,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from django.apps import apps as django_apps
 from django.core.management import call_command
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
@@ -21,7 +23,7 @@ from botend.models import (
     WowItemVariantSnapshot,
 )
 from botend.management.commands.sync_gear_builder_catalog import Command as SyncGearBuilderCatalogCommand
-from botend.services.gear_builder import stats_for_identity
+from botend.services.gear_builder import active_season, catalog_context, stats_for_identity
 from botend.services.gear_builder_catalog_source import CatalogSourceError, CurrentGearCatalogSource, _tooltip_details
 from botend.services.gear_builder_icon_sync import GearBuilderIconSync
 
@@ -236,6 +238,28 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         self.assertEqual(conversion['mastery_per_percent'], 46)
         self.assertEqual(conversion['versatility_per_percent'], 54)
         self.assertEqual(conversion['mastery_coefficient'], 1.4)
+
+    def test_catalog_selection_ignores_newer_active_season_without_real_batch(self):
+        staged = SeasonMeta.objects.create(
+            season_key='mn-s2-staged', season_name='错误的重复活跃赛季',
+            is_active=True, mplus_zone_id=3, raid_zone_id=4,
+            gear_batch_key='', gear_sync_status='',
+        )
+
+        selected = active_season()
+
+        self.assertEqual(selected.pk, self.season.pk)
+        self.assertNotEqual(selected.pk, staged.pk)
+
+    def test_catalog_context_rejects_pointer_without_matching_variants(self):
+        self.season.gear_batch_key = 'missing-batch'
+        self.season.gear_sync_status = 'ready'
+        self.season.save(update_fields=['gear_batch_key', 'gear_sync_status'])
+
+        context = catalog_context(self.season)
+
+        self.assertFalse(context['available'])
+        self.assertEqual(context['sync_status'], 'missing_batch')
 
     def test_catalog_groups_legal_variants_and_filters_spec_slot_and_source(self):
         response = self.client.get('/portal/api/gear-builder/catalog/', {
@@ -720,6 +744,70 @@ class GearBuilderImportCommandTests(TestCase):
         self.assertEqual(self.season.gear_sync_report['missing_counts']['compatible_slots'], 0)
         self.assertEqual(self.season.gear_sync_report['catalog_rules']['socket_additions'][0]['slot'], 'head')
 
+    def test_activation_is_exclusive_and_reactivates_existing_target(self):
+        previous = SeasonMeta.objects.create(
+            season_key='previous-s1', season_name='旧赛季', is_active=True,
+            mplus_zone_id=3, raid_zone_id=4,
+        )
+        self.season.is_active = False
+        self.season.save(update_fields=['is_active'])
+
+        self.run_import(self.catalog_payload(), '--activate')
+
+        self.season.refresh_from_db()
+        previous.refresh_from_db()
+        self.assertTrue(self.season.is_active)
+        self.assertFalse(previous.is_active)
+
+    def test_midnight_alias_is_normalized_before_creating_season(self):
+        payload = self.catalog_payload()
+        payload.update({
+            'season_key': 'midnight-s2',
+            'season_name': 'Midnight Season 2',
+            'season_info': {
+                'mplus_zone_id': -1, 'mplus_zone_name': '当前大秘境',
+                'raid_zone_id': 1320, 'raid_zone_name': '当前团本',
+            },
+        })
+
+        with patch('botend.management.commands.sync_gear_builder_catalog.CurrentGearCatalogSource.build', return_value=payload):
+            call_command(
+                'sync_gear_builder_catalog', '--fetch-current', '--create-season',
+                '--activate', '--skip-wowhead', stdout=StringIO(),
+            )
+
+        self.assertTrue(SeasonMeta.objects.filter(season_key='mn-s2', is_active=True).exists())
+        self.assertFalse(SeasonMeta.objects.filter(season_key='midnight-s2').exists())
+
+    def test_reconcile_migration_moves_alias_batch_to_canonical_season(self):
+        canonical = SeasonMeta.objects.create(
+            season_key='mn-s2', season_name='Midnight S2', is_active=False,
+            mplus_zone_id=10, raid_zone_id=20,
+        )
+        alias = SeasonMeta.objects.create(
+            season_key='midnight-s2', season_name='Midnight Season 2', is_active=True,
+            mplus_zone_id=10, raid_zone_id=20, game_build='12.1.0.69587',
+            gear_batch_key='alias-batch', gear_sync_status='ready',
+        )
+        item = WowItemSnapshot.objects.create(item_id=29999, name='Alias Helm')
+        variant = WowItemVariantSnapshot.objects.create(
+            item=item, season=alias, batch_key='alias-batch', variant_key='hero-1',
+            variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
+            item_level=305, compatible_slots=['head'],
+        )
+
+        migration = importlib.import_module('botend.migrations.0190_reconcile_gear_catalog_seasons')
+        migration.reconcile_gear_catalog_seasons(django_apps, None)
+
+        canonical.refresh_from_db()
+        alias.refresh_from_db()
+        variant.refresh_from_db()
+        self.assertEqual(variant.season_id, canonical.pk)
+        self.assertEqual(canonical.gear_batch_key, 'alias-batch')
+        self.assertTrue(canonical.is_active)
+        self.assertFalse(alias.is_active)
+        self.assertEqual(alias.gear_sync_status, 'merged_alias')
+
     def test_dry_run_and_invalid_track_do_not_write(self):
         self.run_import(self.catalog_payload(), '--dry-run')
         self.assertFalse(WowItemSnapshot.objects.exists())
@@ -763,6 +851,11 @@ class GearBuilderImportCommandTests(TestCase):
 
 
 class GearBuilderCurrentSourceTests(TestCase):
+    def test_current_midnight_season_uses_same_key_as_season_monitor(self):
+        self.assertEqual(CurrentGearCatalogSource._season_key({
+            'name': 'Midnight Season 2', 'shortName': 'mid2',
+        }), 'mn-s2')
+
     def test_identity_stats_remove_other_primary_attributes(self):
         raw = {'strength': 500, 'agility': 500, 'intellect': 500, 'crit': 200}
         self.assertEqual(stats_for_identity(raw, {}, 'Warrior', 'Fury'), {'strength': 500, 'crit': 200})
@@ -980,7 +1073,12 @@ class GearBuilderFrontendContractTests(TestCase):
         for value in ('LOADOUT_LIBRARY_KEY', 'MAX_SAVED_LOADOUTS = 30', 'readSavedLoadouts', 'saveCurrentLoadout', 'loadSavedLoadout', 'deleteSavedLoadout'):
             self.assertIn(value, script)
         self.assertIn('code: await encodeShare(compactShareState(state))', script)
-        self.assertIn("portal/js/gear_builder.js' %}?v=20260901_gear_builder_v16", template)
+        self.assertIn("portal/js/gear_builder.js' %}?v=20260902_gear_builder_v17", template)
+        self.assertIn("wow-item-tooltip.js' %}?v=20260902_singleton", template)
+        self.assertNotIn('class="gear-option-stat" title=', script)
+        self.assertIn('const seen = new Set();', script)
+        tooltip_script = (root / 'static/shared/js/wow-item-tooltip.js').read_text(encoding='utf-8')
+        self.assertIn('window.__wowItemTooltipInitialized', tooltip_script)
         self.assertIn("portal/css/gear_builder.css' %}?v=20260901_gear_builder_v13", template)
         self.assertIn('.gear-loadout-panel', styles)
         self.assertIn('id="gear-actions-toggle"', template)

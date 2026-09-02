@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from botend.models import SeasonMeta, WowItemSnapshot, WowItemVariantSnapshot
 from botend.services.gear_builder_catalog_source import CatalogSourceError, CurrentGearCatalogSource
+from botend.services.season_keys import canonical_season_key
 
 
 VALID_TYPES = {value for value, _label in WowItemVariantSnapshot.TYPE_CHOICES}
@@ -70,7 +71,11 @@ class Command(BaseCommand):
         if not isinstance(payload, dict) or not isinstance(payload.get('items'), list):
             raise CommandError('目录 JSON 必须包含 items 数组')
 
-        season_key = str(options.get('season_key') or payload.get('season_key') or '').strip()
+        raw_season_key = str(options.get('season_key') or payload.get('season_key') or '').strip()
+        season_key = canonical_season_key(
+            raw_season_key,
+            season_name=payload.get('season_name'),
+        )
         batch_key = str(payload.get('batch_key') or '').strip()
         game_build = str(payload.get('game_build') or payload.get('build') or '').strip()
         if not season_key or not batch_key or not game_build:
@@ -85,7 +90,9 @@ class Command(BaseCommand):
 
         season = SeasonMeta.objects.filter(season_key=season_key).first()
         if not season and options['fetch_current'] and options['create_season']:
-            season = self._create_season(payload, activate=options['activate'])
+            season = self._create_season(
+                payload, season_key=season_key, activate=options['activate'],
+            )
             self.stdout.write(self.style.SUCCESS(f'已创建赛季元数据：{season.season_key}'))
         if not season:
             raise CommandError(f'未找到赛季：{season_key}')
@@ -127,13 +134,15 @@ class Command(BaseCommand):
         if options['activate']:
             with transaction.atomic():
                 locked = SeasonMeta.objects.select_for_update().get(pk=season.pk)
+                SeasonMeta.objects.select_for_update().filter(is_active=True).exclude(pk=locked.pk).update(is_active=False)
+                locked.is_active = True
                 locked.game_build = game_build
                 locked.gear_batch_key = batch_key
                 locked.gear_sync_status = 'ready'
                 locked.gear_synced_at = timezone.now()
                 locked.gear_sync_report = db_report
                 locked.save(update_fields=(
-                    'game_build', 'gear_batch_key', 'gear_sync_status',
+                    'is_active', 'game_build', 'gear_batch_key', 'gear_sync_status',
                     'gear_synced_at', 'gear_sync_report', 'updated_at',
                 ))
             self.stdout.write(self.style.SUCCESS(f'已激活装备目录批次：{batch_key}'))
@@ -141,11 +150,11 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS(f'已写入待激活批次：{batch_key}'))
 
     @staticmethod
-    def _create_season(payload, activate=False):
+    def _create_season(payload, *, season_key, activate=False):
         info = payload.get('season_info') or {}
         return SeasonMeta.objects.create(
-            season_key=str(payload['season_key'])[:30],
-            season_name=str(payload.get('season_name') or payload['season_key'])[:100],
+            season_key=str(season_key)[:30],
+            season_name=str(payload.get('season_name') or season_key)[:100],
             is_active=bool(activate),
             mplus_zone_id=int(info.get('mplus_zone_id') or 0),
             mplus_zone_name=str(info.get('mplus_zone_name') or '')[:100],

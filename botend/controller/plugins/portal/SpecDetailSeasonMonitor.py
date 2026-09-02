@@ -9,6 +9,7 @@ import time
 
 from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
 from botend.models import SeasonMeta
+from botend.services.season_keys import canonical_season_key
 
 from utils.log import logger
 
@@ -199,13 +200,10 @@ class SpecDetailSeasonMonitor(SpecDetailBase):
         rio_season 格式: 'season-{expansion}-{num}'，如 'season-mn-1'
         → 解析为 'mn-s1'。解析失败则 fallback 到旧逻辑。
         """
-        import re
         if rio_season:
-            m = re.match(r'^season-([a-z]+)-(\d+)$', rio_season)
-            if m:
-                expansion = m.group(1)
-                num = m.group(2)
-                return f"{expansion}-s{num}"
+            normalized = canonical_season_key(rio_season=rio_season)
+            if normalized != 'current-season':
+                return normalized
         # fallback
         if season_num:
             return f"tww-s{season_num}"

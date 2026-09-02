@@ -219,6 +219,13 @@ class DashboardView(View):
     MODEL_SENSITIVE_FIELDS = {
         'GeWechatAuth': {'uuid', 'qrImgBase64'},
     }
+    MODEL_PROTECTED_FIELDS = {
+        # 装备批次只能由 sync_gear_builder_catalog 的审计/激活事务维护。
+        'SeasonMeta': {
+            'game_build', 'gear_batch_key', 'gear_sync_status',
+            'gear_synced_at', 'gear_sync_report',
+        },
+    }
 
     @classmethod
     def _is_sensitive_field(cls, field, model_name=None):
@@ -279,6 +286,7 @@ class DashboardView(View):
             ):
                 continue
             read_only = model_name in self.SIMC_DEDICATED_API_MODELS
+            lifecycle_managed = model_name == 'SeasonMeta'
             has_required_sensitive_field = any(
                 self._is_sensitive_field(field, model_name)
                 and not field.null and not field.blank and not field.has_default()
@@ -291,9 +299,9 @@ class DashboardView(View):
                 'original_name': model._meta.db_table,
                 'display_name': f'{description} - {model._meta.db_table}',
                 'can_read': True,
-                'can_create': not read_only and not has_required_sensitive_field,
+                'can_create': not read_only and not has_required_sensitive_field and not lifecycle_managed,
                 'can_update': not read_only,
-                'can_delete': not read_only,
+                'can_delete': not read_only and not lifecycle_managed,
                 'read_only_reason': '该模型由专用业务接口维护' if read_only else '',
             }
         return registry
@@ -702,6 +710,11 @@ class DashboardView(View):
         fields_to_update = []
         converted_values = {}
         for field_name, raw_value in update_data.items():
+            if field_name in self.MODEL_PROTECTED_FIELDS.get(table_name, set()):
+                return JsonResponse({
+                    "status": "error",
+                    "message": f"字段 {field_name} 由专用同步流程维护，不允许手工编辑",
+                }, status=400)
             try:
                 field = model._meta.get_field(field_name)
             except FieldDoesNotExist:
@@ -740,6 +753,10 @@ class DashboardView(View):
         for attribute, value in converted_values.items():
             setattr(instance, attribute, value)
         try:
+            if table_name == 'SeasonMeta' and converted_values.get('is_active') is True:
+                model.objects.select_for_update().filter(is_active=True).exclude(pk=instance.pk).update(
+                    is_active=False,
+                )
             instance.validate_unique()
             instance.validate_constraints()
             instance.save(update_fields=fields_to_update)

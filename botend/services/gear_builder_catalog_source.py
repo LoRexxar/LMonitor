@@ -13,6 +13,8 @@ from urllib.parse import urlencode
 
 import requests
 
+from botend.services.season_keys import canonical_season_key
+
 from botend.constants.wow import SPEC_IDENTITY_MAP, localize_gear_source
 from botend.services.article_image_service import _get_configured_proxies
 
@@ -172,7 +174,11 @@ class CurrentGearCatalogSource:
         if not profile:
             raise CatalogSourceError(f'当前赛季 {short_name or active.get("name")} 尚未配置合法装等范围。')
 
-        normalized_season_key = season_key.strip() or self._season_key(active)
+        normalized_season_key = canonical_season_key(
+            season_key,
+            season_name=active.get('name'),
+            short_name=active.get('shortName'),
+        )
         items, season_info = self._build_items(
             active, profile, instances, encounter_items, catalyst_items, item_sets, crafting, enchantments,
         )
@@ -270,10 +276,10 @@ class CurrentGearCatalogSource:
 
     @staticmethod
     def _season_key(active):
-        short_name = str(active.get('shortName') or '').lower()
-        expansion = re.sub(r'[^a-z0-9]+', '-', str(active.get('name') or '').split(' Season ', 1)[0].lower()).strip('-')
-        number = re.search(r'(\d+)$', short_name)
-        return f'{expansion}-s{number.group(1)}' if expansion and number else short_name or 'current-season'
+        return canonical_season_key(
+            short_name=active.get('shortName'),
+            season_name=active.get('name'),
+        )
 
     def _build_items(self, active, profile, instances, encounter_items, catalyst_items, item_sets, crafting, enchantments):
         instance_by_id = {_safe_int(row.get('id')): row for row in instances}
