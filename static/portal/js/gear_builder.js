@@ -14,11 +14,13 @@
     onlineLoadouts: page.dataset.onlineLoadoutsUrl,
     shortLinks: page.dataset.shortLinksUrl,
     shortLinkDetail: page.dataset.shortLinkDetailTemplate,
+    ownedItems: page.dataset.ownedItemsUrl,
+    assistant: page.dataset.assistantUrl,
   };
   const els = Object.fromEntries([
     "gear-class-select", "gear-spec-select", "gear-catalog-status", "gear-slot-list",
     "gear-equipped-count", "gear-mobile-count", "gear-browser-title", "gear-mode-equipment",
-    "gear-mode-enhancement", "gear-equipment-browser", "gear-enhancement-browser",
+    "gear-mode-enhancement", "gear-mode-owned", "gear-equipment-browser", "gear-enhancement-browser", "gear-owned-browser", "gear-owned-list",
     "gear-search-input", "gear-source-filter", "gear-quick-filters", "gear-candidate-list", "gear-load-more",
     "gear-embellishment-list", "gear-gem-list", "gear-enchant-list", "gear-socket-summary",
     "gear-add-socket-option", "gear-add-socket", "gear-add-socket-copy", "gear-stats-context",
@@ -31,6 +33,7 @@
     "gear-loadout-name", "gear-loadout-submit", "gear-loadout-list",
     "gear-action-manager", "gear-actions-toggle", "gear-actions-panel",
     "gear-simc-dialog", "gear-simc-input", "gear-simc-submit", "gear-simc-message", "gear-toast-root",
+    "gear-open-assistant",
     "gear-view-editor", "gear-view-preview", "gear-preview", "gear-preview-left", "gear-preview-right",
     "gear-preview-season", "gear-preview-count", "gear-preview-spec-icon", "gear-preview-spec-fallback", "gear-preview-class",
     "gear-preview-spec", "gear-preview-item-level", "gear-preview-progress-bar", "gear-preview-progress-copy",
@@ -78,6 +81,7 @@
   let enhancementGroups = {embellishments: [], gems: [], enchants: []};
   let savedLoadouts = [];
   let onlineLoadouts = [];
+  let ownedItems = [];
   let state = freshState();
 
   function freshState() {
@@ -245,7 +249,7 @@
     next.specName = String(raw.specName || next.specName);
     next.batchKey = String(raw.batchKey || "");
     next.selectedSlot = String(raw.selectedSlot || next.selectedSlot);
-    next.mode = raw.mode === "enhancement" ? "enhancement" : "equipment";
+    next.mode = ["equipment", "enhancement", "owned"].includes(raw.mode) ? raw.mode : "equipment";
     next.viewMode = raw.viewMode === "preview" ? "preview" : "editor";
     next.mobileView = ["slots", "browser", "stats"].includes(raw.mobileView) ? raw.mobileView : "browser";
     next.equipment = raw.equipment && typeof raw.equipment === "object" ? raw.equipment : {};
@@ -396,12 +400,18 @@
 
   function renderMode() {
     const enhancement = state.mode === "enhancement";
-    els.mode_equipment.classList.toggle("is-active", !enhancement);
-    els.mode_equipment.setAttribute("aria-selected", String(!enhancement));
+    const owned = state.mode === "owned" && Boolean(els.mode_owned);
+    els.mode_equipment.classList.toggle("is-active", !enhancement && !owned);
+    els.mode_equipment.setAttribute("aria-selected", String(!enhancement && !owned));
     els.mode_enhancement.classList.toggle("is-active", enhancement);
     els.mode_enhancement.setAttribute("aria-selected", String(enhancement));
-    els.equipment_browser.hidden = enhancement;
+    if (els.mode_owned) {
+      els.mode_owned.classList.toggle("is-active", owned);
+      els.mode_owned.setAttribute("aria-selected", String(owned));
+    }
+    els.equipment_browser.hidden = enhancement || owned;
     els.enhancement_browser.hidden = !enhancement;
+    if (els.owned_browser) els.owned_browser.hidden = !owned;
   }
 
   function renderCandidates() {
@@ -426,7 +436,7 @@
         : item.variants[0];
       const equipped = current?.item?.item_id === item.item_id && current?.variant?.id === variant?.id;
       return `<div class="gear-candidate-row${equipped ? " is-equipped" : ""}" role="button"${equipped ? ' aria-current="true"' : ""} data-select-item="${item.item_id}" data-variant-id="${variant.id}"${tooltipAttrs(item, variant)}>
-        <div class="gear-candidate-name">${iconMarkup(item)}<span class="gear-candidate-copy"><strong class="gear-candidate-title">${escapeHtml(item.name)}</strong><small class="gear-candidate-subtitle">${escapeHtml(equipped ? "当前装备" : item.armor_type || item.weapon_type || (variant.type === "crafted_equipment" ? "制造装备" : "装备"))}</small></span></div>
+        <div class="gear-candidate-name">${iconMarkup(item)}<span class="gear-candidate-copy"><strong class="gear-candidate-title">${escapeHtml(item.name)}</strong><small class="gear-candidate-subtitle">${escapeHtml(equipped ? "当前装备" : item.armor_type || item.weapon_type || (variant.type === "crafted_equipment" ? "制造装备" : "装备"))}</small>${endpoints.ownedItems ? `<button type="button" class="gear-owned-add" data-add-owned="${item.item_id}" data-owned-variant-id="${variant.id}">加入已有</button>` : ""}</span></div>
         <div class="gear-candidate-level">${variant.item_level || "-"}</div>
         <div class="gear-track gear-track--${escapeHtml(variant.track || "crafted")}">${escapeHtml(variant.type === "crafted_equipment" ? `制造 ${variant.crafting_quality || ""}星` : `${variant.track_label || variant.track || "-"} ${variant.track_rank ? `${variant.track_rank}/${variant.track_max_rank}` : ""}`)}</div>
         <div class="gear-source-copy">${sourceMarkup(variant)}</div>
@@ -435,6 +445,50 @@
     }).join("");
     els.load_more.hidden = candidates.length >= candidateTotal;
     els.load_more.textContent = candidateLoading ? "加载中…" : `加载更多（${candidates.length}/${candidateTotal}）`;
+  }
+
+  function renderOwnedItems() {
+    if (!els.owned_list) return;
+    if (!ownedItems.length) {
+      els.owned_list.innerHTML = '<div class="gear-empty-state"><div><strong>当前槽位没有已有装备</strong>可在装备候选行点击“加入已有”，或通过 SimC 导入背包装备。</div></div>';
+      return;
+    }
+    els.owned_list.innerHTML = ownedItems.map((row) => {
+      const item = row.item || {item_id: row.item_id, name: row.name};
+      const variant = row.variant;
+      return `<div class="gear-owned-row${variant ? "" : " is-external"}" role="button" tabindex="0" data-equip-owned="${row.id}"${variant ? tooltipAttrs(item, variant) : ""}>
+        <span class="gear-candidate-name">${iconMarkup(item)}<span class="gear-candidate-copy"><strong class="gear-candidate-title">${escapeHtml(row.name)}</strong><small class="gear-candidate-subtitle">${escapeHtml(row.slot_label)} · ${row.item_level || "未知装等"}${row.quantity > 1 ? ` · ×${row.quantity}` : ""}</small></span></span>
+        <button type="button" class="gear-owned-remove" data-remove-owned="${row.id}">移除</button>
+      </div>`;
+    }).join("");
+  }
+
+  async function loadOwnedItems() {
+    if (!endpoints.ownedItems || !els.owned_list) return;
+    els.owned_list.innerHTML = '<div class="gear-loading-state">正在读取已有装备…</div>';
+    try {
+      const params = new URLSearchParams({class: state.className, spec: state.specName, slot: state.selectedSlot});
+      const payload = await requestJson(`${endpoints.ownedItems}?${params}`);
+      ownedItems = payload.items || [];
+      renderOwnedItems();
+    } catch (error) {
+      els.owned_list.innerHTML = `<div class="gear-empty-state"><div><strong>已有装备读取失败</strong>${escapeHtml(error.message)}</div></div>`;
+    }
+  }
+
+  async function loadActiveBrowser() {
+    if (state.mode === "enhancement") return loadEnhancements();
+    if (state.mode === "owned") return loadOwnedItems();
+    return loadCandidates(true);
+  }
+
+  async function saveCandidateAsOwned(item, variant) {
+    const payload = await requestJson(endpoints.ownedItems, {
+      method: "POST", headers: {"Content-Type": "application/json", ...csrfHeaders()},
+      body: JSON.stringify({variant_id: variant.id, item_id: item.item_id, slot: state.selectedSlot, item_level: variant.item_level, bonus_ids: variant.bonus_ids || [], source: "manual"}),
+    });
+    toast(payload.created ? `${item.name} 已加入已有装备。` : `${item.name} 的已有数量已增加。`);
+    if (state.mode === "owned") await loadOwnedItems();
   }
 
   async function loadCandidates(reset = true) {
@@ -1149,8 +1203,7 @@
     persist();
     renderCatalogStatus();
     renderAll();
-    await loadCandidates(true);
-    if (state.mode === "enhancement") await loadEnhancements();
+    await loadActiveBrowser();
     setLoadoutPanel(false);
     toast(`已载入“${record.name}”。`);
   }
@@ -1222,8 +1275,7 @@
     persist();
     renderCatalogStatus();
     renderAll();
-    await loadCandidates(true);
-    if (state.mode === "enhancement") await loadEnhancements();
+    await loadActiveBrowser();
     if (els.online_dialog?.open) els.online_dialog.close();
     setLoadoutPanel(false);
     toast(`已载入线上配装“${record.name}”。`);
@@ -1400,12 +1452,23 @@
           rawValue: row.raw_value || "",
         };
       });
+      if (endpoints.ownedItems && Array.isArray(payload.owned_equipment) && payload.owned_equipment.length) {
+        const items = payload.owned_equipment.filter((row) => row.item_id && row.slot).map((row) => ({
+          variant_id: row.variant_id, item_id: row.item_id, slot: row.slot, item_level: row.item_level,
+          bonus_ids: row.bonus_ids || [], selected_stats: row.crafted_stats || [], source: row.import_source || "simc_bag",
+          name: row.name, enhancements: {gems: row.gems || [], enchant: row.enchant || null},
+          snapshot: {name: row.name, stats: row.variant?.stats || {}, sources: row.variant?.sources || []},
+        }));
+        await requestJson(endpoints.ownedItems, {
+          method: "POST", headers: {"Content-Type": "application/json", ...csrfHeaders()}, body: JSON.stringify({items}),
+        });
+      }
       persist();
       renderAll();
       await loadCandidates(true);
       els.simc_dialog.close();
       els.simc_message.textContent = "";
-      toast(`已导入 ${payload.equipment?.length || 0} 个装备槽位。`);
+      toast(`已导入 ${payload.equipment?.length || 0} 个装备槽位${endpoints.ownedItems ? `，并记录 ${payload.owned_equipment?.length || 0} 件已有装备` : ""}。`);
       (payload.warnings || []).slice(0, 3).forEach((warning) => toast(warning, true));
     } catch (error) {
       els.simc_message.textContent = error.message;
@@ -1518,7 +1581,7 @@
       state.mobileView = "browser";
       persist();
       renderAll();
-      if (state.mode === "enhancement") await loadEnhancements(); else await loadCandidates(true);
+      await loadActiveBrowser();
     });
     els.class_select.addEventListener("change", async () => {
       const className = els.class_select.value;
@@ -1529,7 +1592,7 @@
       state.className = className;
       state.specName = specName;
       state.viewMode = viewMode;
-      syncSelectors(); persist(); renderAll(); await loadCandidates(true);
+      syncSelectors(); persist(); renderAll(); await loadActiveBrowser();
     });
     els.spec_select.addEventListener("change", async () => {
       const viewMode = state.viewMode;
@@ -1537,7 +1600,7 @@
       state.className = els.class_select.value;
       state.specName = els.spec_select.value;
       state.viewMode = viewMode;
-      persist(); renderAll(); await loadCandidates(true);
+      persist(); renderAll(); await loadActiveBrowser();
     });
     els.slot_list.addEventListener("click", async (event) => {
       const button = event.target.closest("[data-slot]");
@@ -1545,10 +1608,11 @@
       state.selectedSlot = button.dataset.slot;
       state.mobileView = "browser";
       persist(); renderAll();
-      if (state.mode === "equipment") await loadCandidates(true); else await loadEnhancements();
+      await loadActiveBrowser();
     });
     els.mode_equipment.addEventListener("click", async () => { state.mode = "equipment"; persist(); renderMode(); await loadCandidates(true); });
     els.mode_enhancement.addEventListener("click", async () => { state.mode = "enhancement"; persist(); renderMode(); await loadEnhancements(); });
+    if (els.mode_owned) els.mode_owned.addEventListener("click", async () => { state.mode = "owned"; persist(); renderMode(); await loadOwnedItems(); });
     els.source_filter.addEventListener("change", () => loadCandidates(true));
     els.quick_filters.addEventListener("change", (event) => {
       if (event.target.matches("[data-exclude-source], [data-exclude-stat]")) loadCandidates(true);
@@ -1556,11 +1620,40 @@
     els.search_input.addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = window.setTimeout(() => loadCandidates(true), 250); });
     els.load_more.addEventListener("click", () => { candidatePage += 1; loadCandidates(false); });
     els.candidate_list.addEventListener("click", (event) => {
+      const ownButton = event.target.closest("[data-add-owned]");
+      if (ownButton) {
+        event.stopPropagation();
+        const item = findCandidate(ownButton.dataset.addOwned);
+        const variant = item?.variants?.find((candidate) => Number(candidate.id) === Number(ownButton.dataset.ownedVariantId));
+        if (item && variant) saveCandidateAsOwned(item, variant).catch((error) => toast(error.message, true));
+        return;
+      }
       const row = event.target.closest(".gear-candidate-row[data-select-item]");
       if (!row) return;
       const item = findCandidate(row.dataset.selectItem);
       const variant = item?.variants?.find((candidate) => Number(candidate.id) === Number(row.dataset.variantId));
       if (item && variant) addItem(item, variant);
+    });
+    if (els.owned_list) els.owned_list.addEventListener("click", async (event) => {
+      const remove = event.target.closest("[data-remove-owned]");
+      if (remove) {
+        event.stopPropagation();
+        try {
+          await requestJson(`${endpoints.ownedItems}${remove.dataset.removeOwned}/`, {method: "DELETE", headers: csrfHeaders()});
+          await loadOwnedItems(); toast("已从已有装备中移除。");
+        } catch (error) { toast(error.message, true); }
+        return;
+      }
+      const row = event.target.closest("[data-equip-owned]");
+      const owned = ownedItems.find((item) => Number(item.id) === Number(row?.dataset.equipOwned));
+      if (owned?.item && owned?.variant) await addItem(owned.item, owned.variant);
+      else if (owned) toast("目录外装备仅保留记录，无法自动切换变体。", true);
+    });
+    if (els.owned_list) els.owned_list.addEventListener("keydown", (event) => {
+      if (!["Enter", " "].includes(event.key) || event.target.closest("button")) return;
+      const row = event.target.closest("[data-equip-owned]");
+      if (!row) return;
+      event.preventDefault(); row.click();
     });
     els.candidate_list.addEventListener("keydown", (event) => {
       if (!['Enter', ' '].includes(event.key)) return;
@@ -1611,6 +1704,10 @@
     document.querySelectorAll("[data-mobile-view]").forEach((button) => button.addEventListener("click", () => { state.mobileView = button.dataset.mobileView; persist(); renderMobileView(); }));
     els.detail_close.addEventListener("click", closeDetail);
     els.import_simc.addEventListener("click", () => els.simc_dialog.showModal());
+    if (els.open_assistant) els.open_assistant.addEventListener("click", () => {
+      sessionStorage.setItem("wowdaily:gear-assistant:draft:v1", JSON.stringify(state));
+      window.location.href = endpoints.assistant;
+    });
     els.copy_simc.addEventListener("click", () => copySimcProfile().catch((error) => toast(error.message || "复制 SimC 失败。", true)));
     els.simc_submit.addEventListener("click", importSimc);
     els.copy_share.addEventListener("click", () => copyShare().catch((error) => toast(error.message, true)));
@@ -1634,8 +1731,7 @@
       bindEvents();
       renderAll();
       if (els.online_list) refreshOnlineLoadouts().catch((error) => toast(error.message || "线上配装读取失败。", true));
-      await loadCandidates(true);
-      if (state.mode === "enhancement") await loadEnhancements();
+      await loadActiveBrowser();
     } catch (error) {
       els.catalog_status.textContent = "配装器初始化失败";
       els.catalog_status.classList.add("is-error");

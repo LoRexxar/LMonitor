@@ -201,6 +201,10 @@ def _number(value):
         return None
 
 
+def _split_ints(value):
+    return [parsed for parsed in (_number(token) for token in re.split(r'[/;:,]', str(value or ''))) if parsed]
+
+
 def _parse_line(line):
     key, sep, raw_value = line.partition('=')
     if not sep:
@@ -780,6 +784,11 @@ def parse_simc_player_profile(player_equipment):
                         'item_id': item_id, 'source': section,
                         'raw_value': raw_value, 'name': hint_name,
                         'item_level': hint_level or _number(values.get('ilevel') or values.get('item_level')),
+                        'bonus_ids': _split_ints(values.get('bonus_id') or values.get('bonus_ids')),
+                        'crafted_stats': _split_ints(values.get('crafted_stats')),
+                        'crafting_quality': _number(values.get('crafting_quality')) or 0,
+                        'gem_ids': _split_ints(values.get('gem_id') or values.get('gems')),
+                        'enchant_id': _number(values.get('enchant_id') or values.get('enchant')) or 0,
                     })
             hint_name, hint_level = '', None
             continue

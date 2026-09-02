@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.utils.decorators import method_decorator
@@ -28,6 +29,13 @@ from botend.services.gear_builder_storage import (
     resolve_short_link,
     save_user_loadout,
 )
+from botend.services.gear_builder_owned import (
+    delete_owned_item,
+    list_owned_items,
+    save_owned_item,
+    save_owned_items,
+)
+from botend.services.gear_assistant import assistant_bootstrap, optimize_loadouts
 
 
 def _json_body(request):
@@ -50,6 +58,14 @@ class PortalGearBuilderView(View):
         return render(request, 'portal/gear_builder.html', {
             'initial_share_token': str(share_token or ''),
         })
+
+
+@method_decorator(ensure_csrf_cookie, name='dispatch')
+class PortalGearAssistantView(LoginRequiredMixin, View):
+    login_url = '/auth/login/'
+
+    def get(self, request):
+        return render(request, 'portal/gear_assistant.html')
 
 
 class PortalGearBuilderBootstrapAPIView(View):
@@ -193,4 +209,73 @@ class PortalGearBuilderShortLinkDetailAPIView(View):
             payload = resolve_short_link(share_token)
         except GearBuilderStorageError as exc:
             return _error_response(exc, status=404)
+        return JsonResponse({'success': True, **payload})
+
+
+class PortalGearBuilderOwnedItemsAPIView(View):
+    def _unauthorized(self):
+        return _error_response('请登录后管理已有装备', status=401)
+
+    def get(self, request, owned_id=None):
+        if not request.user.is_authenticated:
+            return self._unauthorized()
+        rows = list_owned_items(
+            request.user,
+            class_name=request.GET.get('class') or '',
+            spec_name=request.GET.get('spec') or '',
+            slot=request.GET.get('slot') or '',
+        )
+        if owned_id is not None:
+            row = next((value for value in rows if value['id'] == owned_id), None)
+            return JsonResponse({'success': True, 'item': row}) if row else _error_response('已有装备不存在', 404)
+        return JsonResponse({'success': True, 'items': rows})
+
+    def post(self, request, owned_id=None):
+        if not request.user.is_authenticated:
+            return self._unauthorized()
+        try:
+            body = _json_body(request)
+            if isinstance(body.get('items'), list):
+                rows = save_owned_items(request.user, body['items'])
+                return JsonResponse({'success': True, 'items': rows, 'count': len(rows)})
+            row, created = save_owned_item(request.user, body)
+            return JsonResponse({'success': True, 'item': row, 'created': created})
+        except GearBuilderError as exc:
+            return _error_response(exc)
+
+    def delete(self, request, owned_id=None):
+        if not request.user.is_authenticated:
+            return self._unauthorized()
+        try:
+            if owned_id is None:
+                raise GearBuilderError('缺少已有装备 ID')
+            delete_owned_item(request.user, owned_id)
+        except GearBuilderError as exc:
+            return _error_response(exc, 404)
+        return JsonResponse({'success': True})
+
+
+class PortalGearAssistantBootstrapAPIView(View):
+    def get(self, request):
+        if not request.user.is_authenticated:
+            return _error_response('请登录后使用辅助配装', status=401)
+        try:
+            payload = assistant_bootstrap(
+                request.user,
+                request.GET.get('class') or 'Warrior',
+                request.GET.get('spec') or 'Fury',
+            )
+        except GearBuilderError as exc:
+            return _error_response(exc)
+        return JsonResponse({'success': True, **payload})
+
+
+class PortalGearAssistantOptimizeAPIView(View):
+    def post(self, request):
+        if not request.user.is_authenticated:
+            return _error_response('请登录后使用辅助配装', status=401)
+        try:
+            payload = optimize_loadouts(request.user, _json_body(request))
+        except GearBuilderError as exc:
+            return _error_response(exc)
         return JsonResponse({'success': True, **payload})

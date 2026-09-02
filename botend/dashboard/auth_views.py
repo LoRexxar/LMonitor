@@ -19,6 +19,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
 from django.conf import settings
+from django.utils.http import url_has_allowed_host_and_scheme
 import json
 
 
@@ -30,12 +31,16 @@ class LoginView(View):
     
     def get(self, request):
         """显示登录页面"""
+        next_url = request.GET.get('next') or '/dashboard/'
+        if not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
+            next_url = '/dashboard/'
         if request.user.is_authenticated:
-            return redirect('/dashboard/')
+            return redirect(next_url)
         
         # 传递注册功能开关状态到模板
         context = {
-            'allow_registration': getattr(settings, 'ALLOW_REGISTRATION', True)
+            'allow_registration': getattr(settings, 'ALLOW_REGISTRATION', True),
+            'next_url': next_url,
         }
         return render(request, 'dashboard/login.html', context)
     
@@ -45,6 +50,9 @@ class LoginView(View):
             data = json.loads(request.body)
             username = data.get('username')
             password = data.get('password')
+            next_url = data.get('next') or '/dashboard/'
+            if not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
+                next_url = '/dashboard/'
             
             if not username or not password:
                 return JsonResponse({
@@ -58,7 +66,7 @@ class LoginView(View):
                 return JsonResponse({
                     'status': 'success',
                     'message': '登录成功',
-                    'redirect_url': '/dashboard/'
+                    'redirect_url': next_url
                 })
             else:
                 return JsonResponse({

@@ -28,6 +28,12 @@
                 <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-tools"></use></svg>
                 <span>职业配装器</span>
             </a>
+            {% if request.user.is_authenticated %}
+            <a href="/portal/gear-assistant/" class="portal-quick-nav-link{% if request.path == '/portal/gear-assistant/' %} is-active{% endif %}">
+                <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-tools"></use></svg>
+                <span>辅助配装</span>
+            </a>
+            {% endif %}
             <a href="/portal/mythic-planner/" class="portal-quick-nav-link{% if request.path == '/portal/mythic-planner/' %} is-active{% endif %}">
                 <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-tools"></use></svg>
                 <span>MDT</span>

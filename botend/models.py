@@ -2647,6 +2647,60 @@ class GearBuilderUserLoadout(models.Model):
         ]
 
 
+class GearBuilderOwnedItem(models.Model):
+    """登录用户的已有装备；物品与属性继续复用赛季变体表。"""
+
+    SOURCE_MANUAL = 'manual'
+    SOURCE_SIMC_EQUIPPED = 'simc_equipped'
+    SOURCE_SIMC_BAG = 'simc_bag'
+    SOURCE_CHOICES = (
+        (SOURCE_MANUAL, '手动加入'),
+        (SOURCE_SIMC_EQUIPPED, 'SimC 已装备'),
+        (SOURCE_SIMC_BAG, 'SimC 背包'),
+    )
+
+    id = models.BigAutoField(primary_key=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='gear_builder_owned_items',
+    )
+    variant = models.ForeignKey(
+        WowItemVariantSnapshot,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='owned_item_records',
+    )
+    item_id = models.BigIntegerField(default=0, db_index=True)
+    slot_key = models.CharField(max_length=32, default='', blank=True, db_index=True)
+    item_level = models.PositiveIntegerField(default=0)
+    batch_key = models.CharField(max_length=160, default='', blank=True)
+    source = models.CharField(max_length=24, choices=SOURCE_CHOICES, default=SOURCE_MANUAL)
+    fingerprint = models.CharField(max_length=64)
+    quantity = models.PositiveSmallIntegerField(default=1)
+    bonus_ids = models.JSONField(default=list, blank=True)
+    selected_stats = models.JSONField(default=list, blank=True)
+    enhancements_json = models.JSONField(default=dict, blank=True)
+    snapshot_json = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'gear_builder_owned_item'
+        ordering = ('slot_key', '-item_level', '-updated_at', '-id')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('user', 'fingerprint'),
+                name='uniq_gear_owned_user_fingerprint',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=('user', 'slot_key'), name='gear_owned_user_slot_idx'),
+            models.Index(fields=('user', '-updated_at'), name='gear_owned_user_updated_idx'),
+        ]
+
+
 class MythicDungeonDataVersion(models.Model):
     """大秘境路线规划器的数据版本。"""
 

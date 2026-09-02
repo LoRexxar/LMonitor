@@ -957,11 +957,16 @@ def import_simc_profile(profile_text):
     identity = profile.get('identity') or {}
     normalized_identity = canonical_class_spec(identity.get('class_name'), identity.get('spec'))
     equipment = profile.get('equipment') or []
+    bag_equipment = list((parsed.get('candidates') or {}).get('gear') or [])
+    for row in bag_equipment:
+        row['gems'] = [{'item_id': value, 'id': value} for value in (row.get('gem_ids') or [])]
+        row['enchant'] = {'enchantment_id': row.get('enchant_id'), 'id': row.get('enchant_id')} if row.get('enchant_id') else None
+    all_equipment = [*equipment, *bag_equipment]
     season = active_season()
     batch_key = season.gear_batch_key if season else ''
-    item_ids = [_simc_item_id(row) for row in equipment]
+    item_ids = [_simc_item_id(row) for row in all_equipment]
     enhancer_ids = []
-    for row in equipment:
+    for row in all_equipment:
         enhancer_ids.extend(_simc_item_id(gem) for gem in (row.get('gems') or []))
         enhancer_ids.append(_simc_enchantment_id(row.get('enchant')))
     requested_ids = [value for value in item_ids + enhancer_ids if value]
@@ -979,7 +984,7 @@ def import_simc_profile(profile_text):
 
     mapped = []
     warnings = []
-    for row in equipment:
+    for row in all_equipment:
         item_id = _simc_item_id(row)
         candidates = by_item.get(item_id, [])
         requested_bonus = {str(value) for value in (row.get('bonus_ids') or [])}
@@ -1027,7 +1032,10 @@ def import_simc_profile(profile_text):
                 'name': enchant_payload.get('display_name') or (f'#{enchant_id}' if enchant_id else ''),
             } if enchant_id else None,
             'raw_value': row.get('raw_value') or '',
+            'import_source': 'simc_bag' if row in bag_equipment else 'simc_equipped',
         })
+    equipped_mapped = mapped[:len(equipment)]
+    bag_mapped = mapped[len(equipment):]
     return {
         'identity': {
             'class_name': normalized_identity[0] if normalized_identity else '',
@@ -1035,7 +1043,9 @@ def import_simc_profile(profile_text):
             'class_cn': CLASS_CN.get(normalized_identity[0], '') if normalized_identity else '',
             'spec_cn': SPEC_CN.get(normalized_identity[1], '') if normalized_identity else '',
         },
-        'equipment': mapped,
+        'equipment': equipped_mapped,
+        'bag_equipment': bag_mapped,
+        'owned_equipment': mapped,
         'warnings': warnings,
         'catalog': catalog_context(season),
     }

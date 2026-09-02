@@ -26,6 +26,10 @@
         data-online-loadouts-url="{% url 'portal_gear_builder_online_loadouts' %}"
         data-short-links-url="{% url 'portal_gear_builder_short_links' %}"
         data-short-link-detail-template="{% url 'portal_gear_builder_short_link_detail' share_token='__TOKEN__' %}"
+        {% if request.user.is_authenticated %}
+        data-owned-items-url="{% url 'portal_gear_builder_owned_items' %}"
+        data-assistant-url="{% url 'portal_gear_assistant' %}"
+        {% endif %}
         data-initial-share-token="{{ initial_share_token|default:'' }}"
         aria-busy="true"
     >
@@ -84,6 +88,7 @@
                             {% if request.user.is_authenticated %}
                             <button type="button" id="gear-save-online" class="gear-action-item" role="menuitem"><span aria-hidden="true">☁</span><span><strong>保存配装到线上</strong><small>同步到当前登录账号</small></span></button>
                             <button type="button" id="gear-copy-short-share" class="gear-action-item" role="menuitem"><span aria-hidden="true">↗</span><span><strong>分享短链接</strong><small>生成适合发送的短地址</small></span></button>
+                            <button type="button" id="gear-open-assistant" class="gear-action-item" role="menuitem"><span aria-hidden="true">◎</span><span><strong>辅助配装</strong><small>允许空槽位并生成三套目标属性方案</small></span></button>
                             {% endif %}
                         </div>
                         <div class="gear-actions-danger">
@@ -118,6 +123,7 @@
                     <div class="gear-mode-switch" role="tablist" aria-label="选择装备或强化">
                         <button type="button" id="gear-mode-equipment" class="is-active" role="tab" aria-selected="true">装备</button>
                         <button type="button" id="gear-mode-enhancement" role="tab" aria-selected="false">强化</button>
+                        {% if request.user.is_authenticated %}<button type="button" id="gear-mode-owned" role="tab" aria-selected="false">已有装备</button>{% endif %}
                     </div>
                 </div>
 
@@ -193,6 +199,12 @@
                         </div>
                     </details>
                 </div>
+                {% if request.user.is_authenticated %}
+                <div id="gear-owned-browser" class="gear-owned-browser" hidden>
+                    <div class="gear-enhancement-intro"><strong>已有装备</strong><span>当前账号保存的物品；点击行直接装备到当前槽位。</span></div>
+                    <div id="gear-owned-list" class="gear-owned-list"></div>
+                </div>
+                {% endif %}
             </section>
 
             <aside id="gear-detail-panel" class="gear-panel gear-detail-panel" aria-label="当前选择">
