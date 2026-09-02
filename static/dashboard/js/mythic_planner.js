@@ -616,6 +616,10 @@
         }
         if (key === 'route_stats') return `${Number(row.pull_count || 0)} 波 · ${Number(row.spawn_count || 0)} 个怪 · ${Number(row.annotation_count || 0)} 条标注`;
         if (key === 'route_code') {
+            if (state.resource === 'default_routes' && row.is_valid === false) {
+                const reason = row.invalid_reason || '路线与当前 MDT 数据版本不兼容。';
+                return `<span class="mp-admin-status is-invalid" title="${escapeHtml(reason)}">已失效</span>`;
+            }
             const code = String(row.route_code || '');
             if (!code) return '—';
             const preview = code.length > 30 ? `${code.slice(0, 30)}…` : code;
@@ -646,7 +650,13 @@
                 : '<span class="mp-admin-status is-active">上游导入</span>';
         }
         if (key === 'level_range') return `${row.min_dungeon_level} – ${row.max_dungeon_level}`;
-        if (key === 'is_active') return `<span class="mp-admin-status ${row.is_active ? 'is-active' : ''}">${row.is_active ? '启用' : '停用'}</span>`;
+        if (key === 'is_active') {
+            if (state.resource === 'default_routes' && row.is_valid === false) {
+                const reason = row.invalid_reason || '路线与当前 MDT 数据版本不兼容。';
+                return `<span class="mp-admin-status is-invalid" title="${escapeHtml(reason)}">已失效</span>`;
+            }
+            return `<span class="mp-admin-status ${row.is_active ? 'is-active' : ''}">${row.is_active ? '启用' : '停用'}</span>`;
+        }
         if (key === 'is_boss') return row.is_boss ? '首领' : '普通怪物';
         if (key === 'interruptible') return row.interruptible ? '可打断' : '不可打断';
         if (key === 'live_sync_enabled' || key === 'allow_public_route_share') return row[key] ? '已开启' : '已关闭';

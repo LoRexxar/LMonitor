@@ -38,6 +38,7 @@ from botend.mythic_planner.spell_tooltips import (
 )
 from botend.mythic_planner.services import (
     decode_share_code,
+    default_route_compatibility,
     encode_share_code,
     get_active_dungeon,
     owned_route_queryset,
@@ -404,6 +405,7 @@ def _management_default_route(row):
         for pull in pulls
         if isinstance(pull, dict) and isinstance(pull.get('spawn_uids'), list)
     )
+    compatibility = default_route_compatibility(row)
     return {
         'id': row.id,
         'dungeon_id': row.dungeon_id,
@@ -416,13 +418,16 @@ def _management_default_route(row):
         'display_updated_on': _iso(row.display_updated_on),
         'dungeon_level': row.dungeon_level,
         'route_data': route_data,
-        'route_code': encode_share_code(route_data),
+        'route_code': compatibility['route_code'],
         'pull_count': len(pulls),
         'spawn_count': spawn_count,
         'annotation_count': len(annotations),
         'order': row.order,
         'is_featured': row.is_featured,
         'is_active': row.is_active,
+        'is_valid': compatibility['is_valid'],
+        'validity': compatibility['validity'],
+        'invalid_reason': compatibility['invalid_reason'],
         'revision': row.revision,
         'created_by_user_id': row.created_by_user_id,
         'updated_by_user_id': row.updated_by_user_id,

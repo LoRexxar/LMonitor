@@ -597,6 +597,8 @@
 .mp-admin-status.is-public::before { background: #3b73db; }
 .mp-admin-status.is-manual { background: #fff4d6; color: #9a5b05; }
 .mp-admin-status.is-manual::before { background: #f59e0b; }
+.mp-admin-status.is-invalid { background: #ffe9eb; color: #a52635; }
+.mp-admin-status.is-invalid::before { background: #d64555; }
 .mp-admin-row-actions { display: flex; gap: 5px; }
 .mp-admin-row-actions button { padding: 5px 8px; border: 1px solid #cdd8e4; border-radius: 5px; background: #fff; color: #3f5067; cursor: pointer; font-size: 10px; }
 .mp-admin-row-actions button:hover { border-color: #7891ae; }

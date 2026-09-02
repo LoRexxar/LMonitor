@@ -1,4 +1,5 @@
 import json
+import logging
 from dataclasses import dataclass
 
 from django.db.models import Prefetch
@@ -27,6 +28,7 @@ from botend.mythic_planner.mdt_route_codec import (
 
 MAX_PULLS = 100
 MAX_ANNOTATIONS = 500
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -102,6 +104,81 @@ def planner_config_dict():
     }
 
 
+def default_route_compatibility(route):
+    """校验推荐路线是否仍与其当前 MDT 数据版本兼容。"""
+
+    route_data = route.route_data if isinstance(route.route_data, dict) else {}
+    try:
+        if not route_data:
+            raise ValueError('路线内容为空，请管理员重新发布。')
+        route_version_key = str(
+            route_data.get('data_version_key') or ''
+        ).strip()
+        current_version_key = str(route.dungeon.data_version.key or '').strip()
+        if route_version_key and route_version_key != current_version_key:
+            raise ValueError(
+                f'路线基于数据版本 {route_version_key}，当前版本为 '
+                f'{current_version_key}，请管理员重新发布。'
+            )
+        validated = validate_route_payload(route_data, route.dungeon)
+        route_code = encode_share_code(validated.payload)
+    except Exception as exc:  # 单条坏路线不能拖垮整个公开目录。
+        expected_error = isinstance(exc, (TypeError, ValueError, OverflowError))
+        reason = str(exc).strip() if expected_error else ''
+        if expected_error:
+            logger.debug(
+                '推荐路线已失效: route_id=%s, dungeon=%s, reason=%s',
+                route.pk,
+                route.dungeon.key,
+                reason,
+            )
+        else:
+            logger.exception(
+                '推荐路线解析异常: route_id=%s, dungeon=%s',
+                route.pk,
+                route.dungeon.key,
+            )
+        return {
+            'is_valid': False,
+            'validity': 'invalid',
+            'invalid_reason': reason or '路线数据无法解析，请管理员重新发布。',
+            'route_code': '',
+        }
+    return {
+        'is_valid': True,
+        'validity': 'valid',
+        'invalid_reason': '',
+        'route_code': route_code,
+    }
+
+
+def serialize_default_route(route):
+    compatibility = default_route_compatibility(route)
+    return {
+        'id': route.id,
+        'revision': route.revision,
+        'name': route.name,
+        'description': route.description,
+        'applicable_level': (
+            route.applicable_level
+            or f'{route.dungeon_level} 层'
+        ),
+        'dungeon_key': route.dungeon.key,
+        'dungeon_name': display_name(route.dungeon),
+        'dungeon_level': route.dungeon_level,
+        'route_data': route.route_data or {},
+        'order': route.order,
+        'is_featured': route.is_featured,
+        'is_active': route.is_active,
+        'updated_at': (
+            route.display_updated_on.isoformat()
+            if route.display_updated_on
+            else None
+        ),
+        **compatibility,
+    }
+
+
 def serialize_catalog():
     version = active_data_version()
     config = planner_config_dict()
@@ -125,7 +202,7 @@ def serialize_catalog():
             dungeon__is_active=True,
             is_active=True,
         )
-        .select_related('dungeon')
+        .select_related('dungeon', 'dungeon__data_version')
         .order_by('-is_featured', 'order', 'name', 'id')
     )
     groups = list(
@@ -226,29 +303,7 @@ def serialize_catalog():
             for dungeon in dungeons
         ],
         'default_routes': [
-            {
-                'id': route.id,
-                'revision': route.revision,
-                'name': route.name,
-                'description': route.description,
-                'applicable_level': (
-                    route.applicable_level
-                    or f'{route.dungeon_level} 层'
-                ),
-                'dungeon_key': route.dungeon.key,
-                'dungeon_name': display_name(route.dungeon),
-                'dungeon_level': route.dungeon_level,
-                'route_data': route.route_data or {},
-                'route_code': encode_share_code(route.route_data or {}),
-                'order': route.order,
-                'is_featured': route.is_featured,
-                'is_active': route.is_active,
-                'updated_at': (
-                    route.display_updated_on.isoformat()
-                    if route.display_updated_on
-                    else None
-                ),
-            }
+            serialize_default_route(route)
             for route in default_routes
         ],
         'config': config,

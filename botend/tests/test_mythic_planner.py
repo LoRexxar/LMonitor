@@ -2885,6 +2885,9 @@ class MythicPlannerPublicApiTests(TestCase):
         self.assertEqual(rows[0]['applicable_level'], '中高层')
         self.assertEqual(rows[0]['updated_at'], '2026-08-18')
         self.assertEqual(rows[0]['route_code'], encode_share_code(payload))
+        self.assertTrue(rows[0]['is_valid'])
+        self.assertEqual(rows[0]['validity'], 'valid')
+        self.assertEqual(rows[0]['invalid_reason'], '')
         self.assertTrue(rows[0]['is_active'])
         self.assertTrue(rows[0]['is_featured'])
         self.assertNotIn('updated_by_user_id', rows[0])
@@ -2892,6 +2895,48 @@ class MythicPlannerPublicApiTests(TestCase):
             self.client.post('/portal/api/mythic-planner/catalog/').status_code,
             405,
         )
+
+    def test_catalog_marks_invalid_default_routes_without_returning_500(self):
+        dungeon = get_active_dungeon('gloamvault')
+        old_version_payload = self.share_payload(name='旧版本推荐路线')
+        old_version_payload['data_version_key'] = 'mdt-old-version'
+        stale_spawn_payload = self.share_payload(name='失效点位推荐路线')
+        stale_spawn_payload['pulls'][0]['spawn_uids'] = [
+            'vault-guardian:removed-spawn',
+        ]
+        old_version_route = MythicDungeonDefaultRoute.objects.create(
+            dungeon=dungeon,
+            name='旧版本推荐路线',
+            applicable_level='中高层',
+            route_data=old_version_payload,
+        )
+        stale_spawn_route = MythicDungeonDefaultRoute.objects.create(
+            dungeon=dungeon,
+            name='失效点位推荐路线',
+            applicable_level='中高层',
+            route_data=stale_spawn_payload,
+        )
+
+        response = self.client.get('/portal/api/mythic-planner/catalog/')
+
+        self.assertEqual(response.status_code, 200, response.content)
+        rows = {
+            row['id']: row
+            for row in response.json()['data']['default_routes']
+        }
+        self.assertFalse(rows[old_version_route.id]['is_valid'])
+        self.assertEqual(rows[old_version_route.id]['validity'], 'invalid')
+        self.assertIn(
+            '路线基于数据版本 mdt-old-version',
+            rows[old_version_route.id]['invalid_reason'],
+        )
+        self.assertEqual(rows[old_version_route.id]['route_code'], '')
+        self.assertFalse(rows[stale_spawn_route.id]['is_valid'])
+        self.assertIn(
+            '路线包含不存在的怪物刷新点',
+            rows[stale_spawn_route.id]['invalid_reason'],
+        )
+        self.assertEqual(rows[stale_spawn_route.id]['route_code'], '')
 
     def test_dungeon_payload_preserves_mdt_poi_type_and_render_metadata(self):
         floor = MythicDungeonFloor.objects.get(
@@ -3496,6 +3541,35 @@ class MythicPlannerDashboardTests(TestCase):
         dashboard_home = self.client.get('/dashboard/')
         self.assertContains(dashboard_home, 'dashboard/js/main.js')
         self.assertNotContains(dashboard_home, 'dashboard/js/dashboard_shell.js')
+
+    def test_management_snapshot_marks_stale_default_route_as_invalid(self):
+        self.client.force_login(self.staff)
+        dungeon = get_active_dungeon('gloamvault')
+        payload = MythicPlannerPublicApiTests.share_payload(
+            name='后台旧版本路线',
+        )
+        payload['data_version_key'] = 'mdt-retired-version'
+        route = MythicDungeonDefaultRoute.objects.create(
+            dungeon=dungeon,
+            name='后台旧版本路线',
+            applicable_level='中高层',
+            route_data=payload,
+        )
+
+        response = self.client.get(
+            '/api/mythic-planner/manage/?resources=default_routes',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        row = next(
+            item
+            for item in response.json()['data']['default_routes']
+            if item['id'] == route.id
+        )
+        self.assertFalse(row['is_valid'])
+        self.assertEqual(row['validity'], 'invalid')
+        self.assertIn('mdt-retired-version', row['invalid_reason'])
+        self.assertEqual(row['route_code'], '')
 
     def test_planner_frontend_does_not_expose_management_entry(self):
         anonymous = self.client.get('/portal/mythic-planner/')
@@ -4492,6 +4566,12 @@ class MythicPlannerPageContractTests(SimpleTestCase):
         self.assertIn('class="mdt-library-note-trigger"', portal_js)
         self.assertIn('aria-label="备注：', portal_js)
         self.assertNotIn('mdt-library-compact-code', portal_js)
+        self.assertIn('route.is_valid === false', portal_js)
+        self.assertIn('已失效', portal_js)
+        self.assertIn('mdt-library-invalid-reason', portal_js)
+        self.assertIn('.mdt-library-row.is-invalid', planner_css)
+        self.assertIn("row.is_valid === false", dashboard_js)
+        self.assertIn('mp-admin-status is-invalid', dashboard_js)
         self.assertIn('const modelPreviewUrl = String(enemy.icon_url', portal_js)
         self.assertNotIn('modelviewer/live/webthumbs/npc/', portal_js)
         self.assertNotIn('render.worldofwarcraft.com/us/npcs/zoom/', portal_js)

@@ -1047,6 +1047,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
     padding: 8px 9px;
 }
 .mdt-library-row.is-incompatible { border-color: #6f4c27; background: #19140e; }
+.mdt-library-row.is-invalid { border-color: #7f3d42; background: #1b1013; }
 .mdt-library-copy { min-width: 0; }
 .mdt-library-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .mdt-library-row strong,
@@ -1057,8 +1058,15 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .mdt-library-badge.is-public { border-color: #39745c; color: #8ce5ba !important; }
 .mdt-library-badge.is-default { border-color: #8a6d21; color: #f3d36f !important; }
 .mdt-library-badge.is-featured { border-color: #7c4f91; color: #dda7f2 !important; }
+.mdt-library-badge.is-invalid { border-color: #a94c56; color: #ff9da7 !important; }
 .mdt-library-description { margin-top: 3px; color: #c4d0dc !important; line-height: 1.45; }
 .mdt-library-context { margin-top: 2px; }
+.mdt-library-invalid-reason {
+    overflow: hidden;
+    color: #f0a1a8 !important;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 .mdt-library-compact-name { overflow: hidden; }
 .mdt-library-compact-name .mdt-library-title { flex-wrap: nowrap; overflow: hidden; }
 .mdt-library-compact-name .mdt-library-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
