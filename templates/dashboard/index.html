@@ -476,7 +476,7 @@
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
-    <script src="{% static 'dashboard/js/main.js' %}?v=20260901d_omnium_runes"></script>
+    <script src="{% static 'dashboard/js/main.js' %}?v=20260903a_skill_global_filters"></script>
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806c" defer></script>
     <script src="{% static 'dashboard/js/gear_builder_management.js' %}?v=20260901a" defer></script>
     <script src="{% static 'dashboard/js/simc-result-report.js' %}?v=20260817_result_config_panel"></script>
@@ -1854,13 +1854,6 @@
                                     <select id="simc-skill-damage-hero-tree" class="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-gray-800" disabled><option value="">请选择英雄天赋</option></select>
                                     <input id="simc-skill-damage-search" type="search" class="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-gray-800" placeholder="搜索技能名称、技能 ID 或单项天赋">
                                 </div>
-                                <div id="simc-skill-damage-target-tabs" class="mt-4 flex flex-wrap gap-2" role="tablist" aria-label="目标数量">
-                                    <button type="button" role="tab" aria-selected="true" data-target-count="1" class="simc-skill-damage-target-tab rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white">1目标</button>
-                                    <button type="button" role="tab" aria-selected="false" data-target-count="2" class="simc-skill-damage-target-tab rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">2目标</button>
-                                    <button type="button" role="tab" aria-selected="false" data-target-count="5" class="simc-skill-damage-target-tab rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">5目标</button>
-                                    <button type="button" role="tab" aria-selected="false" data-target-count="10" class="simc-skill-damage-target-tab rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">10目标</button>
-                                    <button type="button" role="tab" aria-selected="false" data-target-count="20" class="simc-skill-damage-target-tab rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">20目标</button>
-                                </div>
                                 <div id="simc-skill-damage-global-modifiers" class="mt-4 hidden rounded-xl border border-indigo-200 bg-indigo-50 p-4"></div>
                                 <div id="simc-skill-damage-condition-filters" class="mt-4 hidden rounded-xl border border-stone-200 bg-stone-50 p-3">
                                     <div class="flex flex-wrap items-center justify-between gap-3">
@@ -1873,6 +1866,13 @@
                                     <p class="mt-2 text-xs text-stone-500">默认全部展示；取消勾选后，所有包含该天赋或 Buff 条件的伤害行都会隐藏。</p>
                                     <div id="simc-skill-damage-filter-talents" data-filter-panel="talents" class="mt-3 flex flex-wrap gap-2"></div>
                                     <div id="simc-skill-damage-filter-buffs" data-filter-panel="buffs" class="mt-3 hidden flex flex-wrap gap-2"></div>
+                                </div>
+                                <div id="simc-skill-damage-target-tabs" class="mt-4 flex flex-wrap gap-2" role="tablist" aria-label="目标数量">
+                                    <button type="button" role="tab" aria-selected="true" data-target-count="1" class="simc-skill-damage-target-tab rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white">1目标</button>
+                                    <button type="button" role="tab" aria-selected="false" data-target-count="2" class="simc-skill-damage-target-tab rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">2目标</button>
+                                    <button type="button" role="tab" aria-selected="false" data-target-count="5" class="simc-skill-damage-target-tab rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">5目标</button>
+                                    <button type="button" role="tab" aria-selected="false" data-target-count="10" class="simc-skill-damage-target-tab rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">10目标</button>
+                                    <button type="button" role="tab" aria-selected="false" data-target-count="20" class="simc-skill-damage-target-tab rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">20目标</button>
                                 </div>
                                 <div class="simc-skill-damage-table mt-4 overflow-x-auto rounded-xl border border-stone-300 bg-stone-50">
                                     <table class="min-w-full border-collapse text-sm">

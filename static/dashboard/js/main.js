@@ -5991,10 +5991,34 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         effect.source_type === 'talent' ? 3 : effect.source_type === 'specialization_passive' ? 2 : 1
     );
     const globalEffectDisplayKey = effect => {
-        const scenarioTokens = Array.isArray(effect.scenario_tokens)
-            ? effect.scenario_tokens.map(String).sort()
+        const sourceIdentity = [
+            String(effect.effect_id || ''),
+            String(effect.source_type || ''),
+            Number.isInteger(Number(effect.talent_id)) ? Number(effect.talent_id) : 0,
+            String(effect.tree_type || ''),
+            Number.isInteger(Number(effect.hero_subtree_id)) ? Number(effect.hero_subtree_id) : 0,
+        ];
+        const runtimeConditions = Array.isArray(effect.runtime_conditions)
+            ? effect.runtime_conditions
+                .filter(condition => condition && typeof condition === 'object')
+                .map(condition => {
+                    const spellId = Number(condition.spell_id);
+                    const stacks = Number(condition.stacks);
+                    return [
+                        String(condition.token || '').trim(),
+                        String(condition.scope || ''),
+                        Number.isInteger(spellId) && spellId > 0 ? spellId : 0,
+                        Number.isInteger(stacks) && stacks > 0 ? stacks : 1,
+                    ];
+                })
+                .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
             : [];
-        if (!scenarioTokens.length) return String(effect.effect_id || '');
+        const runtimeIdentity = runtimeConditions.length
+            ? runtimeConditions
+            : (Array.isArray(effect.scenario_tokens)
+                ? effect.scenario_tokens.map(token => [String(token), '', 0, 1]).sort()
+                : []);
+        if (!runtimeIdentity.length) return JSON.stringify(sourceIdentity);
         const projectionKeys = (Array.isArray(effect.projections) ? effect.projections : [])
             .filter(projection => projection && typeof projection === 'object')
             .map(projection => [
@@ -6008,12 +6032,12 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                     : '',
             ].join(':'))
             .sort();
-        return JSON.stringify([scenarioTokens, projectionKeys]);
+        return JSON.stringify([sourceIdentity, runtimeIdentity, projectionKeys]);
     };
     const globalEffectsByKey = new Map();
     selectedActors.forEach(actor => {
         const effects = Array.isArray(actor.global_skill_effects)
-            ? actor.global_skill_effects.filter(effect => effect.source_type === 'specialization_passive')
+            ? actor.global_skill_effects
             : [];
         effects.forEach(effect => {
             if (!effect || typeof effect !== 'object') return;
@@ -6030,6 +6054,13 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     if (globalEffects.length) {
         const items = globalEffects.map(effect => {
             const name = effect.display_name || effect.talent_name_zh || effect.talent_name || effect.source_token || '未知全局效果';
+            const runtimeConditions = Array.isArray(effect.runtime_conditions)
+                ? effect.runtime_conditions.filter(condition => condition && typeof condition === 'object')
+                : [];
+            const stackLabels = runtimeConditions.map(condition => Number(condition.stacks))
+                .filter(stacks => Number.isInteger(stacks) && stacks > 1)
+                .map(stacks => `${stacks}层`);
+            const displayName = stackLabels.length ? `${name}（${stackLabels.join('，')}）` : name;
             const condition = effect.source_type === 'talent'
                 ? renderSimcTalentProbeCondition(effect.runtime_condition, effect.scenario_tokens, name)
                 : (effect.runtime_condition || '');
@@ -6044,9 +6075,9 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 }
                 return '';
             }).filter(Boolean).join('<span class="text-indigo-300"> · </span>');
-            return `<div class="rounded-lg border border-indigo-200 bg-white/70 px-3 py-2.5"><div class="flex flex-wrap items-start justify-between gap-2"><span class="font-semibold leading-5 text-indigo-950">${escapeHtml(name)}</span><span class="flex flex-wrap gap-2">${projections}</span></div>${condition ? `<div class="mt-1 text-xs leading-4 text-amber-800">${escapeHtml(condition)}</div>` : ''}</div>`;
+            return `<div class="rounded-lg border border-indigo-200 bg-white/70 px-3 py-2.5"><div class="flex flex-wrap items-start justify-between gap-2"><span class="font-semibold leading-5 text-indigo-950">${escapeHtml(displayName)}</span><span class="flex flex-wrap gap-2">${projections}</span></div>${condition ? `<div class="mt-1 text-xs leading-4 text-amber-800">${escapeHtml(condition)}</div>` : ''}</div>`;
         }).join('');
-        globalModifiersEl.innerHTML = `<div class="mb-1 text-sm font-bold text-indigo-950">全局效果</div><div class="mb-3 text-xs text-indigo-700">专精常驻被动；天赋与 Buff 条件请使用下方勾选项筛选。</div><div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">${items}</div>`;
+        globalModifiersEl.innerHTML = `<div class="mb-1 text-sm font-bold text-indigo-950">全局效果</div><div class="mb-3 text-xs text-indigo-700">所有已识别且完成逐技能投影的全技能效果；对应变体不再进入下方条件筛选。</div><div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">${items}</div>`;
         globalModifiersEl.classList.remove('hidden');
     }
 
@@ -6074,15 +6105,22 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 ? variant.runtime_conditions.filter(condition => condition && typeof condition === 'object')
                 : [];
             runtimeConditions.forEach(condition => {
-                const scope = String(condition.scope || 'self') === 'target' ? 'target' : 'self';
+                const scope = String(condition.scope || '');
                 const spellId = Number(condition.spell_id);
                 const token = String(condition.token || '').trim();
-                const identity = Number.isInteger(spellId) && spellId > 0 ? `spell:${spellId}` : `token:${token}`;
+                const stacksValue = Number(condition.stacks);
+                const stacks = Number.isInteger(stacksValue) && stacksValue > 0 ? stacksValue : 1;
                 if (!token && !(Number.isInteger(spellId) && spellId > 0)) return;
-                const conditionKey = `state:${scope}:${identity}`;
+                const conditionKey = `state:${JSON.stringify([
+                    token,
+                    scope,
+                    Number.isInteger(spellId) && spellId > 0 ? spellId : 0,
+                    stacks,
+                ])}`;
                 const fallbackToken = token.includes('.') ? token.slice(token.indexOf('.') + 1) : token;
                 const conditionName = condition.name_zh || condition.name || fallbackToken || spellId;
-                const conditionLabel = `${scope === 'target' ? '目标' : '自身'}：${conditionName}`;
+                const stackLabel = stacks > 1 ? `（${stacks}层）` : '';
+                const conditionLabel = `${['target', 'debuff'].includes(scope) ? '目标' : '自身'}：${conditionName}${stackLabel}`;
                 if (!conditionKeys.includes(conditionKey)) conditionKeys.push(conditionKey);
                 if (!buffConditions.has(conditionKey)) buffConditions.set(conditionKey, String(conditionLabel));
             });

@@ -8249,7 +8249,23 @@ class SimcSkillDamageSnapshotAPIView(View):
         jobs = SimcSkillDamageSnapshot.objects.annotate(
             total_spec_count_value=KeyTextTransform('total_spec_count', 'payload'),
             current_specialization_value=KeyTextTransform('current_specialization', 'payload'),
+        ).filter(
+            schema_revision=SimcSkillDamageSnapshotService.DATASET_SCHEMA_REVISION,
         )
+        backend = SimcBackendBinary.objects.filter(
+            identifier='production', is_active=True,
+        ).only('current_version', 'game_build').first()
+        backend_revision = str(backend.current_version or '').strip().lower() if backend else ''
+        backend_game_build = str(backend.game_build or '').strip() if backend else ''
+        if (
+            len(backend_revision) == 40
+            and all(ch in '0123456789abcdef' for ch in backend_revision)
+            and backend_game_build
+        ):
+            jobs = jobs.filter(
+                simc_revision=backend_revision,
+                game_build=backend_game_build,
+            )
         active = jobs.filter(status__in=(
             SimcSkillDamageSnapshot.STATUS_PENDING,
             SimcSkillDamageSnapshot.STATUS_RUNNING,
