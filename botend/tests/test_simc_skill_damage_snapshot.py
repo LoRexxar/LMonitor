@@ -4525,6 +4525,10 @@ class SimcSkillDamageDashboardContractTests(TestCase):
             'simc-skill-damage-filter-buffs',
         ):
             self.assertIn(f'id="{element_id}"', template)
+        self.assertLess(
+            template.index('id="simc-skill-damage-global-modifiers"'),
+            template.index('id="simc-skill-damage-condition-filters"'),
+        )
         self.assertIn('variant.talent_id', renderer)
         self.assertIn('variant.runtime_conditions', renderer)
         self.assertIn("`talent:${variant.talent_id}`", renderer)
