@@ -898,11 +898,13 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             'simc-benchmark-gear-identity', 'data-wow-item-tooltip',
             'data-wow-item-tooltip-name', 'candidate.tooltip || candidate.effect',
             'simc-benchmark-gear-rank', 'String(index + 1)', '第 ${index + 1} 名',
+            'mergeVariantTooltips', 'mergeTooltipLine', 'values.join(" / ")',
         ):
             self.assertIn(contract, self.JS + self.CSS)
+        self.assertNotIn(')).join("\\n\\n")', self.JS)
         self.assertNotIn('const effect = group.effect', self.JS)
         self.assertNotIn('showItemTooltip', self.JS)
-        self.assertIn('?v=20260903_unified_item_tooltip', self.RESULTS_TEMPLATE)
+        self.assertIn('?v=20260903_grouped_item_tooltip', self.RESULTS_TEMPLATE)
 
     def test_result_renderer_uses_frozen_target_count_and_duration_for_scenarios(self):
         for contract in (

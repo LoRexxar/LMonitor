@@ -140,6 +140,53 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertIn('装备：统一的 321 特效。', row['tooltip'])
         self.assertNotIn('stale tooltip', row['tooltip'])
 
+    def test_incremental_results_keep_frozen_effect_when_active_variant_is_incomplete(self):
+        candidate = self.panel.candidates.get(key='trinket')
+        params = deepcopy(candidate.params)
+        params['gear_swap'].update({
+            'item_level': 321,
+            'raw_value': ',id=123,ilevel=321,bonus_id=9001',
+        })
+        candidate.params = params
+        candidate.effect = (
+            '物品等级 321\n+159 力量\n'
+            '使用：部署甲壳结界，吸收受到的伤害。（1 分钟冷却）'
+        )
+        candidate.save(update_fields=['params', 'effect'])
+        season = SeasonMeta.objects.create(
+            season_key='benchmark-tooltip-incomplete', season_name='Benchmark Tooltip',
+            is_active=True, game_build='12.1.0.1',
+            gear_batch_key='benchmark-tooltip-incomplete-batch', gear_sync_status='ready',
+            mplus_zone_id=1, raid_zone_id=2,
+        )
+        item = WowItemSnapshot.objects.create(
+            item_id=123, name='Test Trinket', name_zh='大副的甲壳结界',
+            icon='inv_test_trinket', catalog_type='equipment',
+            slot_key='trinket', inventory_type=12,
+        )
+        WowItemVariantSnapshot.objects.create(
+            item=item, season=season, batch_key=season.gear_batch_key,
+            game_build=season.game_build, variant_key='hero-321',
+            variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
+            item_level=321, bonus_ids=[9001], compatible_slots=['trinket'],
+            stats_json={'strength': 159}, effects_json=[],
+            source_json=[{'type': 'raid', 'instance_zh': '烈毒之渊'}],
+        )
+
+        self._published_success()
+        row = next(
+            item for item in serialize_incremental_panel_results(
+                self.panel,
+            )['coordinates'][0]['candidates']
+            if item['key'] == 'trinket'
+        )
+
+        self.assertIs(row['tooltip_complete'], False)
+        self.assertIn('+159 力量', row['tooltip'])
+        self.assertIn('来源：团队副本 · 烈毒之渊', row['tooltip'])
+        self.assertIn('使用：部署甲壳结界', row['tooltip'])
+        self.assertEqual(row['tooltip'].count('物品等级 321'), 1)
+
     def test_actual_run_hero_talent_is_frozen_on_result_and_ignores_source_resource(self):
         self.talent.hero_talent_names = ['来源资源名称']
         self.talent.save(update_fields=['hero_talent_names'])

@@ -194,6 +194,60 @@
     return label.replace(new RegExp(`(?:\\s*·\\s*|\\s+装等\\s*)${level}$`), "");
   }
 
+  const TOOLTIP_NUMBER_PATTERN = /[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:%|％)?/g;
+
+  function tooltipLineSignature(line) {
+    return String(line || "").replace(TOOLTIP_NUMBER_PATTERN, "#").replace(/\s+/g, " ").trim();
+  }
+
+  function tooltipLineNumbers(line) {
+    return Array.from(String(line || "").matchAll(TOOLTIP_NUMBER_PATTERN), (match) => match[0]);
+  }
+
+  function mergeTooltipLine(lines) {
+    const source = String(lines[0] || "");
+    const numberRows = lines.map(tooltipLineNumbers);
+    const expected = numberRows[0]?.length || 0;
+    if (!expected || numberRows.some((numbers) => numbers.length !== expected)) return source;
+    let index = 0;
+    return source.replace(TOOLTIP_NUMBER_PATTERN, () => {
+      const values = Array.from(new Set(numberRows.map((numbers) => numbers[index])));
+      index += 1;
+      return values.join(" / ");
+    });
+  }
+
+  function mergeVariantTooltips(variants) {
+    const tooltips = variants
+      .map((candidate) => String(candidate.tooltip || candidate.effect || "").trim())
+      .filter(Boolean)
+      .map((tooltip) => tooltip.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
+    if (!tooltips.length) return "";
+    const canonical = tooltips.reduce(
+      (selected, lines) => lines.length > selected.length ? lines : selected,
+      tooltips[0],
+    );
+    const indexed = tooltips.map((lines) => {
+      const bySignature = new Map();
+      lines.forEach((line) => {
+        const signature = tooltipLineSignature(line);
+        if (!bySignature.has(signature)) bySignature.set(signature, []);
+        bySignature.get(signature).push(line);
+      });
+      return bySignature;
+    });
+    const occurrences = new Map();
+    return canonical.map((line) => {
+      const signature = tooltipLineSignature(line);
+      const occurrence = occurrences.get(signature) || 0;
+      occurrences.set(signature, occurrence + 1);
+      const matchingLines = indexed
+        .map((bySignature) => bySignature.get(signature)?.[occurrence])
+        .filter(Boolean);
+      return mergeTooltipLine(matchingLines.length ? matchingLines : [line]);
+    }).join("\n");
+  }
+
   function groupGearCandidates(candidates) {
     const groups = new Map();
     candidates.forEach((candidate) => {
@@ -205,20 +259,16 @@
       if (!groups.has(key)) {
         groups.set(key, {
           key, label, icon_url: candidate.icon_url || "",
-          tooltip: candidate.tooltip || candidate.effect || "",
           source_label: candidate.source_label || "", variants: [],
         });
       }
       const group = groups.get(key);
-      if (!group.tooltip && (candidate.tooltip || candidate.effect)) group.tooltip = candidate.tooltip || candidate.effect;
       if (!group.source_label && candidate.source_label) group.source_label = candidate.source_label;
       group.variants.push(candidate);
     });
     return Array.from(groups.values()).map((group) => {
       group.variants.sort((left, right) => Number(left.item_level || Number.MAX_SAFE_INTEGER) - Number(right.item_level || Number.MAX_SAFE_INTEGER));
-      group.tooltip = Array.from(new Set(group.variants
-        .map((candidate) => String(candidate.tooltip || candidate.effect || "").trim())
-        .filter(Boolean))).join("\n\n");
+      group.tooltip = mergeVariantTooltips(group.variants);
       group.bestDps = Math.max(...group.variants.map((candidate) => validDps(candidate.dps) ?? 0));
       return group;
     }).sort((left, right) => right.bestDps - left.bestDps);

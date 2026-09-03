@@ -367,6 +367,29 @@ def _candidate_item_variant_key(candidate):
     return hashlib.sha256(canonical.encode('utf-8')).hexdigest()[:20]
 
 
+_ITEM_EFFECT_LINE = re.compile(
+    r'^\s*(?:(?:装备|使用)\s*[:：]|(?:equip|use)\s*:)',
+    re.I | re.M,
+)
+
+
+def _candidate_display_tooltip(display, candidate):
+    """缺失活动变体特效时，保留候选快照里已经冻结的特效文本。"""
+    current = str(display.get('tooltip') or '').strip()
+    frozen = str(candidate.get('effect') or '').strip()
+    if not current:
+        return frozen
+    if display.get('tooltip_complete') is not False or _ITEM_EFFECT_LINE.search(current):
+        return current
+    match = _ITEM_EFFECT_LINE.search(frozen)
+    if match is None:
+        return current
+    effect_suffix = frozen[match.start():].strip()
+    if not effect_suffix or effect_suffix.casefold() in current.casefold():
+        return current
+    return f'{current}\n{effect_suffix}'
+
+
 def _task_candidate_identities(task):
     mode_params = task.mode_params if isinstance(task.mode_params, dict) else {}
     manifest = mode_params.get('request_manifest') if isinstance(mode_params, dict) else None
@@ -1830,7 +1853,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                 label = display_name or candidate['candidate_label']
                 if display_name and item_level:
                     label = f'{display_name} · {item_level}'
-                tooltip = str(display.get('tooltip') or candidate.get('effect') or '').strip()
+                tooltip = _candidate_display_tooltip(display, candidate)
                 row = {
                     'key': candidate['candidate_key'],
                     'label': label,
