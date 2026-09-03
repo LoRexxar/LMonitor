@@ -69,7 +69,7 @@
 
     const renderPrimaryNavigation = (data) => {
         const nav = document.getElementById('portal-primary-nav');
-        const items = Array.isArray(data?.header) ? data.header : [];
+        const items = Array.isArray(data?.items) ? data.items : [];
         if (!nav || !items.length) return;
 
         const categories = Array.isArray(data?.categories) ? data.categories : [];

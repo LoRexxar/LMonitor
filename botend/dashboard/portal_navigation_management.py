@@ -38,8 +38,6 @@ class DashboardPortalNavigationAPIView(DashboardPermissionRequiredMixin, View):
                     'badge': item.badge,
                     'badge_tone': item.badge_tone,
                     'sort_order': item.sort_order,
-                    'show_in_header': item.show_in_header,
-                    'show_in_home_guide': item.show_in_home_guide,
                     'is_active': item.is_active,
                 }
                 for item in sorted(group.items.all(), key=lambda value: (value.sort_order, value.id))
@@ -51,7 +49,6 @@ class DashboardPortalNavigationAPIView(DashboardPermissionRequiredMixin, View):
                 'description': group.description,
                 'icon_key': group.icon_key,
                 'sort_order': group.sort_order,
-                'is_active': group.is_active,
                 'items': items,
             })
         all_items = [item for group in records for item in group['items']]
@@ -60,7 +57,6 @@ class DashboardPortalNavigationAPIView(DashboardPermissionRequiredMixin, View):
             'records': records,
             'summary': {
                 'group_total': len(records),
-                'group_active': sum(1 for group in records if group['is_active']),
                 'item_total': len(all_items),
                 'item_active': sum(1 for item in all_items if item['is_active']),
             },
@@ -92,14 +88,11 @@ class DashboardPortalNavigationAPIView(DashboardPermissionRequiredMixin, View):
             name = str(raw_group.get('name') or '').strip()
             description = str(raw_group.get('description') or '').strip()
             icon_key = str(raw_group.get('icon_key') or '').strip()
-            is_active = raw_group.get('is_active')
             raw_items = raw_group.get('items')
             if not GROUP_KEY_PATTERN.fullmatch(key) or key in group_keys:
                 return JsonResponse({'success': False, 'error': f'分组标识无效或重复：{key or "空值"}'}, status=400)
             if not name or len(name) > 100 or len(description) > 300 or len(icon_key) > 48:
                 return JsonResponse({'success': False, 'error': f'分组“{name or key}”的名称或说明长度无效'}, status=400)
-            if not isinstance(is_active, bool):
-                return JsonResponse({'success': False, 'error': f'分组“{name}”的启用状态无效'}, status=400)
             if not isinstance(raw_items, list) or len(raw_items) > 120:
                 return JsonResponse({'success': False, 'error': f'分组“{name}”的入口列表无效'}, status=400)
 
@@ -122,8 +115,7 @@ class DashboardPortalNavigationAPIView(DashboardPermissionRequiredMixin, View):
                     return JsonResponse({'success': False, 'error': f'“{item_name}”只能填写以 / 开头的站内地址'}, status=400)
                 if len(desc) > 500 or len(item_icon) > 48 or len(badge) > 32 or badge_tone not in {'default', 'new'}:
                     return JsonResponse({'success': False, 'error': f'“{item_name}”的说明、图标或徽标无效'}, status=400)
-                bool_fields = ('show_in_header', 'show_in_home_guide', 'is_active')
-                if any(not isinstance(raw_item.get(field), bool) for field in bool_fields):
+                if not isinstance(raw_item.get('is_active'), bool):
                     return JsonResponse({'success': False, 'error': f'“{item_name}”的显示状态无效'}, status=400)
                 if item_id is not None:
                     item_ids.add(item_id)
@@ -136,8 +128,6 @@ class DashboardPortalNavigationAPIView(DashboardPermissionRequiredMixin, View):
                     'badge': badge,
                     'badge_tone': badge_tone,
                     'sort_order': (item_index + 1) * 10,
-                    'show_in_header': raw_item['show_in_header'],
-                    'show_in_home_guide': raw_item['show_in_home_guide'],
                     'is_active': raw_item['is_active'],
                 })
             if group_id is not None:
@@ -150,7 +140,6 @@ class DashboardPortalNavigationAPIView(DashboardPermissionRequiredMixin, View):
                 'description': description,
                 'icon_key': icon_key or 'globe',
                 'sort_order': (group_index + 1) * 10,
-                'is_active': is_active,
                 'items': normalized_items,
             })
 

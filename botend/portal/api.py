@@ -253,8 +253,6 @@ def _navigation_item_to_dict(item, group):
         'badge': item.badge or '',
         'badge_tone': item.badge_tone or 'default',
         'sort_order': item.sort_order or 0,
-        'show_in_header': bool(item.show_in_header),
-        'show_in_home_guide': bool(item.show_in_home_guide),
         'open_in_new_tab': False,
     }
 
@@ -788,31 +786,29 @@ class PortalNavigationAPIView(View):
 
     def get(self, request):
         groups = list(
-            PortalNavigationGroup.objects.filter(is_active=True)
-            .prefetch_related('items')
+            PortalNavigationGroup.objects.prefetch_related('items')
             .order_by('sort_order', 'id')
         )
         categories = []
-        header = []
-        guide = []
+        items = []
         for group in groups:
+            group_items = [
+                _navigation_item_to_dict(item, group)
+                for item in sorted(group.items.all(), key=lambda value: (value.sort_order, value.id))
+                if item.is_active
+            ]
+            if not group_items:
+                continue
             categories.append({
                 'key': group.key,
                 'name': group.name,
                 'description': group.description,
                 'icon_key': group.icon_key or 'globe',
             })
-            for item in sorted(group.items.all(), key=lambda value: (value.sort_order, value.id)):
-                if not item.is_active:
-                    continue
-                data = _navigation_item_to_dict(item, group)
-                if item.show_in_header:
-                    header.append(data)
-                if item.show_in_home_guide:
-                    guide.append(data)
+            items.extend(group_items)
         return JsonResponse({
             'status': 'success',
-            'data': {'header': header, 'guide': guide, 'categories': categories},
+            'data': {'items': items, 'categories': categories},
         })
 
 

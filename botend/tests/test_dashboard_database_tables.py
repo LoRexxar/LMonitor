@@ -5,6 +5,7 @@ from django.apps import apps
 from django.contrib.auth.models import User
 from django.test import TestCase
 
+from botend.dashboard.dashboard import MODEL_DESCRIPTIONS
 from botend.models import (
     GeWechatAuth,
     MonitorTask,
@@ -43,7 +44,7 @@ class DashboardDatabaseTableContractTests(TestCase):
             content_type="application/json",
         )
 
-    def test_staff_sidebar_lists_every_botend_model_with_chinese_and_original_table_name(self):
+    def test_staff_sidebar_lists_every_registered_model_with_chinese_and_original_table_name(self):
         self.client.force_login(self.admin)
         response = self.client.get("/dashboard/")
         self.assertEqual(response.status_code, 200)
@@ -52,9 +53,12 @@ class DashboardDatabaseTableContractTests(TestCase):
             model.__name__: model._meta.db_table
             for model in apps.get_app_config("botend").get_models()
             if model._meta.managed and not model._meta.proxy
+            and model.__name__ in MODEL_DESCRIPTIONS
         }
         actual = {row["name"]: row for row in response.context["tables_info"]}
         self.assertEqual(set(actual), set(expected))
+        self.assertNotIn('PortalNavigationGroup', actual)
+        self.assertNotIn('PortalNavigationItem', actual)
         for model_name, db_table in expected.items():
             with self.subTest(model_name=model_name):
                 row = actual[model_name]

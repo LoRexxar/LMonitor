@@ -66,9 +66,7 @@
                     <label class="block xl:col-span-3"><span class="mb-1 block text-xs font-medium text-gray-600">徽标文字</span><input data-item-field="badge" maxlength="32" value="${escapeHtml(item.badge)}" class="min-h-10 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" placeholder="常用 / 新"></label>
                     <label class="block xl:col-span-3"><span class="mb-1 block text-xs font-medium text-gray-600">徽标样式</span><select data-item-field="badge_tone" class="min-h-10 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"><option value="default" ${item.badge_tone !== 'new' ? 'selected' : ''}>常规</option><option value="new" ${item.badge_tone === 'new' ? 'selected' : ''}>新内容（红色）</option></select></label>
                     <div class="flex flex-wrap items-end gap-x-5 gap-y-2 xl:col-span-6">
-                        <label class="inline-flex min-h-10 items-center gap-2 text-sm text-gray-700"><input type="checkbox" data-item-field="show_in_header" class="h-5 w-5 rounded border-gray-300 text-blue-600" ${item.show_in_header ? 'checked' : ''}>顶部导航</label>
-                        <label class="inline-flex min-h-10 items-center gap-2 text-sm text-gray-700"><input type="checkbox" data-item-field="show_in_home_guide" class="h-5 w-5 rounded border-gray-300 text-blue-600" ${item.show_in_home_guide ? 'checked' : ''}>首页入口卡片</label>
-                        <label class="inline-flex min-h-10 items-center gap-2 text-sm text-gray-700"><input type="checkbox" data-item-field="is_active" class="h-5 w-5 rounded border-gray-300 text-blue-600" ${item.is_active ? 'checked' : ''}>启用</label>
+                        <label class="inline-flex min-h-10 items-center gap-2 text-sm text-gray-700"><input type="checkbox" data-item-field="is_active" class="h-5 w-5 rounded border-gray-300 text-blue-600" ${item.is_active ? 'checked' : ''}>启用并同步显示</label>
                     </div>
                 </div>
                 <div class="flex items-center gap-2 xl:pt-5">
@@ -87,9 +85,8 @@
                     <div class="grid min-w-0 flex-1 gap-3 sm:grid-cols-2 xl:grid-cols-12">
                         <label class="block xl:col-span-3"><span class="mb-1 block text-xs font-medium text-gray-600">分组名称</span><input data-group-field="name" maxlength="100" value="${escapeHtml(group.name)}" class="min-h-10 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"></label>
                         <label class="block xl:col-span-2"><span class="mb-1 block text-xs font-medium text-gray-600">稳定标识</span><input data-group-field="key" maxlength="64" value="${escapeHtml(group.key)}" class="min-h-10 w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm"></label>
-                        <label class="block xl:col-span-4"><span class="mb-1 block text-xs font-medium text-gray-600">分组说明</span><input data-group-field="description" maxlength="300" value="${escapeHtml(group.description)}" class="min-h-10 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"></label>
+                        <label class="block xl:col-span-5"><span class="mb-1 block text-xs font-medium text-gray-600">分组说明</span><input data-group-field="description" maxlength="300" value="${escapeHtml(group.description)}" class="min-h-10 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"></label>
                         <label class="block xl:col-span-2"><span class="mb-1 block text-xs font-medium text-gray-600">图标键</span><input data-group-field="icon_key" maxlength="48" value="${escapeHtml(group.icon_key)}" class="min-h-10 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"></label>
-                        <label class="inline-flex min-h-10 items-center gap-2 pb-0.5 text-sm text-gray-700 xl:col-span-1"><input type="checkbox" data-group-field="is_active" class="h-5 w-5 rounded border-gray-300 text-blue-600" ${group.is_active ? 'checked' : ''}>启用</label>
                     </div>
                     <div class="flex flex-wrap items-center gap-2">
                         <span class="mr-auto text-xs text-gray-500 xl:mr-0">${items.length} 个入口</span>
@@ -187,7 +184,7 @@
             load(true);
         });
         document.getElementById('portal-navigation-add-group')?.addEventListener('click', () => {
-            state.records.push({ id: null, key: `group-${Date.now().toString(36)}`, name: '新分组', description: '', icon_key: 'globe', is_active: true, items: [] });
+            state.records.push({ id: null, key: `group-${Date.now().toString(36)}`, name: '新分组', description: '', icon_key: 'globe', items: [] });
             markDirty(); render();
         });
         section.addEventListener('input', event => {
@@ -222,7 +219,7 @@
             const add = event.target.closest('[data-add-item]');
             if (add) {
                 const { group } = groupAt(add);
-                group.items.push({ id: null, name: '新入口', url: '/#section-', desc: '', icon_key: '', badge: '', badge_tone: 'default', show_in_header: false, show_in_home_guide: true, is_active: true });
+                group.items.push({ id: null, name: '新入口', url: '/#section-', desc: '', icon_key: '', badge: '', badge_tone: 'default', is_active: true });
                 markDirty(); render(); return;
             }
             const removeItem = event.target.closest('[data-remove-item]');

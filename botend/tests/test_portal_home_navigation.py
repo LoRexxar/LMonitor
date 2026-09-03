@@ -17,7 +17,13 @@ class PortalHomeNavigationTests(TestCase):
         )
         navigation = PortalNavigationItem.objects.create(
             group=group, name='站内分数线', url='/#section-mplus-cutoffs', desc='首页板块入口',
-            badge='新', badge_tone='new', show_in_header=True, show_in_home_guide=True,
+            badge='新', badge_tone='new',
+        )
+        disabled_group = PortalNavigationGroup.objects.create(
+            key='disabled-navigation', name='停用分类', description='不应投影', icon_key='chart', sort_order=2,
+        )
+        disabled_navigation = PortalNavigationItem.objects.create(
+            group=disabled_group, name='停用入口', url='/#section-disabled', is_active=False,
         )
         external = PortalToolLink.objects.create(
             name='外部工具', url='https://example.com/tool', url_hash='external-tool-test',
@@ -35,12 +41,15 @@ class PortalHomeNavigationTests(TestCase):
         navigation_response = self.client.get('/portal/api/navigation/')
         self.assertEqual(navigation_response.status_code, 200)
         navigation_data = navigation_response.json()['data']
-        self.assertIn(navigation.name, {item['name'] for item in navigation_data['header']})
-        guide_item = next(item for item in navigation_data['guide'] if item['name'] == navigation.name)
-        self.assertEqual(guide_item['category'], group.key)
-        self.assertEqual(guide_item['badge_tone'], 'new')
-        self.assertFalse(guide_item['open_in_new_tab'])
+        self.assertNotIn('header', navigation_data)
+        self.assertNotIn('guide', navigation_data)
+        navigation_item = next(item for item in navigation_data['items'] if item['name'] == navigation.name)
+        self.assertEqual(navigation_item['category'], group.key)
+        self.assertEqual(navigation_item['badge_tone'], 'new')
+        self.assertFalse(navigation_item['open_in_new_tab'])
         self.assertIn(group.key, {item['key'] for item in navigation_data['categories']})
+        self.assertNotIn(disabled_navigation.name, {item['name'] for item in navigation_data['items']})
+        self.assertNotIn(disabled_group.key, {item['key'] for item in navigation_data['categories']})
 
         tools_response = self.client.get('/portal/api/tools/')
         self.assertEqual(tools_response.status_code, 200)
@@ -75,7 +84,11 @@ class PortalHomeNavigationTests(TestCase):
         self.assertIn('portal-tool-group', script)
         self.assertIn('portal-guide-link-copy', script)
         self.assertIn('portal-guide-link-arrow', script)
-        self.assertIn('navigationData?.guide', script)
+        self.assertIn('navigationData?.items', script)
+        self.assertIn('data?.items', theme_script)
+        self.assertNotIn('navigationData?.guide', script)
+        self.assertNotIn('data?.header', theme_script)
+        self.assertNotIn('navigationItems.filter((item) => String(item?.category || "tools") === key).slice', script)
         self.assertIn('toolsData?.items', script)
         self.assertIn('/portal/api/navigation/', script)
         self.assertIn('/portal/api/tools/', script)
@@ -92,17 +105,16 @@ class PortalHomeNavigationTests(TestCase):
         self.assertIn('.portal-hero-search { width: 100%; }', css)
 
         navigation_data = self.client.get('/portal/api/navigation/').json()['data']
-        self.assertNotIn('/#section-tools', {item['url'] for item in navigation_data['guide']})
+        self.assertNotIn('/#section-tools', {item['url'] for item in navigation_data['items']})
         categories = {item['key']: item for item in navigation_data['categories']}
         self.assertEqual(categories['data']['name'], '数据中心')
         self.assertEqual(categories['tools']['name'], '站内工具')
-        header_category_keys = {item['category'] for item in navigation_data['header']}
-        guide_category_keys = {item['category'] for item in navigation_data['guide']}
-        self.assertEqual(header_category_keys, guide_category_keys)
-        self.assertEqual(header_category_keys, {'data', 'mythic', 'tools', 'community'})
+        category_keys = {item['category'] for item in navigation_data['items']}
+        self.assertEqual(category_keys, {'data', 'mythic', 'tools', 'community'})
+        self.assertNotIn('today', categories)
         ordered_category_names = [
             item['name'] for item in navigation_data['categories']
-            if item['key'] in header_category_keys
+            if item['key'] in category_keys
         ]
         self.assertEqual(ordered_category_names, ['数据中心', '大秘境', '站内工具', '资讯社区'])
 
@@ -121,18 +133,17 @@ class PortalHomeNavigationTests(TestCase):
                 data=json.dumps({'action': 'get_table_data', 'table_name': table_name}),
                 content_type='application/json',
             )
-            self.assertEqual(crud_response.status_code, 200, crud_response.content)
-            self.assertEqual(crud_response.json()['status'], 'success')
+            self.assertEqual(crud_response.status_code, 404, crud_response.content)
 
         save_response = self.client.patch(
             '/api/dashboard/portal-navigation/',
             data=json.dumps({'groups': [{
                 'id': None, 'key': 'mythic-local', 'name': '大秘境站内入口',
-                'description': '只包含 Portal 页面与板块', 'icon_key': 'chart', 'is_active': True,
+                'description': '只包含 Portal 页面与板块', 'icon_key': 'chart',
                 'items': [{
                     'id': None, 'name': 'DPS 排行榜', 'url': '/#section-mythicstats',
                     'desc': '跳转首页排行榜', 'icon_key': 'chart', 'badge': '新', 'badge_tone': 'new',
-                    'show_in_header': False, 'show_in_home_guide': True, 'is_active': True,
+                    'is_active': True,
                 }],
             }]}),
             content_type='application/json',
@@ -154,9 +165,11 @@ class PortalHomeNavigationTests(TestCase):
         shell_script = (ROOT / 'static/dashboard/js/main.js').read_text(encoding='utf-8')
         self.assertIn('id="portal-navigation"', dashboard_template)
         self.assertIn('首页导航管理', dashboard_template)
-        self.assertIn('外部网址属于“外部快捷链接”', dashboard_template)
-        self.assertIn('data-item-field="show_in_header"', dashboard_script)
-        self.assertIn('data-item-field="show_in_home_guide"', dashboard_script)
+        self.assertIn('每条启用入口会在两处同步显示', dashboard_template)
+        self.assertIn('data-item-field="is_active"', dashboard_script)
+        self.assertNotIn('data-item-field="show_in_header"', dashboard_script)
+        self.assertNotIn('data-item-field="show_in_home_guide"', dashboard_script)
+        self.assertNotIn('data-group-field="is_active"', dashboard_script)
         self.assertIn('window.loadPortalNavigationManagement', dashboard_script)
         self.assertIn("sectionId === 'portal-navigation'", shell_script)
         self.assertIn("{ value: 'data', label: '数据站点' }", shell_script)
@@ -165,8 +178,11 @@ class PortalHomeNavigationTests(TestCase):
     def test_navigation_model_is_item_granular(self):
         group_fields = {field.name for field in PortalNavigationGroup._meta.fields}
         item_fields = {field.name for field in PortalNavigationItem._meta.fields}
-        self.assertTrue({'key', 'name', 'description', 'icon_key', 'sort_order', 'is_active'}.issubset(group_fields))
+        self.assertTrue({'key', 'name', 'description', 'icon_key', 'sort_order'}.issubset(group_fields))
+        self.assertNotIn('is_active', group_fields)
         self.assertTrue({
             'group', 'name', 'url', 'desc', 'icon_key', 'badge', 'badge_tone',
-            'sort_order', 'show_in_header', 'show_in_home_guide', 'is_active',
+            'sort_order', 'is_active',
         }.issubset(item_fields))
+        self.assertNotIn('show_in_header', item_fields)
+        self.assertNotIn('show_in_home_guide', item_fields)

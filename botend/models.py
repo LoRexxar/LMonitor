@@ -652,16 +652,12 @@ class PortalNavigationGroup(models.Model):
     description = models.CharField(max_length=300, default='', blank=True)
     icon_key = models.CharField(max_length=48, default='globe', blank=True)
     sort_order = models.IntegerField(default=0)
-    is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = 'wow_portal_navigation_group'
         ordering = ('sort_order', 'id')
-        indexes = [
-            models.Index(fields=['is_active', 'sort_order']),
-        ]
 
 
 class PortalNavigationItem(models.Model):
@@ -677,8 +673,6 @@ class PortalNavigationItem(models.Model):
     badge = models.CharField(max_length=32, default='', blank=True)
     badge_tone = models.CharField(max_length=16, choices=BADGE_TONE_CHOICES, default='default')
     sort_order = models.IntegerField(default=0)
-    show_in_header = models.BooleanField(default=False)
-    show_in_home_guide = models.BooleanField(default=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -688,8 +682,6 @@ class PortalNavigationItem(models.Model):
         ordering = ('sort_order', 'id')
         indexes = [
             models.Index(fields=['group', 'is_active', 'sort_order']),
-            models.Index(fields=['show_in_header', 'is_active']),
-            models.Index(fields=['show_in_home_guide', 'is_active']),
         ]
 
 

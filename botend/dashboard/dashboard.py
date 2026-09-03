@@ -69,8 +69,6 @@ MODEL_DESCRIPTIONS = {
     'SimcMasteryCoefficient': '精通系数（按专精）',
     'PortalEvent': '活动信息',
     'PortalToolLink': '外部快捷链接',
-    'PortalNavigationGroup': '首页导航分组',
-    'PortalNavigationItem': '首页导航入口',
     'PortalMplusRun': '大秘境记录',
     'PortalPeakSpecRankRow': '巅峰榜（专精前20）',
     'VideoMonitorTarget': '视频监控目标',

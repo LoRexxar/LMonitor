@@ -413,7 +413,7 @@ async function loadTools() {
         ? window.getPortalToolsData()
         : fetchJson("/portal/api/tools/").then((payload) => payload?.data),
     ]);
-    const guide = Array.isArray(navigationData?.guide) ? navigationData.guide : [];
+    const navigationItems = Array.isArray(navigationData?.items) ? navigationData.items : [];
     const items = Array.isArray(toolsData?.items) ? toolsData.items : [];
     const navigationCategories = Array.isArray(navigationData?.categories) ? navigationData.categories : [];
     const toolCategories = Array.isArray(toolsData?.categories) ? toolsData.categories : [];
@@ -443,12 +443,12 @@ async function loadTools() {
       return ordered;
     };
     if (topEl) {
-      if (!guide.length) {
+      if (!navigationItems.length) {
         topEl.innerHTML = `<div class="portal-guide-empty">暂无分类入口，可在后台“首页导航”中添加。</div>`;
       } else {
         const categoryByKey = new Map(navigationCategories.map((item) => [String(item.key || ""), item]));
-        topEl.innerHTML = orderedCategoryKeys(guide, navigationCategories).map((key) => {
-          const groupItems = guide.filter((item) => String(item?.category || "tools") === key).slice(0, 4);
+        topEl.innerHTML = orderedCategoryKeys(navigationItems, navigationCategories).map((key) => {
+          const groupItems = navigationItems.filter((item) => String(item?.category || "tools") === key);
           const meta = categoryByKey.get(key) || { name: key, description: "自定义入口", icon_key: "globe" };
           const links = groupItems.map((item) => {
             const { href, attrs } = linkAttrs(item);
