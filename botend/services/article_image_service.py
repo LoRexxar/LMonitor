@@ -88,6 +88,20 @@ def upload_article_html_images(html_text, *, req=None, article_url="", source="p
                 if parent_link and _is_external_article_image_url((parent_link.get("href") or "").strip()):
                     parent_link["href"] = uploaded_url
                 changed = True
+            if uploaded_url or _is_managed_article_image_url(image_url):
+                # Once src points at our immutable OSS object, an upstream srcset
+                # would still win browser candidate selection and bypass that object.
+                for attr in ("srcset", "sizes", "data-srcset"):
+                    if attr in img.attrs:
+                        img.attrs.pop(attr, None)
+                        changed = True
+                picture = img.find_parent("picture")
+                if picture is not None:
+                    for source_tag in picture.find_all("source"):
+                        for attr in ("srcset", "sizes", "data-srcset"):
+                            if attr in source_tag.attrs:
+                                source_tag.attrs.pop(attr, None)
+                                changed = True
         for link in soup.find_all("a"):
             href = (link.get("href") or "").strip()
             if not _is_external_article_image_url(href):
@@ -193,13 +207,20 @@ def _is_external_article_image_url(image_url):
     image_url = (image_url or "").strip()
     if not image_url.startswith(("http://", "https://")):
         return False
-    parsed = urlparse(image_url)
-    if parsed.hostname == "oss.wowdaily.cn" and parsed.path.startswith("/portal/articles/"):
-        return False
-    base_url = ((getattr(settings, "OSS_CONFIG", {}) or {}).get("base_url") or "").strip()
-    if base_url and image_url.startswith(base_url.rstrip("/") + "/"):
+    if _is_managed_article_image_url(image_url):
         return False
     return True
+
+
+def _is_managed_article_image_url(image_url):
+    image_url = (image_url or "").strip()
+    if not image_url.startswith(("http://", "https://")):
+        return False
+    parsed = urlparse(image_url)
+    if parsed.hostname == "oss.wowdaily.cn" and parsed.path.startswith("/portal/articles/"):
+        return True
+    base_url = ((getattr(settings, "OSS_CONFIG", {}) or {}).get("base_url") or "").strip()
+    return bool(base_url and image_url.startswith(base_url.rstrip("/") + "/"))
 
 
 def _image_suffix(image_url, headers):

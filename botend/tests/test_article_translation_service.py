@@ -10,6 +10,7 @@ from botend.services.article_content_service import (
     dumps_blocks,
     extract_structured_article,
     loads_blocks,
+    normalize_blizzard_tracker_html_fragment,
     normalize_wowhead_html_fragment,
     translate_blocks,
 )
@@ -894,7 +895,7 @@ class ArticleContentServiceTests(SimpleTestCase):
         self.assertTrue(article_blocks_match_reference(blocks, reference_text=reference))
 
     def test_upload_article_html_images_replaces_link_and_removes_source_attr(self):
-        html = '<a class="article-image-link" href="https://cdn.example.com/original.jpg"><img data-source-src="https://cdn.example.com/thumb.jpg" src="https://cdn.example.com/thumb.jpg"/></a>'
+        html = '<a class="article-image-link" href="https://cdn.example.com/original.jpg"><picture><source media="(min-width: 800px)" srcset="https://cdn.example.com/wide.jpg 1x"><img data-source-src="https://cdn.example.com/thumb.jpg" src="https://cdn.example.com/thumb.jpg" srcset="https://cdn.example.com/thumb-2x.jpg 2x" sizes="100vw"/></picture></a>'
 
         with patch("botend.services.article_image_service.download_and_upload_article_image", return_value="https://oss.wowdaily.cn/portal/articles/a.jpg"):
             result = upload_article_html_images(html, article_url="https://example.com/post/1", source="blizzard_tracker")
@@ -902,15 +903,21 @@ class ArticleContentServiceTests(SimpleTestCase):
         self.assertIn('href="https://oss.wowdaily.cn/portal/articles/a.jpg"', result)
         self.assertIn('src="https://oss.wowdaily.cn/portal/articles/a.jpg"', result)
         self.assertNotIn("data-source-src", result)
+        self.assertNotIn("srcset", result)
+        self.assertNotIn("sizes", result)
+        self.assertIn("<picture>", result)
+        self.assertIn('<source media="(min-width: 800px)"/>', result)
 
     def test_upload_article_html_images_removes_external_source_attr_when_src_is_already_oss(self):
-        html = '<img data-source-src="https://wow.zamimg.com/uploads/screenshots/normal/1.png" src="https://oss.wowdaily.cn/portal/articles/wowhead/1.png"/>'
+        html = '<img data-source-src="https://wow.zamimg.com/uploads/screenshots/normal/1.png" sizes="100vw" src="https://oss.wowdaily.cn/portal/articles/wowhead/1.png" srcset="https://wow.zamimg.com/uploads/screenshots/normal/1@2x.png 2x"/>'
 
         with patch("botend.services.article_image_service.download_and_upload_article_image") as mocked_upload:
             result = upload_article_html_images(html, article_url="https://www.wowhead.com/news/test", source="wowhead")
 
         self.assertIn('src="https://oss.wowdaily.cn/portal/articles/wowhead/1.png"', result)
         self.assertNotIn("data-source-src", result)
+        self.assertNotIn("srcset", result)
+        self.assertNotIn("sizes", result)
         mocked_upload.assert_not_called()
 
     def test_upload_article_images_replaces_href_only_images_and_reuses_cache(self):
@@ -999,7 +1006,7 @@ class ArticleContentServiceTests(SimpleTestCase):
 
         self.assertIsNone(req.s.calls[0][1]["proxies"])
 
-    def test_extract_structured_article_preserves_discourse_lightbox_structure(self):
+    def test_extract_structured_article_normalizes_discourse_lightbox_structure(self):
         html = """
         <article>
           <p>Check out this image:</p>
@@ -1024,13 +1031,42 @@ class ArticleContentServiceTests(SimpleTestCase):
         self.assertEqual(len(blocks), 1)
         self.assertEqual(blocks[0]["type"], "html")
         html_result = blocks[0]["html"]
-        self.assertIn('class="lightbox-wrapper"', html_result)
-        self.assertIn('class="lightbox"', html_result)
+        self.assertNotIn('class="lightbox-wrapper"', html_result)
+        self.assertNotIn('class="lightbox"', html_result)
+        self.assertIn('class="article-image-link"', html_result)
         self.assertIn('href="https://example.com/original.jpg"', html_result)
         self.assertIn('<img alt="Screenshot" src="https://example.com/thumb.jpg"/>', html_result)
-        self.assertIn('class="meta"', html_result)
-        self.assertIn('class="filename"', html_result)
-        self.assertIn('class="informations"', html_result)
-        self.assertIn("<svg", html_result)
-        self.assertIn("<p><div", html_result)
+        self.assertNotIn('class="meta"', html_result)
+        self.assertNotIn('class="filename"', html_result)
+        self.assertNotIn('class="informations"', html_result)
+        self.assertNotIn("<svg", html_result)
+        self.assertNotIn("<p><div", html_result)
         self.assertIn("More text here.", blocks_to_plain_text(blocks))
+
+    def test_normalize_blizzard_lightbox_preserves_non_chrome_descendants(self):
+        html = """
+        <div class="lightbox-wrapper">
+          <a class="lightbox custom-link" href="/uploads/full.jpg">
+            <picture>
+              <source media="(min-width: 800px)" srcset="https://cdn.example.com/full.jpg">
+              <img src="https://example.com/thumb.jpg" alt="Screenshot">
+            </picture>
+            <span class="credit">Artist credit</span>
+            <div class="meta"><span class="filename">screenshot.jpg</span></div>
+          </a>
+          <figcaption>Meaningful caption</figcaption>
+        </div>
+        <div class="d-image-grid">
+          <div class="lightbox-wrapper"><span>Fallback body without an image</span></div>
+        </div>
+        """
+
+        result = normalize_blizzard_tracker_html_fragment(html)
+
+        self.assertNotIn("lightbox-wrapper", result)
+        self.assertNotIn('class="meta"', result)
+        self.assertIn('class="custom-link article-image-link"', result)
+        self.assertIn("<picture>", result)
+        self.assertIn("Artist credit", result)
+        self.assertIn("Meaningful caption", result)
+        self.assertIn("Fallback body without an image", result)
