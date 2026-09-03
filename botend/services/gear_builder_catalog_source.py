@@ -103,22 +103,47 @@ def _plain_text(value):
 
 
 def _tooltip_details(payload):
-    tooltip = _plain_text((payload or {}).get('tooltip'))
+    raw_tooltip = str((payload or {}).get('tooltip') or '')
+    tooltip = _plain_text(raw_tooltip)
+    stats_region = re.search(
+        r'<!--rf-->(.*?)<!--nameDescStats-->', raw_tooltip, flags=re.I | re.S,
+    )
+    stats_text = _plain_text(stats_region.group(1)) if stats_region else tooltip
     stats = {}
     stat_labels = [*STAT_NAMES_ZH, *STAT_NAMES_EN]
     stat_pattern = '|'.join(re.escape(label) for label in sorted(stat_labels, key=len, reverse=True))
     for amount, label in re.findall(
-        rf'\+?([0-9][0-9,.]*)\s*({stat_pattern})(?![A-Za-z])', tooltip, flags=re.I,
+        rf'(?:^|\n)\s*\+([0-9][0-9,.]*)\s*({stat_pattern})(?![A-Za-z])',
+        stats_text, flags=re.I,
+    ):
+        key = STAT_NAMES_ZH.get(label) or STAT_NAMES_EN[label.casefold()]
+        stats[key] = max(stats.get(key, 0), _safe_int(amount.replace(',', '').replace('.', '')))
+    for amount, label in re.findall(
+        r'(?:^|\n)\s*([0-9][0-9,.]*)\s*(护甲|Armor)(?![A-Za-z])',
+        stats_text, flags=re.I,
     ):
         key = STAT_NAMES_ZH.get(label) or STAT_NAMES_EN[label.casefold()]
         stats[key] = max(stats.get(key, 0), _safe_int(amount.replace(',', '').replace('.', '')))
     effects = []
+    marked_effects = [
+        _plain_text(value)
+        for value in re.findall(
+            r'<!--useText:[^>]*-->(.*?)<!--useText:[^>]*-->',
+            raw_tooltip, flags=re.I | re.S,
+        )
+    ]
+    for text in marked_effects:
+        if not text:
+            continue
+        key = 'description_zh' if re.search(r'[\u4e00-\u9fff]', text) else 'description'
+        effects.append({key: text})
     for line in tooltip.splitlines():
-        if (
-            line.startswith(('装备：', '使用：', '被动：', '效果：', '提供下列属性：'))
-            or re.match(r'^(?:Equip|Use|Passive|Effect):', line, flags=re.I)
-            or re.match(r'^\([24]\)\s*(?:组合|套装|Set)', line, flags=re.I)
-        ):
+        is_regular_effect = bool(
+            re.match(r'^(?:装备|使用|被动|效果|提供下列属性)\s*[:：]', line)
+            or re.match(r'^(?:Equip|Use|Passive|Effect)\s*:', line, flags=re.I)
+        )
+        is_set_effect = bool(re.match(r'^\([24]\)\s*(?:组合|套装|Set)', line, flags=re.I))
+        if (is_regular_effect and not marked_effects) or is_set_effect:
             key = 'description_zh' if re.search(r'[\u4e00-\u9fff]', line) else 'description'
             effects.append({key: line})
     deduplicated_effects = []
@@ -131,8 +156,8 @@ def _tooltip_details(payload):
     effects = deduplicated_effects
     primary_options = {}
     for amount, labels in re.findall(
-        r'\+?([0-9][0-9,.]*)\s*\[([^\]]*(?:力量|敏捷|智力|Strength|Agility|Intellect)[^\]]*)\]',
-        tooltip, flags=re.I,
+        r'(?:^|\n)\s*\+([0-9][0-9,.]*)\s*\[([^\]]*(?:力量|敏捷|智力|Strength|Agility|Intellect)[^\]]*)\]',
+        stats_text, flags=re.I,
     ):
         parsed = _safe_int(amount.replace(',', '').replace('.', ''))
         for label, key in (
@@ -143,7 +168,7 @@ def _tooltip_details(payload):
                 primary_options[key] = parsed
     random_secondaries = [
         _safe_int(value.replace(',', '').replace('.', ''))
-        for value in re.findall(r'\+?([0-9][0-9,.]*)\s*随机属性\d+', tooltip)
+        for value in re.findall(r'(?:^|\n)\s*\+([0-9][0-9,.]*)\s*随机属性\d+', stats_text)
     ]
     display_name = str((payload or {}).get('name') or '')
     description_zh = '\n'.join(row.get('description_zh', '') for row in effects if row.get('description_zh'))

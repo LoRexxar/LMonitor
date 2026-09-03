@@ -19,6 +19,20 @@ EQUIPMENT_TYPES = {
     WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
     WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT,
 }
+PRIMARY_STAT_KEYS = {'strength', 'agility', 'intellect'}
+INTELLECT_SPECS = {
+    'paladin_holy', 'priest_discipline', 'priest_holy', 'priest_shadow',
+    'shaman_elemental', 'shaman_restoration', 'mage_arcane', 'mage_fire', 'mage_frost',
+    'warlock_affliction', 'warlock_demonology', 'warlock_destruction',
+    'monk_mistweaver', 'druid_balance', 'druid_restoration',
+    'demonhunter_devourer',
+    'evoker_devastation', 'evoker_preservation', 'evoker_augmentation',
+}
+AGILITY_CLASSES = {'hunter', 'rogue', 'demonhunter'}
+AGILITY_SPECS = {
+    'shaman_enhancement', 'monk_brewmaster', 'monk_windwalker',
+    'druid_feral', 'druid_guardian',
+}
 
 
 def _positive_int(value):
@@ -51,6 +65,24 @@ def _normalize_stats(raw):
         if isinstance(group, dict):
             result.update(_normalize_stats(group))
     return result
+
+
+def _primary_stat_for_identity(*, primary_stat='', spec_key='', class_name='', spec_name=''):
+    explicit = str(primary_stat or '').strip().casefold()
+    if explicit in PRIMARY_STAT_KEYS:
+        return explicit
+    normalized_class = ''.join(ch for ch in str(class_name or '').casefold() if ch.isalnum())
+    normalized_spec = ''.join(ch for ch in str(spec_name or '').casefold() if ch.isalnum())
+    normalized_key = str(spec_key or '').strip().casefold().replace('-', '_').replace(' ', '_')
+    if not normalized_class and '_' in normalized_key:
+        normalized_class = normalized_key.partition('_')[0]
+    if not normalized_key and normalized_class:
+        normalized_key = f'{normalized_class}_{normalized_spec}' if normalized_spec else normalized_class
+    if normalized_key in INTELLECT_SPECS:
+        return 'intellect'
+    if normalized_class in AGILITY_CLASSES or normalized_key in AGILITY_SPECS:
+        return 'agility'
+    return 'strength' if normalized_key or normalized_class else ''
 
 
 def _effect_text(effect):
@@ -120,7 +152,7 @@ def _tooltip_text(*, item_level=0, stats=None, effects=None, sources=None, fallb
 
 def item_display_metadata(
     item_id, snapshot=None, *, item_level=0, variant=None, stats=None, effects=None,
-    sources=None, icon_size='small',
+    sources=None, icon_size='small', primary_stat='',
 ):
     """返回三个装备入口共同消费的稳定展示契约。"""
     normalized_id = _positive_int(item_id) or None
@@ -135,6 +167,19 @@ def item_display_metadata(
     description_zh = (snapshot.description_zh if snapshot else "") or ""
     icon = (snapshot.icon if snapshot else "") or ""
     normalized_stats = _normalize_stats(stats)
+    variant_metadata = (
+        variant.metadata if variant is not None and isinstance(variant.metadata, dict) else {}
+    )
+    primary_values = (
+        variant_metadata.get('primary_stat_values')
+        if isinstance(variant_metadata.get('primary_stat_values'), dict) else {}
+    )
+    if primary_stat and (primary_values or variant_metadata.get('primary_stat_amount')):
+        for key in PRIMARY_STAT_KEYS - {primary_stat}:
+            normalized_stats.pop(key, None)
+        primary_value = primary_values.get(primary_stat) or variant_metadata.get('primary_stat_amount')
+        if _number(primary_value):
+            normalized_stats[primary_stat] = _number(primary_value)
     normalized_effects = [text for text in (_effect_text(row) for row in _rows(effects)) if text]
     normalized_sources = [text for text in (_source_text(row) for row in _rows(sources)) if text]
     base_description = description_zh.strip() or description.strip()
@@ -185,18 +230,25 @@ def _request_values(request):
         item_id = request.get('item_id', request.get('id'))
         item_level = request.get('item_level', request.get('ilevel'))
         bonus_ids = request.get('bonus_ids', request.get('bonus_id'))
+        primary_stat = _primary_stat_for_identity(
+            primary_stat=request.get('primary_stat'),
+            spec_key=request.get('spec_key'),
+            class_name=request.get('class_name'),
+            spec_name=request.get('spec_name', request.get('spec')),
+        )
     else:
         values = list(request) if isinstance(request, (tuple, list)) else [request]
         item_id = values[0] if values else None
         item_level = values[1] if len(values) > 1 else None
         bonus_ids = values[2] if len(values) > 2 else None
+        primary_stat = _primary_stat_for_identity(primary_stat=values[3] if len(values) > 3 else '')
     if isinstance(bonus_ids, str):
         bonus_ids = bonus_ids.replace(';', '/').replace(':', '/').split('/')
     elif not isinstance(bonus_ids, (tuple, list, set)):
         bonus_ids = [bonus_ids] if bonus_ids not in (None, '') else []
     return _positive_int(item_id), _positive_int(item_level), tuple(sorted({
         value for raw in (bonus_ids or []) for value in [_positive_int(raw)] if value
-    }))
+    })), primary_stat
 
 
 def _variant_score(variant, item_level, bonus_ids):
@@ -216,7 +268,7 @@ def load_item_tooltip_metadata(requests):
     normalized = [_request_values(request) for request in (requests or [])]
     if not normalized:
         return []
-    item_ids = {item_id for item_id, _item_level, _bonus_ids in normalized if item_id}
+    item_ids = {item_id for item_id, _item_level, _bonus_ids, _primary_stat in normalized if item_id}
     snapshots = {
         int(row.item_id): row for row in WowItemSnapshot.objects.filter(item_id__in=item_ids)
     }
@@ -238,7 +290,7 @@ def load_item_tooltip_metadata(requests):
         ).select_related('item'):
             variants_by_item.setdefault(int(variant.item.item_id), []).append(variant)
     result = []
-    for item_id, item_level, bonus_ids in normalized:
+    for item_id, item_level, bonus_ids, primary_stat in normalized:
         candidates = variants_by_item.get(item_id, [])
         if item_level:
             exact = [row for row in candidates if _positive_int(row.item_level) == item_level]
@@ -248,7 +300,7 @@ def load_item_tooltip_metadata(requests):
         variant = max(candidates, key=lambda row: _variant_score(row, item_level, bonus_ids), default=None)
         snapshot = snapshots.get(item_id) or getattr(variant, 'item', None)
         result.append(item_display_metadata(
-            item_id, snapshot, item_level=item_level, variant=variant,
+            item_id, snapshot, item_level=item_level, variant=variant, primary_stat=primary_stat,
         ))
     return result
 

@@ -701,6 +701,8 @@ def parse_manual_player_config(player_equipment, spec):
             'item_id': values.get('id'),
             'item_level': hint[1] or values.get('ilevel') or values.get('item_level'),
             'bonus_ids': values.get('bonus_id') or values.get('bonus_ids') or '',
+            'class_name': parsed['identity'].get('class_name'),
+            'spec_name': parsed['identity'].get('spec'),
         }
         for _slot, values, _raw_value, hint in equipment_rows
     ])

@@ -7,12 +7,65 @@ from botend.services.gear_builder import serialize_variant
 from botend.services.simc_benchmark_config import _benchmark_item_display_metadata
 from botend.services.simc_player_config import parse_manual_player_config
 from botend.services.simc_result_analysis import parse_simc_html_report
+from botend.services.wow_item_display import load_item_tooltip_metadata
 
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 class SimcEquipmentTooltipContractTests(TestCase):
+    def test_dynamic_primary_stat_is_resolved_for_requested_spec(self):
+        season = SeasonMeta.objects.create(
+            season_key='tooltip-primary', season_name='动态主属性测试', is_active=True,
+            game_build='12.1.0.1', gear_batch_key='tooltip-primary-batch', gear_sync_status='ready',
+            mplus_zone_id=1, raid_zone_id=2,
+        )
+        item = WowItemSnapshot.objects.create(
+            item_id=270173, name_zh='祖尔金的处斩技法', icon='inv_dynamic_primary',
+            catalog_type='equipment', slot_key='trinket', inventory_type=12,
+        )
+        WowItemVariantSnapshot.objects.create(
+            item=item, season=season, batch_key=season.gear_batch_key,
+            variant_key='benchmark-321', variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
+            item_level=321, compatible_slots=['trinket'], stats_json={},
+            effects_json=[{'description_zh': '装备：触发处斩。'}],
+            metadata={'primary_stat_values': {'agility': 159, 'strength': 159}},
+        )
+
+        strength, agility = load_item_tooltip_metadata([
+            {'item_id': 270173, 'item_level': 321, 'spec_key': 'deathknight_blood'},
+            {'item_id': 270173, 'item_level': 321, 'spec_key': 'rogue_outlaw'},
+        ])
+
+        self.assertEqual(strength['stats'], {'strength': 159})
+        self.assertIn('+159 力量', strength['tooltip'])
+        self.assertEqual(agility['stats'], {'agility': 159})
+        self.assertIn('+159 敏捷', agility['tooltip'])
+
+    def test_fixed_primary_stat_is_preserved_for_other_specs(self):
+        season = SeasonMeta.objects.create(
+            season_key='tooltip-fixed-primary', season_name='固定主属性测试', is_active=True,
+            game_build='12.1.0.1', gear_batch_key='tooltip-fixed-primary-batch',
+            gear_sync_status='ready', mplus_zone_id=1, raid_zone_id=2,
+        )
+        item = WowItemSnapshot.objects.create(
+            item_id=264878, name_zh='阿斯塔洛的苦痛煽动者',
+            catalog_type='equipment', slot_key='trinket', inventory_type=12,
+        )
+        WowItemVariantSnapshot.objects.create(
+            item=item, season=season, batch_key=season.gear_batch_key,
+            variant_key='benchmark-321', variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
+            item_level=321, compatible_slots=['trinket'], stats_json={'intellect': 159},
+            effects_json=[{'description_zh': '使用: 发射苦痛箭矢。'}],
+        )
+
+        display = load_item_tooltip_metadata([
+            {'item_id': 264878, 'item_level': 321, 'spec_key': 'deathknight_blood'},
+        ])[0]
+
+        self.assertEqual(display['stats'], {'intellect': 159})
+        self.assertIn('+159 智力', display['tooltip'])
+
     def test_three_equipment_entries_match_the_same_item_level_variant(self):
         season = SeasonMeta.objects.create(
             season_key='tooltip-unified', season_name='Tooltip 统一测试', is_active=True,

@@ -1736,14 +1736,16 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
         for candidate in coordinate['candidates']:
             item_id = _candidate_item_id(candidate)
             identity = _candidate_input_identity(candidate)
-            if not item_id or identity in seen_display_identities:
+            display_identity = (coordinate['spec_key'], identity)
+            if not item_id or display_identity in seen_display_identities:
                 continue
-            seen_display_identities.add(identity)
-            display_candidates.append(identity)
+            seen_display_identities.add(display_identity)
+            display_candidates.append(display_identity)
             display_requests.append({
                 'item_id': item_id,
                 'item_level': _candidate_item_level(candidate),
                 'bonus_ids': _candidate_bonus_ids(candidate),
+                'spec_key': coordinate['spec_key'],
             })
     display_by_identity = dict(zip(
         display_candidates,
@@ -1845,7 +1847,9 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                     _candidate_source_run(result_task, candidate['candidate_key'])
                     if include_details else None
                 )
-                display = display_by_identity.get(_candidate_input_identity(candidate)) or {}
+                display = display_by_identity.get((
+                    coordinate['spec_key'], _candidate_input_identity(candidate),
+                )) or {}
                 item_level = _candidate_item_level(candidate)
                 display_name = str(display.get('display_name') or '').strip()
                 if display_name.startswith('#'):

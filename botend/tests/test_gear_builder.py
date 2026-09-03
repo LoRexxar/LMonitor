@@ -17,6 +17,8 @@ from botend.models import (
     SeasonMeta,
     GearBuilderShareLink,
     GearBuilderUserLoadout,
+    SimcBenchmarkCandidate,
+    SimcBenchmarkPanel,
     SimcMasteryCoefficient,
     SimcSecondaryStatRule,
     WowItemSnapshot,
@@ -811,6 +813,78 @@ class GearBuilderTooltipRepairCommandTests(GearBuilderTestDataMixin, TestCase):
         self.assertGreaterEqual(self.season.gear_sync_report['tooltip_repair']['updated_variants'], 1)
         self.assertIn('活动装备目录 Tooltip 补齐与审计已完成', output.getvalue())
 
+    def test_repair_command_adds_missing_benchmark_candidate_variant(self):
+        panel = SimcBenchmarkPanel.objects.create(
+            name='目录外候选', slug='external-tooltip-candidate', created_by_id=1,
+            is_active=True, is_public=True,
+        )
+        SimcBenchmarkCandidate.objects.create(
+            panel=panel, key='astalor-321', label="Astalor's Anguish Agitator · 321",
+            candidate_type='gear_swap',
+            params={
+                'candidate_type': 'gear_swap', 'is_base': False,
+                'gear_swap': {
+                    'slot': 'trinket1',
+                    'raw_value': 'id=264878,ilevel=321',
+                    'item_id': 264878, 'source': 'manual',
+                },
+            },
+        )
+        details = {
+            'name_zh': '阿斯塔洛的苦痛煽动者', 'name': '',
+            'icon': 'inv_10_elementalshardfoozles_blood', 'quality': 4,
+            'description_zh': '使用: 发射苦痛箭矢。', 'description': '',
+            'stats': {'intellect': 159},
+            'effects': [{'description_zh': '使用: 发射苦痛箭矢。'}],
+            'primary_options': {}, 'secondary_total': 0,
+        }
+
+        with patch.object(CurrentGearCatalogSource, '_wowhead_tooltip', return_value=details):
+            call_command('repair_gear_builder_tooltips', stdout=StringIO())
+
+        variant = WowItemVariantSnapshot.objects.get(
+            season=self.season, batch_key=self.season.gear_batch_key,
+            item__item_id=264878, item_level=321,
+        )
+        self.assertEqual(variant.compatible_slots, ['trinket'])
+        self.assertEqual(variant.stats_json, {'intellect': 159})
+        self.assertEqual(variant.effects_json, [{'description_zh': '使用: 发射苦痛箭矢。'}])
+        self.assertEqual(variant.source_json[0]['type_zh'], '装备选优配置')
+
+    def test_repair_command_replaces_stale_benchmark_stats_and_effects(self):
+        panel = SimcBenchmarkPanel.objects.create(
+            name='过期候选', slug='stale-tooltip-candidate', created_by_id=1,
+            is_active=True, is_public=True,
+        )
+        SimcBenchmarkCandidate.objects.create(
+            panel=panel, key='rift-helm-710', label='裂隙头盔 · 710',
+            candidate_type='gear_swap',
+            params={
+                'candidate_type': 'gear_swap', 'is_base': False,
+                'gear_swap': {
+                    'slot': 'head', 'raw_value': 'id=10001,ilevel=710',
+                    'item_id': 10001, 'source': 'manual',
+                },
+            },
+        )
+        self.hero.stats_json = {'crit': 136, 'strength': 387}
+        self.hero.effects_json = [{'description_zh': '使用: 旧的固定装等效果。'}]
+        self.hero.save(update_fields=['stats_json', 'effects_json'])
+        details = {
+            'name_zh': '裂隙头盔', 'name': '', 'icon': 'inv_helmet_01', 'quality': 4,
+            'description_zh': '使用: 当前装等效果。', 'description': '',
+            'stats': {'crit': 136},
+            'effects': [{'description_zh': '使用: 当前装等效果。'}],
+            'primary_options': {}, 'secondary_total': 0,
+        }
+
+        with patch.object(CurrentGearCatalogSource, '_wowhead_tooltip', return_value=details):
+            call_command('repair_gear_builder_tooltips', stdout=StringIO())
+
+        self.hero.refresh_from_db()
+        self.assertEqual(self.hero.stats_json, {'crit': 136})
+        self.assertEqual(self.hero.effects_json, [{'description_zh': '使用: 当前装等效果。'}])
+
 
 class GearBuilderImportCommandTests(TestCase):
     def setUp(self):
@@ -1222,6 +1296,38 @@ class GearBuilderCurrentSourceTests(TestCase):
             details['effects'],
             [{'description': 'Equip: Your attacks grant a test bonus.'}],
         )
+
+    def test_wowhead_tooltip_parser_uses_structural_regions_for_dynamic_primary_and_effects(self):
+        details = _tooltip_details({
+            'name': '大副的甲壳结界', 'quality': 4,
+            'tooltip': (
+                '<table><tr><td><!--rf--><span><!--stat72-->+159 [敏捷 or 力量]</span>'
+                '<!--ebstats--><!--egstats--><!--eistats--><!--nameDescStats--></td></tr></table>'
+                '<table><tr><td><!--useText:0:2--><span>使用: '
+                '<a>部署甲壳结界，累计化解400911点伤害。<br><br>'
+                '结界会造成19946点物理伤害。</a></span><!--useText:2--></td></tr></table>'
+            ),
+        })
+        self.assertEqual(details['stats'], {})
+        self.assertEqual(details['primary_options'], {'agility': 159, 'strength': 159})
+        self.assertEqual(len(details['effects']), 1)
+        self.assertIn('使用:', details['effects'][0]['description_zh'])
+        self.assertIn('19946点物理伤害', details['effects'][0]['description_zh'])
+
+    def test_wowhead_tooltip_parser_never_treats_effect_amount_as_static_stat(self):
+        details = _tooltip_details({
+            'name': '乌拉特克贪婪之心', 'quality': 4,
+            'tooltip': (
+                '<table><tr><td><!--rf--><!--ebstats--><span>+136暴击</span>'
+                '<!--egstats--><!--eistats--><!--nameDescStats--></td></tr></table>'
+                '<table><tr><td><!--useText:0:2--><span>使用: '
+                '<a>获得387力量或敏捷，造成11589点物理伤害，并进一步提高43点。</a>'
+                '</span><!--useText:2--></td></tr></table>'
+            ),
+        })
+        self.assertEqual(details['stats'], {'crit': 136})
+        self.assertNotIn('strength', details['stats'])
+        self.assertEqual(len(details['effects']), 1)
 
     def test_wowhead_tooltip_cache_can_be_forced_to_refresh_hotfixed_effects(self):
         old_payload = {
