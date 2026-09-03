@@ -122,6 +122,9 @@ document.addEventListener('DOMContentLoaded', function() {
         if (defaultSectionId === 'wow-today-settings' && window.loadWowTodaySectionSettings) {
             window.loadWowTodaySectionSettings();
         }
+        if (defaultSectionId === 'portal-navigation' && window.loadPortalNavigationManagement) {
+            window.loadPortalNavigationManagement();
+        }
     }
 
     // 默认展开数据库表菜单（但不激活）
@@ -639,6 +642,9 @@ function initNavigation() {
                 }
                 if (sectionId === 'wow-today-settings' && window.loadWowTodaySectionSettings) {
                     window.loadWowTodaySectionSettings();
+                }
+                if (sectionId === 'portal-navigation' && window.loadPortalNavigationManagement) {
+                    window.loadPortalNavigationManagement();
                 }
                 if (isSimcDashboardSection(sectionId)) {
                     const simcPage = Object.keys(SIMC_DASHBOARD_SECTIONS)
@@ -4651,15 +4657,15 @@ const TABLE_FORM_CONFIGS = {
         },
     },
     PortalToolLink: {
-        addFields: ['name', 'url', 'desc', 'category', 'icon_key', 'badge', 'badge_tone', 'source', 'sort_order', 'is_topbar', 'topbar_order', 'show_in_guide', 'show_in_tools', 'open_in_new_tab', 'icon_path', 'is_active'],
-        hiddenAddFields: ['url_hash'],
+        addFields: ['name', 'url', 'desc', 'category', 'icon_key', 'badge', 'badge_tone', 'source', 'sort_order', 'open_in_new_tab', 'icon_path', 'is_active'],
+        hiddenAddFields: ['url_hash', 'is_topbar', 'topbar_order', 'show_in_guide', 'show_in_tools'],
         choices: {
             category: [
-                { value: 'today', label: '今日动态' },
-                { value: 'data', label: '职业与数据' },
-                { value: 'mythic', label: '大秘境数据' },
-                { value: 'tools', label: '玩家工具' },
-                { value: 'community', label: '内容社区' },
+                { value: 'today', label: '官方与资讯' },
+                { value: 'data', label: '数据站点' },
+                { value: 'mythic', label: '大秘境站点' },
+                { value: 'tools', label: '实用工具' },
+                { value: 'community', label: '社区与内容' },
             ],
             icon_key: [
                 { value: '', label: '使用站点图标' },
@@ -5055,10 +5061,6 @@ function displayTableData(data, fields, tableName = currentTableName) {
             'badge_tone',
             'source',
             'sort_order',
-            'is_topbar',
-            'topbar_order',
-            'show_in_guide',
-            'show_in_tools',
             'open_in_new_tab',
             'icon_path',
             'is_active'

@@ -73,6 +73,7 @@ from botend.portal.gear_builder import (
 )
 from botend.dashboard.gear_builder_management import DashboardGearBuilderManagementAPIView
 from botend.dashboard.wow_today_management import DashboardWowTodaySectionAPIView
+from botend.dashboard.portal_navigation_management import DashboardPortalNavigationAPIView
 from botend.portal.api import (
     PortalBluepostsAPIView,
     PortalNgaHotAPIView,
@@ -82,6 +83,7 @@ from botend.portal.api import (
     PortalEventsAPIView,
     PortalVideosAPIView,
     PortalToolsAPIView,
+    PortalNavigationAPIView,
     PortalMplusAffixesAPIView,
     PortalMplusCutoffAPIView,
     PortalMplusRankingsAPIView,
@@ -162,6 +164,7 @@ urlpatterns = [
     path('api/dashboard/gear-builder/<str:resource>/', DashboardGearBuilderManagementAPIView.as_view(), name='dashboard_gear_builder_management'),
     path('api/dashboard/gear-builder/<str:resource>/<int:object_id>/', DashboardGearBuilderManagementAPIView.as_view(), name='dashboard_gear_builder_management_detail'),
     path('api/dashboard/wow-today-sections/', DashboardWowTodaySectionAPIView.as_view(), name='dashboard_wow_today_sections'),
+    path('api/dashboard/portal-navigation/', DashboardPortalNavigationAPIView.as_view(), name='dashboard_portal_navigation'),
     path('dashboard/mythic-planner/', DashboardMythicPlannerView.as_view(), name='dashboard_mythic_planner'),
     path('dashboard/mythic-planner/positions/', DashboardMythicPlannerPositionsView.as_view(), name='dashboard_mythic_planner_positions'),
     path('dashboard/mythic-planner/routes/', DashboardMythicPlannerRoutesView.as_view(), name='dashboard_mythic_planner_routes'),
@@ -179,6 +182,7 @@ urlpatterns = [
     path('portal/api/events/', csrf_exempt(PortalEventsAPIView.as_view()), name="portal_events"),
     path('portal/api/videos/', csrf_exempt(PortalVideosAPIView.as_view()), name="portal_videos"),
     path('portal/api/tools/', csrf_exempt(PortalToolsAPIView.as_view()), name="portal_tools"),
+    path('portal/api/navigation/', csrf_exempt(PortalNavigationAPIView.as_view()), name="portal_navigation"),
     path('portal/api/mplus/affixes/', csrf_exempt(PortalMplusAffixesAPIView.as_view()), name="portal_mplus_affixes"),
     path('portal/api/mplus/cutoff/', csrf_exempt(PortalMplusCutoffAPIView.as_view()), name="portal_mplus_cutoff"),
     path('portal/api/mplus/rankings/', csrf_exempt(PortalMplusRankingsAPIView.as_view()), name="portal_mplus_rankings"),

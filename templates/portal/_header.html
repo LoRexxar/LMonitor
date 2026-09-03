@@ -63,6 +63,16 @@
                 </details>
             </nav>
             <div class="portal-header-utilities">
+            <details id="portal-external-links" class="portal-external-menu">
+                <summary class="portal-pill portal-action-btn portal-external-menu-trigger" aria-label="外部链接菜单">
+                    <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-globe"></use></svg>
+                    <span class="portal-external-menu-label">外部链接</span>
+                    <svg class="portal-external-menu-chevron w-3.5 h-3.5" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chevron-down"></use></svg>
+                </summary>
+                <div id="portal-external-links-panel" class="portal-external-menu-panel">
+                    <p class="portal-external-menu-empty">正在读取外部链接…</p>
+                </div>
+            </details>
             <button id="portal-theme-toggle" type="button" class="portal-pill portal-action-btn portal-theme-toggle inline-flex items-center justify-center" aria-label="切换深色模式" aria-pressed="false" title="切换深色模式">
                 <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-moon"></use></svg>
             </button>

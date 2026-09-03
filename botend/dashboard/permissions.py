@@ -12,6 +12,7 @@ DASHBOARD_PAGE_PERMISSIONS = OrderedDict((item['code'], item) for item in (
     {'code': 'news.index', 'label': '新闻资讯', 'section': 'news', 'parent': '内容'},
     {'code': 'reports.wow-daily', 'label': 'WoW 日报', 'section': 'wow-daily-reports', 'parent': '内容'},
     {'code': 'reports.wow-today-settings', 'label': '今日魔兽板块', 'section': 'wow-today-settings', 'parent': '内容'},
+    {'code': 'portal.navigation', 'label': '首页导航', 'section': 'portal-navigation', 'parent': '内容'},
     {'code': 'reports.hotfix', 'label': 'Hotfix 报告', 'section': 'wago-hotfix-reports', 'parent': '内容'},
     {'code': 'system.alerts', 'label': '系统报警', 'section': 'error-logs', 'parent': '系统'},
     {'code': 'system.logs', 'label': '日志文件', 'section': 'log-files', 'parent': '系统'},

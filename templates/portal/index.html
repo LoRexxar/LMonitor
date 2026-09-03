@@ -7,8 +7,8 @@
     <title>魔兽世界每日节奏 WowDaily.cn</title>
     {% load static %}
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_portal_badges_v2"></script>
-    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260903_neutral_palette_v3">
+    <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_external_menu_v2"></script>
+    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260903_external_menu_v2">
     <link rel="stylesheet" href="{% static 'portal/css/simc-benchmarks.css' %}?v=20260903_gear_rank">
 </head>
 <body class="portal-bg font-sans">
@@ -29,10 +29,6 @@
                                 <p class="portal-hero-description">每日动态、职业数据与玩家工具，按你的节奏快速抵达。</p>
                             </div>
                         </div>
-                        <a href="#section-news" class="portal-hero-jump" data-portal-section="section-news">
-                            <span>浏览今日内容</span>
-                            <svg aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chevron-down"></use></svg>
-                        </a>
                     </div>
                     <div class="portal-hero-search">
                         <svg class="portal-hero-search-icon" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-search"></use></svg>
@@ -229,6 +225,6 @@
 
     <nav id="snap-dots" class="snap-dots" aria-label="首页板块导航"></nav>
 
-    <script src="{% static 'portal/js/main.js' %}?v=20260903_portal_home_nav_v4"></script>
+    <script src="{% static 'portal/js/main.js' %}?v=20260903_external_menu_v2"></script>
 </body>
 </html>

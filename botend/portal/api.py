@@ -9,7 +9,7 @@ from django.db.models import Count, Q
 from django.utils import timezone
 from datetime import timedelta
 
-from botend.models import PortalEvent, PortalMplusRun, PortalMplusSeasonCutoff, PortalMythicstatsDpsRow, PortalPeakSpecRankRow, PortalToolLink, PortalVideo, SeasonMeta, WowArticle, WowDailyReport, WowTodaySnapshot, WowSkillDiffReport, WowHotfixReport, WowWagoMonitorState
+from botend.models import PortalEvent, PortalMplusRun, PortalMplusSeasonCutoff, PortalMythicstatsDpsRow, PortalNavigationGroup, PortalPeakSpecRankRow, PortalToolLink, PortalVideo, SeasonMeta, WowArticle, WowDailyReport, WowTodaySnapshot, WowSkillDiffReport, WowHotfixReport, WowWagoMonitorState
 from botend.services.article_content_service import loads_blocks
 from botend.services.wow_today_service import (
     apply_wow_today_section_settings,
@@ -243,12 +243,28 @@ def _tool_to_dict(t):
     }
 
 
+def _navigation_item_to_dict(item, group):
+    return {
+        'name': item.name or '',
+        'url': _normalize_url(item.url),
+        'desc': item.desc or '',
+        'icon_key': item.icon_key or group.icon_key or 'globe',
+        'category': group.key,
+        'badge': item.badge or '',
+        'badge_tone': item.badge_tone or 'default',
+        'sort_order': item.sort_order or 0,
+        'show_in_header': bool(item.show_in_header),
+        'show_in_home_guide': bool(item.show_in_home_guide),
+        'open_in_new_tab': False,
+    }
+
+
 PORTAL_LINK_CATEGORIES = (
-    {'key': 'today', 'name': '今日动态', 'description': '重置、活动与当天重点', 'icon_key': 'calendar'},
-    {'key': 'data', 'name': '职业与数据', 'description': '专精页面与模拟结果', 'icon_key': 'chart'},
-    {'key': 'mythic', 'name': '大秘境数据', 'description': '分数线、巅峰榜与热门排行', 'icon_key': 'refresh'},
-    {'key': 'tools', 'name': '玩家工具', 'description': '天赋、配装与路线规划', 'icon_key': 'tools'},
-    {'key': 'community', 'name': '内容社区', 'description': '新闻、讨论与视频攻略', 'icon_key': 'newspaper'},
+    {'key': 'today', 'name': '官方与资讯', 'description': '官方站点与版本资讯', 'icon_key': 'newspaper'},
+    {'key': 'data', 'name': '数据站点', 'description': '角色、日志与模拟数据', 'icon_key': 'chart'},
+    {'key': 'mythic', 'name': '大秘境站点', 'description': '路线、排行与赛季数据', 'icon_key': 'refresh'},
+    {'key': 'tools', 'name': '实用工具', 'description': '第三方计算与辅助工具', 'icon_key': 'tools'},
+    {'key': 'community', 'name': '社区与内容', 'description': '论坛、视频与玩家内容', 'icon_key': 'chat'},
 )
 
 
@@ -749,48 +765,54 @@ class PortalVideosAPIView(View):
 
 class PortalToolsAPIView(View):
     def get(self, request):
-        topbar = list(
-            PortalToolLink.objects.filter(is_active=True, is_topbar=True)
-            .order_by('topbar_order', 'sort_order', 'id')
-        )
-        guide = list(
-            PortalToolLink.objects.filter(is_active=True, show_in_guide=True)
-            .order_by('topbar_order', 'sort_order', 'id')
-        )
         items = list(
-            PortalToolLink.objects.filter(is_active=True, show_in_tools=True)
+            PortalToolLink.objects.filter(
+                Q(url__istartswith='http://') | Q(url__istartswith='https://'),
+                is_active=True,
+                show_in_tools=True,
+            )
             .order_by('sort_order', 'id')
         )
-        talent_simulator = {
-            'name': '天赋模拟器',
-            'url': '/portal/talents/',
-            'desc': '导入、编辑并导出魔兽世界天赋字符串',
-            'icon_path': '/static/portal/favicons/default.svg',
-            'icon_key': 'chart',
-            'category': 'tools',
-            'badge': '',
-            'badge_tone': 'default',
-            'sort_order': -10,
-            'is_topbar': False,
-            'topbar_order': 0,
-            'show_in_guide': False,
-            'show_in_tools': True,
-            'open_in_new_tab': False,
-            'source': 'wowdaily',
-        }
-        topbar_dicts = [_tool_to_dict(x) for x in topbar]
-        guide_dicts = [_tool_to_dict(x) for x in guide]
         item_dicts = [_tool_to_dict(x) for x in items]
-        if not any(item.get('url') == talent_simulator['url'] for item in item_dicts):
-            item_dicts.insert(0, talent_simulator)
         return JsonResponse({
             'status': 'success',
             'data': {
-                'topbar': topbar_dicts,
-                'guide': guide_dicts,
                 'items': item_dicts,
-                'categories': _portal_link_categories(topbar_dicts + guide_dicts + item_dicts),
+                'categories': _portal_link_categories(item_dicts),
             }
+        })
+
+
+class PortalNavigationAPIView(View):
+    """只提供 Portal 站内页面与页内板块入口。"""
+
+    def get(self, request):
+        groups = list(
+            PortalNavigationGroup.objects.filter(is_active=True)
+            .prefetch_related('items')
+            .order_by('sort_order', 'id')
+        )
+        categories = []
+        header = []
+        guide = []
+        for group in groups:
+            categories.append({
+                'key': group.key,
+                'name': group.name,
+                'description': group.description,
+                'icon_key': group.icon_key or 'globe',
+            })
+            for item in sorted(group.items.all(), key=lambda value: (value.sort_order, value.id)):
+                if not item.is_active:
+                    continue
+                data = _navigation_item_to_dict(item, group)
+                if item.show_in_header:
+                    header.append(data)
+                if item.show_in_home_guide:
+                    guide.append(data)
+        return JsonResponse({
+            'status': 'success',
+            'data': {'header': header, 'guide': guide, 'categories': categories},
         })
 
 

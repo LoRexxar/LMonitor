@@ -530,10 +530,11 @@
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
-<script src="{% static 'dashboard/js/main.js' %}?v=20260903_portal_mythic_navigation"></script>
+<script src="{% static 'dashboard/js/main.js' %}?v=20260903_external_menu_v2"></script>
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806c" defer></script>
     <script src="{% static 'dashboard/js/gear_builder_management.js' %}?v=20260901a" defer></script>
     <script src="{% static 'dashboard/js/wow_today_management.js' %}?v=20260903a" defer></script>
+    <script src="{% static 'dashboard/js/portal_navigation_management.js' %}?v=20260903a" defer></script>
     <script src="{% static 'dashboard/js/simc-result-report.js' %}?v=20260817_result_config_panel"></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260818_task_compare_selection"></script>
     <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260903_unified_item_tooltip"></script>
@@ -674,6 +675,12 @@
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-layer-group mr-3"></i>
                             今日魔兽编排
+                        </a>
+                    </li>
+                    <li class="nav-item" data-section="portal-navigation" data-sidebar-group-member="content">
+                        <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                            <i class="fas fa-compass mr-3"></i>
+                            首页导航管理
                         </a>
                     </li>
                     <li class="nav-item" data-section="wago-hotfix-reports" data-sidebar-group-member="content">
@@ -1190,6 +1197,40 @@
                     <div id="wow-today-settings-message" class="hidden border-b px-5 py-3 text-sm" role="status" aria-live="polite"></div>
                     <div id="wow-today-settings-list" class="space-y-3 bg-gray-50/70 p-3 sm:p-4"></div>
                     <div id="wow-today-settings-empty" class="hidden px-5 py-12 text-center text-sm text-gray-600">没有找到可配置内容。可清空搜索条件，或先运行今日魔兽抓取任务。</div>
+                </div>
+            </div>
+
+            <div
+                class="content-section"
+                id="portal-navigation"
+                data-api-url="{% url 'dashboard_portal_navigation' %}"
+                style="display: none;"
+            >
+                <div class="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                    <div>
+                        <h2 class="mb-2 text-3xl font-bold text-gray-800">首页导航管理</h2>
+                        <p class="max-w-3xl text-gray-600">专门管理站内页面和当前首页板块入口。外部网址属于“外部快捷链接”，不会出现在这里。</p>
+                    </div>
+                    <a href="/" target="_blank" rel="noopener noreferrer" class="inline-flex self-start items-center justify-center rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50">
+                        <i class="fas fa-arrow-up-right-from-square mr-2"></i>预览首页
+                    </a>
+                </div>
+
+                <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+                    <div class="flex flex-col gap-3 border-b border-gray-200 px-4 py-4 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
+                        <div>
+                            <strong id="portal-navigation-summary" class="text-gray-900">正在读取导航结构…</strong>
+                            <p class="mt-1 text-xs text-gray-600">入口地址只能填写以 / 开头的站内路径；页内板块使用 /#section-…。</p>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <button id="portal-navigation-add-group" type="button" class="min-h-11 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100"><i class="fas fa-plus mr-2"></i>新增分组</button>
+                            <button id="portal-navigation-refresh" type="button" class="min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><i class="fas fa-rotate-right mr-2"></i>刷新</button>
+                            <button id="portal-navigation-save" type="button" class="min-h-11 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"><i class="fas fa-check mr-2"></i>保存全部更改</button>
+                        </div>
+                    </div>
+                    <div id="portal-navigation-message" class="hidden border-b px-5 py-3 text-sm" role="status" aria-live="polite"></div>
+                    <div id="portal-navigation-list" class="space-y-4 bg-gray-50/70 p-3 sm:p-4"></div>
+                    <div id="portal-navigation-empty" class="hidden px-5 py-12 text-center text-sm text-gray-600">暂无导航分组，可点击“新增分组”开始配置。</div>
                 </div>
             </div>
 

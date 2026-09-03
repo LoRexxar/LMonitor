@@ -405,14 +405,18 @@ async function loadTools() {
   const gridEl = document.getElementById("tools-nav");
   if (!topEl && !gridEl) return;
   try {
-    const sharedData = typeof window.getPortalToolsData === "function"
-      ? await window.getPortalToolsData()
-      : (await fetchJson("/portal/api/tools/"))?.data;
-    const topbar = Array.isArray(sharedData?.topbar) ? sharedData.topbar : [];
-    const guide = Array.isArray(sharedData?.guide) ? sharedData.guide : topbar;
-    const items = Array.isArray(sharedData?.items) ? sharedData.items : [];
-    const categories = Array.isArray(sharedData?.categories) ? sharedData.categories : [];
-    const categoryByKey = new Map(categories.map((item) => [String(item.key || ""), item]));
+    const [navigationData, toolsData] = await Promise.all([
+      typeof window.getPortalNavigationData === "function"
+        ? window.getPortalNavigationData()
+        : fetchJson("/portal/api/navigation/").then((payload) => payload?.data),
+      typeof window.getPortalToolsData === "function"
+        ? window.getPortalToolsData()
+        : fetchJson("/portal/api/tools/").then((payload) => payload?.data),
+    ]);
+    const guide = Array.isArray(navigationData?.guide) ? navigationData.guide : [];
+    const items = Array.isArray(toolsData?.items) ? toolsData.items : [];
+    const navigationCategories = Array.isArray(navigationData?.categories) ? navigationData.categories : [];
+    const toolCategories = Array.isArray(toolsData?.categories) ? toolsData.categories : [];
     const iconKeys = new Set(["calendar", "newspaper", "chart", "tools", "chat", "video", "refresh", "globe"]);
     const iconHtml = (key, className = "") => {
       const safeKey = iconKeys.has(String(key || "")) ? String(key) : "globe";
@@ -429,7 +433,7 @@ async function loadTools() {
       }
       return { href: escapeHtml(href), attrs };
     };
-    const orderedCategoryKeys = (sourceItems) => {
+    const orderedCategoryKeys = (sourceItems, categories) => {
       const present = new Set(sourceItems.map((item) => String(item?.category || "tools")));
       const ordered = categories.map((item) => String(item.key || "")).filter((key) => present.has(key));
       sourceItems.forEach((item) => {
@@ -440,18 +444,22 @@ async function loadTools() {
     };
     if (topEl) {
       if (!guide.length) {
-        topEl.innerHTML = `<div class="portal-guide-empty">暂无分类入口，可在后台“工具链接”中添加。</div>`;
+        topEl.innerHTML = `<div class="portal-guide-empty">暂无分类入口，可在后台“首页导航”中添加。</div>`;
       } else {
-        topEl.innerHTML = orderedCategoryKeys(guide).map((key) => {
+        const categoryByKey = new Map(navigationCategories.map((item) => [String(item.key || ""), item]));
+        topEl.innerHTML = orderedCategoryKeys(guide, navigationCategories).map((key) => {
           const groupItems = guide.filter((item) => String(item?.category || "tools") === key).slice(0, 4);
           const meta = categoryByKey.get(key) || { name: key, description: "自定义入口", icon_key: "globe" };
           const links = groupItems.map((item) => {
             const { href, attrs } = linkAttrs(item);
             const badgeTone = item?.badge_tone === "new" ? " is-new" : "";
             const badge = item.badge ? `<span class="portal-guide-link-badge${badgeTone}">${escapeHtml(item.badge)}</span>` : "";
+            const name = escapeHtml(item.name || "未命名入口");
+            const desc = escapeHtml(item.desc || "打开站内页面");
+            const content = `<span class="portal-guide-link-copy"><strong>${name}</strong><small>${desc}</small></span>${badge}<span class="portal-guide-link-arrow" aria-hidden="true">→</span>`;
             return href
-              ? `<a class="portal-guide-link" href="${href}"${attrs}><span>${escapeHtml(item.name || "未命名入口")}</span>${badge}</a>`
-              : `<span class="portal-guide-link is-disabled"><span>${escapeHtml(item.name || "未命名入口")}</span>${badge}</span>`;
+              ? `<a class="portal-guide-link" href="${href}"${attrs}>${content}</a>`
+              : `<span class="portal-guide-link is-disabled">${content}</span>`;
           }).join("");
           return `<section class="portal-guide-group" data-guide-category="${escapeHtml(key)}">
             <div class="portal-guide-group-head">
@@ -465,9 +473,10 @@ async function loadTools() {
     }
     if (gridEl) {
       if (!items.length) {
-        gridEl.innerHTML = `<div class="portal-tools-empty">暂无快捷链接，可在后台“工具链接”中新增并选择显示位置。</div>`;
+        gridEl.innerHTML = `<div class="portal-tools-empty">暂无外部快捷链接，可在后台“数据库 → 外部快捷链接”中新增。</div>`;
       } else {
-        gridEl.innerHTML = orderedCategoryKeys(items).map((key) => {
+        const categoryByKey = new Map(toolCategories.map((item) => [String(item.key || ""), item]));
+        gridEl.innerHTML = orderedCategoryKeys(items, toolCategories).map((key) => {
           const groupItems = items.filter((item) => String(item?.category || "tools") === key).slice(0, 120);
           const meta = categoryByKey.get(key) || { name: key, description: "自定义入口", icon_key: "globe" };
           const rows = groupItems.map((item) => {
