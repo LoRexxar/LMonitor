@@ -96,6 +96,15 @@ class PortalHomeNavigationTests(TestCase):
         categories = {item['key']: item for item in navigation_data['categories']}
         self.assertEqual(categories['data']['name'], '数据中心')
         self.assertEqual(categories['tools']['name'], '站内工具')
+        header_category_keys = {item['category'] for item in navigation_data['header']}
+        guide_category_keys = {item['category'] for item in navigation_data['guide']}
+        self.assertEqual(header_category_keys, guide_category_keys)
+        self.assertEqual(header_category_keys, {'data', 'mythic', 'tools', 'community'})
+        ordered_category_names = [
+            item['name'] for item in navigation_data['categories']
+            if item['key'] in header_category_keys
+        ]
+        self.assertEqual(ordered_category_names, ['数据中心', '大秘境', '站内工具', '资讯社区'])
 
     def test_dashboard_has_dedicated_group_and_item_navigation_editor(self):
         PortalNavigationGroup.objects.all().delete()
