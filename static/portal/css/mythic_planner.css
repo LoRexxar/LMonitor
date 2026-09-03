@@ -352,6 +352,68 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 }
 .mdt-spawn:hover .mdt-spawn-count,
 .mdt-spawn.is-focused .mdt-spawn-count { opacity: 1; }
+.mdt-spawn-tooltip {
+    position: absolute;
+    z-index: 20;
+    left: 50%;
+    bottom: calc(100% + 7px);
+    width: max-content;
+    max-width: 220px;
+    padding: 5px 7px;
+    transform: translate(-50%, 4px);
+    border: 1px solid #6f6548;
+    border-radius: 3px;
+    background: #0b0e12f5;
+    color: #fff4bd;
+    box-shadow: 0 6px 18px #000c;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.35;
+    text-align: left;
+    text-shadow: none;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity .12s ease, transform .12s ease, visibility .12s;
+}
+.mdt-spawn-tooltip::after {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    width: 7px;
+    height: 7px;
+    transform: translate(-50%, -4px) rotate(45deg);
+    border-right: 1px solid #6f6548;
+    border-bottom: 1px solid #6f6548;
+    background: #0b0e12;
+    content: '';
+}
+.mdt-spawn-tooltip.is-below {
+    top: calc(100% + 7px);
+    bottom: auto;
+    transform: translate(-50%, -4px);
+}
+.mdt-spawn-tooltip.is-below::after {
+    top: auto;
+    bottom: 100%;
+    transform: translate(-50%, 4px) rotate(225deg);
+}
+.mdt-spawn-tooltip.is-right-aligned { left: 0; transform: translate(0, 4px); }
+.mdt-spawn-tooltip.is-left-aligned { right: 0; left: auto; transform: translate(0, 4px); }
+.mdt-spawn-tooltip.is-below.is-right-aligned,
+.mdt-spawn-tooltip.is-below.is-left-aligned { transform: translate(0, -4px); }
+.mdt-spawn:hover .mdt-spawn-tooltip,
+.mdt-spawn:focus-visible .mdt-spawn-tooltip {
+    transform: translate(-50%, 0);
+    opacity: 1;
+    visibility: visible;
+}
+.mdt-spawn:hover .mdt-spawn-tooltip.is-right-aligned,
+.mdt-spawn:hover .mdt-spawn-tooltip.is-left-aligned,
+.mdt-spawn:focus-visible .mdt-spawn-tooltip.is-right-aligned,
+.mdt-spawn:focus-visible .mdt-spawn-tooltip.is-left-aligned { transform: translate(0, 0); }
 
 .mdt-poi {
     position: absolute;

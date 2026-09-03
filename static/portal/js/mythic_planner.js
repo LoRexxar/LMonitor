@@ -952,6 +952,14 @@
             const baseMarkerSize = markerSize - 1;
             const markerFontSize = clamp(baseMarkerSize * 0.55, 4, 13) + 1;
             const markerWideFontSize = clamp(baseMarkerSize * 0.36, 3.25, 9) + 1;
+            const tooltipId = `spawn-tooltip-${String(spawn.uid || 'node')}`
+                .replace(/[^a-zA-Z0-9_-]/g, '-');
+            const tooltipClasses = [
+                'mdt-spawn-tooltip',
+                Number(spawn.y) < 15 ? 'is-below' : '',
+                Number(spawn.x) < 18 ? 'is-right-aligned' : '',
+                Number(spawn.x) > 82 ? 'is-left-aligned' : '',
+            ].filter(Boolean).join(' ');
             return `
                 <button
                     type="button"
@@ -967,9 +975,9 @@
                         --spawn-wide-font-size:${markerWideFontSize.toFixed(2)}px;
                     "
                     aria-label="${escapeHtml(enemy.display_name)}"
+                    aria-describedby="${escapeHtml(tooltipId)}"
                     aria-haspopup="dialog"
                     aria-controls="enemy-detail-modal"
-                    title=""
                 >
                     <span class="mdt-spawn-avatar ${markerPortraitUrl ? '' : 'is-error'}" aria-hidden="true">
                         <span class="mdt-spawn-initial ${markerInitial.length > 1 ? 'is-wide' : ''}">${escapeHtml(markerInitial)}</span>
@@ -986,6 +994,7 @@
                         ` : ''}
                     </span>
                     ${enemy.enemy_forces ? `<span class="mdt-spawn-count">${enemy.enemy_forces}</span>` : ''}
+                    <span class="${tooltipClasses}" id="${escapeHtml(tooltipId)}" role="tooltip">${escapeHtml(enemy.display_name)}</span>
                 </button>
             `;
         }).join('');

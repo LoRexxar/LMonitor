@@ -4430,6 +4430,7 @@ class MythicPlannerPageContractTests(SimpleTestCase):
             '已打开当前浏览器中的路线',
             'mdt-spawn-initial',
             'mdt-spawn-avatar-image',
+            'mdt-spawn-tooltip',
             'mdt-pull-mini-fallback',
             'dungeonsForSelectionGroup',
             'shouldStartMapPan',
@@ -4468,6 +4469,20 @@ class MythicPlannerPageContractTests(SimpleTestCase):
         self.assertIn('进度 · ${forcesPercent.toFixed(2)}%', portal_js)
         self.assertNotIn('${formatNumber(stats.health)} HP', portal_js)
         self.assertNotIn('打开这份只读路线快照', portal_js)
+        spawn_renderer = portal_js[
+            portal_js.index('function renderSpawns'):
+            portal_js.index('function renderAnnotations')
+        ]
+        self.assertIn('spawn-tooltip-${String(spawn.uid', spawn_renderer)
+        self.assertIn(
+            'aria-describedby="${escapeHtml(tooltipId)}"',
+            spawn_renderer,
+        )
+        self.assertIn(
+            'role="tooltip">${escapeHtml(enemy.display_name)}</span>',
+            spawn_renderer,
+        )
+        self.assertNotIn('title=""', spawn_renderer)
         self.assertIn('reorderPull', portal_js)
         self.assertIn('onPullPointerMove', portal_js)
         self.assertIn('function selectPull', portal_js)
@@ -4728,6 +4743,8 @@ class MythicPlannerPageContractTests(SimpleTestCase):
         self.assertIn('--spawn-background:', portal_css)
         self.assertIn('.mdt-spawn:focus-visible', portal_css)
         self.assertIn('.mdt-spawn-avatar-image', portal_css)
+        self.assertIn('.mdt-spawn:hover .mdt-spawn-tooltip', portal_css)
+        self.assertIn('.mdt-spawn:focus-visible .mdt-spawn-tooltip', portal_css)
         self.assertIn(
             '.mdt-spawn-avatar:not(.is-error) .mdt-spawn-initial',
             portal_css,
