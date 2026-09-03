@@ -3,6 +3,7 @@ import gc
 import json
 import sys
 import weakref
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -12,10 +13,12 @@ from django.apps import apps
 from django.db import IntegrityError, connection, transaction
 from django.core.serializers.json import DjangoJSONEncoder
 from django.test import RequestFactory, TestCase, override_settings
+from django.utils import timezone
 
 from botend.models import (
     SimcAplSymbol, SimcAplSymbolScope, SimcBackendBinary, SimcProfile,
-    SimcSkillDamageSnapshot, WowSpellSnapshot, WowTalentNodeMetadata, WowTalentVersion,
+    SimcSkillDamageSnapshot, SimcSkillDamageSnapshotActor, WowSpellSnapshot,
+    WowTalentNodeMetadata, WowTalentVersion,
 )
 from botend.services.simc_skill_damage import (
     SimcSkillDamageSnapshotService,
@@ -68,6 +71,213 @@ class SimcSkillDamageSnapshotModelTests(TestCase):
 
 
 class SimcSkillDamageSnapshotServiceTests(TestCase):
+    def test_successful_generation_prunes_obsolete_snapshots(self):
+        snapshot = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='f' * 40,
+            game_build='12.1.0.70000',
+            schema_revision=22,
+        )
+        service = SimcSkillDamageSnapshotService(snapshot)
+
+        with mock.patch.object(service, '_profiles', return_value=[]), \
+             mock.patch.object(service, '_is_complete_wire_snapshot', return_value=True), \
+             mock.patch.object(service, 'prune_obsolete_snapshots') as prune:
+            service.generate(materialize_result=False)
+
+        prune.assert_called_once_with()
+
+    def test_generation_materializes_before_retention_can_delete_its_snapshot(self):
+        snapshot = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='e' * 40,
+            game_build='12.1.0.70000',
+            schema_revision=22,
+        )
+        service = SimcSkillDamageSnapshotService(snapshot)
+
+        def delete_snapshot():
+            SimcSkillDamageSnapshot.objects.filter(pk=snapshot.pk).delete()
+
+        with mock.patch.object(service, '_profiles', return_value=[]), \
+             mock.patch.object(service, '_is_complete_wire_snapshot', return_value=True), \
+             mock.patch.object(service, 'prune_obsolete_snapshots', side_effect=delete_snapshot):
+            result = service.generate(materialize_result=True)
+
+        self.assertIsInstance(result, dict)
+        self.assertFalse(SimcSkillDamageSnapshot.objects.filter(pk=snapshot.pk).exists())
+
+    def test_retention_failure_does_not_downgrade_published_snapshot(self):
+        snapshot = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='d' * 40,
+            game_build='12.1.0.70000',
+            schema_revision=22,
+        )
+        service = SimcSkillDamageSnapshotService(snapshot)
+
+        with mock.patch.object(service, '_profiles', return_value=[]), \
+             mock.patch.object(service, '_is_complete_wire_snapshot', return_value=True), \
+             mock.patch.object(
+                 service, 'prune_obsolete_snapshots', side_effect=RuntimeError('cleanup failed'),
+             ), mock.patch(
+                 'botend.services.simc_skill_damage.logger.exception',
+             ) as log_exception:
+            service.generate(materialize_result=False)
+
+        snapshot.refresh_from_db()
+        self.assertEqual(snapshot.status, SimcSkillDamageSnapshot.STATUS_SUCCEEDED)
+        self.assertEqual(snapshot.error_text, '')
+        log_exception.assert_called_once()
+
+    def test_prune_obsolete_snapshots_keeps_two_successes_and_active_generation(self):
+        now = timezone.now()
+        obsolete = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='1' * 40, game_build='12.1.0.69991', schema_revision=19,
+            status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+            completed_at=now - timedelta(hours=3),
+        )
+        rollback = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='2' * 40, game_build='12.1.0.69992', schema_revision=21,
+            status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+            generated_spec_count=1,
+            completed_at=now - timedelta(hours=2),
+            payload={
+                'payload_format': 'skill_damage_product_v1',
+                'storage_format': 'per_spec_actor_rows_v1',
+                'total_spec_count': 1,
+            },
+        )
+        published = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='3' * 40, game_build='12.1.0.69993', schema_revision=22,
+            status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+            generated_spec_count=1,
+            completed_at=now - timedelta(hours=1),
+            payload={
+                'payload_format': 'skill_damage_product_v1',
+                'wire_schema_revision': 1,
+                'storage_format': 'per_spec_actor_rows_v1',
+                'total_spec_count': 1,
+            },
+        )
+        invalid_success = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='4' * 40, game_build='12.1.0.69994', schema_revision=22,
+            status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+            generated_spec_count=0,
+            completed_at=now,
+            payload={
+                'payload_format': 'skill_damage_product_v1',
+                'wire_schema_revision': 1,
+                'storage_format': 'per_spec_actor_rows_v1',
+                'total_spec_count': 0,
+            },
+        )
+        failed = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='5' * 40, game_build='12.1.0.69995', schema_revision=22,
+            status=SimcSkillDamageSnapshot.STATUS_FAILED,
+            completed_at=now,
+        )
+        active = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='5' * 40, game_build='12.1.0.69995', schema_revision=23,
+            status=SimcSkillDamageSnapshot.STATUS_RUNNING,
+        )
+        obsolete_actor = SimcSkillDamageSnapshotActor.objects.create(
+            snapshot=obsolete, ordinal=0, class_name='warrior', specialization='fury',
+            actor_payload={}, unresolved_payload=[], raw_action_count=0,
+            display_action_count=0,
+        )
+        for ordinal, retained in enumerate((rollback, published), start=1):
+            SimcSkillDamageSnapshotActor.objects.create(
+                snapshot=retained,
+                ordinal=ordinal,
+                class_name='warrior',
+                specialization='fury',
+                actor_payload={'class': 'warrior', 'specialization': 'fury', 'actions': []},
+                unresolved_payload=[],
+                raw_action_count=0,
+                display_action_count=0,
+            )
+
+        SimcSkillDamageSnapshotService.prune_obsolete_snapshots()
+
+        self.assertSetEqual(
+            set(SimcSkillDamageSnapshot.objects.values_list('id', flat=True)),
+            {rollback.pk, published.pk, active.pk},
+        )
+        self.assertFalse(
+            SimcSkillDamageSnapshotActor.objects.filter(pk=obsolete_actor.pk).exists()
+        )
+        self.assertFalse(SimcSkillDamageSnapshot.objects.filter(pk=failed.pk).exists())
+        self.assertFalse(SimcSkillDamageSnapshot.objects.filter(pk=invalid_success.pk).exists())
+
+    def test_latest_display_snapshot_rejects_unknown_wire_revision(self):
+        snapshot = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='6' * 40, game_build='12.1.0.69996', schema_revision=22,
+            status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+            generated_spec_count=1,
+            payload={
+                'payload_format': 'skill_damage_product_v1',
+                'wire_schema_revision': 2,
+                'storage_format': 'per_spec_actor_rows_v1',
+                'total_spec_count': 1,
+            },
+        )
+        SimcSkillDamageSnapshotActor.objects.create(
+            snapshot=snapshot, ordinal=0, class_name='warrior', specialization='fury',
+            actor_payload={}, unresolved_payload=[], raw_action_count=0,
+            display_action_count=0,
+        )
+
+        self.assertIsNone(SimcSkillDamageSnapshotService.latest_display_snapshot())
+
+    def test_latest_display_snapshot_accepts_implicit_wire_v1_for_r20_through_r22(self):
+        for schema_revision in (20, 21, 22):
+            with self.subTest(schema_revision=schema_revision):
+                snapshot = SimcSkillDamageSnapshot.objects.create(
+                    simc_revision=str(schema_revision)[-1] * 40,
+                    game_build=f'12.1.0.70{schema_revision}',
+                    schema_revision=schema_revision,
+                    status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+                    generated_spec_count=1,
+                    payload={
+                        'payload_format': 'skill_damage_product_v1',
+                        'storage_format': 'per_spec_actor_rows_v1',
+                        'total_spec_count': 1,
+                    },
+                )
+                SimcSkillDamageSnapshotActor.objects.create(
+                    snapshot=snapshot,
+                    ordinal=0,
+                    class_name='warrior',
+                    specialization='fury',
+                    actor_payload={},
+                    unresolved_payload=[],
+                    raw_action_count=0,
+                    display_action_count=0,
+                )
+
+                self.assertEqual(
+                    SimcSkillDamageSnapshotService.latest_display_snapshot().pk,
+                    snapshot.pk,
+                )
+                snapshot.delete()
+
+    def test_latest_display_snapshot_rejects_incomplete_legacy_success(self):
+        snapshot = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='7' * 40, game_build='12.1.0.69997', schema_revision=21,
+            status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+            generated_spec_count=1,
+            payload={
+                'payload_format': 'skill_damage_product_v1',
+                'storage_format': 'per_spec_actor_rows_v1',
+                'total_spec_count': 2,
+            },
+        )
+        SimcSkillDamageSnapshotActor.objects.create(
+            snapshot=snapshot, ordinal=0, class_name='warrior', specialization='fury',
+            actor_payload={}, unresolved_payload=[], raw_action_count=0,
+            display_action_count=0,
+        )
+
+        self.assertIsNone(SimcSkillDamageSnapshotService.latest_display_snapshot())
+
     def test_required_profile_identity_validation_rejects_missing_duplicate_and_extra_specs(self):
         required = {('warrior', 'arms'), ('mage', 'frost')}
         _validate_required_profile_identities(
@@ -3150,6 +3360,38 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertEqual(service.snapshot.status, SimcSkillDamageSnapshot.STATUS_PENDING)
         self.assertEqual(service.backend.pk, backend.pk)
 
+    def test_current_unsharded_success_is_reclaimed_instead_of_blocking_generation(self):
+        backend, _ = SimcBackendBinary.objects.update_or_create(
+            identifier='production',
+            defaults={
+                'name': '正式服', 'is_active': True,
+                'current_version': 'a' * 40, 'latest_version': 'a' * 40,
+                'game_build': '12.1.0.69302', 'simc_path': sys.executable,
+            },
+        )
+        existing = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='a' * 40,
+            game_build='12.1.0.69302',
+            schema_revision=22,
+            status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+            generated_spec_count=1,
+            payload={
+                'payload_format': 'skill_damage_product_v1',
+                'actors': [{
+                    'specialization': 'fury',
+                    'variant_model': 'single_talent_runtime',
+                    'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
+                    'actions': [],
+                }],
+            },
+        )
+
+        service = SimcSkillDamageSnapshotService.create_for_current_backend()
+
+        self.assertEqual(service.snapshot.pk, existing.pk)
+        self.assertEqual(service.snapshot.status, SimcSkillDamageSnapshot.STATUS_PENDING)
+        self.assertEqual(service.backend.pk, backend.pk)
+
     @override_settings(SIMC_CONFIG={'simc_path': sys.executable})
     def test_configured_runtime_binary_overrides_stale_backend_path(self):
         snapshot = SimcSkillDamageSnapshot(
@@ -4424,15 +4666,46 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 'game_build': '12.1.0.69300', 'simc_path': sys.executable,
             },
         )
-        SimcSkillDamageSnapshot.objects.create(
+        current = SimcSkillDamageSnapshot.objects.create(
             simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=22,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
-            payload={'actors': [{
+            generated_spec_count=1,
+            payload={
+                'payload_format': 'skill_damage_product_v1',
+                'storage_format': 'per_spec_actor_rows_v1',
+                'total_spec_count': 1,
+            },
+        )
+        SimcSkillDamageSnapshotActor.objects.create(
+            snapshot=current,
+            ordinal=0,
+            class_name='warrior',
+            specialization='fury',
+            actor_payload={
                 'specialization': 'fury',
                 'variant_model': 'single_talent_runtime',
                 'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
                 'actions': [],
-            }]},
+            },
+        )
+        newer_other_identity = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='f' * 40,
+            game_build='12.1.0.69309',
+            schema_revision=22,
+            status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+            generated_spec_count=1,
+            payload={
+                'payload_format': 'skill_damage_product_v1',
+                'storage_format': 'per_spec_actor_rows_v1',
+                'total_spec_count': 1,
+            },
+        )
+        SimcSkillDamageSnapshotActor.objects.create(
+            snapshot=newer_other_identity,
+            ordinal=0,
+            class_name='mage',
+            specialization='frost',
+            actor_payload={'specialization': 'frost', 'actions': []},
         )
 
         with mock.patch.object(SimcSkillDamageSnapshotService, 'generate') as generate:
@@ -4531,10 +4804,23 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
             generated_spec_count=1,
             payload={
                 'payload_format': 'skill_damage_product_v1',
-                'actors': [{'specialization': 'fury', 'actions': [
-                    {'token': 'published-action'},
-                ]}],
+                'wire_schema_revision': 1,
+                'storage_format': 'per_spec_actor_rows_v1',
+                'total_spec_count': 1,
             },
+        )
+        SimcSkillDamageSnapshotActor.objects.create(
+            snapshot=latest,
+            ordinal=0,
+            class_name='warrior',
+            specialization='fury',
+            actor_payload={
+                'specialization': 'fury',
+                'actions': [{'token': 'published-action'}],
+            },
+            unresolved_payload=[],
+            raw_action_count=1,
+            display_action_count=1,
         )
         running = SimcSkillDamageSnapshot.objects.create(
             simc_revision='8' * 40,
@@ -4566,34 +4852,48 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         request.user = self.user
 
         response = SimcSkillDamageSnapshotAPIView.as_view()(request)
-        body = json.loads(response.content)
+        wire_payload = b''.join(response.streaming_content)
+        body = json.loads(wire_payload)
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(body['data']['snapshot']['id'], latest.pk)
         self.assertEqual(body['data']['job']['status'], SimcSkillDamageSnapshot.STATUS_RUNNING)
-        self.assertIn('published-action', response.content.decode())
-        self.assertNotIn('private-running-action', response.content.decode())
+        self.assertIn('published-action', wire_payload.decode())
+        self.assertNotIn('private-running-action', wire_payload.decode())
 
     def test_get_returns_frozen_schema_eighteen_product_without_reprojection(self):
-        SimcSkillDamageSnapshot.objects.create(
+        snapshot = SimcSkillDamageSnapshot.objects.create(
             simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=22,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+            generated_spec_count=1,
             payload={
                 'payload_format': 'skill_damage_product_v1',
+                'wire_schema_revision': 1,
+                'storage_format': 'per_spec_actor_rows_v1',
+                'total_spec_count': 1,
                 'display_action_count': 1,
-                'actors': [{
-                    'specialization': 'fury',
-                    'actions': [{
-                        'spell_id': 123,
-                        'product': {'final_normalized_damage': 456.0},
-                    }],
+            },
+        )
+        SimcSkillDamageSnapshotActor.objects.create(
+            snapshot=snapshot,
+            ordinal=0,
+            class_name='warrior',
+            specialization='fury',
+            actor_payload={
+                'specialization': 'fury',
+                'actions': [{
+                    'spell_id': 123,
+                    'product': {'final_normalized_damage': 456.0},
                 }],
             },
+            unresolved_payload=[],
+            raw_action_count=1,
+            display_action_count=1,
         )
         request = self.factory.get('/api/simc-skill-damage/', {'profile_id': 99, 'talent': 'x'})
         request.user = self.user
         response = SimcSkillDamageSnapshotAPIView.as_view()(request)
-        body = json.loads(response.content)
+        body = json.loads(b''.join(response.streaming_content))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(body['data']['snapshot']['identity']['game_build'], '12.1.0.69299')
         self.assertEqual(body['data']['snapshot']['payload_format'], 'skill_damage_product_v1')
@@ -4610,10 +4910,11 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
             game_build='12.1.0.69300',
             schema_revision=22,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
-            generated_spec_count=1,
+            generated_spec_count=2,
             generated_action_count=2,
             payload={
                 'payload_format': 'skill_damage_product_v1',
+                'wire_schema_revision': 1,
                 'storage_format': 'per_spec_actor_rows_v1',
                 'total_spec_count': 2,
             },
@@ -4649,6 +4950,9 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         ):
             response = SimcSkillDamageSnapshotAPIView.as_view()(request)
             self.assertTrue(response.streaming)
+            # The bounded spool is complete before the DB lock is released, so
+            # retention cleanup cannot invalidate an in-flight client response.
+            snapshot.delete()
             wire_payload = b''.join(response.streaming_content)
             decoded_payload = json.loads(wire_payload)
             body = decoded_payload['data']['snapshot']
@@ -4671,9 +4975,10 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         )
         self.assertEqual(body['unresolved'], [{'reason': 'shared'}])
         self.assertNotIn('storage_format', body)
+        self.assertNotIn('wire_schema_revision', body)
 
-    def test_get_streams_empty_sharded_snapshot_without_materializer_fallback(self):
-        SimcSkillDamageSnapshot.objects.create(
+    def test_sharded_response_handles_zero_actor_rows_defensively(self):
+        snapshot = SimcSkillDamageSnapshot.objects.create(
             simc_revision='9' * 40,
             game_build='12.1.0.69300',
             schema_revision=22,
@@ -4682,18 +4987,28 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
             generated_action_count=0,
             payload={
                 'payload_format': 'skill_damage_product_v1',
+                'wire_schema_revision': 1,
                 'storage_format': 'per_spec_actor_rows_v1',
                 'total_spec_count': 0,
             },
         )
         request = self.factory.get('/api/simc-skill-damage/')
         request.user = self.user
+        self.assertIsNone(SimcSkillDamageSnapshotService.latest_display_snapshot())
 
         with mock.patch.object(
             SimcSkillDamageSnapshotService,
+            'latest_display_snapshot',
+            return_value=snapshot,
+        ), mock.patch.object(
+            SimcSkillDamageSnapshotService,
             '_materialize_snapshot_payload_and_metrics',
-            side_effect=AssertionError('空分片快照也不得回退全量 materializer'),
+            side_effect=AssertionError('空分片边界也不得回退全量 materializer'),
         ):
+            unconsumed_response = SimcSkillDamageSnapshotAPIView.as_view()(request)
+            self.assertTrue(unconsumed_response.streaming)
+            unconsumed_response.close()
+
             response = SimcSkillDamageSnapshotAPIView.as_view()(request)
             self.assertTrue(response.streaming)
             body = json.loads(b''.join(response.streaming_content))['data']['snapshot']
@@ -4705,6 +5020,38 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         self.assertEqual(body['action_count'], 0)
         self.assertEqual(body['raw_action_count'], 0)
         self.assertNotIn('storage_format', body)
+        self.assertNotIn('wire_schema_revision', body)
+
+    def test_sharded_response_size_guard_releases_its_slot(self):
+        snapshot = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='a' * 40,
+            game_build='12.1.0.69301',
+            schema_revision=22,
+            status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+            payload={
+                'payload_format': 'skill_damage_product_v1',
+                'wire_schema_revision': 1,
+                'storage_format': 'per_spec_actor_rows_v1',
+                'total_spec_count': 0,
+            },
+        )
+        request = self.factory.get('/api/simc-skill-damage/')
+        request.user = self.user
+
+        with mock.patch.object(
+            SimcSkillDamageSnapshotService, 'latest_display_snapshot', return_value=snapshot,
+        ), mock.patch.object(
+            SimcSkillDamageSnapshotAPIView, '_RESPONSE_SPOOL_MAX_BYTES', 1,
+        ), mock.patch('botend.dashboard.api.logger.exception'):
+            rejected = SimcSkillDamageSnapshotAPIView.as_view()(request)
+        self.assertEqual(rejected.status_code, 503)
+
+        with mock.patch.object(
+            SimcSkillDamageSnapshotService, 'latest_display_snapshot', return_value=snapshot,
+        ):
+            retry = SimcSkillDamageSnapshotAPIView.as_view()(request)
+            self.assertTrue(retry.streaming)
+            retry.close()
 
     def test_get_does_not_render_legacy_schema_as_single_talent_rows(self):
         SimcSkillDamageSnapshot.objects.create(
@@ -4721,6 +5068,60 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(body['data']['snapshot'])
         self.assertIn('schema 22', body['data']['snapshot_unavailable_reason'])
+
+    def test_get_keeps_compatible_previous_schema_published_while_current_schema_runs(self):
+        previous = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='c' * 40,
+            game_build='12.1.0.69298',
+            schema_revision=21,
+            status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+            generated_spec_count=1,
+            generated_action_count=1,
+            completed_at=timezone.now() - timedelta(hours=1),
+            payload={
+                'payload_format': 'skill_damage_product_v1',
+                'storage_format': 'per_spec_actor_rows_v1',
+                'total_spec_count': 1,
+            },
+        )
+        SimcSkillDamageSnapshotActor.objects.create(
+            snapshot=previous,
+            ordinal=0,
+            class_name='warrior',
+            specialization='fury',
+            actor_payload={
+                'class': 'warrior',
+                'specialization': 'fury',
+                'variant_model': 'single_talent_runtime',
+                'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
+                'actions': [{'token': 'previous-published-action'}],
+            },
+            unresolved_payload=[],
+            raw_action_count=1,
+            display_action_count=1,
+        )
+        running = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='d' * 40,
+            game_build='12.1.0.69299',
+            schema_revision=22,
+            status=SimcSkillDamageSnapshot.STATUS_RUNNING,
+            payload={
+                'payload_format': 'skill_damage_product_v1',
+                'storage_format': 'per_spec_actor_rows_v1',
+                'total_spec_count': 32,
+            },
+        )
+        request = self.factory.get('/api/simc-skill-damage/')
+        request.user = self.user
+
+        response = SimcSkillDamageSnapshotAPIView.as_view()(request)
+        body = json.loads(b''.join(response.streaming_content))
+
+        self.assertEqual(body['data']['snapshot']['id'], previous.pk)
+        self.assertEqual(body['data']['snapshot']['identity']['schema_revision'], 21)
+        self.assertEqual(body['data']['job']['id'], running.pk)
+        self.assertEqual(body['data']['job']['status'], SimcSkillDamageSnapshot.STATUS_RUNNING)
+        self.assertIn('previous-published-action', str(body['data']['snapshot']['actors']))
 
     def test_get_localizes_skill_identity_and_left_cell_only_shows_name_and_spell_id(self):
         version = WowTalentVersion.objects.create(key='current', is_active=True)
@@ -4746,9 +5147,10 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
             branch='wow', locale='zhCN', spell_id=3003,
             name='Stale Action', name_zh='过期版本中文名', snapshot_build='12.1.0.69299',
         )
-        SimcSkillDamageSnapshot.objects.create(
+        snapshot = SimcSkillDamageSnapshot.objects.create(
             simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=22,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+            generated_spec_count=1,
             payload=localize_skill_damage_payload(project_skill_damage_product_payload({'actors': [{
                 'class': 'warrior', 'specialization': 'fury',
                 'hero_talent_tree': '屠戮者', 'talent_name': 'Fury Slayer',
@@ -4801,11 +5203,29 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
                 ],
             }]})),
         )
+        actor_payload = snapshot.payload.pop('actors')[0]
+        snapshot.payload.update({
+            'payload_format': 'skill_damage_product_v1',
+            'wire_schema_revision': 1,
+            'storage_format': 'per_spec_actor_rows_v1',
+            'total_spec_count': 1,
+        })
+        snapshot.save(update_fields=['payload'])
+        SimcSkillDamageSnapshotActor.objects.create(
+            snapshot=snapshot,
+            ordinal=0,
+            class_name='warrior',
+            specialization='fury',
+            actor_payload=actor_payload,
+            unresolved_payload=[],
+            raw_action_count=3,
+            display_action_count=1,
+        )
         request = self.factory.get('/api/simc-skill-damage/')
         request.user = self.user
 
         response = SimcSkillDamageSnapshotAPIView.as_view()(request)
-        actions = json.loads(response.content)['data']['snapshot']['actors'][0]['actions']
+        actions = json.loads(b''.join(response.streaming_content))['data']['snapshot']['actors'][0]['actions']
         self.assertEqual(
             [(row['display_name'], row['spell_id']) for row in actions],
             [('天赋中文技能', 1001)],

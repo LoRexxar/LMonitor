@@ -30,6 +30,7 @@ from botend.services.simc_player_config import (
     simc_spec_slug,
 )
 from botend.wow.talents.metadata import TalentMetadataProvider
+from utils.log import logger
 
 
 _SKILL_DAMAGE_PRIMARY_STAT_BASE = 100.0
@@ -3479,6 +3480,14 @@ class SimcSkillDamageSnapshotService:
 
     EXPORTER_SCHEMA_REVISION = 12
     DATASET_SCHEMA_REVISION = 22
+    # Dataset revisions describe generator semantics. The wire revision only
+    # changes when the Dashboard response shape becomes incompatible.
+    WIRE_SCHEMA_REVISION = 1
+    LEGACY_WIRE_V1_MIN_DATASET_REVISION = 20
+    LEGACY_WIRE_V1_MAX_DATASET_REVISION = DATASET_SCHEMA_REVISION
+    SUCCESSFUL_SNAPSHOT_RETENTION = 2
+    STORAGE_FORMAT = 'per_spec_actor_rows_v1'
+    PAYLOAD_FORMAT = 'skill_damage_product_v1'
     TALENT_BATCH_SIZE = 12
     ACTOR_CONFIG_BATCH_SIZE = 24
     FIXED_PRESET = {
@@ -3493,35 +3502,112 @@ class SimcSkillDamageSnapshotService:
         self.backend = backend or SimcBackendBinary.objects.filter(identifier='production').first()
 
     @classmethod
+    def _is_complete_wire_snapshot(cls, candidate):
+        payload = candidate.payload or {}
+        wire_revision = payload.get('wire_schema_revision')
+        legacy_wire_v1 = (
+            'wire_schema_revision' not in payload
+            and cls.LEGACY_WIRE_V1_MIN_DATASET_REVISION
+            <= candidate.schema_revision
+            <= cls.LEGACY_WIRE_V1_MAX_DATASET_REVISION
+        )
+        explicit_wire_v1 = (
+            isinstance(wire_revision, int)
+            and not isinstance(wire_revision, bool)
+            and wire_revision == cls.WIRE_SCHEMA_REVISION
+        )
+        total_spec_count = payload.get('total_spec_count')
+        return (
+            cls.LEGACY_WIRE_V1_MIN_DATASET_REVISION
+            <= candidate.schema_revision
+            <= cls.DATASET_SCHEMA_REVISION
+            and payload.get('payload_format') == cls.PAYLOAD_FORMAT
+            and payload.get('storage_format') == cls.STORAGE_FORMAT
+            and (legacy_wire_v1 or explicit_wire_v1)
+            and isinstance(total_spec_count, int)
+            and not isinstance(total_spec_count, bool)
+            and total_spec_count > 0
+            and candidate.generated_spec_count == total_spec_count
+            and candidate.actor_rows.count() == total_spec_count
+        )
+
+    @classmethod
+    def latest_display_snapshot(cls, *, lock=False):
+        """Return the newest immutable success that the current Dashboard can decode."""
+        candidates = SimcSkillDamageSnapshot.objects.filter(
+            status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+            schema_revision__gte=cls.LEGACY_WIRE_V1_MIN_DATASET_REVISION,
+            schema_revision__lte=cls.DATASET_SCHEMA_REVISION,
+            payload__payload_format=cls.PAYLOAD_FORMAT,
+        ).order_by('-completed_at', '-id')
+        if lock:
+            candidates = candidates.select_for_update()
+
+        # Prefer the current generator revision even if a previous revision
+        # happened to complete later. Only bounded per-specialization storage
+        # is publishable; otherwise the fallback would reintroduce whole-payload
+        # memory amplification.
+        candidates = candidates.filter(payload__storage_format=cls.STORAGE_FORMAT)
+        scopes = (
+            candidates.filter(schema_revision=cls.DATASET_SCHEMA_REVISION),
+            candidates.filter(schema_revision__lt=cls.DATASET_SCHEMA_REVISION),
+        )
+        for scope in scopes:
+            for candidate in scope:
+                if cls._is_complete_wire_snapshot(candidate):
+                    return candidate
+        return None
+
+    @classmethod
+    def prune_obsolete_snapshots(cls):
+        """Keep two published successes plus in-flight rows; cascade-delete everything else."""
+        with transaction.atomic():
+            locked = SimcSkillDamageSnapshot.objects.select_for_update()
+            active_ids = list(locked.filter(status__in=(
+                SimcSkillDamageSnapshot.STATUS_PENDING,
+                SimcSkillDamageSnapshot.STATUS_RUNNING,
+            )).values_list('pk', flat=True))
+            success_ids = []
+            publishable_successes = locked.filter(
+                status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+                schema_revision__gte=cls.LEGACY_WIRE_V1_MIN_DATASET_REVISION,
+                schema_revision__lte=cls.DATASET_SCHEMA_REVISION,
+                payload__payload_format=cls.PAYLOAD_FORMAT,
+                payload__storage_format=cls.STORAGE_FORMAT,
+            ).order_by('-completed_at', '-id')
+            for candidate in publishable_successes:
+                if cls._is_complete_wire_snapshot(candidate):
+                    success_ids.append(candidate.pk)
+                    if len(success_ids) >= cls.SUCCESSFUL_SNAPSHOT_RETENTION:
+                        break
+            keep_ids = set(active_ids + success_ids)
+            stale_ids = list(locked.exclude(pk__in=keep_ids).values_list('pk', flat=True))
+            if stale_ids:
+                # Re-check mutable status in the DELETE itself. A snapshot
+                # inserted or reclaimed after active_ids was read must survive.
+                SimcSkillDamageSnapshot.objects.filter(
+                    pk__in=stale_ids,
+                    status__in=(
+                        SimcSkillDamageSnapshot.STATUS_FAILED,
+                        SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+                    ),
+                ).delete()
+
+    @classmethod
     def refresh_after_dbc_update(cls):
         """Generate the latest runtime dataset once when the backend DBC build changes."""
         backend = SimcBackendBinary.objects.filter(identifier='production', is_active=True).first()
         if not backend:
             raise ValueError('未配置正式服 SimC 后端。')
         game_build = str(backend.game_build or '').strip()
-        latest = SimcSkillDamageSnapshot.latest_success()
         revision = str(backend.current_version or '').strip().lower()
-        latest_has_complete_actor_data = False
-        if latest:
-            shard_count = latest.actor_rows.count()
-            if shard_count:
-                latest_has_complete_actor_data = (
-                    shard_count == latest.generated_spec_count and shard_count > 0
-                )
-            else:
-                latest_actors = (latest.payload or {}).get('actors') or []
-                latest_has_complete_actor_data = bool(latest_actors) and all(
-                    isinstance(actor, dict)
-                    and actor.get('variant_model') == 'single_talent_runtime'
-                    and actor.get('action_universe') == 'dbc_spellbook_selected_traits_and_derived_actions'
-                    for actor in latest_actors
-                )
-        if latest and (
-            latest.simc_revision == revision
-            and latest.game_build == game_build
-            and latest.schema_revision == cls.DATASET_SCHEMA_REVISION
-            and latest_has_complete_actor_data
-        ):
+        current = SimcSkillDamageSnapshot.objects.filter(
+            simc_revision=revision,
+            game_build=game_build,
+            schema_revision=cls.DATASET_SCHEMA_REVISION,
+            status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+        ).order_by('-completed_at', '-id').first()
+        if current and cls._is_complete_wire_snapshot(current):
             return None
         service = cls.create_for_current_backend(claim=True)
         # Backend maintenance can run inside lmweb's daemon thread. Keep every
@@ -3550,26 +3636,9 @@ class SimcSkillDamageSnapshotService:
                 defaults={'requested_by_id': requested_by_id},
             )
             snapshot = deferred_snapshots.select_for_update().get(pk=snapshot.pk)
-            shard_count = snapshot.actor_rows.count()
-            legacy_complete = False
-            if (
-                shard_count == 0
-                and snapshot.generated_spec_count > 0
-                and snapshot.status == SimcSkillDamageSnapshot.STATUS_SUCCEEDED
-            ):
-                legacy_actor_count, legacy_payload_format, _legacy_total = (
-                    cls(snapshot, backend=backend)._legacy_payload_metadata()
-                )
-                legacy_complete = (
-                    int(legacy_actor_count or 0) == snapshot.generated_spec_count
-                    and legacy_payload_format == 'skill_damage_product_v1'
-                )
             has_complete_actor_data = (
-                snapshot.generated_spec_count > 0
-                and (
-                    shard_count == snapshot.generated_spec_count
-                    or legacy_complete
-                )
+                snapshot.status == SimcSkillDamageSnapshot.STATUS_SUCCEEDED
+                and cls._is_complete_wire_snapshot(snapshot)
             )
             if not created and (
                 snapshot.status == SimcSkillDamageSnapshot.STATUS_RUNNING
@@ -4617,7 +4686,8 @@ class SimcSkillDamageSnapshotService:
             'preset': dict(self.FIXED_PRESET),
             'actors': actors,
             'unresolved': unresolved,
-            'payload_format': 'skill_damage_product_v1',
+            'payload_format': self.PAYLOAD_FORMAT,
+            'wire_schema_revision': self.WIRE_SCHEMA_REVISION,
             'display_action_count': sum(
                 len(actor.get('actions') or []) for actor in actors
             ),
@@ -4633,7 +4703,7 @@ class SimcSkillDamageSnapshotService:
         payload.pop('actors')
         payload.pop('unresolved')
         payload.pop('display_action_count')
-        payload['storage_format'] = 'per_spec_actor_rows_v1'
+        payload['storage_format'] = self.STORAGE_FORMAT
         return payload
 
     def _legacy_payload_metadata(self):
@@ -4939,10 +5009,21 @@ class SimcSkillDamageSnapshotService:
                 completed_at=timezone.now(),
                 error_text='',
             )
+            persisted_snapshot = SimcSkillDamageSnapshot.objects.get(pk=self.snapshot.pk)
+            result = None
             if materialize_result:
-                persisted_snapshot = SimcSkillDamageSnapshot.objects.get(pk=self.snapshot.pk)
-                return self.materialize_snapshot_payload(persisted_snapshot)
-            return None
+                result = self.materialize_snapshot_payload(persisted_snapshot)
+            if self._is_complete_wire_snapshot(persisted_snapshot):
+                try:
+                    self.prune_obsolete_snapshots()
+                except Exception:
+                    # Publishing is already complete. Retention maintenance must not
+                    # downgrade a valid immutable snapshot to failed.
+                    logger.exception(
+                        '[Skill damage] failed to prune obsolete snapshots after publishing %s',
+                        self.snapshot.pk,
+                    )
+            return result
         except Exception as exc:
             SimcSkillDamageSnapshot.objects.filter(pk=self.snapshot.pk).update(
                 status=SimcSkillDamageSnapshot.STATUS_FAILED,

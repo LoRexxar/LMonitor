@@ -11,7 +11,6 @@
 from django.views import View
 from django.http import (
     JsonResponse, HttpResponse, FileResponse, HttpResponseRedirect,
-    StreamingHttpResponse,
 )
 from django.core.serializers.json import DjangoJSONEncoder
 from django.views.decorators.csrf import csrf_exempt
@@ -8188,9 +8187,40 @@ class SimcArtifactPreviewAPIView(View):
         return response
 
 
+class _SkillDamageSnapshotSpool:
+    """Own one temporary response file and release its process-local slot once."""
+
+    def __init__(self, raw_file, release_slot):
+        self._raw_file = raw_file
+        self._release_slot = release_slot
+        self._closed = False
+
+    def __getattr__(self, name):
+        return getattr(self._raw_file, name)
+
+    def read(self, *args, **kwargs):
+        chunk = self._raw_file.read(*args, **kwargs)
+        if not chunk:
+            self.close()
+        return chunk
+
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self._raw_file.close()
+        finally:
+            self._release_slot()
+
+
 @method_decorator(login_required, name='dispatch')
 class SimcSkillDamageSnapshotAPIView(View):
     """Read the latest successful DBC snapshot and explicitly trigger generation."""
+
+    _RESPONSE_SPOOL_SLOTS = threading.BoundedSemaphore(value=1)
+    _RESPONSE_SPOOL_MAX_BYTES = 512 * 1024 * 1024
+    _RESPONSE_SPOOL_MIN_FREE_BYTES = 2 * 1024 * 1024 * 1024
 
     @staticmethod
     def _job_data(row):
@@ -8272,9 +8302,9 @@ class SimcSkillDamageSnapshotAPIView(View):
         )).order_by('-created_at', '-id').values(*fields).first()
         return active or jobs.order_by('-created_at', '-id').values(*fields).first()
 
-    @staticmethod
-    def _sharded_snapshot_response(display_snapshot, *, job, can_generate):
-        """Stream the immutable successful snapshot without materializing all actors."""
+    @classmethod
+    def _sharded_snapshot_response(cls, display_snapshot, *, job, can_generate):
+        """Spool one actor at a time, then stream bytes without retaining DB rows."""
         actor_rows = list(display_snapshot.actor_rows.order_by('ordinal', 'id').values(
             'id', 'class_name', 'specialization', 'unresolved_payload',
             'raw_action_count', 'display_action_count',
@@ -8290,6 +8320,7 @@ class SimcSkillDamageSnapshotAPIView(View):
 
         payload = dict(display_snapshot.payload or {})
         payload.pop('storage_format', None)
+        payload.pop('wire_schema_revision', None)
         actor_placeholder = f'__lmonitor_actor_stream_{uuid.uuid4().hex}__'
         payload.update({
             'actors': actor_placeholder,
@@ -8331,23 +8362,61 @@ class SimcSkillDamageSnapshotAPIView(View):
             raise RuntimeError('技能伤害流式响应 actor 占位符无效')
         prefix, suffix = encoded.split(encoded_placeholder, 1)
         actor_ids = [row['id'] for row in actor_rows]
+        if not cls._RESPONSE_SPOOL_SLOTS.acquire(blocking=False):
+            return JsonResponse({
+                'success': False,
+                'message': '技能伤害快照正在传输，请稍后重试',
+            }, status=503)
 
-        def content():
-            yield prefix.encode('utf-8')
-            yield b'['
+        managed_spool = None
+        try:
+            raw_spool = tempfile.TemporaryFile(mode='w+b')
+            managed_spool = _SkillDamageSnapshotSpool(
+                raw_spool, cls._RESPONSE_SPOOL_SLOTS.release,
+            )
+            written_bytes = 0
+
+            def write_chunk(chunk):
+                nonlocal written_bytes
+                projected_bytes = written_bytes + len(chunk)
+                if projected_bytes > cls._RESPONSE_SPOOL_MAX_BYTES:
+                    raise RuntimeError('技能伤害快照响应超过安全大小上限')
+                filesystem = os.statvfs(tempfile.gettempdir())
+                free_bytes = filesystem.f_bavail * filesystem.f_frsize
+                if free_bytes - len(chunk) < cls._RESPONSE_SPOOL_MIN_FREE_BYTES:
+                    raise RuntimeError('技能伤害快照响应临时磁盘余量不足')
+                managed_spool.write(chunk)
+                written_bytes = projected_bytes
+
+            write_chunk(prefix.encode('utf-8'))
+            write_chunk(b'[')
             for index, actor_id in enumerate(actor_ids):
                 if index:
-                    yield b', '
+                    write_chunk(b', ')
                 actor = display_snapshot.actor_rows.filter(
                     pk=actor_id,
                 ).values_list('actor_payload', flat=True).get()
-                yield json.dumps(actor, cls=DjangoJSONEncoder).encode('utf-8')
+                write_chunk(json.dumps(actor, cls=DjangoJSONEncoder).encode('utf-8'))
                 del actor
-            yield b']'
-            yield suffix.encode('utf-8')
+            write_chunk(b']')
+            write_chunk(suffix.encode('utf-8'))
+            managed_spool.seek(0)
+            return FileResponse(managed_spool, content_type='application/json')
+        except Exception:
+            if managed_spool is not None:
+                managed_spool.close()
+            else:
+                cls._RESPONSE_SPOOL_SLOTS.release()
+            logger.exception(
+                '[Skill damage] failed to build bounded snapshot response id=%s',
+                display_snapshot.pk,
+            )
+            return JsonResponse({
+                'success': False,
+                'message': '技能伤害快照暂时不可用，请稍后重试',
+            }, status=503)
 
-        return StreamingHttpResponse(content(), content_type='application/json')
-
+    @transaction.atomic
     def get(self, request):
         if request.GET.get('summary') == '1':
             return JsonResponse({
@@ -8357,10 +8426,7 @@ class SimcSkillDamageSnapshotAPIView(View):
                     'can_generate': bool(request.user.is_staff),
                 },
             })
-        latest = SimcSkillDamageSnapshot.objects.defer('payload').filter(
-            status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
-            schema_revision=SimcSkillDamageSnapshotService.DATASET_SCHEMA_REVISION,
-        ).order_by('-completed_at', '-id').first()
+        latest = SimcSkillDamageSnapshotService.latest_display_snapshot(lock=True)
         legacy_latest_exists = (
             latest is None
             and SimcSkillDamageSnapshot.objects.filter(
@@ -8371,38 +8437,12 @@ class SimcSkillDamageSnapshotAPIView(View):
         # A running snapshot is an unpublished partial dataset. Keep serving the
         # latest successful snapshot until all specializations are complete;
         # progress is exposed separately through the lightweight job summary.
-        display_snapshot_meta = latest
-        if display_snapshot_meta:
-            display_snapshot = SimcSkillDamageSnapshot.objects.get(pk=display_snapshot_meta.pk)
-            job = self._summary_job_data(self._summary_job())
-            can_generate = bool(request.user.is_staff)
-            if (display_snapshot.payload or {}).get('storage_format') == 'per_spec_actor_rows_v1':
-                return self._sharded_snapshot_response(
-                    display_snapshot, job=job, can_generate=can_generate,
-                )
-            identity = {
-                'simc_revision': display_snapshot.simc_revision,
-                'game_build': display_snapshot.game_build,
-                'schema_revision': display_snapshot.schema_revision,
-            }
-            materialized_payload, materialized_metrics = (
-                SimcSkillDamageSnapshotService._materialize_snapshot_payload_and_metrics(
-                    display_snapshot
-                )
-            )
-            snapshot = {**materialized_payload, 'identity': identity}
-            snapshot['identity'] = identity
-            snapshot['id'] = display_snapshot.pk
-            snapshot['status'] = display_snapshot.status
-            snapshot['completed_at'] = _fmt_dt(display_snapshot.completed_at)
-            snapshot['spec_count'] = (
-                materialized_metrics['spec_count']
-                if materialized_metrics else display_snapshot.generated_spec_count
-            )
-            snapshot['action_count'] = snapshot.get('display_action_count', 0)
-            snapshot['raw_action_count'] = (
-                materialized_metrics['raw_action_count']
-                if materialized_metrics else display_snapshot.generated_action_count
+        display_snapshot = latest
+        if display_snapshot:
+            return self._sharded_snapshot_response(
+                display_snapshot,
+                job=self._summary_job_data(self._summary_job()),
+                can_generate=bool(request.user.is_staff),
             )
         return JsonResponse({
             'success': True,
