@@ -64,6 +64,7 @@ TODAY_FIXTURE = [
                 'id': 'holiday',
                 'name': 'World Event',
                 'type': 'lines',
+                'wowIcon': 'calendar_northrendcupstart',
                 'content': {'lines': [{'name': 'Northrend Cup', 'url': '/guide/events/northrend-cup-skyriding-races'}]},
             },
         ],
@@ -176,6 +177,14 @@ class WowTodayParserTests(SimpleTestCase):
         self.assertEqual(payload['sections'][0]['name'], '地下城与团队副本')
         self.assertEqual(payload['sections'][0]['modules'][0]['name'], '大秘境词缀')
         self.assertEqual(payload['sections'][0]['modules'][0]['items'][0]['name'], '强韧')
+        self.assertEqual(
+            payload['sections'][0]['modules'][0]['items'][0]['icon_url'],
+            'https://oss.wowdaily.cn/wow_icons_oss/small/ability_toughness.jpg',
+        )
+        self.assertEqual(
+            payload['sections'][1]['modules'][0]['items'][0]['icon_url'],
+            'https://oss.wowdaily.cn/wow_icons_oss/small/calendar_northrendcupstart.jpg',
+        )
         self.assertNotIn('烈毒之渊', json.dumps(payload['sections'], ensure_ascii=False))
         self.assertIn('任务', [section['name'] for section in payload['sections']])
         self.assertIn('经济', [section['name'] for section in payload['sections']])

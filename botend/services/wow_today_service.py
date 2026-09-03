@@ -18,6 +18,7 @@ from botend.models import (
     WowTodaySnapshot,
 )
 from botend.services.article_translation_service import build_translation_service
+from botend.templatetags.wow_tags import wow_icon_oss_url
 from utils.log import logger
 
 
@@ -146,7 +147,7 @@ def _icon_url(icon):
     name = _clean_text(icon).lower()
     if not name or not re.fullmatch(r'[a-z0-9_-]+', name):
         return ''
-    return f'https://wow.zamimg.com/images/wow/icons/large/{name}.jpg'
+    return wow_icon_oss_url(name, size='small')
 
 
 def extract_today_json(html_text):
@@ -519,7 +520,7 @@ def _collect_translatable_strings(roots):
     return values
 
 
-def _line_to_public_item(line, group_name_zh, translations):
+def _line_to_public_item(line, group_name_zh, translations, fallback_icon=''):
     if not isinstance(line, dict):
         return None
     source_name = _clean_text(line.get('name'))
@@ -530,7 +531,7 @@ def _line_to_public_item(line, group_name_zh, translations):
     item = {
         'name': name_zh,
         'url': _absolute_wowhead_url(line.get('url')),
-        'icon_url': _icon_url(line.get('icon')),
+        'icon_url': _icon_url(line.get('icon') or fallback_icon),
         'icon_label': translations.get(icon_label_source, '') if icon_label_source else '',
         'starts_at': _safe_int(line.get('startingUt')),
         'ends_at': _safe_int(line.get('endingUt')),
@@ -580,7 +581,12 @@ def build_public_sections(roots, translator=None):
                 }
             else:
                 for line in content.get('lines') or []:
-                    item = _line_to_public_item(line, module_name, translations)
+                    item = _line_to_public_item(
+                        line,
+                        module_name,
+                        translations,
+                        fallback_icon=group.get('wowIcon'),
+                    )
                     if item:
                         module['items'].append(item)
                     elif isinstance(line, dict) and _clean_text(line.get('name')):
