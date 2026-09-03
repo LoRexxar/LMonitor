@@ -52,6 +52,10 @@ class DashboardUserGroupMembership(models.Model):
         ]
 
 
+class MonitorTaskLeaseLost(RuntimeError):
+    """Raised when a claimed task instance attempts to save without its lease."""
+
+
 class MonitorTask(models.Model):
     name = models.CharField(max_length=100)
     target = models.CharField(max_length=2000)
@@ -62,6 +66,54 @@ class MonitorTask(models.Model):
     flag = models.CharField(max_length=2000, null=True, default=None)
     is_active = models.BooleanField(default=True)
     proxy_enabled = models.BooleanField(default=False)
+
+    def save(self, *args, **kwargs):
+        lease_owner = getattr(self, '_monitor_task_lease_owner', None)
+        if not lease_owner:
+            return super().save(*args, **kwargs)
+        if self._state.adding or self.pk is None:
+            raise MonitorTaskLeaseLost('claimed MonitorTask instance has no persisted row')
+
+        update_fields = kwargs.get('update_fields')
+        if update_fields is not None:
+            update_fields = set(update_fields)
+            if not update_fields:
+                return None
+            if update_fields - {'flag'}:
+                raise ValueError('claimed MonitorTask instances may only save flag')
+
+        using = kwargs.get('using') or self._state.db or 'default'
+        with transaction.atomic(using=using):
+            task_exists = type(self).objects.using(using).select_for_update().filter(
+                pk=self.pk,
+            ).exists()
+            if not task_exists:
+                raise MonitorTaskLeaseLost('claimed MonitorTask row no longer exists')
+            lease_exists = MonitorTaskLease.objects.using(using).select_for_update().filter(
+                task_id=self.pk,
+                owner=str(lease_owner),
+                expires_at__gt=timezone.now(),
+            ).exists()
+            if not lease_exists:
+                raise MonitorTaskLeaseLost(
+                    'MonitorTask lease is missing, expired, or owned by another worker'
+                )
+            type(self).objects.using(using).filter(pk=self.pk).update(flag=self.flag)
+        return None
+
+
+class MonitorTaskLease(models.Model):
+    """Short, renewable ownership record for one running monitor task."""
+
+    task = models.OneToOneField(
+        MonitorTask,
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name='execution_lease',
+    )
+    owner = models.CharField(max_length=64)
+    expires_at = models.DateTimeField(db_index=True)
+    claimed_at = models.DateTimeField(default=timezone.now)
 
 
 class TargetAuth(models.Model):
