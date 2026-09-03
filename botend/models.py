@@ -288,6 +288,128 @@ class WowDailyReport(models.Model):
         ]
 
 
+class WowTodaySnapshot(models.Model):
+    """Wowhead Today in WoW 的北美正式服每日中文快照。"""
+
+    id = models.BigAutoField(primary_key=True)
+    snapshot_date = models.DateField()
+    region = models.CharField(max_length=16, default='na')
+    source_region = models.CharField(max_length=16, default='US')
+    game_version = models.CharField(max_length=24, default='retail')
+    expansion_id = models.PositiveSmallIntegerField(default=0)
+    expansion_name = models.CharField(max_length=64, default='当前版本')
+    source_url = models.CharField(max_length=500, default='https://www.wowhead.com/today-in-wow')
+    content_hash = models.CharField(max_length=64, default='', blank=True)
+    sections_json = models.JSONField(default=list, blank=True)
+    raw_json = models.JSONField(default=list, blank=True)
+    translation_missing = models.PositiveIntegerField(default=0)
+    fetched_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'wow_today_snapshot'
+        ordering = ('-snapshot_date', '-fetched_at', '-id')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('snapshot_date', 'region', 'game_version'),
+                name='uniq_wow_today_snapshot_scope_date',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['region', 'game_version', '-fetched_at'], name='wow_today_scope_fetch_idx'),
+            models.Index(fields=['snapshot_date'], name='wow_today_date_idx'),
+        ]
+
+
+class WowTodaySectionSetting(models.Model):
+    """Today in WoW 顶层板块的服务端显示配置。"""
+
+    id = models.BigAutoField(primary_key=True)
+    section_key = models.CharField(max_length=128, unique=True)
+    source_name = models.CharField(max_length=150, default='', blank=True)
+    display_name = models.CharField(max_length=150, default='', blank=True)
+    is_visible = models.BooleanField(default=True)
+    sort_order = models.PositiveIntegerField(default=100)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'wow_today_section_setting'
+        ordering = ('sort_order', 'id')
+        indexes = [
+            models.Index(fields=['is_visible', 'sort_order'], name='wow_today_setting_order_idx'),
+        ]
+
+
+class WowTodayCardSnapshot(models.Model):
+    """某次 Today in WoW 快照中的单张展示卡片。"""
+
+    id = models.BigAutoField(primary_key=True)
+    snapshot = models.ForeignKey(
+        WowTodaySnapshot,
+        on_delete=models.CASCADE,
+        related_name='card_snapshots',
+    )
+    section_key = models.CharField(max_length=128)
+    section_name = models.CharField(max_length=150, default='', blank=True)
+    section_order = models.PositiveIntegerField(default=100)
+    card_key = models.CharField(max_length=128)
+    source_name = models.CharField(max_length=150, default='', blank=True)
+    kind = models.CharField(max_length=40, default='lines', blank=True)
+    source_url = models.CharField(max_length=500, default='', blank=True)
+    payload_json = models.JSONField(default=dict, blank=True)
+    card_order = models.PositiveIntegerField(default=100)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'wow_today_card_snapshot'
+        ordering = ('section_order', 'card_order', 'id')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('snapshot', 'section_key', 'card_key'),
+                name='uniq_wow_today_snapshot_card',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['snapshot', 'section_order', 'card_order'],
+                name='wow_tiw_card_snap_order_idx',
+            ),
+        ]
+
+
+class WowTodayCardSetting(models.Model):
+    """Today in WoW 单张卡片跨快照保留的显示配置。"""
+
+    id = models.BigAutoField(primary_key=True)
+    section_key = models.CharField(max_length=128)
+    card_key = models.CharField(max_length=128)
+    source_name = models.CharField(max_length=150, default='', blank=True)
+    display_name = models.CharField(max_length=150, default='', blank=True)
+    is_visible = models.BooleanField(default=True)
+    sort_order = models.PositiveIntegerField(default=100)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'wow_today_card_setting'
+        ordering = ('section_key', 'sort_order', 'id')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('section_key', 'card_key'),
+                name='uniq_wow_today_card_setting',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['section_key', 'is_visible', 'sort_order'],
+                name='wow_tiw_card_set_order_idx',
+            ),
+        ]
+
+
 class WowWagoMonitorState(models.Model):
     id = models.BigAutoField(primary_key=True)
     branch = models.CharField(max_length=32, default="wow")

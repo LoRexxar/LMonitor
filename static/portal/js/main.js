@@ -479,6 +479,7 @@ const SECTION_MAP = {
   blueposts: { url: "/portal/api/blueposts/", listId: "blueposts-list" },
   exwind: { url: "/portal/api/exwind/latest/", listId: "exwind-list" },
   wowhead: { url: "/portal/api/wowhead/latest/", listId: "wowhead-list" },
+  today_in_wow: { url: "/portal/api/today-in-wow/latest/" },
   daily_report: { url: "/portal/api/daily-report/latest/" },
   wow_skill_states: { url: "/portal/api/wow-skill-diff/states/", listId: "wow-skill-diff-states" },
   wow_skill_diffs: { url: "/portal/api/wow-skill-diffs/", listId: "wow-skill-diff-list" },
@@ -508,7 +509,235 @@ const PORTAL_STATE = {
   exwindTabsBound: false,
   searchBound: false,
   dailyReport: null,
+  wowToday: null,
 };
+
+const WOW_TODAY_PREF_KEY = "wowdaily:today-in-wow:preferences:v1";
+
+function loadWowTodayPreferences() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(WOW_TODAY_PREF_KEY) || "{}");
+    return {
+      version: 1,
+      hiddenModules: Array.isArray(parsed.hiddenModules)
+        ? parsed.hiddenModules.filter((value) => typeof value === "string")
+        : [],
+    };
+  } catch (_error) {
+    return { version: 1, hiddenModules: [] };
+  }
+}
+
+function saveWowTodayPreferences(preferences) {
+  try {
+    localStorage.setItem(WOW_TODAY_PREF_KEY, JSON.stringify({
+      version: 1,
+      hiddenModules: Array.from(new Set(preferences.hiddenModules || [])),
+    }));
+  } catch (_error) {
+    // 无痕模式或禁用本地存储时仍可在当前页面使用默认显示。
+  }
+}
+
+function formatWowTodayTime(timestamp) {
+  const value = Number(timestamp || 0);
+  if (!Number.isFinite(value) || value <= 0) return "";
+  try {
+    return new Intl.DateTimeFormat("zh-CN", {
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(new Date(value * 1000));
+  } catch (_error) {
+    return "";
+  }
+}
+
+function wowTodayItemMeta(item) {
+  const values = [];
+  const startsAt = formatWowTodayTime(item?.starts_at);
+  const endsAt = formatWowTodayTime(item?.ends_at);
+  if (startsAt && endsAt) values.push(`${startsAt} 至 ${endsAt}`);
+  else if (endsAt) values.push(`结束于 ${endsAt}`);
+  else if (startsAt) values.push(`开始于 ${startsAt}`);
+  if (Number(item?.quantity || 0) > 0) values.push(`上限 ${Number(item.quantity)}`);
+  return values.join(" · ");
+}
+
+function renderWowTodayItem(item, moduleKind) {
+  const name = escapeHtml(item?.name || "今日内容");
+  const href = sanitizeHref(item?.url || "");
+  const icon = sanitizeHref(item?.icon_url || "");
+  const iconLabel = escapeHtml(item?.icon_label || "");
+  const meta = escapeHtml(wowTodayItemMeta(item));
+  const value = escapeHtml(item?.value || "");
+  const title = href
+    ? `<a class="portal-tiw-item-name" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${name}</a>`
+    : `<span class="portal-tiw-item-name">${name}</span>`;
+  const iconHtml = icon
+    ? `<img class="portal-tiw-item-icon" src="${escapeHtml(icon)}" alt="" loading="lazy">`
+    : `<span class="portal-tiw-item-dot" aria-hidden="true"></span>`;
+  const tokenValue = moduleKind === "token" && value
+    ? `<span class="portal-tiw-item-value">${value} 金币</span>`
+    : "";
+  return `<li class="portal-tiw-item">
+    ${iconHtml}
+    <span class="portal-tiw-item-copy">
+      ${title}
+      ${iconLabel ? `<span class="portal-tiw-item-note">${iconLabel}</span>` : ""}
+      ${meta ? `<span class="portal-tiw-item-note">${meta}</span>` : ""}
+    </span>
+    ${tokenValue}
+  </li>`;
+}
+
+function wowTodayModulePreferenceKey(sectionKey, module) {
+  const key = String(module?.key || "");
+  return String(module?.preference_key || `${sectionKey}/${key}`);
+}
+
+function wowTodayModuleIsHidden(sectionKey, module, hidden) {
+  const legacyKey = String(module?.key || "");
+  return hidden.has(wowTodayModulePreferenceKey(sectionKey, module)) || hidden.has(legacyKey);
+}
+
+function renderWowTodayModule(module, hidden, sectionKey) {
+  const key = String(module?.key || "");
+  if (!key || wowTodayModuleIsHidden(sectionKey, module, hidden)) return "";
+  const moduleName = escapeHtml(module?.name || "今日内容");
+  const href = sanitizeHref(module?.url || "");
+  const items = Array.isArray(module?.items) ? module.items : [];
+  const rows = items.map((item) => renderWowTodayItem(item, module?.kind)).join("");
+  const metrics = module?.metrics || {};
+  const defeated = Number(metrics.defeated_bosses || 0);
+  const total = Number(metrics.total_bosses || 0);
+  const guilds = Number(metrics.top_guild_count || 0);
+  const metricHtml = total > 0
+    ? `<div class="portal-tiw-progress"><strong>${defeated} / ${total}</strong><span>首领已击败${guilds ? ` · ${guilds} 家顶尖公会` : ""}</span><span class="portal-tiw-progress-bar"><i style="width:${Math.min(100, Math.max(0, defeated / total * 100))}%"></i></span></div>`
+    : "";
+  const heading = href
+    ? `<a href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${moduleName}</a>`
+    : `<span>${moduleName}</span>`;
+  const moduleClasses = [
+    "portal-tiw-module",
+    total > 0 ? "portal-tiw-module--progress" : "",
+    module?.kind === "token" ? "portal-tiw-module--token" : "",
+    items.length >= 6 ? "portal-tiw-module--dense" : "",
+    items.length <= 1 && total <= 0 ? "portal-tiw-module--compact" : "",
+  ].filter(Boolean).join(" ");
+  return `<article class="${moduleClasses}" data-tiw-module="${escapeHtml(key)}">
+    <div class="portal-tiw-module-head">
+      <h4>${heading}</h4>
+    </div>
+    ${metricHtml}
+    ${rows ? `<ul class="portal-tiw-items">${rows}</ul>` : ""}
+  </article>`;
+}
+
+function renderWowTodaySection(section, hidden) {
+  const sectionKey = String(section?.key || "");
+  const visibleModules = (section?.modules || [])
+    .filter((module) => !wowTodayModuleIsHidden(sectionKey, module, hidden));
+  const renderedModules = visibleModules.map((module) => renderWowTodayModule(module, hidden, sectionKey)).filter(Boolean);
+  if (!renderedModules.length) return "";
+  const sectionName = escapeHtml(section?.name || "当前版本");
+  const compactClass = renderedModules.length === 1 ? " portal-tiw-section--compact" : "";
+  const pairClass = renderedModules.length === 2 ? " portal-tiw-section--pair" : "";
+  const progressClass = visibleModules.some((module) => Number(module?.metrics?.total_bosses || 0) > 0)
+    ? " portal-tiw-section--progress"
+    : "";
+  return `<section class="portal-tiw-section${compactClass}${pairClass}${progressClass}">
+    <div class="portal-tiw-section-head">
+      <h3>${sectionName}</h3>
+      <span>${renderedModules.length} 项内容</span>
+    </div>
+    <div class="portal-tiw-section-grid">${renderedModules.join("")}</div>
+  </section>`;
+}
+
+function renderWowTodaySettings(sections, hidden) {
+  const groups = sections.map((section) => {
+    const controls = (section.modules || []).map((module) => {
+      const key = String(module?.key || "");
+      const preferenceKey = wowTodayModulePreferenceKey(String(section?.key || ""), module);
+      if (!key) return "";
+      return `<label class="portal-tiw-setting-option">
+        <input type="checkbox" data-tiw-setting="${escapeHtml(preferenceKey)}" data-tiw-setting-legacy="${escapeHtml(key)}" ${wowTodayModuleIsHidden(String(section?.key || ""), module, hidden) ? "" : "checked"}>
+        <span>${escapeHtml(module?.name || key)}</span>
+      </label>`;
+    }).join("");
+    return controls ? `<fieldset><legend>${escapeHtml(section?.name || "其他")}</legend>${controls}</fieldset>` : "";
+  }).join("");
+  return `<details class="portal-tiw-settings">
+    <summary aria-label="自定义今日内容显示">自定义显示</summary>
+    <div class="portal-tiw-settings-panel">
+      <div class="portal-tiw-settings-title"><strong>选择显示内容</strong><button type="button" data-tiw-reset>全部显示</button></div>
+      <div class="portal-tiw-settings-groups">${groups}</div>
+      <div class="portal-tiw-settings-foot">设置只保存在当前浏览器</div>
+    </div>
+  </details>`;
+}
+
+function bindWowTodaySettings(container) {
+  if (!container || container.dataset.settingsBound === "1") return;
+  container.dataset.settingsBound = "1";
+  container.addEventListener("change", (event) => {
+    const input = event.target.closest("[data-tiw-setting]");
+    if (!input) return;
+    const preferences = loadWowTodayPreferences();
+    const hidden = new Set(preferences.hiddenModules);
+    const key = input.getAttribute("data-tiw-setting") || "";
+    const legacyKey = input.getAttribute("data-tiw-setting-legacy") || "";
+    if (input.checked) {
+      hidden.delete(key);
+      hidden.delete(legacyKey);
+    }
+    else hidden.add(key);
+    saveWowTodayPreferences({ hiddenModules: Array.from(hidden) });
+    renderWowTodayPanel();
+  });
+  container.addEventListener("click", (event) => {
+    const reset = event.target.closest("[data-tiw-reset]");
+    if (!reset) return;
+    event.preventDefault();
+    saveWowTodayPreferences({ hiddenModules: [] });
+    renderWowTodayPanel();
+  });
+}
+
+function renderWowTodayPanel() {
+  const container = document.getElementById("wow-today-panel");
+  if (!container) return;
+  const payload = PORTAL_STATE.wowToday || PORTAL_STATE.dataBySection.today_in_wow;
+  if (!payload || !Array.isArray(payload.sections)) {
+    container.dataset.state = "empty";
+    container.innerHTML = `<div class="portal-tiw-loading">今日内容正在准备中</div>`;
+    return;
+  }
+  const preferences = loadWowTodayPreferences();
+  const hidden = new Set(preferences.hiddenModules);
+  const sections = payload.sections
+    .map((section) => renderWowTodaySection(section, hidden))
+    .join("");
+  const settings = renderWowTodaySettings(payload.sections, hidden);
+  const missing = Number(payload.translation_missing || 0);
+  container.dataset.state = "ready";
+  container.innerHTML = `<div class="portal-tiw-head">
+    <div class="portal-tiw-heading">
+      <span class="portal-tiw-mark" aria-hidden="true"></span>
+      <div><h2>今日魔兽</h2><p>北美 · 正式服 · ${escapeHtml(payload.expansion_name || "当前版本")} · ${escapeHtml(payload.snapshot_date || "")}</p></div>
+    </div>
+    <div class="portal-tiw-actions">
+      ${missing ? `<span class="portal-tiw-translation-note">${missing} 条新内容等待中文化</span>` : ""}
+      ${settings}
+      <a href="${escapeHtml(sanitizeHref(payload.source_url) || "https://www.wowhead.com/today-in-wow")}" target="_blank" rel="noreferrer">查看来源</a>
+    </div>
+  </div>
+  ${sections ? `<div class="portal-tiw-sections" aria-label="今日魔兽内容模块">${sections}</div>` : `<div class="portal-tiw-empty">当前配置隐藏了全部模块，可在“自定义显示”中重新开启。</div>`}`;
+  bindWowTodaySettings(container);
+}
 
 function getExwindUrl() {
   const ep = SECTION_MAP.exwind;
@@ -2034,6 +2263,10 @@ async function loadSection(key) {
       PORTAL_STATE.dailyReport = r.data || null;
       PORTAL_STATE.dataBySection[key] = r.data || null;
       renderDailyReportCard();
+    } else if (key === "today_in_wow") {
+      PORTAL_STATE.wowToday = r.data || null;
+      PORTAL_STATE.dataBySection[key] = r.data || null;
+      renderWowTodayPanel();
     } else if (key === "videos") {
       renderVideos(r.data || {});
     } else if (key === "mplus_cutoffs") {
@@ -2224,6 +2457,7 @@ async function loadAll() {
   bindSearch();
   bindExwindSourceTabs();
   renderExwindSourceTabs();
+  await loadSection("today_in_wow");
   await loadSection("daily_report");
   await loadSection("blueposts");
   await loadSection("exwind");

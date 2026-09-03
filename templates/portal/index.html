@@ -8,7 +8,7 @@
     {% load static %}
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260808_portal_theme_v2"></script>
-    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260821_mythicstats_clean_light_v7">
+    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260903_wow_today_v7">
     <link rel="stylesheet" href="{% static 'portal/css/simc-benchmarks.css' %}?v=20260903_gear_rank">
 </head>
 <body class="portal-bg font-sans">
@@ -43,6 +43,9 @@
         </div>
 
         <div id="section-news" class="snap-section mt-6 space-y-4">
+            <div id="wow-today-panel" class="portal-tiw-shell" data-state="loading" aria-live="polite">
+                <div class="portal-tiw-loading">正在加载北美正式服今日内容...</div>
+            </div>
             <div id="featured-news-card"></div>
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div class="portal-card portal-card-accent portal-accent-sky shadow-sm border border-slate-200/70 p-4">
@@ -213,6 +216,6 @@
 
     <nav id="snap-dots" class="snap-dots" aria-label="首页板块导航"></nav>
 
-    <script src="{% static 'portal/js/main.js' %}?v=20260821_mythicstats_remove_leader_distance_v9"></script>
+    <script src="{% static 'portal/js/main.js' %}?v=20260903_wow_today_v7"></script>
 </body>
 </html>

@@ -9,8 +9,12 @@ from django.db.models import Count, Q
 from django.utils import timezone
 from datetime import timedelta
 
-from botend.models import PortalEvent, PortalMplusRun, PortalMplusSeasonCutoff, PortalMythicstatsDpsRow, PortalPeakSpecRankRow, PortalToolLink, PortalVideo, SeasonMeta, WowArticle, WowDailyReport, WowSkillDiffReport, WowHotfixReport, WowWagoMonitorState
+from botend.models import PortalEvent, PortalMplusRun, PortalMplusSeasonCutoff, PortalMythicstatsDpsRow, PortalPeakSpecRankRow, PortalToolLink, PortalVideo, SeasonMeta, WowArticle, WowDailyReport, WowTodaySnapshot, WowSkillDiffReport, WowHotfixReport, WowWagoMonitorState
 from botend.services.article_content_service import loads_blocks
+from botend.services.wow_today_service import (
+    apply_wow_today_section_settings,
+    wow_today_sections_for_snapshot,
+)
 from botend.controller.plugins.wow.wago_regions import wago_region_name
 from botend.wow_i18n import cn_dungeon_from_slug
 from botend.constants.wow import canonical_class_spec
@@ -503,6 +507,36 @@ class PortalDailyReportLatestAPIView(View):
         if not row:
             return JsonResponse({'status': 'success', 'data': None})
         return JsonResponse({'status': 'success', 'data': _daily_report_to_dict(row)})
+
+
+class PortalWowTodayAPIView(View):
+    """返回最近一次北美正式服当前版本中文快照。"""
+
+    def get(self, request):
+        row = (
+            WowTodaySnapshot.objects.filter(region='na', game_version='retail')
+            .order_by('-snapshot_date', '-fetched_at', '-id')
+            .first()
+        )
+        if not row:
+            return JsonResponse({'status': 'success', 'data': None})
+        sections = apply_wow_today_section_settings(wow_today_sections_for_snapshot(row))
+        return JsonResponse({
+            'status': 'success',
+            'data': {
+                'snapshot_date': row.snapshot_date.isoformat(),
+                'region': 'na',
+                'region_name': '北美',
+                'game_version': 'retail',
+                'game_version_name': '正式服',
+                'expansion_id': int(row.expansion_id or 0),
+                'expansion_name': row.expansion_name or '当前版本',
+                'source_url': row.source_url or 'https://www.wowhead.com/today-in-wow',
+                'fetched_at': _fmt_dt(row.fetched_at),
+                'translation_missing': int(row.translation_missing or 0),
+                'sections': sections,
+            },
+        })
 
 
 class PortalBluepostsAPIView(View):

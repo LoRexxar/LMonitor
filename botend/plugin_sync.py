@@ -11,6 +11,9 @@ from botend.monitor_env import filter_runnable_tasks
 
 
 PORTAL_DATA_SCHEDULE_HOURS_BY_TASK = {
+    # 北美日常重置在北京时间 22:00（夏令时）或 23:00（冬令时），
+    # 00:00 抓取可覆盖两种时制并给 Wowhead 留出刷新时间。
+    "WowTodayMonitor": (0,),
     # 每日大更新：人物内容先重抓，完整排名随后，聚合投影最后生成。
     "SpecDetailPlayerMonitor": (2,),
     "SpecDetailRankingMonitor": (3,),
@@ -177,12 +180,22 @@ def sync_monitortasks_from_plugin_list(
 
             name = getattr(plugin_cls, "__name__", None) or f"PluginType{idx}"
             wait_time = monitor_default_wait_time(name)
+            plugin_target = getattr(plugin_cls, 'default_target', default_target)
+            plugin_is_active = bool(getattr(plugin_cls, 'default_is_active', default_is_active))
+            plugin_proxy_enabled = bool(getattr(plugin_cls, 'default_proxy_enabled', False))
+            create_values = {
+                'name': name,
+                'target': plugin_target,
+                'type': idx,
+                'is_active': plugin_is_active,
+                'proxy_enabled': plugin_proxy_enabled,
+                'wait_time': wait_time,
+            }
+            if plugin_is_active:
+                # 首次部署后立即补一份数据，之后再按固定时段运行。
+                create_values['last_scan_time'] = timezone.now() - timedelta(days=2)
             MonitorTask.objects.create(
-                name=name,
-                target=default_target,
-                type=idx,
-                is_active=default_is_active,
-                wait_time=wait_time,
+                **create_values,
             )
             created += 1
 

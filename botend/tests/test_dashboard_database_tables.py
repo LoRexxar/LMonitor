@@ -5,7 +5,13 @@ from django.apps import apps
 from django.contrib.auth.models import User
 from django.test import TestCase
 
-from botend.models import GeWechatAuth, MonitorTask, SimcResourceVersion, TargetAuth
+from botend.models import (
+    GeWechatAuth,
+    MonitorTask,
+    SimcResourceVersion,
+    TargetAuth,
+    WowTodayCardSetting,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -237,6 +243,74 @@ class DashboardDatabaseTableContractTests(TestCase):
             "update_data": {"name": "绕过专用接口"},
         })
         self.assertEqual(response.status_code, 403)
+
+    def test_wow_today_tables_use_safe_generic_crud_capabilities(self):
+        expected = {
+            'WowTodaySnapshot': (False, False, False),
+            'WowTodayCardSnapshot': (False, False, False),
+            'WowTodaySectionSetting': (True, True, True),
+            'WowTodayCardSetting': (True, True, True),
+        }
+        for table_name, capabilities in expected.items():
+            with self.subTest(table_name=table_name):
+                response = self.post_action({
+                    'action': 'get_table_data',
+                    'table_name': table_name,
+                })
+                self.assertEqual(response.status_code, 200, response.content)
+                payload = response.json()
+                self.assertEqual(payload['status'], 'success')
+                self.assertRegex(payload['table_description'], r'[\u4e00-\u9fff]')
+                self.assertEqual(
+                    (
+                        payload['capabilities']['can_create'],
+                        payload['capabilities']['can_update'],
+                        payload['capabilities']['can_delete'],
+                    ),
+                    capabilities,
+                )
+
+        create_response = self.post_action({
+            'action': 'create_table_row',
+            'table_name': 'WowTodayCardSetting',
+            'create_data': {
+                'section_key': 'crud-test-section',
+                'card_key': 'crud-test-card',
+                'source_name': '通用 CRUD 测试卡片',
+                'display_name': '初始名称',
+                'is_visible': False,
+                'sort_order': 30,
+            },
+        })
+        self.assertEqual(create_response.status_code, 200, create_response.content)
+        row_id = create_response.json()['data']['id']
+
+        update_response = self.post_action({
+            'action': 'update_table_row',
+            'table_name': 'WowTodayCardSetting',
+            'row_id': row_id,
+            'update_data': {'display_name': '更新后的名称', 'is_visible': True},
+        })
+        self.assertEqual(update_response.status_code, 200, update_response.content)
+        row = WowTodayCardSetting.objects.get(pk=row_id)
+        self.assertEqual(row.display_name, '更新后的名称')
+        self.assertTrue(row.is_visible)
+
+        delete_response = self.post_action({
+            'action': 'delete_table_row',
+            'table_name': 'WowTodayCardSetting',
+            'row_id': row_id,
+        })
+        self.assertEqual(delete_response.status_code, 200, delete_response.content)
+        self.assertFalse(WowTodayCardSetting.objects.filter(pk=row_id).exists())
+
+        read_only_response = self.post_action({
+            'action': 'update_table_row',
+            'table_name': 'WowTodaySnapshot',
+            'row_id': 1,
+            'update_data': {'region': 'eu'},
+        })
+        self.assertEqual(read_only_response.status_code, 403)
 
     def test_staff_without_database_admin_rights_cannot_read_registry_or_api(self):
         self.client.force_login(self.staff_without_database_access)

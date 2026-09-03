@@ -11,6 +11,33 @@ MAIN_JS = (ROOT / "static/dashboard/js/main.js").read_text(encoding="utf-8")
 
 
 class DashboardSidebarAlignmentContractTests(unittest.TestCase):
+    def test_sidebar_entries_are_grouped_without_collapsing_categories(self):
+        soup = BeautifulSoup(INDEX, "html.parser")
+        root = soup.select_one("#dashboard-primary-nav")
+        self.assertIsNotNone(root)
+        assert isinstance(root, Tag)
+
+        members = root.select(":scope > [data-sidebar-group-member]")
+        self.assertGreaterEqual(len(members), 14)
+        self.assertEqual(
+            {item.get("data-sidebar-group-member") for item in members},
+            {"content", "tools", "operations", "access", "data"},
+        )
+        self.assertIn("{ key: 'content', label: '内容管理' }", MAIN_JS)
+        self.assertIn("{ key: 'tools', label: '游戏工具' }", MAIN_JS)
+        self.assertIn("{ key: 'operations', label: '运行监控' }", MAIN_JS)
+        self.assertIn("{ key: 'access', label: '用户权限' }", MAIN_JS)
+        self.assertIn("{ key: 'data', label: '数据管理' }", MAIN_JS)
+        self.assertIn("label.className = 'sidebar-group-label'", MAIN_JS)
+        self.assertIn("menu.className = 'sidebar-group-menu space-y-1'", MAIN_JS)
+        self.assertNotIn("sidebar-group-toggle", INDEX)
+
+        for expandable in root.select(":scope > .nav-item.has-submenu"):
+            self.assertIn("open", expandable.get_attribute_list("class"))
+            trigger = expandable.select_one(":scope > a")
+            self.assertIsNotNone(trigger)
+            self.assertEqual(trigger.get("aria-expanded"), "true")
+
     def test_all_second_level_groups_use_the_shared_alignment_class(self):
         soup = BeautifulSoup(INDEX, "html.parser")
         sidebar = soup.select_one("#sidebar")

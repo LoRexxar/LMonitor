@@ -31,7 +31,7 @@
         .glass-effect { backdrop-filter: blur(10px); background: rgba(255, 255, 255, 0.1); }
         .rotate-180 { transform: rotate(180deg); }
         .fa-chevron-down { transition: transform 0.3s ease; }
-        .submenu { transition: max-height 0.3s ease-out; }
+        .submenu { transition: max-height 0.2s ease-out; }
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
@@ -96,6 +96,60 @@
             flex: 0 0 1rem;
             margin-right: 0.5rem;
             text-align: center;
+        }
+
+        #sidebar nav > ul {
+            padding-left: 0.75rem;
+            padding-right: 0.75rem;
+        }
+
+        #sidebar .sidebar-group {
+            margin-top: 0.75rem;
+        }
+
+        #sidebar .sidebar-group-label {
+            display: flex;
+            width: 100%;
+            align-items: center;
+            gap: 0.625rem;
+            padding: 0.25rem 0.75rem 0.375rem;
+            color: var(--dashboard-muted, #4b5563);
+            font-size: 0.8125rem;
+            font-weight: 600;
+        }
+
+        #sidebar .sidebar-group-label::after {
+            content: '';
+            height: 1px;
+            flex: 1;
+            background: var(--dashboard-border, #e5e7eb);
+        }
+
+        #sidebar .sidebar-group-menu {
+            display: block;
+        }
+
+        #sidebar .sidebar-group-menu > .nav-item > a {
+            min-height: 2.5rem;
+        }
+
+        #sidebar .sidebar-group-menu > .nav-item > a > i:first-child {
+            width: 1.25rem;
+            flex: 0 0 1.25rem;
+            text-align: center;
+        }
+
+        #sidebar .sidebar-group-menu > .nav-item.has-submenu > .sidebar-submenu {
+            margin-top: 0.125rem;
+            margin-bottom: 0.375rem;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .sidebar-transition,
+            .submenu,
+            .fa-chevron-down {
+                transition: none !important;
+            }
         }
         
         /* 移动端侧边栏样式 */
@@ -479,6 +533,7 @@
     <script src="{% static 'dashboard/js/main.js' %}?v=20260903_unified_item_tooltip"></script>
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806c" defer></script>
     <script src="{% static 'dashboard/js/gear_builder_management.js' %}?v=20260901a" defer></script>
+    <script src="{% static 'dashboard/js/wow_today_management.js' %}?v=20260903a" defer></script>
     <script src="{% static 'dashboard/js/simc-result-report.js' %}?v=20260817_result_config_panel"></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260818_task_compare_selection"></script>
     <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260903_unified_item_tooltip"></script>
@@ -550,7 +605,7 @@
                             <div class="w-8 h-8 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
                                 <i class="fas fa-user text-sm"></i>
                             </div>
-                            <span class="text-sm">{{ user.username }}</span>
+                            <span class="hidden sm:inline text-sm">{{ user.username }}</span>
                             <i class="fas fa-chevron-down text-xs"></i>
                         </button>
                         
@@ -583,58 +638,64 @@
         <div id="sidebar" class="sidebar-fixed bg-white shadow-xl sidebar-transition">
 
             <nav class="mt-6">
-                <ul class="space-y-2 px-4">
+                <ul id="dashboard-primary-nav" class="space-y-1">
                     <li class="nav-item" data-section="dashboard-home">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-home mr-3"></i>
                             首页
                         </a>
                     </li>
-                    <li class="nav-item" data-section="user-management">
+                    <li class="nav-item" data-section="user-management" data-sidebar-group-member="access">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-users-cog mr-3"></i>
                             用户管理
                         </a>
                     </li>
-                    <li class="nav-item" data-section="user-groups">
+                    <li class="nav-item" data-section="user-groups" data-sidebar-group-member="access">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-user-group mr-3"></i>
                             用户组管理
                         </a>
                     </li>
                     <!-- 新增 News 顶级栏目 -->
-                    <li class="nav-item" data-section="news">
+                    <li class="nav-item" data-section="news" data-sidebar-group-member="content">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-newspaper mr-3"></i>
                             新闻资讯
                         </a>
                     </li>
-                    <li class="nav-item" data-section="wow-daily-reports">
+                    <li class="nav-item" data-section="wow-daily-reports" data-sidebar-group-member="content">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-book mr-3"></i>
                             WoW 日报
                         </a>
                     </li>
-                    <li class="nav-item" data-section="wago-hotfix-reports">
+                    <li class="nav-item" data-section="wow-today-settings" data-sidebar-group-member="content">
+                        <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                            <i class="fas fa-layer-group mr-3"></i>
+                            今日魔兽编排
+                        </a>
+                    </li>
+                    <li class="nav-item" data-section="wago-hotfix-reports" data-sidebar-group-member="content">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-fire mr-3"></i>
                             Hotfix 报告
                         </a>
                     </li>
-                    <li class="nav-item" data-section="error-logs">
+                    <li class="nav-item" data-section="error-logs" data-sidebar-group-member="operations">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-bell mr-3"></i>
                             系统报警
                         </a>
                     </li>
-                    <li class="nav-item" data-section="log-files">
+                    <li class="nav-item" data-section="log-files" data-sidebar-group-member="operations">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-file-lines mr-3"></i>
                             日志文件
                         </a>
                     </li>
                     {% if user.is_superuser %}
-                    <li class="nav-item" data-dashboard-table="MonitorTask">
+                    <li class="nav-item" data-dashboard-table="MonitorTask" data-sidebar-group-member="operations">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-tasks mr-3"></i>
                             监控任务
@@ -642,13 +703,13 @@
                     </li>
                     {% endif %}
                     {% if user.is_staff or user.is_superuser %}
-                    <li class="nav-item has-submenu" data-section="mythic-planner">
-                        <a href="#" aria-expanded="false" aria-controls="mythic-planner-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                    <li class="nav-item has-submenu open" data-section="mythic-planner" data-sidebar-group-member="tools">
+                        <a href="#" aria-expanded="true" aria-controls="mythic-planner-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-route mr-3"></i>
                             大秘境规划器
                             <i class="fas fa-chevron-down ml-auto text-xs"></i>
                         </a>
-                        <ul id="mythic-planner-sidebar-submenu" class="sidebar-submenu submenu mt-2 ml-6 space-y-1 overflow-hidden transition-all duration-300">
+                        <ul id="mythic-planner-sidebar-submenu" class="sidebar-submenu submenu mt-2 ml-6 max-h-0 space-y-1 overflow-hidden transition-all duration-300">
                             <li class="submenu-item" data-dashboard-section="mythic-planner-config">
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-database mr-2 text-xs"></i>
@@ -676,19 +737,19 @@
                         </ul>
                     </li>
                     {% endif %}
-                    <li class="nav-item" data-section="gear-builder-management">
+                    <li class="nav-item" data-section="gear-builder-management" data-sidebar-group-member="tools">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-shield-alt mr-3"></i>
                             职业配装管理
                         </a>
                     </li>
-                    <li class="nav-item has-submenu open" data-section="simc">
+                    <li class="nav-item has-submenu open" data-section="simc" data-sidebar-group-member="tools">
                         <a href="#" aria-expanded="true" aria-controls="simc-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-microchip mr-3"></i>
                             SimC
                             <i class="fas fa-chevron-down ml-auto text-xs rotate-180"></i>
                         </a>
-                        <ul id="simc-sidebar-submenu" class="sidebar-submenu submenu mt-2 ml-6 space-y-1 overflow-hidden transition-all duration-300">
+                        <ul id="simc-sidebar-submenu" class="sidebar-submenu submenu mt-2 ml-6 max-h-0 space-y-1 overflow-hidden transition-all duration-300">
                             <li class="submenu-item" data-dashboard-section="simc-workflow">
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-project-diagram mr-2 text-xs"></i>
@@ -723,13 +784,13 @@
                             {% endif %}
                         </ul>
                     </li>
-                    <li class="nav-item has-submenu" data-section="tools">
-                        <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                    <li class="nav-item has-submenu open" data-section="tools" data-sidebar-group-member="tools">
+                        <a href="#" aria-expanded="true" aria-controls="tools-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-tools mr-3"></i>
                             工具箱
-                            <i class="fas fa-chevron-down ml-auto text-xs"></i>
+                            <i class="fas fa-chevron-down ml-auto text-xs rotate-180"></i>
                         </a>
-                        <ul class="sidebar-submenu submenu mt-2 ml-6 space-y-1 max-h-0 overflow-hidden transition-all duration-300">
+                        <ul id="tools-sidebar-submenu" class="sidebar-submenu submenu mt-2 ml-6 space-y-1 max-h-0 overflow-hidden transition-all duration-300">
                             <li class="submenu-item" data-tool="wcl-analysis-entry">
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-chart-bar mr-2 text-xs"></i>
@@ -744,13 +805,13 @@
                             </li>
                         </ul>
                     </li>
-                    <li class="nav-item has-submenu" data-section="database-tables">
-                        <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                    <li class="nav-item has-submenu open" data-section="database-tables" data-sidebar-group-member="data">
+                        <a href="#" aria-expanded="true" aria-controls="database-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-database mr-3"></i>
                             数据库
-                            <i class="fas fa-chevron-down ml-auto text-xs"></i>
+                            <i class="fas fa-chevron-down ml-auto text-xs rotate-180"></i>
                         </a>
-                        <ul class="sidebar-submenu submenu mt-2 ml-6 space-y-1 max-h-0 overflow-hidden transition-all duration-300">
+                        <ul id="database-sidebar-submenu" class="sidebar-submenu submenu mt-2 ml-6 space-y-1 max-h-0 overflow-hidden transition-all duration-300">
                             <li class="px-1 pb-2">
                                 <div class="relative">
                                     <i class="fas fa-search absolute left-3 top-2.5 text-xs text-gray-400"></i>
@@ -1082,6 +1143,53 @@
                         <span class="text-xs text-gray-500" id="wow-daily-report-count"></span>
                     </div>
                     <div class="divide-y divide-gray-100" id="wow-daily-report-list"></div>
+                </div>
+            </div>
+
+            <div
+                class="content-section"
+                id="wow-today-settings"
+                data-api-url="{% url 'dashboard_wow_today_sections' %}"
+                style="display: none;"
+            >
+                <div class="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                    <div>
+                        <h2 class="mb-2 text-3xl font-bold text-gray-800">今日魔兽内容编排</h2>
+                        <p class="max-w-3xl text-gray-600">按板块组织内容，并逐张卡片调整名称、显示状态和顺序。抓取内容每日更新，人工配置会持续保留。</p>
+                    </div>
+                    <a href="/?section=today_in_wow" target="_blank" rel="noopener noreferrer" class="inline-flex self-start items-center justify-center rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50">
+                        <i class="fas fa-arrow-up-right-from-square mr-2"></i>查看 Portal
+                    </a>
+                </div>
+
+                <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
+                    <div class="flex flex-col gap-4 border-b border-gray-200 px-4 py-4 sm:px-5">
+                        <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                            <div class="min-w-0">
+                                <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                    <strong id="wow-today-settings-summary" class="text-gray-900">正在读取内容结构…</strong>
+                                    <span id="wow-today-settings-snapshot" class="text-sm text-gray-500"></span>
+                                </div>
+                                <p class="mt-1 text-xs text-gray-600">关闭板块会隐藏其全部卡片，但每张卡片的配置仍会保留。</p>
+                            </div>
+                            <div class="flex flex-wrap gap-2">
+                                <button id="wow-today-settings-reset" type="button" class="min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-200"><i class="fas fa-rotate-left mr-2"></i>恢复推荐</button>
+                                <button id="wow-today-settings-refresh" type="button" class="min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-200"><i class="fas fa-rotate-right mr-2"></i>刷新</button>
+                                <button id="wow-today-settings-save" type="button" class="min-h-11 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-50"><i class="fas fa-check mr-2"></i>保存全部更改</button>
+                            </div>
+                        </div>
+                        <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <label class="relative block min-w-0 flex-1 sm:max-w-md">
+                                <i class="fas fa-search absolute left-3 top-3.5 text-sm text-gray-400" aria-hidden="true"></i>
+                                <span class="sr-only">搜索板块或卡片</span>
+                                <input id="wow-today-settings-search" type="search" autocomplete="off" placeholder="搜索板块、卡片或内容" class="min-h-11 w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-500 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100">
+                            </label>
+                            <button id="wow-today-settings-expand" type="button" class="min-h-11 self-start rounded-lg px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-200 sm:self-auto"><i class="fas fa-angles-down mr-2"></i><span>展开全部</span></button>
+                        </div>
+                    </div>
+                    <div id="wow-today-settings-message" class="hidden border-b px-5 py-3 text-sm" role="status" aria-live="polite"></div>
+                    <div id="wow-today-settings-list" class="space-y-3 bg-gray-50/70 p-3 sm:p-4"></div>
+                    <div id="wow-today-settings-empty" class="hidden px-5 py-12 text-center text-sm text-gray-600">没有找到可配置内容。可清空搜索条件，或先运行今日魔兽抓取任务。</div>
                 </div>
             </div>
 

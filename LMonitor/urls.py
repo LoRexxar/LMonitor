@@ -72,6 +72,7 @@ from botend.portal.gear_builder import (
     PortalGearAssistantView,
 )
 from botend.dashboard.gear_builder_management import DashboardGearBuilderManagementAPIView
+from botend.dashboard.wow_today_management import DashboardWowTodaySectionAPIView
 from botend.portal.api import (
     PortalBluepostsAPIView,
     PortalNgaHotAPIView,
@@ -92,6 +93,7 @@ from botend.portal.api import (
     PortalWowSkillDiffStatesAPIView,
     PortalHotfixReportsAPIView,
     PortalDailyReportLatestAPIView,
+    PortalWowTodayAPIView,
     PortalArticleDetailAPIView,
 )
 from botend.mythic_planner.api import (
@@ -159,6 +161,7 @@ urlpatterns = [
     path('api/dashboard/user-groups/<int:group_id>/', DashboardUserGroupDetailAPIView.as_view(), name='dashboard_user_group_detail'),
     path('api/dashboard/gear-builder/<str:resource>/', DashboardGearBuilderManagementAPIView.as_view(), name='dashboard_gear_builder_management'),
     path('api/dashboard/gear-builder/<str:resource>/<int:object_id>/', DashboardGearBuilderManagementAPIView.as_view(), name='dashboard_gear_builder_management_detail'),
+    path('api/dashboard/wow-today-sections/', DashboardWowTodaySectionAPIView.as_view(), name='dashboard_wow_today_sections'),
     path('dashboard/mythic-planner/', DashboardMythicPlannerView.as_view(), name='dashboard_mythic_planner'),
     path('dashboard/mythic-planner/positions/', DashboardMythicPlannerPositionsView.as_view(), name='dashboard_mythic_planner_positions'),
     path('dashboard/mythic-planner/routes/', DashboardMythicPlannerRoutesView.as_view(), name='dashboard_mythic_planner_routes'),
@@ -187,6 +190,7 @@ urlpatterns = [
     path('portal/api/wow-skill-diff/states/', csrf_exempt(PortalWowSkillDiffStatesAPIView.as_view()), name="portal_wow_skill_diff_states"),
     path('portal/api/hotfix-reports/', csrf_exempt(PortalHotfixReportsAPIView.as_view()), name="portal_hotfix_reports"),
     path('portal/api/daily-report/latest/', csrf_exempt(PortalDailyReportLatestAPIView.as_view()), name="portal_daily_report_latest"),
+    path('portal/api/today-in-wow/latest/', csrf_exempt(PortalWowTodayAPIView.as_view()), name="portal_wow_today_latest"),
     path('portal/api/article/<int:article_id>/', csrf_exempt(PortalArticleDetailAPIView.as_view()), name="portal_article_detail"),
     path('portal/api/simc-benchmarks/panels/', PortalSimcBenchmarkPanelListAPIView.as_view(), name='portal_simc_benchmark_panels'),
     path('portal/api/simc-benchmarks/panels/<int:panel_id>/', PortalSimcBenchmarkPanelDetailAPIView.as_view(), name='portal_simc_benchmark_panel_detail_by_id'),

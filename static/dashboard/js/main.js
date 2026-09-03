@@ -48,6 +48,7 @@ function applyDashboardPagePermissions() {
 document.addEventListener('DOMContentLoaded', function() {
     initDashboardTheme();
     applyDashboardPagePermissions();
+    initSidebarGroups();
     // 初始化页面数据
     initDashboard();
 
@@ -117,6 +118,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         if (defaultSectionId === 'gear-builder-management' && window.loadGearBuilderManagement) {
             window.loadGearBuilderManagement();
+        }
+        if (defaultSectionId === 'wow-today-settings' && window.loadWowTodaySectionSettings) {
+            window.loadWowTodaySectionSettings();
         }
     }
 
@@ -279,6 +283,49 @@ function initDashboard() {
 }
 
 /**
+ * 将侧边栏入口按工作域重新编排。分类只负责视觉组织，不折叠或隐藏任何入口。
+ */
+function initSidebarGroups() {
+    const root = document.getElementById('dashboard-primary-nav');
+    if (!root || root.dataset.grouped === '1') return;
+
+    const groups = [
+        { key: 'content', label: '内容管理' },
+        { key: 'tools', label: '游戏工具' },
+        { key: 'operations', label: '运行监控' },
+        { key: 'access', label: '用户权限' },
+        { key: 'data', label: '数据管理' },
+    ];
+
+    groups.forEach(group => {
+        const members = Array.from(
+            root.querySelectorAll(`:scope > [data-sidebar-group-member="${group.key}"]`),
+        );
+        if (!members.length) return;
+
+        const wrapper = document.createElement('li');
+        wrapper.className = 'sidebar-group';
+        wrapper.dataset.sidebarGroup = group.key;
+
+        const label = document.createElement('div');
+        label.className = 'sidebar-group-label';
+        label.textContent = group.label;
+        label.setAttribute('role', 'heading');
+        label.setAttribute('aria-level', '2');
+
+        const menu = document.createElement('ul');
+        menu.className = 'sidebar-group-menu space-y-1';
+        menu.setAttribute('aria-label', group.label);
+        members.forEach(member => menu.appendChild(member));
+
+        wrapper.append(label, menu);
+        root.appendChild(wrapper);
+    });
+
+    root.dataset.grouped = '1';
+}
+
+/**
  * 初始化侧栏中的可折叠菜单。
  *
  * 这是整个 Dashboard 的通用初始化函数，不能随 SimC 工作流代码一起删除；
@@ -286,12 +333,16 @@ function initDashboard() {
  */
 function initSubmenuToggle() {
     document.querySelectorAll('.has-submenu').forEach(item => {
-        const mainLink = item.querySelector('a');
-        const submenu = item.querySelector('.submenu');
-        const chevron = item.querySelector('.fa-chevron-down');
+        const mainLink = item.querySelector(':scope > a');
+        const submenu = item.querySelector(':scope > .submenu');
+        const chevron = mainLink?.querySelector('.fa-chevron-down');
         if (!mainLink || !submenu || mainLink.dataset.submenuBound === '1') return;
 
         mainLink.dataset.submenuBound = '1';
+        const startsOpen = item.classList.contains('open');
+        mainLink.setAttribute('aria-expanded', startsOpen ? 'true' : 'false');
+        submenu.style.maxHeight = startsOpen ? `${submenu.scrollHeight}px` : '0';
+        if (chevron) chevron.classList.toggle('rotate-180', startsOpen);
         mainLink.addEventListener('click', event => {
             event.preventDefault();
             const willOpen = !item.classList.contains('open');
@@ -585,6 +636,9 @@ function initNavigation() {
                 }
                 if (sectionId === 'gear-builder-management' && window.loadGearBuilderManagement) {
                     window.loadGearBuilderManagement();
+                }
+                if (sectionId === 'wow-today-settings' && window.loadWowTodaySectionSettings) {
+                    window.loadWowTodaySectionSettings();
                 }
                 if (isSimcDashboardSection(sectionId)) {
                     const simcPage = Object.keys(SIMC_DASHBOARD_SECTIONS)
