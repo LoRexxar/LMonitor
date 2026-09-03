@@ -920,6 +920,35 @@ class ArticleContentServiceTests(SimpleTestCase):
         self.assertNotIn("sizes", result)
         mocked_upload.assert_not_called()
 
+    def test_upload_article_html_images_replaces_managed_thumbnail_with_uploaded_link_original(self):
+        html = (
+            '<a class="article-image-link" href="https://cdn.example.com/original.jpg">'
+            '<img src="https://oss.wowdaily.cn/portal/articles/old-thumb.jpg" '
+            'srcset="https://cdn.example.com/thumb-2x.jpg 2x"/></a>'
+        )
+        uploaded = "https://oss.wowdaily.cn/portal/articles/new-original.jpg"
+
+        with patch(
+            "botend.services.article_image_service.download_and_upload_article_image",
+            return_value=uploaded,
+        ) as mocked_upload:
+            result = upload_article_html_images(
+                html,
+                article_url="https://us.forums.blizzard.com/en/wow/t/example/1",
+                source="blizzard_tracker",
+            )
+
+        self.assertEqual(result.count(uploaded), 2)
+        self.assertNotIn("old-thumb.jpg", result)
+        self.assertNotIn("cdn.example.com", result)
+        self.assertNotIn("srcset", result)
+        mocked_upload.assert_called_once_with(
+            "https://cdn.example.com/original.jpg",
+            req=None,
+            article_url="https://us.forums.blizzard.com/en/wow/t/example/1",
+            source="blizzard_tracker",
+        )
+
     def test_upload_article_images_replaces_href_only_images_and_reuses_cache(self):
         blocks = [
             {"type": "html", "html": '<a href="https://wow.zamimg.com/uploads/screenshots/normal/1.png"><img src="https://wow.zamimg.com/uploads/screenshots/normal/1.png"/></a>'},

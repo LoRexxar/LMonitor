@@ -112,6 +112,16 @@ def upload_article_html_images(html_text, *, req=None, article_url="", source="p
             uploaded_url = upload_url(href)
             if uploaded_url:
                 link["href"] = uploaded_url
+                for nested_img in link.find_all("img"):
+                    nested_img["src"] = uploaded_url
+                    nested_img.attrs.pop("data-source-src", None)
+                    for attr in ("srcset", "sizes", "data-srcset"):
+                        nested_img.attrs.pop(attr, None)
+                    picture = nested_img.find_parent("picture")
+                    if picture is not None:
+                        for source_tag in picture.find_all("source"):
+                            for attr in ("srcset", "sizes", "data-srcset"):
+                                source_tag.attrs.pop(attr, None)
                 changed = True
         return str(soup) if changed else html_text
     except Exception as exc:
