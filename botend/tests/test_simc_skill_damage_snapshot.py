@@ -4833,6 +4833,17 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
 
 
 class SimcSkillDamageDashboardContractTests(TestCase):
+    def test_skill_damage_status_supports_a_missing_current_job(self):
+        script = Path('static/dashboard/js/main.js').read_text(encoding='utf-8')
+        initializer = script.split('function initSimcSkillDamagePanel() {', 1)[1].split(
+            'function initSimcBackendUploadTool()', 1,
+        )[0]
+
+        self.assertIn('const completedSpecCount = Number(job && job.spec_count) || 0;', initializer)
+        self.assertIn('`${completedSpecCount} / ${progressTotal} 个专精`', initializer)
+        self.assertIn('`${completedSpecCount} 个专精`', initializer)
+        self.assertNotIn('`${job.spec_count || 0}', initializer)
+
     def test_skill_table_sums_formula_components_and_supports_name_sorting(self):
         template = Path('templates/dashboard/index.html').read_text(encoding='utf-8')
         script = Path('static/dashboard/js/main.js').read_text(encoding='utf-8')

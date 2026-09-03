@@ -6280,9 +6280,10 @@ function initSimcSkillDamagePanel() {
         const running = job && ['pending', 'running'].includes(job.status);
         generateBtn.disabled = Boolean(running);
         const progressTotal = Number(job && job.total_spec_count) || 0;
+        const completedSpecCount = Number(job && job.spec_count) || 0;
         const progressText = progressTotal
-            ? `${job.spec_count || 0} / ${progressTotal} 个专精`
-            : `${job.spec_count || 0} 个专精`;
+            ? `${completedSpecCount} / ${progressTotal} 个专精`
+            : `${completedSpecCount} 个专精`;
         const currentSpecText = job && job.current_specialization
             ? ` · 当前：${job.current_specialization}`
             : '';
