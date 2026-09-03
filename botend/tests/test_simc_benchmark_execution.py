@@ -18,7 +18,8 @@ from botend.models import (
     SimcBenchmarkExecution, SimcBenchmarkPanel, SimcBenchmarkProfile,
     SimcBenchmarkResult,
     SimcBenchmarkScenario, SimcBenchmarkSpec, SimcContentTemplate, SimcProfile,
-    SimcTalentString, SimcTask, SimcTaskArtifact, SimulationRun, WowItemSnapshot,
+    SimcTalentString, SimcTask, SimcTaskArtifact, SimulationRun, SeasonMeta,
+    WowItemSnapshot, WowItemVariantSnapshot,
 )
 from botend.services.simc_benchmark_execution import (
     BenchmarkExecutionConflict, backfill_completed_case_results, cancel_execution,
@@ -98,6 +99,46 @@ class SimcBenchmarkExecutionTests(TestCase):
             return create_execution(
                 self.panel, requested_by=self.user_id, **kwargs,
             )
+
+    def test_incremental_results_overlay_the_active_variant_tooltip(self):
+        candidate = self.panel.candidates.get(key='trinket')
+        params = deepcopy(candidate.params)
+        params['gear_swap'].update({
+            'item_level': 321,
+            'raw_value': ',id=123,ilevel=321,bonus_id=9001',
+        })
+        candidate.params = params
+        candidate.save(update_fields=['params'])
+        season = SeasonMeta.objects.create(
+            season_key='benchmark-tooltip', season_name='Benchmark Tooltip', is_active=True,
+            game_build='12.1.0.1', gear_batch_key='benchmark-tooltip-batch',
+            gear_sync_status='ready', mplus_zone_id=1, raid_zone_id=2,
+        )
+        item = WowItemSnapshot.objects.create(
+            item_id=123, name='Test Trinket', name_zh='统一测试饰品',
+            description='Equip: stale tooltip.', icon='inv_test_trinket',
+            catalog_type='equipment', slot_key='trinket', inventory_type=12,
+        )
+        WowItemVariantSnapshot.objects.create(
+            item=item, season=season, batch_key=season.gear_batch_key,
+            game_build=season.game_build, variant_key='hero-321',
+            variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
+            item_level=321, bonus_ids=[9001], compatible_slots=['trinket'],
+            stats_json={'strength': 159},
+            effects_json=[{'description_zh': '装备：统一的 321 特效。'}],
+        )
+
+        self._published_success()
+        row = next(
+            item for item in serialize_incremental_panel_results(self.panel)['coordinates'][0]['candidates']
+            if item['key'] == 'trinket'
+        )
+
+        self.assertEqual(row['label'], '统一测试饰品 · 321')
+        self.assertEqual(row['effect'], row['tooltip'])
+        self.assertIn('+159 力量', row['tooltip'])
+        self.assertIn('装备：统一的 321 特效。', row['tooltip'])
+        self.assertNotIn('stale tooltip', row['tooltip'])
 
     def test_actual_run_hero_talent_is_frozen_on_result_and_ignores_source_resource(self):
         self.talent.hero_talent_names = ['来源资源名称']

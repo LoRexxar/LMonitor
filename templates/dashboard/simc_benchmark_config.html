@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{{ panel_name }} · Benchmark 配置</title>
+  <link rel="stylesheet" href="{% static 'shared/css/wow-item-tooltip.css' %}?v=20260903_unified_item_tooltip">
   <link rel="stylesheet" href="{% static 'dashboard/css/simc-benchmark-dashboard.css' %}?v=20260818_benchmark_additional_simc_input">
 </head>
 <body class="simc-benchmark-config-body">
@@ -45,6 +46,7 @@
   </div>
 </main>
 <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
-<script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260819_benchmark_rerun_snapshot"></script>
+<script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260903_unified_item_tooltip"></script>
+<script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20260903_unified_item_tooltip"></script>
 </body>
 </html>

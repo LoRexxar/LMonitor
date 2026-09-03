@@ -55,6 +55,13 @@ STAT_NAMES_ZH = {
     '爆击': 'crit', '暴击': 'crit', '急速': 'haste', '精通': 'mastery',
     '全能': 'versatility', '吸血': 'leech', '闪避': 'avoidance', '速度': 'speed',
 }
+STAT_NAMES_EN = {
+    'strength': 'strength', 'agility': 'agility', 'intellect': 'intellect',
+    'stamina': 'stamina', 'armor': 'armor', 'bonus armor': 'bonus_armor',
+    'critical strike': 'crit', 'crit': 'crit', 'haste': 'haste',
+    'mastery': 'mastery', 'versatility': 'versatility', 'leech': 'leech',
+    'avoidance': 'avoidance', 'speed': 'speed',
+}
 RAIDBOTS_STATS = {
     'str': 'strength', 'agi': 'agility', 'int': 'intellect', 'sta': 'stamina',
     'crit': 'crit', 'haste': 'haste', 'mastery': 'mastery',
@@ -98,32 +105,56 @@ def _plain_text(value):
 def _tooltip_details(payload):
     tooltip = _plain_text((payload or {}).get('tooltip'))
     stats = {}
+    stat_labels = [*STAT_NAMES_ZH, *STAT_NAMES_EN]
+    stat_pattern = '|'.join(re.escape(label) for label in sorted(stat_labels, key=len, reverse=True))
     for amount, label in re.findall(
-        r'\+?([0-9][0-9,.]*)\s*(额外护甲|力量|敏捷|智力|耐力|护甲|爆击|暴击|急速|精通|全能|吸血|闪避|速度)',
-        tooltip,
+        rf'\+?([0-9][0-9,.]*)\s*({stat_pattern})(?![A-Za-z])', tooltip, flags=re.I,
     ):
-        key = STAT_NAMES_ZH[label]
+        key = STAT_NAMES_ZH.get(label) or STAT_NAMES_EN[label.casefold()]
         stats[key] = max(stats.get(key, 0), _safe_int(amount.replace(',', '').replace('.', '')))
     effects = []
     for line in tooltip.splitlines():
-        if line.startswith(('装备：', '使用：', '提供下列属性：')) or re.match(r'^\([24]\)\s*(?:组合|套装)', line):
-            effects.append({'description_zh': line})
-    effects = list({row['description_zh']: row for row in effects}.values())
+        if (
+            line.startswith(('装备：', '使用：', '被动：', '效果：', '提供下列属性：'))
+            or re.match(r'^(?:Equip|Use|Passive|Effect):', line, flags=re.I)
+            or re.match(r'^\([24]\)\s*(?:组合|套装|Set)', line, flags=re.I)
+        ):
+            key = 'description_zh' if re.search(r'[\u4e00-\u9fff]', line) else 'description'
+            effects.append({key: line})
+    deduplicated_effects = []
+    seen_effects = set()
+    for row in effects:
+        text = row.get('description_zh') or row.get('description') or ''
+        if text.casefold() not in seen_effects:
+            seen_effects.add(text.casefold())
+            deduplicated_effects.append(row)
+    effects = deduplicated_effects
     primary_options = {}
-    for amount, labels in re.findall(r'\+?([0-9][0-9,.]*)\s*\[([^\]]*(?:力量|敏捷|智力)[^\]]*)\]', tooltip):
+    for amount, labels in re.findall(
+        r'\+?([0-9][0-9,.]*)\s*\[([^\]]*(?:力量|敏捷|智力|Strength|Agility|Intellect)[^\]]*)\]',
+        tooltip, flags=re.I,
+    ):
         parsed = _safe_int(amount.replace(',', '').replace('.', ''))
-        for label, key in (('力量', 'strength'), ('敏捷', 'agility'), ('智力', 'intellect')):
-            if label in labels:
+        for label, key in (
+            ('力量', 'strength'), ('敏捷', 'agility'), ('智力', 'intellect'),
+            ('strength', 'strength'), ('agility', 'agility'), ('intellect', 'intellect'),
+        ):
+            if label.casefold() in labels.casefold():
                 primary_options[key] = parsed
     random_secondaries = [
         _safe_int(value.replace(',', '').replace('.', ''))
         for value in re.findall(r'\+?([0-9][0-9,.]*)\s*随机属性\d+', tooltip)
     ]
+    display_name = str((payload or {}).get('name') or '')
+    description_zh = '\n'.join(row.get('description_zh', '') for row in effects if row.get('description_zh'))
+    description = '\n'.join(row.get('description', '') for row in effects if row.get('description'))
     return {
-        'name_zh': str((payload or {}).get('name') or ''),
+        'name_zh': display_name if re.search(r'[\u4e00-\u9fff]', display_name) else '',
+        'name': display_name if not re.search(r'[\u4e00-\u9fff]', display_name) else '',
         'icon': str((payload or {}).get('icon') or ''),
         'quality': _safe_int((payload or {}).get('quality')),
-        'description_zh': '\n'.join(row['description_zh'] for row in effects),
+        'description_zh': description_zh,
+        'description': description,
         'stats': stats,
         'effects': effects,
         'primary_options': primary_options,
@@ -686,7 +717,9 @@ class CurrentGearCatalogSource:
                     variant.setdefault('crafting_options', {})['secondary_total'] = details['secondary_total']
             details = fallback or requests_needed.get((item['item_id'], 0)) or {}
             item['name_zh'] = details.get('name_zh') or item.get('name_zh') or ''
+            item['name'] = details.get('name') or item.get('name') or ''
             item['description_zh'] = details.get('description_zh') or item.get('description_zh') or ''
+            item['description'] = details.get('description') or item.get('description') or ''
             item['icon'] = details.get('icon') or item.get('icon') or ''
             item['quality'] = details.get('quality') or item.get('quality') or 0
 

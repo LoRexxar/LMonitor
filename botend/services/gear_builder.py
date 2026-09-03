@@ -29,7 +29,7 @@ from botend.services.simc_player_config import (
     secondary_rule_class_key,
     simc_spec_slug,
 )
-from botend.templatetags.wow_tags import wow_icon_oss_url
+from botend.services.wow_item_display import item_display_metadata
 
 
 EQUIPMENT_SLOTS = (
@@ -506,6 +506,11 @@ def serialize_variant(variant, class_name='', spec_name=''):
             socket_types.append('prismatic')
         socket_types = socket_types[:socket_count]
         metadata['jewelry_socket_baseline_applied'] = True
+    stats = stats_for_identity(variant.stats_json, variant.metadata, class_name, spec_name)
+    display = item_display_metadata(
+        item.item_id, item, item_level=variant.item_level, variant=variant,
+        stats=stats,
+    )
     return {
         'id': variant.id,
         'key': variant.variant_key,
@@ -521,7 +526,7 @@ def serialize_variant(variant, class_name='', spec_name=''):
         'compatible_slots': variant.compatible_slots or [],
         'socket_types': socket_types,
         'socket_count': socket_count,
-        'stats': stats_for_identity(variant.stats_json, variant.metadata, class_name, spec_name),
+        'stats': stats,
         'effects': variant.effects_json or [],
         'sources': [localize_gear_source(row) for row in (variant.source_json or []) if isinstance(row, dict)],
         'crafting_options': variant.crafting_options or {},
@@ -529,18 +534,21 @@ def serialize_variant(variant, class_name='', spec_name=''):
         'max_equipped': variant.max_equipped,
         'is_intrinsic_embellishment': variant.is_intrinsic_embellishment,
         'metadata': metadata,
+        'tooltip': display['tooltip'],
+        'tooltip_complete': display['tooltip_complete'],
     }
 
 
 def serialize_item(item, variants, class_name='', spec_name=''):
-    description = item.description_zh or item.description or ''
+    display = item_display_metadata(item.item_id, item, icon_size='medium')
     return {
         'item_id': item.item_id,
-        'name': item.name_zh or item.name or f'物品 #{item.item_id}',
+        'name': display['display_name'],
         'name_en': item.name or '',
-        'description': description,
+        'description': display['display_description'],
+        'display_description': display['display_description'],
         'icon': item.icon or '',
-        'icon_url': wow_icon_oss_url(item.icon, 'medium') if item.icon else '',
+        'icon_url': display['icon_url'],
         'quality': item.quality,
         'catalog_type': item.catalog_type,
         'slot': item.slot_key,
@@ -550,6 +558,7 @@ def serialize_item(item, variants, class_name='', spec_name=''):
         'simc_token': item.simc_token,
         'enchantment_id': item.enchantment_id,
         'metadata': item.metadata or {},
+        'wowhead_url': display['wowhead_url'],
         'variants': [serialize_variant(variant, class_name, spec_name) for variant in variants],
     }
 

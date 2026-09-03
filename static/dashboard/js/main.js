@@ -2078,7 +2078,7 @@ function renderSimcProfileEquipmentCards(items, { compact = false } = {}) {
         const enchantName = item.enchant?.display_name || item.enchant?.name_zh || item.enchant?.name || item.enchant?.simc_name || (enchantId ? `附魔 #${enchantId}` : '');
         const enchant = enchantName ? `<div class="mt-1 text-xs text-violet-700"><i class="fas fa-magic mr-1"></i>${esc(enchantName)}${enchantId ? `<span class="ml-1 text-violet-400">#${esc(enchantId)}</span>` : ''}</div>` : '';
         const gems = (item.gems || []).length ? `<div class="mt-1 text-xs text-cyan-700"><i class="fas fa-gem mr-1"></i>${item.gems.map(gem => esc(gem.display_name)).join('、')}</div>` : '';
-        const tooltipDescription = String(item.display_description || '').trim();
+        const tooltipDescription = String(item.tooltip || item.display_description || '').trim();
         const iconUrl = String(item.icon_url || '').trim();
         const itemIcon = iconUrl
             ? `<img class="wow-item-icon" src="${escapeHtml(iconUrl)}" alt="" loading="lazy">`

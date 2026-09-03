@@ -276,6 +276,10 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         rows = response.json()['items']
         self.assertEqual([row['item_id'] for row in rows], [10001])
         self.assertEqual({row['track'] for row in rows[0]['variants']}, {'hero', 'myth'})
+        hero = next(row for row in rows[0]['variants'] if row['track'] == 'hero')
+        self.assertIn('物品等级 710', hero['tooltip'])
+        self.assertIn('+900 力量', hero['tooltip'])
+        self.assertIn('装备：攻击有几率开启裂隙。', hero['tooltip'])
 
         wrong_spec = self.client.get('/portal/api/gear-builder/catalog/', {
             'class': 'Mage', 'spec': 'Fire', 'slot': 'head',
@@ -783,6 +787,31 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         self.assertFalse(GearBuilderUserLoadout.objects.filter(id=row.id).exists())
 
 
+class GearBuilderTooltipRepairCommandTests(GearBuilderTestDataMixin, TestCase):
+    def test_repair_command_fills_missing_variant_data_and_refreshes_audit(self):
+        self.hero.stats_json = {}
+        self.hero.effects_json = []
+        self.hero.save(update_fields=['stats_json', 'effects_json'])
+        details = {
+            'name_zh': '裂隙头盔', 'name': '', 'icon': 'inv_helmet_01', 'quality': 4,
+            'description_zh': '装备：补齐后的效果。', 'description': '',
+            'stats': {'strength': 999, 'crit': 333},
+            'effects': [{'description_zh': '装备：补齐后的效果。'}],
+            'primary_options': {}, 'secondary_total': 0,
+        }
+        output = StringIO()
+
+        with patch.object(CurrentGearCatalogSource, '_wowhead_tooltip', return_value=details):
+            call_command('repair_gear_builder_tooltips', stdout=output)
+
+        self.hero.refresh_from_db()
+        self.season.refresh_from_db()
+        self.assertEqual(self.hero.stats_json, {'strength': 999, 'crit': 333})
+        self.assertEqual(self.hero.effects_json, [{'description_zh': '装备：补齐后的效果。'}])
+        self.assertGreaterEqual(self.season.gear_sync_report['tooltip_repair']['updated_variants'], 1)
+        self.assertIn('活动装备目录 Tooltip 补齐与审计已完成', output.getvalue())
+
+
 class GearBuilderImportCommandTests(TestCase):
     def setUp(self):
         self.season = SeasonMeta.objects.create(
@@ -1178,6 +1207,22 @@ class GearBuilderCurrentSourceTests(TestCase):
         self.assertIn('(2) 组合 狂怒', details['description_zh'])
         self.assertEqual(len(details['effects']), 3)
 
+    def test_wowhead_tooltip_parser_keeps_english_fallback_stats_and_effects(self):
+        details = _tooltip_details({
+            'name': 'Fallback Trinket', 'quality': 4, 'icon': 'inv_trinket',
+            'tooltip': (
+                '<span>+1,234 Strength</span><br><span>+321 Critical Strike</span>'
+                '<br><span>Equip: Your attacks grant a test bonus.</span>'
+            ),
+        })
+        self.assertEqual(details['name'], 'Fallback Trinket')
+        self.assertEqual(details['name_zh'], '')
+        self.assertEqual(details['stats'], {'strength': 1234, 'crit': 321})
+        self.assertEqual(
+            details['effects'],
+            [{'description': 'Equip: Your attacks grant a test bonus.'}],
+        )
+
     def test_wowhead_tooltip_cache_can_be_forced_to_refresh_hotfixed_effects(self):
         old_payload = {
             'name': '无羁深仇腿甲',
@@ -1290,7 +1335,7 @@ class GearBuilderFrontendContractTests(TestCase):
         for value in ('LOADOUT_LIBRARY_KEY', 'MAX_SAVED_LOADOUTS = 30', 'readSavedLoadouts', 'saveCurrentLoadout', 'loadSavedLoadout', 'deleteSavedLoadout'):
             self.assertIn(value, script)
         self.assertIn('code: await encodeShare(compactShareState(state))', script)
-        self.assertIn("portal/js/gear_builder.js' %}?v=20260902_gear_builder_v23", template)
+        self.assertIn("portal/js/gear_builder.js' %}?v=20260903_unified_item_tooltip", template)
         self.assertIn("wow-item-tooltip.js' %}?v=20260902_singleton", template)
         self.assertNotIn('class="gear-option-stat" title=', script)
         self.assertIn('const seen = new Set();', script)

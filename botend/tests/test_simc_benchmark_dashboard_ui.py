@@ -101,7 +101,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
 
     def test_shared_benchmark_assets_use_current_cache_version(self):
         """All Benchmark entry pages must invalidate the APL-override editor bundle."""
-        expected = '?v=20260818_benchmark_advanced_talent_filter_v5'
+        expected = '?v=20260903_unified_item_tooltip'
         for page in (INDEX, CONFIG_PAGE, EXECUTION_PAGE):
             script = next(line for line in page.splitlines() if 'simc-benchmark-dashboard.js' in line)
             self.assertIn(expected, script)
@@ -465,7 +465,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn("dataset:{rerunFailed:data.id}", JS)
         self.assertIn('使用原 Execution 冻结的 APL、Profile、Template 与场景输入', JS)
         self.assertIn('如需使用刚保存的 APL，请返回面板选择“全量重新计算”', JS)
-        self.assertIn('?v=20260819_benchmark_rerun_snapshot', INDEX)
+        self.assertIn('?v=20260903_unified_item_tooltip', INDEX)
         self.assertIn("if(!configPage){document.body.classList.add", JS)
         self.assertIn("data-benchmark-notification", JS)
         self.assertNotIn('data-create-only', CONFIG_PAGE)
@@ -604,6 +604,15 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn('height: 100dvh', CSS)
         self.assertIn('overflow-x: auto', CSS)
         self.assertIn('min-height: 44px', CSS)
+
+    def test_option_gain_profile_equipment_uses_the_shared_tooltip_contract(self):
+        renderer = JS[JS.index('function renderOptionGainDetails('):JS.index('\nfunction renderOptionGainRows(')]
+        self.assertIn("item?.tooltip||item?.display_description", renderer)
+        self.assertIn("attrs['data-wow-item-tooltip']=tooltip", renderer)
+        self.assertIn("attrs['data-wow-item-tooltip-name']=name", renderer)
+        for page in (CONFIG_PAGE, EXECUTION_PAGE):
+            self.assertIn('shared/css/wow-item-tooltip.css', page)
+            self.assertIn('shared/js/wow-item-tooltip.js', page)
 
 
 if __name__ == '__main__':

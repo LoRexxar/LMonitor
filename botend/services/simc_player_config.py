@@ -16,7 +16,7 @@ from botend.models import (
     WowTalentNodeMetadata,
 )
 from botend.services.simc_consumables import simc_consumable_option
-from botend.services.wow_item_display import item_display_metadata
+from botend.services.wow_item_display import item_display_metadata, load_item_tooltip_metadata
 from botend.templatetags.wow_tags import wow_icon_oss_url
 
 
@@ -696,8 +696,15 @@ def parse_manual_player_config(player_equipment, spec):
     for row in snapshot_rows:
         if int(row.enchantment_id or 0) > 0:
             enchantment_snapshots.setdefault(int(row.enchantment_id), row)
-    for slot, values, raw_value, hint in equipment_rows:
-        item = _item_meta(values.get('id'), snapshots)
+    equipment_metadata = load_item_tooltip_metadata([
+        {
+            'item_id': values.get('id'),
+            'item_level': hint[1] or values.get('ilevel') or values.get('item_level'),
+            'bonus_ids': values.get('bonus_id') or values.get('bonus_ids') or '',
+        }
+        for _slot, values, _raw_value, hint in equipment_rows
+    ])
+    for (slot, values, raw_value, hint), item in zip(equipment_rows, equipment_metadata):
         if hint[0] and item['display_name'].startswith('#'):
             item['display_name'], item['export_name'] = hint[0], hint[0]
         enchant = _enchant_meta(values.get('enchant_id'), snapshots, enchantment_snapshots) if values.get('enchant_id') else None
@@ -708,8 +715,9 @@ def parse_manual_player_config(player_equipment, spec):
             if gem_id
         ]
         crafted = [CRAFTED_STAT_LABELS.get(value, value) for value in re.split(r'[/;:]', values.get('crafted_stats', '')) if value]
+        item_level = hint[1] or _number(values.get('ilevel') or values.get('item_level'))
         parsed['equipment'].append({
-            **item, 'item_id': item['id'], 'slot': slot, 'slot_label': SLOT_LABELS[slot], 'item_level': hint[1] or _number(values.get('ilevel') or values.get('item_level')),
+            **item, 'item_id': item['id'], 'slot': slot, 'slot_label': SLOT_LABELS[slot], 'item_level': item_level,
             'enchant': enchant, 'gems': [_item_meta(gem_id, snapshots) for gem_id in gem_ids],
             'bonus_ids': [value for value in re.split(r'[/;:]', values.get('bonus_id', '') or values.get('bonus_ids', '')) if value],
             'content_tuning': values.get('content_tuning', ''), 'crafted_stats': crafted,

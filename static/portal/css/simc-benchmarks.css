@@ -233,15 +233,6 @@
 .simc-benchmark-gear-tooltip { background: rgba(15, 23, 42, 0.96); border-radius: 0.4rem; color: #fff; display: grid; font-size: 0.62rem; gap: 0.18rem; max-width: 280px; padding: 0.42rem 0.52rem; pointer-events: none; position: absolute; white-space: pre-line; z-index: 6; }
 .simc-benchmark-gear-tooltip[hidden], .simc-benchmark-gear-hover-guide[hidden] { display: none; }
 .simc-benchmark-gear-tooltip span { color: #cbd5e1; }
-.simc-benchmark-item-tooltip { background: rgba(15, 23, 42, 0.98); border: 1px solid rgba(148, 163, 184, 0.48); border-radius: 0.45rem; box-shadow: 0 12px 28px rgba(15, 23, 42, 0.32); color: #f8fafc; display: grid; font-size: 0.7rem; gap: 0.2rem; line-height: 1.38; max-width: min(360px, calc(100vw - 16px)); padding: 0.58rem 0.68rem; pointer-events: none; position: fixed; white-space: pre-wrap; z-index: 20; }
-.simc-benchmark-item-tooltip[hidden] { display: none; }
-.simc-benchmark-item-tooltip-name { color: #facc15; font-size: 0.76rem; }
-.simc-benchmark-item-tooltip-level { color: #93c5fd; }
-.simc-benchmark-item-tooltip-source { color: #c4b5fd; }
-.simc-benchmark-item-tooltip-stat { color: #86efac; }
-.simc-benchmark-item-tooltip-effect { color: #f8fafc; margin-top: 0.12rem; }
-.simc-benchmark-item-tooltip-note { border-top: 1px solid rgba(148, 163, 184, 0.26); color: #cbd5e1; font-size: 0.64rem; margin-top: 0.18rem; padding-top: 0.28rem; }
-.simc-benchmark-item-tooltip-empty { color: #cbd5e1; font-style: italic; }
 
 .simc-benchmark-state {
     background: rgba(248, 250, 252, 0.78);

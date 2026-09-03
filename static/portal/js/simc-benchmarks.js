@@ -204,17 +204,21 @@
       const key = `${itemIdentity}|${variantIdentity}`;
       if (!groups.has(key)) {
         groups.set(key, {
-          key, label, icon_url: candidate.icon_url || "", effect: candidate.effect || "",
+          key, label, icon_url: candidate.icon_url || "",
+          tooltip: candidate.tooltip || candidate.effect || "",
           source_label: candidate.source_label || "", variants: [],
         });
       }
       const group = groups.get(key);
-      if (!group.effect && candidate.effect) group.effect = candidate.effect;
+      if (!group.tooltip && (candidate.tooltip || candidate.effect)) group.tooltip = candidate.tooltip || candidate.effect;
       if (!group.source_label && candidate.source_label) group.source_label = candidate.source_label;
       group.variants.push(candidate);
     });
     return Array.from(groups.values()).map((group) => {
       group.variants.sort((left, right) => Number(left.item_level || Number.MAX_SAFE_INTEGER) - Number(right.item_level || Number.MAX_SAFE_INTEGER));
+      group.tooltip = Array.from(new Set(group.variants
+        .map((candidate) => String(candidate.tooltip || candidate.effect || "").trim())
+        .filter(Boolean))).join("\n\n");
       group.bestDps = Math.max(...group.variants.map((candidate) => validDps(candidate.dps) ?? 0));
       return group;
     }).sort((left, right) => right.bestDps - left.bestDps);
@@ -244,48 +248,19 @@
     const body = node("div", "simc-benchmark-gear-chart-body");
     const guide = node("div", "simc-benchmark-gear-hover-guide"); guide.hidden = true; guide.setAttribute("aria-hidden", "true");
     const tooltip = node("div", "simc-benchmark-gear-tooltip"); tooltip.hidden = true; tooltip.setAttribute("role", "tooltip");
-    const itemTooltip = node("div", "simc-benchmark-item-tooltip"); itemTooltip.hidden = true; itemTooltip.setAttribute("role", "tooltip");
-    const itemTooltipId = `simc-benchmark-item-tooltip-${Math.random().toString(36).slice(2)}`;
-    itemTooltip.id = itemTooltipId;
-    body.append(guide, tooltip); chart.appendChild(itemTooltip);
+    body.append(guide, tooltip);
     const position = (dps) => scale.range > 0 ? Math.max(0, Math.min(100, ((dps - scale.lowest) / scale.range) * 100)) : 100;
     const baselineDps = baseline ? validDps(baseline.dps) : null;
-
-    function itemTooltipLineClass(line) {
-      if (/^(?:装备：|使用：|被动：|效果：|Equip:|Use:|Passive:|Effect:)/.test(line)) return "simc-benchmark-item-tooltip-effect";
-      if (/^\+\d/.test(line)) return "simc-benchmark-item-tooltip-stat";
-      return "";
-    }
-
-    function showItemTooltip(event, group, identity) {
-      const levels = Array.from(new Set(group.variants.map((candidate) => Number(candidate.item_level))
-        .filter((level) => Number.isFinite(level) && level > 0))).join(" / ");
-      const details = String(group.effect || "").replace(/\r\n?/g, "\n").split("\n")
-        .map((line) => line.trim()).filter(Boolean);
-      itemTooltip.replaceChildren(
-        node("strong", "simc-benchmark-item-tooltip-name", group.label),
-        ...(levels ? [node("span", "simc-benchmark-item-tooltip-level", `本次模拟输入装等：${levels}`)] : []),
-        ...(group.source_label ? [node("span", "simc-benchmark-item-tooltip-source", `候选与模拟装等来源：${group.source_label}`)] : []),
-        ...(details.length
-          ? details.map((line) => node("span", itemTooltipLineClass(line), line))
-          : [node("span", "simc-benchmark-item-tooltip-empty", "暂无冻结的物品 tooltip 信息")]),
-        ...(details.length ? [node("span", "simc-benchmark-item-tooltip-note", "属性与特效为物品静态 tooltip 快照，仅用于识别；它们不替代本次模拟输入装等。")] : []),
-      );
-      const rect = identity.getBoundingClientRect();
-      const maxLeft = Math.max(8, window.innerWidth - 370);
-      itemTooltip.style.left = `${Math.min(maxLeft, Math.max(8, rect.left))}px`;
-      itemTooltip.style.top = `${Math.max(8, rect.bottom + 8)}px`;
-      itemTooltip.hidden = false;
-    }
-
-    function hideItemTooltip() { itemTooltip.hidden = true; }
 
     groups.forEach((group, index) => {
       const row = node("div", "simc-benchmark-gear-row");
       const identity = node("button", "simc-benchmark-gear-identity");
       identity.type = "button";
-      identity.setAttribute("aria-describedby", itemTooltipId);
       identity.setAttribute("aria-label", `第 ${index + 1} 名，查看 ${group.label} 的装备说明`);
+      if (group.tooltip) {
+        identity.setAttribute("data-wow-item-tooltip", group.tooltip);
+        identity.setAttribute("data-wow-item-tooltip-name", group.label);
+      }
       identity.appendChild(node("span", "simc-benchmark-gear-rank", String(index + 1)));
       const iconUrl = safeIconUrl(group.icon_url);
       if (iconUrl) {
@@ -294,15 +269,6 @@
         identity.appendChild(icon);
       }
       identity.appendChild(node("strong", "simc-benchmark-gear-name", group.label));
-      identity.addEventListener("pointerenter", (event) => showItemTooltip(event, group, identity));
-      identity.addEventListener("pointerleave", hideItemTooltip);
-      identity.addEventListener("focus", (event) => showItemTooltip(event, group, identity));
-      identity.addEventListener("blur", hideItemTooltip);
-      identity.addEventListener("click", (event) => {
-        event.preventDefault();
-        if (itemTooltip.hidden) showItemTooltip(event, group, identity);
-        else hideItemTooltip();
-      });
       const plot = node("div", "simc-benchmark-gear-plot");
       let previousDps = scale.lowest;
       group.variants.forEach((candidate) => {
@@ -522,7 +488,7 @@
       equipment.forEach((item) => {
         const row = node("div", "simc-benchmark-profile-equipment-row");
         const name = item?.display_name || item?.name_zh || item?.name || `#${item?.item_id || "—"}`;
-        const description = String(item?.display_description || "").trim();
+        const description = String(item?.tooltip || item?.display_description || "").trim();
         if (description) {
           row.setAttribute("data-wow-item-tooltip", description);
           row.setAttribute("data-wow-item-tooltip-name", name);

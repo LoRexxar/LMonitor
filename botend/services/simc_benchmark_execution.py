@@ -42,6 +42,7 @@ from botend.services.simc_task_service import (
     TaskCreationError, TaskPreparedResourceChanged, TaskValidationUnavailable,
     _compute_content_hash, create_task, prepare_task_creation,
 )
+from botend.services.wow_item_display import load_item_tooltip_metadata
 from botend.services.task_rerun import create_rerun, TaskRerunError
 from botend.wow.talents.default_versions import DEFAULT_TALENT_VERSIONS
 
@@ -312,6 +313,34 @@ def _candidate_item_id(candidate):
     raw_value = str(gear_swap.get('raw_value') or '')
     match = re.search(r'(?:^|,)\s*(?:id|item_id)=(\d+)(?=,|$)', raw_value, re.I)
     return int(match.group(1)) if match and int(match.group(1)) > 0 else None
+
+
+def _candidate_bonus_ids(candidate):
+    """读取候选装备中参与具体变体匹配的 bonus id。"""
+    params = candidate.get('candidate_params')
+    if not isinstance(params, dict):
+        return ()
+    gear_swap = params.get('gear_swap')
+    if not isinstance(gear_swap, dict):
+        gear_swap = params
+    values = gear_swap.get('bonus_ids', gear_swap.get('bonus_id'))
+    if isinstance(values, str):
+        values = re.split(r'[/;: ]+', values)
+    elif not isinstance(values, (tuple, list, set)):
+        values = [values] if values not in (None, '') else []
+    raw_value = str(gear_swap.get('raw_value') or '')
+    raw_match = re.search(r'(?:^|,)\s*bonus_id=([^,]+)', raw_value, re.I)
+    if raw_match:
+        values = [*values, *re.split(r'[/;: ]+', raw_match.group(1))]
+    normalized = set()
+    for value in values:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            continue
+        if parsed > 0:
+            normalized.add(parsed)
+    return tuple(sorted(normalized))
 
 
 def _candidate_item_variant_key(candidate):
@@ -1677,6 +1706,26 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
     else:
         projected_cases = [] if coordinate_filter is not None else plan_cases
         selected_filter = historical_filter or None
+    display_candidates = []
+    display_requests = []
+    seen_display_identities = set()
+    for coordinate in projected_cases:
+        for candidate in coordinate['candidates']:
+            item_id = _candidate_item_id(candidate)
+            identity = _candidate_input_identity(candidate)
+            if not item_id or identity in seen_display_identities:
+                continue
+            seen_display_identities.add(identity)
+            display_candidates.append(identity)
+            display_requests.append({
+                'item_id': item_id,
+                'item_level': _candidate_item_level(candidate),
+                'bonus_ids': _candidate_bonus_ids(candidate),
+            })
+    display_by_identity = dict(zip(
+        display_candidates,
+        load_item_tooltip_metadata(display_requests) if display_requests else (),
+    ))
     reusable_by_coordinate = _reusable_candidate_tasks_by_coordinate(
         panel, selected_filter, summary_only=not include_details,
         coordinate_plans=projected_cases,
@@ -1773,12 +1822,20 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                     _candidate_source_run(result_task, candidate['candidate_key'])
                     if include_details else None
                 )
-                effect = candidate.get('effect') or ''
+                display = display_by_identity.get(_candidate_input_identity(candidate)) or {}
+                item_level = _candidate_item_level(candidate)
+                display_name = str(display.get('display_name') or '').strip()
+                if display_name.startswith('#'):
+                    display_name = ''
+                label = display_name or candidate['candidate_label']
+                if display_name and item_level:
+                    label = f'{display_name} · {item_level}'
+                tooltip = str(display.get('tooltip') or candidate.get('effect') or '').strip()
                 row = {
                     'key': candidate['candidate_key'],
-                    'label': candidate['candidate_label'],
+                    'label': label,
                     'type': candidate['candidate_type'],
-                    'icon_url': candidate['icon_url'],
+                    'icon_url': display.get('icon_url') or candidate['icon_url'],
                     'source_label': candidate['source_label'],
                     'dps': float(match['result'].dps),
                 }
@@ -1787,13 +1844,15 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                         'task_id': result_task.pk,
                         'source_result_id': match['result'].pk,
                     })
-                if effect:
-                    row['effect'] = effect
+                if tooltip:
+                    row['effect'] = tooltip
+                    row['tooltip'] = tooltip
+                if display.get('variant_id'):
+                    row['tooltip_complete'] = bool(display.get('tooltip_complete'))
                 report_url = report_urls.get((match['task'].pk, candidate['candidate_key']))
                 if report_url:
                     row['raw_report_url'] = report_url
                 item_id = _candidate_item_id(candidate)
-                item_level = _candidate_item_level(candidate)
                 if item_id is not None and item_level is not None:
                     row['item_id'] = item_id
                     row['item_variant_key'] = _candidate_item_variant_key(candidate)

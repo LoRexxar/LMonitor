@@ -23,7 +23,7 @@ from botend.constants.wow import SPEC_CN
 from botend.models import (
     SimcApl, SimcBackendBinary, SimcBenchmarkCandidate, SimcBenchmarkPanel,
     SimcBenchmarkProfile, SimcBenchmarkScenario, SimcBenchmarkSpec,
-    SimcContentTemplate, SimcProfile, SimcTalentString, WowItemSnapshot,
+    SimcContentTemplate, SimcProfile, SimcTalentString,
 )
 from botend.services.simc_player_config import (
     EQUIPMENT_SLOTS, EQUIPMENT_SLOT_ALIASES, canonical_simc_profile_identity,
@@ -39,6 +39,7 @@ from botend.services.simc_composer import (
     SIMC_EXTRA_OPTIONS, SIMC_RAID_BUFF_VALUES, validate_simulation_options,
 )
 from botend.services.simc_candidate_options import normalize_controlled_simc_options
+from botend.services.wow_item_display import load_item_tooltip_metadata
 
 MAX_SPECS = len(SUPPORTED_SIMC_SPEC_IDENTITIES)
 MAX_PROFILES_PER_SPEC = 5
@@ -512,25 +513,19 @@ def _default_talent_string(spec_key):
     return matches[0]
 
 
-def _best_benchmark_tooltip(description_zh, description):
-    """Prefer the configured Chinese item tooltip; fall back only when it is absent."""
-    return str(description_zh or '').strip() or str(description or '').strip()
-
-
-def _benchmark_item_display_metadata(item_id):
-    """Resolve display-only item data before the candidate is frozen into an Execution."""
-    item = WowItemSnapshot.objects.filter(item_id=item_id).only(
-        'name_zh', 'name', 'description_zh', 'description', 'icon',
-    ).first()
-    if item is None:
-        return '', '', ''
-    label = str(item.name_zh or item.name or '').strip()
-    effect = _best_benchmark_tooltip(item.description_zh, item.description)
-    icon_name = str(item.icon or '').strip().split('?', 1)[0].rsplit('/', 1)[-1]
-    while icon_name.rsplit('.', 1)[-1].lower() in {'jpg', 'jpeg', 'png', 'gif', 'webp'}:
-        icon_name = icon_name.rsplit('.', 1)[0]
-    icon_url = f'/static/wow_icons/small/{icon_name}.jpg' if icon_name else ''
-    return label, effect, icon_url
+def _benchmark_item_display_metadata(item_id, item_level=0, bonus_ids=()):
+    """用统一活动目录生成候选冻结前的展示字段。"""
+    metadata = load_item_tooltip_metadata([{
+        'item_id': item_id,
+        'item_level': item_level,
+        'bonus_ids': bonus_ids,
+    }])[0]
+    label = metadata['display_name']
+    return (
+        '' if label.startswith('#') else label,
+        metadata['tooltip'],
+        metadata['icon_url'],
+    )
 
 
 def normalize_panel_payload(payload, user_id, panel=None):
@@ -753,7 +748,12 @@ def normalize_panel_payload(payload, user_id, panel=None):
             _error('spec_keys 只能包含字符串', 'spec_keys')
         spec_keys = [_key(item, 'spec_keys') for item in spec_keys]
         if len(set(spec_keys)) != len(spec_keys): _error('spec_keys 包含重复值', 'spec_keys')
-        metadata_label, metadata_effect, metadata_icon_url = _benchmark_item_display_metadata(item_id)
+        bonus_ids = [
+            value for key, value in item_options if key in {'bonus_id', 'bonus_ids'}
+        ]
+        metadata_label, metadata_effect, metadata_icon_url = _benchmark_item_display_metadata(
+            item_id, item_level, bonus_ids,
+        )
         requested_label = _text(raw.get('label', ''), 'candidate.label', required=False, max_length=200)
         icon_url = metadata_icon_url or _text(raw.get('icon_url', ''), 'icon_url', required=False,
                                                 max_length=500)

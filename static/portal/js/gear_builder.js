@@ -155,6 +155,8 @@
   }
 
   function tooltipText(item, variant) {
+    const canonicalTooltip = String(variant?.tooltip || "").trim();
+    if (canonicalTooltip) return canonicalTooltip;
     const values = [];
     if (variant?.item_level) values.push(`物品等级 ${variant.item_level}`);
     Object.entries(variant?.stats || {}).forEach(([key, value]) => values.push(`+${formatNumber(value)} ${STAT_LABELS[key] || key}`));
