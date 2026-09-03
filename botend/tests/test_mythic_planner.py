@@ -3558,6 +3558,61 @@ class MythicPlannerDashboardTests(TestCase):
         self.assertContains(dashboard_home, 'dashboard/js/main.js')
         self.assertNotContains(dashboard_home, 'dashboard/js/dashboard_shell.js')
 
+    def test_staff_can_preflight_default_route_and_identify_dungeon(self):
+        self.client.force_login(self.staff)
+        payload = MythicPlannerPublicApiTests.share_payload(
+            name='待预检推荐路线',
+        )
+        payload['data_version_key'] = 'mdt-retired-version'
+        route_code = encode_share_code(payload)
+
+        response = self.client.post(
+            '/api/mythic-planner/manage/',
+            data=json.dumps({
+                'resource': 'default_route_preflight',
+                'data': {'route_code': route_code},
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        preview = response.json()['data']
+        self.assertTrue(preview['is_valid'])
+        self.assertEqual(preview['dungeon']['key'], 'gloamvault')
+        self.assertEqual(preview['dungeon']['display_name'], '暮影宝库')
+        self.assertEqual(preview['data_version']['key'], 'lmonitor-demo-1')
+        self.assertEqual(
+            preview['source_data_version_key'],
+            'lmonitor-demo-1',
+        )
+        self.assertFalse(preview['version_changed'])
+        self.assertEqual(preview['dungeon_level'], 12)
+        self.assertEqual(preview['pull_count'], 1)
+        self.assertEqual(preview['spawn_count'], 1)
+        self.assertEqual(preview['annotation_count'], 0)
+        self.assertEqual(MythicDungeonDefaultRoute.objects.count(), 0)
+
+        spawn = MythicDungeonSpawn.objects.get(
+            enemy__key='vault-guardian',
+            key='guardian-01',
+        )
+        spawn.is_active = False
+        spawn.save(update_fields=['is_active'])
+        rejected = self.client.post(
+            '/api/mythic-planner/manage/',
+            data=json.dumps({
+                'resource': 'default_route_preflight',
+                'data': {'route_code': route_code},
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(rejected.status_code, 400, rejected.content)
+        self.assertIn(
+            '不存在的怪物点位',
+            rejected.json()['message'],
+        )
+        self.assertEqual(MythicDungeonDefaultRoute.objects.count(), 0)
+
     def test_management_snapshot_allows_compatible_old_version_route(self):
         self.client.force_login(self.staff)
         dungeon = get_active_dungeon('gloamvault')
@@ -4270,6 +4325,9 @@ class MythicPlannerPageContractTests(SimpleTestCase):
         dashboard_js = (
             Path(settings.BASE_DIR) / 'static' / 'dashboard' / 'js' / 'mythic_planner.js'
         ).read_text(encoding='utf-8')
+        dashboard_css = (
+            Path(settings.BASE_DIR) / 'static' / 'dashboard' / 'css' / 'mythic_planner.css'
+        ).read_text(encoding='utf-8')
         self.assertNotIn('importBuiltinMdt', dashboard_js)
         self.assertNotIn('import-builtin-mdt', dashboard_js)
         route_dashboard_js = (
@@ -4322,6 +4380,8 @@ class MythicPlannerPageContractTests(SimpleTestCase):
             '导入当前浏览器成为可编辑副本',
             '已打开当前浏览器中的路线',
             'mdt-spawn-initial',
+            'mdt-spawn-avatar-image',
+            'mdt-pull-mini-fallback',
             'dungeonsForSelectionGroup',
             'shouldStartMapPan',
             'mdt-ability-icon',
@@ -4589,6 +4649,11 @@ class MythicPlannerPageContractTests(SimpleTestCase):
         self.assertIn('.mdt-library-row.is-invalid', planner_css)
         self.assertIn("row.is_valid === false", dashboard_js)
         self.assertIn('mp-admin-status is-invalid', dashboard_js)
+        self.assertIn("resource: 'default_route_preflight'", dashboard_js)
+        self.assertIn('scheduleDefaultRoutePreflight', dashboard_js)
+        self.assertIn('default-route-preflight', dashboard_js)
+        self.assertIn('预检通过', dashboard_js)
+        self.assertIn('.mp-route-preflight.is-valid', dashboard_css)
         self.assertIn(
             'const modelPreviewUrl = String(enemy.model_preview_url',
             portal_js,
@@ -4609,6 +4674,15 @@ class MythicPlannerPageContractTests(SimpleTestCase):
 
         self.assertIn('--spawn-background:', portal_css)
         self.assertIn('.mdt-spawn:focus-visible', portal_css)
+        self.assertIn('.mdt-spawn-avatar-image', portal_css)
+        self.assertIn(
+            '.mdt-spawn-avatar:not(.is-error) .mdt-spawn-initial',
+            portal_css,
+        )
+        self.assertIn(
+            '.mdt-pull-mini:not(.is-error) .mdt-pull-mini-fallback',
+            portal_css,
+        )
         self.assertIn('-webkit-text-stroke-width: var(--spawn-outline-size)', portal_css)
         self.assertIn('paint-order: stroke fill', portal_css)
         self.assertIn('color-scheme: dark', portal_css)

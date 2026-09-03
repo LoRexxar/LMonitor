@@ -283,6 +283,25 @@ button:disabled { cursor: not-allowed; opacity: .45; }
     paint-order: stroke fill;
     text-shadow: 0 1px 1px #000, 0 0 2px #000;
 }
+.mdt-spawn-avatar {
+    position: absolute;
+    z-index: 1;
+    inset: 0;
+    overflow: hidden;
+    border-radius: inherit;
+    background: var(--spawn-background);
+    pointer-events: none;
+}
+.mdt-spawn-avatar-image {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scale(1.35);
+    transform-origin: 50% 25%;
+}
+.mdt-spawn-avatar:not(.is-error) .mdt-spawn-initial { visibility: hidden; }
 .mdt-spawn-initial.is-wide {
     --spawn-outline-size: clamp(.5px, calc(var(--spawn-wide-font-size, 4.25px) * .09), .85px);
     font-size: var(--spawn-wide-font-size, 4.25px);
@@ -626,16 +645,54 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .mdt-pull-body { min-width: 0; padding: 3px 4px; }
 .mdt-pull-icons { display: flex; min-height: 16px; gap: 2px; overflow: hidden; }
 .mdt-pull-mini {
+    position: relative;
     display: grid;
     place-items: center;
+    width: 15px;
     min-width: 15px;
     height: 15px;
-    padding: 0 2px;
+    padding: 0;
+    overflow: visible;
     border: 1px solid #ffffff99;
     border-radius: 50%;
     background: #111a;
     font-size: 6px;
     font-weight: 900;
+}
+.mdt-pull-mini > img,
+.mdt-pull-mini-fallback {
+    grid-area: 1 / 1;
+    border-radius: inherit;
+}
+.mdt-pull-mini > img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    overflow: hidden;
+    transform: scale(1.28);
+    transform-origin: 50% 25%;
+    clip-path: circle(50% at 50% 50%);
+}
+.mdt-pull-mini-fallback {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 100%;
+}
+.mdt-pull-mini:not(.is-error) .mdt-pull-mini-fallback { visibility: hidden; }
+.mdt-pull-mini small {
+    position: absolute;
+    z-index: 2;
+    right: -5px;
+    bottom: -4px;
+    min-width: 10px;
+    padding: 0 1px;
+    border: 1px solid #ffffff55;
+    border-radius: 4px;
+    background: #05080bf2;
+    color: #fff;
+    font-size: 6px;
+    line-height: 8px;
 }
 .mdt-pull-meta { display: flex; align-items: center; gap: 4px; padding: 3px 4px; color: #fff; font-size: 8px; text-align: right; white-space: nowrap; }
 .mdt-pull-meta strong { font-size: 10px; }

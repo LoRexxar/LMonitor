@@ -946,6 +946,7 @@
             const pull = pullForUid(spawn.uid);
             const patrol = Array.isArray(spawn.patrol) && spawn.patrol.length > 0;
             const markerInitial = initials(enemy.display_name);
+            const markerPortraitUrl = String(enemy.model_preview_url || '').trim();
             const displayScale = state.zoom;
             const markerSize = spawnMarkerSize(spawn) * displayScale;
             const baseMarkerSize = markerSize - 1;
@@ -970,7 +971,20 @@
                     aria-controls="enemy-detail-modal"
                     title=""
                 >
-                    <span class="mdt-spawn-initial ${markerInitial.length > 1 ? 'is-wide' : ''}" aria-hidden="true">${escapeHtml(markerInitial)}</span>
+                    <span class="mdt-spawn-avatar ${markerPortraitUrl ? '' : 'is-error'}" aria-hidden="true">
+                        <span class="mdt-spawn-initial ${markerInitial.length > 1 ? 'is-wide' : ''}">${escapeHtml(markerInitial)}</span>
+                        ${markerPortraitUrl ? `
+                            <img
+                                class="mdt-spawn-avatar-image"
+                                src="${escapeHtml(markerPortraitUrl)}"
+                                alt=""
+                                loading="lazy"
+                                decoding="async"
+                                referrerpolicy="no-referrer"
+                                onerror="this.parentElement.classList.add('is-error');this.remove()"
+                            >
+                        ` : ''}
+                    </span>
                     ${enemy.enemy_forces ? `<span class="mdt-spawn-count">${enemy.enemy_forces}</span>` : ''}
                 </button>
             `;
@@ -1035,11 +1049,25 @@
             const forcesPercent = targetForces ? (stats.forces / targetForces) * 100 : 0;
             const isCurrent = pull.id === state.route.current_pull_id;
             const icons = stats.counts.length
-                ? stats.counts.map(({enemy, count}) => `
-                    <span class="mdt-pull-mini" title="${escapeHtml(enemy.display_name)} × ${count}" style="border-color:${escapeHtml(enemy.marker_color || '#fff')}">
-                        ${escapeHtml(initials(enemy.display_name))}${count > 1 ? `<small>×${count}</small>` : ''}
-                    </span>
-                `).join('')
+                ? stats.counts.map(({enemy, count}) => {
+                    const portraitUrl = String(enemy.model_preview_url || '').trim();
+                    return `
+                        <span class="mdt-pull-mini ${portraitUrl ? '' : 'is-error'}" title="${escapeHtml(enemy.display_name)} × ${count}" style="border-color:${escapeHtml(enemy.marker_color || '#fff')}">
+                            <span class="mdt-pull-mini-fallback">${escapeHtml(initials(enemy.display_name))}</span>
+                            ${portraitUrl ? `
+                                <img
+                                    src="${escapeHtml(portraitUrl)}"
+                                    alt=""
+                                    loading="lazy"
+                                    decoding="async"
+                                    referrerpolicy="no-referrer"
+                                    onerror="this.parentElement.classList.add('is-error');this.remove()"
+                                >
+                            ` : ''}
+                            ${count > 1 ? `<small>×${count}</small>` : ''}
+                        </span>
+                    `;
+                }).join('')
                 : '<span class="mdt-pull-empty">点击地图怪物加入这一波</span>';
             return `
                 <article

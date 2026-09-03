@@ -436,6 +436,106 @@ def _management_default_route(row):
     }
 
 
+def _resolve_default_route_dungeon(
+    dungeon_key,
+    data_version_key='',
+    fallback_dungeon_id=None,
+):
+    """优先把路线匹配到当前生效数据中的同名地下城。"""
+
+    queryset = MythicDungeon.objects.select_related('data_version')
+    dungeon_key = str(dungeon_key or '').strip()
+    data_version_key = str(data_version_key or '').strip()
+    if dungeon_key:
+        matching = queryset.filter(key=dungeon_key)
+        dungeon = (
+            matching.filter(
+                data_version__is_active=True,
+                is_active=True,
+            )
+            .order_by('id')
+            .first()
+        )
+        if not dungeon and data_version_key:
+            dungeon = matching.filter(
+                data_version__key=data_version_key,
+            ).first()
+        if not dungeon:
+            dungeon = matching.order_by(
+                '-data_version__is_active',
+                '-is_active',
+                'id',
+            ).first()
+        if dungeon:
+            return dungeon
+        raise ValueError('路线字符串对应的地下城不存在。')
+    if fallback_dungeon_id:
+        dungeon = queryset.filter(id=fallback_dungeon_id).first()
+        if dungeon:
+            return dungeon
+    raise ValueError('路线字符串缺少地下城标识。')
+
+
+def _preflight_default_route_code(route_code):
+    route_code = str(route_code or '').strip()
+    if not route_code:
+        raise ValueError('请先输入推荐路线字符串。')
+    route_data = decode_share_code(route_code)
+    if not isinstance(route_data, dict):
+        raise ValueError('推荐路线字符串无法解析。')
+    source_version_key = str(
+        route_data.get('data_version_key') or ''
+    ).strip()
+    dungeon = _resolve_default_route_dungeon(
+        route_data.get('dungeon_key'),
+        source_version_key,
+    )
+    canonical_payload = dict(route_data)
+    canonical_payload.update({
+        'version': 1,
+        'dungeon_key': dungeon.key,
+        'data_version_key': dungeon.data_version.key,
+    })
+    validated = validate_route_payload(canonical_payload, dungeon)
+    pulls = validated.payload.get('pulls')
+    pulls = pulls if isinstance(pulls, list) else []
+    annotations = validated.payload.get('annotations')
+    annotations = annotations if isinstance(annotations, list) else []
+    spawn_count = sum(
+        len(pull.get('spawn_uids') or [])
+        for pull in pulls
+        if isinstance(pull, dict)
+        and isinstance(pull.get('spawn_uids'), list)
+    )
+    return {
+        'is_valid': True,
+        'dungeon': {
+            'id': dungeon.id,
+            'key': dungeon.key,
+            'name': dungeon.name,
+            'name_zh': dungeon.name_zh,
+            'display_name': dungeon.display_name,
+            'map_id': dungeon.map_id,
+        },
+        'data_version': {
+            'id': dungeon.data_version_id,
+            'key': dungeon.data_version.key,
+            'label': dungeon.data_version.label,
+            'is_active': dungeon.data_version.is_active,
+        },
+        'source_data_version_key': source_version_key,
+        'version_changed': bool(
+            source_version_key
+            and source_version_key != dungeon.data_version.key
+        ),
+        'route_name': str(validated.payload.get('name') or '').strip(),
+        'dungeon_level': int(validated.payload.get('dungeon_level') or 0),
+        'pull_count': len(pulls),
+        'spawn_count': spawn_count,
+        'annotation_count': len(annotations),
+    }
+
+
 def management_snapshot(resources=None, dungeon_id=None):
     if resources is None:
         requested_resources = None
@@ -1112,6 +1212,13 @@ class DashboardMythicPlannerAPIView(View):
             resource = str(body.get('resource') or '')
             snapshot_resources = body.get('snapshot_resources')
             snapshot_dungeon_id = body.get('snapshot_dungeon_id')
+            if resource == 'default_route_preflight':
+                data = body.get('data')
+                if not isinstance(data, dict):
+                    raise ValueError('data 必须是 JSON 对象。')
+                return success(_preflight_default_route_code(
+                    data.get('route_code'),
+                ))
             if resource == 'import':
                 import_data = body.get('data')
                 if not isinstance(import_data, dict):
@@ -1207,38 +1314,14 @@ class DashboardMythicPlannerAPIView(View):
                     data_version_key = str(
                         raw_route_data.get('data_version_key') or ''
                     ).strip()
-                    dungeon_queryset = MythicDungeon.objects.select_related(
-                        'data_version',
-                    )
-                    if dungeon_key:
-                        dungeon_queryset = dungeon_queryset.filter(
-                            key=dungeon_key,
-                        )
-                        if data_version_key:
-                            dungeon_queryset = dungeon_queryset.filter(
-                                data_version__key=data_version_key,
-                            )
-                        else:
-                            dungeon_queryset = dungeon_queryset.order_by(
-                                '-data_version__is_active',
-                                'id',
-                            )
-                        dungeon = dungeon_queryset.first()
-                        if not dungeon:
-                            raise ValueError(
-                                '路线字符串对应的地下城或数据版本不存在。'
-                            )
-                    else:
-                        dungeon_id = clean.get(
+                    dungeon = _resolve_default_route_dungeon(
+                        dungeon_key,
+                        data_version_key,
+                        clean.get(
                             'dungeon_id',
                             getattr(row, 'dungeon_id', None),
-                        )
-                        if not dungeon_id:
-                            raise ValueError('路线字符串缺少地下城标识。')
-                        dungeon = get_object_or_404(
-                            dungeon_queryset,
-                            id=dungeon_id,
-                        )
+                        ),
+                    )
                     name = str(
                         clean.get('name', getattr(row, 'name', '')) or ''
                     ).strip()

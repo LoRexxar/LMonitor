@@ -362,6 +362,8 @@
         editingId: null,
         routeDetail: null,
         toastTimer: null,
+        routePreflightTimer: null,
+        routePreflightSequence: 0,
         loadedResources: new Set(),
     };
 
@@ -782,6 +784,77 @@
         return `<label class="${classes}"><span>${escapeHtml(field.label)}</span><input name="${field.key}" type="${type}" value="${escapeHtml(value)}"${required} ${attrs}>${help}</label>`;
     }
 
+    function renderDefaultRoutePreflight(status, payload = null, message = '') {
+        const host = $('#default-route-preflight', els.editorFields);
+        if (!host) return;
+        host.className = `mp-route-preflight is-${status}`;
+        if (status === 'checking') {
+            host.innerHTML = '<span class="mp-route-preflight-badge">预检中</span><p>正在解析路线字符串并匹配副本…</p>';
+            return;
+        }
+        if (status === 'valid' && payload) {
+            const versionText = payload.version_changed
+                ? `来源版本 ${payload.source_data_version_key} · 已兼容匹配 ${payload.data_version.key}`
+                : `${payload.data_version.label || payload.data_version.key}`;
+            host.innerHTML = `
+                <span class="mp-route-preflight-badge">预检通过</span>
+                <div>
+                    <strong>${escapeHtml(payload.dungeon.display_name || payload.dungeon.name || payload.dungeon.key)}</strong>
+                    <p>${escapeHtml(versionText)}</p>
+                </div>
+                <dl>
+                    <div><dt>钥匙层数</dt><dd>+${Number(payload.dungeon_level || 0)}</dd></div>
+                    <div><dt>拉怪波次</dt><dd>${Number(payload.pull_count || 0)}</dd></div>
+                    <div><dt>怪物点位</dt><dd>${Number(payload.spawn_count || 0)}</dd></div>
+                    <div><dt>地图标注</dt><dd>${Number(payload.annotation_count || 0)}</dd></div>
+                </dl>
+            `;
+            return;
+        }
+        if (status === 'invalid') {
+            host.innerHTML = `<span class="mp-route-preflight-badge">预检失败</span><p>${escapeHtml(message || '路线字符串无法使用。')}</p>`;
+            return;
+        }
+        host.innerHTML = '<span class="mp-route-preflight-badge">等待预检</span><p>输入路线字符串后，将自动识别对应副本并校验怪物点位。</p>';
+    }
+
+    async function preflightDefaultRoute() {
+        if (state.resource !== 'default_routes') return true;
+        window.clearTimeout(state.routePreflightTimer);
+        const routeCodeInput = els.resourceForm.elements.namedItem('route_code');
+        const routeCode = String(routeCodeInput?.value || '').trim();
+        const sequence = ++state.routePreflightSequence;
+        if (!routeCode) {
+            renderDefaultRoutePreflight('idle');
+            return false;
+        }
+        renderDefaultRoutePreflight('checking');
+        try {
+            const response = await request('/api/mythic-planner/manage/', {
+                method: 'POST',
+                body: JSON.stringify({
+                    resource: 'default_route_preflight',
+                    data: {route_code: routeCode},
+                }),
+            });
+            if (sequence !== state.routePreflightSequence) return false;
+            renderDefaultRoutePreflight('valid', response.data);
+            return true;
+        } catch (error) {
+            if (sequence !== state.routePreflightSequence) return false;
+            renderDefaultRoutePreflight('invalid', null, error.message);
+            return false;
+        }
+    }
+
+    function scheduleDefaultRoutePreflight() {
+        window.clearTimeout(state.routePreflightTimer);
+        state.routePreflightTimer = window.setTimeout(
+            preflightDefaultRoute,
+            420,
+        );
+    }
+
     function openEditor(id = null) {
         const config = RESOURCE_CONFIG[state.resource];
         let row = id ? rowBy(state.resource, id) : null;
@@ -790,10 +863,25 @@
         els.editorTitle.textContent = `${row ? '编辑' : '新增'}${config.singular}`;
         els.editorSubtitle.textContent = row ? `记录 ID：${row.id}` : '保存后立即写入数据库';
         els.editorFields.innerHTML = config.fields.map((field) => renderField(field, row)).join('');
+        if (state.resource === 'default_routes') {
+            const routeCodeInput = els.resourceForm.elements.namedItem('route_code');
+            routeCodeInput?.closest('label')?.insertAdjacentHTML(
+                'afterend',
+                '<section id="default-route-preflight" class="mp-route-preflight is-idle" aria-live="polite"></section>',
+            );
+            routeCodeInput?.addEventListener('input', scheduleDefaultRoutePreflight);
+            if (String(routeCodeInput?.value || '').trim()) {
+                preflightDefaultRoute();
+            } else {
+                renderDefaultRoutePreflight('idle');
+            }
+        }
         els.editorModal.hidden = false;
     }
 
     function closeEditor() {
+        window.clearTimeout(state.routePreflightTimer);
+        state.routePreflightSequence += 1;
         els.editorModal.hidden = true;
         state.editingId = null;
     }
@@ -801,6 +889,13 @@
     async function saveEditor(event) {
         event.preventDefault();
         const config = RESOURCE_CONFIG[state.resource];
+        if (state.resource === 'default_routes') {
+            const preflightPassed = await preflightDefaultRoute();
+            if (!preflightPassed) {
+                toast('路线字符串预检未通过，请修正后再保存。', true);
+                return;
+            }
+        }
         const data = {};
         for (const field of config.fields) {
             if (field.type === 'readonly') continue;
