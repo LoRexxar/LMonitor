@@ -229,11 +229,36 @@ def _tool_to_dict(t):
         'url': _normalize_url(t.url),
         'desc': t.desc or '',
         'icon_path': _normalize_url(getattr(t, 'icon_path', '') or ''),
+        'icon_key': getattr(t, 'icon_key', '') or '',
+        'category': getattr(t, 'category', '') or 'tools',
+        'badge': getattr(t, 'badge', '') or '',
+        'badge_tone': getattr(t, 'badge_tone', '') or 'default',
         'sort_order': t.sort_order or 0,
         'is_topbar': bool(t.is_topbar),
         'topbar_order': t.topbar_order or 0,
+        'show_in_guide': bool(getattr(t, 'show_in_guide', False)),
+        'show_in_tools': bool(getattr(t, 'show_in_tools', True)),
+        'open_in_new_tab': bool(getattr(t, 'open_in_new_tab', True)),
         'source': t.source or '',
     }
+
+
+PORTAL_LINK_CATEGORIES = (
+    {'key': 'today', 'name': '今日动态', 'description': '重置、活动与当天重点', 'icon_key': 'calendar'},
+    {'key': 'data', 'name': '职业与数据', 'description': '专精页面与模拟结果', 'icon_key': 'chart'},
+    {'key': 'mythic', 'name': '大秘境数据', 'description': '分数线、巅峰榜与热门排行', 'icon_key': 'refresh'},
+    {'key': 'tools', 'name': '玩家工具', 'description': '天赋、配装与路线规划', 'icon_key': 'tools'},
+    {'key': 'community', 'name': '内容社区', 'description': '新闻、讨论与视频攻略', 'icon_key': 'newspaper'},
+)
+
+
+def _portal_link_categories(items):
+    present = {str(item.get('category') or 'tools') for item in items}
+    categories = [dict(item) for item in PORTAL_LINK_CATEGORIES if item['key'] in present]
+    known = {item['key'] for item in categories}
+    for key in sorted(present - known):
+        categories.append({'key': key, 'name': key, 'description': '自定义入口分组', 'icon_key': 'globe'})
+    return categories
 
 
 def _mplus_to_dict(r):
@@ -728,8 +753,12 @@ class PortalToolsAPIView(View):
             PortalToolLink.objects.filter(is_active=True, is_topbar=True)
             .order_by('topbar_order', 'sort_order', 'id')
         )
+        guide = list(
+            PortalToolLink.objects.filter(is_active=True, show_in_guide=True)
+            .order_by('topbar_order', 'sort_order', 'id')
+        )
         items = list(
-            PortalToolLink.objects.filter(is_active=True)
+            PortalToolLink.objects.filter(is_active=True, show_in_tools=True)
             .order_by('sort_order', 'id')
         )
         talent_simulator = {
@@ -737,17 +766,30 @@ class PortalToolsAPIView(View):
             'url': '/portal/talents/',
             'desc': '导入、编辑并导出魔兽世界天赋字符串',
             'icon_path': '/static/portal/favicons/default.svg',
+            'icon_key': 'chart',
+            'category': 'tools',
+            'badge': '',
+            'badge_tone': 'default',
             'sort_order': -10,
             'is_topbar': False,
             'topbar_order': 0,
+            'show_in_guide': False,
+            'show_in_tools': True,
+            'open_in_new_tab': False,
             'source': 'wowdaily',
         }
-        item_dicts = [talent_simulator] + [_tool_to_dict(x) for x in items]
+        topbar_dicts = [_tool_to_dict(x) for x in topbar]
+        guide_dicts = [_tool_to_dict(x) for x in guide]
+        item_dicts = [_tool_to_dict(x) for x in items]
+        if not any(item.get('url') == talent_simulator['url'] for item in item_dicts):
+            item_dicts.insert(0, talent_simulator)
         return JsonResponse({
             'status': 'success',
             'data': {
-                'topbar': [_tool_to_dict(x) for x in topbar],
+                'topbar': topbar_dicts,
+                'guide': guide_dicts,
                 'items': item_dicts,
+                'categories': _portal_link_categories(topbar_dicts + guide_dicts + item_dicts),
             }
         })
 

@@ -405,68 +405,91 @@ async function loadTools() {
   const gridEl = document.getElementById("tools-nav");
   if (!topEl && !gridEl) return;
   try {
-    const r = await fetchJson("/portal/api/tools/");
-    const topbar = r?.data?.topbar || [];
-    const items = r?.data?.items || [];
+    const sharedData = typeof window.getPortalToolsData === "function"
+      ? await window.getPortalToolsData()
+      : (await fetchJson("/portal/api/tools/"))?.data;
+    const topbar = Array.isArray(sharedData?.topbar) ? sharedData.topbar : [];
+    const guide = Array.isArray(sharedData?.guide) ? sharedData.guide : topbar;
+    const items = Array.isArray(sharedData?.items) ? sharedData.items : [];
+    const categories = Array.isArray(sharedData?.categories) ? sharedData.categories : [];
+    const categoryByKey = new Map(categories.map((item) => [String(item.key || ""), item]));
+    const iconKeys = new Set(["calendar", "newspaper", "chart", "tools", "chat", "video", "refresh", "globe"]);
+    const iconHtml = (key, className = "") => {
+      const safeKey = iconKeys.has(String(key || "")) ? String(key) : "globe";
+      return `<svg class="${escapeHtml(className)}" aria-hidden="true"><use href="/static/portal/icons/icons.svg#icon-${safeKey}"></use></svg>`;
+    };
+    const linkAttrs = (item) => {
+      const href = sanitizeHref(item?.url || "");
+      if (!href) return { href: "", attrs: "" };
+      const external = /^https?:\/\//i.test(href) && !href.startsWith(window.location.origin);
+      let attrs = item?.open_in_new_tab && external ? ' target="_blank" rel="noreferrer"' : "";
+      const sectionId = href.startsWith("/#") ? href.slice(2) : (href.startsWith("#") ? href.slice(1) : "");
+      if (/^[A-Za-z][\w-]*$/.test(sectionId)) {
+        attrs += ` data-portal-section="${escapeHtml(sectionId)}"`;
+      }
+      return { href: escapeHtml(href), attrs };
+    };
+    const orderedCategoryKeys = (sourceItems) => {
+      const present = new Set(sourceItems.map((item) => String(item?.category || "tools")));
+      const ordered = categories.map((item) => String(item.key || "")).filter((key) => present.has(key));
+      sourceItems.forEach((item) => {
+        const key = String(item?.category || "tools");
+        if (!ordered.includes(key)) ordered.push(key);
+      });
+      return ordered;
+    };
     if (topEl) {
-      if (!topbar.length) {
-        topEl.innerHTML = `<div class="text-xs text-slate-500">暂无入口</div>`;
+      if (!guide.length) {
+        topEl.innerHTML = `<div class="portal-guide-empty">暂无分类入口，可在后台“工具链接”中添加。</div>`;
       } else {
-        topEl.innerHTML = topbar
-          .slice(0, 24)
-          .map((it) => {
-            const name = escapeHtml(it.name || "");
-            const href = sanitizeHref(it.url || "");
-            const url = escapeHtml(href);
-            const icon = escapeHtml(getFaviconSrc(it));
-            const fallback = "/static/portal/favicons/default.svg";
-            if (!url) {
-              return `<span class="portal-pill inline-flex items-center gap-2 cursor-not-allowed opacity-70">
-                <img class="w-4 h-4 rounded bg-white/80 border border-slate-200" src="${icon}" alt="" loading="lazy" onerror="this.src='${fallback}'" />
-                <span>${name}</span>
-              </span>`;
-            }
-            return `<a class="portal-pill inline-flex items-center gap-2" href="${url}" target="_blank" rel="noreferrer">
-                <img class="w-4 h-4 rounded bg-white/80 border border-slate-200" src="${icon}" alt="" loading="lazy" onerror="this.src='${fallback}'" />
-                <span>${name}</span>
-              </a>`;
-          })
-          .join("");
+        topEl.innerHTML = orderedCategoryKeys(guide).map((key) => {
+          const groupItems = guide.filter((item) => String(item?.category || "tools") === key).slice(0, 4);
+          const meta = categoryByKey.get(key) || { name: key, description: "自定义入口", icon_key: "globe" };
+          const links = groupItems.map((item) => {
+            const { href, attrs } = linkAttrs(item);
+            const badgeTone = item?.badge_tone === "new" ? " is-new" : "";
+            const badge = item.badge ? `<span class="portal-guide-link-badge${badgeTone}">${escapeHtml(item.badge)}</span>` : "";
+            return href
+              ? `<a class="portal-guide-link" href="${href}"${attrs}><span>${escapeHtml(item.name || "未命名入口")}</span>${badge}</a>`
+              : `<span class="portal-guide-link is-disabled"><span>${escapeHtml(item.name || "未命名入口")}</span>${badge}</span>`;
+          }).join("");
+          return `<section class="portal-guide-group" data-guide-category="${escapeHtml(key)}">
+            <div class="portal-guide-group-head">
+              <span class="portal-guide-group-icon">${iconHtml(meta.icon_key)}</span>
+              <span><strong>${escapeHtml(meta.name || key)}</strong><small>${escapeHtml(meta.description || "")}</small></span>
+            </div>
+            <div class="portal-guide-links">${links}</div>
+          </section>`;
+        }).join("");
       }
     }
     if (gridEl) {
       if (!items.length) {
-        gridEl.innerHTML = `<div class="text-slate-500">暂无工具数据</div>`;
+        gridEl.innerHTML = `<div class="portal-tools-empty">暂无快捷链接，可在后台“工具链接”中新增并选择显示位置。</div>`;
       } else {
-        gridEl.innerHTML = items
-          .slice(0, 120)
-          .map((it) => {
-            const name = escapeHtml(it.name || "");
-            const href = sanitizeHref(it.url || "");
-            const url = escapeHtml(href);
-            const desc = escapeHtml(it.desc || "");
-            const icon = escapeHtml(getFaviconSrc(it));
-            const fallback = "/static/portal/favicons/default.svg";
-            if (!url) {
-              return `<div class="block p-3 rounded-xl border border-slate-200 bg-white opacity-70">
-                <div class="flex items-center gap-2">
-                  <img class="w-4 h-4 rounded bg-white/80 border border-slate-200" src="${icon}" alt="" loading="lazy" onerror="this.src='${fallback}'" />
-                  <div class="font-medium">${name}</div>
-                </div>
-                ${desc ? `<div class="text-slate-500 text-xs mt-1">${desc}</div>` : ""}
-              </div>`;
-            }
-            const isInternal = href.startsWith('/');
-            const targetAttrs = isInternal ? '' : ' target="_blank" rel="noreferrer"';
-            return `<a class="block p-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-colors" href="${url}"${targetAttrs}>
-                <div class="flex items-center gap-2">
-                  <img class="w-4 h-4 rounded bg-white/80 border border-slate-200" src="${icon}" alt="" loading="lazy" onerror="this.src='${fallback}'" />
-                  <div class="font-medium">${name}</div>
-                </div>
-                ${desc ? `<div class="text-slate-500 text-xs mt-1">${desc}</div>` : ""}
-              </a>`;
-          })
-          .join("");
+        gridEl.innerHTML = orderedCategoryKeys(items).map((key) => {
+          const groupItems = items.filter((item) => String(item?.category || "tools") === key).slice(0, 120);
+          const meta = categoryByKey.get(key) || { name: key, description: "自定义入口", icon_key: "globe" };
+          const rows = groupItems.map((item) => {
+            const { href, attrs } = linkAttrs(item);
+            const name = escapeHtml(item.name || "未命名入口");
+            const desc = escapeHtml(item.desc || "");
+            const iconPath = escapeHtml(getFaviconSrc(item));
+            const visual = item.icon_key
+              ? iconHtml(item.icon_key, "portal-tool-row-svg")
+              : `<img src="${iconPath}" alt="" loading="lazy" onerror="this.src='/static/portal/favicons/default.svg'">`;
+            const badgeTone = item?.badge_tone === "new" ? " is-new" : "";
+            const badge = item.badge ? `<span class="portal-tool-row-badge${badgeTone}">${escapeHtml(item.badge)}</span>` : "";
+            const content = `<span class="portal-tool-row-icon">${visual}</span><span class="portal-tool-row-copy"><strong>${name}</strong>${desc ? `<small>${desc}</small>` : ""}</span>${badge}<span class="portal-tool-row-arrow" aria-hidden="true">→</span>`;
+            return href
+              ? `<a class="portal-tool-row" href="${href}"${attrs}>${content}</a>`
+              : `<div class="portal-tool-row is-disabled">${content}</div>`;
+          }).join("");
+          return `<section class="portal-tool-group">
+            <header><span class="portal-tool-group-icon">${iconHtml(meta.icon_key)}</span><span><strong>${escapeHtml(meta.name || key)}</strong><small>${escapeHtml(meta.description || "")}</small></span><em>${groupItems.length} 个入口</em></header>
+            <div class="portal-tool-list">${rows}</div>
+          </section>`;
+        }).join("");
       }
     }
   } catch (e) {
@@ -2337,10 +2360,13 @@ function updateSearchMeta() {
   Object.keys(SECTION_MAP).forEach((key) => {
     const ep = SECTION_MAP[key];
     if (!ep.listId) return;
-    const items =
+    const rawItems =
       key === "mythicstats_dps"
         ? (PORTAL_STATE.dataBySection.mythicstats_dps_items || [])
         : (PORTAL_STATE.dataBySection[key] || []);
+    const items = Array.isArray(rawItems)
+      ? rawItems
+      : (Array.isArray(rawItems?.items) ? rawItems.items : []);
     total += Array.isArray(items) ? items.length : 0;
     shown += filterItems(items, q).length;
   });
@@ -2385,70 +2411,32 @@ function bindSearch() {
   }
 }
 
-/* ── 专精详情入口网格 ── */
-function renderSpecDetailGrid() {
-  const grid = document.getElementById("spec-detail-grid");
-  if (!grid) return;
-
-  const SPEC_ICON_BASE = "https://render.worldofwarcraft.com/us/icons/56/";
-  const specs = [
-    {c:"DeathKnight",s:"Blood",cn:"鲜血",icon:"spell_deathknight_bloodpresence.jpg",role:"tank"},
-    {c:"DeathKnight",s:"Frost",cn:"冰霜",icon:"spell_deathknight_frostpresence.jpg",role:"dps"},
-    {c:"DeathKnight",s:"Unholy",cn:"邪恶",icon:"spell_deathknight_unholypresence.jpg",role:"dps"},
-    {c:"DemonHunter",s:"Havoc",cn:"浩劫",icon:"ability_demonhunter_specdps.jpg",role:"dps"},
-    {c:"DemonHunter",s:"Vengeance",cn:"复仇",icon:"ability_demonhunter_spectank.jpg",role:"tank"},
-    {c:"Druid",s:"Balance",cn:"平衡",icon:"spell_nature_starfall.jpg",role:"dps"},
-    {c:"Druid",s:"Feral",cn:"野性",icon:"ability_druid_catform.jpg",role:"dps"},
-    {c:"Druid",s:"Guardian",cn:"守护",icon:"ability_racial_bearform.jpg",role:"tank"},
-    {c:"Druid",s:"Restoration",cn:"恢复",icon:"spell_nature_healingtouch.jpg",role:"healer"},
-    {c:"Hunter",s:"BeastMastery",cn:"野兽控制",icon:"ability_hunter_bestialdiscipline.jpg",role:"dps"},
-    {c:"Hunter",s:"Marksmanship",cn:"射击",icon:"ability_hunter_focusedaim.jpg",role:"dps"},
-    {c:"Hunter",s:"Survival",cn:"生存",icon:"ability_hunter_camouflage.jpg",role:"dps"},
-    {c:"Mage",s:"Arcane",cn:"奥术",icon:"spell_holy_magicalsentry.jpg",role:"dps"},
-    {c:"Mage",s:"Fire",cn:"火焰",icon:"spell_fire_firebolt02.jpg",role:"dps"},
-    {c:"Mage",s:"Frost",cn:"冰霜",icon:"spell_frost_frostbolt02.jpg",role:"dps"},
-    {c:"Monk",s:"Brewmaster",cn:"酒仙",icon:"monk_stance_drunkenox.jpg",role:"tank"},
-    {c:"Monk",s:"Mistweaver",cn:"织雾",icon:"monk_stance_wiseserpent.jpg",role:"healer"},
-    {c:"Monk",s:"Windwalker",cn:"踏风",icon:"monk_stance_whitetiger.jpg",role:"dps"},
-    {c:"Paladin",s:"Holy",cn:"神圣",icon:"spell_holy_holybolt.jpg",role:"healer"},
-    {c:"Paladin",s:"Protection",cn:"防护",icon:"ability_paladin_shieldofthetemplar.jpg",role:"tank"},
-    {c:"Paladin",s:"Retribution",cn:"惩戒",icon:"spell_holy_auraoflight.jpg",role:"dps"},
-    {c:"Priest",s:"Discipline",cn:"戒律",icon:"spell_holy_powerwordshield.jpg",role:"healer"},
-    {c:"Priest",s:"Holy",cn:"神圣",icon:"spell_holy_guardianspirit.jpg",role:"healer"},
-    {c:"Priest",s:"Shadow",cn:"暗影",icon:"spell_shadow_shadowwordpain.jpg",role:"dps"},
-    {c:"Rogue",s:"Assassination",cn:"奇袭",icon:"ability_rogue_eviscerate.jpg",role:"dps"},
-    {c:"Rogue",s:"Outlaw",cn:"狂徒",icon:"ability_rogue_waylay.jpg",role:"dps"},
-    {c:"Rogue",s:"Subtlety",cn:"敏锐",icon:"ability_stealth.jpg",role:"dps"},
-    {c:"Shaman",s:"Elemental",cn:"元素",icon:"spell_nature_lightning.jpg",role:"dps"},
-    {c:"Shaman",s:"Enhancement",cn:"增强",icon:"spell_shaman_improvedstormstrike.jpg",role:"dps"},
-    {c:"Shaman",s:"Restoration",cn:"恢复",icon:"spell_nature_magicimmunity.jpg",role:"healer"},
-    {c:"Warlock",s:"Affliction",cn:"痛苦",icon:"spell_shadow_deathcoil.jpg",role:"dps"},
-    {c:"Warlock",s:"Demonology",cn:"恶魔学识",icon:"spell_shadow_metamorphosis.jpg",role:"dps"},
-    {c:"Warlock",s:"Destruction",cn:"毁灭",icon:"spell_shadow_rainoffire.jpg",role:"dps"},
-    {c:"Warrior",s:"Arms",cn:"武器",icon:"ability_warrior_savageblow.jpg",role:"dps"},
-    {c:"Warrior",s:"Fury",cn:"狂怒",icon:"ability_warrior_innerrage.jpg",role:"dps"},
-    {c:"Warrior",s:"Protection",cn:"防护",icon:"ability_warrior_defensivestance.jpg",role:"tank"},
-    {c:"Evoker",s:"Augmentation",cn:"增辉",icon:"classicon_evoker_augmentation.jpg",role:"dps"},
-    {c:"Evoker",s:"Devastation",cn:"湮灭",icon:"classicon_evoker_devastation.jpg",role:"dps"},
-    {c:"Evoker",s:"Preservation",cn:"恩护",icon:"classicon_evoker_preservation.jpg",role:"healer"},
-  ];
-
-  const CLASS_CN = {DeathKnight:"死亡骑士",DemonHunter:"恶魔猎手",Druid:"德鲁伊",Hunter:"猎人",Mage:"法师",Monk:"武僧",Paladin:"圣骑士",Priest:"牧师",Rogue:"潜行者",Shaman:"萨满祭司",Warlock:"术士",Warrior:"战士",Evoker:"唤魔师"};
-  const roleColor = {tank:"#3b82f6",healer:"#22c55e",dps:"#ef4444"};
-
-  let html = '<div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-3">';
-  specs.forEach(sp => {
-    const url = `/portal/spec/${sp.c}/${sp.s}/`;
-    const cls = CLASS_CN[sp.c] || sp.c;
-    const color = roleColor[sp.role] || "#6b7280";
-    html += `<a href="${url}" class="flex flex-col items-center gap-1 p-2 rounded-lg hover:bg-white/80 transition-colors group" title="${cls} · ${sp.cn}">
-      <img src="${SPEC_ICON_BASE}${sp.icon}" alt="${sp.cn}" width="40" height="40" class="rounded-md ring-2 ring-transparent group-hover:ring-indigo-300 transition-shadow" loading="lazy">
-      <span class="text-xs text-slate-600 group-hover:text-slate-900 text-center leading-tight">${sp.cn}</span>
-      <span class="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style="background:${color}20;color:${color}">${sp.role}</span>
-    </a>`;
+function bindPortalGuideInteractions() {
+  if (document.documentElement.dataset.portalGuideBound === "1") return;
+  document.documentElement.dataset.portalGuideBound = "1";
+  document.addEventListener("click", (event) => {
+    const control = event.target.closest("[data-portal-section]");
+    if (!control) return;
+    const sectionId = String(control.dataset.portalSection || "");
+    const section = sectionId === "portal-topbar"
+      ? document.querySelector(".portal-topbar")
+      : document.getElementById(sectionId);
+    if (!section) return;
+    event.preventDefault();
+    window.history.replaceState(null, "", `#${sectionId}`);
+    scrollToPortalSection(section);
+    const index = sectionDotSections.indexOf(section);
+    if (index >= 0) setActiveSectionDot(index);
   });
-  html += '</div>';
-  grid.innerHTML = html;
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
+    const target = event.target;
+    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target?.isContentEditable) return;
+    const input = document.getElementById("portal-search");
+    if (!input) return;
+    event.preventDefault();
+    input.focus();
+  });
 }
 
 async function loadAll() {
@@ -2471,7 +2459,6 @@ async function loadAll() {
   await loadSection("mplus_rankings");
   await loadSection("peak_spec_rankings");
   await loadSection("mythicstats_dps");
-  renderSpecDetailGrid();
   updateSearchMeta();
 }
 
@@ -2526,6 +2513,7 @@ document.addEventListener("DOMContentLoaded", () => {
     PORTAL_STATE.activeMythicstatsSeason = "";
   }
   bindLogoBackgroundRemoval();
+  bindPortalGuideInteractions();
   loadAll();
   loadPublicBaselines();
   initSectionDots();
@@ -2534,19 +2522,19 @@ document.addEventListener("DOMContentLoaded", () => {
 /* ── section dot navigation (no scroll snapping) ── */
 const SECTION_DOT_LABELS = {
   "portal-topbar": "搜索",
-  "section-news": "新闻速递",
-  "section-wow-skill-diff": "数据挖掘",
-  "section-simc-baselines": "SimC基线",
-  "section-nga": "NGA热议",
-  "section-events": "活动提醒",
-  "section-videos": "视频攻略",
-  "section-mplus-cutoffs": "大秘境分数",
-  "section-rank": "Top Runs",
-  "section-peak-spec": "巅峰榜",
-  "section-mythicstats": "DPS榜单",
-  "section-spec-detail": "专精详情",
-  "section-tools": "工具导航",
+  "section-news": "今日动态",
+  "section-wow-skill-diff": "版本数据",
+  "section-nga": "社区与活动",
+  "section-tools": "快捷链接",
 };
+
+const SECTION_DOT_PRIMARY_IDS = new Set([
+  "portal-topbar",
+  "section-news",
+  "section-wow-skill-diff",
+  "section-nga",
+  "section-tools",
+]);
 
 let sectionDotSections = [];
 let sectionDots = [];
@@ -2554,7 +2542,10 @@ let sectionDots = [];
 function initSectionDots() {
   const container = document.getElementById("snap-dots");
   if (!container) return;
-  sectionDotSections = Array.from(document.querySelectorAll(".snap-section"));
+  sectionDotSections = Array.from(document.querySelectorAll(".snap-section")).filter((section) => {
+    const key = section.id || (section.classList.contains("portal-topbar") ? "portal-topbar" : "");
+    return SECTION_DOT_PRIMARY_IDS.has(key);
+  });
   if (!sectionDotSections.length) return;
 
   sectionDotSections.forEach((section, index) => {
@@ -2599,7 +2590,14 @@ function setActiveSectionDot(index) {
 function scrollToPortalSection(section) {
   if (!section) return;
   const headerHeight = document.querySelector(".portal-header")?.offsetHeight || 56;
-  window.scrollTo({ top: section.offsetTop - headerHeight, behavior: "smooth" });
+  const bodyStyles = window.getComputedStyle(document.body);
+  const bodyIsScroller = /^(auto|scroll)$/.test(bodyStyles.overflowY)
+    && document.body.scrollHeight > document.body.clientHeight;
+  const scroller = bodyIsScroller
+    ? document.body
+    : (document.scrollingElement || document.documentElement);
+  const top = scroller.scrollTop + section.getBoundingClientRect().top - headerHeight - 8;
+  scroller.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
 }
 
 function scrollToPortalSectionById(sectionId) {

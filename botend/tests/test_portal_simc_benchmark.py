@@ -581,21 +581,24 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         header_soup = BeautifulSoup(shared_header, 'html.parser')
         quick_nav = header_soup.select_one('nav.portal-quick-nav[aria-label="Portal 快捷入口"]')
         self.assertIsNotNone(quick_nav)
-        navigation = [
-            (link.get_text(' ', strip=True), link.get('href'), link.get('aria-label'))
-            for link in quick_nav.select('a[href]')
-        ]
+        groups = quick_nav.select('details.portal-nav-group[data-nav-category]')
         self.assertEqual(
-            navigation,
-            [
-                ('新闻聚合', '/portal/news/', None),
-                ('全职业数据', '/portal/specs/', None),
-                ('天赋模拟器', '/portal/talents/', None),
-                ('职业配装器', '/portal/gear-builder/', None),
-                ('MDT', '/portal/mythic-planner/', None),
-                ('simc模拟数据', '/portal/simc-benchmarks/', None),
-            ],
+            [group.get('data-nav-category') for group in groups],
+            ['today', 'data', 'tools', 'community'],
         )
+        navigation = {(link.get_text(' ', strip=True), link.get('href')) for link in quick_nav.select('a[href]')}
+        self.assertTrue({
+            ('今日魔兽与资讯', '/#section-news'),
+            ('活动提醒', '/#section-events'),
+            ('全职业数据', '/portal/specs/'),
+            ('SimC 模拟数据', '/portal/simc-benchmarks/'),
+            ('天赋模拟器', '/portal/talents/'),
+            ('职业配装器', '/portal/gear-builder/'),
+            ('MDT 路线', '/portal/mythic-planner/'),
+            ('新闻聚合', '/portal/news/'),
+            ('NGA 热议', '/#section-nga'),
+            ('视频攻略', '/#section-videos'),
+        }.issubset(navigation))
 
     def test_portal_header_has_persistent_accessible_theme_toggle(self):
         shared_header = (self.ROOT / 'templates/portal/_header.html').read_text(encoding='utf-8')

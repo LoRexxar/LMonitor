@@ -605,14 +605,26 @@ class WowSpecSpellMapSnapshot(models.Model):
 
 
 class PortalToolLink(models.Model):
+    BADGE_TONE_CHOICES = (
+        ('default', '常规'),
+        ('new', '新内容（红色）'),
+    )
+
     name = models.CharField(max_length=200)
     url = models.CharField(max_length=2000)
     url_hash = models.CharField(max_length=64, unique=True)
     desc = models.CharField(max_length=500, null=True, blank=True)
     source = models.CharField(max_length=32, default="manual")
+    category = models.CharField(max_length=32, default="tools")
+    icon_key = models.CharField(max_length=48, default="", blank=True)
+    badge = models.CharField(max_length=32, default="", blank=True)
+    badge_tone = models.CharField(max_length=16, choices=BADGE_TONE_CHOICES, default='default')
     sort_order = models.IntegerField(default=0)
     is_topbar = models.BooleanField(default=False)
     topbar_order = models.IntegerField(default=0)
+    show_in_guide = models.BooleanField(default=False)
+    show_in_tools = models.BooleanField(default=True)
+    open_in_new_tab = models.BooleanField(default=True)
     icon_path = models.CharField(max_length=500, null=True, blank=True, default="")
     is_active = models.BooleanField(default=True)
 
@@ -622,6 +634,7 @@ class PortalToolLink(models.Model):
             models.Index(fields=['url_hash']),
             models.Index(fields=['is_active']),
             models.Index(fields=['is_topbar']),
+            models.Index(fields=['category', 'is_active']),
             models.Index(fields=['sort_order']),
         ]
 
