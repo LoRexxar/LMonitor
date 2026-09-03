@@ -222,6 +222,7 @@
 .simc-benchmark-gear-row:nth-of-type(even) { background: rgba(226, 232, 240, 0.38); }
 .simc-benchmark-gear-row.is-hovered { background: #eff6ff; }
 .simc-benchmark-gear-identity { align-items: center; appearance: none; background: transparent; border: 0; color: inherit; cursor: help; display: flex; gap: 0.5rem; min-width: 0; padding: 0; text-align: left; }
+.simc-benchmark-gear-rank { color: #94a3b8; flex: 0 0 1.4rem; font-size: 0.68rem; font-variant-numeric: tabular-nums; font-weight: 750; text-align: center; }
 .simc-benchmark-gear-identity:hover .simc-benchmark-gear-name { color: #1d4ed8; text-decoration: underline; text-underline-offset: 2px; }
 .simc-benchmark-gear-identity:focus-visible { border-radius: 0.25rem; outline: 2px solid #2563eb; outline-offset: 2px; }
 .simc-benchmark-gear-name { color: #334155; font-size: 0.74rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -280,12 +280,13 @@
 
     function hideItemTooltip() { itemTooltip.hidden = true; }
 
-    groups.forEach((group) => {
+    groups.forEach((group, index) => {
       const row = node("div", "simc-benchmark-gear-row");
       const identity = node("button", "simc-benchmark-gear-identity");
       identity.type = "button";
       identity.setAttribute("aria-describedby", itemTooltipId);
-      identity.setAttribute("aria-label", `查看 ${group.label} 的装备说明`);
+      identity.setAttribute("aria-label", `第 ${index + 1} 名，查看 ${group.label} 的装备说明`);
+      identity.appendChild(node("span", "simc-benchmark-gear-rank", String(index + 1)));
       const iconUrl = safeIconUrl(group.icon_url);
       if (iconUrl) {
         const icon = node("img", "simc-benchmark-candidate-icon");

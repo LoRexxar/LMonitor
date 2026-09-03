@@ -899,10 +899,11 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             'simc-benchmark-gear-identity', 'simc-benchmark-item-tooltip-stat',
             'simc-benchmark-item-tooltip-effect', 'simc-benchmark-item-tooltip-source',
             'simc-benchmark-item-tooltip-note', '本次模拟输入装等',
+            'simc-benchmark-gear-rank', 'String(index + 1)', '第 ${index + 1} 名',
         ):
             self.assertIn(contract, self.JS + self.CSS)
         self.assertNotIn('const effect = group.effect', self.JS)
-        self.assertIn('?v=20260814_simc_apl_options', self.RESULTS_TEMPLATE)
+        self.assertIn('?v=20260903_gear_rank', self.RESULTS_TEMPLATE)
 
     def test_result_renderer_uses_frozen_target_count_and_duration_for_scenarios(self):
         for contract in (
