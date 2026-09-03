@@ -2544,28 +2544,46 @@ class MythicPlannerAssetPersistenceTests(TestCase):
         )
 
         self.assertEqual(stats['enemies'], 2)
+        self.assertEqual(stats['portraits'], 2)
         self.assertEqual(stats['empty'], 1)
-        self.assertEqual(len(jobs), 1)
-        self.assertEqual(len(jobs[0]['instances']), 2)
+        self.assertEqual(len(jobs), 2)
+        preview_job = next(row for row in jobs if row['kind'] == 'enemy')
+        portrait_job = next(
+            row for row in jobs if row['kind'] == 'enemy_portrait'
+        )
+        self.assertEqual(len(preview_job['instances']), 2)
+        self.assertEqual(len(portrait_job['instances']), 2)
         self.assertEqual(
-            jobs[0]['source_url'],
+            preview_job['source_url'],
             (
                 'https://wow.zamimg.com/modelviewer/live/webthumbs/npc/'
                 '221/139997.webp'
             ),
         )
         self.assertEqual(
-            jobs[0]['object_key'],
+            preview_job['object_key'],
             'mythic-planner/model-previews/139997.webp',
         )
+        self.assertEqual(
+            portrait_job['object_key'],
+            'mythic-planner/model-portraits/139997.webp',
+        )
+        self.assertEqual(portrait_job['processor'], 'model_portrait')
 
         public_url = (
             'https://oss.wowdaily.cn/'
             'mythic-planner/model-previews/139997.webp'
         )
+        portrait_url = (
+            'https://oss.wowdaily.cn/'
+            'mythic-planner/model-portraits/139997.webp'
+        )
         command._write_results(
             version,
-            [(jobs[0], public_url)],
+            [
+                (preview_job, public_url),
+                (portrait_job, portrait_url),
+            ],
             [],
             'mythic-planner/versions/model-preview-test',
             'https://oss.wowdaily.cn/',
@@ -2581,6 +2599,30 @@ class MythicPlannerAssetPersistenceTests(TestCase):
                 enemy.metadata['model_preview_oss_object_key'],
                 'mythic-planner/model-previews/139997.webp',
             )
+            self.assertEqual(
+                enemy.metadata['model_portrait_oss_object_key'],
+                'mythic-planner/model-portraits/139997.webp',
+            )
+
+    def test_asset_sync_builds_compact_model_portrait(self):
+        from PIL import Image, ImageDraw
+
+        command = SyncMythicDungeonAssetsCommand()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / 'source.webp'
+            target = Path(temp_dir) / 'portrait.webp'
+            image = Image.new('RGBA', (300, 300), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(image)
+            draw.ellipse((126, 45, 174, 93), fill=(220, 80, 60, 255))
+            draw.rectangle((115, 90, 185, 260), fill=(50, 90, 180, 255))
+            image.save(source, 'WEBP', lossless=True)
+
+            command._build_model_portrait(source, target)
+
+            self.assertTrue(target.is_file())
+            with Image.open(target) as portrait:
+                self.assertEqual(portrait.size, (96, 96))
+                self.assertEqual(portrait.format, 'WEBP')
 
     def test_asset_sync_archives_interactive_poi_icon_to_short_key(self):
         version = MythicDungeonDataVersion.objects.create(
@@ -2866,6 +2908,13 @@ class MythicPlannerPublicApiTests(TestCase):
             (
                 'https://oss.wowdaily.cn/mythic-planner/'
                 'model-previews/139997.webp'
+            ),
+        )
+        self.assertEqual(
+            guardian['model_portrait_url'],
+            (
+                'https://oss.wowdaily.cn/mythic-planner/'
+                'model-portraits/139997.webp'
             ),
         )
         self.assertTrue(guardian['abilities'])
@@ -4656,6 +4705,10 @@ class MythicPlannerPageContractTests(SimpleTestCase):
         self.assertIn('.mp-route-preflight.is-valid', dashboard_css)
         self.assertIn(
             'const modelPreviewUrl = String(enemy.model_preview_url',
+            portal_js,
+        )
+        self.assertIn(
+            'String(enemy.model_portrait_url ||',
             portal_js,
         )
         self.assertNotIn('modelviewer/live/webthumbs/npc/', portal_js)

@@ -946,7 +946,7 @@
             const pull = pullForUid(spawn.uid);
             const patrol = Array.isArray(spawn.patrol) && spawn.patrol.length > 0;
             const markerInitial = initials(enemy.display_name);
-            const markerPortraitUrl = String(enemy.model_preview_url || '').trim();
+            const markerPortraitUrl = String(enemy.model_portrait_url || '').trim();
             const displayScale = state.zoom;
             const markerSize = spawnMarkerSize(spawn) * displayScale;
             const baseMarkerSize = markerSize - 1;
@@ -1050,7 +1050,7 @@
             const isCurrent = pull.id === state.route.current_pull_id;
             const icons = stats.counts.length
                 ? stats.counts.map(({enemy, count}) => {
-                    const portraitUrl = String(enemy.model_preview_url || '').trim();
+                    const portraitUrl = String(enemy.model_portrait_url || '').trim();
                     return `
                         <span class="mdt-pull-mini ${portraitUrl ? '' : 'is-error'}" title="${escapeHtml(enemy.display_name)} × ${count}" style="border-color:${escapeHtml(enemy.marker_color || '#fff')}">
                             <span class="mdt-pull-mini-fallback">${escapeHtml(initials(enemy.display_name))}</span>

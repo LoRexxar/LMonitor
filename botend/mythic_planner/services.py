@@ -31,6 +31,9 @@ MAX_ANNOTATIONS = 500
 MODEL_PREVIEW_BASE_URL = (
     'https://oss.wowdaily.cn/mythic-planner/model-previews'
 )
+MODEL_PORTRAIT_BASE_URL = (
+    'https://oss.wowdaily.cn/mythic-planner/model-portraits'
+)
 logger = logging.getLogger(__name__)
 
 
@@ -390,6 +393,19 @@ def _enemy_model_preview_url(enemy):
     return f'{MODEL_PREVIEW_BASE_URL}/{display_id}.webp'
 
 
+def _enemy_model_portrait_url(enemy):
+    """小图标使用独立轻量头像，避免下载完整模型图。"""
+
+    metadata = enemy.metadata if isinstance(enemy.metadata, dict) else {}
+    try:
+        display_id = int(metadata.get('display_id') or 0)
+    except (TypeError, ValueError):
+        return ''
+    if display_id <= 0:
+        return ''
+    return f'{MODEL_PORTRAIT_BASE_URL}/{display_id}.webp'
+
+
 def serialize_dungeon(dungeon):
     floors = list(dungeon.floors.all())
     enemies = list(dungeon.enemies.all())
@@ -440,6 +456,7 @@ def serialize_dungeon(dungeon):
                 'creature_type': enemy.creature_type,
                 'icon_url': enemy.icon_url,
                 'model_preview_url': _enemy_model_preview_url(enemy),
+                'model_portrait_url': _enemy_model_portrait_url(enemy),
                 'marker_color': enemy.marker_color,
                 'is_boss': enemy.is_boss,
                 'traits': enemy.traits or {},

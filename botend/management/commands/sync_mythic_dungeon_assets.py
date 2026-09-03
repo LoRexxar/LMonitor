@@ -84,7 +84,12 @@ class Command(BaseCommand):
         parser.add_argument(
             '--model-previews-only',
             action='store_true',
-            help='仅同步怪物静态模型预览图。',
+            help='仅同步怪物静态模型预览图和轻量头像。',
+        )
+        parser.add_argument(
+            '--model-portraits-only',
+            action='store_true',
+            help='仅从模型图生成并同步 96×96 怪物头像。',
         )
 
     def handle(self, *args, **options):
@@ -103,6 +108,12 @@ class Command(BaseCommand):
             for spell_id in options.get('spell_id') or []
             if int(spell_id) > 0
         }
+        model_previews_only = bool(options.get('model_previews_only'))
+        model_portraits_only = bool(options.get('model_portraits_only'))
+        if model_previews_only and model_portraits_only:
+            raise CommandError(
+                '--model-previews-only 与 --model-portraits-only 不能同时使用。'
+            )
         jobs, stats = self._build_jobs(
             version=version,
             base_prefix=base_prefix,
@@ -110,7 +121,8 @@ class Command(BaseCommand):
             oss_base_url=oss_base_url,
             force=bool(options.get('force')),
             spell_ids=target_spell_ids,
-            model_previews_only=bool(options.get('model_previews_only')),
+            model_previews_only=model_previews_only,
+            model_portraits_only=model_portraits_only,
         )
         limit = max(0, int(options.get('limit') or 0))
         if limit:
@@ -129,6 +141,7 @@ class Command(BaseCommand):
         )
         self.stdout.write(
             '待归档: 地图 {floors}、兴趣点 {pois}、公共技能 {spells}、怪物 {enemies}、'
+            '头像 {portraits}、'
             '关系技能 {abilities}；已在 OSS {already_oss}、无图片 {empty}、'
             '本地源缺失 {missing_local}'.format(**stats)
         )
@@ -181,6 +194,7 @@ class Command(BaseCommand):
         )
         self.stdout.write(self.style.SUCCESS(
             '资源归档完成: 地图 {floors}、兴趣点 {pois}、公共技能 {spells}、怪物 {enemies}、'
+            '头像 {portraits}、'
             '关系技能 {abilities}、上游无图 {unavailable}。'.format(**updated)
         ))
         if failed:
@@ -198,6 +212,7 @@ class Command(BaseCommand):
         force,
         spell_ids=None,
         model_previews_only=False,
+        model_portraits_only=False,
     ):
         jobs = []
         target_spell_ids = {
@@ -210,15 +225,17 @@ class Command(BaseCommand):
             'pois': 0,
             'spells': 0,
             'enemies': 0,
+            'portraits': 0,
             'abilities': 0,
             'already_oss': 0,
             'empty': 0,
             'missing_local': 0,
         }
 
+        model_assets_only = model_previews_only or model_portraits_only
         floors = (
             MythicDungeonFloor.objects.none()
-            if target_spell_ids or model_previews_only
+            if target_spell_ids or model_assets_only
             else MythicDungeonFloor.objects.filter(
                 dungeon__data_version=version,
                 is_active=True,
@@ -274,7 +291,7 @@ class Command(BaseCommand):
 
         pois = (
             MythicDungeonPoi.objects.none()
-            if target_spell_ids or model_previews_only
+            if target_spell_ids or model_assets_only
             else MythicDungeonPoi.objects.filter(
                 floor__dungeon__data_version=version,
                 floor__is_active=True,
@@ -335,7 +352,7 @@ class Command(BaseCommand):
             data_version=version,
             is_active=True,
         )
-        if model_previews_only:
+        if model_assets_only:
             spells = spells.none()
         if target_spell_ids:
             spells = spells.filter(spell_id__in=target_spell_ids)
@@ -393,9 +410,14 @@ class Command(BaseCommand):
         )
         for enemy in enemies:
             current_url = str(enemy.icon_url or '').strip()
+            enemy_metadata = enemy.metadata or {}
             display_id = self._enemy_display_id(enemy)
             model_object_key = (
                 f'{base_prefix}/model-previews/{display_id}.webp'
+                if display_id else ''
+            )
+            portrait_object_key = (
+                f'{base_prefix}/model-portraits/{display_id}.webp'
                 if display_id else ''
             )
             current_is_model_preview = bool(
@@ -406,6 +428,47 @@ class Command(BaseCommand):
                     model_object_key,
                 )
             )
+            if display_id:
+                portrait_is_archived = (
+                    str(
+                        enemy_metadata.get('model_portrait_oss_object_key')
+                        or ''
+                    ).strip()
+                    == portrait_object_key
+                )
+                if portrait_is_archived and not force:
+                    stats['already_oss'] += 1
+                else:
+                    portrait_source_url = (
+                        current_url
+                        if current_is_model_preview
+                        else str(
+                            enemy_metadata.get('model_preview_source_url')
+                            or ''
+                        ).strip()
+                    ) or self._wowhead_model_preview_url(display_id)
+                    jobs.append({
+                        'kind': 'enemy_portrait',
+                        'instance': enemy,
+                        'source': portrait_source_url,
+                        'source_url': portrait_source_url,
+                        'source_cache_path': (
+                            Path('model-portrait-sources')
+                            / f'{display_id}.webp'
+                        ),
+                        'cache_path': (
+                            Path('model-portraits') / f'{display_id}.webp'
+                        ),
+                        'refresh_download': force,
+                        'object_key': portrait_object_key,
+                        'model_display_id': display_id,
+                        'processor': 'model_portrait',
+                    })
+                    stats['portraits'] += 1
+            elif model_portraits_only:
+                stats['empty'] += 1
+            if model_portraits_only:
+                continue
             if model_previews_only or current_is_model_preview or (
                 not current_url and display_id
             ):
@@ -416,7 +479,7 @@ class Command(BaseCommand):
                     stats['already_oss'] += 1
                     continue
                 source_url = str(
-                    (enemy.metadata or {}).get('model_preview_source_url') or ''
+                    enemy_metadata.get('model_preview_source_url') or ''
                 ).strip() or self._wowhead_model_preview_url(display_id)
                 jobs.append({
                     'kind': 'enemy',
@@ -481,7 +544,7 @@ class Command(BaseCommand):
             enemy__dungeon__data_version=version,
             is_active=True,
         )
-        if model_previews_only:
+        if model_assets_only:
             abilities = abilities.none()
         if target_spell_ids:
             abilities = abilities.filter(spell_id__in=target_spell_ids)
@@ -551,7 +614,20 @@ class Command(BaseCommand):
     @staticmethod
     def _process_job(job, cache_root):
         local_path = job.get('local_path')
-        if local_path is None:
+        if job.get('processor') == 'model_portrait':
+            source_path = cache_root / job['source_cache_path']
+            Command._download_image(
+                job['source_url'],
+                source_path,
+                refresh=bool(job.get('refresh_download')),
+            )
+            local_path = cache_root / job['cache_path']
+            Command._build_model_portrait(
+                source_path,
+                local_path,
+                refresh=bool(job.get('refresh_download')),
+            )
+        elif local_path is None:
             local_path = cache_root / job['cache_path']
             Command._download_image(
                 job['source_url'],
@@ -573,6 +649,68 @@ class Command(BaseCommand):
             if attempt < 2:
                 time.sleep(2 ** attempt)
         raise last_error or RuntimeError('OSS 上传失败')
+
+    @staticmethod
+    def _build_model_portrait(source, target, *, refresh=False):
+        """从透明模型缩略图的上半身区域生成轻量头肩头像。"""
+
+        if target.is_file() and target.stat().st_size > 0 and not refresh:
+            return target
+        try:
+            from PIL import Image
+        except ImportError as exc:
+            raise RuntimeError('生成怪物头像需要安装 Pillow。') from exc
+
+        with Image.open(source) as raw_image:
+            image = raw_image.convert('RGBA')
+        alpha = image.getchannel('A')
+        opaque = alpha.point(lambda value: 255 if value > 20 else 0)
+        bounds = opaque.getbbox()
+        if bounds:
+            left, top, right, bottom = bounds
+            body_width = max(1, right - left)
+            body_height = max(1, bottom - top)
+            upper_height = max(12, round(body_height * 0.44))
+            upper_alpha = alpha.crop((
+                left,
+                top,
+                right,
+                min(bottom, top + upper_height),
+            ))
+            upper_bounds = upper_alpha.point(
+                lambda value: 255 if value > 35 else 0,
+            ).getbbox()
+            center_x = (
+                left + (upper_bounds[0] + upper_bounds[2]) / 2
+                if upper_bounds
+                else (left + right) / 2
+            )
+            center_y = top + body_height * 0.22
+            crop_size = max(
+                24,
+                min(
+                    max(body_width, body_height) * 0.38,
+                    min(image.width, image.height),
+                ),
+            )
+            crop_left = max(
+                0,
+                min(image.width - crop_size, center_x - crop_size / 2),
+            )
+            crop_top = max(
+                0,
+                min(image.height - crop_size, center_y - crop_size * 0.46),
+            )
+            image = image.crop((
+                round(crop_left),
+                round(crop_top),
+                round(crop_left + crop_size),
+                round(crop_top + crop_size),
+            ))
+        image = image.resize((96, 96), Image.Resampling.LANCZOS)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        image.save(target, 'WEBP', quality=72, method=6)
+        return target
 
     @staticmethod
     def _download_image(source_url, target, *, refresh=False):
@@ -638,6 +776,7 @@ class Command(BaseCommand):
             'poi': [],
             'spell': [],
             'enemy': [],
+            'enemy_portrait': [],
             'ability': [],
         }
         spell_urls = {}
@@ -645,6 +784,21 @@ class Command(BaseCommand):
         for job, public_url in completed:
             for instance in job['instances']:
                 metadata = dict(instance.metadata or {})
+                if job['kind'] == 'enemy_portrait':
+                    metadata.pop('model_portrait_unavailable', None)
+                    metadata.pop('model_portrait_unavailable_reason', None)
+                    metadata.update({
+                        'model_portrait_source_url': (
+                            job.get('source_url') or ''
+                        ),
+                        'model_portrait_oss_object_key': job['object_key'],
+                        'model_portrait_display_id': job['model_display_id'],
+                        'model_portrait_synced_at': now.isoformat(),
+                    })
+                    instance.metadata = metadata
+                    instance.updated_at = now
+                    grouped['enemy_portrait'].append(instance)
+                    continue
                 metadata.pop('asset_unavailable', None)
                 metadata.pop('asset_unavailable_reason', None)
                 metadata.update({
@@ -675,6 +829,20 @@ class Command(BaseCommand):
                 if job['kind'] == 'floor':
                     continue
                 metadata = dict(instance.metadata or {})
+                if job['kind'] == 'enemy_portrait':
+                    metadata.update({
+                        'model_portrait_source_url': (
+                            job.get('source_url') or ''
+                        ),
+                        'model_portrait_unavailable': True,
+                        'model_portrait_unavailable_reason': reason,
+                        'model_portrait_synced_at': now.isoformat(),
+                    })
+                    instance.metadata = metadata
+                    instance.updated_at = now
+                    grouped['enemy_portrait'].append(instance)
+                    unavailable_count += 1
+                    continue
                 metadata.update({
                     'asset_source_url': job.get('source_url') or '',
                     'asset_unavailable': True,
@@ -705,6 +873,12 @@ class Command(BaseCommand):
                     ['icon_url', 'metadata', 'updated_at'],
                     batch_size=500,
                 )
+        if grouped['enemy_portrait']:
+            MythicDungeonEnemy.objects.bulk_update(
+                grouped['enemy_portrait'],
+                ['metadata', 'updated_at'],
+                batch_size=500,
+            )
 
         inherited_abilities = []
         if spell_urls:
@@ -754,6 +928,7 @@ class Command(BaseCommand):
                 'pois': len(grouped['poi']),
                 'spells': len(grouped['spell']),
                 'enemies': len(grouped['enemy']),
+                'portraits': len(grouped['enemy_portrait']),
                 'abilities': len(grouped['ability']) + len(inherited_abilities),
                 'unavailable': unavailable_count,
             },
@@ -765,6 +940,7 @@ class Command(BaseCommand):
             'pois': len(grouped['poi']),
             'spells': len(grouped['spell']),
             'enemies': len(grouped['enemy']),
+            'portraits': len(grouped['enemy_portrait']),
             'abilities': len(grouped['ability']) + len(inherited_abilities),
             'unavailable': unavailable_count,
         }
