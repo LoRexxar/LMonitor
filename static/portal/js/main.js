@@ -888,28 +888,15 @@ function renderTodayStrip() {
   bindTodayStripNavigation();
   const candidates = [];
 
-  const events = PORTAL_STATE.dataBySection.events;
-  const event = Array.isArray(events) ? events.find((x) => x?.is_active || x?.status === "active") || events[0] : null;
-  if (event && getItemTitle(event)) {
-    candidates.push({
-      label: "活动提醒",
-      text: getItemTitle(event),
-      target: "section-events",
-      muted: event.date_text || event.time_text || "",
-      priority: 10,
-      dedupeText: getItemTitle(event),
-    });
-  }
-
   const cutoffItems = Array.isArray(PORTAL_STATE.dataBySection.mplus_cutoffs) ? PORTAL_STATE.dataBySection.mplus_cutoffs : [];
   const cnCutoff = cutoffItems.find((it) => String(it?.region || "").toLowerCase() === "cn" || it?.region_name === "国服");
   if (cnCutoff) {
     candidates.push({
       label: "大秘境分数",
-      text: `国服 0.1% ${todayFormatScore(cnCutoff.cutoff_0_1)} / 1% ${todayFormatScore(cnCutoff.cutoff_1)}`,
+      text: `国服 1% ${todayFormatScore(cnCutoff.cutoff_1)}`,
       target: "section-mplus-cutoffs",
       muted: "",
-      priority: 20,
+      priority: 10,
       dedupeText: "mplus-cn-cutoff",
     });
   }
@@ -926,7 +913,7 @@ function renderTodayStrip() {
     });
   }
 
-  const news = firstArrayItem("exwind") || firstArrayItem("wowhead");
+  const news = firstArrayItem("exwind");
   if (news && getItemTitle(news)) {
     candidates.push({
       label: "新闻资讯",
@@ -935,6 +922,18 @@ function renderTodayStrip() {
       muted: news.source || news.published_at || "",
       priority: 35,
       dedupeText: getItemTitle(news),
+    });
+  }
+
+  const wowheadNews = firstArrayItem("wowhead");
+  if (wowheadNews && getItemTitle(wowheadNews)) {
+    candidates.push({
+      label: "Wowhead 新闻",
+      text: getItemTitle(wowheadNews),
+      target: "section-news",
+      muted: "Wowhead",
+      priority: 40,
+      dedupeText: getItemTitle(wowheadNews),
     });
   }
 
