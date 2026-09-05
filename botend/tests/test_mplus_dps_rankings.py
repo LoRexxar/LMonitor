@@ -101,6 +101,20 @@ class MplusDpsRankingAggregationTests(SimpleTestCase):
         self.assertEqual(dungeon_one[0]['average_dps'], 400)
         self.assertEqual(dungeon_one[0]['highest_dps'], 500)
 
+    def test_average_dps_tiers_use_five_percent_bands_from_scope_leader(self):
+        from botend.services.mplus_dps_rankings_service import _rank
+
+        averages = (100, 95, 90, 85, 80, 75, 70, 69.99)
+        items = [
+            {'class_name': 'Mage', 'spec_name': f'Spec {index}', 'average_dps': average}
+            for index, average in enumerate(averages, start=1)
+        ]
+
+        ranked = _rank(items)
+
+        self.assertEqual([item['tier'] for item in ranked], ['S', 'S', 'A', 'B', 'C', 'D', 'E', 'F'])
+        self.assertEqual([item['average_ratio'] for item in ranked], list(averages))
+
     def test_invalid_season_manifest_is_rejected_before_publishing(self):
         from botend.services.mplus_dps_rankings_service import build_rankings_payload_from_rows
 

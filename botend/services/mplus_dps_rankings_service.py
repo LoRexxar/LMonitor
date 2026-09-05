@@ -25,6 +25,16 @@ from botend.services.spec_stats_service import _lookup_dungeon_cn
 
 SNAPSHOT_FILENAME = 'mplus-dps-rankings.json'
 SAMPLE_CAP_PER_SPEC_DUNGEON = 100
+AVERAGE_DPS_TIER_STEP_PERCENT = 5
+AVERAGE_DPS_TIER_BANDS = (
+    (95, 'S'),
+    (90, 'A'),
+    (85, 'B'),
+    (80, 'C'),
+    (75, 'D'),
+    (70, 'E'),
+    (0, 'F'),
+)
 ROW_FIELDS = (
     'dungeon_id', 'class_name', 'spec_name', 'dps', 'keystone_level',
     'region', 'realm', 'character_name', 'last_updated',
@@ -143,10 +153,21 @@ def _identity_payload(class_name, spec_name):
     }
 
 
+def _average_dps_tier(ratio):
+    for threshold, tier in AVERAGE_DPS_TIER_BANDS:
+        if ratio >= threshold:
+            return tier
+    return 'F'
+
+
 def _rank(items):
     items.sort(key=lambda item: (-item['average_dps'], item['class_name'], item['spec_name']))
+    leader_average = max((float(item['average_dps']) for item in items), default=0)
     for index, item in enumerate(items, start=1):
+        ratio = (float(item['average_dps']) / leader_average * 100) if leader_average > 0 else 0
         item['rank'] = index
+        item['average_ratio'] = round(ratio, 2)
+        item['tier'] = _average_dps_tier(ratio)
     return items
 
 
@@ -265,6 +286,9 @@ def build_rankings_payload_from_rows(season, rows, generated_at=None):
             'overall_weight': '各副本最终样本数',
             'overall_requires_all_dungeons': True,
             'required_dungeon_count': len(encounter_ids),
+            'tier_basis': '当前统计范围榜首的平均 DPS',
+            'tier_step_percent': AVERAGE_DPS_TIER_STEP_PERCENT,
+            'tier_bands': {tier: threshold for threshold, tier in AVERAGE_DPS_TIER_BANDS},
         },
     }
 
