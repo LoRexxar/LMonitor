@@ -249,6 +249,32 @@ def select_current_na_roots(today_json):
     return selected, current_expansion_id
 
 
+def _reject_incomplete_placeholder_lines(roots):
+    """不发布 Wowhead 在日常重置后短暂返回的地下堡 Active 占位行。"""
+    for root in roots:
+        for group in root.get('groups') or []:
+            group_id = _clean_text(group.get('id')).lower()
+            if not group_id.endswith('bountiful-delves'):
+                continue
+            if _clean_text(group.get('type')).lower() != 'lines':
+                continue
+            lines = [
+                line
+                for line in (group.get('content') or {}).get('lines') or []
+                if isinstance(line, dict)
+            ]
+            placeholder_lines = [
+                line
+                for line in lines
+                if _clean_text(line.get('name')).lower() == 'active'
+                and not _absolute_wowhead_url(line.get('url'))
+                and not _clean_text(line.get('icon'))
+                and not _clean_text(line.get('iconLabel'))
+            ]
+            if len(placeholder_lines) >= 2:
+                raise ValueError('Wowhead 当前版本丰裕地下堡仍是无身份信息的 Active 占位数据')
+
+
 def filter_public_sections(sections):
     """过滤不公开的模块；顶层板块显隐由服务端配置动态决定。"""
     filtered = []
@@ -611,6 +637,7 @@ def snapshot_payload_from_html(html_text, translator=None):
     roots, expansion_id = select_current_na_roots(today_json)
     if not roots:
         raise ValueError('Wowhead 页面没有北美正式服当前版本内容')
+    _reject_incomplete_placeholder_lines(roots)
     sections, translation_missing = build_public_sections(roots, translator=translator)
     if not sections:
         raise ValueError('Wowhead 当前版本内容没有可公开的中文模块')

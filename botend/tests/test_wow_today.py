@@ -132,6 +132,47 @@ def fixture_html():
     )
 
 
+def delve_html(lines, group_id='mn-bountiful-delves'):
+    data = json.loads(json.dumps(TODAY_FIXTURE))
+    data[0]['groups'].append({
+        'id': group_id,
+        'name': 'Bountiful Delves',
+        'type': 'lines',
+        'wowExpansion': 11,
+        'wowIcon': 'ui_delves',
+        'content': {'lines': lines},
+    })
+    return '<html><script id="data.wow.todayInWow" type="application/json">{}</script></html>'.format(
+        json.dumps(data)
+    )
+
+
+def placeholder_delve_html(group_id='mn-bountiful-delves'):
+    return delve_html([
+        {'name': 'Active', 'endingUt': 1788620400},
+        {'name': 'Active', 'endingUt': 1788620400},
+    ], group_id=group_id)
+
+
+def named_delve_html():
+    return delve_html([
+        {
+            'name': "Isle of Quel'Danas: Parhelion Plaza",
+            'url': '/zone=16542/parhelion-plaza',
+            'icon': 'achievement_zone_isleofqueldanas',
+            'iconLabel': "Isle of Quel'Danas",
+            'endingUt': 1788620400,
+        },
+        {
+            'name': 'Eversong Woods: The Shadow Enclave',
+            'url': '/zone=16594/the-shadow-enclave',
+            'icon': 'inv_achievement_sanktumoflight',
+            'iconLabel': 'Eversong Woods',
+            'endingUt': 1788620400,
+        },
+    ])
+
+
 class UnavailableTranslationService:
     def available(self):
         return False
@@ -191,15 +232,44 @@ class WowTodayParserTests(SimpleTestCase):
         self.assertNotIn('Old expansion content', json.dumps(payload['sections'], ensure_ascii=False))
         self.assertNotIn('Tyrannical', json.dumps(payload['sections'], ensure_ascii=False))
 
+    def test_rejects_repeated_identity_free_active_placeholder_lines(self):
+        with self.assertRaisesRegex(ValueError, '占位'):
+            snapshot_payload_from_html(placeholder_delve_html(), translator=self.translator())
+
+    def test_accepts_named_bountiful_delve_lines(self):
+        payload = snapshot_payload_from_html(named_delve_html(), translator=self.translator())
+        delve = next(
+            module
+            for section in payload['sections']
+            for module in section['modules']
+            if module['key'] == 'mn-bountiful-delves'
+        )
+        self.assertEqual(
+            [item['name'] for item in delve['items']],
+            ['奎尔丹纳斯岛：幻日广场', '永歌森林：暗影飞地'],
+        )
+
+    def test_does_not_reject_unrelated_active_status_lines(self):
+        snapshot_payload_from_html(
+            placeholder_delve_html(group_id='unrelated-status-card'),
+            translator=self.translator(),
+        )
+
     def test_daily_schedule_runs_after_na_reset(self):
         shanghai = ZoneInfo('Asia/Shanghai')
         task = SimpleNamespace(
             name='WowTodayMonitor',
-            last_scan_time=datetime(2026, 9, 2, 0, 5, tzinfo=shanghai),
+            last_scan_time=datetime(2026, 9, 2, 10, 5, tzinfo=shanghai),
         )
 
-        self.assertFalse(portal_data_task_is_due(task, datetime(2026, 9, 2, 23, 59, tzinfo=shanghai)))
-        self.assertTrue(portal_data_task_is_due(task, datetime(2026, 9, 3, 0, 0, tzinfo=shanghai)))
+        self.assertFalse(portal_data_task_is_due(task, datetime(2026, 9, 3, 3, 59, tzinfo=shanghai)))
+        self.assertTrue(portal_data_task_is_due(task, datetime(2026, 9, 3, 4, 0, tzinfo=shanghai)))
+        task.last_scan_time = datetime(2026, 9, 3, 4, 5, tzinfo=shanghai)
+        self.assertFalse(portal_data_task_is_due(task, datetime(2026, 9, 3, 7, 59, tzinfo=shanghai)))
+        self.assertTrue(portal_data_task_is_due(task, datetime(2026, 9, 3, 8, 0, tzinfo=shanghai)))
+        task.last_scan_time = datetime(2026, 9, 3, 8, 5, tzinfo=shanghai)
+        self.assertFalse(portal_data_task_is_due(task, datetime(2026, 9, 3, 9, 59, tzinfo=shanghai)))
+        self.assertTrue(portal_data_task_is_due(task, datetime(2026, 9, 3, 10, 0, tzinfo=shanghai)))
         self.assertEqual(monitor_default_wait_time('WowTodayMonitor'), 86400)
         self.assertIs(Monitor_Type_BaseObject_List[-1], WowTodayMonitor)
 
@@ -255,6 +325,23 @@ class WowTodayPersistenceTests(TestCase):
         self.assertEqual(card_setting.sort_order, 80)
         self.assertEqual(WowTodayCardSnapshot.objects.count(), 4)
         self.assertEqual(client.calls[0][1], 'Response')
+
+    def test_placeholder_sync_does_not_overwrite_existing_snapshot(self):
+        client = FakeRequestClient(fixture_html())
+        service = WowTodayService(client, translator=self.translator(), sleep_func=lambda _seconds: None)
+        service.sync()
+        snapshot = WowTodaySnapshot.objects.get()
+        original_sections = snapshot.sections_json
+        original_raw = snapshot.raw_json
+
+        client.html_text = placeholder_delve_html()
+        with self.assertRaisesRegex(ValueError, '占位'):
+            service.sync()
+
+        snapshot.refresh_from_db()
+        self.assertEqual(snapshot.sections_json, original_sections)
+        self.assertEqual(snapshot.raw_json, original_raw)
+        self.assertFalse(WowTodayCardSnapshot.objects.filter(card_key='mn-bountiful-delves').exists())
 
     def test_portal_api_exposes_only_public_chinese_snapshot(self):
         WowTodaySnapshot.objects.create(

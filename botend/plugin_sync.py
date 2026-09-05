@@ -25,9 +25,10 @@ def _monitor_task_lease_ttl(lease_seconds=None):
 
 
 PORTAL_DATA_SCHEDULE_HOURS_BY_TASK = {
-    # 北美日常重置在北京时间 22:00（夏令时）或 23:00（冬令时），
-    # 00:00 抓取可覆盖两种时制并给 Wowhead 留出刷新时间。
-    "WowTodayMonitor": (0,),
+    # Wowhead 在北美日常重置后会先返回无身份信息的 Active 占位行，
+    # 随后才补齐具体地下堡。分三次渐进刷新，配合载荷完整性门禁，避免
+    # 占位内容覆盖当天快照，并在上午自动补齐上游迟到的数据。
+    "WowTodayMonitor": (4, 8, 10),
     # 每日大更新：人物内容先重抓，完整排名随后，聚合投影最后生成。
     "SpecDetailPlayerMonitor": (2,),
     "SpecDetailRankingMonitor": (3,),
