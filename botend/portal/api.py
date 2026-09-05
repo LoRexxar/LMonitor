@@ -18,6 +18,7 @@ from botend.services.wow_today_service import (
 from botend.controller.plugins.wow.wago_regions import wago_region_name
 from botend.wow_i18n import cn_dungeon_from_slug
 from botend.constants.wow import canonical_class_spec
+from botend.services.mplus_dps_rankings_service import get_current_mplus_dps_rankings_payload
 from botend.portal.mythicstats import (
     fetch_current_season_slug,
     fetch_mythicstats_dps,
@@ -977,6 +978,14 @@ class PortalRaidRankingsAPIView(View):
 class PortalCharacterAPIView(View):
     def get(self, request):
         return JsonResponse({'status': 'success', 'data': {}})
+
+
+class PortalMplusDpsRankingsAPIView(View):
+    def get(self, request):
+        try:
+            return JsonResponse(get_current_mplus_dps_rankings_payload())
+        except RuntimeError as exc:
+            return JsonResponse({'error': str(exc)}, status=503)
 
 
 class PortalMythicstatsDpsAPIView(View):

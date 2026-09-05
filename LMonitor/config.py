@@ -42,6 +42,7 @@ from botend.controller.plugins.portal.SpecDetailSeasonMonitor import SpecDetailS
 from botend.controller.plugins.portal.SpecDetailPlayerMonitor import SpecDetailPlayerMonitor
 from botend.controller.plugins.portal.SpecDetailRankingMonitor import SpecDetailRankingMonitor
 from botend.controller.plugins.portal.SpecDetailAggregationMonitor import SpecDetailAggregationMonitor
+from botend.controller.plugins.portal.SpecDungeonDpsRankingMonitor import SpecDungeonDpsRankingMonitor
 
 class DedicatedSimcWorkerSlot(BaseScan):
     """保留历史 MonitorTask.type=15 索引；SimC 仅由 simc_worker 消费。"""
@@ -83,4 +84,5 @@ Monitor_Type_BaseObject_List = [
     SpecDetailRankingMonitor,
     SpecDetailAggregationMonitor,
     WowTodayMonitor,
+    SpecDungeonDpsRankingMonitor,
 ]

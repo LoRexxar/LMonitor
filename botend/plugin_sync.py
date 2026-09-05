@@ -41,6 +41,7 @@ PORTAL_MONITOR_TASK_PRIORITY = {
     # 巅峰榜 Top20 是快速任务；长任务结束后必须先补它，避免按旧
     # last_scan_time 排序时被人物、排名和聚合任务连续阻塞。
     "PortalPeakSpecRankMonitor": 0,
+    "SpecDungeonDpsRankingMonitor": 5,
     "SpecDetailPlayerMonitor": 10,
     "SpecDetailRankingMonitor": 20,
     "SpecDetailAggregationMonitor": 30,
@@ -51,6 +52,8 @@ def monitor_default_wait_time(name):
     if name == "PortalPeakSpecRankMonitor":
         return 600  # 10m，仅轻量刷新榜单；新入榜人物按需初始化
     if name == "PortalMplusCutoffMonitor":
+        return 3600
+    if name == "SpecDungeonDpsRankingMonitor":
         return 3600
     if name == "WagoSkillDiffMonitor":
         return 3600  # 1h，Wago build/hotfix 变更不需要 10 分钟级轮询

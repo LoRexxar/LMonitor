@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="/favicon.ico">
+    <title>大秘境 DPS 榜单 - 魔兽世界每日节奏</title>
+    {% load static %}
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_unified_navigation"></script>
+    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260903_external_menu_v2">
+    <link rel="stylesheet" href="{% static 'portal/css/mplus-dps-rankings.css' %}?v=20260905_2">
+</head>
+<body class="portal-bg font-sans">
+    {% include 'portal/_header.html' %}
+
+    <main class="mplus-rank-shell">
+        <section class="portal-card mplus-rank-hero">
+            <div>
+                <div class="mplus-rank-eyebrow">MYTHIC+ · WCL 实战数据</div>
+                <h1>大秘境 DPS 榜单</h1>
+                <p>按本站收录的全职业大秘境伤害记录统计；支持 8 个副本加权总计与单副本切换。</p>
+            </div>
+            <div class="mplus-rank-updated">
+                <span>数据更新时间</span>
+                <strong id="mplus-rank-updated">加载中…</strong>
+            </div>
+        </section>
+
+        <section class="portal-card mplus-rank-panel">
+            <div class="mplus-rank-tabs" id="mplus-rank-tabs" role="tablist" aria-label="统计范围"></div>
+            <div class="mplus-rank-method" id="mplus-rank-method">
+                总计要求专精覆盖当前赛季全部 8 个副本，并按各副本最终样本数加权。
+            </div>
+            <div class="mplus-rank-legend" aria-hidden="true">
+                <span><i class="legend-low"></i>下限</span>
+                <span><i class="legend-average"></i>平均</span>
+                <span><i class="legend-high"></i>最高</span>
+            </div>
+            <div id="mplus-rank-status" class="mplus-rank-status">正在加载排名…</div>
+            <div id="mplus-rank-list" class="mplus-rank-list" hidden></div>
+        </section>
+    </main>
+
+    <script src="{% static 'portal/js/mplus-dps-rankings.js' %}?v=20260905_2"></script>
+</body>
+</html>

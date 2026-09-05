@@ -51,7 +51,7 @@ from botend.dashboard.user_management import (
     DashboardUserListAPIView,
 )
 from botend.portal.views import PortalHomeView, PortalSimcBenchmarkResultsView
-from botend.portal.views import PortalArticleView, PortalNewsView, PortalSpecsView
+from botend.portal.views import PortalArticleView, PortalMplusDpsRankingsView, PortalNewsView, PortalSpecsView
 from botend.portal.views import PortalReportFileView, PortalWowHotfixReportView, PortalWowSkillDiffReportView
 from botend.portal.spec_detail_views import SpecDetailPlayerView, SpecDetailPlayerDetailView, SpecDetailDungeonView, SpecDetailRaidView, SpecOverviewAPIView, SimcProfileDetailView
 from botend.portal.talent_simulator import PortalTalentSimulatorAPIView, PortalTalentSimulatorEncodeAPIView, PortalTalentSimulatorView
@@ -91,6 +91,7 @@ from botend.portal.api import (
     PortalRaidRankingsAPIView,
     PortalCharacterAPIView,
     PortalMythicstatsDpsAPIView,
+    PortalMplusDpsRankingsAPIView,
     PortalWowSkillDiffListAPIView,
     PortalWowSkillDiffStatesAPIView,
     PortalHotfixReportsAPIView,
@@ -137,6 +138,7 @@ urlpatterns = [
     path('portal/simc-benchmarks/<int:panel_id>/', PortalSimcBenchmarkResultsView.as_view(), name='portal_simc_benchmark_panel_results'),
     path('portal/news/', PortalNewsView.as_view(), name='portal_news'),
     path('portal/specs/', PortalSpecsView.as_view(), name='portal_specs'),
+    path('portal/mplus/dps-rankings/', PortalMplusDpsRankingsView.as_view(), name='portal_mplus_dps_rankings'),
     path('portal/article/<int:article_id>/', PortalArticleView.as_view(), name='portal_article'),
     path('portal/talents/', PortalTalentSimulatorView.as_view(), name='portal_talent_simulator'),
     path('portal/gear-builder/', PortalGearBuilderView.as_view(), name='portal_gear_builder'),
@@ -186,6 +188,7 @@ urlpatterns = [
     path('portal/api/mplus/affixes/', csrf_exempt(PortalMplusAffixesAPIView.as_view()), name="portal_mplus_affixes"),
     path('portal/api/mplus/cutoff/', csrf_exempt(PortalMplusCutoffAPIView.as_view()), name="portal_mplus_cutoff"),
     path('portal/api/mplus/rankings/', csrf_exempt(PortalMplusRankingsAPIView.as_view()), name="portal_mplus_rankings"),
+    path('portal/api/mplus/dps-rankings/', csrf_exempt(PortalMplusDpsRankingsAPIView.as_view()), name="portal_mplus_dps_rankings_api"),
     path('portal/api/peak/spec-rankings/', csrf_exempt(PortalPeakSpecRankingsAPIView.as_view()), name="portal_peak_spec_rankings"),
     path('portal/api/raid/rankings/', csrf_exempt(PortalRaidRankingsAPIView.as_view()), name="portal_raid_rankings"),
     path('portal/api/character/', csrf_exempt(PortalCharacterAPIView.as_view()), name="portal_character"),
