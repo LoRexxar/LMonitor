@@ -9,7 +9,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_unified_navigation"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260903_external_menu_v2">
-    <link rel="stylesheet" href="{% static 'portal/css/mplus-dps-rankings.css' %}?v=20260905_3">
+    <link rel="stylesheet" href="{% static 'portal/css/mplus-dps-rankings.css' %}?v=20260905_4">
 </head>
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
@@ -32,6 +32,16 @@
             <div class="mplus-rank-method" id="mplus-rank-method">
                 总计要求专精覆盖当前赛季全部 8 个副本；评级按当前范围榜首平均 DPS 每 5% 划分一档。
             </div>
+            <section class="mplus-rank-tier-board" id="mplus-rank-tier-board" aria-labelledby="mplus-rank-tier-title" hidden>
+                <div class="mplus-rank-tier-heading">
+                    <div>
+                        <span class="mplus-rank-tier-kicker">TIER OVERVIEW</span>
+                        <h2 id="mplus-rank-tier-title">评级分类</h2>
+                    </div>
+                    <span id="mplus-rank-tier-count"></span>
+                </div>
+                <div id="mplus-rank-tier-groups" class="mplus-rank-tier-groups"></div>
+            </section>
             <div class="mplus-rank-legend" aria-hidden="true">
                 <span><i class="legend-average"></i>平均 DPS</span>
                 <span><i class="legend-high"></i>最高 DPS</span>
@@ -42,6 +52,6 @@
         </section>
     </main>
 
-    <script src="{% static 'portal/js/mplus-dps-rankings.js' %}?v=20260905_3"></script>
+    <script src="{% static 'portal/js/mplus-dps-rankings.js' %}?v=20260905_4"></script>
 </body>
 </html>

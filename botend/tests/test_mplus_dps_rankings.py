@@ -208,7 +208,13 @@ class MplusDpsRankingRouteTests(TestCase):
         self.assertContains(page, '大秘境 DPS 榜单')
         self.assertContains(page, 'mplus-dps-rankings.js')
         html = page.content.decode('utf-8')
-        css_version = re.search(r'mplus-dps-rankings\.css\?v=([^"\']+)', html)
+        self.assertIn('id="mplus-rank-tier-board"', html)
+        self.assertIn('评级分类', html)
+        self.assertLess(
+            html.index('id="mplus-rank-tier-board"'),
+            html.index('id="mplus-rank-list"'),
+        )
+        css_version = re.search(r'mplus-dps-rankings\.css\?v=([A-Za-z0-9_.-]+)', html)
         js_version = re.search(r'mplus-dps-rankings\.js\?v=([^"\']+)', html)
         self.assertIsNotNone(css_version)
         self.assertIsNotNone(js_version)
