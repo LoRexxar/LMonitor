@@ -208,6 +208,9 @@ class MplusDpsRankingRouteTests(TestCase):
 
         tier_items = re.search(r'\.mplus-rank-tier-items\s*\{([^}]*)\}', css, re.S).group(1)
         tier_card = re.search(r'\.mplus-rank-tier-card\s*\{([^}]*)\}', css, re.S).group(1)
+        tier_identity = re.search(
+            r'\.mplus-rank-tier-identity\s*\{([^}]*)\}', css, re.S
+        ).group(1)
         tier_name = re.search(
             r'\.mplus-rank-tier-identity strong\s*\{([^}]*)\}', css, re.S
         ).group(1)
@@ -227,18 +230,24 @@ class MplusDpsRankingRouteTests(TestCase):
 
         self.assertIn('justify-content: start', tier_items)
         self.assertIsNotNone(card_widths)
-        self.assertLessEqual(int(card_widths.group(1)), 96)
-        self.assertLessEqual(int(card_widths.group(2)), 112)
+        self.assertLessEqual(int(card_widths.group(1)), 112)
+        self.assertLessEqual(int(card_widths.group(2)), 120)
         self.assertIn('display: flex', tier_card)
-        self.assertNotIn('grid-template-rows', tier_card)
+        self.assertIn('var(--tier-color', tier_card)
+        self.assertIn('display: flex', tier_identity)
         self.assertIn('white-space: nowrap', tier_name)
         self.assertNotIn('color-mix(', tier_name)
         self.assertIn('white-space: nowrap', tier_range)
         self.assertIn('display: none', tier_label_meta)
         self.assertNotIn('specName.style.color = classColor', tier_renderer)
-        self.assertNotIn('mplus-rank-tier-dps', tier_renderer)
+        self.assertIn("mplus-rank-tier-dps", tier_renderer)
+        self.assertIn("formatCompactDps(row.average_dps)", tier_renderer)
+        self.assertIn("identity.append(specName, averageDps)", tier_renderer)
         self.assertNotIn('mplus-rank-tier-meter', tier_renderer)
         self.assertNotIn("element('small', '', row.class_name_cn)", tier_renderer)
+        tier_icon = re.search(r'\.mplus-rank-tier-card img\s*\{([^}]*)\}', css, re.S).group(1)
+        self.assertIn('height: 28px', tier_icon)
+        self.assertIn('width: 28px', tier_icon)
 
     def test_page_and_api_are_new_independent_routes(self):
         payload = {

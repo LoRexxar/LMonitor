@@ -130,7 +130,12 @@
 
                 const identity = element('span', 'mplus-rank-tier-identity');
                 const specName = element('strong', '', row.spec_name_cn);
-                identity.appendChild(specName);
+                const averageDps = element(
+                    'span',
+                    'mplus-rank-tier-dps',
+                    formatCompactDps(row.average_dps)
+                );
+                identity.append(specName, averageDps);
                 card.append(icon, identity);
                 items.appendChild(card);
             });

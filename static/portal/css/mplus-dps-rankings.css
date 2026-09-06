@@ -159,6 +159,14 @@
     overflow: hidden;
 }
 
+.mplus-rank-tier-group-s { --tier-color: #e9eeea; }
+.mplus-rank-tier-group-a { --tier-color: #e9edef; }
+.mplus-rank-tier-group-b { --tier-color: #ebecef; }
+.mplus-rank-tier-group-c { --tier-color: #efede8; }
+.mplus-rank-tier-group-d { --tier-color: #efeae7; }
+.mplus-rank-tier-group-e { --tier-color: #efe9ea; }
+.mplus-rank-tier-group-f { --tier-color: #eaecef; }
+
 .mplus-rank-tier-label {
     align-items: center;
     background: #f4f6f8;
@@ -203,14 +211,14 @@
     align-content: center;
     display: grid;
     gap: 4px;
-    grid-template-columns: repeat(auto-fill, minmax(88px, 108px));
+    grid-template-columns: repeat(auto-fill, minmax(108px, 118px));
     justify-content: start;
     padding: 4px;
 }
 
 .mplus-rank-tier-card {
     align-items: center;
-    background: #fafbfc;
+    background: var(--tier-color, #eef2f6);
     border: 1px solid #e2e8f0;
     border-left: 2px solid #64748b;
     border-left-color: color-mix(in srgb, var(--class-color, #64748b) 35%, #64748b);
@@ -218,7 +226,7 @@
     color: #0f172a;
     display: flex;
     gap: 4px;
-    min-height: 30px;
+    min-height: 34px;
     min-width: 0;
     overflow: hidden;
     padding: 3px 4px;
@@ -237,11 +245,16 @@
     border-radius: 5px;
     box-shadow: 0 1px 2px rgba(15, 23, 42, .16);
     flex: 0 0 auto;
-    height: 24px;
-    width: 24px;
+    height: 28px;
+    width: 28px;
 }
 
-.mplus-rank-tier-identity { min-width: 0; }
+.mplus-rank-tier-identity {
+    align-items: baseline;
+    display: flex;
+    gap: 3px;
+    min-width: 0;
+}
 
 .mplus-rank-tier-identity strong {
     color: #334155;
@@ -251,6 +264,16 @@
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mplus-rank-tier-dps {
+    color: #64748b;
+    flex: 0 0 auto;
+    font-size: 9px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 750;
+    line-height: 1;
     white-space: nowrap;
 }
 
@@ -503,6 +526,7 @@ html.portal-theme-dark .mplus-rank-tier-card {
 }
 
 html.portal-theme-dark .mplus-rank-tier-card {
+    background: color-mix(in srgb, var(--tier-color, #64748b) 18%, #22262f);
     border-left-color: #64748b;
     border-left-color: color-mix(in srgb, var(--class-color, #64748b) 38%, #64748b);
 }
@@ -510,6 +534,8 @@ html.portal-theme-dark .mplus-rank-tier-card {
 html.portal-theme-dark .mplus-rank-tier-identity strong {
     color: #cbd5e1;
 }
+
+html.portal-theme-dark .mplus-rank-tier-dps { color: #94a3b8; }
 
 html.portal-theme-dark .mplus-rank-tier-label {
     background: rgba(15, 23, 42, .46);
