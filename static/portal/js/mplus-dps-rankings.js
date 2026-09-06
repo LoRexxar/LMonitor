@@ -141,7 +141,6 @@
 
                 const identity = element('span', 'mplus-rank-tier-identity');
                 const specName = element('strong', '', row.spec_name_cn);
-                specName.style.color = classColor;
                 identity.append(specName, element('small', '', row.class_name_cn));
 
                 const dps = element('span', 'mplus-rank-tier-dps');

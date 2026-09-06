@@ -108,22 +108,22 @@
 }
 
 .mplus-rank-tier-board {
-    background: #f8fafc;
-    border: 1px solid #dbe3ec;
-    border-radius: 12px;
-    margin: 12px 0 18px;
-    padding: 16px;
+    background: #fafbfc;
+    border: 1px solid #dfe4e8;
+    border-radius: 10px;
+    margin: 8px 0 12px;
+    padding: 10px;
 }
 
 .mplus-rank-tier-heading {
-    align-items: flex-end;
+    align-items: center;
     display: flex;
     justify-content: space-between;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
 }
 
 .mplus-rank-tier-kicker {
-    color: #6366f1;
+    color: #697386;
     display: block;
     font-size: 9px;
     font-weight: 850;
@@ -133,7 +133,7 @@
 
 .mplus-rank-tier-heading h2 {
     color: #0f172a;
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 850;
     line-height: 1.25;
     margin: 0;
@@ -141,99 +141,102 @@
 
 #mplus-rank-tier-count {
     color: #64748b;
-    font-size: 11px;
+    font-size: 10px;
 }
 
 .mplus-rank-tier-groups {
     display: grid;
-    gap: 8px;
+    gap: 4px;
 }
 
 .mplus-rank-tier-group {
     background: #fff;
     border: 1px solid #e2e8f0;
-    border-radius: 9px;
+    border-radius: 6px;
     display: grid;
-    grid-template-columns: 68px minmax(0, 1fr);
-    min-height: 62px;
+    grid-template-columns: 48px minmax(0, 1fr);
+    min-height: 44px;
     overflow: hidden;
 }
 
 .mplus-rank-tier-label {
     align-items: center;
-    background: #f1f5f9;
-    border-right: 1px solid #e2e8f0;
+    background: #f4f6f8;
+    border-right: 1px solid #e5e9ed;
     display: flex;
     flex-direction: column;
     justify-content: center;
-    padding: 8px 5px;
+    padding: 4px 3px;
     text-align: center;
 }
 
 .mplus-rank-tier-letter {
     align-items: center;
     border: 1px solid transparent;
-    border-radius: 7px;
+    border-radius: 5px;
     display: inline-flex;
-    font-size: 16px;
+    font-size: 14px;
     font-weight: 900;
-    height: 32px;
+    height: 25px;
     justify-content: center;
-    width: 38px;
+    width: 30px;
 }
 
 .mplus-rank-tier-label > span {
     color: #475569;
-    font-size: 9px;
+    font-size: 8px;
     font-variant-numeric: tabular-nums;
     font-weight: 750;
-    margin-top: 4px;
+    margin-top: 2px;
 }
 
 .mplus-rank-tier-label > small {
     color: #94a3b8;
-    font-size: 9px;
+    font-size: 8px;
     margin-top: 1px;
 }
 
 .mplus-rank-tier-items {
     align-content: center;
     display: grid;
-    gap: 8px;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    padding: 9px;
+    gap: 4px;
+    grid-template-columns: repeat(auto-fill, minmax(145px, 165px));
+    justify-content: start;
+    padding: 4px;
 }
 
 .mplus-rank-tier-card {
     align-items: center;
-    background: rgba(248, 250, 252, .9);
+    background: #fafbfc;
     border: 1px solid #e2e8f0;
-    border-left: 3px solid var(--class-color, #64748b);
-    border-radius: 7px;
+    border-left: 2px solid #64748b;
+    border-left-color: color-mix(in srgb, var(--class-color, #64748b) 52%, #64748b);
+    border-radius: 5px;
     color: #0f172a;
-    column-gap: 7px;
+    column-gap: 5px;
     display: grid;
-    grid-template-columns: 32px minmax(0, 1fr) auto;
-    grid-template-rows: minmax(32px, auto) 3px;
+    grid-template-columns: 26px minmax(0, 1fr) auto;
+    grid-template-rows: minmax(26px, auto) 2px;
     min-width: 0;
     overflow: hidden;
-    padding: 6px 7px 5px;
+    padding: 3px 5px;
     position: relative;
     text-decoration: none;
     transition: border-color .15s, box-shadow .15s, transform .15s;
 }
 
 .mplus-rank-tier-card:hover {
-    border-color: var(--class-color, #64748b);
-    box-shadow: 0 4px 12px rgba(15, 23, 42, .09);
+    border-color: #94a3b8;
+    border-color: color-mix(in srgb, var(--class-color, #64748b) 45%, #94a3b8);
+    box-shadow: 0 2px 7px rgba(15, 23, 42, .08);
     transform: translateY(-1px);
 }
 
 .mplus-rank-tier-card img {
-    border-radius: 7px;
-    box-shadow: 0 1px 3px rgba(15, 23, 42, .2);
-    height: 32px;
-    width: 32px;
+    border-radius: 5px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, .16);
+    height: 26px;
+    width: 26px;
 }
 
 .mplus-rank-tier-identity,
@@ -246,8 +249,10 @@
 }
 
 .mplus-rank-tier-identity strong {
-    font-size: 12px;
-    font-weight: 800;
+    color: #334155;
+    color: color-mix(in srgb, var(--class-color, #64748b) 58%, #334155);
+    font-size: 11px;
+    font-weight: 750;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -255,7 +260,7 @@
 
 .mplus-rank-tier-identity small {
     color: #94a3b8;
-    font-size: 9px;
+    font-size: 8px;
     margin-top: 1px;
 }
 
@@ -265,26 +270,27 @@
 
 .mplus-rank-tier-dps strong {
     color: #0f172a;
-    font-size: 12px;
+    font-size: 10px;
     font-variant-numeric: tabular-nums;
     font-weight: 850;
 }
 
 .mplus-rank-tier-dps small {
     color: #94a3b8;
-    font-size: 8px;
+    font-size: 7px;
 }
 
 .mplus-rank-tier-meter {
-    background: #dbe3ec;
+    background: #e5e9ed;
     border-radius: 999px;
     grid-column: 1 / -1;
-    height: 3px;
+    height: 2px;
     overflow: hidden;
 }
 
 .mplus-rank-tier-meter i {
-    background: var(--class-color, #64748b);
+    background: #64748b;
+    background: color-mix(in srgb, var(--class-color, #64748b) 48%, #64748b);
     border-radius: inherit;
     display: block;
     height: 100%;
@@ -439,13 +445,13 @@
     width: 34px;
 }
 
-.tier-s { background: #d1fae5; border-color: #6ee7b7; color: #065f46; }
-.tier-a { background: #e0f2fe; border-color: #7dd3fc; color: #075985; }
-.tier-b { background: #e0e7ff; border-color: #a5b4fc; color: #3730a3; }
-.tier-c { background: #fef3c7; border-color: #fcd34d; color: #92400e; }
-.tier-d { background: #ffedd5; border-color: #fdba74; color: #9a3412; }
-.tier-e { background: #ffe4e6; border-color: #fda4af; color: #9f1239; }
-.tier-f { background: #e2e8f0; border-color: #94a3b8; color: #334155; }
+.tier-s { background: #e8efe9; border-color: #c9d7cc; color: #3f5f49; }
+.tier-a { background: #e8eef2; border-color: #c7d3db; color: #3c5b6c; }
+.tier-b { background: #ececf2; border-color: #cfcfda; color: #505267; }
+.tier-c { background: #f1eee4; border-color: #ddd4be; color: #685d43; }
+.tier-d { background: #f2ebe5; border-color: #ddcdbf; color: #725845; }
+.tier-e { background: #f2e8e9; border-color: #dcc9cb; color: #745057; }
+.tier-f { background: #eaedef; border-color: #cfd5da; color: #56616a; }
 
 .mplus-rank-metric { min-width: 0; text-align: right; }
 .mplus-rank-metric span { display: none; }
@@ -540,7 +546,13 @@ html.portal-theme-dark .mplus-rank-tier-card {
 }
 
 html.portal-theme-dark .mplus-rank-tier-card {
-    border-left-color: var(--class-color, #64748b);
+    border-left-color: #64748b;
+    border-left-color: color-mix(in srgb, var(--class-color, #64748b) 58%, #64748b);
+}
+
+html.portal-theme-dark .mplus-rank-tier-identity strong {
+    color: #cbd5e1;
+    color: color-mix(in srgb, var(--class-color, #94a3b8) 58%, #cbd5e1);
 }
 
 html.portal-theme-dark .mplus-rank-tier-label {
@@ -557,8 +569,8 @@ html.portal-theme-dark .mplus-rank-metric.primary strong { color: #f8fafc; }
     .mplus-rank-hero { align-items: flex-start; flex-direction: column; padding: 20px; }
     .mplus-rank-updated { align-items: flex-start; }
     .mplus-rank-panel { padding: 12px; }
-    .mplus-rank-tier-board { padding: 12px; }
-    .mplus-rank-tier-items { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+    .mplus-rank-tier-board { padding: 9px; }
+    .mplus-rank-tier-items { grid-template-columns: repeat(auto-fill, minmax(145px, 165px)); }
     .mplus-rank-header { display: none; }
     .mplus-rank-row {
         grid-template-columns: 32px minmax(0, 1fr);
@@ -578,26 +590,27 @@ html.portal-theme-dark .mplus-rank-metric.primary strong { color: #f8fafc; }
     .mplus-rank-tier-heading {
         align-items: flex-start;
         flex-direction: column;
-        gap: 4px;
+        gap: 2px;
     }
-    .mplus-rank-tier-group { grid-template-columns: 52px minmax(0, 1fr); }
-    .mplus-rank-tier-label { padding: 7px 3px; }
-    .mplus-rank-tier-letter { font-size: 14px; height: 29px; width: 33px; }
+    .mplus-rank-tier-board { padding: 7px; }
+    .mplus-rank-tier-group { grid-template-columns: 42px minmax(0, 1fr); }
+    .mplus-rank-tier-label { padding: 4px 2px; }
+    .mplus-rank-tier-letter { font-size: 13px; height: 23px; width: 28px; }
     .mplus-rank-tier-items {
-        gap: 6px;
+        gap: 3px;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        padding: 7px;
+        padding: 3px;
     }
     .mplus-rank-tier-card {
-        column-gap: 6px;
-        grid-template-columns: 28px minmax(0, 1fr);
-        grid-template-rows: auto auto 3px;
-        padding: 5px 6px 4px;
+        column-gap: 4px;
+        grid-template-columns: 24px minmax(0, 1fr);
+        grid-template-rows: auto auto 2px;
+        padding: 3px 4px;
     }
     .mplus-rank-tier-card img {
         grid-row: 1 / 3;
-        height: 28px;
-        width: 28px;
+        height: 24px;
+        width: 24px;
     }
     .mplus-rank-tier-identity small { display: none; }
     .mplus-rank-tier-dps {

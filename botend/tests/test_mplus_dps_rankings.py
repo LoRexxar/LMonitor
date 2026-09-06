@@ -3,6 +3,7 @@ import re
 import tempfile
 from datetime import datetime, timezone as dt_timezone
 from importlib import import_module
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps as django_apps
@@ -195,6 +196,31 @@ class MplusDpsRankingAggregationTests(SimpleTestCase):
 
 
 class MplusDpsRankingRouteTests(TestCase):
+    def test_tier_overview_visual_contract_is_compact_and_muted(self):
+        css = (
+            Path(__file__).resolve().parents[2]
+            / 'static/portal/css/mplus-dps-rankings.css'
+        ).read_text(encoding='utf-8')
+        javascript = (
+            Path(__file__).resolve().parents[2]
+            / 'static/portal/js/mplus-dps-rankings.js'
+        ).read_text(encoding='utf-8')
+
+        tier_items = re.search(r'\.mplus-rank-tier-items\s*\{([^}]*)\}', css, re.S).group(1)
+        tier_card = re.search(r'\.mplus-rank-tier-card\s*\{([^}]*)\}', css, re.S).group(1)
+        tier_meter = re.search(r'\.mplus-rank-tier-meter i\s*\{([^}]*)\}', css, re.S).group(1)
+        tier_renderer = javascript[
+            javascript.index('function renderTierBoard'):
+            javascript.index('function renderRankings')
+        ]
+
+        self.assertIn('justify-content: start', tier_items)
+        self.assertRegex(tier_items, r'minmax\(14\dpx,\s*16\dpx\)')
+        self.assertNotIn('minmax(180px, 1fr)', tier_items)
+        self.assertIn('color-mix(', tier_card)
+        self.assertIn('color-mix(', tier_meter)
+        self.assertNotIn('specName.style.color = classColor', tier_renderer)
+
     def test_page_and_api_are_new_independent_routes(self):
         payload = {
             'season': {'id': 7, 'key': 'test-s2', 'name': 'Test Season 2'},
