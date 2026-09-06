@@ -212,7 +212,7 @@
     background: #fafbfc;
     border: 1px solid #e2e8f0;
     border-left: 2px solid #64748b;
-    border-left-color: color-mix(in srgb, var(--class-color, #64748b) 52%, #64748b);
+    border-left-color: color-mix(in srgb, var(--class-color, #64748b) 35%, #64748b);
     border-radius: 5px;
     color: #0f172a;
     column-gap: 5px;
@@ -229,7 +229,7 @@
 
 .mplus-rank-tier-card:hover {
     border-color: #94a3b8;
-    border-color: color-mix(in srgb, var(--class-color, #64748b) 45%, #94a3b8);
+    border-color: color-mix(in srgb, var(--class-color, #64748b) 32%, #94a3b8);
     box-shadow: 0 2px 7px rgba(15, 23, 42, .08);
     transform: translateY(-1px);
 }
@@ -252,7 +252,6 @@
 
 .mplus-rank-tier-identity strong {
     color: #334155;
-    color: color-mix(in srgb, var(--class-color, #64748b) 58%, #334155);
     font-size: 11px;
     font-weight: 750;
     overflow: hidden;
@@ -292,7 +291,7 @@
 
 .mplus-rank-tier-meter i {
     background: #64748b;
-    background: color-mix(in srgb, var(--class-color, #64748b) 48%, #64748b);
+    background: color-mix(in srgb, var(--class-color, #64748b) 35%, #64748b);
     border-radius: inherit;
     display: block;
     height: 100%;
@@ -447,13 +446,13 @@
     width: 34px;
 }
 
-.tier-s { background: #e8efe9; border-color: #c9d7cc; color: #3f5f49; }
-.tier-a { background: #e8eef2; border-color: #c7d3db; color: #3c5b6c; }
-.tier-b { background: #ececf2; border-color: #cfcfda; color: #505267; }
-.tier-c { background: #f1eee4; border-color: #ddd4be; color: #685d43; }
-.tier-d { background: #f2ebe5; border-color: #ddcdbf; color: #725845; }
-.tier-e { background: #f2e8e9; border-color: #dcc9cb; color: #745057; }
-.tier-f { background: #eaedef; border-color: #cfd5da; color: #56616a; }
+.tier-s { background: #e9eeea; border-color: #cdd4cf; color: #46564a; }
+.tier-a { background: #e9edef; border-color: #cdd3d7; color: #46545c; }
+.tier-b { background: #ebecef; border-color: #d1d2d8; color: #4f5260; }
+.tier-c { background: #efede8; border-color: #d8d3c8; color: #625b4e; }
+.tier-d { background: #efeae7; border-color: #d8d0ca; color: #66574e; }
+.tier-e { background: #efe9ea; border-color: #d8ced0; color: #675359; }
+.tier-f { background: #eaecef; border-color: #d2d5d8; color: #576068; }
 
 .mplus-rank-metric { min-width: 0; text-align: right; }
 .mplus-rank-metric span { display: none; }
@@ -549,12 +548,11 @@ html.portal-theme-dark .mplus-rank-tier-card {
 
 html.portal-theme-dark .mplus-rank-tier-card {
     border-left-color: #64748b;
-    border-left-color: color-mix(in srgb, var(--class-color, #64748b) 58%, #64748b);
+    border-left-color: color-mix(in srgb, var(--class-color, #64748b) 38%, #64748b);
 }
 
 html.portal-theme-dark .mplus-rank-tier-identity strong {
     color: #cbd5e1;
-    color: color-mix(in srgb, var(--class-color, #94a3b8) 58%, #cbd5e1);
 }
 
 html.portal-theme-dark .mplus-rank-tier-label {
