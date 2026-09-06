@@ -155,7 +155,7 @@
     border-radius: 6px;
     display: grid;
     grid-template-columns: 48px minmax(0, 1fr);
-    min-height: 44px;
+    min-height: 40px;
     overflow: hidden;
 }
 
@@ -166,7 +166,7 @@
     display: flex;
     flex-direction: column;
     justify-content: center;
-    padding: 4px 3px;
+    padding: 3px 2px;
     text-align: center;
 }
 
@@ -175,11 +175,11 @@
     border: 1px solid transparent;
     border-radius: 5px;
     display: inline-flex;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 900;
-    height: 25px;
+    height: 23px;
     justify-content: center;
-    width: 30px;
+    width: 28px;
 }
 
 .mplus-rank-tier-label > span {
@@ -187,11 +187,13 @@
     font-size: 8px;
     font-variant-numeric: tabular-nums;
     font-weight: 750;
-    margin-top: 2px;
+    line-height: 1.1;
+    margin-top: 1px;
 }
 
 .mplus-rank-tier-label > small {
     color: #94a3b8;
+    display: none;
     font-size: 8px;
     margin-top: 1px;
 }

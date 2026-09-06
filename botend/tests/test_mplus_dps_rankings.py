@@ -209,6 +209,9 @@ class MplusDpsRankingRouteTests(TestCase):
         tier_items = re.search(r'\.mplus-rank-tier-items\s*\{([^}]*)\}', css, re.S).group(1)
         tier_card = re.search(r'\.mplus-rank-tier-card\s*\{([^}]*)\}', css, re.S).group(1)
         tier_meter = re.search(r'\.mplus-rank-tier-meter i\s*\{([^}]*)\}', css, re.S).group(1)
+        tier_label_meta = re.search(
+            r'\.mplus-rank-tier-label > small\s*\{([^}]*)\}', css, re.S
+        ).group(1)
         tier_renderer = javascript[
             javascript.index('function renderTierBoard'):
             javascript.index('function renderRankings')
@@ -219,6 +222,7 @@ class MplusDpsRankingRouteTests(TestCase):
         self.assertNotIn('minmax(180px, 1fr)', tier_items)
         self.assertIn('color-mix(', tier_card)
         self.assertIn('color-mix(', tier_meter)
+        self.assertIn('display: none', tier_label_meta)
         self.assertNotIn('specName.style.color = classColor', tier_renderer)
 
     def test_page_and_api_are_new_independent_routes(self):
