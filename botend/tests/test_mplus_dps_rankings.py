@@ -214,7 +214,6 @@ class MplusDpsRankingRouteTests(TestCase):
         tier_range = re.search(
             r'\.mplus-rank-tier-label > span\s*\{([^}]*)\}', css, re.S
         ).group(1)
-        tier_meter = re.search(r'\.mplus-rank-tier-meter i\s*\{([^}]*)\}', css, re.S).group(1)
         tier_label_meta = re.search(
             r'\.mplus-rank-tier-label > small\s*\{([^}]*)\}', css, re.S
         ).group(1)
@@ -222,16 +221,24 @@ class MplusDpsRankingRouteTests(TestCase):
             javascript.index('function renderTierBoard'):
             javascript.index('function renderRankings')
         ]
+        card_widths = re.search(
+            r'minmax\((\d+)px,\s*(\d+)px\)', tier_items
+        )
 
         self.assertIn('justify-content: start', tier_items)
-        self.assertRegex(tier_items, r'minmax\(14\dpx,\s*16\dpx\)')
-        self.assertNotIn('minmax(180px, 1fr)', tier_items)
-        self.assertIn('color-mix(', tier_card)
+        self.assertIsNotNone(card_widths)
+        self.assertLessEqual(int(card_widths.group(1)), 96)
+        self.assertLessEqual(int(card_widths.group(2)), 112)
+        self.assertIn('display: flex', tier_card)
+        self.assertNotIn('grid-template-rows', tier_card)
+        self.assertIn('white-space: nowrap', tier_name)
         self.assertNotIn('color-mix(', tier_name)
-        self.assertIn('color-mix(', tier_meter)
         self.assertIn('white-space: nowrap', tier_range)
         self.assertIn('display: none', tier_label_meta)
         self.assertNotIn('specName.style.color = classColor', tier_renderer)
+        self.assertNotIn('mplus-rank-tier-dps', tier_renderer)
+        self.assertNotIn('mplus-rank-tier-meter', tier_renderer)
+        self.assertNotIn("element('small', '', row.class_name_cn)", tier_renderer)
 
     def test_page_and_api_are_new_independent_routes(self):
         payload = {

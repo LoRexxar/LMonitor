@@ -203,7 +203,7 @@
     align-content: center;
     display: grid;
     gap: 4px;
-    grid-template-columns: repeat(auto-fill, minmax(145px, 165px));
+    grid-template-columns: repeat(auto-fill, minmax(88px, 108px));
     justify-content: start;
     padding: 4px;
 }
@@ -216,14 +216,12 @@
     border-left-color: color-mix(in srgb, var(--class-color, #64748b) 35%, #64748b);
     border-radius: 5px;
     color: #0f172a;
-    column-gap: 5px;
-    display: grid;
-    grid-template-columns: 26px minmax(0, 1fr) auto;
-    grid-template-rows: minmax(26px, auto) 2px;
+    display: flex;
+    gap: 4px;
+    min-height: 30px;
     min-width: 0;
     overflow: hidden;
-    padding: 3px 5px;
-    position: relative;
+    padding: 3px 4px;
     text-decoration: none;
     transition: border-color .15s, box-shadow .15s, transform .15s;
 }
@@ -238,64 +236,22 @@
 .mplus-rank-tier-card img {
     border-radius: 5px;
     box-shadow: 0 1px 2px rgba(15, 23, 42, .16);
-    height: 26px;
-    width: 26px;
+    flex: 0 0 auto;
+    height: 24px;
+    width: 24px;
 }
 
-.mplus-rank-tier-identity,
-.mplus-rank-tier-identity strong,
-.mplus-rank-tier-identity small,
-.mplus-rank-tier-dps strong,
-.mplus-rank-tier-dps small {
-    display: block;
-    min-width: 0;
-}
+.mplus-rank-tier-identity { min-width: 0; }
 
 .mplus-rank-tier-identity strong {
     color: #334155;
-    font-size: 11px;
+    display: block;
+    font-size: 10px;
     font-weight: 750;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-.mplus-rank-tier-identity small {
-    color: #94a3b8;
-    font-size: 8px;
-    margin-top: 1px;
-}
-
-.mplus-rank-tier-dps {
-    text-align: right;
-}
-
-.mplus-rank-tier-dps strong {
-    color: #0f172a;
-    font-size: 10px;
-    font-variant-numeric: tabular-nums;
-    font-weight: 850;
-}
-
-.mplus-rank-tier-dps small {
-    color: #94a3b8;
-    font-size: 7px;
-}
-
-.mplus-rank-tier-meter {
-    background: #e5e9ed;
-    border-radius: 999px;
-    grid-column: 1 / -1;
-    height: 2px;
-    overflow: hidden;
-}
-
-.mplus-rank-tier-meter i {
-    background: #64748b;
-    background: color-mix(in srgb, var(--class-color, #64748b) 35%, #64748b);
-    border-radius: inherit;
-    display: block;
-    height: 100%;
 }
 
 .mplus-rank-tier-empty {
@@ -502,7 +458,6 @@
 html.portal-theme-dark .mplus-rank-hero h1,
 html.portal-theme-dark .mplus-rank-spec,
 html.portal-theme-dark .mplus-rank-tier-heading h2,
-html.portal-theme-dark .mplus-rank-tier-dps strong,
 html.portal-theme-dark .mplus-rank-metric.primary strong {
     color: var(--portal-text);
 }
@@ -561,7 +516,6 @@ html.portal-theme-dark .mplus-rank-tier-label {
     border-color: var(--portal-border);
 }
 
-html.portal-theme-dark .mplus-rank-tier-meter { background: rgba(100, 116, 139, .28); }
 html.portal-theme-dark .mplus-rank-track { background: rgba(100, 116, 139, .28); }
 html.portal-theme-dark .mplus-rank-metric.primary strong { color: #f8fafc; }
 
@@ -571,7 +525,6 @@ html.portal-theme-dark .mplus-rank-metric.primary strong { color: #f8fafc; }
     .mplus-rank-updated { align-items: flex-start; }
     .mplus-rank-panel { padding: 12px; }
     .mplus-rank-tier-board { padding: 9px; }
-    .mplus-rank-tier-items { grid-template-columns: repeat(auto-fill, minmax(145px, 165px)); }
     .mplus-rank-header { display: none; }
     .mplus-rank-row {
         grid-template-columns: 32px minmax(0, 1fr);
@@ -599,29 +552,6 @@ html.portal-theme-dark .mplus-rank-metric.primary strong { color: #f8fafc; }
     .mplus-rank-tier-letter { font-size: 13px; height: 23px; width: 28px; }
     .mplus-rank-tier-items {
         gap: 3px;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
         padding: 3px;
     }
-    .mplus-rank-tier-card {
-        column-gap: 4px;
-        grid-template-columns: 24px minmax(0, 1fr);
-        grid-template-rows: auto auto 2px;
-        padding: 3px 4px;
-    }
-    .mplus-rank-tier-card img {
-        grid-row: 1 / 3;
-        height: 24px;
-        width: 24px;
-    }
-    .mplus-rank-tier-identity small { display: none; }
-    .mplus-rank-tier-dps {
-        align-items: baseline;
-        display: flex;
-        gap: 3px;
-        grid-column: 2;
-        text-align: left;
-    }
-    .mplus-rank-tier-dps strong { font-size: 10px; }
-    .mplus-rank-tier-dps small { display: inline; }
-    .mplus-rank-tier-meter { grid-row: 3; }
 }

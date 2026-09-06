@@ -78,17 +78,6 @@
             : tierForAverage(row.average_dps, leaderAverage);
     }
 
-    function averageRatio(row, leaderAverage) {
-        const suppliedRatio = Number(row.average_ratio);
-        if (row.average_ratio !== undefined && row.average_ratio !== null
-            && Number.isFinite(suppliedRatio) && suppliedRatio >= 0) {
-            return Math.min(100, suppliedRatio);
-        }
-        return leaderAverage > 0
-            ? Math.max(0, Math.min(100, Number(row.average_dps || 0) / leaderAverage * 100))
-            : 0;
-    }
-
     function safeClassColor(value) {
         const color = String(value || '').trim();
         return /^#[0-9a-f]{6}$/i.test(color) ? color : '#64748b';
@@ -141,17 +130,8 @@
 
                 const identity = element('span', 'mplus-rank-tier-identity');
                 const specName = element('strong', '', row.spec_name_cn);
-                identity.append(specName, element('small', '', row.class_name_cn));
-
-                const dps = element('span', 'mplus-rank-tier-dps');
-                dps.append(element('strong', '', formatDps(row.average_dps)), element('small', '', 'Avg'));
-
-                const meter = element('span', 'mplus-rank-tier-meter');
-                meter.setAttribute('aria-hidden', 'true');
-                const meterFill = element('i');
-                meterFill.style.width = `${averageRatio(row, leaderAverage).toFixed(1)}%`;
-                meter.appendChild(meterFill);
-                card.append(icon, identity, dps, meter);
+                identity.appendChild(specName);
+                card.append(icon, identity);
                 items.appendChild(card);
             });
 
