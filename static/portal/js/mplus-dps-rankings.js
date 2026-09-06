@@ -133,7 +133,7 @@
                 const averageDps = element(
                     'span',
                     'mplus-rank-tier-dps',
-                    formatCompactDps(row.average_dps)
+                    formatDps(row.average_dps)
                 );
                 identity.append(specName, averageDps);
                 card.append(icon, identity);
