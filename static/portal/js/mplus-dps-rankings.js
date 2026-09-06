@@ -167,8 +167,7 @@
             element('span', '', 'Tier'),
             element('span', '', '下限'),
             element('span', '', 'Avg'),
-            element('span', '', '最高'),
-            element('span', '', '样本')
+            element('span', '', '最高')
         );
         header.append(
             element('span', '', '#'),
@@ -208,8 +207,7 @@
                 tierBadge,
                 metric('下限', formatDps(row.lower_dps), false),
                 metric('Avg', formatDps(row.average_dps), true),
-                metric('最高', formatDps(row.highest_dps), false),
-                metric('样本', Number(row.sample_size || 0).toLocaleString('zh-CN'), false)
+                metric('最高', formatDps(row.highest_dps), false)
             );
             card.appendChild(metrics);
 
