@@ -160,7 +160,7 @@
             return;
         }
 
-        const maximum = Math.max(...rows.map((row) => Number(row.highest_dps || 0)), 1);
+        const averageScale = Math.max(leaderAverage, 1);
         const header = element('div', 'mplus-rank-header');
         const metricHeader = element('span', 'mplus-rank-metrics-header');
         metricHeader.append(
@@ -173,7 +173,7 @@
             element('span', '', '#'),
             element('span', '', '专精'),
             metricHeader,
-            element('span', '', '平均 DPS（职业色）/ 最高（刻度）')
+            element('span', '', '平均 DPS 对比')
         );
         list.appendChild(header);
 
@@ -211,16 +211,13 @@
             );
             card.appendChild(metrics);
 
-            const average = Math.max(0, Math.min(100, Number(row.average_dps || 0) / maximum * 100));
-            const high = Math.max(0, Math.min(100, Number(row.highest_dps || 0) / maximum * 100));
+            const average = Math.max(0, Math.min(100, Number(row.average_dps || 0) / averageScale * 100));
             const plot = element('div', 'mplus-rank-plot');
             const track = element('div', 'mplus-rank-track');
             track.setAttribute('aria-label', `平均 DPS ${formatDps(row.average_dps)}，最高 DPS ${formatDps(row.highest_dps)}`);
             const averageBar = element('span', 'mplus-rank-average-bar');
             averageBar.style.width = `${average.toFixed(1)}%`;
-            const peakMarker = element('span', 'mplus-rank-peak-marker');
-            peakMarker.style.left = `${high.toFixed(1)}%`;
-            track.append(averageBar, peakMarker);
+            track.appendChild(averageBar);
             plot.appendChild(track);
             card.appendChild(plot);
             list.appendChild(card);

@@ -250,7 +250,7 @@ class MplusDpsRankingRouteTests(TestCase):
         self.assertIn('height: 28px', tier_icon)
         self.assertIn('width: 28px', tier_icon)
 
-    def test_detail_ranking_omits_sample_and_emphasizes_comparison_bar(self):
+    def test_detail_ranking_omits_sample_and_prioritizes_leader_scaled_bar(self):
         root = Path(__file__).resolve().parents[2]
         css = (root / 'static/portal/css/mplus-dps-rankings.css').read_text(encoding='utf-8')
         javascript = (root / 'static/portal/js/mplus-dps-rankings.js').read_text(encoding='utf-8')
@@ -258,22 +258,24 @@ class MplusDpsRankingRouteTests(TestCase):
             javascript.index('function renderRankings'):
             javascript.index('function render(payload)')
         ]
+        ranking_list = re.search(r'\.mplus-rank-list\s*\{([^}]*)\}', css, re.S).group(1)
         metrics_header = re.search(
             r'\.mplus-rank-metrics-header\s*\{([^}]*)\}', css, re.S
         ).group(1)
         metrics = re.search(r'\.mplus-rank-metrics\s*\{([^}]*)\}', css, re.S).group(1)
         track = re.search(r'\.mplus-rank-track\s*\{([^}]*)\}', css, re.S).group(1)
-        peak_marker = re.search(
-            r'\.mplus-rank-peak-marker\s*\{([^}]*)\}', css, re.S
-        ).group(1)
 
         self.assertNotIn("element('span', '', '样本')", renderer)
         self.assertNotIn("metric('样本'", renderer)
         self.assertIn('repeat(3', metrics_header)
         self.assertIn('repeat(3', metrics)
-        self.assertIn('box-shadow:', track)
-        self.assertIn('width: 3px', peak_marker)
-        self.assertIn('box-shadow:', peak_marker)
+        self.assertIn('max-width: 1080px', ranking_list)
+        self.assertIn('height: 22px', track)
+        self.assertIn('averageScale', renderer)
+        self.assertIn('/ averageScale * 100', renderer)
+        self.assertNotIn('/ maximum * 100', renderer)
+        self.assertNotIn('mplus-rank-peak-marker', renderer)
+        self.assertNotIn('.mplus-rank-peak-marker', css)
 
     def test_page_and_api_are_new_independent_routes(self):
         payload = {
