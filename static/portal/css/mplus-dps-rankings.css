@@ -189,6 +189,7 @@
     font-weight: 750;
     line-height: 1.1;
     margin-top: 1px;
+    white-space: nowrap;
 }
 
 .mplus-rank-tier-label > small {

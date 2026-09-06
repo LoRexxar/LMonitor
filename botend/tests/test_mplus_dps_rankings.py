@@ -211,6 +211,9 @@ class MplusDpsRankingRouteTests(TestCase):
         tier_name = re.search(
             r'\.mplus-rank-tier-identity strong\s*\{([^}]*)\}', css, re.S
         ).group(1)
+        tier_range = re.search(
+            r'\.mplus-rank-tier-label > span\s*\{([^}]*)\}', css, re.S
+        ).group(1)
         tier_meter = re.search(r'\.mplus-rank-tier-meter i\s*\{([^}]*)\}', css, re.S).group(1)
         tier_label_meta = re.search(
             r'\.mplus-rank-tier-label > small\s*\{([^}]*)\}', css, re.S
@@ -226,6 +229,7 @@ class MplusDpsRankingRouteTests(TestCase):
         self.assertIn('color-mix(', tier_card)
         self.assertNotIn('color-mix(', tier_name)
         self.assertIn('color-mix(', tier_meter)
+        self.assertIn('white-space: nowrap', tier_range)
         self.assertIn('display: none', tier_label_meta)
         self.assertNotIn('specName.style.color = classColor', tier_renderer)
 
