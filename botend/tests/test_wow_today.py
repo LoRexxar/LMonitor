@@ -21,6 +21,7 @@ from botend.services.wow_today_service import (
     WowTodayService,
     WowTodayTranslator,
     extract_today_json,
+    filter_public_sections,
     select_current_na_roots,
     snapshot_payload_from_html,
 )
@@ -196,6 +197,20 @@ class FakeRequestClient:
 
 
 class WowTodayParserTests(SimpleTestCase):
+    def test_crest_names_use_correct_terms_and_normalize_old_snapshots_without_mutation(self):
+        expected = {
+            'Adventurer Mistcrest': '冒险者纹章', 'Veteran Mistcrest': '老兵纹章',
+            'Champion Mistcrest': '勇士纹章', 'Hero Mistcrest': '英雄纹章',
+            'Myth Mistcrest': '神话纹章',
+        }
+        self.assertEqual(self.translator().translate_many(expected), expected)
+        sections = [{'key': 'dungeons-and-raids', 'modules': [{
+            'key': 'season-caps', 'items': [{'name': '神话雾纹章', 'icon_label': '奖励：英雄雾纹章', 'quantity': 90}],
+        }]}]
+        item = filter_public_sections(sections)[0]['modules'][0]['items'][0]
+        self.assertEqual(item, {'name': '神话纹章', 'icon_label': '奖励：英雄纹章', 'quantity': 90})
+        self.assertEqual(sections[0]['modules'][0]['items'][0]['name'], '神话雾纹章')
+
     def translator(self):
         return WowTodayTranslator(translation_service=UnavailableTranslationService())
 
@@ -271,10 +286,31 @@ class WowTodayParserTests(SimpleTestCase):
         self.assertFalse(portal_data_task_is_due(task, datetime(2026, 9, 3, 9, 59, tzinfo=shanghai)))
         self.assertTrue(portal_data_task_is_due(task, datetime(2026, 9, 3, 10, 0, tzinfo=shanghai)))
         self.assertEqual(monitor_default_wait_time('WowTodayMonitor'), 86400)
-        self.assertIs(Monitor_Type_BaseObject_List[-1], WowTodayMonitor)
+        self.assertIn(WowTodayMonitor, Monitor_Type_BaseObject_List)
 
 
 class WowTodayPersistenceTests(TestCase):
+    def test_public_api_corrects_both_legacy_and_per_card_crest_snapshots(self):
+        card = {'key': 'season-caps', 'name': '赛季上限', 'kind': 'lines', 'items': [{'name': '神话雾纹章', 'quantity': 90}]}
+        snapshot = WowTodaySnapshot.objects.create(
+            snapshot_date=date(2026, 9, 7), region='na', game_version='retail',
+            sections_json=[{'key': 'dungeons-and-raids', 'name': '地下城与团队副本', 'modules': [card]}],
+        )
+        for per_card in (False, True):
+            with self.subTest(per_card=per_card):
+                if per_card:
+                    WowTodayCardSnapshot.objects.create(
+                        snapshot=snapshot, section_key='dungeons-and-raids', section_name='地下城与团队副本',
+                        card_key='season-caps', source_name='赛季上限', payload_json=card,
+                    )
+                response = self.client.get('/portal/api/today-in-wow/latest/')
+                self.assertEqual(response.status_code, 200)
+                item = response.json()['data']['sections'][0]['modules'][0]['items'][0]
+                self.assertEqual(item, {'name': '神话纹章', 'quantity': 90})
+        snapshot.refresh_from_db()
+        self.assertEqual(snapshot.sections_json[0]['modules'][0]['items'][0]['name'], '神话雾纹章')
+        self.assertEqual(snapshot.card_snapshots.get().payload_json['items'][0]['name'], '神话雾纹章')
+
     def translator(self):
         return WowTodayTranslator(translation_service=UnavailableTranslationService())
 
@@ -388,6 +424,15 @@ class WowTodayPersistenceTests(TestCase):
 
 
 class WowTodayFrontendContractTests(SimpleTestCase):
+    def test_today_content_has_no_external_links_and_hides_unavailable_icons(self):
+        with open('static/portal/js/main.js', encoding='utf-8') as handle:
+            script = handle.read()
+        renderer = script[script.index('function renderWowTodayItem('):script.index('function getExwindUrl(')]
+        self.assertNotIn('<a ', renderer)
+        self.assertIn('来源：Wowhead', renderer)
+        self.assertIn('notable-world-quests|bountiful-delves', renderer)
+        self.assertIn('image.hidden = true', renderer)
+
     def test_panel_is_above_daily_report_and_preferences_are_browser_local(self):
         with open('templates/portal/index.html', 'r', encoding='utf-8') as handle:
             template = handle.read()

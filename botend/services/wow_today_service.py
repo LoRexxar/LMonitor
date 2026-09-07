@@ -85,11 +85,11 @@ BUILTIN_ZH = {
     'Fortified': '强韧',
     'Tyrannical': '残暴',
     "Xal'atath's Guile": '萨拉塔斯的狡诈',
-    'Adventurer Mistcrest': '冒险者雾纹章',
-    'Veteran Mistcrest': '老兵雾纹章',
-    'Champion Mistcrest': '勇士雾纹章',
-    'Hero Mistcrest': '英雄雾纹章',
-    'Myth Mistcrest': '神话雾纹章',
+    'Adventurer Mistcrest': '冒险者纹章',
+    'Veteran Mistcrest': '老兵纹章',
+    'Champion Mistcrest': '勇士纹章',
+    'Hero Mistcrest': '英雄纹章',
+    'Myth Mistcrest': '神话纹章',
     'Spark of Tides': '潮汐火花',
     'Venomblight Manaflux': '毒蚀魔力流',
     'Special Assignment: Shade and Claw': '特别任务：暗影与利爪',
@@ -275,6 +275,22 @@ def _reject_incomplete_placeholder_lines(roots):
                 raise ValueError('Wowhead 当前版本丰裕地下堡仍是无身份信息的 Active 占位数据')
 
 
+def _correct_public_card_labels(module):
+    """在读取时纠正旧快照的纹章译名，不修改采集快照或后台配置。"""
+    card = dict(module)
+    if isinstance(card.get('items'), list):
+        card['items'] = []
+        for item in module['items']:
+            if not isinstance(item, dict):
+                continue
+            corrected = dict(item)
+            for key in ('name', 'icon_label'):
+                if isinstance(corrected.get(key), str):
+                    corrected[key] = re.sub(r'(冒险者|老兵|勇士|英雄|神话)雾纹章', r'\1纹章', corrected[key])
+            card['items'].append(corrected)
+    return card
+
+
 def filter_public_sections(sections):
     """过滤不公开的模块；顶层板块显隐由服务端配置动态决定。"""
     filtered = []
@@ -282,7 +298,7 @@ def filter_public_sections(sections):
         if not isinstance(section, dict):
             continue
         modules = [
-            dict(module)
+            _correct_public_card_labels(module)
             for module in section.get('modules') or []
             if isinstance(module, dict) and not _is_excluded_public_group(module)
         ]

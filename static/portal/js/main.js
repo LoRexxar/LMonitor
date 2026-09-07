@@ -502,19 +502,16 @@ function wowTodayItemMeta(item) {
   return values.join(" · ");
 }
 
-function renderWowTodayItem(item, moduleKind) {
+function renderWowTodayItem(item, moduleKind, showIcon = true) {
   const name = escapeHtml(item?.name || "今日内容");
-  const href = sanitizeHref(item?.url || "");
-  const icon = sanitizeHref(item?.icon_url || "");
+  const icon = showIcon ? sanitizeHref(item?.icon_url || "") : "";
   const iconLabel = escapeHtml(item?.icon_label || "");
   const meta = escapeHtml(wowTodayItemMeta(item));
   const value = escapeHtml(item?.value || "");
-  const title = href
-    ? `<a class="portal-tiw-item-name" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${name}</a>`
-    : `<span class="portal-tiw-item-name">${name}</span>`;
+  const title = `<span class="portal-tiw-item-name">${name}</span>`;
   const iconHtml = icon
     ? `<img class="portal-tiw-item-icon" src="${escapeHtml(icon)}" alt="" loading="lazy">`
-    : `<span class="portal-tiw-item-dot" aria-hidden="true"></span>`;
+    : "";
   const tokenValue = moduleKind === "token" && value
     ? `<span class="portal-tiw-item-value">${value} 金币</span>`
     : "";
@@ -543,9 +540,10 @@ function renderWowTodayModule(module, hidden, sectionKey) {
   const key = String(module?.key || "");
   if (!key || wowTodayModuleIsHidden(sectionKey, module, hidden)) return "";
   const moduleName = escapeHtml(module?.name || "今日内容");
-  const href = sanitizeHref(module?.url || "");
   const items = Array.isArray(module?.items) ? module.items : [];
-  const rows = items.map((item) => renderWowTodayItem(item, module?.kind)).join("");
+  // 轮换任务和地下堡的图标未同步至 OSS，仅展示名称与详情。
+  const showIcon = !/(?:^|-)(?:notable-world-quests|bountiful-delves)$/.test(key);
+  const rows = items.map((item) => renderWowTodayItem(item, module?.kind, showIcon)).join("");
   const metrics = module?.metrics || {};
   const defeated = Number(metrics.defeated_bosses || 0);
   const total = Number(metrics.total_bosses || 0);
@@ -553,9 +551,7 @@ function renderWowTodayModule(module, hidden, sectionKey) {
   const metricHtml = total > 0
     ? `<div class="portal-tiw-progress"><strong>${defeated} / ${total}</strong><span>首领已击败${guilds ? ` · ${guilds} 家顶尖公会` : ""}</span><span class="portal-tiw-progress-bar"><i style="width:${Math.min(100, Math.max(0, defeated / total * 100))}%"></i></span></div>`
     : "";
-  const heading = href
-    ? `<a href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${moduleName}</a>`
-    : `<span>${moduleName}</span>`;
+  const heading = `<span>${moduleName}</span>`;
   const moduleClasses = [
     "portal-tiw-module",
     total > 0 ? "portal-tiw-module--progress" : "",
@@ -668,11 +664,14 @@ function renderWowTodayPanel() {
     <div class="portal-tiw-actions">
       ${missing ? `<span class="portal-tiw-translation-note">${missing} 条新内容等待中文化</span>` : ""}
       ${settings}
-      <a href="${escapeHtml(sanitizeHref(payload.source_url) || "https://www.wowhead.com/today-in-wow")}" target="_blank" rel="noreferrer">查看来源</a>
+      <span class="portal-tiw-source">来源：Wowhead</span>
     </div>
   </div>
   ${sections ? `<div class="portal-tiw-sections" aria-label="今日魔兽内容模块">${sections}</div>` : `<div class="portal-tiw-empty">当前配置隐藏了全部模块，可在“自定义显示”中重新开启。</div>`}`;
   bindWowTodaySettings(container);
+  container.querySelectorAll('.portal-tiw-item-icon').forEach((image) => {
+    image.addEventListener('error', () => { image.hidden = true; }, {once: true});
+  });
 }
 
 function getExwindUrl() {
