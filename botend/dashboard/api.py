@@ -8807,7 +8807,7 @@ class SimcBackendBinaryAPIView(View):
                 })
 
             try:
-                threads = int(data.get('threads', 2) or 2)
+                threads = int(data.get('threads', 1) or 1)
             except (TypeError, ValueError):
                 return JsonResponse({'success': False, 'error': 'threads 必须是 1 到 8 的整数'}, status=400)
             if not 1 <= threads <= 8:

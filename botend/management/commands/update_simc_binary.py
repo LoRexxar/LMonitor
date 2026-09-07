@@ -12,7 +12,6 @@
 import os
 import re
 import subprocess
-import fcntl
 import tempfile
 import json
 import hashlib
@@ -32,6 +31,10 @@ from botend.services.simc_apl.publish import content_hash
 from botend.services.simc_apl.validation import validate_payload
 from botend.services.simc_composer import SimcComposer
 from botend.services.simc_player_config import canonical_simc_spec_identity
+from botend.services.simc_heavy_job_lock import (
+    SimcHeavyJobLockBusy,
+    acquire_simc_heavy_job_lock,
+)
 from botend.services.simc_skill_damage import SimcSkillDamageSnapshotService
 
 
@@ -46,46 +49,48 @@ class Command(BaseCommand):
         parser.add_argument('--check', action='store_true', help='仅检查当前版本，不执行编译')
         parser.add_argument('--sync-inputs-only', action='store_true', help='仅同步默认模板和默认 APL，不执行拉取/编译')
         parser.add_argument('--apply-patches', action='store_true', help='应用仓库补丁，仅在源码变化时编译')
-        parser.add_argument('--threads', type=int, default=2, help='编译并行度（默认 2，内存不足时降低）')
+        parser.add_argument('--threads', type=int, default=1, help='编译并行度（默认 1，避免共享生产主机 OOM）')
         parser.add_argument('--wow-build', default='', help='本次 APL/symbol 发布对应的明确 WoW build')
 
     def handle(self, *args, **options):
-        with open('/tmp/lmonitor-simc-update.lock', 'w') as command_lock:
-            try:
-                fcntl.flock(command_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError as exc:
-                raise CommandError('另一个 SimC 更新正在运行') from exc
-            self.platform = 'linux64'
-            self.simc_source_dir, self.simc_build_dir, self.simc_binary_path = self._resolve_paths()
-            self.wow_build_override = str(options.get('wow_build') or '').strip()
-            self.row = self._get_row()
+        try:
+            with acquire_simc_heavy_job_lock():
+                self._handle_exclusive(options)
+        except SimcHeavyJobLockBusy as exc:
+            raise CommandError('另一个 SimC 重型作业正在运行') from exc
 
-            if options['check']:
-                self._check_version()
-                return
-            if options['sync_inputs_only']:
-                git_hash = self._get_git_hash()
-                current_version = self.row.current_version
-                if not self._revision_matches_git_hash(current_version, git_hash):
-                    raise CommandError('当前 SimC 二进制 revision 与源码 HEAD 不一致，拒绝仅同步输入')
-                self._sync_generated_inputs(git_hash=git_hash,
-                                            binary_path=self.simc_binary_path,
-                                            binary_revision=git_hash)
-                if current_version != git_hash:
-                    # Promote legacy metadata only after the entire transactional
-                    # corpus/symbol publication has succeeded.
-                    self.row.current_version = git_hash
-                    self.row.save(update_fields=['current_version'])
-                self._set_status(progress=100, status='默认模板和 APL 同步完成', error='', updating=False)
-                return
-            if options['apply_patches']:
-                self._apply_patches_only(threads=max(1, int(options['threads'] or 1)))
-                return
+    def _handle_exclusive(self, options):
+        self.platform = 'linux64'
+        self.simc_source_dir, self.simc_build_dir, self.simc_binary_path = self._resolve_paths()
+        self.wow_build_override = str(options.get('wow_build') or '').strip()
+        self.row = self._get_row()
 
-            self._update_binary(
-                do_pull=not options['no_pull'],
-                threads=max(1, int(options['threads'] or 1)),
-            )
+        if options['check']:
+            self._check_version()
+            return
+        if options['sync_inputs_only']:
+            git_hash = self._get_git_hash()
+            current_version = self.row.current_version
+            if not self._revision_matches_git_hash(current_version, git_hash):
+                raise CommandError('当前 SimC 二进制 revision 与源码 HEAD 不一致，拒绝仅同步输入')
+            self._sync_generated_inputs(git_hash=git_hash,
+                                        binary_path=self.simc_binary_path,
+                                        binary_revision=git_hash)
+            if current_version != git_hash:
+                # Promote legacy metadata only after the entire transactional
+                # corpus/symbol publication has succeeded.
+                self.row.current_version = git_hash
+                self.row.save(update_fields=['current_version'])
+            self._set_status(progress=100, status='默认模板和 APL 同步完成', error='', updating=False)
+            return
+        if options['apply_patches']:
+            self._apply_patches_only(threads=max(1, int(options['threads'] or 1)))
+            return
+
+        self._update_binary(
+            do_pull=not options['no_pull'],
+            threads=max(1, int(options['threads'] or 1)),
+        )
 
     def _resolve_paths(self):
         cfg = getattr(settings, 'SIMC_CONFIG', {}) or {}
@@ -1080,7 +1085,7 @@ class Command(BaseCommand):
             self.stdout.write(f'迁移 SimC 旧补丁状态 {manifest_name}')
         return changed
 
-    def _apply_patches_only(self, threads=2):
+    def _apply_patches_only(self, threads=1):
         changed = self._apply_local_patches()
         binary_stale = self._binary_needs_patch_rebuild()
         revision_unpromoted = False
@@ -1133,7 +1138,7 @@ class Command(BaseCommand):
             return True
         return result.returncode != 0 or 'simulationcraft' not in str(output or '').lower()
 
-    def _update_binary(self, do_pull=True, threads=2, apply_patches=True):
+    def _update_binary(self, do_pull=True, threads=1, apply_patches=True):
         self._set_status(progress=1, status='准备更新 SimC', error='', updating=True)
         try:
             if not os.path.isdir(self.simc_source_dir):

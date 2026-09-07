@@ -6642,7 +6642,7 @@ function initSimcBackendUploadTool() {
     };
 
     const triggerUpdate = async (checkOnly) => {
-        const threads = Math.max(1, Math.min(8, parseInt(threadsInput.value) || 2));
+        const threads = Math.max(1, Math.min(8, parseInt(threadsInput.value) || 1));
         const noPull = noPullCheck.checked;
 
         try {

@@ -19,6 +19,27 @@ from botend.tests.simc_apl_symbol_test_utils import create_symbol_scope
 
 
 class UpdateSimcBinaryCommandTests(TestCase):
+    def test_cli_defaults_to_single_compile_job_for_shared_production_host(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        parser = Command().create_parser('manage.py', 'update_simc_binary')
+
+        self.assertEqual(parser.parse_args([]).threads, 1)
+        self.assertEqual(parser.parse_args(['--threads', '2']).threads, 2)
+
+    def test_command_uses_shared_heavy_job_lock(self):
+        from botend.management.commands import update_simc_binary as command_module
+
+        command = command_module.Command()
+        lock = mock.MagicMock()
+        with mock.patch.object(
+            command_module, 'acquire_simc_heavy_job_lock', return_value=lock,
+        ) as acquire_lock, mock.patch.object(command, '_handle_exclusive') as handle_exclusive:
+            command.handle(check=True)
+
+        acquire_lock.assert_called_once_with()
+        handle_exclusive.assert_called_once_with({'check': True})
+
     def test_repository_managed_simc_patches_have_valid_numstat_syntax(self):
         patch_dir = Path(settings.BASE_DIR) / 'simc_patches'
         failures = []
