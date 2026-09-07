@@ -53,6 +53,7 @@ from botend.dashboard.user_management import (
 from botend.portal.views import PortalHomeView, PortalSimcBenchmarkResultsView
 from botend.portal.views import PortalArticleView, PortalMplusDpsRankingsView, PortalNewsView, PortalSpecsView
 from botend.portal.views import PortalReportFileView, PortalWowHotfixReportView, PortalWowSkillDiffReportView
+from botend.portal.views import PortalWowUpdatesView
 from botend.portal.spec_detail_views import SpecDetailPlayerView, SpecDetailPlayerDetailView, SpecDetailDungeonView, SpecDetailRaidView, SpecOverviewAPIView, SimcProfileDetailView
 from botend.portal.talent_simulator import PortalTalentSimulatorAPIView, PortalTalentSimulatorEncodeAPIView, PortalTalentSimulatorView
 from botend.portal.gear_builder import (
@@ -139,6 +140,7 @@ urlpatterns = [
     path('portal/news/', PortalNewsView.as_view(), name='portal_news'),
     path('portal/specs/', PortalSpecsView.as_view(), name='portal_specs'),
     path('portal/mplus/dps-rankings/', PortalMplusDpsRankingsView.as_view(), name='portal_mplus_dps_rankings'),
+    path('portal/wow-updates/', PortalWowUpdatesView.as_view(), name='portal_wow_updates'),
     path('portal/article/<int:article_id>/', PortalArticleView.as_view(), name='portal_article'),
     path('portal/talents/', PortalTalentSimulatorView.as_view(), name='portal_talent_simulator'),
     path('portal/gear-builder/', PortalGearBuilderView.as_view(), name='portal_gear_builder'),

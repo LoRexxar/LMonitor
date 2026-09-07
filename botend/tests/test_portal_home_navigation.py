@@ -1,6 +1,8 @@
 import json
+from importlib import import_module
 from pathlib import Path
 
+from django.apps import apps
 from django.contrib.auth.models import User
 from django.test import TestCase
 
@@ -11,6 +13,31 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class PortalHomeNavigationTests(TestCase):
+    def test_simc_navigation_moves_to_existing_page_without_changing_custom_settings(self):
+        migration = import_module('botend.migrations.0206_move_simc_baselines_navigation')
+        group = PortalNavigationGroup.objects.create(key='simc-migration-test', name='模拟数据')
+        item = PortalNavigationItem.objects.create(
+            group=group, name='公开模拟任务', url=migration.OLD_URL, desc=migration.OLD_DESC,
+        )
+        custom = PortalNavigationItem.objects.create(
+            group=group, name='自定义入口', url=migration.OLD_URL, desc='自定义说明',
+            is_active=False, sort_order=37,
+        )
+        existing = PortalNavigationItem.objects.create(
+            group=group, name='原有模拟入口', url=migration.NEW_URL, desc='原有说明',
+        )
+        migration.move_navigation(apps, None)
+        migration.move_navigation(apps, None)
+        for row in (item, custom, existing):
+            row.refresh_from_db()
+            self.assertEqual(row.url, migration.NEW_URL)
+        self.assertEqual(item.desc, migration.NEW_DESC)
+        self.assertEqual((custom.name, custom.desc, custom.is_active, custom.sort_order), ('自定义入口', '自定义说明', False, 37))
+        self.assertEqual(existing.desc, '原有说明')
+        data = self.client.get('/portal/api/navigation/').json()['data']['items']
+        public_item = next(row for row in data if row['name'] == item.name)
+        self.assertEqual(public_item['url'], migration.NEW_URL)
+
     def test_navigation_and_external_tools_use_separate_models_and_apis(self):
         group = PortalNavigationGroup.objects.create(
             key='test-navigation', name='测试站内导航', description='仅站内入口', icon_key='chart', sort_order=1,

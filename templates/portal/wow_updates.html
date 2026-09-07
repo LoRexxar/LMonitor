@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="/favicon.ico">
+    <title>魔兽世界更新数据挖掘 - 魔兽世界每日节奏</title>
+    {% load static %}
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_unified_navigation"></script>
+    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260907_wow_updates_moved">
+    <link rel="stylesheet" href="{% static 'portal/css/wow-updates.css' %}?v=20260907_1">
+</head>
+<body class="portal-bg font-sans">
+    {% include 'portal/_header.html' %}
+    <main class="wow-updates-shell">
+        <header class="wow-updates-heading">
+            <div>
+                <h1>魔兽世界更新数据挖掘</h1>
+                <p>服务器版本、Hotfix 动态与更新报告。</p>
+            </div>
+            <a class="wow-updates-home" href="/">返回首页</a>
+        </header>
+        <div class="wow-updates-search">
+            <label for="wow-updates-search">搜索</label>
+            <input id="wow-updates-search" type="search" placeholder="搜索版本、状态或报告" autocomplete="off" aria-controls="wow-skill-diff-states wow-skill-diff-list">
+            <button id="wow-updates-clear" type="button" hidden>清除搜索</button>
+        </div>
+        <section class="wow-updates-section" aria-labelledby="wow-updates-states-title">
+            <div class="wow-updates-section-heading">
+                <h2 id="wow-updates-states-title">服务器与 Hotfix</h2>
+            </div>
+            <div id="wow-skill-diff-states" aria-live="polite" aria-busy="true">
+                <p class="wow-updates-message">正在加载服务器状态…</p>
+            </div>
+        </section>
+        <section class="wow-updates-section" aria-labelledby="wow-updates-reports-title">
+            <div class="wow-updates-section-heading">
+                <h2 id="wow-updates-reports-title">更新报告</h2>
+            </div>
+            <div id="wow-skill-diff-list" aria-live="polite" aria-busy="true">
+                <p class="wow-updates-message">正在加载更新报告…</p>
+            </div>
+        </section>
+    </main>
+    <script src="{% static 'portal/js/wow-updates.js' %}?v=20260907_1"></script>
+</body>
+</html>

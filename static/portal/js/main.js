@@ -311,95 +311,6 @@ function renderSkeleton(containerId, lines = 8) {
   el.innerHTML = `<div class="mt-2">${blocks.join("")}</div>`;
 }
 
-function formatPortalDateTime(value) {
-  if (!value) return "暂无数据";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "暂无数据";
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", hour12: false,
-  }).format(date);
-}
-
-function renderPortalInlineMarkdown(markdown) {
-  const source = String(markdown || "");
-  const tokens = /(`[^`]+`|\[([^\]]+)\]\(([^)]+)\)|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*]+)\*|_([^_]+)_)/g;
-  let cursor = 0;
-  let html = "";
-  for (const match of source.matchAll(tokens)) {
-    html += escapeHtml(source.slice(cursor, match.index));
-    if (match[0].startsWith("`")) html += `<code>${escapeHtml(match[0].slice(1, -1))}</code>`;
-    else if (match[2] !== undefined) {
-      const href = sanitizeHref(match[3]);
-      const label = escapeHtml(match[2]);
-      html += href
-        ? `<a class="text-indigo-600 hover:text-indigo-800 hover:underline" href="${escapeHtml(href)}"${/^https?:\/\//.test(href) ? ' target="_blank" rel="noopener noreferrer"' : ""}>${label}</a>`
-        : label;
-    } else if (match[4] !== undefined || match[5] !== undefined) html += `<strong>${escapeHtml(match[4] ?? match[5])}</strong>`;
-    else html += `<em>${escapeHtml(match[6] ?? match[7])}</em>`;
-    cursor = match.index + match[0].length;
-  }
-  return html + escapeHtml(source.slice(cursor));
-}
-
-function renderPortalMarkdownDescription(markdown) {
-  const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
-  const blocks = [];
-  let paragraph = [];
-  let list = [];
-  const flushParagraph = () => {
-    if (!paragraph.length) return;
-    blocks.push(`<p>${paragraph.map(renderPortalInlineMarkdown).join("<br>")}</p>`);
-    paragraph = [];
-  };
-  const flushList = () => {
-    if (!list.length) return;
-    blocks.push(`<ul class="list-disc space-y-0.5 pl-4">${list.map((item) => `<li>${renderPortalInlineMarkdown(item)}</li>`).join("")}</ul>`);
-    list = [];
-  };
-  lines.forEach((line) => {
-    const bullet = line.match(/^\s*[-*+]\s+(.+)$/);
-    if (bullet) { flushParagraph(); list.push(bullet[1]); return; }
-    if (!line.trim()) { flushParagraph(); flushList(); return; }
-    flushList(); paragraph.push(line);
-  });
-  flushParagraph(); flushList();
-  return blocks.join("") || `<p>${renderPortalInlineMarkdown(markdown)}</p>`;
-}
-
-async function loadPublicBaselines() {
-  const el = document.getElementById("simc-baseline-list");
-  if (!el) return;
-  try {
-    const payload = await fetchJson("/portal/api/simc-benchmarks/panels/");
-    const panels = Array.isArray(payload?.panels) ? payload.panels : [];
-    if (!panels.length) {
-      el.innerHTML = '<div class="text-slate-500 md:col-span-2">暂无公开的基线任务</div>';
-      return;
-    }
-    el.innerHTML = panels.map((panel) => {
-      const panelId = Number(panel?.id);
-      if (!Number.isInteger(panelId) || panelId <= 0) return "";
-      const href = `/portal/simc-benchmarks/${encodeURIComponent(String(panel.id))}/`;
-      const name = escapeHtml(panel?.name || "未命名基线任务");
-      const description = renderPortalMarkdownDescription(panel?.description || "查看各职业专精的基线模拟结果");
-      const updatedAt = escapeHtml(formatPortalDateTime(panel?.result_updated_at));
-      return `<article class="group flex flex-col gap-2 py-3 transition hover:bg-indigo-50/50 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-2">
-        <div class="min-w-0">
-          <a href="${href}" class="font-semibold text-slate-900 hover:text-indigo-700">${name}</a>
-          <div class="mt-0.5 text-xs leading-5 text-slate-500">${description}</div>
-        </div>
-        <div class="flex shrink-0 items-center gap-4 text-xs text-slate-500">
-          <span>更新于 <time>${updatedAt}</time></span>
-          <a href="${href}" class="text-indigo-600" aria-label="查看 ${name} 的模拟结果">→</a>
-        </div>
-      </article>`;
-    }).join("");
-  } catch (e) {
-    el.innerHTML = '<div class="text-slate-500 md:col-span-2">基线任务加载失败</div>';
-  }
-}
-
 async function loadTools() {
   const topEl = document.getElementById("topbar-tools");
   const gridEl = document.getElementById("tools-nav");
@@ -513,8 +424,6 @@ const SECTION_MAP = {
   wowhead: { url: "/portal/api/wowhead/latest/", listId: "wowhead-list" },
   today_in_wow: { url: "/portal/api/today-in-wow/latest/" },
   daily_report: { url: "/portal/api/daily-report/latest/" },
-  wow_skill_states: { url: "/portal/api/wow-skill-diff/states/", listId: "wow-skill-diff-states" },
-  wow_skill_diffs: { url: "/portal/api/wow-skill-diffs/", listId: "wow-skill-diff-list" },
   nga: { url: "/portal/api/nga-hot/", listId: "nga-list" },
   events: { url: "/portal/api/events/", listId: "events-list" },
   videos: { url: "/portal/api/videos/", listId: "videos-list", tagsId: "videos-tags" },
@@ -1808,154 +1717,6 @@ function renderEvents(items) {
   </div>`;
 }
 
-function renderWowSkillDiffList(containerId, items) {
-  const el = document.getElementById(containerId);
-  if (!el) return;
-  if (!items || items.length === 0) {
-    el.innerHTML = `<div class="text-slate-500">暂无数据</div>`;
-    return;
-  }
-  const q = getSearchQuery();
-  const filtered = filterItems(items, q);
-  if (!filtered.length) {
-    el.innerHTML = `<div class="text-slate-500">无匹配结果</div>`;
-    return;
-  }
-  el.innerHTML = filtered
-    .slice(0, 20)
-    .map((it, idx) => {
-      const title = escapeHtml(it.title || "");
-      const url = escapeHtml(sanitizeHref(it.url) || "#");
-      const time = escapeHtml((it.time || "").replaceAll("\n", " ").trim());
-      const divider = idx === 0 ? "" : "border-t border-slate-100";
-      return `<div class="py-2 ${divider}">
-        <a class="block text-slate-900 hover:text-indigo-700 font-semibold portal-line-clamp-2" href="${url}">${title}</a>
-        ${time ? `<div class="mt-1 text-xs text-slate-500 inline-flex items-center gap-1">${svgIcon("icon-clock", "w-3.5 h-3.5 text-slate-400")}<span>${time}</span></div>` : ""}
-      </div>`;
-    })
-    .join("");
-}
-
-function renderWowSkillDiffStates(containerId, items) {
-  const el = document.getElementById(containerId);
-  if (!el) return;
-  if (!items || items.length === 0) {
-    el.innerHTML = `<div class="text-slate-500">暂无服务器监控配置</div>`;
-    return;
-  }
-  const q = getSearchQuery();
-  const filtered = filterItems(items, q);
-  if (!filtered.length) {
-    el.innerHTML = `<div class="text-slate-500">无匹配结果</div>`;
-    return;
-  }
-  let hotfixItem = filtered[0];
-  for (const it of filtered) {
-    if (Number(it.hotfix_push_id || 0) > Number(hotfixItem.hotfix_push_id || 0)) {
-      hotfixItem = it;
-    }
-  }
-  const hotfixPushId = Number(hotfixItem.hotfix_push_id || 0) || 0;
-  let hotfixRow = "";
-  if (hotfixPushId > 0) {
-    const hotfixRunAt = escapeHtml(hotfixItem.hotfix_last_run_at || "");
-    const hotfixRunStatus = escapeHtml(hotfixItem.hotfix_last_run_status || "");
-    const hotfixEventAt = escapeHtml(hotfixItem.hotfix_last_event_at || "");
-    const hotfixEventStatus = escapeHtml(hotfixItem.hotfix_last_event_status || "");
-    const rawHotfixEvent = String(hotfixItem.hotfix_last_event_status || "");
-    const hotfixSummaryTitle = escapeHtml(hotfixItem.hotfix_summary_title || "");
-    const hotfixReportUrl = sanitizeHref(hotfixItem.hotfix_report_url);
-    const hotfixWagoUrl = sanitizeHref(hotfixItem.hotfix_wago_url);
-    const hotfixRunBadge =
-      hotfixRunStatus === "异常"
-        ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-rose-50 text-rose-700 border-rose-200">异常</span>`
-        : `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-emerald-50 text-emerald-700 border-emerald-200">正常</span>`;
-    const hotfixHasUpdate = rawHotfixEvent.includes("有职业更新");
-    const hotfixBadge = hotfixHasUpdate
-      ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-extrabold border bg-violet-100 text-violet-900 border-violet-200">Hotfix 有更新</span>`
-      : (hotfixEventStatus ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-slate-50 text-slate-700 border-slate-200">${escapeHtml(hotfixEventStatus)}</span>` : "");
-    const hotfixReportBtn = hotfixReportUrl
-      ? `<a class="portal-pill inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50" href="${escapeHtml(hotfixReportUrl)}">${svgIcon("icon-chart", "w-3.5 h-3.5")}<span>Hotfix</span></a>`
-      : "";
-    const hotfixWagoBtn = hotfixWagoUrl
-      ? `<a class="portal-pill inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50" href="${escapeHtml(hotfixWagoUrl)}" target="_blank" rel="noreferrer">${svgIcon("icon-globe", "w-3.5 h-3.5")}<span>Hotfix Wago</span></a>`
-      : "";
-    hotfixRow = `<div class="py-2.5 border-b border-slate-200/70">
-      <div class="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 items-start">
-        <div class="min-w-0">
-          <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <div class="font-semibold text-slate-900">Hotfix</div>
-            <div class="text-slate-500 font-semibold">#${hotfixPushId}</div>
-            ${hotfixRunBadge}
-            ${hotfixBadge}
-          </div>
-          <div class="mt-1 text-xs text-slate-500 flex flex-wrap items-center gap-x-3 gap-y-1">
-            ${hotfixSummaryTitle ? `<span class="text-slate-700 font-semibold">${hotfixSummaryTitle}</span>` : ""}
-            ${hotfixRunAt ? `<span>心跳：${hotfixRunAt}</span>` : ""}
-            ${hotfixEventAt ? `<span>事件时间：${hotfixEventAt}</span>` : ""}
-          </div>
-        </div>
-        <div class="flex items-center justify-end gap-2 pt-0.5">
-          ${hotfixReportBtn}
-          ${hotfixWagoBtn}
-        </div>
-      </div>
-    </div>`;
-  }
-  const rows = filtered
-    .slice(0, 12)
-    .map((it, idx) => {
-      const branch = escapeHtml(it.branch || "");
-      const build = escapeHtml(it.build || "-");
-      const runAt = escapeHtml(it.last_run_at || "");
-      const runStatus = escapeHtml(it.last_run_status || "");
-      const eventAt = escapeHtml(it.last_event_at || "");
-      const eventStatus = escapeHtml(it.last_event_status || "");
-      const rawEvent = String(it.last_event_status || "");
-      const summaryTitle = escapeHtml(it.summary_title || "");
-      const reportUrl = sanitizeHref(it.report_url);
-      const wagoUrl = sanitizeHref(it.wago_diff_url);
-      const divider = idx === 0 ? "" : "border-t border-slate-200/70";
-      const reportBtn = reportUrl
-        ? `<a class="portal-pill inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50" href="${escapeHtml(reportUrl)}">${svgIcon("icon-chart", "w-3.5 h-3.5")}<span>报告</span></a>`
-        : "";
-      const wagoBtn = wagoUrl
-        ? `<a class="portal-pill inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50" href="${escapeHtml(wagoUrl)}" target="_blank" rel="noreferrer">${svgIcon("icon-globe", "w-3.5 h-3.5")}<span>Wago</span></a>`
-        : "";
-      const runBadge =
-        runStatus === "异常"
-          ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-rose-50 text-rose-700 border-rose-200">异常</span>`
-          : `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-emerald-50 text-emerald-700 border-emerald-200">正常</span>`;
-      const hasUpdate = rawEvent.includes("有职业更新");
-      const eventBadge = hasUpdate
-        ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-extrabold border bg-amber-100 text-amber-900 border-amber-200">有职业更新</span>`
-        : (eventStatus ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-slate-50 text-slate-700 border-slate-200">${escapeHtml(eventStatus)}</span>` : "");
-      return `<div class="py-2.5 ${divider}">
-        <div class="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 items-start">
-          <div class="min-w-0">
-            <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <div class="font-semibold text-slate-900">${branch}</div>
-              <div class="text-slate-500 font-semibold">${build}</div>
-              ${runBadge}
-              ${eventBadge}
-            </div>
-            <div class="mt-1 text-xs text-slate-500 flex flex-wrap items-center gap-x-3 gap-y-1">
-              ${summaryTitle ? `<span class="text-slate-700 font-semibold">${summaryTitle}</span>` : ""}
-              ${runAt ? `<span>心跳：${runAt}</span>` : ""}
-              ${eventAt ? `<span>事件时间：${eventAt}</span>` : ""}
-            </div>
-          </div>
-          <div class="flex items-center justify-end gap-2 pt-0.5">
-            ${reportBtn}
-            ${wagoBtn}
-          </div>
-        </div>
-      </div>`;
-    })
-    .join("");
-  el.innerHTML = `<div class="rounded-xl border border-slate-200 bg-white overflow-hidden px-3 py-2">${hotfixRow}${rows}</div>`;
-}
-
 async function loadSection(key) {
   const ep = SECTION_MAP[key];
   if (!ep) return;
@@ -2005,12 +1766,6 @@ async function loadSection(key) {
     } else if (key === "events") {
       PORTAL_STATE.dataBySection[key] = r.data || [];
       renderEvents(r.data || []);
-    } else if (key === "wow_skill_diffs") {
-      PORTAL_STATE.dataBySection[key] = r.data || [];
-      renderWowSkillDiffList(ep.listId, r.data || []);
-    } else if (key === "wow_skill_states") {
-      PORTAL_STATE.dataBySection[key] = r.data || [];
-      renderWowSkillDiffStates(ep.listId, r.data || []);
     } else {
       PORTAL_STATE.dataBySection[key] = r.data || [];
       renderSimpleList(ep.listId, r.data || [], { limit: key === "nga" ? 20 : 12 });
@@ -2123,8 +1878,6 @@ async function loadAll() {
   await loadSection("blueposts");
   await loadSection("exwind");
   await loadSection("wowhead");
-  await loadSection("wow_skill_states");
-  await loadSection("wow_skill_diffs");
   await loadSection("nga");
   await loadSection("events");
   await loadSection("videos");
@@ -2178,6 +1931,14 @@ function bindLogoBackgroundRemoval() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  if (window.location.hash === "#section-simc-baselines") {
+    window.location.replace("/portal/simc-benchmarks/");
+    return;
+  }
+  if (window.location.hash === "#section-wow-skill-diff") {
+    window.location.replace("/portal/wow-updates/");
+    return;
+  }
   if (window.location.hash === "#section-mythicstats") {
     window.location.replace("/portal/mplus/dps-rankings/?source=mythicstats");
     return;
@@ -2185,7 +1946,6 @@ document.addEventListener("DOMContentLoaded", () => {
   bindLogoBackgroundRemoval();
   bindPortalGuideInteractions();
   loadAll();
-  loadPublicBaselines();
   initSectionDots();
 });
 
@@ -2193,7 +1953,6 @@ document.addEventListener("DOMContentLoaded", () => {
 const SECTION_DOT_LABELS = {
   "portal-topbar": "搜索",
   "section-news": "今日动态",
-  "section-wow-skill-diff": "版本数据",
   "section-nga": "社区与活动",
   "section-tools": "快捷链接",
 };
@@ -2201,7 +1960,6 @@ const SECTION_DOT_LABELS = {
 const SECTION_DOT_PRIMARY_IDS = new Set([
   "portal-topbar",
   "section-news",
-  "section-wow-skill-diff",
   "section-nga",
   "section-tools",
 ]);

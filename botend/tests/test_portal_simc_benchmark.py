@@ -464,6 +464,14 @@ class PortalLogoutTests(TestCase):
 
 @override_settings(ALLOWED_HOSTS=['testserver'])
 class PortalSimcBenchmarkPageTests(TestCase):
+    def test_collection_page_remains_public_and_contains_the_full_list(self):
+        response = self.client.get('/portal/simc-benchmarks/')
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'portal/simc_benchmark_results.html')
+        self.assertContains(response, 'simc模拟数据列表')
+        soup = BeautifulSoup(response.content, 'html.parser')
+        self.assertIsNone(soup.select_one('#simc-benchmark-root').get('data-panel-id'))
+
     def test_numeric_panel_route_renders_panel_identity_for_javascript(self):
         response = self.client.get(
             '/portal/simc-benchmarks/1/?spec=fury&profile=raid&scenario=patchwerk',
@@ -490,7 +498,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIsNotNone(results_soup.select_one('#simc-benchmark-root[aria-live="polite"]'))
         self.assertIn('portal/css/simc-benchmarks.css', self.RESULTS_TEMPLATE)
         self.assertIn('portal/js/simc-benchmarks.js', self.RESULTS_TEMPLATE)
-        self.assertIn('/portal/simc-benchmarks/', self.TEMPLATE)
+        self.assertIn('/portal/simc-benchmarks/', self.PORTAL_JS)
 
     def test_benchmark_lists_keep_a_loading_message_and_only_render_update_time(self):
         results_soup = BeautifulSoup(self.RESULTS_TEMPLATE, 'html.parser')
@@ -517,9 +525,6 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         render_start = self.JS.index('function renderPanelList(')
         render_end = self.JS.index('async function loadBenchmarks()', render_start)
         self.assertNotIn('result_count', self.JS[render_start:render_end])
-        baseline_start = self.PORTAL_JS.index('async function loadPublicBaselines()')
-        baseline_end = self.PORTAL_JS.index('async function loadTools()', baseline_start)
-        self.assertNotIn('result_count', self.PORTAL_JS[baseline_start:baseline_end])
 
     def test_expanded_profile_mounts_frozen_talent_thumbnail(self):
         results_soup = BeautifulSoup(self.RESULTS_TEMPLATE, 'html.parser')
@@ -542,37 +547,15 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIn('TalentTreeThumbnail.mount', self.JS)
         self.assertIn('mountProfileTalentThumbnail(loadedDetails)', self.JS)
 
-    def test_home_lists_public_baseline_tasks_below_wago_monitoring(self):
+    def test_home_removes_baseline_list_and_preserves_legacy_redirect(self):
         soup = BeautifulSoup(self.TEMPLATE, 'html.parser')
-        sections = soup.select('.snap-section')
-        wago_section = soup.select_one('#section-wow-skill-diff')
-        baseline_section = soup.select_one('#section-simc-baselines')
-        self.assertIsNotNone(baseline_section)
-        self.assertLess(sections.index(wago_section), sections.index(baseline_section))
-        title_link = baseline_section.select_one(
-            'a[href="/portal/simc-benchmarks/"]'
-        )
-        self.assertIsNotNone(title_link)
-        self.assertEqual(title_link.get_text(' ', strip=True), 'simc模拟数据列表')
-        self.assertIsNotNone(baseline_section.select_one('#simc-baseline-list'))
-        self.assertIn(
-            'divide-y', baseline_section.select_one('#simc-baseline-list').get('class', [])
-        )
-
-        home_renderer_start = self.PORTAL_JS.index('async function loadPublicBaselines()')
-        home_renderer_end = self.PORTAL_JS.index('async function loadTools()', home_renderer_start)
-        home_renderer = self.PORTAL_JS[home_renderer_start:home_renderer_end]
-        self.assertIn('renderPortalMarkdownDescription', home_renderer)
-        self.assertNotIn('truncate text-xs text-slate-500">${description}', home_renderer)
-
-        for contract in (
-            'loadPublicBaselines',
-            '/portal/api/simc-benchmarks/panels/',
-            'Array.isArray(payload?.panels)',
-            '/portal/simc-benchmarks/${encodeURIComponent(String(panel.id))}/',
-            'panel?.result_updated_at',
-        ):
-            self.assertIn(contract, self.PORTAL_JS)
+        self.assertIsNone(soup.select_one('#section-simc-baselines'))
+        self.assertIsNone(soup.select_one('#simc-baseline-list'))
+        self.assertNotIn('portal/css/simc-benchmarks.css', self.TEMPLATE)
+        self.assertNotIn('loadPublicBaselines', self.PORTAL_JS)
+        self.assertNotIn('/portal/api/simc-benchmarks/panels/', self.PORTAL_JS)
+        self.assertIn('window.location.hash === "#section-simc-baselines"', self.PORTAL_JS)
+        self.assertIn('window.location.replace("/portal/simc-benchmarks/")', self.PORTAL_JS)
 
     def test_portal_pages_share_one_primary_header_navigation(self):
         shared_header_path = self.ROOT / 'templates/portal/_header.html'
