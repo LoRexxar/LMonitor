@@ -52,7 +52,7 @@ from botend.dashboard.user_management import (
 )
 from botend.portal.views import PortalHomeView, PortalSimcBenchmarkResultsView
 from botend.portal.views import PortalArticleView, PortalMplusDpsRankingsView, PortalNewsView, PortalSpecsView
-from botend.portal.views import PortalReportFileView, PortalWowHotfixReportView, PortalWowSkillDiffReportView
+from botend.portal.views import PortalReportFileView, PortalWowHotfixReportView, PortalWowSkillDiffReportView, PortalWowSkillDiffMetadataAPIView
 from botend.portal.views import PortalWowUpdatesView
 from botend.portal.spec_detail_views import SpecDetailPlayerView, SpecDetailPlayerDetailView, SpecDetailDungeonView, SpecDetailRaidView, SpecOverviewAPIView, SimcProfileDetailView
 from botend.portal.talent_simulator import PortalTalentSimulatorAPIView, PortalTalentSimulatorEncodeAPIView, PortalTalentSimulatorView
@@ -232,6 +232,7 @@ urlpatterns = [
     path('portal/reports/<path:report_path>', PortalReportFileView.as_view(), name="portal_report_file"),
     path('portal/wow-hotfix-report/<int:report_id>/', PortalWowHotfixReportView.as_view(), name="portal_wow_hotfix_report"),
     path('portal/wow-skill-diff/<int:report_id>/', PortalWowSkillDiffReportView.as_view(), name="portal_wow_skill_diff_report"),
+    path('portal/api/wow-skill-diff/<int:report_id>/metadata/', PortalWowSkillDiffMetadataAPIView.as_view(), name="portal_wow_skill_diff_metadata"),
 
     # API路由
     path('api/simc-agent/v1/register/', SimcAgentRegisterAPIView.as_view(), name='simc_agent_register'),

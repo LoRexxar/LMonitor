@@ -1,0 +1,7 @@
+.spell-adjustment-source { margin-top: 5px; color: #64748b; font-size: 12px; }
+.spell-affected-skills { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin-top: 9px; color: #475569; font-size: 12px; }
+.spell-affected-skills a { display: inline-flex; align-items: center; gap: 5px; color: #4338ca; font-weight: 650; }
+.spell-affected-icon { width: 24px; height: 24px; object-fit: cover; border-radius: 4px; }
+.spell-head-main, .spell-title { min-width: 0; overflow-wrap: anywhere; }
+html.portal-theme-dark .spell-adjustment-source, html.portal-theme-dark .spell-affected-skills { color: #aab7ca; }
+html.portal-theme-dark .spell-affected-skills a { color: #bcb5ff; }

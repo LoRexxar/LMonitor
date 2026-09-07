@@ -5,10 +5,11 @@ from pathlib import Path, PurePosixPath
 from django.conf import settings
 from django.views import View
 from django.shortcuts import render
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 
 from botend.models import WowSkillDiffReport, WowHotfixReport
 from botend.services.wago_report_html import build_wow_skill_diff_fallback_html
+from botend.services.wow_skill_report_metadata import build_report_spell_metadata
 
 
 def _resolve_portal_report_html_path(report_path):
@@ -111,7 +112,18 @@ class PortalReportFileView(View):
         if not full_path:
             return HttpResponse('Not Found', status=404)
         try:
-            return HttpResponse(full_path.read_bytes(), content_type='text/html; charset=utf-8')
+            content = full_path.read_text(encoding='utf-8')
+            if full_path.name.startswith('wow_skill_diff_') and 'spell-icon-fallback' in content:
+                report = WowSkillDiffReport.objects.filter(content_html_path__endswith='/' + full_path.name).first()
+                if report:
+                    branch = report.branch if report.branch in ('wow', 'wowt', 'wowxptr', 'wow_beta') else 'wow'
+                    enhancement = (
+                        f'<div data-report-branch="{branch}" data-skill-report-metadata="/portal/api/wow-skill-diff/{report.id}/metadata/"></div>'
+                        '<link rel="stylesheet" href="/static/portal/css/wow-skill-report-metadata.css?v=20260907_1">'
+                        '<script src="/static/portal/js/wow-skill-report-metadata.js?v=20260907_1"></script>'
+                    )
+                    content = content.replace('</body>', enhancement + '</body>', 1) if '</body>' in content else content + enhancement
+            return HttpResponse(content, content_type='text/html; charset=utf-8')
         except Exception:
             return HttpResponse('Not Found', status=404)
 
@@ -199,3 +211,20 @@ class PortalWowSkillDiffReportView(View):
             'fallback_html': fallback_html,
             'report_file_url': portal_report_url(html_path),
         })
+
+
+class PortalWowSkillDiffMetadataAPIView(View):
+    """旧报告和新报告共用的展示补全，仅接受数据库中已有报告的技能 ID。"""
+
+    def get(self, request, report_id):
+        report = WowSkillDiffReport.objects.filter(id=report_id).first()
+        if not report:
+            return JsonResponse({'error': '报告不存在'}, status=404)
+        path = _resolve_portal_report_html_path(report.content_html_path)
+        if not path:
+            return JsonResponse({'spells': {}, 'branch': report.branch})
+        try:
+            content = path.read_text(encoding='utf-8')
+        except OSError:
+            return JsonResponse({'spells': {}, 'branch': report.branch})
+        return JsonResponse({'spells': build_report_spell_metadata(content, report.branch, report.to_build), 'branch': report.branch})

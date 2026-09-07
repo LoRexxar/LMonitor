@@ -9,12 +9,13 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_unified_navigation"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260903_external_menu_v2">
+    <link rel="stylesheet" href="{% static 'portal/css/wow-skill-report-metadata.css' %}?v=20260907_1">
 </head>
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
 
     <div class="max-w-[1240px] mx-auto px-4 py-6">
-        <main class="wow-skill-diff-page">
+        <main class="wow-skill-diff-page" data-report-branch="{{ report.branch }}" data-skill-report-metadata="{% url 'portal_wow_skill_diff_metadata' report.id %}">
             <header class="wow-skill-diff-page-head">
                 <div class="wow-skill-diff-page-head-main">
                     <div class="wow-skill-diff-kicker">Wago 版本更新 · 职业改动报告</div>
@@ -51,5 +52,6 @@
         </main>
     </div>
     <script src="{% static 'portal/js/wow-skill-diff-report.js' %}?v=20260831_impact_v1"></script>
+    <script src="{% static 'portal/js/wow-skill-report-metadata.js' %}?v=20260907_1"></script>
 </body>
 </html>

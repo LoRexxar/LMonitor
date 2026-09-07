@@ -19,6 +19,7 @@ from utils.log import logger
 from botend.controller.plugins.wow.wago_regions import wago_region_id, wago_region_name
 from botend.services.wago_db2.client import WagoDB2Client
 from botend.services.wago_db2.graph import WagoDB2GraphService
+from botend.services.wow_skill_report_metadata import database_spell_metadata, wowhead_spell_url as report_spell_url
 
 try:
     from core.glm import GLMClient
@@ -4552,14 +4553,14 @@ class WagoSkillDiffMonitor(BaseScan):
                     out[spell_id] = name
         return out
 
-    def _fetch_spell_name_wowhead_cn(self, spell_id):
+    def _fetch_spell_name_wowhead_cn(self, spell_id, branch='wow'):
         try:
             spell_id = int(spell_id)
         except Exception:
             return ''
         if spell_id <= 0:
             return ''
-        url = f"https://www.wowhead.com/cn/spell={spell_id}"
+        url = report_spell_url(branch, spell_id).replace('www.wowhead.com/', 'www.wowhead.com/cn/', 1)
         try:
             r = requests.get(url, timeout=max(30, self.http_timeout), headers={'User-Agent': 'Mozilla/5.0'})
         except Exception:
@@ -4584,7 +4585,7 @@ class WagoSkillDiffMonitor(BaseScan):
             return {}
         existing = {
             int(r['spell_id']): self._clean_external_text(r.get('name_zh'))
-            for r in WowSpellSnapshot.objects.filter(branch=branch, locale=self.locale, spell_id__in=spell_ids)
+            for r in WowSpellSnapshot.objects.filter(branch=branch, locale=self.locale, snapshot_build=build, spell_id__in=spell_ids)
             .exclude(name_zh='')
             .values('spell_id', 'name_zh')
         }
@@ -4596,7 +4597,7 @@ class WagoSkillDiffMonitor(BaseScan):
         if still_missing:
             limit = 50
             for sid in still_missing[:limit]:
-                name = (self._fetch_spell_name_wowhead_cn(sid) or '').strip()
+                name = (self._fetch_spell_name_wowhead_cn(sid, branch=branch) or '').strip()
                 if name:
                     fetched[sid] = name
         if fetched:
@@ -5312,6 +5313,7 @@ class WagoSkillDiffMonitor(BaseScan):
             return ''
         if value.startswith(('https://', 'http://', '/')):
             return value
+        value = re.sub(r'\.(?:jpg|png|blp)$', '', value.replace('\\', '/').rsplit('/', 1)[-1], flags=re.I)
         safe_name = re.sub(r'[^0-9A-Za-z_-]+', '', value).lower()
         if not safe_name:
             return ''
@@ -5382,6 +5384,10 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
             }
             for r in snapshot_rows
         }
+        for sid, metadata in database_spell_metadata(spell_ids, branch, data_build).items():
+            context = spell_context.setdefault(sid, {})
+            if metadata.get('icon'):
+                context['icon'] = metadata['icon']
         name_cache.update(snap_names)
         missing = [sid for sid in spell_ids if not (name_cache.get(sid) or '').strip()]
         if missing:
@@ -5653,7 +5659,7 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                 parts.append(f"<section class='spec-section' id='class-{cid}-spec-{spec_id}'><h3>{html.escape(spec_name)} <span class='subtle'>专精 {spec_id} ｜ {len(spec_map.get(spec_id) or [])} 技能</span></h3>")
                 for spell_id in sorted(spec_map.get(spec_id) or []):
                     sname = self._clean_external_text((zh_name_cache.get(spell_id) or '') or (name_cache.get(spell_id) or '') or str(spell_id))
-                    wowhead_spell_url = f"https://www.wowhead.com/spell={spell_id}"
+                    wowhead_spell_url = report_spell_url(branch, spell_id)
                     diffs_by_table = (spell_changes.get(spell_id) or {}).get('diffs') or {}
                     if not diffs_by_table:
                         continue

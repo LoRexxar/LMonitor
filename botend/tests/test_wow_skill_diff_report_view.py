@@ -228,6 +228,9 @@ class WagoSkillDiffHtmlReportTests(SimpleTestCase):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmpdir.cleanup)
         self.base_dir = Path(self.tmpdir.name)
+        metadata_patch = patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.database_spell_metadata', return_value={})
+        self.database_metadata = metadata_patch.start()
+        self.addCleanup(metadata_patch.stop)
 
     def test_report_change_tone_marks_direct_buff_nerf_and_uncertain_fields(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
@@ -246,6 +249,7 @@ class WagoSkillDiffHtmlReportTests(SimpleTestCase):
         )
 
     def test_html_report_repairs_utf8_mojibake_names(self):
+        self.database_metadata.return_value = {473909: {'icon': 'inv_misc_book_09'}}
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
         monitor.locale = 'enUS'
         monitor.name_locale = 'zhCN'
@@ -299,6 +303,8 @@ class WagoSkillDiffHtmlReportTests(SimpleTestCase):
         self.assertIn('知识宝典', html)
         self.assertIn('元素', html)
         self.assertIn('data-search=', html)
+        self.assertIn('inv_misc_book_09.jpg', html)
+        self.assertIn('https://www.wowhead.com/ptr/spell=473909', html)
         self.assertNotIn('çŸ¥è¯†', html)
         self.assertNotIn('å…ƒç´', html)
     def test_html_report_keeps_db2_keys_with_chinese_labels(self):
