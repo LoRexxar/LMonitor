@@ -17,7 +17,7 @@ from botend.services.wow_today_service import (
 )
 from botend.controller.plugins.wow.wago_regions import wago_region_name
 from botend.wow_i18n import cn_dungeon_from_slug
-from botend.constants.wow import canonical_class_spec
+from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON, canonical_class_spec
 from botend.services.mplus_dps_rankings_service import get_current_mplus_dps_rankings_payload
 from botend.portal.mythicstats import (
     mythicstats_spec_identity,
@@ -277,6 +277,22 @@ def _portal_link_categories(items):
     return categories
 
 
+def _mplus_member_to_dict(member):
+    """按职业与专精共同匹配图标，兼容已保存的 Raider.IO 队伍数据。"""
+    identity = canonical_class_spec(member.get('class_slug'), member.get('spec_slug'))
+    if not identity:
+        identity = canonical_class_spec(member.get('class'), member.get('spec'))
+    if not identity:
+        return {**member, 'spec_icon_url': ''}
+    class_name, spec_name = identity
+    return {
+        **member,
+        'class_name_cn': CLASS_CN.get(class_name, class_name),
+        'spec_name_cn': SPEC_CN.get(spec_name, spec_name),
+        'spec_icon_url': SPEC_ICON.get(identity, '').replace('/small/', '/large/'),
+    }
+
+
 def _mplus_to_dict(r):
     party = []
     if getattr(r, 'party_json', None):
@@ -285,6 +301,7 @@ def _mplus_to_dict(r):
             party = json.loads(r.party_json) or []
         except Exception:
             party = []
+    party = [_mplus_member_to_dict(member) for member in party if isinstance(member, dict)] if isinstance(party, list) else []
     dps = []
     if r.dps_json:
         try:

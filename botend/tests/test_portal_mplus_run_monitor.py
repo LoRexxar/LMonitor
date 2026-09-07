@@ -4,13 +4,26 @@ from unittest.mock import Mock, patch
 from django.test import SimpleTestCase
 
 from botend.controller.plugins.portal.PortalMplusRunMonitor import PortalMplusRunMonitor
-from botend.constants.wow import RAID_BOSS_CN, RAID_ZONE_CN
-from botend.portal.api import _mplus_to_dict
+from botend.constants.wow import RAID_BOSS_CN, RAID_ZONE_CN, SPEC_ICON
+from botend.portal.api import _mplus_member_to_dict, _mplus_to_dict
 from botend.services.spec_stats_service import _lookup_dungeon_cn
 from botend.wow_i18n import cn_dungeon_from_slug
 
 
 class PortalMplusRunMonitorSeasonTests(SimpleTestCase):
+    def test_party_icons_resolve_all_specs_and_keep_same_named_specs_distinct(self):
+        for (class_name, spec_name), icon in SPEC_ICON.items():
+            with self.subTest(class_name=class_name, spec_name=spec_name):
+                member = _mplus_member_to_dict({'name': '测试玩家', 'class': class_name, 'spec': spec_name})
+                self.assertEqual(member['spec_icon_url'], icon.replace('/small/', '/large/'))
+                self.assertEqual(member['name'], '测试玩家')
+        mage = _mplus_member_to_dict({'class_slug': 'mage', 'spec_slug': 'frost'})
+        knight = _mplus_member_to_dict({'class_slug': 'death-knight', 'spec_slug': 'frost'})
+        self.assertNotEqual(mage['spec_icon_url'], knight['spec_icon_url'])
+        self.assertEqual(mage['class_name_cn'], '法师')
+        self.assertEqual(knight['class_name_cn'], '死亡骑士')
+        self.assertEqual(_mplus_member_to_dict({'class_slug': 'mage'})['spec_icon_url'], '')
+
     @patch('botend.controller.plugins.portal.PortalMplusRunMonitor.SeasonMeta.objects.filter')
     def test_uses_active_season_metadata_instead_of_s1_literal(self, season_filter):
         season_filter.return_value.first.return_value = SimpleNamespace(rio_season='season-mn-2')
@@ -38,6 +51,10 @@ class PortalMplusRunMonitorSeasonTests(SimpleTestCase):
         )
 
         self.assertEqual(_mplus_to_dict(run)['dungeon_cn'], '虚空之痕竞技场')
+        run.party_json = '[{"name":"测试玩家","role":"healer","class_slug":"paladin","spec_slug":"holy"}]'
+        member = _mplus_to_dict(run)['party'][0]
+        self.assertEqual((member['name'], member['role'], member['spec_name_cn']), ('测试玩家', 'healer', '神圣'))
+        self.assertIn('/large/', member['spec_icon_url'])
         self.assertEqual(
             {
                 slug: cn_dungeon_from_slug(slug, english)

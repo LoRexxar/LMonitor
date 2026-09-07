@@ -1216,8 +1216,13 @@ function renderMplusRuns(containerId, items) {
     const name = escapeHtml(m?.name || "-");
     const color = classColor(m?.class_slug);
     const border = m?.class_slug === "priest" ? "border-slate-400" : "border-transparent";
-    return `<span class="inline-flex items-center gap-1 rounded-md bg-white/70 border ${border} px-1.5 py-0.5">
-      <span class="w-2 h-2 rounded-full border border-slate-200" style="background:${color}"></span>
+    const iconUrl = sanitizeHref(m?.spec_icon_url);
+    const specLabel = escapeHtml([m?.class_name_cn || m?.class, m?.spec_name_cn || m?.spec].filter(Boolean).join(" · ") || "专精未知");
+    const icon = iconUrl
+      ? `<img class="portal-mplus-spec-icon h-5 w-5 shrink-0 rounded border object-cover" src="${escapeHtml(iconUrl)}" width="20" height="20" alt="${specLabel}" title="${specLabel}" style="border-color:${color}" loading="lazy" decoding="async">`
+      : `<span class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-slate-300 text-xs text-slate-500" title="专精未知" aria-label="专精未知">?</span>`;
+    return `<span class="portal-mplus-member inline-flex items-center gap-1 rounded-md bg-white/70 border ${border} px-1.5 py-0.5">
+      ${icon}
       <span class="text-slate-800 text-xs font-medium">${name}</span>
     </span>`;
   };
@@ -1262,7 +1267,7 @@ function renderMplusRuns(containerId, items) {
   });
 
   el.innerHTML = `
-    <div class="rounded-xl border border-slate-200 bg-white overflow-hidden">
+    <div class="rounded-xl border border-slate-200 bg-white overflow-x-auto">
       <table class="w-full text-sm">
         <thead class="bg-slate-50">
           <tr>
@@ -1278,6 +1283,15 @@ function renderMplusRuns(containerId, items) {
       </table>
     </div>
   `;
+  el.querySelectorAll('.portal-mplus-spec-icon').forEach((image) => {
+    image.addEventListener('error', () => {
+      // OSS 加载失败时使用同名高清图标的备用源，仅切换一次。
+      const original = new URL(image.src);
+      if (original.hostname !== 'oss.wowdaily.cn') return;
+      const filename = original.pathname.split('/').pop();
+      image.src = `https://wow.zamimg.com/images/wow/icons/large/${filename}`;
+    }, {once: true});
+  });
 }
 
 function portalHexToRgba(hex, alpha) {
