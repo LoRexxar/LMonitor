@@ -212,25 +212,23 @@
     align-content: center;
     display: grid;
     gap: 4px;
-    grid-template-columns: repeat(auto-fill, minmax(108px, 118px));
+    grid-template-columns: repeat(auto-fill, minmax(100px, 104px));
     justify-content: start;
     padding: 4px;
 }
 
 .mplus-rank-tier-card {
     align-items: center;
-    background: var(--tier-color, #eef2f6);
-    border: 1px solid #e2e8f0;
-    border-left: 2px solid #64748b;
-    border-left-color: color-mix(in srgb, var(--class-color, #64748b) 35%, #64748b);
+    background: color-mix(in srgb, var(--class-color, #64748b) 38%, #fff);
+    border: 1px solid color-mix(in srgb, var(--class-color, #64748b) 65%, #94a3b8);
     border-radius: 5px;
     color: #0f172a;
     display: flex;
-    gap: 4px;
-    min-height: 34px;
+    gap: 5px;
+    min-height: 48px;
     min-width: 0;
     overflow: hidden;
-    padding: 3px 4px;
+    padding: 5px 4px;
     text-decoration: none;
     transition: border-color .15s, box-shadow .15s, transform .15s;
 }
@@ -246,22 +244,24 @@
     border-radius: 5px;
     box-shadow: 0 1px 2px rgba(15, 23, 42, .16);
     flex: 0 0 auto;
-    height: 28px;
-    width: 28px;
+    height: 32px;
+    width: 32px;
 }
 
 .mplus-rank-tier-identity {
-    align-items: baseline;
+    align-items: flex-start;
     display: flex;
+    flex-direction: column;
     gap: 3px;
     min-width: 0;
 }
 
 .mplus-rank-tier-identity strong {
-    color: #334155;
+    color: #1e293b;
     display: block;
-    font-size: 10px;
+    font-size: 13px;
     font-weight: 750;
+    line-height: 18px;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -269,9 +269,9 @@
 }
 
 .mplus-rank-tier-dps {
-    color: #64748b;
+    color: #475569;
     flex: 0 0 auto;
-    font-size: 9px;
+    font-size: 11px;
     font-variant-numeric: tabular-nums;
     font-weight: 750;
     line-height: 1;
@@ -332,16 +332,28 @@
     width: 100%;
 }
 
+.mplus-rank-list-heading {
+    align-items: baseline;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    justify-content: space-between;
+    padding: 16px 0 12px;
+}
+.mplus-rank-list-heading h2 { color: var(--portal-text); font-size: 17px; font-weight: 750; margin: 0; }
+.mplus-rank-list-heading > span { color: var(--portal-text-muted); font-size: 12px; }
+
 .mplus-rank-header {
     align-items: center;
     color: #64748b;
     display: grid;
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 700;
-    gap: 6px;
-    grid-template-columns: 28px 190px minmax(0, 1fr);
-    min-height: 24px;
-    padding: 0 6px;
+    gap: 8px;
+    grid-template-columns: 28px 148px minmax(0, 1fr);
+    min-height: 34px;
+    padding: 0 8px;
+    border-bottom: 1px solid var(--portal-border-strong);
 }
 
 .mplus-rank-header > span:first-child { text-align: center; }
@@ -349,31 +361,30 @@
 .mplus-rank-metrics-header {
     align-items: center;
     display: grid;
-    gap: 2px;
-    grid-template-columns: 28px repeat(3, 52px);
+    gap: 6px;
+    grid-template-columns: 28px 48px 60px;
 }
 .mplus-rank-metrics-header span { text-align: right; }
 .mplus-rank-metrics-header span:first-child { text-align: center; }
+.mplus-rank-metrics-header span:last-child { padding-inline: 6px; }
 
 .mplus-rank-row {
     align-items: center;
     background: rgba(248, 250, 252, .9);
-    border: 0;
+    border-bottom: 1px solid var(--portal-border-subtle);
     box-sizing: border-box;
     display: grid;
-    gap: 6px;
-    grid-template-columns: 28px 190px minmax(0, 1fr);
-    height: 25px;
-    min-height: 25px;
-    padding: 0 6px;
+    gap: 8px;
+    grid-template-columns: 28px 148px minmax(0, 1fr);
+    min-height: 38px;
+    padding: 5px 8px;
     transition: background .12s, box-shadow .12s;
 }
 
 .mplus-rank-row:nth-child(odd) { background: #f1f5f9; }
 .mplus-rank-row.mplus-rank-tier-break {
-    border-top: 2px solid var(--tier-accent, #64748b);
-    height: 27px;
-    min-height: 27px;
+    border-top: 1px solid var(--tier-accent, #64748b);
+    margin-top: 6px;
 }
 .mplus-rank-tier-s { --tier-accent: #3d6652; }
 .mplus-rank-tier-a { --tier-accent: #41667c; }
@@ -389,7 +400,7 @@
 
 .mplus-rank-position {
     color: #64748b;
-    font-size: 10px;
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
     font-weight: 750;
     text-align: center;
@@ -400,21 +411,21 @@
 .mplus-rank-top-3 .mplus-rank-position { color: #9a5b32; font-weight: 900; }
 
 .mplus-rank-metrics {
-    align-items: center;
+    align-items: start;
     display: grid;
-    gap: 2px;
-    grid-template-columns: 28px repeat(3, 52px);
+    gap: 6px;
+    grid-template-columns: 28px 48px 60px;
     min-width: 0;
 }
 
 .mplus-rank-tier {
     align-items: center;
-    border-right: 1px solid rgba(100, 116, 139, .3);
-    border-radius: 2px;
+    align-self: center;
+    border-radius: 4px;
     display: inline-flex;
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 900;
-    height: 25px;
+    height: 24px;
     justify-content: center;
     width: 28px;
 }
@@ -428,49 +439,62 @@
 .tier-f { background: #535e6b; color: #fff; }
 
 .mplus-rank-metric { min-width: 0; text-align: right; }
+.mplus-rank-metric.primary { padding-block: 4px; }
 .mplus-rank-metric span { display: none; }
 .mplus-rank-metric strong {
     color: #64748b;
     display: block;
-    font-size: 10px;
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
     font-weight: 650;
+    line-height: 18px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.mplus-rank-metric.primary strong { color: #0f172a; font-size: 11px; font-weight: 850; }
+.mplus-rank-metric.primary strong { color: #0f172a; font-size: 13px; font-weight: 750; }
+.mplus-rank-metric.peak {
+    padding: 4px 6px;
+}
 
 .mplus-rank-plot {
-    align-items: stretch;
+    align-items: center;
     display: grid;
-    grid-template-columns: 25px minmax(0, 1fr);
-    height: 25px;
+    gap: 6px;
+    grid-template-columns: 26px minmax(0, 1fr);
+    min-height: 26px;
     min-width: 0;
     text-decoration: none;
 }
 .mplus-rank-plot > img {
-    border-radius: 0;
-    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .25);
-    height: 25px;
+    border-radius: 4px;
+    height: 26px;
     object-fit: cover;
-    width: 25px;
+    width: 26px;
 }
 .mplus-rank-track {
-    background: #cbd5e1;
+    background: #e2e8f0;
     border: 0;
-    border-radius: 0;
-    box-shadow: inset -1px 0 rgba(15, 23, 42, .28);
-    height: 25px;
+    border-radius: 3px;
+    height: 26px;
     overflow: hidden;
     position: relative;
+}
+
+.mplus-rank-peak-bar {
+    background: color-mix(in srgb, var(--class-color, #64748b) 22%, transparent);
+    border-right: 2px dashed var(--portal-text-muted, #64748b);
+    box-sizing: border-box;
+    height: 100%;
+    position: absolute;
+    inset: 0 auto 0 0;
 }
 
 .mplus-rank-average-bar {
     align-items: center;
     background: var(--class-color, #64748b);
-    background: color-mix(in srgb, var(--class-color, #64748b) 82%, #475569);
-    box-shadow: inset -1px 0 rgba(15, 23, 42, .42);
+    background: color-mix(in srgb, var(--class-color, #64748b) 76%, #475569);
+    border-right: 1px solid rgba(15, 23, 42, .25);
     display: flex;
     height: 100%;
     min-width: 4px;
@@ -479,14 +503,17 @@
     inset: 0 auto 0 0;
 }
 .mplus-rank-bar-label {
-    background: rgba(255, 255, 255, .72);
+    background: rgba(255, 255, 255, .88);
     border-radius: 2px;
     color: #0f172a;
     display: block;
-    font-size: 11px;
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    max-width: calc(100% - 8px);
+    font-size: 12px;
     font-weight: 700;
     line-height: 18px;
-    margin-left: 4px;
     overflow: hidden;
     padding: 0 4px;
     text-overflow: ellipsis;
@@ -542,16 +569,15 @@ html.portal-theme-dark .mplus-rank-tier-card {
 }
 
 html.portal-theme-dark .mplus-rank-tier-card {
-    background: color-mix(in srgb, var(--tier-color, #64748b) 18%, #22262f);
-    border-left-color: #64748b;
-    border-left-color: color-mix(in srgb, var(--class-color, #64748b) 38%, #64748b);
+    background: color-mix(in srgb, var(--class-color, #64748b) 30%, #22262f);
+    border-color: color-mix(in srgb, var(--class-color, #64748b) 55%, #475569);
 }
 
 html.portal-theme-dark .mplus-rank-tier-identity strong {
-    color: #cbd5e1;
+    color: #f1f5f9;
 }
 
-html.portal-theme-dark .mplus-rank-tier-dps { color: #94a3b8; }
+html.portal-theme-dark .mplus-rank-tier-dps { color: #cbd5e1; }
 
 html.portal-theme-dark .mplus-rank-tier-label {
     background: rgba(15, 23, 42, .46);
@@ -559,10 +585,12 @@ html.portal-theme-dark .mplus-rank-tier-label {
 }
 
 html.portal-theme-dark .mplus-rank-track {
-    background: rgba(148, 163, 184, .34);
-    box-shadow: inset -1px 0 rgba(226, 232, 240, .32);
+    background: rgba(148, 163, 184, .16);
 }
 html.portal-theme-dark .mplus-rank-metric.primary strong { color: #f8fafc; }
+.mplus-rank-plot:focus-visible,
+.mplus-rank-tab:focus-visible,
+.mplus-rank-tier-card:focus-visible { outline: 2px solid var(--portal-accent-primary); outline-offset: 3px; }
 
 @media (max-width: 900px) {
     .mplus-rank-shell { padding: 14px 10px 36px; }
@@ -570,31 +598,24 @@ html.portal-theme-dark .mplus-rank-metric.primary strong { color: #f8fafc; }
     .mplus-rank-updated { align-items: flex-start; }
     .mplus-rank-panel { padding: 12px; }
     .mplus-rank-tier-board { padding: 9px; }
+}
+
+@media (max-width: 600px) {
     .mplus-rank-header { display: none; }
     .mplus-rank-row {
-        gap: 4px;
-        grid-template-columns: 24px 88px minmax(0, 1fr);
-        height: 23px;
-        min-height: 23px;
-        padding: 0 4px;
+        gap: 6px 8px;
+        grid-template-columns: 22px minmax(0, 1fr);
+        padding: 8px 4px;
     }
-    .mplus-rank-row.mplus-rank-tier-break {
-        height: 25px;
-        min-height: 25px;
-    }
-    .mplus-rank-position { font-size: 9px; }
+    .mplus-rank-position { grid-row: 1 / 3; }
     .mplus-rank-metrics {
-        gap: 2px;
-        grid-template-columns: 28px 58px;
+        grid-column: 2;
+        grid-row: 2;
+        grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1.4fr);
     }
-    .mplus-rank-tier { height: 23px; }
-    .mplus-rank-metric:not(.primary) { display: none; }
-    .mplus-rank-metric.primary strong { font-size: 10px; }
-    .mplus-rank-plot { grid-template-columns: 23px minmax(0, 1fr); height: 23px; }
-    .mplus-rank-plot > img { height: 23px; width: 23px; }
-    .mplus-rank-track { height: 23px; }
-    .mplus-rank-bar-label { font-size: 10px; padding-inline: 4px; }
-    .mplus-rank-legend { justify-content: flex-start; }
+    .mplus-rank-metric span { color: var(--portal-text-muted); display: inline; font-size: 10px; margin-right: 4px; }
+    .mplus-rank-metric strong { display: inline; }
+    .mplus-rank-plot { grid-column: 2; grid-row: 1; min-height: 28px; }
 }
 
 @media (max-width: 600px) {

@@ -146,7 +146,9 @@ def _identity_payload(class_name, spec_name):
         'spec_name': spec_name,
         'spec_name_cn': SPEC_CN.get(spec_name, spec_name),
         'class_color': CLASS_COLOR.get(class_name, '#64748b'),
-        'icon_url': SPEC_ICON.get((class_name, spec_name), ''),
+        'icon_url': SPEC_ICON.get((class_name, spec_name), '').replace(
+            '/wow_icons_oss/small/', '/wow_icons_oss/large/'
+        ),
         'detail_url': '/portal/spec/{}/{}/dungeons/'.format(
             quote(class_name, safe=''), quote(spec_name, safe='')
         ),

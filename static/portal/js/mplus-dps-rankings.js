@@ -83,6 +83,15 @@
         return /^#[0-9a-f]{6}$/i.test(color) ? color : '#64748b';
     }
 
+    function displaySpecName(row) {
+        return row.spec_name_cn === '恶魔学识' ? '恶魔' : row.spec_name_cn;
+    }
+
+    function specIconUrl(row) {
+        // 兼容尚未重新生成的榜单快照，避免继续放大 18px 缩略图。
+        return String(row.icon_url || '').replace('/wow_icons_oss/small/', '/wow_icons_oss/large/');
+    }
+
     function metric(label, value, primary) {
         const node = element('div', `mplus-rank-metric${primary ? ' primary' : ''}`);
         node.append(element('span', '', label), element('strong', '', value));
@@ -124,12 +133,12 @@
                 );
 
                 const icon = element('img');
-                icon.src = row.icon_url;
+                icon.src = specIconUrl(row);
                 icon.alt = row.spec_name_cn;
                 icon.loading = 'lazy';
 
                 const identity = element('span', 'mplus-rank-tier-identity');
-                const specName = element('strong', '', row.spec_name_cn);
+                const specName = element('strong', '', displaySpecName(row));
                 const averageDps = element(
                     'span',
                     'mplus-rank-tier-dps',
@@ -160,19 +169,24 @@
             return;
         }
 
-        const averageScale = Math.max(leaderAverage, 1);
+        const dpsScale = Math.max(leaderAverage, ...rows.map((row) => Number(row.highest_dps || 0)), 1);
+        const heading = element('div', 'mplus-rank-list-heading');
+        heading.append(
+            element('h2', '', '平均 DPS 排名'),
+            element('span', '', '实色：平均 DPS · 虚色 / 虚线：最高 DPS')
+        );
+        list.appendChild(heading);
         const header = element('div', 'mplus-rank-header');
         const metricHeader = element('span', 'mplus-rank-metrics-header');
         metricHeader.append(
-            element('span', '', 'Tier'),
-            element('span', '', '下限'),
-            element('span', '', 'Avg'),
+            element('span', '', '评级'),
+            element('span', '', '平均'),
             element('span', '', '最高')
         );
         header.append(
             element('span', '', '#'),
             metricHeader,
-            element('span', '', '专精 / Avg')
+            element('span', '', '专精 / DPS 对比')
         );
         list.appendChild(header);
 
@@ -194,28 +208,34 @@
             const metrics = element('div', 'mplus-rank-metrics');
             const tierBadge = element('span', `mplus-rank-tier tier-${tier.toLowerCase()}`, tier);
             tierBadge.setAttribute('aria-label', `评级 ${tier}`);
+            const peakMetric = metric('最高', formatDps(row.highest_dps), false);
+            peakMetric.classList.add('peak');
             metrics.append(
                 tierBadge,
-                metric('下限', formatDps(row.lower_dps), false),
-                metric('Avg', formatDps(row.average_dps), true),
-                metric('最高', formatDps(row.highest_dps), false)
+                metric('平均', formatDps(row.average_dps), true),
+                peakMetric
             );
             card.appendChild(metrics);
 
-            const average = Math.max(0, Math.min(100, Number(row.average_dps || 0) / averageScale * 100));
+            const average = Math.max(0, Math.min(100, Number(row.average_dps || 0) / dpsScale * 100));
+            const peak = Math.max(0, Math.min(100, Number(row.highest_dps || 0) / dpsScale * 100));
             const plot = element('a', 'mplus-rank-plot');
             plot.href = row.detail_url;
             plot.title = `查看${row.class_name_cn} · ${row.spec_name_cn}副本详情`;
             plot.setAttribute('aria-label', `${row.spec_name_cn}，平均 DPS ${formatDps(row.average_dps)}，最高 DPS ${formatDps(row.highest_dps)}`);
             const icon = element('img');
-            icon.src = row.icon_url;
+            icon.src = specIconUrl(row);
             icon.alt = '';
             icon.loading = 'lazy';
             const track = element('span', 'mplus-rank-track');
+            const peakBar = element('span', 'mplus-rank-peak-bar');
+            peakBar.style.width = `${peak.toFixed(1)}%`;
+            peakBar.setAttribute('aria-hidden', 'true');
+            track.appendChild(peakBar);
             const averageBar = element('span', 'mplus-rank-average-bar');
             averageBar.style.width = `${average.toFixed(1)}%`;
-            averageBar.appendChild(element('strong', 'mplus-rank-bar-label', row.spec_name_cn));
             track.appendChild(averageBar);
+            track.appendChild(element('strong', 'mplus-rank-bar-label', displaySpecName(row)));
             plot.append(icon, track);
             card.appendChild(plot);
             list.appendChild(card);

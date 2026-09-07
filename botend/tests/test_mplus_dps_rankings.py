@@ -94,6 +94,10 @@ class MplusDpsRankingAggregationTests(SimpleTestCase):
         self.assertAlmostEqual(overall[0]['average_dps'], (400 * 2 + 500 * 7) / 9, places=2)
         self.assertAlmostEqual(overall[0]['highest_dps'], 500, places=2)
         self.assertEqual(overall[0]['detail_url'], '/portal/spec/Mage/Arcane/dungeons/')
+        self.assertEqual(
+            overall[0]['icon_url'],
+            'https://oss.wowdaily.cn/wow_icons_oss/large/spell_holy_magicalsentry.jpg',
+        )
 
         dungeon_one = payload['rankings']['dungeon:1']
         self.assertEqual(dungeon_one[0]['spec_name'], 'Arcane')
@@ -233,7 +237,7 @@ class MplusDpsRankingRouteTests(TestCase):
         self.assertLessEqual(int(card_widths.group(1)), 112)
         self.assertLessEqual(int(card_widths.group(2)), 120)
         self.assertIn('display: flex', tier_card)
-        self.assertIn('var(--tier-color', tier_card)
+        self.assertIn('var(--class-color', tier_card)
         self.assertIn('display: flex', tier_identity)
         self.assertIn('white-space: nowrap', tier_name)
         self.assertNotIn('color-mix(', tier_name)
@@ -247,8 +251,8 @@ class MplusDpsRankingRouteTests(TestCase):
         self.assertNotIn('mplus-rank-tier-meter', tier_renderer)
         self.assertNotIn("element('small', '', row.class_name_cn)", tier_renderer)
         tier_icon = re.search(r'\.mplus-rank-tier-card img\s*\{([^}]*)\}', css, re.S).group(1)
-        self.assertIn('height: 28px', tier_icon)
-        self.assertIn('width: 28px', tier_icon)
+        self.assertIn('height: 32px', tier_icon)
+        self.assertIn('width: 32px', tier_icon)
 
     def test_detail_ranking_uses_dense_tier_grouped_bar_rows(self):
         root = Path(__file__).resolve().parents[2]
@@ -261,7 +265,6 @@ class MplusDpsRankingRouteTests(TestCase):
         ranking_list = re.search(r'\.mplus-rank-list\s*\{([^}]*)\}', css, re.S).group(1)
         row = re.search(r'\.mplus-rank-row\s*\{([^}]*)\}', css, re.S).group(1)
         icon = re.search(r'\.mplus-rank-plot\s*>\s*img\s*\{([^}]*)\}', css, re.S).group(1)
-        metrics = re.search(r'\.mplus-rank-metrics\s*\{([^}]*)\}', css, re.S).group(1)
         track = re.search(r'\.mplus-rank-track\s*\{([^}]*)\}', css, re.S).group(1)
         bar = re.search(r'\.mplus-rank-average-bar\s*\{([^}]*)\}', css, re.S).group(1)
         tier_colors = re.findall(
@@ -274,20 +277,23 @@ class MplusDpsRankingRouteTests(TestCase):
         self.assertNotIn("metric('样本'", renderer)
         self.assertNotIn("element('small', '', row.class_name_cn)", renderer)
         self.assertNotIn("card.appendChild(spec)", renderer)
-        self.assertIn("element('strong', 'mplus-rank-bar-label', row.spec_name_cn)", renderer)
+        self.assertIn("element('strong', 'mplus-rank-bar-label', displaySpecName(row))", renderer)
         self.assertIn('plot.append(icon, track)', renderer)
         self.assertIn("card.classList.add(`mplus-rank-tier-${tier.toLowerCase()}`)", renderer)
         self.assertIn("card.classList.add('mplus-rank-tier-break')", renderer)
         self.assertIn('max-width: 1080px', ranking_list)
-        self.assertIn('grid-template-columns: 28px 190px minmax(0, 1fr)', row)
-        self.assertIn('grid-template-columns: 28px repeat(3, 52px)', metrics)
-        self.assertIn('height: 25px', row)
-        self.assertIn('min-height: 25px', row)
-        self.assertIn('border: 0', row)
-        self.assertIn('padding: 0 6px', row)
-        self.assertIn('height: 25px', icon)
-        self.assertIn('width: 25px', icon)
-        self.assertIn('height: 25px', track)
+        self.assertNotIn('lower_dps', renderer)
+        self.assertNotIn('下限', renderer)
+        self.assertIn("peakMetric.classList.add('peak')", renderer)
+        self.assertNotIn('highestDps', renderer)
+        self.assertNotIn("peakMetric.classList.add('record')", renderer)
+        self.assertNotIn('本榜最高', renderer)
+        self.assertNotIn('.mplus-rank-metric:not(.primary) { display: none; }', css)
+        self.assertIn('border-bottom: 1px solid', row)
+        self.assertIn('min-height: 38px', row)
+        self.assertIn('height: 26px', icon)
+        self.assertIn('width: 26px', icon)
+        self.assertIn('height: 26px', track)
         self.assertIn('border: 0', track)
         self.assertIn('height: 100%', bar)
         self.assertNotIn('linear-gradient', bar)
@@ -300,9 +306,10 @@ class MplusDpsRankingRouteTests(TestCase):
             for right in rgb_colors[position + 1:]
         )
         self.assertGreaterEqual(minimum_distance_squared, 24 ** 2)
-        self.assertIn('averageScale', renderer)
-        self.assertIn('/ averageScale * 100', renderer)
-        self.assertNotIn('/ maximum * 100', renderer)
+        self.assertIn('Number(row.average_dps || 0) / dpsScale * 100', renderer)
+        self.assertIn('Number(row.highest_dps || 0) / dpsScale * 100', renderer)
+        self.assertIn('mplus-rank-peak-bar', renderer)
+        self.assertIn('border-right: 2px dashed', css)
         self.assertNotIn('mplus-rank-peak-marker', renderer)
         self.assertNotIn('.mplus-rank-peak-marker', css)
 
@@ -320,7 +327,7 @@ class MplusDpsRankingRouteTests(TestCase):
         self.assertContains(page, 'mplus-dps-rankings.js')
         html = page.content.decode('utf-8')
         self.assertIn('id="mplus-rank-tier-board"', html)
-        self.assertIn('评级分类', html)
+        self.assertIn('DPS 排行榜', html)
         self.assertLess(
             html.index('id="mplus-rank-tier-board"'),
             html.index('id="mplus-rank-list"'),
