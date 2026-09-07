@@ -176,6 +176,7 @@
         );
         list.appendChild(header);
 
+        let previousTier = null;
         rows.forEach((row) => {
             const rank = Number(row.rank || 0);
             const card = element('article', `mplus-rank-row${rank >= 1 && rank <= 3 ? ` mplus-rank-top-${rank}` : ''}`);
@@ -185,6 +186,11 @@
             card.style.setProperty('--class-color', classColor);
 
             const tier = resolvedTier(row, leaderAverage);
+            card.classList.add(`mplus-rank-tier-${tier.toLowerCase()}`);
+            if (previousTier !== null && previousTier !== tier) {
+                card.classList.add('mplus-rank-tier-break');
+            }
+            previousTier = tier;
             const metrics = element('div', 'mplus-rank-metrics');
             const tierBadge = element('span', `mplus-rank-tier tier-${tier.toLowerCase()}`, tier);
             tierBadge.setAttribute('aria-label', `评级 ${tier}`);

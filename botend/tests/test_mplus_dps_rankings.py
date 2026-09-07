@@ -250,7 +250,7 @@ class MplusDpsRankingRouteTests(TestCase):
         self.assertIn('height: 28px', tier_icon)
         self.assertIn('width: 28px', tier_icon)
 
-    def test_detail_ranking_uses_dense_bar_led_rows(self):
+    def test_detail_ranking_uses_dense_tier_grouped_bar_rows(self):
         root = Path(__file__).resolve().parents[2]
         css = (root / 'static/portal/css/mplus-dps-rankings.css').read_text(encoding='utf-8')
         javascript = (root / 'static/portal/js/mplus-dps-rankings.js').read_text(encoding='utf-8')
@@ -264,6 +264,11 @@ class MplusDpsRankingRouteTests(TestCase):
         metrics = re.search(r'\.mplus-rank-metrics\s*\{([^}]*)\}', css, re.S).group(1)
         track = re.search(r'\.mplus-rank-track\s*\{([^}]*)\}', css, re.S).group(1)
         bar = re.search(r'\.mplus-rank-average-bar\s*\{([^}]*)\}', css, re.S).group(1)
+        tier_colors = re.findall(
+            r'\.tier-([sabcdef])\s*\{\s*background:\s*(#[0-9a-f]{6})',
+            css,
+            re.I,
+        )
 
         self.assertNotIn("element('span', '', '样本')", renderer)
         self.assertNotIn("metric('样本'", renderer)
@@ -271,16 +276,30 @@ class MplusDpsRankingRouteTests(TestCase):
         self.assertNotIn("card.appendChild(spec)", renderer)
         self.assertIn("element('strong', 'mplus-rank-bar-label', row.spec_name_cn)", renderer)
         self.assertIn('plot.append(icon, track)', renderer)
+        self.assertIn("card.classList.add(`mplus-rank-tier-${tier.toLowerCase()}`)", renderer)
+        self.assertIn("card.classList.add('mplus-rank-tier-break')", renderer)
         self.assertIn('max-width: 1080px', ranking_list)
         self.assertIn('grid-template-columns: 28px 190px minmax(0, 1fr)', row)
         self.assertIn('grid-template-columns: 28px repeat(3, 52px)', metrics)
-        self.assertIn('min-height: 27px', row)
+        self.assertIn('height: 25px', row)
+        self.assertIn('min-height: 25px', row)
+        self.assertIn('border: 0', row)
         self.assertIn('padding: 0 6px', row)
         self.assertIn('height: 25px', icon)
         self.assertIn('width: 25px', icon)
         self.assertIn('height: 25px', track)
-        self.assertIn('border-radius: 2px', track)
+        self.assertIn('border: 0', track)
         self.assertIn('height: 100%', bar)
+        self.assertNotIn('linear-gradient', bar)
+        self.assertEqual(len(tier_colors), 7)
+        self.assertEqual(len({color.lower() for _, color in tier_colors}), 7)
+        rgb_colors = [tuple(int(color[index:index + 2], 16) for index in (1, 3, 5)) for _, color in tier_colors]
+        minimum_distance_squared = min(
+            sum((left[channel] - right[channel]) ** 2 for channel in range(3))
+            for position, left in enumerate(rgb_colors)
+            for right in rgb_colors[position + 1:]
+        )
+        self.assertGreaterEqual(minimum_distance_squared, 24 ** 2)
         self.assertIn('averageScale', renderer)
         self.assertIn('/ averageScale * 100', renderer)
         self.assertNotIn('/ maximum * 100', renderer)
