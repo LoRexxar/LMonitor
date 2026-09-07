@@ -250,7 +250,7 @@ class MplusDpsRankingRouteTests(TestCase):
         self.assertIn('height: 28px', tier_icon)
         self.assertIn('width: 28px', tier_icon)
 
-    def test_detail_ranking_omits_sample_and_prioritizes_leader_scaled_bar(self):
+    def test_detail_ranking_uses_dense_bar_led_rows(self):
         root = Path(__file__).resolve().parents[2]
         css = (root / 'static/portal/css/mplus-dps-rankings.css').read_text(encoding='utf-8')
         javascript = (root / 'static/portal/js/mplus-dps-rankings.js').read_text(encoding='utf-8')
@@ -259,18 +259,28 @@ class MplusDpsRankingRouteTests(TestCase):
             javascript.index('function render(payload)')
         ]
         ranking_list = re.search(r'\.mplus-rank-list\s*\{([^}]*)\}', css, re.S).group(1)
-        metrics_header = re.search(
-            r'\.mplus-rank-metrics-header\s*\{([^}]*)\}', css, re.S
-        ).group(1)
+        row = re.search(r'\.mplus-rank-row\s*\{([^}]*)\}', css, re.S).group(1)
+        icon = re.search(r'\.mplus-rank-plot\s*>\s*img\s*\{([^}]*)\}', css, re.S).group(1)
         metrics = re.search(r'\.mplus-rank-metrics\s*\{([^}]*)\}', css, re.S).group(1)
         track = re.search(r'\.mplus-rank-track\s*\{([^}]*)\}', css, re.S).group(1)
+        bar = re.search(r'\.mplus-rank-average-bar\s*\{([^}]*)\}', css, re.S).group(1)
 
         self.assertNotIn("element('span', '', '样本')", renderer)
         self.assertNotIn("metric('样本'", renderer)
-        self.assertIn('repeat(3', metrics_header)
-        self.assertIn('repeat(3', metrics)
+        self.assertNotIn("element('small', '', row.class_name_cn)", renderer)
+        self.assertNotIn("card.appendChild(spec)", renderer)
+        self.assertIn("element('strong', 'mplus-rank-bar-label', row.spec_name_cn)", renderer)
+        self.assertIn('plot.append(icon, track)', renderer)
         self.assertIn('max-width: 1080px', ranking_list)
-        self.assertIn('height: 22px', track)
+        self.assertIn('grid-template-columns: 28px 190px minmax(0, 1fr)', row)
+        self.assertIn('grid-template-columns: 28px repeat(3, 52px)', metrics)
+        self.assertIn('min-height: 27px', row)
+        self.assertIn('padding: 0 6px', row)
+        self.assertIn('height: 25px', icon)
+        self.assertIn('width: 25px', icon)
+        self.assertIn('height: 25px', track)
+        self.assertIn('border-radius: 2px', track)
+        self.assertIn('height: 100%', bar)
         self.assertIn('averageScale', renderer)
         self.assertIn('/ averageScale * 100', renderer)
         self.assertNotIn('/ maximum * 100', renderer)

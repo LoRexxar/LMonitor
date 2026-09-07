@@ -9,7 +9,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_unified_navigation"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260903_external_menu_v2">
-    <link rel="stylesheet" href="{% static 'portal/css/mplus-dps-rankings.css' %}?v=20260906_9">
+    <link rel="stylesheet" href="{% static 'portal/css/mplus-dps-rankings.css' %}?v=20260907_10">
 </head>
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
@@ -42,15 +42,11 @@
                 </div>
                 <div id="mplus-rank-tier-groups" class="mplus-rank-tier-groups"></div>
             </section>
-            <div class="mplus-rank-legend" aria-hidden="true">
-                <span><i class="legend-average"></i>平均 DPS</span>
-                <span><i class="legend-tier">S</i>评级每 5% 一档</span>
-            </div>
             <div id="mplus-rank-status" class="mplus-rank-status">正在加载排名…</div>
             <div id="mplus-rank-list" class="mplus-rank-list" hidden></div>
         </section>
     </main>
 
-    <script src="{% static 'portal/js/mplus-dps-rankings.js' %}?v=20260906_9"></script>
+    <script src="{% static 'portal/js/mplus-dps-rankings.js' %}?v=20260907_10"></script>
 </body>
 </html>

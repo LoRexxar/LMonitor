@@ -171,33 +171,18 @@
         );
         header.append(
             element('span', '', '#'),
-            element('span', '', '专精'),
             metricHeader,
-            element('span', '', '平均 DPS 对比')
+            element('span', '', '专精 / Avg')
         );
         list.appendChild(header);
 
         rows.forEach((row) => {
             const rank = Number(row.rank || 0);
             const card = element('article', `mplus-rank-row${rank >= 1 && rank <= 3 ? ` mplus-rank-top-${rank}` : ''}`);
-            card.appendChild(element('div', 'mplus-rank-position', `#${row.rank}`));
+            card.appendChild(element('div', 'mplus-rank-position', String(row.rank)));
 
             const classColor = safeClassColor(row.class_color);
             card.style.setProperty('--class-color', classColor);
-            const spec = element('a', 'mplus-rank-spec');
-            spec.href = row.detail_url;
-            spec.title = `查看${row.class_name_cn} · ${row.spec_name_cn}副本详情`;
-            const icon = element('img');
-            icon.src = row.icon_url;
-            icon.alt = row.spec_name_cn;
-            icon.loading = 'lazy';
-            const names = element('span');
-            const specName = element('strong', '', row.spec_name_cn);
-            specName.style.color = classColor;
-            names.appendChild(specName);
-            names.appendChild(element('small', '', row.class_name_cn));
-            spec.append(icon, names);
-            card.appendChild(spec);
 
             const tier = resolvedTier(row, leaderAverage);
             const metrics = element('div', 'mplus-rank-metrics');
@@ -212,13 +197,20 @@
             card.appendChild(metrics);
 
             const average = Math.max(0, Math.min(100, Number(row.average_dps || 0) / averageScale * 100));
-            const plot = element('div', 'mplus-rank-plot');
-            const track = element('div', 'mplus-rank-track');
-            track.setAttribute('aria-label', `平均 DPS ${formatDps(row.average_dps)}，最高 DPS ${formatDps(row.highest_dps)}`);
+            const plot = element('a', 'mplus-rank-plot');
+            plot.href = row.detail_url;
+            plot.title = `查看${row.class_name_cn} · ${row.spec_name_cn}副本详情`;
+            plot.setAttribute('aria-label', `${row.spec_name_cn}，平均 DPS ${formatDps(row.average_dps)}，最高 DPS ${formatDps(row.highest_dps)}`);
+            const icon = element('img');
+            icon.src = row.icon_url;
+            icon.alt = '';
+            icon.loading = 'lazy';
+            const track = element('span', 'mplus-rank-track');
             const averageBar = element('span', 'mplus-rank-average-bar');
             averageBar.style.width = `${average.toFixed(1)}%`;
+            averageBar.appendChild(element('strong', 'mplus-rank-bar-label', row.spec_name_cn));
             track.appendChild(averageBar);
-            plot.appendChild(track);
+            plot.append(icon, track);
             card.appendChild(plot);
             list.appendChild(card);
         });
