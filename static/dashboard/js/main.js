@@ -6663,7 +6663,7 @@ function initSimcBackendUploadTool() {
         const isUpdating = data && data.is_updating;
         submitBtn.disabled = isUpdating;
         checkBtn.disabled = isUpdating;
-        threadsInput.disabled = isUpdating;
+        threadsInput.disabled = true;
         noPullCheck.disabled = isUpdating;
         if (autoUpdateToggle) {
             autoUpdateToggle.disabled = isUpdating;
@@ -6701,7 +6701,7 @@ function initSimcBackendUploadTool() {
     };
 
     const triggerUpdate = async (checkOnly) => {
-        const threads = Math.max(1, Math.min(8, parseInt(threadsInput.value) || 1));
+        const threads = 1;
         const noPull = noPullCheck.checked;
 
         try {

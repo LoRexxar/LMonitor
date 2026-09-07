@@ -8836,15 +8836,16 @@ class SimcBackendBinaryAPIView(View):
                 from django.db import close_old_connections
                 try:
                     call_command('update_simc_binary', threads=threads, no_pull=no_pull, check=check_only)
-                except Exception:
+                except Exception as exc:
                     close_old_connections()
-                    err_msg = 'SimC 本地编译命令执行失败'
+                    err_msg = str(exc)[:500] or 'SimC 本地编译命令执行失败'
                     try:
                         row_inner = SimcBackendBinary.objects.filter(identifier='production').first()
                         if row_inner:
                             row_inner.is_updating = False
-                            row_inner.update_status = 'SimC 本地编译失败'
-                            row_inner.last_error = err_msg
+                            if not row_inner.last_error:
+                                row_inner.update_status = 'SimC 本地编译失败'
+                                row_inner.last_error = err_msg
                             row_inner.save(update_fields=['is_updating', 'update_status', 'last_error'])
                             upsert_system_alert('SIMC_UPDATE_FAILED', runtime_platform, 3, 'SimC 更新失败', f'本地编译失败: {err_msg}')
                     except Exception:

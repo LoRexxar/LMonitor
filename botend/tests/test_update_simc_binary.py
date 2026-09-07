@@ -125,7 +125,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
 
         self.assertEqual(run.call_args_list[0].kwargs['timeout'], 300)
 
-    def test_ninja_compile_allows_slow_production_build_to_finish(self):
+    def test_update_routes_high_thread_request_through_resource_isolation(self):
         from botend.management.commands.update_simc_binary import Command
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -154,14 +154,12 @@ class UpdateSimcBinaryCommandTests(TestCase):
             command._stored_simc_path = mock.Mock(return_value=str(binary_path))
             command._refresh_skill_damage_after_dbc_update = mock.Mock()
             command._run = mock.Mock()
+            command._compile_binary = mock.Mock()
 
             command._update_binary(do_pull=False, threads=2, apply_patches=False)
 
-            ninja_call = next(
-                call for call in command._run.call_args_list
-                if call.args and call.args[0][0] == 'ninja'
-            )
-            self.assertGreaterEqual(ninja_call.kwargs['timeout'], 7200)
+            command._compile_binary.assert_called_once_with()
+            command._run.assert_not_called()
 
     def test_deploy_recovers_interrupted_simc_update_after_service_restarts(self):
         deploy_script = (Path(settings.BASE_DIR) / 'deploy.sh').read_text(encoding='utf-8')
@@ -1072,7 +1070,9 @@ class UpdateSimcBinaryCommandTests(TestCase):
 
                     mock_run.side_effect = run_side_effect
 
-                    with mock.patch('botend.management.commands.update_simc_binary.Command._sync_generated_inputs'):
+                    with mock.patch('botend.management.commands.update_simc_binary.Command._sync_generated_inputs'), mock.patch(
+                        'botend.management.commands.update_simc_binary.Command._compile_binary',
+                    ):
                         out = StringIO()
                         try:
                             call_command('update_simc_binary', stdout=out)

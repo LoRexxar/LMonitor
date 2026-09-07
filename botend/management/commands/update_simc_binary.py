@@ -36,6 +36,7 @@ from botend.services.simc_heavy_job_lock import (
     acquire_simc_heavy_job_lock,
 )
 from botend.services.simc_skill_damage import SimcSkillDamageSnapshotService
+from botend.services.simc_build_resources import read_budget, run_build
 
 
 DEFAULT_SIMC_SOURCE_DIR = '/home/lighthouse/simc'
@@ -49,7 +50,7 @@ class Command(BaseCommand):
         parser.add_argument('--check', action='store_true', help='仅检查当前版本，不执行编译')
         parser.add_argument('--sync-inputs-only', action='store_true', help='仅同步默认模板和默认 APL，不执行拉取/编译')
         parser.add_argument('--apply-patches', action='store_true', help='应用仓库补丁，仅在源码变化时编译')
-        parser.add_argument('--threads', type=int, default=1, help='编译并行度（默认 1，避免共享生产主机 OOM）')
+        parser.add_argument('--threads', type=int, default=1, help='兼容旧参数；共享生产主机固定单任务并强制限制资源')
         parser.add_argument('--wow-build', default='', help='本次 APL/symbol 发布对应的明确 WoW build')
 
     def handle(self, *args, **options):
@@ -1159,20 +1160,9 @@ class Command(BaseCommand):
             self.stdout.write(f'编译版本: {version}')
             os.makedirs(self.simc_build_dir, exist_ok=True)
 
-            self._run(
-                ['cmake', '..', '-DBUILD_GUI=OFF', '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_CXX_FLAGS_RELEASE=-O1 -DNDEBUG', '-G', 'Ninja'],
-                cwd=self.simc_build_dir,
-                timeout=120,
-                status='CMake 配置 SimC',
-                progress=30,
-            )
-            self._run(
-                ['ninja', f'-j{threads}'],
-                cwd=self.simc_build_dir,
-                timeout=7200,
-                status=f'编译 SimC (-j{threads})',
-                progress=60,
-            )
+            if threads != 1:
+                self.stdout.write('共享生产主机固定单任务编译，已忽略较高并行度请求')
+            self._compile_binary()
 
             self._set_status(progress=90, status='验证 SimC 二进制', error='', updating=True)
             if not os.path.isfile(self.simc_binary_path):
@@ -1209,6 +1199,19 @@ class Command(BaseCommand):
             raise
         except Exception as exc:
             self._fail('SimC 更新失败', str(exc), progress=0)
+
+    def _compile_binary(self):
+        budget = read_budget()
+        status = f'编译 SimC：单任务，内存预算 {budget.memory // (1024 ** 2)}MB，优先使用资源隔离'
+        self._set_status(progress=30, status=status, error='', updating=True)
+        self.stdout.write(status)
+        for warning in budget.warnings:
+            self.stdout.write(warning)
+        log_path = run_build(
+            self.simc_source_dir, self.simc_build_dir,
+            os.path.join(settings.BASE_DIR, '.cache', 'simc-build-logs'), budget,
+        )
+        self.stdout.write(f'编译日志：{log_path}')
 
     def _refresh_skill_damage_after_dbc_update(self):
         try:
