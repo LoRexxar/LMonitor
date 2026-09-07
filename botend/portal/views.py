@@ -86,6 +86,11 @@ class PortalSpecsView(View):
         return render(request, 'portal/specs.html')
 
 
+class PortalMplusDpsRankingsView(View):
+    def get(self, request):
+        return render(request, 'portal/mplus_dps_rankings.html')
+
+
 class PortalArticleView(View):
     def get(self, request, article_id):
         try:

@@ -1,19 +1,34 @@
 from datetime import timedelta
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+from django.conf import settings as django_settings
 from django.db import transaction
 from django.utils import timezone
 
 from utils.log import logger
 
-from botend.models import MonitorTask
+from botend.models import MonitorTask, MonitorTaskLease
 from botend.monitor_env import filter_runnable_tasks
 
 
+MONITOR_TASK_LEASE_SECONDS = int(
+    getattr(django_settings, 'MONITOR_TASK_LEASE_SECONDS', 600)
+)
+
+
+def _monitor_task_lease_ttl(lease_seconds=None):
+    ttl_seconds = MONITOR_TASK_LEASE_SECONDS if lease_seconds is None else int(lease_seconds)
+    if ttl_seconds <= 0:
+        raise ValueError('monitor task lease_seconds must be positive')
+    return ttl_seconds
+
+
 PORTAL_DATA_SCHEDULE_HOURS_BY_TASK = {
-    # 北美日常重置在北京时间 22:00（夏令时）或 23:00（冬令时），
-    # 00:00 抓取可覆盖两种时制并给 Wowhead 留出刷新时间。
-    "WowTodayMonitor": (0,),
+    # Wowhead 在北美日常重置后会先返回无身份信息的 Active 占位行，
+    # 随后才补齐具体地下堡。分三次渐进刷新，配合载荷完整性门禁，避免
+    # 占位内容覆盖当天快照，并在上午自动补齐上游迟到的数据。
+    "WowTodayMonitor": (4, 8, 10),
     # 每日大更新：人物内容先重抓，完整排名随后，聚合投影最后生成。
     "SpecDetailPlayerMonitor": (2,),
     "SpecDetailRankingMonitor": (3,),
@@ -26,6 +41,7 @@ PORTAL_MONITOR_TASK_PRIORITY = {
     # 巅峰榜 Top20 是快速任务；长任务结束后必须先补它，避免按旧
     # last_scan_time 排序时被人物、排名和聚合任务连续阻塞。
     "PortalPeakSpecRankMonitor": 0,
+    "SpecDungeonDpsRankingMonitor": 5,
     "SpecDetailPlayerMonitor": 10,
     "SpecDetailRankingMonitor": 20,
     "SpecDetailAggregationMonitor": 30,
@@ -36,6 +52,8 @@ def monitor_default_wait_time(name):
     if name == "PortalPeakSpecRankMonitor":
         return 600  # 10m，仅轻量刷新榜单；新入榜人物按需初始化
     if name == "PortalMplusCutoffMonitor":
+        return 3600
+    if name == "SpecDungeonDpsRankingMonitor":
         return 3600
     if name == "WagoSkillDiffMonitor":
         return 3600  # 1h，Wago build/hotfix 变更不需要 10 分钟级轮询
@@ -108,24 +126,107 @@ def portal_data_task_is_due(task, now=None):
     return portal_data_task_due_at(task, now=now) is not None
 
 
-def claim_next_monitor_task(now=None):
+def claim_next_monitor_task(now=None, *, lease_owner=None, lease_seconds=None):
     """Atomically reserve the globally oldest runnable task for one worker."""
     claim_time = now or timezone.now()
+    owner = str(lease_owner or uuid4().hex)
+    ttl_seconds = _monitor_task_lease_ttl(lease_seconds)
+    expires_at = claim_time + timedelta(seconds=ttl_seconds)
+
     with transaction.atomic():
+        # Lock the parent task rows in a stable order.  All claimers use this
+        # parent-row mutex, so creating or replacing the separate lease row is
+        # serialized without exposing lease fields to long-lived plugin models.
+        runnable_tasks = list(filter_runnable_tasks(
+            MonitorTask.objects.select_for_update().filter(is_active=1).order_by('id')
+        ))
+        active_lease_task_ids = set(
+            MonitorTaskLease.objects.select_for_update()
+            .filter(
+                task_id__in=[task.id for task in runnable_tasks],
+                expires_at__gt=claim_time,
+            )
+            .values_list('task_id', flat=True)
+        )
         tasks = [
             task
-            for task in filter_runnable_tasks(
-                MonitorTask.objects.select_for_update().filter(is_active=1)
-            )
-            if monitor_task_due_at(task, now=claim_time) is not None
+            for task in runnable_tasks
+            if task.id not in active_lease_task_ids
+            and monitor_task_due_at(task, now=claim_time) is not None
         ]
         tasks.sort(key=lambda task: monitor_task_sort_key(task, now=claim_time))
         if tasks:
             task = tasks[0]
+            MonitorTaskLease.objects.update_or_create(
+                task_id=task.id,
+                defaults={
+                    'owner': owner,
+                    'claimed_at': claim_time,
+                    'expires_at': expires_at,
+                },
+            )
             task.last_scan_time = claim_time
             task.save(update_fields=('last_scan_time',))
+            task._monitor_task_lease_owner = owner
             return task
     return None
+
+
+def renew_monitor_task_lease(task_id, lease_owner, now=None, *, lease_seconds=None):
+    """Extend a lease while holding the same parent-row mutex used by claimers."""
+    renewed_at = now or timezone.now()
+    ttl_seconds = _monitor_task_lease_ttl(lease_seconds)
+    with transaction.atomic():
+        task_exists = MonitorTask.objects.select_for_update().filter(pk=task_id).exists()
+        if not task_exists:
+            return False
+        return MonitorTaskLease.objects.select_for_update().filter(
+            task_id=task_id,
+            owner=str(lease_owner),
+            expires_at__gt=renewed_at,
+        ).update(expires_at=renewed_at + timedelta(seconds=ttl_seconds)) == 1
+
+
+def release_monitor_task_lease(task_id, lease_owner):
+    """Release a lease under the parent-row mutex and exact-owner fence."""
+    with transaction.atomic():
+        task_exists = MonitorTask.objects.select_for_update().filter(pk=task_id).exists()
+        if not task_exists:
+            return False
+        deleted, _ = MonitorTaskLease.objects.select_for_update().filter(
+            task_id=task_id,
+            owner=str(lease_owner),
+        ).delete()
+        return deleted == 1
+
+
+def complete_monitor_task_lease(task_id, lease_owner, *, now=None, task_updates=None):
+    """Atomically commit allowed task state and release a still-valid owned lease."""
+    completed_at = now or timezone.now()
+    updates = dict(task_updates or {})
+    unsupported_fields = set(updates) - {'flag'}
+    if unsupported_fields:
+        raise ValueError(
+            'unsupported MonitorTask completion fields: {}'.format(
+                ', '.join(sorted(unsupported_fields))
+            )
+        )
+
+    with transaction.atomic():
+        task_exists = MonitorTask.objects.select_for_update().filter(pk=task_id).exists()
+        if not task_exists:
+            return False
+        lease = MonitorTaskLease.objects.select_for_update().filter(
+            task_id=task_id,
+            owner=str(lease_owner),
+            expires_at__gt=completed_at,
+        ).first()
+        if lease is None:
+            return False
+        if updates:
+            MonitorTask.objects.filter(pk=task_id).update(**updates)
+        lease.delete()
+        return True
 
 
 def sync_monitortasks_from_plugin_list(

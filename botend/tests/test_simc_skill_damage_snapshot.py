@@ -71,6 +71,106 @@ class SimcSkillDamageSnapshotModelTests(TestCase):
         self.assertEqual(SimcSkillDamageSnapshot.latest_success().pk, succeeded.pk)
 
 
+class SimcSkillDamageSnapshotCommandTests(TestCase):
+    def test_heavy_job_lock_is_process_exclusive(self):
+        import tempfile
+
+        from botend.services import simc_heavy_job_lock as lock_module
+
+        lock_path = Path(tempfile.mkdtemp()) / 'simc-heavy.lock'
+        self.addCleanup(lock_path.parent.rmdir)
+        self.addCleanup(lock_path.unlink, missing_ok=True)
+        with mock.patch.object(lock_module, 'SIMC_HEAVY_JOB_LOCK_PATH', lock_path):
+            with lock_module.acquire_simc_heavy_job_lock():
+                with self.assertRaises(lock_module.SimcHeavyJobLockBusy):
+                    with lock_module.acquire_simc_heavy_job_lock():
+                        pass
+
+    def test_heavy_job_lock_hardens_legacy_file_permissions(self):
+        import stat
+        import tempfile
+
+        from botend.services import simc_heavy_job_lock as lock_module
+
+        lock_path = Path(tempfile.mkdtemp()) / 'simc-heavy.lock'
+        lock_path.write_text('', encoding='utf-8')
+        lock_path.chmod(0o664)
+        self.addCleanup(lock_path.parent.rmdir)
+        self.addCleanup(lock_path.unlink, missing_ok=True)
+
+        with mock.patch.object(lock_module, 'SIMC_HEAVY_JOB_LOCK_PATH', lock_path):
+            with lock_module.acquire_simc_heavy_job_lock():
+                mode = stat.S_IMODE(lock_path.stat().st_mode)
+
+        self.assertEqual(mode, 0o600)
+
+    def test_generation_refuses_to_overlap_backend_compile_lock(self):
+        import tempfile
+
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+        from botend.services import simc_heavy_job_lock as lock_module
+
+        snapshot = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='c' * 40,
+            game_build='12.1.0.70000',
+            schema_revision=22,
+            status=SimcSkillDamageSnapshot.STATUS_RUNNING,
+        )
+        lock_path = Path(tempfile.mkdtemp()) / 'simc-heavy.lock'
+        self.addCleanup(lock_path.parent.rmdir)
+        self.addCleanup(lock_path.unlink, missing_ok=True)
+
+        with mock.patch.object(
+            lock_module, 'SIMC_HEAVY_JOB_LOCK_PATH', lock_path,
+        ), lock_module.acquire_simc_heavy_job_lock(), mock.patch.object(
+            SimcSkillDamageSnapshotService, 'generate',
+        ) as generate:
+            with self.assertRaisesMessage(CommandError, '另一个 SimC 重型作业正在运行'):
+                call_command(
+                    'generate_simc_skill_damage_snapshot',
+                    snapshot_id=snapshot.pk,
+                )
+
+        generate.assert_not_called()
+        snapshot.refresh_from_db()
+        self.assertEqual(snapshot.status, SimcSkillDamageSnapshot.STATUS_FAILED)
+
+    def test_profile_child_does_not_reacquire_parent_heavy_job_lock(self):
+        import tempfile
+
+        from django.core.management import call_command
+
+        snapshot = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='d' * 40,
+            game_build='12.1.0.70000',
+            schema_revision=22,
+        )
+        profile = mock.Mock()
+        actor = {'class': 'warrior', 'specialization': 'arms', 'actions': []}
+        with tempfile.TemporaryDirectory() as tmpdir, mock.patch(
+            'botend.management.commands.generate_simc_skill_damage_snapshot.SimcProfile.objects.filter',
+        ) as profile_filter, mock.patch(
+            'botend.management.commands.generate_simc_skill_damage_snapshot.SimcSkillDamageSnapshotService',
+        ) as service_class, mock.patch(
+            'botend.management.commands.generate_simc_skill_damage_snapshot.acquire_simc_heavy_job_lock',
+        ) as acquire_lock:
+            profile_filter.return_value.first.return_value = profile
+            service_class.return_value._generate_profile_product_actor.return_value = actor
+            output = Path(tmpdir) / 'actor.json'
+
+            call_command(
+                'generate_simc_skill_damage_snapshot',
+                snapshot_id=snapshot.pk,
+                profile_id=123,
+                output=str(output),
+            )
+            output_actor = json.loads(output.read_text(encoding='utf-8'))
+
+        acquire_lock.assert_not_called()
+        self.assertEqual(output_actor, actor)
+
+
 class SimcSkillDamageSnapshotServiceTests(TestCase):
     def setUp(self):
         scope_patch = mock.patch.object(

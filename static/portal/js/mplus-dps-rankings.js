@@ -1,0 +1,249 @@
+(function () {
+    'use strict';
+
+    const state = {payload: null, activeScope: 'overall'};
+    const tabs = document.getElementById('mplus-rank-tabs');
+    const list = document.getElementById('mplus-rank-list');
+    const status = document.getElementById('mplus-rank-status');
+    const updated = document.getElementById('mplus-rank-updated');
+    const method = document.getElementById('mplus-rank-method');
+    const tierBoard = document.getElementById('mplus-rank-tier-board');
+    const tierCount = document.getElementById('mplus-rank-tier-count');
+    const tierGroups = document.getElementById('mplus-rank-tier-groups');
+
+    function formatDps(value) {
+        const number = Number(value || 0);
+        if (number >= 1000000) {
+            return `${(number / 1000000).toFixed(number >= 10000000 ? 1 : 2)}m`;
+        }
+        if (number >= 1000) {
+            return `${(number / 1000).toFixed(number >= 100000 ? 0 : 1)}k`;
+        }
+        return Math.round(number).toLocaleString('zh-CN');
+    }
+
+    function formatTimestamp(value) {
+        if (!value) return '暂无来源时间';
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return value;
+        return new Intl.DateTimeFormat('zh-CN', {
+            month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+            hour12: false
+        }).format(date);
+    }
+
+    function element(tag, className, text) {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text !== undefined) node.textContent = text;
+        return node;
+    }
+
+    function renderTabs() {
+        tabs.replaceChildren();
+        (state.payload.scopes || []).forEach((scope) => {
+            const button = element('button', `mplus-rank-tab${scope.key === state.activeScope ? ' active' : ''}`, scope.label);
+            button.type = 'button';
+            button.role = 'tab';
+            button.setAttribute('aria-selected', scope.key === state.activeScope ? 'true' : 'false');
+            button.title = scope.name || scope.label;
+            button.addEventListener('click', () => {
+                state.activeScope = scope.key;
+                renderTabs();
+                renderRankings();
+            });
+            tabs.appendChild(button);
+        });
+    }
+
+    const tierBands = [
+        [95, 'S', '≥95%'],
+        [90, 'A', '90–<95%'],
+        [85, 'B', '85–<90%'],
+        [80, 'C', '80–<85%'],
+        [75, 'D', '75–<80%'],
+        [70, 'E', '70–<75%'],
+        [0, 'F', '<70%']
+    ];
+
+    function tierForAverage(average, leaderAverage) {
+        const ratio = leaderAverage > 0 ? Number(average || 0) / leaderAverage * 100 : 0;
+        return (tierBands.find(([threshold]) => ratio >= threshold) || [0, 'F'])[1];
+    }
+
+    function resolvedTier(row, leaderAverage) {
+        const suppliedTier = String(row.tier || '').toUpperCase();
+        return /^[SABCDEF]$/.test(suppliedTier)
+            ? suppliedTier
+            : tierForAverage(row.average_dps, leaderAverage);
+    }
+
+    function safeClassColor(value) {
+        const color = String(value || '').trim();
+        return /^#[0-9a-f]{6}$/i.test(color) ? color : '#64748b';
+    }
+
+    function metric(label, value, primary) {
+        const node = element('div', `mplus-rank-metric${primary ? ' primary' : ''}`);
+        node.append(element('span', '', label), element('strong', '', value));
+        return node;
+    }
+
+    function renderTierBoard(rows, leaderAverage) {
+        tierGroups.replaceChildren();
+        if (!rows.length) {
+            tierBoard.hidden = true;
+            tierCount.textContent = '';
+            return;
+        }
+
+        tierCount.textContent = `${rows.length} 个专精 · 当前范围独立评级`;
+        tierBands.forEach(([, tier, rangeLabel]) => {
+            const members = rows.filter((row) => resolvedTier(row, leaderAverage) === tier);
+            const group = element('article', `mplus-rank-tier-group mplus-rank-tier-group-${tier.toLowerCase()}`);
+            const label = element('div', 'mplus-rank-tier-label');
+            label.append(
+                element('strong', `mplus-rank-tier-letter tier-${tier.toLowerCase()}`, tier),
+                element('span', '', rangeLabel),
+                element('small', '', `${members.length} 个`)
+            );
+
+            const items = element('div', 'mplus-rank-tier-items');
+            if (!members.length) {
+                items.appendChild(element('span', 'mplus-rank-tier-empty', '当前范围暂无专精'));
+            }
+            members.forEach((row) => {
+                const classColor = safeClassColor(row.class_color);
+                const card = element('a', 'mplus-rank-tier-card');
+                card.href = row.detail_url;
+                card.style.setProperty('--class-color', classColor);
+                card.title = `查看${row.class_name_cn} · ${row.spec_name_cn}副本详情`;
+                card.setAttribute(
+                    'aria-label',
+                    `${row.class_name_cn} ${row.spec_name_cn}，${tier} 评级，平均 DPS ${formatDps(row.average_dps)}`
+                );
+
+                const icon = element('img');
+                icon.src = row.icon_url;
+                icon.alt = row.spec_name_cn;
+                icon.loading = 'lazy';
+
+                const identity = element('span', 'mplus-rank-tier-identity');
+                const specName = element('strong', '', row.spec_name_cn);
+                const averageDps = element(
+                    'span',
+                    'mplus-rank-tier-dps',
+                    formatDps(row.average_dps)
+                );
+                identity.append(specName, averageDps);
+                card.append(icon, identity);
+                items.appendChild(card);
+            });
+
+            group.append(label, items);
+            tierGroups.appendChild(group);
+        });
+        tierBoard.hidden = false;
+    }
+
+    function renderRankings() {
+        const rows = (state.payload.rankings || {})[state.activeScope] || [];
+        list.replaceChildren();
+        const leaderAverage = Math.max(...rows.map((row) => Number(row.average_dps || 0)), 0);
+        renderTierBoard(rows, leaderAverage);
+        if (!rows.length) {
+            list.hidden = true;
+            status.hidden = false;
+            status.textContent = state.activeScope === 'overall'
+                ? '暂无覆盖全部赛季副本的专精数据'
+                : '该副本暂无可用 DPS 样本';
+            return;
+        }
+
+        const averageScale = Math.max(leaderAverage, 1);
+        const header = element('div', 'mplus-rank-header');
+        const metricHeader = element('span', 'mplus-rank-metrics-header');
+        metricHeader.append(
+            element('span', '', 'Tier'),
+            element('span', '', '下限'),
+            element('span', '', 'Avg'),
+            element('span', '', '最高')
+        );
+        header.append(
+            element('span', '', '#'),
+            metricHeader,
+            element('span', '', '专精 / Avg')
+        );
+        list.appendChild(header);
+
+        let previousTier = null;
+        rows.forEach((row) => {
+            const rank = Number(row.rank || 0);
+            const card = element('article', `mplus-rank-row${rank >= 1 && rank <= 3 ? ` mplus-rank-top-${rank}` : ''}`);
+            card.appendChild(element('div', 'mplus-rank-position', String(row.rank)));
+
+            const classColor = safeClassColor(row.class_color);
+            card.style.setProperty('--class-color', classColor);
+
+            const tier = resolvedTier(row, leaderAverage);
+            card.classList.add(`mplus-rank-tier-${tier.toLowerCase()}`);
+            if (previousTier !== null && previousTier !== tier) {
+                card.classList.add('mplus-rank-tier-break');
+            }
+            previousTier = tier;
+            const metrics = element('div', 'mplus-rank-metrics');
+            const tierBadge = element('span', `mplus-rank-tier tier-${tier.toLowerCase()}`, tier);
+            tierBadge.setAttribute('aria-label', `评级 ${tier}`);
+            metrics.append(
+                tierBadge,
+                metric('下限', formatDps(row.lower_dps), false),
+                metric('Avg', formatDps(row.average_dps), true),
+                metric('最高', formatDps(row.highest_dps), false)
+            );
+            card.appendChild(metrics);
+
+            const average = Math.max(0, Math.min(100, Number(row.average_dps || 0) / averageScale * 100));
+            const plot = element('a', 'mplus-rank-plot');
+            plot.href = row.detail_url;
+            plot.title = `查看${row.class_name_cn} · ${row.spec_name_cn}副本详情`;
+            plot.setAttribute('aria-label', `${row.spec_name_cn}，平均 DPS ${formatDps(row.average_dps)}，最高 DPS ${formatDps(row.highest_dps)}`);
+            const icon = element('img');
+            icon.src = row.icon_url;
+            icon.alt = '';
+            icon.loading = 'lazy';
+            const track = element('span', 'mplus-rank-track');
+            const averageBar = element('span', 'mplus-rank-average-bar');
+            averageBar.style.width = `${average.toFixed(1)}%`;
+            averageBar.appendChild(element('strong', 'mplus-rank-bar-label', row.spec_name_cn));
+            track.appendChild(averageBar);
+            plot.append(icon, track);
+            card.appendChild(plot);
+            list.appendChild(card);
+        });
+
+        status.hidden = true;
+        list.hidden = false;
+    }
+
+    function render(payload) {
+        state.payload = payload;
+        const generated = payload.generated_at;
+        const source = payload.source_updated_at;
+        updated.textContent = `生成 ${formatTimestamp(generated)}${source ? ` · 来源 ${formatTimestamp(source)}` : ''}`;
+        const required = ((payload.method || {}).required_dungeon_count) || Math.max(0, (payload.scopes || []).length - 1);
+        method.textContent = `总计要求专精覆盖当前赛季全部 ${required} 个副本；单副本按代表样本统计，总计按各副本样本数加权。评级以当前范围榜首平均 DPS 为基准，每 5% 一档：S≥95%、A≥90%、B≥85%、C≥80%、D≥75%、E≥70%、F<70%。`;
+        renderTabs();
+        renderRankings();
+    }
+
+    fetch('/portal/api/mplus/dps-rankings/', {headers: {'Accept': 'application/json'}})
+        .then((response) => {
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return response.json();
+        })
+        .then(render)
+        .catch(() => {
+            status.textContent = '排名数据暂时不可用，请稍后再试';
+            updated.textContent = '加载失败';
+        });
+}());

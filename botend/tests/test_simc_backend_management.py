@@ -230,7 +230,7 @@ class SimcBackendManagementSecurityTests(unittest.TestCase):
             self.assertTrue(thread_args[1].get('daemon'))
             target_func = thread_args[1]['target']
             target_func()
-            mock_call.assert_called_once_with('update_simc_binary', threads=2, no_pull=False, check=True)
+            mock_call.assert_called_once_with('update_simc_binary', threads=1, no_pull=False, check=True)
 
     @patch('botend.dashboard.api.SimcBackendBinary.objects')
     @patch('botend.dashboard.api.threading.Thread')

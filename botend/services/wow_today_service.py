@@ -18,6 +18,7 @@ from botend.models import (
     WowTodaySnapshot,
 )
 from botend.services.article_translation_service import build_translation_service
+from botend.templatetags.wow_tags import wow_icon_oss_url
 from utils.log import logger
 
 
@@ -146,7 +147,7 @@ def _icon_url(icon):
     name = _clean_text(icon).lower()
     if not name or not re.fullmatch(r'[a-z0-9_-]+', name):
         return ''
-    return f'https://wow.zamimg.com/images/wow/icons/large/{name}.jpg'
+    return wow_icon_oss_url(name, size='small')
 
 
 def extract_today_json(html_text):
@@ -246,6 +247,32 @@ def select_current_na_roots(today_json):
         item['groups'] = groups
         selected.append(item)
     return selected, current_expansion_id
+
+
+def _reject_incomplete_placeholder_lines(roots):
+    """不发布 Wowhead 在日常重置后短暂返回的地下堡 Active 占位行。"""
+    for root in roots:
+        for group in root.get('groups') or []:
+            group_id = _clean_text(group.get('id')).lower()
+            if not group_id.endswith('bountiful-delves'):
+                continue
+            if _clean_text(group.get('type')).lower() != 'lines':
+                continue
+            lines = [
+                line
+                for line in (group.get('content') or {}).get('lines') or []
+                if isinstance(line, dict)
+            ]
+            placeholder_lines = [
+                line
+                for line in lines
+                if _clean_text(line.get('name')).lower() == 'active'
+                and not _absolute_wowhead_url(line.get('url'))
+                and not _clean_text(line.get('icon'))
+                and not _clean_text(line.get('iconLabel'))
+            ]
+            if len(placeholder_lines) >= 2:
+                raise ValueError('Wowhead 当前版本丰裕地下堡仍是无身份信息的 Active 占位数据')
 
 
 def filter_public_sections(sections):
@@ -519,7 +546,7 @@ def _collect_translatable_strings(roots):
     return values
 
 
-def _line_to_public_item(line, group_name_zh, translations):
+def _line_to_public_item(line, group_name_zh, translations, fallback_icon=''):
     if not isinstance(line, dict):
         return None
     source_name = _clean_text(line.get('name'))
@@ -530,7 +557,7 @@ def _line_to_public_item(line, group_name_zh, translations):
     item = {
         'name': name_zh,
         'url': _absolute_wowhead_url(line.get('url')),
-        'icon_url': _icon_url(line.get('icon')),
+        'icon_url': _icon_url(line.get('icon') or fallback_icon),
         'icon_label': translations.get(icon_label_source, '') if icon_label_source else '',
         'starts_at': _safe_int(line.get('startingUt')),
         'ends_at': _safe_int(line.get('endingUt')),
@@ -580,7 +607,12 @@ def build_public_sections(roots, translator=None):
                 }
             else:
                 for line in content.get('lines') or []:
-                    item = _line_to_public_item(line, module_name, translations)
+                    item = _line_to_public_item(
+                        line,
+                        module_name,
+                        translations,
+                        fallback_icon=group.get('wowIcon'),
+                    )
                     if item:
                         module['items'].append(item)
                     elif isinstance(line, dict) and _clean_text(line.get('name')):
@@ -605,6 +637,7 @@ def snapshot_payload_from_html(html_text, translator=None):
     roots, expansion_id = select_current_na_roots(today_json)
     if not roots:
         raise ValueError('Wowhead 页面没有北美正式服当前版本内容')
+    _reject_incomplete_placeholder_lines(roots)
     sections, translation_missing = build_public_sections(roots, translator=translator)
     if not sections:
         raise ValueError('Wowhead 当前版本内容没有可公开的中文模块')

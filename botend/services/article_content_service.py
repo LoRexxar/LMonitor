@@ -138,6 +138,8 @@ def extract_structured_article(html_text: str, *, base_url: str = "", source: st
 
     if source == "wowhead":
         _normalize_wowhead_inline_breaks(root)
+    elif source == "blizzard_tracker":
+        _clean_discourse_lightbox_meta(root)
 
     block = _html_block(root, base_url=base_url)
     if block:
@@ -726,29 +728,51 @@ def _decode_wowhead_markup_string(value: str) -> str:
     return html.unescape(value).strip()
 
 
+def normalize_blizzard_tracker_html_fragment(html_text: str) -> str:
+    """Remove Discourse lightbox UI chrome while preserving article media/content."""
+    if not html_text:
+        return ""
+    soup = BeautifulSoup(str(html_text), "html.parser")
+    _clean_discourse_lightbox_meta(soup)
+    return str(soup)
+
+
 def _clean_discourse_lightbox_meta(root):
-    """Normalize Discourse lightbox widgets to clean clickable article images."""
-    for lightbox in root.select(".lightbox-wrapper"):
-        img = lightbox.find("img")
-        if not img:
-            lightbox.decompose()
-            continue
-        link = lightbox.find("a", class_="lightbox") or lightbox.find("a")
-        if link and link.get("href"):
-            tag_factory = BeautifulSoup("", "html.parser")
-            clean_link = tag_factory.new_tag("a", href=link.get("href"), title=link.get("title") or img.get("alt") or "")
-            clean_link["class"] = "article-image-link"
-            clean_link.append(img.extract())
-            lightbox.replace_with(clean_link)
-        else:
-            lightbox.replace_with(img.extract())
+    """Remove only Discourse lightbox UI chrome, preserving article descendants."""
+    for wrapper in root.select(".lightbox-wrapper"):
+        for meta in wrapper.select(".meta"):
+            meta.decompose()
+        for svg in wrapper.find_all("svg"):
+            use = svg.find("use")
+            icon_href = ""
+            if use is not None:
+                icon_href = (use.get("href") or use.get("xlink:href") or "").strip()
+            if "discourse-expand" in icon_href:
+                svg.decompose()
+
+        for anchor in wrapper.find_all("a"):
+            classes = [name for name in (anchor.get("class") or []) if name != "lightbox"]
+            img = anchor.find("img")
+            if img is not None and "article-image-link" not in classes:
+                classes.append("article-image-link")
+            if classes:
+                anchor["class"] = classes
+            else:
+                anchor.attrs.pop("class", None)
+
+            image_url = (img.get("src") or "").strip() if img is not None else ""
+            original_url = anchor.get("data-download-href") or anchor.get("href") or image_url
+            if original_url:
+                anchor["href"] = urljoin("https://us.forums.blizzard.com", original_url)
+            anchor.attrs.pop("data-download-href", None)
+            if img is not None and not anchor.get("title"):
+                anchor["title"] = (img.get("alt") or "Image").strip() or "Image"
+        wrapper.unwrap()
 
     for image_grid in root.select(".d-image-grid"):
         for paragraph in list(image_grid.find_all("p", recursive=False)):
-            if paragraph.find(["img", "a", "div"]) and not _clean_inline_text(paragraph.get_text(" ", strip=True)):
+            if paragraph.find(["img", "a", "div", "picture", "figure"]) and not _clean_inline_text(paragraph.get_text(" ", strip=True)):
                 paragraph.unwrap()
-        if not image_grid.find("img"):
-            image_grid.decompose()
 
 
 def _sanitize_html_tag(tag, *, base_url: str):

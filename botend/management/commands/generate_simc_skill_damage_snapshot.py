@@ -9,6 +9,10 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from botend.models import SimcBackendBinary, SimcProfile, SimcSkillDamageSnapshot
+from botend.services.simc_heavy_job_lock import (
+    SimcHeavyJobLockBusy,
+    acquire_simc_heavy_job_lock,
+)
 from botend.services.simc_skill_damage import SimcSkillDamageSnapshotService
 
 
@@ -70,10 +74,14 @@ class Command(BaseCommand):
                 except BlockingIOError as exc:
                     skip_failure_update = True
                     raise CommandError('该快照已有生成进程') from exc
-                ready_file = options.get('ready_file')
-                if ready_file:
-                    Path(ready_file).write_text(str(snapshot.pk), encoding='utf-8')
-                service.generate(isolate_profiles=True)
+                try:
+                    with acquire_simc_heavy_job_lock():
+                        ready_file = options.get('ready_file')
+                        if ready_file:
+                            Path(ready_file).write_text(str(snapshot.pk), encoding='utf-8')
+                        service.generate(isolate_profiles=True)
+                except SimcHeavyJobLockBusy as exc:
+                    raise CommandError('另一个 SimC 重型作业正在运行') from exc
         except Exception as exc:
             if snapshot is not None and not skip_failure_update:
                 SimcSkillDamageSnapshot.objects.filter(pk=snapshot.pk).exclude(
