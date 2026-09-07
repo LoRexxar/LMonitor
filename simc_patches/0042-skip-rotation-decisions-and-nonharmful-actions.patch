@@ -1,0 +1,29 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -1729,7 +1729,7 @@
+     bool first_action = true;
+     for ( action_t* action : player->action_list )
+     {
+-      if ( !action || action->type == ACTION_HEAL || action->type == ACTION_ABSORB ||
++      if ( !action || !action->harmful || action->type == ACTION_HEAL || action->type == ACTION_ABSORB ||
+            action->external_recipient_action() ||
+            ( !action->does_direct_damage() && !action->does_periodic_damage() ) ) continue;
+       const unsigned spell_id = apl_metadata_action_spell_id( *action );
+--- a/engine/player/player.cpp
++++ b/engine/player/player.cpp
+@@ -4536,6 +4536,15 @@
+   {
+     try
+     {
++      if ( !sim->skill_damage_export_file.empty() )
++      {
++        // 伤害快照不执行循环决策；保留 APL 原文供状态关系提取。
++        action->option.if_expr_str.clear();
++        action->option.target_if_str.clear();
++        action->option.interrupt_if_expr_str.clear();
++        action->option.early_chain_if_expr_str.clear();
++        action->option.cancel_if_expr_str.clear();
++      }
+       action_init_finished( *action );
+     }
+     catch ( const std::exception& )

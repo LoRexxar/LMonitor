@@ -743,3 +743,25 @@ class SimcSkillDamageExportPatchContractTests(SimpleTestCase):
         self.assertIn('\\"spell_effect\\"', added_lines)
         self.assertNotIn('action->attack_power_mod', added_lines)
         self.assertNotIn('action->spell_power_mod', added_lines)
+
+
+class SimcSkillDamageScopeAndFormulaPatchTests(SimpleTestCase):
+    def test_static_scope_requires_all_schools_and_rejects_spell_masks(self):
+        text = (PATCH_DIR / '0034-export-dbc-global-damage-scope.patch').read_text(encoding='utf-8')
+        self.assertIn('effect.misc_value1() == 127', text)
+        self.assertIn('if ( scoped ) continue;', text)
+        self.assertIn('A_MOD_DAMAGE_FROM_CASTER', text)
+        self.assertIn('buff->source != &player', text)
+        self.assertIn('global_damage_states', text)
+        self.assertIn('dbc_all_school_damage_aura', text)
+
+    def test_native_formula_exports_independent_base_and_bounds_static_cache_lifetime(self):
+        text = (PATCH_DIR / '0033-cache-dbc-and-export-native-damage-base.patch').read_text(encoding='utf-8')
+        self.assertIn('skill_damage_scaling_cache.find( &action.data() )', text)
+        self.assertIn('skill_damage_scaling_cache.clear()', text)
+        self.assertIn('skill_damage_passive_cache.clear()', text)
+        self.assertIn('action.weapon->slot == SLOT_OFF_HAND ? 0.5 : 1.0', text)
+        self.assertIn('action.attack_direct_power_coefficient( state )', text)
+        self.assertIn('action.bonus_da( state )', text)
+        self.assertIn('native_base_damage', text)
+        self.assertNotIn('native_base_damage = amount.direct_amount.hit /', text)

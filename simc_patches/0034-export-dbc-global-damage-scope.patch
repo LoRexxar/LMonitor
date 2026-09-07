@@ -1,0 +1,66 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -1375,6 +1375,45 @@
+   return "inactive";
+ }
+ 
++// 根据 DBC aura 的作用域声明全技能增伤，不使用抽样技能数或本地化描述。
++void write_skill_damage_global_states( std::ostream& out, player_t& player )
++{
++  bool first = true;
++  const auto write_buff = [&]( buff_t* buff, bool target ) {
++    if ( !buff || !buff->data().ok() || buff->source != &player ) return;
++    for ( const auto& effect : buff->data().effects() )
++    {
++      if ( effect.type() != E_APPLY_AURA || effect.percent() <= 0.0 ) continue;
++      bool scoped = false;
++      for ( unsigned i = 0; i < NUM_CLASS_FAMILY_FLAGS; ++i )
++        scoped = scoped || effect.class_flags( i ) != 0;
++      if ( scoped ) continue;
++      const bool all_schools = effect.misc_value1() == 127;
++      const bool global = target
++        ? ( effect.subtype() == A_MOD_DAMAGE_FROM_CASTER ||
++            ( effect.subtype() == A_MOD_DAMAGE_PERCENT_TAKEN && all_schools ) )
++        : effect.subtype() == A_MOD_DAMAGE_PERCENT_DONE && all_schools;
++      if ( !global ) continue;
++      if ( !first ) out << ',';
++      first = false;
++      out << "{\"token\":";
++      apl_metadata_json_string( out, ( target ? "debuff." : "buff." ) + buff->name_str );
++      out << ",\"scope\":"; apl_metadata_json_string( out, target ? "target" : "self" );
++      out << ",\"spell_id\":" << buff->data().id() << ",\"name\":";
++      apl_metadata_json_string( out, buff->data().name_cstr() );
++      out << ",\"evidence\":\"dbc_all_school_damage_aura\"}";
++      break;
++    }
++  };
++  out << '[';
++  for ( buff_t* buff : player.buff_list )
++    if ( buff && buff->player == &player ) write_buff( buff, false );
++  if ( player.target )
++    for ( buff_t* buff : player.target->buff_list )
++      if ( buff && buff->player == player.target ) write_buff( buff, true );
++  out << ']';
++}
++
+ void export_skill_damage( sim_t& sim )
+ {
+   // 仅缓存本次导出的静态 DBC 事实，不跨版本或跨运行复用指针。
+@@ -1394,7 +1433,7 @@
+   const std::string temporary = target + ".tmp." + std::to_string( static_cast<long long>( getpid() ) );
+   std::ofstream out( temporary, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open temporary skill damage export file" );
+-  out << "{\"schema_version\":12,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
++  out << "{\"schema_version\":13,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"normalization_basis\":{\"attack_power\":100,\"spell_power\":100,"
+          "\"crit_percent\":20,\"mastery_percent\":50}";
+@@ -1411,6 +1450,8 @@
+     else if ( primary_stat == STAT_INTELLECT ) primary_attr = ATTR_INTELLECT;
+     out << "{\"class\":"; apl_metadata_json_string( out, util::player_type_string( player->type ) );
+     out << ",\"spec\":"; apl_metadata_json_string( out, util::tokenize_fn( dbc::specialization_string( player->specialization() ) ) );
++    out << ",\"global_damage_states\":";
++    write_skill_damage_global_states( out, *player );
+     out << ",\"name\":"; apl_metadata_json_string( out, player->name() );
+     out << ",\"talent_effectiveness\":";
+     apl_metadata_json_string( out, skill_damage_talent_effectiveness( *player ) );

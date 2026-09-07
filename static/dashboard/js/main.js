@@ -6007,7 +6007,8 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const visibleUnresolved = unresolved.slice(0, 50);
         const details = visibleUnresolved.map(item => {
             const talent = item.talent && typeof item.talent === 'object' ? item.talent : {};
-            const talentLabel = talent.name_zh || talent.name || talent.id || '未知天赋';
+            const action = item.action && typeof item.action === 'object' ? item.action : {};
+            const talentLabel = action.name_zh || action.name || action.token || talent.name_zh || talent.name || talent.id || '未知条目';
             const profileLabel = `${item.class || '-'} / ${item.specialization || '-'}`;
             const targetLabel = item.target_health_percentage == null ? '-' : `${item.target_health_percentage}%`;
             return `<li>${escapeHtml(profileLabel)} · ${escapeHtml(talentLabel)} · 目标血量 ${escapeHtml(targetLabel)} · ${escapeHtml(item.reason || 'runtime_unresolved')}</li>`;
@@ -6015,7 +6016,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const omittedLabel = unresolved.length > visibleUnresolved.length
             ? `<div class="mt-2 text-xs">仅展示前 ${visibleUnresolved.length} 项；完整总数以标题为准。</div>`
             : '';
-        unresolvedEl.innerHTML = `<div class="font-semibold">未解析 ${unresolved.length} 项：这些条目未生成伤害数值</div><details class="mt-2"><summary class="cursor-pointer font-medium">查看明细</summary><ul class="mt-2 list-disc space-y-1 pl-5 text-xs">${details}</ul>${omittedLabel}</details>`;
+        unresolvedEl.innerHTML = `<div class="font-semibold">未解析 ${unresolved.length} 项：相关技能或条件存在缺失，列表不代表完整覆盖</div><details class="mt-2"><summary class="cursor-pointer font-medium">查看明细</summary><ul class="mt-2 list-disc space-y-1 pl-5 text-xs">${details}</ul>${omittedLabel}</details>`;
         unresolvedEl.classList.remove('hidden');
     } else {
         unresolvedEl.innerHTML = '';
@@ -6058,7 +6059,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     const activeSortButton = sortMode === 'name' ? nameSortButton : finalSortButton;
     const sortDirection = activeSortButton.dataset.direction === 'asc' ? 'asc' : 'desc';
     nameSortButton.textContent = `技能 ${sortMode === 'name' ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}`;
-    finalSortButton.textContent = `${targetCount}目标最终归一化伤害 ${sortMode === 'final' ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}`;
+    finalSortButton.textContent = `${targetCount}目标归一化伤害期望 ${sortMode === 'final' ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}`;
     nameSortHeader.setAttribute('aria-sort', sortMode === 'name'
         ? (sortDirection === 'asc' ? 'ascending' : 'descending')
         : 'none');
@@ -6162,14 +6163,15 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                     return `<span class="whitespace-nowrap"><span class="text-xs text-indigo-700">暴击率</span> <span class="font-mono text-indigo-900">${formatSimcSkillDamagePercent(projection.percentage_points, true)}</span></span>`;
                 }
                 if (projection.kind === 'damage_multiplier') {
-                    const label = String(projection.evidence_layer || '').startsWith('base_damage.') ? '基础伤害' : '全局伤害';
+                    const label = projection.evidence_layer === 'dbc_base_multiplier'
+                        ? '基础增伤' : (String(projection.evidence_layer || '').startsWith('base_damage.') ? '基础伤害' : '全局伤害');
                     return `<span class="whitespace-nowrap"><span class="text-xs text-indigo-700">${label}</span> <span class="font-mono text-indigo-900">${formatSimcSkillDamageFactor(projection.value)}×</span></span>`;
                 }
                 return '';
             }).filter(Boolean).join('<span class="text-indigo-300"> · </span>');
             return `<div class="rounded-lg border border-indigo-200 bg-white/70 px-3 py-2.5"><div class="flex flex-wrap items-start justify-between gap-2"><span class="font-semibold leading-5 text-indigo-950">${escapeHtml(displayName)}</span><span class="flex flex-wrap gap-2">${projections}</span></div>${condition ? `<div class="mt-1 text-xs leading-4 text-amber-800">${escapeHtml(condition)}</div>` : ''}</div>`;
         }).join('');
-        globalModifiersEl.innerHTML = `<div class="mb-1 text-sm font-bold text-indigo-950">全局效果</div><div class="mb-3 text-xs text-indigo-700">所有已识别且完成逐技能投影的全技能效果；对应变体不再进入下方条件筛选。</div><div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">${items}</div>`;
+        globalModifiersEl.innerHTML = `<div class="mb-1 text-sm font-bold text-indigo-950">全局效果</div><div class="mb-3 text-xs text-indigo-700">按作用域归类的全技能效果；对应状态不再进入下方条件筛选，倍率证据不足时单独说明。</div><div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">${items}</div>`;
         globalModifiersEl.classList.remove('hidden');
     }
 
@@ -6203,15 +6205,18 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 const stacksValue = Number(condition.stacks);
                 const stacks = Number.isInteger(stacksValue) && stacksValue > 0 ? stacksValue : 1;
                 if (!token && !(Number.isInteger(spellId) && spellId > 0)) return;
+                const stackValues = Array.isArray(condition.stack_values) ? condition.stack_values : [];
                 const conditionKey = `state:${JSON.stringify([
                     token,
                     scope,
                     Number.isInteger(spellId) && spellId > 0 ? spellId : 0,
-                    stacks,
+                    stacks, stackValues,
                 ])}`;
                 const fallbackToken = token.includes('.') ? token.slice(token.indexOf('.') + 1) : token;
                 const conditionName = condition.name_zh || condition.name || fallbackToken || spellId;
-                const stackLabel = stacks > 1 ? `（${stacks}层）` : '';
+                const stackLabel = stackValues.length > 1
+                    ? `（${stackValues.join('/')}层等伤害）`
+                    : (stacks > 1 ? `（${stacks}层）` : '');
                 const conditionLabel = `${['target', 'debuff'].includes(scope) ? '目标' : '自身'}：${conditionName}${stackLabel}`;
                 if (!conditionKeys.includes(conditionKey)) conditionKeys.push(conditionKey);
                 if (!buffConditions.has(conditionKey)) buffConditions.set(conditionKey, String(conditionLabel));
@@ -6292,12 +6297,15 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const formulaComponents = Array.isArray(product.formula_components)
             ? product.formula_components
             : [];
+        const includesCrit = product.damage_metric === 'critical_expectation';
+        let formulaComplete = formulaComponents.length > 0
+            && formulaComponents.every(component => component.status !== 'incomplete');
         const formulaGroups = new Map();
         const formulaBaseLabel = '基础伤害';
         formulaComponents.forEach(component => {
             const baseDamage = component.base_damage;
-            const componentSingleTarget = component.final_damage;
-            const componentDamageByTarget = component.final_damage_by_target;
+            const componentSingleTarget = includesCrit ? component.noncrit_damage : component.final_damage;
+            const componentDamageByTarget = includesCrit ? component.noncrit_damage_by_target : component.final_damage_by_target;
             const componentFinal = targetCount === '1'
                 ? componentSingleTarget
                 : (componentDamageByTarget && typeof componentDamageByTarget === 'object'
@@ -6307,12 +6315,20 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 ? component.runtime_factors.filter(hasFiniteSimcSkillDamageNumber)
                 : [];
             if (!hasFiniteSimcSkillDamageNumber(baseDamage)
-                || !hasFiniteSimcSkillDamageNumber(componentFinal)) return;
+                || !hasFiniteSimcSkillDamageNumber(componentFinal)) {
+                formulaComplete = false;
+                return;
+            }
             const multiTargetFactor = targetCount !== '1'
                 && hasFiniteSimcSkillDamageNumber(componentSingleTarget)
                 && componentSingleTarget !== 0
                 ? componentFinal / componentSingleTarget
                 : 1;
+            const explainedDamage = runtimeFactors.reduce((value, factor) => value * factor, baseDamage) * multiTargetFactor;
+            if (!Number.isFinite(explainedDamage)
+                || Math.abs(explainedDamage - componentFinal) > 1e-8 * Math.max(1, Math.abs(componentFinal))) {
+                formulaComplete = false;
+            }
             const factorKey = JSON.stringify([runtimeFactors, multiTargetFactor]);
             const group = formulaGroups.get(factorKey) || {
                 baseDamage: 0,
@@ -6334,10 +6350,53 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             const term = `${formulaBaseLabel} ${formatSimcSkillDamageFactor(group.baseDamage)}${factorFormula}${multiTargetFormula}`;
             return formulaGroups.size > 1 ? `(${term})` : term;
         });
-        if (formulaTerms.length && hasFiniteSimcSkillDamageNumber(finalDamage)) {
-            formulaCell = `${formulaTerms.join(' + ')} ≈ ${formatSimcSkillDamageFactor(finalDamage)}`;
+        const hitTotal = Array.from(formulaGroups.values()).reduce((total, group) => total + group.finalDamage, 0);
+        if (formulaComplete && formulaTerms.length && hasFiniteSimcSkillDamageNumber(finalDamage)) {
+            formulaCell = `${formulaTerms.join(' + ')} ≈ ${formatSimcSkillDamageFactor(includesCrit ? hitTotal : finalDamage)}`;
+        } else if (!formulaComplete && formulaComponents.length) {
+            formulaCell = '<span class="text-amber-800">公式未完整解析：DBC 基础值与运行时乘区未能解释全部伤害</span>';
         }
-        return `<tr class="align-top hover:bg-stone-50"><td class="min-w-[220px] px-3 py-3">${skillMeta}</td><td class="min-w-[190px] px-3 py-3">${variantCell}</td><td class="min-w-[180px] px-3 py-3 font-mono">${baseDamageCell}</td><td class="min-w-[260px] px-3 py-3 font-mono">${formulaCell}</td><td class="px-3 py-3 font-mono font-bold text-blue-900">${formatSimcSkillDamageNumber(finalDamage)}</td></tr>`;
+        if (includesCrit) {
+            const expectationTerms = [];
+            let expectedSum = 0;
+            let expectationComplete = formulaComponents.length > 0;
+            formulaComponents.forEach(component => {
+                const selectedValue = (single, multiple) => targetCount === '1' ? component[single] : component[multiple]?.[targetCount];
+                const normal = selectedValue('noncrit_contribution', 'noncrit_contribution_by_target');
+                const critical = selectedValue('crit_contribution', 'crit_contribution_by_target');
+                const expected = selectedValue('final_damage', 'final_damage_by_target');
+                if (![normal, critical, expected].every(hasFiniteSimcSkillDamageNumber)
+                    || Math.abs(normal + critical - expected) > 1e-8 * Math.max(1, Math.abs(expected))) {
+                    expectationComplete = false;
+                    return;
+                }
+                expectedSum += expected;
+                if (targetCount === '1') {
+                    const chance = component.crit_chance;
+                    const hit = component.noncrit_damage;
+                    const crit = component.crit_damage;
+                    if (![chance, hit, crit].every(hasFiniteSimcSkillDamageNumber)
+                        || chance < 0 || chance > 1
+                        || Math.abs(hit * (1 - chance) - normal) > 1e-8 * Math.max(1, Math.abs(normal))
+                        || Math.abs(crit * chance - critical) > 1e-8 * Math.max(1, Math.abs(critical))) {
+                        expectationComplete = false;
+                        return;
+                    }
+                    expectationTerms.push(`${formatSimcSkillDamageFactor(hit)} × ${formatSimcSkillDamagePercent((1 - chance) * 100)} + ${formatSimcSkillDamageFactor(crit)} × ${formatSimcSkillDamagePercent(chance * 100)}（暴击）`);
+                } else {
+                    expectationTerms.push(`${formatSimcSkillDamageFactor(normal)}（非暴击部分）+ ${formatSimcSkillDamageFactor(critical)}（暴击部分）`);
+                }
+            });
+            if (expectationComplete && hasFiniteSimcSkillDamageNumber(finalDamage)
+                && Math.abs(expectedSum - finalDamage) <= 1e-8 * Math.max(1, Math.abs(finalDamage))) {
+                const terms = expectationTerms.map(term => expectationTerms.length > 1 ? `(${term})` : term).join(' + ');
+                formulaCell += `<div class="mt-1 text-xs text-indigo-900">伤害期望：${terms} ≈ ${formatSimcSkillDamageFactor(finalDamage)}</div>`;
+            } else {
+                formulaCell += '<div class="mt-1 text-xs text-amber-800">暴击期望证据不完整</div>';
+            }
+        }
+        const legacyNotice = includesCrit ? '' : '<div class="text-xs font-normal text-amber-800">旧快照为非暴击值，需重新生成</div>';
+        return `<tr class="align-top hover:bg-stone-50"><td class="min-w-[220px] px-3 py-3">${skillMeta}</td><td class="min-w-[190px] px-3 py-3">${variantCell}</td><td class="min-w-[180px] px-3 py-3 font-mono">${baseDamageCell}</td><td class="min-w-[260px] px-3 py-3 font-mono">${formulaCell}</td><td class="px-3 py-3 font-mono font-bold text-blue-900">${formatSimcSkillDamageNumber(finalDamage)}${legacyNotice}</td></tr>`;
     }).join('') : '<tr><td colspan="5" class="px-4 py-8 text-center text-stone-500">没有符合条件的伤害技能</td></tr>';
 }
 

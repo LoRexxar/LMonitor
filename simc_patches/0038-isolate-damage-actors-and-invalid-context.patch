@@ -1,0 +1,65 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -857,14 +857,14 @@
+   catch ( ... )
+   {
+     action.sim->desired_targets = saved_desired_targets;
+-    action.sim->active_enemies = saved_active_enemies;
+-    action.target_cache.is_valid = false;
++  action.sim->active_enemies = saved_active_enemies;
++  action.target_cache.is_valid = false;
+     action.sim->target_non_sleeping_list.assign_without_callbacks( saved_non_sleeping_targets );
+     throw;
+   }
+   action.sim->desired_targets = saved_desired_targets;
+-    action.sim->active_enemies = saved_active_enemies;
+-    action.target_cache.is_valid = false;
++  action.sim->active_enemies = saved_active_enemies;
++  action.target_cache.is_valid = false;
+   action.sim->target_non_sleeping_list.assign_without_callbacks( saved_non_sleeping_targets );
+ }
+ 
+@@ -1014,6 +1014,24 @@
+   if ( amount.periodic && ( !std::isfinite( amount.tick_amount.damage_equivalent_count ) ||
+                             amount.tick_amount.damage_equivalent_count <= 0.0 ) )
+     amount.unresolved_reason = "runtime_non_finite_amount";
++  // 缺少血量、累计伤害或前置触发状态时，不能把零值当作已解析伤害。
++  const auto validate_component = [&]( auto& component, bool& present ) {
++    if ( !present ) return;
++    if ( !std::isfinite( component.native_base_damage ) ||
++         !std::isfinite( component.hit ) || !std::isfinite( component.crit ) ||
++         !std::isfinite( component.expected ) )
++    {
++      amount.unresolved_reason = "runtime_non_finite_amount";
++      component.present = present = false;
++    }
++    else if ( component.native_base_damage <= 0.0 && component.hit <= 0.0 && component.crit <= 0.0 )
++    {
++      amount.unresolved_reason = "runtime_damage_context_unavailable";
++      component.present = present = false;
++    }
++  };
++  validate_component( amount.direct_amount, amount.direct );
++  validate_component( amount.tick_amount, amount.periodic );
+   action_state_t::release( state );
+   return amount;
+ }
+@@ -1650,6 +1668,8 @@
+   bool first_actor = true;
+   for ( player_t* player : sim.player_no_pet_list )
+   {
++    // 增辉的内部队友估算角色不属于用户要求的职业技能。
++    if ( player->type == PLAYER_SIMPLIFIED ) continue;
+     if ( !first_actor ) out << ',';
+     first_actor = false;
+     const stat_e primary_stat = player->convert_hybrid_stat( STAT_STR_AGI_INT );
+@@ -1684,7 +1704,8 @@
+     bool first_action = true;
+     for ( action_t* action : player->action_list )
+     {
+-      if ( !action || action->external_recipient_action() ||
++      if ( !action || action->type == ACTION_HEAL || action->type == ACTION_ABSORB ||
++           action->external_recipient_action() ||
+            ( !action->does_direct_damage() && !action->does_periodic_damage() ) ) continue;
+       const unsigned spell_id = apl_metadata_action_spell_id( *action );
+ 

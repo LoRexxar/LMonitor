@@ -1,0 +1,661 @@
+{
+  "验证说明": "检查导出协议和可解析条目的数值一致性，不等于全部技能机制覆盖。",
+  "源码提交": "800980b758674a0311a68a6ec33fdc0651afe47d",
+  "客户端数据": "12.0.7.68974",
+  "二进制_SHA256": "3fd7261e1e9c5da192361562cb693fe9d0a3553c8b76e8d8d9d20e9eb54c8f50",
+  "后端_SHA256": "cf4d79864a55501d3cbf046be3f09ca8ff7b82cb0241d00a6bdb99019800f958",
+  "导出协议": 16,
+  "数据语义版本": 26,
+  "循环替换产物一致": true,
+  "专精": [
+    {
+      "职业": "deathknight",
+      "专精": "blood",
+      "中文": "死亡骑士·鲜血",
+      "基础行数": 5,
+      "完整模板行数": 184,
+      "模板": "MID1_Death_Knight_Blood.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 3,
+      "未解析候选原因": {
+        "runtime_damage_context_unavailable": 3,
+        "dbc_action_not_initialized": 8,
+        "dbc_action_has_no_damage_component": 13,
+        "dbc_spell_has_no_action_mapping": 75
+      }
+    },
+    {
+      "职业": "deathknight",
+      "专精": "frost",
+      "中文": "死亡骑士·冰霜",
+      "基础行数": 14,
+      "完整模板行数": 443,
+      "模板": "MID1_Death_Knight_Frost.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 4,
+      "未解析候选原因": {
+        "runtime_damage_context_unavailable": 3,
+        "runtime_layer_non_positive": 1,
+        "residual_trigger_dependent": 1,
+        "dbc_spell_has_no_action_mapping": 77,
+        "dbc_action_not_initialized": 7,
+        "dbc_action_has_no_damage_component": 17
+      }
+    },
+    {
+      "职业": "deathknight",
+      "专精": "unholy",
+      "中文": "死亡骑士·邪恶",
+      "基础行数": 21,
+      "完整模板行数": 664,
+      "模板": "MID1_Death_Knight_Unholy.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 5,
+      "未解析候选原因": {
+        "runtime_damage_context_unavailable": 5,
+        "residual_trigger_dependent": 1,
+        "dbc_action_not_initialized": 7,
+        "dbc_action_has_no_damage_component": 15,
+        "dbc_spell_has_no_action_mapping": 77
+      }
+    },
+    {
+      "职业": "demonhunter",
+      "专精": "devourer",
+      "中文": "恶魔猎手·噬灭",
+      "基础行数": 15,
+      "完整模板行数": 1657,
+      "模板": "MID1_Demon_Hunter_Devourer.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 0,
+      "未解析候选原因": {
+        "residual_trigger_dependent": 1,
+        "dbc_action_not_initialized": 9,
+        "dbc_spell_has_no_action_mapping": 77,
+        "dbc_action_has_no_damage_component": 13
+      }
+    },
+    {
+      "职业": "demonhunter",
+      "专精": "havoc",
+      "中文": "恶魔猎手·浩劫",
+      "基础行数": 27,
+      "完整模板行数": 211,
+      "模板": "MID1_Demon_Hunter_Havoc.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 0,
+      "未解析候选原因": {
+        "residual_trigger_dependent": 2,
+        "dbc_action_not_initialized": 9,
+        "dbc_spell_has_no_action_mapping": 81,
+        "dbc_action_has_no_damage_component": 15
+      }
+    },
+    {
+      "职业": "demonhunter",
+      "专精": "vengeance",
+      "中文": "恶魔猎手·复仇",
+      "基础行数": 21,
+      "完整模板行数": 84,
+      "模板": "MID1_Demon_Hunter_Vengeance.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 1,
+      "未解析候选原因": {
+        "residual_trigger_dependent": 1,
+        "runtime_damage_context_unavailable": 1,
+        "dbc_action_not_initialized": 8,
+        "dbc_spell_has_no_action_mapping": 84,
+        "dbc_action_has_no_damage_component": 19
+      }
+    },
+    {
+      "职业": "druid",
+      "专精": "balance",
+      "中文": "德鲁伊·平衡",
+      "基础行数": 37,
+      "完整模板行数": 493,
+      "模板": "MID1_Druid_Balance.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 4,
+      "未解析候选原因": {
+        "runtime_damage_context_unavailable": 3,
+        "runtime_layer_non_positive": 1,
+        "residual_trigger_dependent": 1,
+        "dbc_action_has_no_damage_component": 18,
+        "dbc_action_not_initialized": 8,
+        "dbc_spell_has_no_action_mapping": 77
+      }
+    },
+    {
+      "职业": "druid",
+      "专精": "feral",
+      "中文": "德鲁伊·野性",
+      "基础行数": 16,
+      "完整模板行数": 288,
+      "模板": "MID1_Druid_Feral.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 8,
+      "未解析候选原因": {
+        "runtime_damage_context_unavailable": 3,
+        "runtime_layer_non_positive": 5,
+        "dbc_action_has_no_damage_component": 18,
+        "dbc_action_not_initialized": 7,
+        "dbc_spell_has_no_action_mapping": 76
+      }
+    },
+    {
+      "职业": "druid",
+      "专精": "guardian",
+      "中文": "德鲁伊·守护",
+      "基础行数": 12,
+      "完整模板行数": 97,
+      "模板": "MID1_Druid_Guardian.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 6,
+      "未解析候选原因": {
+        "runtime_damage_context_unavailable": 5,
+        "residual_trigger_dependent": 1,
+        "runtime_layer_non_positive": 1,
+        "dbc_action_has_no_damage_component": 19,
+        "dbc_action_not_initialized": 10,
+        "dbc_spell_has_no_action_mapping": 73
+      }
+    },
+    {
+      "职业": "druid",
+      "专精": "restoration",
+      "中文": "德鲁伊·恢复",
+      "基础行数": 10,
+      "完整模板行数": null,
+      "模板": null,
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 4,
+      "未解析候选原因": {
+        "runtime_damage_context_unavailable": 3,
+        "runtime_layer_non_positive": 1,
+        "dbc_action_has_no_damage_component": 10,
+        "dbc_action_not_initialized": 6,
+        "dbc_spell_has_no_action_mapping": 12
+      }
+    },
+    {
+      "职业": "evoker",
+      "专精": "augmentation",
+      "中文": "唤魔师·增辉",
+      "基础行数": 11,
+      "完整模板行数": null,
+      "模板": null,
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 1,
+      "未解析候选原因": {
+        "periodic_damage_count_unavailable": 1,
+        "dbc_action_has_no_damage_component": 8,
+        "dbc_action_not_initialized": 4,
+        "dbc_spell_has_no_action_mapping": 11
+      }
+    },
+    {
+      "职业": "evoker",
+      "专精": "devastation",
+      "中文": "唤魔师·湮灭",
+      "基础行数": 22,
+      "完整模板行数": 206,
+      "模板": "MID1_Evoker_Devastation.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 1,
+      "未解析候选原因": {
+        "periodic_damage_count_unavailable": 1,
+        "dbc_action_has_no_damage_component": 17,
+        "dbc_spell_has_no_action_mapping": 72,
+        "dbc_action_not_initialized": 6
+      }
+    },
+    {
+      "职业": "evoker",
+      "专精": "preservation",
+      "中文": "唤魔师·恩护",
+      "基础行数": 11,
+      "完整模板行数": null,
+      "模板": null,
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 1,
+      "未解析候选原因": {
+        "periodic_damage_count_unavailable": 1,
+        "dbc_action_has_no_damage_component": 8,
+        "dbc_spell_has_no_action_mapping": 7,
+        "dbc_action_not_initialized": 5
+      }
+    },
+    {
+      "职业": "hunter",
+      "专精": "beast_mastery",
+      "中文": "猎人·野兽控制",
+      "基础行数": 2,
+      "完整模板行数": 115,
+      "模板": "MID1_Hunter_Beast_Mastery.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 0,
+      "未解析候选原因": {
+        "dbc_action_not_initialized": 24,
+        "dbc_action_has_no_damage_component": 5,
+        "dbc_spell_has_no_action_mapping": 71
+      }
+    },
+    {
+      "职业": "hunter",
+      "专精": "marksmanship",
+      "中文": "猎人·射击",
+      "基础行数": 3,
+      "完整模板行数": 445,
+      "模板": "MID1_Hunter_Marksmanship.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 0,
+      "未解析候选原因": {
+        "residual_trigger_dependent": 1,
+        "dbc_action_not_initialized": 23,
+        "dbc_spell_has_no_action_mapping": 72,
+        "dbc_action_has_no_damage_component": 5
+      }
+    },
+    {
+      "职业": "hunter",
+      "专精": "survival",
+      "中文": "猎人·生存",
+      "基础行数": 2,
+      "完整模板行数": 270,
+      "模板": "MID1_Hunter_Survival.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 0,
+      "未解析候选原因": {
+        "dbc_action_not_initialized": 22,
+        "dbc_action_has_no_damage_component": 10,
+        "dbc_spell_has_no_action_mapping": 71
+      }
+    },
+    {
+      "职业": "mage",
+      "专精": "arcane",
+      "中文": "法师·奥术",
+      "基础行数": 13,
+      "完整模板行数": 66,
+      "模板": "MID1_Mage_Arcane.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 1,
+      "未解析候选原因": {
+        "runtime_damage_context_unavailable": 1,
+        "dbc_action_not_initialized": 11,
+        "dbc_action_has_no_damage_component": 11,
+        "dbc_spell_has_no_action_mapping": 72
+      }
+    },
+    {
+      "职业": "mage",
+      "专精": "fire",
+      "中文": "法师·火焰",
+      "基础行数": 5,
+      "完整模板行数": 960,
+      "模板": "MID1_Mage_Fire.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 2,
+      "未解析候选原因": {
+        "residual_trigger_dependent": 1,
+        "runtime_damage_context_unavailable": 2,
+        "dbc_action_not_initialized": 10,
+        "dbc_action_has_no_damage_component": 7,
+        "dbc_spell_has_no_action_mapping": 71
+      }
+    },
+    {
+      "职业": "mage",
+      "专精": "frost",
+      "中文": "法师·冰霜",
+      "基础行数": 9,
+      "完整模板行数": 1521,
+      "模板": "MID1_Mage_Frost.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 4,
+      "未解析候选原因": {
+        "runtime_damage_context_unavailable": 4,
+        "dbc_action_not_initialized": 11,
+        "dbc_action_has_no_damage_component": 11,
+        "dbc_spell_has_no_action_mapping": 72
+      }
+    },
+    {
+      "职业": "monk",
+      "专精": "brewmaster",
+      "中文": "武僧·酒仙",
+      "基础行数": 8,
+      "完整模板行数": 74,
+      "模板": "MID1_Monk_Brewmaster.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 4,
+      "未解析候选原因": {
+        "residual_trigger_dependent": 2,
+        "runtime_damage_context_unavailable": 4,
+        "dbc_action_has_no_damage_component": 6,
+        "dbc_action_not_initialized": 12,
+        "dbc_spell_has_no_action_mapping": 82
+      }
+    },
+    {
+      "职业": "monk",
+      "专精": "mistweaver",
+      "中文": "武僧·织雾",
+      "基础行数": null,
+      "完整模板行数": null,
+      "模板": null,
+      "状态": "上游明确不支持",
+      "未解析伤害条目数": 0,
+      "未解析候选原因": {}
+    },
+    {
+      "职业": "monk",
+      "专精": "windwalker",
+      "中文": "武僧·踏风",
+      "基础行数": 8,
+      "完整模板行数": 153,
+      "模板": "MID1_Monk_Windwalker.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 3,
+      "未解析候选原因": {
+        "runtime_damage_context_unavailable": 3,
+        "residual_trigger_dependent": 1,
+        "dbc_action_has_no_damage_component": 7,
+        "dbc_action_not_initialized": 14,
+        "dbc_spell_has_no_action_mapping": 86
+      }
+    },
+    {
+      "职业": "paladin",
+      "专精": "holy",
+      "中文": "圣骑士·神圣",
+      "基础行数": null,
+      "完整模板行数": null,
+      "模板": null,
+      "状态": "上游明确不支持",
+      "未解析伤害条目数": 0,
+      "未解析候选原因": {}
+    },
+    {
+      "职业": "paladin",
+      "专精": "protection",
+      "中文": "圣骑士·防护",
+      "基础行数": 13,
+      "完整模板行数": 101,
+      "模板": "MID1_Paladin_Protection.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 2,
+      "未解析候选原因": {
+        "residual_trigger_dependent": 1,
+        "runtime_damage_context_unavailable": 2,
+        "dbc_action_has_no_damage_component": 14,
+        "dbc_action_not_initialized": 20,
+        "dbc_spell_has_no_action_mapping": 81
+      }
+    },
+    {
+      "职业": "paladin",
+      "专精": "retribution",
+      "中文": "圣骑士·惩戒",
+      "基础行数": 36,
+      "完整模板行数": 141,
+      "模板": "MID1_Paladin_Retribution.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 3,
+      "未解析候选原因": {
+        "runtime_damage_context_unavailable": 3,
+        "dbc_action_has_no_damage_component": 11,
+        "dbc_action_not_initialized": 19,
+        "dbc_spell_has_no_action_mapping": 78
+      }
+    },
+    {
+      "职业": "priest",
+      "专精": "discipline",
+      "中文": "牧师·戒律",
+      "基础行数": 10,
+      "完整模板行数": null,
+      "模板": null,
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 3,
+      "未解析候选原因": {
+        "runtime_damage_context_unavailable": 3,
+        "dbc_action_not_initialized": 8,
+        "dbc_action_has_no_damage_component": 3,
+        "dbc_spell_has_no_action_mapping": 9
+      }
+    },
+    {
+      "职业": "priest",
+      "专精": "holy",
+      "中文": "牧师·神圣",
+      "基础行数": 8,
+      "完整模板行数": null,
+      "模板": null,
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 3,
+      "未解析候选原因": {
+        "runtime_damage_context_unavailable": 3,
+        "dbc_action_has_no_damage_component": 4,
+        "dbc_action_not_initialized": 8,
+        "dbc_spell_has_no_action_mapping": 9
+      }
+    },
+    {
+      "职业": "priest",
+      "专精": "shadow",
+      "中文": "牧师·暗影",
+      "基础行数": 18,
+      "完整模板行数": 135,
+      "模板": "MID1_Priest_Shadow.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 3,
+      "未解析候选原因": {
+        "runtime_damage_context_unavailable": 3,
+        "dbc_action_not_initialized": 8,
+        "dbc_action_has_no_damage_component": 14,
+        "dbc_spell_has_no_action_mapping": 70
+      }
+    },
+    {
+      "职业": "rogue",
+      "专精": "assassination",
+      "中文": "潜行者·奇袭",
+      "基础行数": 11,
+      "完整模板行数": 2492,
+      "模板": "MID1_Rogue_Assassination.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 1,
+      "未解析候选原因": {
+        "weapon_dependent": 2,
+        "residual_trigger_dependent": 1,
+        "runtime_layer_non_positive": 1,
+        "dbc_action_has_no_damage_component": 11,
+        "dbc_action_not_initialized": 10,
+        "dbc_spell_has_no_action_mapping": 81
+      }
+    },
+    {
+      "职业": "rogue",
+      "专精": "outlaw",
+      "中文": "潜行者·狂徒",
+      "基础行数": 114,
+      "完整模板行数": 1581,
+      "模板": "MID1_Rogue_Outlaw.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 3,
+      "未解析候选原因": {
+        "weapon_dependent": 2,
+        "runtime_damage_context_unavailable": 1,
+        "runtime_layer_non_positive": 2,
+        "dbc_action_has_no_damage_component": 15,
+        "dbc_action_not_initialized": 12,
+        "dbc_spell_has_no_action_mapping": 79
+      }
+    },
+    {
+      "职业": "rogue",
+      "专精": "subtlety",
+      "中文": "潜行者·敏锐",
+      "基础行数": 21,
+      "完整模板行数": 107,
+      "模板": "MID1_Rogue_Subtlety.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 14,
+      "未解析候选原因": {
+        "weapon_dependent": 2,
+        "runtime_layer_non_positive": 13,
+        "runtime_damage_context_unavailable": 1,
+        "dbc_action_has_no_damage_component": 12,
+        "dbc_action_not_initialized": 10,
+        "dbc_spell_has_no_action_mapping": 85
+      }
+    },
+    {
+      "职业": "shaman",
+      "专精": "elemental",
+      "中文": "萨满祭司·元素",
+      "基础行数": 63,
+      "完整模板行数": 211,
+      "模板": "MID1_Shaman_Elemental.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 4,
+      "未解析候选原因": {
+        "child_trigger_dependent": 2,
+        "runtime_damage_context_unavailable": 4,
+        "dbc_action_not_initialized": 14,
+        "dbc_action_has_no_damage_component": 14,
+        "dbc_spell_has_no_action_mapping": 86
+      }
+    },
+    {
+      "职业": "shaman",
+      "专精": "enhancement",
+      "中文": "萨满祭司·增强",
+      "基础行数": 89,
+      "完整模板行数": 455,
+      "模板": "MID1_Shaman_Enhancement.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 4,
+      "未解析候选原因": {
+        "runtime_damage_context_unavailable": 4,
+        "dbc_action_not_initialized": 15,
+        "dbc_action_has_no_damage_component": 14,
+        "dbc_spell_has_no_action_mapping": 69
+      }
+    },
+    {
+      "职业": "shaman",
+      "专精": "restoration",
+      "中文": "萨满祭司·恢复",
+      "基础行数": 46,
+      "完整模板行数": null,
+      "模板": null,
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 0,
+      "未解析候选原因": {
+        "dbc_action_not_initialized": 13,
+        "dbc_action_has_no_damage_component": 5,
+        "dbc_spell_has_no_action_mapping": 8
+      }
+    },
+    {
+      "职业": "warlock",
+      "专精": "affliction",
+      "中文": "术士·痛苦",
+      "基础行数": 4,
+      "完整模板行数": 54,
+      "模板": "MID1_Warlock_Affliction.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 1,
+      "未解析候选原因": {
+        "runtime_damage_context_unavailable": 1,
+        "dbc_action_not_initialized": 23,
+        "dbc_action_has_no_damage_component": 4,
+        "dbc_spell_has_no_action_mapping": 72
+      }
+    },
+    {
+      "职业": "warlock",
+      "专精": "demonology",
+      "中文": "术士·恶魔学识",
+      "基础行数": 1,
+      "完整模板行数": 8,
+      "模板": "MID1_Warlock_Demonology.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 3,
+      "未解析候选原因": {
+        "runtime_damage_context_unavailable": 1,
+        "runtime_layer_non_positive": 2,
+        "dbc_action_not_initialized": 26,
+        "dbc_action_has_no_damage_component": 6,
+        "dbc_spell_has_no_action_mapping": 73
+      }
+    },
+    {
+      "职业": "warlock",
+      "专精": "destruction",
+      "中文": "术士·毁灭",
+      "基础行数": 5,
+      "完整模板行数": 53,
+      "模板": "MID1_Warlock_Destruction.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 3,
+      "未解析候选原因": {
+        "runtime_layer_non_positive": 3,
+        "dbc_action_not_initialized": 23,
+        "dbc_action_has_no_damage_component": 4,
+        "dbc_spell_has_no_action_mapping": 87
+      }
+    },
+    {
+      "职业": "warrior",
+      "专精": "arms",
+      "中文": "战士·武器",
+      "基础行数": 27,
+      "完整模板行数": 299,
+      "模板": "MID1_Warrior_Arms.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 1,
+      "未解析候选原因": {
+        "runtime_layer_non_positive": 1,
+        "residual_trigger_dependent": 1,
+        "dbc_action_has_no_damage_component": 20,
+        "dbc_spell_has_no_action_mapping": 65,
+        "dbc_action_not_initialized": 3
+      }
+    },
+    {
+      "职业": "warrior",
+      "专精": "fury",
+      "中文": "战士·狂怒",
+      "基础行数": 22,
+      "完整模板行数": 244,
+      "模板": "MID1_Warrior_Fury.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 0,
+      "未解析候选原因": {
+        "dbc_action_has_no_damage_component": 24,
+        "dbc_spell_has_no_action_mapping": 69,
+        "dbc_action_not_initialized": 3
+      }
+    },
+    {
+      "职业": "warrior",
+      "专精": "protection",
+      "中文": "战士·防护",
+      "基础行数": 17,
+      "完整模板行数": 85,
+      "模板": "MID1_Warrior_Protection.simc",
+      "状态": "通过导出及数值检查",
+      "未解析伤害条目数": 0,
+      "未解析候选原因": {
+        "residual_trigger_dependent": 1,
+        "dbc_spell_has_no_action_mapping": 73,
+        "dbc_action_has_no_damage_component": 21,
+        "dbc_action_not_initialized": 4
+      }
+    }
+  ]
+}

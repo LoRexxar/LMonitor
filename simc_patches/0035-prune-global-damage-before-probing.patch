@@ -1,0 +1,329 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -964,6 +964,87 @@
+ 
+ enum class skill_damage_condition_scope_e { SELF, TARGET };
+ 
++// 作用域在枚举前确定；不依赖伤害探针、本地化名称或已选技能数量。
++bool skill_damage_global_aura( const spelleffect_data_t& effect, bool target )
++{
++  if ( effect.type() != E_APPLY_AURA || effect.percent() <= 0.0 ) return false;
++  for ( unsigned i = 0; i < NUM_CLASS_FAMILY_FLAGS; ++i )
++    if ( effect.class_flags( i ) ) return false;
++  const bool all_schools = effect.misc_value1() == 127;
++  return target
++    ? ( effect.subtype() == A_MOD_DAMAGE_FROM_CASTER ||
++        ( effect.subtype() == A_MOD_DAMAGE_PERCENT_TAKEN && all_schools ) )
++    : effect.subtype() == A_MOD_DAMAGE_PERCENT_DONE && all_schools;
++}
++
++bool skill_damage_excluded_global_buff( const player_t& player, const buff_t* buff, bool target )
++{
++  if ( !buff || !buff->data().ok() || buff->source != &player ) return false;
++  if ( buff->player != ( target ? player.target : &player ) ) return false;
++  // 激怒的全技能乘区由战士精通实现，不能只查 buff 自身的 aura。
++  if ( player.type == WARRIOR &&
++       ( target ? buff->data().id() == 208086
++                : buff->data().id() == 107574 || buff->data().id() == 184362 ) ) return true;
++  for ( const auto& effect : buff->data().effects() )
++    if ( skill_damage_global_aura( effect, target ) ) return true;
++  return false;
++}
++
++bool skill_damage_pure_global_talent( const spell_data_t* spell )
++{
++  // 只删除纯被动增伤；主动攻击、触发子技能或任何混合效果都保留。
++  if ( !spell || !spell->ok() || !spell->flags( spell_attribute::SX_PASSIVE ) || spell->proc_flags() )
++    return false;
++  bool found = false;
++  for ( const auto& effect : spell->effects() )
++  {
++    if ( effect.type() == E_NONE ) continue;
++    if ( !skill_damage_global_aura( effect, false ) || effect.trigger_spell_id() ) return false;
++    found = true;
++  }
++  return found;
++}
++
++struct skill_damage_excluded_buff_cache_t
++{
++  size_t self_size = 0;
++  size_t target_size = 0;
++  const player_t* target = nullptr;
++  std::vector<buff_t*> buffs;
++};
++std::map<const player_t*, skill_damage_excluded_buff_cache_t> skill_damage_excluded_buff_cache;
++
++const std::vector<buff_t*>& skill_damage_excluded_buffs( player_t& player )
++{
++  auto& cached = skill_damage_excluded_buff_cache[ &player ];
++  const size_t target_size = player.target ? player.target->buff_list.size() : 0;
++  if ( cached.self_size != player.buff_list.size() || cached.target_size != target_size ||
++       cached.target != player.target )
++  {
++    cached.self_size = player.buff_list.size();
++    cached.target_size = target_size;
++    cached.target = player.target;
++    cached.buffs.clear();
++    for ( buff_t* buff : player.buff_list )
++      if ( skill_damage_excluded_global_buff( player, buff, false ) ) cached.buffs.push_back( buff );
++    if ( player.target )
++      for ( buff_t* buff : player.target->buff_list )
++        if ( skill_damage_excluded_global_buff( player, buff, true ) ) cached.buffs.push_back( buff );
++  }
++  return cached.buffs;
++}
++
++void skill_damage_remove_global_talents( player_t* player )
++{
++  if ( !player->is_player() ) return;
++  // 在职业法术/乘区初始化前移除，包括自动赠送的节点。
++  auto& traits = player->player_traits;
++  traits.erase( std::remove_if( traits.begin(), traits.end(), [&]( const auto& selected ) {
++    const auto* trait = trait_data_t::find( std::get<1>( selected ), player->is_ptr() );
++    return trait && skill_damage_pure_global_talent( dbc::find_spell( player, trait->id_spell ) );
++  } ), traits.end() );
++}
++
+ struct skill_damage_condition_t
+ {
+   skill_damage_condition_scope_e scope;
+@@ -979,6 +1060,13 @@
+                                               const std::vector<skill_damage_condition_t>& conditions )
+ {
+   action.player->reset();
++  // 防止 reset 自动恢复全局状态；清零状态本身，不触发战斗回调。
++  for ( buff_t* buff : skill_damage_excluded_buffs( *action.player ) )
++  {
++    buff->current_stack = 0;
++    buff->current_value = 0.0;
++    buff->invalidate_cache();
++  }
+   if ( action.target )
+   {
+     // enemy_t::health_percentage() derives health from iteration time when
+@@ -1054,7 +1142,8 @@
+       {
+         const std::string token = ( *it )[ 1 ].str();
+         buff_t* buff = skill_damage_owned_player_buff( *action.player, token );
+-        if ( buff ) conditions.push_back( { skill_damage_condition_scope_e::SELF, buff, "buff." + token } );
++        if ( buff && !skill_damage_excluded_global_buff( *action.player, buff, false ) )
++          conditions.push_back( { skill_damage_condition_scope_e::SELF, buff, "buff." + token } );
+       }
+       std::sort( conditions.begin(), conditions.end(), []( const auto& left, const auto& right ) {
+         return left.token < right.token;
+@@ -1073,6 +1162,8 @@
+     if ( !buff || !buff->data().ok() || buff->source != action.player ) return;
+     if ( scope == skill_damage_condition_scope_e::SELF && buff->player != action.player ) return;
+     if ( scope == skill_damage_condition_scope_e::TARGET && buff->player != action.target ) return;
++    if ( skill_damage_excluded_global_buff( *action.player, buff,
++         scope == skill_damage_condition_scope_e::TARGET ) ) return;
+     const std::string token = ( scope == skill_damage_condition_scope_e::TARGET ? "debuff." : "buff." ) + buff->name_str;
+     scenarios.emplace( token + "\n", std::vector<skill_damage_condition_t>{ { scope, buff, token } } );
+   };
+@@ -1090,7 +1181,11 @@
+     for ( const auto& condition : conditions )
+     {
+       std::vector<std::vector<skill_damage_condition_t>> next;
+-      const int max_stacks = std::max( 1, condition.buff->max_stack() );
++      // 战士旋风斩的层数是剩余顺劈次数，n_targets/伤害只读取 check()。
++      // 在展开前收敛到启用状态，其他 buff 继续保留真实层数维度。
++      const bool presence_only = action.player->type == WARRIOR &&
++        condition.scope == skill_damage_condition_scope_e::SELF && condition.buff->data().id() == 85739;
++      const int max_stacks = presence_only ? 1 : std::max( 1, condition.buff->max_stack() );
+       if ( expanded.size() > max_expanded_scenarios / static_cast<size_t>( max_stacks ) )
+         throw std::length_error( "Skill damage runtime stack scenarios exceed the safe limit" );
+       next.reserve( expanded.size() * static_cast<size_t>( max_stacks ) );
+@@ -1375,43 +1470,70 @@
+   return "inactive";
+ }
+ 
+-// 根据 DBC aura 的作用域声明全技能增伤，不使用抽样技能数或本地化描述。
++// 上表只读取静态作用域与基础倍率，不运行任何技能伤害探针。
+ void write_skill_damage_global_states( std::ostream& out, player_t& player )
+ {
+   bool first = true;
+   const auto write_buff = [&]( buff_t* buff, bool target ) {
+-    if ( !buff || !buff->data().ok() || buff->source != &player ) return;
++    if ( !skill_damage_excluded_global_buff( player, buff, target ) ) return;
++    if ( !first ) out << ',';
++    first = false;
++    out << "{\"token\":";
++    apl_metadata_json_string( out, ( target ? "debuff." : "buff." ) + buff->name_str );
++    out << ",\"scope\":"; apl_metadata_json_string( out, target ? "target" : "self" );
++    out << ",\"spell_id\":" << buff->data().id() << ",\"name\":";
++    apl_metadata_json_string( out, buff->data().name_cstr() );
++    out << ",\"evidence\":\"precomputed_global_damage_scope\",\"excluded_before_probe\":true,\"dbc_base_multiplier\":";
++    double multiplier = 1.0;
++    bool found = false;
+     for ( const auto& effect : buff->data().effects() )
+-    {
+-      if ( effect.type() != E_APPLY_AURA || effect.percent() <= 0.0 ) continue;
+-      bool scoped = false;
+-      for ( unsigned i = 0; i < NUM_CLASS_FAMILY_FLAGS; ++i )
+-        scoped = scoped || effect.class_flags( i ) != 0;
+-      if ( scoped ) continue;
+-      const bool all_schools = effect.misc_value1() == 127;
+-      const bool global = target
+-        ? ( effect.subtype() == A_MOD_DAMAGE_FROM_CASTER ||
+-            ( effect.subtype() == A_MOD_DAMAGE_PERCENT_TAKEN && all_schools ) )
+-        : effect.subtype() == A_MOD_DAMAGE_PERCENT_DONE && all_schools;
+-      if ( !global ) continue;
+-      if ( !first ) out << ',';
+-      first = false;
+-      out << "{\"token\":";
+-      apl_metadata_json_string( out, ( target ? "debuff." : "buff." ) + buff->name_str );
+-      out << ",\"scope\":"; apl_metadata_json_string( out, target ? "target" : "self" );
+-      out << ",\"spell_id\":" << buff->data().id() << ",\"name\":";
+-      apl_metadata_json_string( out, buff->data().name_cstr() );
+-      out << ",\"evidence\":\"dbc_all_school_damage_aura\"}";
+-      break;
+-    }
++      if ( skill_damage_global_aura( effect, target ) )
++      {
++        multiplier *= 1.0 + effect.percent();
++        found = true;
++      }
++    if ( found ) write_skill_damage_json_number( out, multiplier );
++    else out << "null";
++    out << '}';
+   };
+   out << '[';
+-  for ( buff_t* buff : player.buff_list )
+-    if ( buff && buff->player == &player ) write_buff( buff, false );
++  for ( buff_t* buff : player.buff_list ) write_buff( buff, false );
+   if ( player.target )
+-    for ( buff_t* buff : player.target->buff_list )
+-      if ( buff && buff->player == player.target ) write_buff( buff, true );
++    for ( buff_t* buff : player.target->buff_list ) write_buff( buff, true );
+   out << ']';
++}
++
++// 全 DBC 目录模式不创建 actor、不初始化技能，也不运行伤害探针。
++void export_skill_damage_scope_catalog( sim_t& sim )
++{
++  std::ofstream out( sim.skill_damage_scope_export_file, std::ios::binary | std::ios::trunc );
++  if ( !out ) throw std::runtime_error( "Unable to open skill damage scope catalog" );
++  out << "{\"schema_version\":14,\"simc_revision\":";
++  apl_metadata_json_string( out, sim.skill_damage_revision );
++  out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
++  out << ",\"talents\":[";
++  bool first = true;
++  for ( const auto& trait : trait_data_t::data( sim.dbc->ptr ) )
++  {
++    const auto* spell = dbc::find_spell( &sim, trait.id_spell );
++    if ( !skill_damage_pure_global_talent( spell ) ) continue;
++    if ( !first ) out << ',';
++    first = false;
++    double multiplier = 1.0;
++    for ( const auto& effect : spell->effects() )
++      if ( skill_damage_global_aura( effect, false ) ) multiplier *= 1.0 + effect.percent();
++    out << "{\"trait_entry_id\":" << trait.id_trait_node_entry
++        << ",\"spell_id\":" << trait.id_spell << ",\"name\":";
++    apl_metadata_json_string( out, trait.name );
++    out << ",\"evidence\":\"dbc_pure_global_damage_talent\",\"dbc_base_multiplier\":";
++    write_skill_damage_json_number( out, multiplier );
++    out << ",\"has_rank_scaling\":"
++        << ( trait.max_ranks > 1 || !trait_definition_effect_entry_t::find(
++             trait.id_trait_definition, sim.dbc->ptr ).empty() ? "true" : "false" ) << '}';
++  }
++  out << "]}\n";
++  out.flush();
++  if ( !out ) throw std::runtime_error( "Unable to write skill damage scope catalog" );
+ }
+ 
+ void export_skill_damage( sim_t& sim )
+@@ -1419,6 +1541,7 @@
+   // 仅缓存本次导出的静态 DBC 事实，不跨版本或跨运行复用指针。
+   skill_damage_scaling_cache.clear();
+   skill_damage_passive_cache.clear();
++  skill_damage_excluded_buff_cache.clear();
+   const bool valid_revision = sim.skill_damage_revision.size() == 40 &&
+     std::all_of( sim.skill_damage_revision.begin(), sim.skill_damage_revision.end(),
+                  []( unsigned char c ) { return std::isxdigit( c ); } );
+@@ -1433,7 +1556,7 @@
+   const std::string temporary = target + ".tmp." + std::to_string( static_cast<long long>( getpid() ) );
+   std::ofstream out( temporary, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open temporary skill damage export file" );
+-  out << "{\"schema_version\":13,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
++  out << "{\"schema_version\":14,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"normalization_basis\":{\"attack_power\":100,\"spell_power\":100,"
+          "\"crit_percent\":20,\"mastery_percent\":50}";
+@@ -1450,12 +1573,11 @@
+     else if ( primary_stat == STAT_INTELLECT ) primary_attr = ATTR_INTELLECT;
+     out << "{\"class\":"; apl_metadata_json_string( out, util::player_type_string( player->type ) );
+     out << ",\"spec\":"; apl_metadata_json_string( out, util::tokenize_fn( dbc::specialization_string( player->specialization() ) ) );
+-    out << ",\"global_damage_states\":";
+-    write_skill_damage_global_states( out, *player );
+     out << ",\"name\":"; apl_metadata_json_string( out, player->name() );
+     out << ",\"talent_effectiveness\":";
+     apl_metadata_json_string( out, skill_damage_talent_effectiveness( *player ) );
+     out << ",\"action_universe\":\"dbc_spellbook_selected_traits_and_derived_actions\"";
++    out << ",\"global_damage_policy\":\"exclude_before_probe\"";
+     out << ",\"attributes\":{\"primary_attribute\":{";
+     out << "\"name\":"; if ( primary_attr == ATTRIBUTE_NONE ) out << "null"; else apl_metadata_json_string( out, util::attribute_type_string( primary_attr ) );
+     out << ",\"value\":"; if ( primary_attr == ATTRIBUTE_NONE ) out << "null"; else out << player->composite_attribute( primary_attr );
+@@ -1665,7 +1787,9 @@
+         out << "},\"scenarios\":[]}";
+       }
+     }
+-    out << "]}";
++    out << "],\"global_damage_states\":";
++    write_skill_damage_global_states( out, *player );
++    out << '}';
+   }
+   out << "]}\n";
+   sim.average_range = saved_average_range;
+@@ -1830,6 +1954,12 @@
+       std::throw_with_nested( std::runtime_error( "Setup failure" ) );
+     }
+ 
++    if ( !skill_damage_scope_export_file.empty() )
++    {
++      export_skill_damage_scope_catalog( *this );
++      return 0;
++    }
++
+     if ( !apl_metadata_export_file.empty() )
+     {
+       init();
+@@ -1840,6 +1970,8 @@
+     if ( !skill_damage_export_file.empty() )
+     {
+       skill_damage_dbc_candidates.clear();
++      register_actor_initializer( INIT_ACTOR_TALENTS + 1, &skill_damage_remove_global_talents,
++                                  "skill_damage_remove_global_talents" );
+       register_actor_initializer(
+           INIT_ACTOR_CREATE_ACTIONS + 90,
+           &prepare_skill_damage_dbc_actions,
+--- a/engine/sim/sim.hpp
++++ b/engine/sim/sim.hpp
+@@ -95,6 +95,7 @@
+   std::string apl_metadata_game_build;
+   // Runtime skill damage probe mode. Actors initialize, but no simulation executes.
+   std::string skill_damage_export_file;
++  std::string skill_damage_scope_export_file;
+   std::string skill_damage_revision;
+   std::string skill_damage_game_build;
+   double skill_damage_target_health_percentage = 100.0;
+--- a/engine/sim/sim.cpp
++++ b/engine/sim/sim.cpp
+@@ -3862,6 +3862,7 @@
+   add_option( opt_string( "apl_metadata_revision", apl_metadata_revision ) );
+   add_option( opt_string( "apl_metadata_game_build", apl_metadata_game_build ) );
+   add_option( opt_string( "skill_damage_export", skill_damage_export_file ) );
++  add_option( opt_string( "skill_damage_scope_export", skill_damage_scope_export_file ) );
+   add_option( opt_string( "skill_damage_revision", skill_damage_revision ) );
+   add_option( opt_string( "skill_damage_game_build", skill_damage_game_build ) );
+   add_option( opt_float( "skill_damage_target_health_percentage", skill_damage_target_health_percentage ) );
+@@ -4352,7 +4353,8 @@
+     }
+   }
+ 
+-  if ( player_list.empty() && spell_query == nullptr && !display_bonus_ids && display_build <= 1 )
++  if ( player_list.empty() && spell_query == nullptr && !display_bonus_ids && display_build <= 1 &&
++       skill_damage_scope_export_file.empty() )
+   {
+     fmt::print( "Nothing to sim! " );
+     canceled = true;

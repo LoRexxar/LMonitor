@@ -1,0 +1,12 @@
+--- a/engine/class_modules/sc_shaman.cpp
++++ b/engine/class_modules/sc_shaman.cpp
+@@ -8033,7 +8033,8 @@
+   };
+ 
+   feral_lunge_t( shaman_t* player, util::string_view options_str ) :
+-    shaman_spell_t( "feral_lunge", player, player->spec.feral_lunge )
++    shaman_spell_t( "feral_lunge", player, player->spec.feral_lunge
++      ? player->spec.feral_lunge : player->find_class_spell( "Feral Lunge" ) )
+   {
+     parse_options( options_str );
+     unshift_ghost_wolf = false;

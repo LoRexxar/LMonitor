@@ -1,0 +1,46 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -1202,13 +1202,32 @@
+   return amount;
+ }
+ 
++// 尊重模块已经关闭的状态；同职业的其他专精天赋不能因共享 buff 对象而生效。
++bool skill_damage_available_buff( const player_t& player, const buff_t& buff )
++{
++  static std::map<const buff_t*, bool> availability;
++  const auto found = availability.find( &buff );
++  if ( found != availability.end() ) return found->second;
++  if ( buff.default_chance == 0.0 ) return availability[ &buff ] = false;
++  bool talent_owned = false;
++  for ( const auto& trait : trait_data_t::data( player.is_ptr() ) )
++  {
++    if ( trait.id_class != static_cast<unsigned>( util::class_id( player.type ) ) ) continue;
++    if ( trait.id_spell != buff.data().id() && util::tokenize_fn( trait.name ) != buff.name_str ) continue;
++    talent_owned = true;
++    for ( const auto& selected : player.player_traits )
++      if ( std::get<1>( selected ) == trait.id_trait_node_entry && std::get<2>( selected ) > 0 ) return availability[ &buff ] = true;
++  }
++  return availability[ &buff ] = !talent_owned;
++}
++
+ buff_t* skill_damage_owned_player_buff( player_t& player, const std::string& token )
+ {
+   const int player_class_family = dbc::get_class_spell_family( player.type );
+   for ( buff_t* buff : player.buff_list )
+   {
+     if ( !buff || buff->name_str != token || buff->source != &player || buff->player != &player ) continue;
+-    if ( !buff->data().ok() ) continue;
++    if ( !buff->data().ok() || !skill_damage_available_buff( player, *buff ) ) continue;
+     if ( as<int>( buff->data().class_family() ) == player_class_family ) return buff;
+   }
+   return nullptr;
+@@ -1247,7 +1266,8 @@
+ 
+   const auto add_owned_condition = [ &scenarios, &action ](
+       buff_t* buff, skill_damage_condition_scope_e scope ) {
+-    if ( !buff || !buff->data().ok() || buff->source != action.player ) return;
++    if ( !buff || !buff->data().ok() || buff->source != action.player ||
++         !skill_damage_available_buff( *action.player, *buff ) ) return;
+     if ( scope == skill_damage_condition_scope_e::SELF && buff->player != action.player ) return;
+     if ( scope == skill_damage_condition_scope_e::TARGET && buff->player != action.target ) return;
+     if ( skill_damage_excluded_global_buff( *action.player, buff,

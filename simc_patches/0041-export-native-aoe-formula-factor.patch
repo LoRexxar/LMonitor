@@ -1,0 +1,64 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -536,6 +536,7 @@
+   };
+ 
+   double action_multiplier = 1.0;
++  double aoe_multiplier = 1.0;
+   double player_multiplier = 1.0;
+   double versus_multiplier = 1.0;
+   double persistent_multiplier = 1.0;
+@@ -708,6 +709,8 @@
+ {
+   skill_damage_runtime_layers_t layers;
+   layers.action_multiplier = periodic ? state->ta_multiplier : state->da_multiplier;
++  // 原生 AoE 钩子即使在单目标也可含技能自己的系数。
++  layers.aoe_multiplier = periodic ? 1.0 : state->action->composite_aoe_multiplier( state );
+   layers.player_multiplier = state->player_multiplier;
+   // Keep the legacy schema key neutral: this SimC action_state has no
+   // independent versus multiplier in composite_da/ta_multiplier().
+@@ -725,7 +728,8 @@
+ bool skill_damage_runtime_layers_valid( const skill_damage_runtime_layers_t& layers )
+ {
+   const auto positive = []( double value ) { return std::isfinite( value ) && value > 0.0; };
+-  return positive( layers.action_multiplier ) && positive( layers.player_multiplier ) &&
++  return positive( layers.action_multiplier ) && positive( layers.aoe_multiplier ) &&
++         positive( layers.player_multiplier ) &&
+          positive( layers.versus_multiplier ) && positive( layers.persistent_multiplier ) &&
+          positive( layers.target_multiplier ) && positive( layers.versatility ) &&
+          positive( layers.pet_multiplier ) && positive( layers.target_pet_multiplier );
+@@ -1024,7 +1028,7 @@
+       amount.unresolved_reason = "runtime_non_finite_amount";
+       component.present = present = false;
+     }
+-    else if ( component.native_base_damage <= 0.0 && component.hit <= 0.0 && component.crit <= 0.0 )
++    else if ( component.hit <= 0.0 && component.crit <= 0.0 )
+     {
+       amount.unresolved_reason = "runtime_damage_context_unavailable";
+       component.present = present = false;
+@@ -1374,6 +1378,7 @@
+     out << ",\"runtime_layers\":{";
+     out << ( periodic ? "\"ta_multiplier\":" : "\"da_multiplier\":" );
+     write_skill_damage_json_number( out, c.runtime_layers.action_multiplier );
++    out << ",\"aoe_multiplier\":"; write_skill_damage_json_number( out, c.runtime_layers.aoe_multiplier );
+     out << ",\"player_multiplier\":"; write_skill_damage_json_number( out, c.runtime_layers.player_multiplier );
+     out << ",\"versus_multiplier\":"; write_skill_damage_json_number( out, c.runtime_layers.versus_multiplier );
+     out << ",\"persistent_multiplier\":"; write_skill_damage_json_number( out, c.runtime_layers.persistent_multiplier );
+@@ -1632,7 +1637,7 @@
+ {
+   std::ofstream out( sim.skill_damage_scope_export_file, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open skill damage scope catalog" );
+-  out << "{\"schema_version\":15,\"simc_revision\":";
++  out << "{\"schema_version\":16,\"simc_revision\":";
+   apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"talents\":[";
+@@ -1680,7 +1685,7 @@
+   const std::string temporary = target + ".tmp." + std::to_string( static_cast<long long>( getpid() ) );
+   std::ofstream out( temporary, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open temporary skill damage export file" );
+-  out << "{\"schema_version\":15,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
++  out << "{\"schema_version\":16,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"normalization_basis\":{\"attack_power\":100,\"spell_power\":100,"
+          "\"crit_percent\":20,\"mastery_percent\":50}";

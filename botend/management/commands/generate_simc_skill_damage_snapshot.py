@@ -21,6 +21,7 @@ class Command(BaseCommand):
         parser.add_argument('--profile-id', type=int)
         parser.add_argument('--output')
         parser.add_argument('--ready-file')
+        parser.add_argument('--scope-catalog', help='父进程已校验的全局增伤 DBC 目录')
 
     def handle(self, *args, **options):
         snapshot = None
@@ -37,6 +38,10 @@ class Command(BaseCommand):
                 if backend is None:
                     raise CommandError('backend 不存在')
             service = SimcSkillDamageSnapshotService(snapshot, backend=backend)
+            if options.get('scope_catalog'):
+                service._load_global_damage_talent_catalog(json.loads(
+                    Path(options['scope_catalog']).read_text(encoding='utf-8'),
+                ))
 
             profile_id = options.get('profile_id')
             if profile_id:

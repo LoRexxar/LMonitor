@@ -1,0 +1,19 @@
+--- a/engine/player/player.cpp
++++ b/engine/player/player.cpp
+@@ -4136,6 +4136,16 @@
+ 
+ void player_t::create_actions()
+ {
++  if ( is_player() && !is_enemy() && !is_pet() && !sim->skill_damage_export_file.empty() )
++  {
++    // 技能目录来自 DBC 和已选天赋，循环内容不参与技能及状态的选择。
++    clear_action_priority_lists();
++    action_list_str = "wait";
++    use_blizzard_action_list = false;
++    use_apl.clear();
++    modify_action.clear();
++    action_list_skip.clear();
++  }
+   if( is_player() && !is_enemy() && !is_pet() )
+     consumable::create_consumeable_actions( this );
+ 

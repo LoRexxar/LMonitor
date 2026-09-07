@@ -264,6 +264,9 @@ def localize_skill_damage_payload(payload):
                         and not isinstance(stacks, bool)
                         and stacks > 1
                     ) else ''
+                    stack_values = localized_condition.get('stack_values')
+                    if isinstance(stack_values, list) and len(stack_values) > 1:
+                        stack_label = f'（{"/".join(map(str, stack_values))}层伤害相同）'
                     condition_parts.append(f'{owner}存在{effect_name}效果{stack_label}时')
                 variant['runtime_condition'] = '，且'.join(condition_parts)
             token = _text_key(action.get('token'))
@@ -381,7 +384,7 @@ def plan_unique_talent_actor_configs(talents, *, scaffold_talents=(), talent_pre
         reference_name = f'skill_damage_reference_{identity}'
         selected_name = f'skill_damage_talent_{identity}'
         prerequisites = list(talent_prerequisites.get(talent.pk) or [])
-        reference_key, _ = _materialize_talent_config(scaffold_talents, prerequisites)
+        reference_key, reference_traits = _materialize_talent_config(scaffold_talents, prerequisites)
         selected_key, selected_traits = _materialize_talent_config(
             scaffold_talents, [*prerequisites, talent],
         )
@@ -390,11 +393,14 @@ def plan_unique_talent_actor_configs(talents, *, scaffold_talents=(), talent_pre
             canonical_name = selected_name
             canonical_by_config[selected_key] = canonical_name
             actors.append({'name': canonical_name, 'selected_talents': selected_traits})
-        pending.append((reference_name, selected_name, reference_key, canonical_name))
-    for reference_name, selected_name, reference_key, selected_canonical_name in pending:
+        pending.append((reference_name, selected_name, reference_key, reference_traits, canonical_name))
+    for reference_name, selected_name, reference_key, reference_traits, selected_canonical_name in pending:
         reference_canonical_name = canonical_by_config.get(reference_key)
         if reference_canonical_name is None:
-            raise ValueError('天赋前置配置没有对应的 canonical actor。')
+            # 全局天赋被前置裁剪后，剩余前置组合仍需独立保留并按配置去重。
+            reference_canonical_name = reference_name
+            canonical_by_config[reference_key] = reference_name
+            actors.append({'name': reference_name, 'selected_talents': reference_traits})
         aliases[reference_name] = {
             'canonical_name': reference_canonical_name,
             'talent_effectiveness': 'inactive',
@@ -404,6 +410,47 @@ def plan_unique_talent_actor_configs(talents, *, scaffold_talents=(), talent_pre
             'talent_effectiveness': 'active',
         }
     return {'actors': actors, 'aliases': aliases}
+
+
+def prune_global_damage_talents(talents, scaffold_talents, talent_prerequisites, catalog):
+    """在物理 actor 规划前移除纯全技能增伤天赋及其前置引用。"""
+    excluded = set(catalog)
+    keep = lambda rows: [row for row in rows if row.node_id not in excluded]
+    effects = []
+    sources = {talent.node_id: talent for rows in (
+        talents, scaffold_talents, *talent_prerequisites.values(),
+    ) for talent in rows}
+    for talent in sources.values():
+        if talent.node_id not in excluded:
+            continue
+        fact = catalog[talent.node_id]
+        effect = {
+            'effect_id': f'dbc_global_talent:{talent.node_id}',
+            'source_type': 'talent', 'talent_id': talent.pk,
+            'talent_name': str(getattr(talent, 'name', '') or fact.get('name') or ''),
+            'talent_name_zh': str(getattr(talent, 'name_zh', '') or ''),
+            'tree_type': str(getattr(talent, 'tree_type', '') or ''),
+            'hero_subtree_id': getattr(talent, 'db2_subtree_id', None) or None,
+            'source_spell_ids': [fact['spell_id']],
+            'scenario_tokens': [], 'runtime_conditions': [], 'projections': [],
+            'scope_evidence': 'dbc_pure_global_damage_talent',
+            'excluded_before_probe': True,
+            'runtime_condition': '纯全技能增伤天赋；生成前排除',
+            'dbc_base_multiplier': fact['dbc_base_multiplier'],
+        }
+        if fact['has_rank_scaling']:
+            effect['value_status'] = 'rank_dependent'
+            effect['runtime_condition'] += '；倍率随天赋等级变化'
+        else:
+            value = fact['dbc_base_multiplier']
+            effect['projections'] = [{
+                'kind': 'damage_multiplier', 'operation': 'multiply', 'value': value,
+                'bonus_percent': (value - 1) * 100, 'evidence_layer': 'dbc_base_multiplier',
+            }]
+        effects.append(effect)
+    return keep(talents), keep(scaffold_talents), {
+        key: keep(rows) for key, rows in talent_prerequisites.items()
+    }, effects
 
 
 class _CanonicalActorSpool:
@@ -546,6 +593,7 @@ def build_single_talent_actor_input(
         line for line in lines[actor_index:]
         if not re.match(r'^\s*(?:talents|class_talents|spec_talents|hero_talents)\s*=', line)
         and not re.match(r'^\s*html\s*=', line)
+        and not re.match(r'^\s*(?:actions(?:\.[\w]+)?\+?|use_apl|use_blizzard_action_list|modify_action|skip_actions)\s*=', line)
     ]
     equipment_slots = '|'.join(sorted({
         *(re.escape(slot) for slot in EQUIPMENT_SLOTS),
@@ -576,6 +624,7 @@ def build_single_talent_actor_input(
     def actor_block(name, selected_talents=()):
         block = list(actor_lines)
         block[0] = f'{class_name}="{name}"'
+        block.append('actions=wait')
         selected_talents = list(selected_talents)
         replacement_talent_ids = {
             getattr(trait, 'talent_id', None)
@@ -702,8 +751,38 @@ _AMOUNT_COMPONENT_FIELDS = (
 _AMOUNT_COMPONENT_SIGNATURE_FIELDS = (
     *_AMOUNT_COMPONENT_FIELDS,
     'crit_chance_uncapped', 'can_crit', 'target_hit', 'base_damage_layers', 'runtime_layers',
+    'target_crit', 'target_expected', 'target_noncrit_contribution', 'target_crit_contribution',
 )
 _SKILL_DAMAGE_TARGET_COUNTS = (1, 2, 5, 10, 20)
+
+
+def collect_skill_damage_unresolved(payload, *, target_health=100):
+    """保留真实伤害动作的未解析原因，避免投影后静默消失。"""
+    rows = []
+    seen = set()
+    for actor in payload.get('actors') or []:
+        for action in actor.get('actions') or []:
+            if action.get('supported') is not True or action.get('harmful') is not True:
+                continue
+            amounts = [action.get('baseline'), *(
+                scenario.get('values') for scenario in action.get('scenarios') or []
+            )]
+            reasons = {amount.get('unresolved_reason') for amount in amounts if isinstance(amount, dict)} - {None, ''}
+            for reason in sorted(reasons):
+                key = (actor.get('class'), actor.get('spec'), actor.get('specialization'),
+                       action.get('token'), action.get('spell_id'), reason)
+                if key in seen:
+                    continue
+                seen.add(key)
+                rows.append({
+                    'class': actor.get('class'),
+                    'specialization': actor.get('specialization') or actor.get('spec'),
+                    'target_health_percentage': target_health,
+                    'action': {'token': action.get('token'), 'name': action.get('name'),
+                               'spell_id': action.get('spell_id')},
+                    'reason': reason,
+                })
+    return rows
 
 
 def _mark_empty_runtime_amount_components_unresolved(payload):
@@ -919,12 +998,12 @@ _RUNTIME_LAYER_FIELDS = {
     'direct': (
         'da_multiplier', 'player_multiplier', 'versus_multiplier',
         'persistent_multiplier', 'target_da_multiplier', 'versatility',
-        'pet_multiplier', 'target_pet_multiplier',
+        'pet_multiplier', 'target_pet_multiplier', 'aoe_multiplier',
     ),
     'tick': (
         'ta_multiplier', 'player_multiplier', 'versus_multiplier',
         'persistent_multiplier', 'target_ta_multiplier', 'versatility',
-        'pet_multiplier', 'target_pet_multiplier',
+        'pet_multiplier', 'target_pet_multiplier', 'aoe_multiplier',
     ),
 }
 
@@ -975,8 +1054,8 @@ def _runtime_layer_changes(reference_component, selected_component, component_na
         return None
     changes = []
     for field in fields:
-        reference_value = reference_layers.get(field)
-        selected_value = selected_layers.get(field)
+        reference_value = reference_layers.get(field, 1.0 if field == 'aoe_multiplier' else None)
+        selected_value = selected_layers.get(field, 1.0 if field == 'aoe_multiplier' else None)
         if (
             isinstance(reference_value, bool) or isinstance(selected_value, bool)
             or not isinstance(reference_value, (int, float))
@@ -2464,11 +2543,105 @@ def _amount_delta_is_classified_global(
     return False
 
 
+# 产品明确排除的全技能增伤状态。身份来自职业实现的实际 buff/debuff，
+# 不是施法技能 ID；只声明作用域，不硬编码倍率。其他效果继续使用完整证据分类。
+_DECLARED_GLOBAL_DAMAGE_STATES = {
+    ('warrior', 'self', 107574): '天神下凡',
+    ('warrior', 'target', 208086): '巨人打击',
+    ('warrior', 'self', 184362): '激怒',
+}
+
+
+def _declared_global_state_name(actor, identity):
+    if not isinstance(identity, tuple) or len(identity) != 4:
+        return None
+    _, scope, spell_id, _ = identity
+    for state in actor.get('global_damage_states') or []:
+        if (isinstance(state, dict) and state.get('evidence') in {
+                'dbc_all_school_damage_aura', 'precomputed_global_damage_scope',
+            }
+                and state.get('scope') == scope and state.get('spell_id') == spell_id):
+            return state.get('name') or f'全局效果（{spell_id}）'
+    return _DECLARED_GLOBAL_DAMAGE_STATES.get((str(actor.get('class') or ''), scope, spell_id))
+
+
+def _collect_declared_global_state_effects(actor, effects):
+    """复用已有逐天赋遍历，仅积累轻量作用域与倍率范围。"""
+    def get_effect(identity, name):
+        return effects.setdefault(identity, {
+            'effect_id': _global_effect_identity('declared_runtime_state', identity),
+            'source_type': 'runtime_state', 'source_name': name,
+            'source_token': identity[0][0], 'source_spell_ids': [identity[0][2]],
+            'scenario_tokens': list(_scenario_identity_tokens(identity)),
+            'runtime_conditions': _scenario_metadata(actor, identity),
+            'runtime_condition': '全技能增伤状态；倍率随天赋配置变化',
+            'scope_evidence': 'declared_global_damage_state', 'projections': [],
+        })
+    for state in actor.get('global_damage_states') or []:
+        if not isinstance(state, dict) or not state.get('token'):
+            continue
+        identity = (state['token'], state.get('scope'), state.get('spell_id'), 1)
+        name = _declared_global_state_name(actor, identity)
+        if name:
+            effect = get_effect((identity,), name)
+            if state.get('excluded_before_probe') is True:
+                effect['excluded_before_probe'] = True
+                value = state.get('dbc_base_multiplier')
+                if _finite_number(value) and value > 1:
+                    effect['_minimum'] = min(effect.get('_minimum', math.inf), value)
+                    effect['_maximum'] = max(effect.get('_maximum', -math.inf), value)
+                else:
+                    effect['_incomplete'] = True
+    if actor.get('global_damage_policy') == 'exclude_before_probe':
+        return
+    for action in actor.get('actions') or []:
+        if not isinstance(action, dict):
+            continue
+        for identity, amount in _scenario_amounts(action).items():
+            if len(identity) != 1:
+                continue
+            name = _declared_global_state_name(actor, identity[0])
+            if not name:
+                continue
+            effect = get_effect(identity, name)
+            # 相同效果不同天赋可以有不同倍率；不得任取第一条作为统一百分比。
+            ratios = _uniform_amount_ratios(action.get('baseline'), amount)
+            if ratios:
+                for component_name in ('direct', 'tick'):
+                    baseline_component = (action.get('baseline') or {}).get(component_name) or {}
+                    selected_component = amount.get(component_name) or {}
+                    before = baseline_component.get('target_hit')
+                    after = selected_component.get('target_hit')
+                    if before is None and after is None:
+                        continue
+                    if not isinstance(before, dict) or not isinstance(after, dict) or before.keys() != after.keys():
+                        ratios = None
+                        break
+                    for target_count, value in before.items():
+                        current = after[target_count]
+                        if not _finite_number(value) or not _finite_number(current) or (value == 0 and current != 0):
+                            ratios = None
+                            break
+                        if value != 0:
+                            ratios.append(current / value)
+                    if ratios is None:
+                        break
+            if ratios:
+                effect['_minimum'] = min(effect.get('_minimum', math.inf), *ratios)
+                effect['_maximum'] = max(effect.get('_maximum', -math.inf), *ratios)
+            else:
+                effect['_incomplete'] = True
+
+
 def classify_global_skill_effects(base_high, base_low, variants):
     variants = _reiterable_variants(variants)
+    declared_effects = {}
+    declared_identities = set()
     effects = []
 
     def append_effect(*, effect_id, source_type, scenario_tokens, projections, source=None, evidence=None):
+        if tuple(scenario_tokens) in declared_identities:
+            return
         display_tokens = _scenario_identity_tokens(scenario_tokens)
         row = {
             'effect_id': effect_id,
@@ -2497,6 +2670,15 @@ def classify_global_skill_effects(base_high, base_low, variants):
 
     seen_state_effects = set()
     for source_high, source_low, talent, reference_high, reference_low in iter_state_sources():
+        for source_actor in (source_high, source_low, reference_high, reference_low):
+            _collect_declared_global_state_effects(source_actor, declared_effects)
+        source_actor = None
+        declared_identities.update(declared_effects)
+        if all(actor.get('global_damage_policy') == 'exclude_before_probe'
+               for actor in (source_high, source_low)):
+            # 新导出器已在枚举前声明并排除全局状态。不能再根据剩余技能
+            # 恰好同倍率推断作用域，也无需为每一层状态复制整份 actor。
+            continue
         high_tokens = _scenario_token_universe(source_high)
         low_tokens = _scenario_token_universe(source_low)
         inherited_tokens = (
@@ -2504,7 +2686,7 @@ def classify_global_skill_effects(base_high, base_low, variants):
             | _scenario_token_universe(reference_low)
         ) if talent else set()
         for scenario_tokens in sorted((high_tokens & low_tokens) - inherited_tokens):
-            if len(scenario_tokens) != 1:
+            if len(scenario_tokens) != 1 or tuple(scenario_tokens) in declared_identities:
                 continue
             neutral_high = _neutralize_actor_scenario(source_high, scenario_tokens)
             neutral_low = _neutralize_actor_scenario(source_low, scenario_tokens)
@@ -2722,12 +2904,40 @@ def classify_global_skill_effects(base_high, base_low, variants):
         effect = deduplicated[identity]
         effect.pop('_scenario_identity', None)
         result.append(effect)
-    return result
+    for effect in declared_effects.values():
+        minimum = effect.pop('_minimum', None)
+        maximum = effect.pop('_maximum', None)
+        incomplete = effect.pop('_incomplete', False)
+        if not incomplete and minimum is not None and minimum > 1 and math.isclose(minimum, maximum, rel_tol=1e-9, abs_tol=1e-9):
+            effect['runtime_condition'] = '全技能增伤状态'
+            effect['projections'] = [{
+                'kind': 'damage_multiplier', 'operation': 'multiply',
+                'value': minimum, 'bonus_percent': (minimum - 1) * 100,
+            }]
+        else:
+            effect['value_status'] = 'configuration_dependent_or_unresolved'
+            effect['runtime_condition'] = (
+                '全技能增伤状态；缺少完整倍率证据'
+                if incomplete or minimum is None else '全技能增伤状态；倍率随天赋或目标条件变化'
+            )
+        if effect.get('excluded_before_probe'):
+            effect['runtime_condition'] = (
+                '全技能增伤状态；生成前排除；DBC 基础倍率，未计算天赋联动'
+                if effect['projections'] else '全技能增伤状态；生成前排除；倍率由精通或天赋条件决定'
+            )
+            for projection in effect['projections']:
+                projection['evidence_layer'] = 'dbc_base_multiplier'
+    return [*declared_effects.values(), *result]
 
 
 def flatten_single_talent_damage_variants(base_high, base_low, variants, *, global_effects=None):
     """Flatten every independently exported SimC fact without recalculating damage."""
     variants = _reiterable_variants(variants)
+    declared_state_identities = {
+        (condition.get('scope'), condition.get('spell_id'))
+        for effect in (global_effects or []) if effect.get('scope_evidence') == 'declared_global_damage_state'
+        for condition in effect.get('runtime_conditions') or []
+    }
     base_high_actions = {
         _action_identity(action): action
         for action in (base_high.get('actions') or [])
@@ -2803,6 +3013,9 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
     for effect in global_effects or []:
         if not isinstance(effect, dict):
             continue
+        # 暴击率属于期望计算输入，不得当作全局直接增伤把对应天赋/状态行删除。
+        if any(projection.get('kind') == 'crit_chance' for projection in effect.get('projections') or []):
+            continue
         scenario_identity = _global_effect_scenario_identity(effect)
         if effect.get('source_type') == 'talent':
             owner = _talent_source_ownership(effect)
@@ -2821,6 +3034,12 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
         if not isinstance(action, dict) or _amount_state(amount)[0] != 'resolved':
             return
         scenario_identity = tuple(scenario_tokens or ())
+        # 下表的比较域排除明确声明的全局状态；组合探针也不能重新引入该维度。
+        # 不按施法技能 ID 删除 action，巨人打击自身的直接伤害仍然保留。
+        if any(_declared_global_state_name(base_high, identity)
+               or (identity[1], identity[2]) in declared_state_identities
+               for identity in scenario_identity):
+            return
         candidate_owner = _talent_source_ownership(talent)
         candidate_effects = [
             *global_runtime_effects_by_scenario.get(scenario_identity, ()),
@@ -2840,7 +3059,9 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
             )
         ):
             return
-        row = copy.deepcopy(action)
+        # 一行只需要自己的数值，不能先复制该技能的全部层数再立刻丢弃。
+        row = copy.deepcopy({key: value for key, value in action.items()
+                             if key not in {'baseline', 'scenarios'}})
         hero_subtree_ids = native_hero_ownership(action)
         if hero_subtree_ids:
             row['hero_subtree_ids'] = hero_subtree_ids
@@ -3149,7 +3370,81 @@ def attach_runtime_product_metrics(actor):
                     )
                 ):
                     component['product']['current_talent_damage_by_target'] = by_target
+            for source, destination in (
+                ('target_crit', 'crit_damage_by_target'),
+                ('target_expected', 'normalized_expected_by_target'),
+                ('target_noncrit_contribution', 'noncrit_contribution_by_target'),
+                ('target_crit_contribution', 'crit_contribution_by_target'),
+            ):
+                values = component.get(source)
+                if isinstance(values, dict) and all(
+                    _finite_number(values.get(str(count))) for count in _SKILL_DAMAGE_TARGET_COUNTS
+                ):
+                    component['product'][destination] = dict(values)
     return actor
+
+
+def _damage_product_equal(left, right):
+    """按实际数值比较，不使用页面四舍五入后的显示值去重。"""
+    if _finite_number(left) and _finite_number(right):
+        return math.isclose(float(left), float(right), rel_tol=1e-9, abs_tol=1e-9)
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(
+            _damage_product_equal(left[key], right[key]) for key in left
+        )
+    if isinstance(left, (list, tuple)):
+        return len(left) == len(right) and all(
+            _damage_product_equal(a, b) for a, b in zip(left, right)
+        )
+    return left == right
+
+
+def _compact_equivalent_damage_states(rows):
+    """合并同一技能、天赋与血量下的等伤害层数，保留完整多目标差异。"""
+    families = {}
+    for row in rows:
+        variant = row.get('variant') or {}
+        ownership = {key: value for key, value in variant.items() if key not in (
+            'runtime_condition', 'runtime_conditions', 'scenario_tokens',
+        )}
+        key = (row.get('token'), row.get('spell_id'),
+               tuple(row.get('hero_subtree_ids') or ()),
+               '血量低于35%' in str(variant.get('runtime_condition') or ''),
+               json.dumps(ownership, sort_keys=True, ensure_ascii=False))
+        families.setdefault(key, []).append(row)
+    output = []
+    for family in families.values():
+        baselines = [row for row in family if not (row.get('variant') or {}).get('scenario_tokens')]
+        merged = {}
+        for row in family:
+            variant = row.get('variant') or {}
+            conditions = variant.get('runtime_conditions') or []
+            if not conditions:
+                output.append(row)
+                continue
+            # 多 buff 组合不能逐轴合并，否则可能虚构未导出的层数组合。
+            if len(conditions) != 1:
+                output.append(row)
+                continue
+            if any(_damage_product_equal(row.get('product'), base.get('product')) for base in baselines):
+                continue
+            condition = conditions[0]
+            condition_key = (condition.get('token'), condition.get('scope'), condition.get('spell_id'))
+            candidates = merged.setdefault(condition_key, [])
+            match = next((candidate for candidate in candidates
+                          if _damage_product_equal(row.get('product'), candidate.get('product'))), None)
+            if match is None:
+                candidates.append(row)
+                output.append(row)
+                continue
+            existing = match['variant']['runtime_conditions'][0]
+            values = set(existing.get('stack_values') or [existing.get('stacks', 1)])
+            values.add(condition.get('stacks', 1))
+            existing['stack_values'] = sorted(values)
+            existing['stacks'] = min(values)
+    return output
 
 
 def project_skill_damage_product_payload(payload):
@@ -3164,7 +3459,6 @@ def project_skill_damage_product_payload(payload):
     for actor in actors:
         groups = {}
         hand_groups = {}
-        native_global_effects = {}
         for action in actor.get('actions') or []:
             if not isinstance(action, dict) or action.get('supported') is not True:
                 continue
@@ -3218,7 +3512,9 @@ def project_skill_damage_product_payload(payload):
                     continue
                 normalized_base = product.get('dbc_base_damage_min')
                 normalized_max = product.get('dbc_base_damage_max')
-                final_damage = product.get('current_talent_damage')
+                hit_damage = product.get('current_talent_damage')
+                crit_damage = product.get('crit_damage')
+                final_damage = product.get('normalized_expected')
                 ap_coeff = dbc_component.get('attack_power_coefficient')
                 sp_coeff = dbc_component.get('spell_power_coefficient')
                 if not (
@@ -3263,10 +3559,13 @@ def project_skill_damage_product_payload(payload):
                     row['component_count'] = 0
                     row['components'] = []
                     row['product'] = {
+                        'damage_metric': 'critical_expectation',
                         'attack_power_coefficient': 0.0,
                         'spell_power_coefficient': 0.0,
                         'normalized_base_damage': 0.0,
                         'final_normalized_damage': 0.0,
+                        'noncrit_damage': 0.0,
+                        'crit_damage': 0.0,
                         'final_normalized_damage_by_target': {
                             str(target_count): 0.0
                             for target_count in _SKILL_DAMAGE_TARGET_COUNTS
@@ -3276,7 +3575,9 @@ def project_skill_damage_product_payload(payload):
                     group = groups[group_key] = row
                 weighted_base = normalized_base * count
                 weighted_final = final_damage * count
-                component_target_damage = product.get('current_talent_damage_by_target')
+                weighted_hit = hit_damage * count
+                weighted_crit = crit_damage * count
+                component_target_damage = product.get('normalized_expected_by_target')
                 weighted_target_damage = None
                 if isinstance(component_target_damage, dict) and all(
                     _finite_number(component_target_damage.get(str(target_count)))
@@ -3287,52 +3588,6 @@ def project_skill_damage_product_payload(payload):
                         for target_count in _SKILL_DAMAGE_TARGET_COUNTS
                     }
                 runtime_layers = component.get('runtime_layers') or {}
-                passive_rows = []
-                passive_factor = 1.0
-                seen_passive_effects = set()
-                if isinstance(runtime_layers, dict):
-                    for effect in runtime_layers.get('specialization_passive_effects') or []:
-                        if not isinstance(effect, dict):
-                            continue
-                        source_spell_id = effect.get('source_spell_id')
-                        factor = effect.get('factor')
-                        if (
-                            not isinstance(source_spell_id, int)
-                            or isinstance(source_spell_id, bool)
-                            or source_spell_id <= 0
-                            or not _finite_number(factor)
-                            or factor <= 0
-                            or math.isclose(factor, 1.0, rel_tol=0.0, abs_tol=1e-12)
-                            or effect.get('component') != component_name
-                        ):
-                            continue
-                        effect_key = (
-                            source_spell_id, effect.get('effect_index'), component_name, factor,
-                        )
-                        if effect_key in seen_passive_effects:
-                            continue
-                        seen_passive_effects.add(effect_key)
-                        passive_rows.append(effect)
-                        passive_factor *= factor
-
-                component_multiplier_key = (
-                    'da_multiplier' if component_name == 'direct' else 'ta_multiplier'
-                )
-                component_multiplier = (
-                    runtime_layers.get(component_multiplier_key)
-                    if isinstance(runtime_layers, dict) else None
-                )
-                strip_passive = bool(passive_rows) and (
-                    _finite_number(component_multiplier) and component_multiplier > 0
-                )
-                if strip_passive:
-                    weighted_final /= passive_factor
-                    if weighted_target_damage is not None:
-                        weighted_target_damage = {
-                            key: value / passive_factor
-                            for key, value in weighted_target_damage.items()
-                        }
-
                 runtime_factors = []
                 factor_layers = component.get('runtime_factor_layers')
                 runtime_factor_rows = (
@@ -3344,7 +3599,6 @@ def project_skill_damage_product_payload(payload):
                         )
                     ]
                 )
-                stripped_passive = False
                 for factor_row in runtime_factor_rows:
                     if not isinstance(factor_row, dict):
                         continue
@@ -3352,47 +3606,18 @@ def project_skill_damage_product_payload(payload):
                     value = factor_row.get('factor')
                     if not _finite_number(value):
                         continue
-                    if (
-                        strip_passive
-                        and not stripped_passive
-                        and layer_name == component_multiplier_key
-                    ):
-                        value /= passive_factor
-                        stripped_passive = True
                     if not math.isclose(value, 1.0, rel_tol=0.0, abs_tol=1e-12):
                         runtime_factors.append(value)
 
-                if strip_passive:
-                    for effect in passive_rows:
-                        source_spell_id = effect['source_spell_id']
-                        factor = effect['factor']
-                        effect_index = effect.get('effect_index')
-                        effect_key = (source_spell_id, effect_index, factor)
-                        factor_value = float(factor)
-                        global_effect = native_global_effects.setdefault(effect_key, {
-                            'effect_id': (
-                                f'specialization_passive:{source_spell_id}:'
-                                f'{effect_index}:{factor_value:.17g}'
-                            ),
-                            'source_type': 'specialization_passive',
-                            'source_spell_ids': [source_spell_id],
-                            'source_effect_index': effect_index,
-                            'source_name': str(effect.get('source_name') or '').strip(),
-                            'scenario_tokens': [],
-                            'runtime_condition': '专精被动（适用于受影响技能）',
-                            '_factor': factor_value,
-                            '_components': set(),
-                        })
-                        global_effect['_components'].add(component_name)
                 runtime_product = math.prod(runtime_factors)
-                formula_base = weighted_base
-                if not math.isclose(
-                    weighted_base * runtime_product,
-                    weighted_final,
+                native_base = component.get('native_base_damage')
+                formula_base = native_base * count if _finite_number(native_base) else weighted_base
+                formula_complete = math.isclose(
+                    formula_base * runtime_product,
+                    weighted_hit,
                     rel_tol=1e-9,
                     abs_tol=1e-9,
-                ):
-                    formula_base = weighted_final / runtime_product
+                )
                 if ap_coeff and sp_coeff:
                     formula_base_source = 'attack_and_spell_power'
                 elif ap_coeff:
@@ -3412,11 +3637,15 @@ def project_skill_damage_product_payload(payload):
                     'component': component_name, 'damage_equivalent_count': count,
                     'normalized_base_damage': weighted_base,
                     'final_normalized_damage': weighted_final,
+                    'noncrit_damage': weighted_hit, 'crit_damage': weighted_crit,
+                    'crit_chance': chance,
                 })
                 group['product']['attack_power_coefficient'] += ap_coeff * count
                 group['product']['spell_power_coefficient'] += sp_coeff * count
                 group['product']['normalized_base_damage'] += weighted_base
                 group['product']['final_normalized_damage'] += weighted_final
+                group['product']['noncrit_damage'] += weighted_hit
+                group['product']['crit_damage'] += weighted_crit
                 if weighted_target_damage is None:
                     group['product'].pop('final_normalized_damage_by_target', None)
                 elif 'final_normalized_damage_by_target' in group['product']:
@@ -3428,7 +3657,27 @@ def project_skill_damage_product_payload(payload):
                     'base_multiplier': formula_base_multiplier,
                     'runtime_factors': runtime_factors,
                     'final_damage': weighted_final,
+                    'noncrit_damage': weighted_hit,
+                    'crit_damage': weighted_crit,
+                    'crit_chance': chance,
+                    'noncrit_contribution': weighted_hit * (1.0 - chance),
+                    'crit_contribution': weighted_crit * chance,
                 }
+                for field, source in (
+                    ('noncrit_damage_by_target', 'current_talent_damage_by_target'),
+                    ('crit_damage_by_target', 'crit_damage_by_target'),
+                    ('noncrit_contribution_by_target', 'noncrit_contribution_by_target'),
+                    ('crit_contribution_by_target', 'crit_contribution_by_target'),
+                ):
+                    values = product.get(source)
+                    if isinstance(values, dict):
+                        formula_component[field] = {key: value * count for key, value in values.items()}
+                if _finite_number(native_base):
+                    formula_component['base_evidence'] = 'native_action_coefficients'
+                if not formula_complete:
+                    formula_component['status'] = 'incomplete'
+                    formula_component['unresolved_reason'] = 'dbc_runtime_formula_mismatch'
+                    formula_component['explained_damage'] = formula_base * runtime_product
                 if weighted_target_damage is not None:
                     formula_component['final_damage_by_target'] = weighted_target_damage
                 group['product']['formula_components'].append(formula_component)
@@ -3448,27 +3697,13 @@ def project_skill_damage_product_payload(payload):
                     for key, value in target_damage.items()
                 }
             rows.append(group)
+        rows = _compact_equivalent_damage_states(rows)
         actor['actions'] = rows
-        existing_global_effects = [
+        # 专精的按技能掩码修正不构成全局效果，只保留上游已经交叉验证的分类。
+        actor['global_skill_effects'] = [
             effect for effect in (actor.get('global_skill_effects') or [])
-            if isinstance(effect, dict)
+            if isinstance(effect, dict) and effect.get('source_type') != 'specialization_passive'
         ]
-        existing_effect_ids = {
-            str(effect.get('effect_id') or '') for effect in existing_global_effects
-        }
-        for global_effect in native_global_effects.values():
-            components = global_effect.pop('_components')
-            factor = global_effect.pop('_factor')
-            component_name = next(iter(components)) if len(components) == 1 else 'all'
-            global_effect['projections'] = [{
-                'kind': 'damage_multiplier',
-                'value': factor,
-                'bonus_percent': round((factor - 1.0) * 100.0, 8),
-                'component': component_name,
-            }]
-            if global_effect['effect_id'] not in existing_effect_ids:
-                existing_global_effects.append(global_effect)
-        actor['global_skill_effects'] = existing_global_effects
         display_count += len(rows)
     result['actors'] = actors
     result['display_action_count'] = display_count
@@ -3478,8 +3713,8 @@ def project_skill_damage_product_payload(payload):
 class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
-    EXPORTER_SCHEMA_REVISION = 12
-    DATASET_SCHEMA_REVISION = 22
+    EXPORTER_SCHEMA_REVISION = 16
+    DATASET_SCHEMA_REVISION = 26
     # Dataset revisions describe generator semantics. The wire revision only
     # changes when the Dashboard response shape becomes incompatible.
     WIRE_SCHEMA_REVISION = 1
@@ -3910,6 +4145,52 @@ class SimcSkillDamageSnapshotService:
             raise ValueError('SimC exporter 二进制不可执行。')
         return path
 
+    def _global_damage_talent_catalog(self):
+        """一次读取当前二进制的纯 DBC 目录，不创建伤害 actor。"""
+        if hasattr(self, '_global_damage_catalog'):
+            return self._global_damage_catalog
+        with tempfile.TemporaryDirectory(prefix='simc-skill-damage-scope-') as tmp:
+            output = Path(tmp) / 'scope.json'
+            command = [
+                self._binary_path(), f'skill_damage_scope_export={output}',
+                f'skill_damage_revision={self.snapshot.simc_revision}',
+                f'skill_damage_game_build={self.snapshot.game_build}',
+            ]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+            if result.returncode != 0 or not output.exists():
+                diagnostic = (result.stderr or result.stdout or '未生成 DBC 作用域目录').strip()
+                raise RuntimeError(f'全局增伤前置分类失败：{diagnostic[-2000:]}')
+            payload = json.loads(output.read_text(encoding='utf-8'))
+        return self._load_global_damage_talent_catalog(payload)
+
+    def _load_global_damage_talent_catalog(self, payload):
+        """子进程复用同一份目录，仍核验二进制、游戏及协议版本。"""
+        if (
+            not isinstance(payload, dict)
+            or payload.get('schema_version') != self.EXPORTER_SCHEMA_REVISION
+            or payload.get('simc_revision') != self.snapshot.simc_revision
+            or payload.get('game_build') != self.snapshot.game_build
+        ):
+            raise ValueError('全局增伤 DBC 目录版本与当前快照不一致。')
+        rows = payload.get('talents')
+        if not isinstance(rows, list):
+            raise ValueError('全局增伤 DBC 天赋目录格式无效。')
+        catalog = {}
+        for row in rows:
+            if (
+                not isinstance(row, dict)
+                or row.get('evidence') != 'dbc_pure_global_damage_talent'
+                or type(row.get('trait_entry_id')) is not int or row['trait_entry_id'] <= 0
+                or type(row.get('spell_id')) is not int or row['spell_id'] <= 0
+                or not _finite_number(row.get('dbc_base_multiplier')) or row['dbc_base_multiplier'] <= 1
+                or type(row.get('has_rank_scaling')) is not bool
+                or row['trait_entry_id'] in catalog
+            ):
+                raise ValueError('全局增伤 DBC 天赋事实无效或重复。')
+            catalog[row['trait_entry_id']] = row
+        self._global_damage_catalog = catalog
+        return catalog
+
     def _run_profile_export(
         self, profile, talents, *, scaffold_talents=(), talent_prerequisites=None,
         target_health=100, actor_plan=None,
@@ -3982,6 +4263,9 @@ class SimcSkillDamageSnapshotService:
         self._validate_export(
             payload, profile=profile, expected_actor_names=expected_actor_names,
         )
+        payload.setdefault('unresolved', []).extend(
+            collect_skill_damage_unresolved(payload, target_health=target_health),
+        )
         return payload
 
     def _validate_export(
@@ -4039,6 +4323,8 @@ class SimcSkillDamageSnapshotService:
                     field not in component for field in required_amount_fields
                 ):
                     raise ValueError('exporter 数学期望字段无效。')
+                if 'native_base_damage' in component and not _finite_number(component['native_base_damage']):
+                    raise ValueError('exporter 原生基础伤害必须为有限数值。')
                 if not isinstance(component.get('can_crit'), bool):
                     raise ValueError('exporter can_crit 必须为布尔值。')
                 base_damage_layers = component.get('base_damage_layers')
@@ -4150,6 +4436,27 @@ class SimcSkillDamageSnapshotService:
                     )
                 ):
                     raise ValueError('exporter 多目标伤害结构或单目标基线无效。')
+                if not unresolved_reason:
+                    target_fields = ('target_crit', 'target_expected', 'target_noncrit_contribution', 'target_crit_contribution')
+                    for field in target_fields:
+                        values = component.get(field)
+                        if (not isinstance(values, dict) or set(values) != expected_target_keys
+                                or not all(_finite_number(value) for value in values.values())):
+                            raise ValueError('exporter 缺少完整的多目标暴击期望证据。')
+                    for key in expected_target_keys:
+                        if not math.isclose(
+                            component['target_expected'][key],
+                            component['target_noncrit_contribution'][key] + component['target_crit_contribution'][key],
+                            rel_tol=1e-8, abs_tol=1e-8,
+                        ):
+                            raise ValueError('exporter 多目标暴击期望加权不一致。')
+                    for field, expected in (
+                        ('target_crit', component['crit']), ('target_expected', component['expected']),
+                        ('target_noncrit_contribution', component['hit'] * (1 - component['crit_chance'])),
+                        ('target_crit_contribution', component['crit'] * component['crit_chance']),
+                    ):
+                        if not math.isclose(component[field]['1'], expected, rel_tol=1e-8, abs_tol=0.01):
+                            raise ValueError('exporter 多目标暴击期望与单目标基线不一致。')
 
         def validate_scenarios(scenarios, *, actor_buff_identities):
             if not isinstance(scenarios, list):
@@ -4210,6 +4517,8 @@ class SimcSkillDamageSnapshotService:
                 != 'dbc_spellbook_selected_traits_and_derived_actions'
             ):
                 raise ValueError('exporter actor 身份或 action universe 无效。')
+            if actor.get('global_damage_policy') != 'exclude_before_probe':
+                raise ValueError('exporter 缺少全局增伤前置排除约定。')
             if profile is not None:
                 expected_class = str(getattr(profile, 'class_name', '') or '').strip().lower()
                 expected_spec = str(getattr(profile, 'spec', '') or '').strip().lower()
@@ -4223,6 +4532,23 @@ class SimcSkillDamageSnapshotService:
                     raise ValueError('exporter actor 身份与请求 Profile 不匹配。')
             action_identities = set()
             actor_buff_identities = {}
+            if 'global_damage_states' not in actor:
+                raise ValueError('exporter 缺少全局增伤静态作用域目录。')
+            if 'global_damage_states' in actor:
+                states = actor['global_damage_states']
+                if not isinstance(states, list) or any(
+                    not isinstance(state, dict)
+                    or state.get('evidence') != 'precomputed_global_damage_scope'
+                    or state.get('excluded_before_probe') is not True
+                    or (state.get('dbc_base_multiplier') is not None and (
+                        not _finite_number(state['dbc_base_multiplier']) or state['dbc_base_multiplier'] <= 1
+                    ))
+                    or state.get('scope') not in {'self', 'target'}
+                    or type(state.get('spell_id')) is not int or state['spell_id'] <= 0
+                    or not isinstance(state.get('token'), str) or not state['token'].strip()
+                    for state in states
+                ):
+                    raise ValueError('exporter 全局增伤作用域结构无效。')
             for action in actor['actions']:
                 if not isinstance(action, dict):
                     raise ValueError('exporter action 结构无效。')
@@ -4269,6 +4595,12 @@ class SimcSkillDamageSnapshotService:
                 validate_scenarios(
                     action.get('scenarios'), actor_buff_identities=actor_buff_identities,
                 )
+                if actor.get('global_damage_policy') == 'exclude_before_probe' and any(
+                    _declared_global_state_name(actor, identity)
+                    for scenario in action.get('scenarios') or []
+                    for identity in _scenario_identity(scenario)
+                ):
+                    raise ValueError('exporter 违反前置排除约定：全局增伤状态仍进入伤害探针。')
                 if action['supported'] is False:
                     if not action.get('unsupported_reason'):
                         raise ValueError('exporter unsupported action 缺少原因。')
@@ -4527,6 +4859,10 @@ class SimcSkillDamageSnapshotService:
             metadata_nodes=self._implicit_prerequisite_nodes(profile),
             entry_order=entry_order,
         )
+        all_talents, scaffold_talents, talent_prerequisites, static_global_effects = prune_global_damage_talents(
+            all_talents, scaffold_talents, talent_prerequisites,
+            self._global_damage_talent_catalog(),
+        )
         scaffold_identities = {
             (
                 str(getattr(talent, 'tree_type', '') or '').strip().lower(),
@@ -4575,7 +4911,10 @@ class SimcSkillDamageSnapshotService:
             actor['hero_talent_trees'] = hero_talent_trees
             actor['base_damage_basis'] = 'dbc_spell_effect_ap_sp_coefficients_at_100'
             global_effects = classify_global_skill_effects(base_high, base_low, variants)
-            actor['global_skill_effects'] = global_effects
+            global_effects = [effect for effect in global_effects if not any(
+                projection.get('kind') == 'crit_chance' for projection in effect.get('projections') or []
+            )]
+            actor['global_skill_effects'] = [*static_global_effects, *global_effects]
             actor['actions'] = flatten_single_talent_damage_variants(
                 base_high, base_low, variants, global_effects=global_effects,
             )
@@ -4603,6 +4942,13 @@ class SimcSkillDamageSnapshotService:
         """Run one profile in a short-lived process so its raw graph returns to the OS."""
         with tempfile.TemporaryDirectory(prefix='simc-skill-damage-profile-') as workdir:
             output_path = os.path.join(workdir, 'profile.json')
+            catalog_path = Path(workdir) / 'scope.json'
+            catalog_path.write_text(json.dumps({
+                'schema_version': self.EXPORTER_SCHEMA_REVISION,
+                'simc_revision': self.snapshot.simc_revision,
+                'game_build': self.snapshot.game_build,
+                'talents': list(self._global_damage_talent_catalog().values()),
+            }, ensure_ascii=False), encoding='utf-8')
             command = [
                 sys.executable,
                 str(Path(settings.BASE_DIR) / 'manage.py'),
@@ -4610,6 +4956,7 @@ class SimcSkillDamageSnapshotService:
                 '--snapshot-id', str(self.snapshot.pk),
                 '--profile-id', str(profile.pk),
                 '--output', output_path,
+                '--scope-catalog', str(catalog_path),
             ]
             if self.backend and self.backend.pk:
                 command.extend(['--backend-id', str(self.backend.pk)])

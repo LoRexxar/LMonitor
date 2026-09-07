@@ -8381,8 +8381,12 @@ class SimcSkillDamageSnapshotAPIView(View):
                 projected_bytes = written_bytes + len(chunk)
                 if projected_bytes > cls._RESPONSE_SPOOL_MAX_BYTES:
                     raise RuntimeError('技能伤害快照响应超过安全大小上限')
-                filesystem = os.statvfs(tempfile.gettempdir())
-                free_bytes = filesystem.f_bavail * filesystem.f_frsize
+                if hasattr(os, 'statvfs'):
+                    filesystem = os.statvfs(tempfile.gettempdir())
+                    free_bytes = filesystem.f_bavail * filesystem.f_frsize
+                else:
+                    from shutil import disk_usage
+                    free_bytes = disk_usage(tempfile.gettempdir()).free
                 if free_bytes - len(chunk) < cls._RESPONSE_SPOOL_MIN_FREE_BYTES:
                     raise RuntimeError('技能伤害快照响应临时磁盘余量不足')
                 managed_spool.write(chunk)

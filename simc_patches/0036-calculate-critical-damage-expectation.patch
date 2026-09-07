@@ -1,0 +1,227 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -555,6 +555,7 @@
+     double damage_equivalent_count = 1.0;
+     double native_base_damage = 0.0;
+     std::map<int, double> target_hit;
++    std::map<int, double> target_crit, target_expected, target_noncrit_contribution, target_crit_contribution;
+     skill_damage_runtime_layers_t runtime_layers;
+     bool present = false, can_crit = false;
+   } direct_amount, tick_amount;
+@@ -646,6 +647,10 @@
+          changed( a.tick_amount.damage_equivalent_count, b.tick_amount.damage_equivalent_count ) ||
+          target_hit_changed( a.direct_amount.target_hit, b.direct_amount.target_hit ) ||
+          target_hit_changed( a.tick_amount.target_hit, b.tick_amount.target_hit ) ||
++         target_hit_changed( a.direct_amount.target_expected, b.direct_amount.target_expected ) ||
++         target_hit_changed( a.tick_amount.target_expected, b.tick_amount.target_expected ) ||
++         changed( a.direct_amount.crit, b.direct_amount.crit ) ||
++         changed( a.tick_amount.crit, b.tick_amount.crit ) ||
+          ( a.direct && b.direct && a.direct_amount.can_crit != b.direct_amount.can_crit ) ||
+          ( a.periodic && b.periodic && a.tick_amount.can_crit != b.tick_amount.can_crit ) ||
+          ( a.direct && b.direct &&
+@@ -736,35 +741,69 @@
+   action.sim->rng().seed( skill_damage_probe_seed );
+ }
+ 
+-double skill_damage_target_hit( action_t& action, player_t* target, unsigned n_targets,
+-                                unsigned chain_target, bool periodic )
++struct skill_damage_target_amount_t
++{
++  double hit = 0.0, crit = 0.0, noncrit_contribution = 0.0, crit_contribution = 0.0;
++};
++
++skill_damage_target_amount_t skill_damage_target_amount( action_t& action, player_t* target,
++    unsigned n_targets, unsigned chain_target, bool periodic )
+ {
+   const auto amount_type = periodic ? result_amount_type::DMG_OVER_TIME : result_amount_type::DMG_DIRECT;
+-  action_state_t* hit_state = action.get_state();
+-  if ( !hit_state )
+-    throw std::runtime_error( "target scenario state allocation failed" );
+-  hit_state->target = target;
+-  hit_state->n_targets = n_targets;
+-  hit_state->chain_target = chain_target;
+-  hit_state->result = RESULT_HIT;
+-  skill_damage_reset_probe_rng( action );
+-  action.snapshot_state( hit_state, amount_type );
+-  hit_state->attack_power = 100.0;
+-  hit_state->spell_power = 100.0;
+-  skill_damage_reset_probe_rng( action );
+-  const double hit = periodic ? action.calculate_tick_amount( hit_state, 1.0 )
+-                              : action.calculate_direct_amount( hit_state );
+-  action_state_t::release( hit_state );
+-  return hit;
++  action_state_t* state = action.get_state();
++  if ( !state ) throw std::runtime_error( "target scenario state allocation failed" );
++  skill_damage_target_amount_t value;
++  try
++  {
++    state->target = target;
++    state->n_targets = n_targets;
++    state->chain_target = chain_target;
++    state->result = RESULT_HIT;
++    skill_damage_reset_probe_rng( action );
++    action.snapshot_state( state, amount_type );
++    state->attack_power = 100.0;
++    state->spell_power = 100.0;
++    skill_damage_reset_probe_rng( action );
++    value.hit = periodic ? action.calculate_tick_amount( state, 1.0 ) : action.calculate_direct_amount( state );
++    const bool can_crit = periodic ? action.tick_may_crit : action.may_crit;
++    const double chance = can_crit ? std::clamp( state->composite_crit_chance(), 0.0, 1.0 ) : 0.0;
++    value.crit = value.hit;
++    // 复用当前目标快照；只补算暴击结果，不再初始化 actor 或重复展开 buff。
++    if ( can_crit )
++    {
++      state->result = RESULT_CRIT;
++      skill_damage_reset_probe_rng( action );
++      if ( periodic ) value.crit = action.calculate_tick_amount( state, 1.0 );
++      else
++      {
++        action.calculate_direct_amount( state );
++        value.crit = action.calculate_crit_damage_bonus( state );
++      }
++    }
++    value.noncrit_contribution = value.hit * ( 1.0 - chance );
++    value.crit_contribution = value.crit * chance;
++  }
++  catch ( ... ) { action_state_t::release( state ); throw; }
++  action_state_t::release( state );
++  return value;
+ }
+ 
+ void skill_damage_populate_target_scenarios( action_t& action, skill_damage_amount_t& amount )
+ {
+   static constexpr std::array<int, 4> scenario_counts = { 2, 5, 10, 20 };
+-  if ( amount.direct )
+-    amount.direct_amount.target_hit[ 1 ] = amount.direct_amount.hit;
+-  if ( amount.periodic )
+-    amount.tick_amount.target_hit[ 1 ] = amount.tick_amount.hit;
++  const auto store = []( auto& component, int count, const skill_damage_target_amount_t& value ) {
++    component.target_hit[ count ] = value.hit;
++    component.target_crit[ count ] = value.crit;
++    component.target_noncrit_contribution[ count ] = value.noncrit_contribution;
++    component.target_crit_contribution[ count ] = value.crit_contribution;
++    component.target_expected[ count ] = value.noncrit_contribution + value.crit_contribution;
++  };
++  const auto store_single = [&]( auto& component ) {
++    store( component, 1, { component.hit, component.crit,
++        component.hit * ( 1.0 - component.crit_chance ), component.crit * component.crit_chance } );
++  };
++  if ( amount.direct ) store_single( amount.direct_amount );
++  if ( amount.periodic ) store_single( amount.tick_amount );
+   if ( !action.target )
+     throw std::runtime_error( "target scenario action target unavailable" );
+ 
+@@ -785,21 +824,24 @@
+                             : configured_targets > 0
+                                 ? std::min( scenario_count, configured_targets )
+                                 : 1;
+-      double direct_hit = 0.0;
+-      double tick_hit = 0.0;
++      skill_damage_target_amount_t direct, tick;
++      const auto add = []( auto& total, const auto& value ) {
++        total.hit += value.hit;
++        total.crit += value.crit;
++        total.noncrit_contribution += value.noncrit_contribution;
++        total.crit_contribution += value.crit_contribution;
++      };
+       for ( int index = 0; index < hit_targets; ++index )
+       {
+         if ( amount.direct )
+-          direct_hit += skill_damage_target_hit(
+-              action, action.target, as<unsigned>( hit_targets ), as<unsigned>( index ), false );
++          add( direct, skill_damage_target_amount( action, action.target,
++              as<unsigned>( hit_targets ), as<unsigned>( index ), false ) );
+         if ( amount.periodic )
+-          tick_hit += skill_damage_target_hit(
+-              action, action.target, as<unsigned>( hit_targets ), as<unsigned>( index ), true );
+-      }
+-      if ( amount.direct )
+-        amount.direct_amount.target_hit[ scenario_count ] = direct_hit;
+-      if ( amount.periodic )
+-        amount.tick_amount.target_hit[ scenario_count ] = tick_hit;
++          add( tick, skill_damage_target_amount( action, action.target,
++              as<unsigned>( hit_targets ), as<unsigned>( index ), true ) );
++      }
++      if ( amount.direct ) store( amount.direct_amount, scenario_count, direct );
++      if ( amount.periodic ) store( amount.tick_amount, scenario_count, tick );
+     }
+   }
+   catch ( ... )
+@@ -1056,6 +1098,21 @@
+ // Each probe runs on the normally initialized actor. Fatal action bugs are
+ // isolated by the Django exporter runner at actor-process granularity; never
+ // fork from inside SimC.
++void skill_damage_normalize_crit( player_t& player )
++{
++  // 基础暴击固定 20%，保留职业/天赋的暴击修正；装备暴击等级不进入归一化。
++  const double base_crit = player.dbc->all_crit_base( player.type, player.level() );
++  player.current.stats.crit_rating = 0.0;
++  const double old_all_crit = player.get_passive_player_value( base_crit, "all_crit" );
++  const double new_all_crit = player.get_passive_player_value( 0.20, "all_crit" );
++  player.current.attack_crit_chance += new_all_crit - old_all_crit;
++  player.current.spell_crit_chance +=
++      player.get_passive_player_value( new_all_crit, "spell_crit" ) -
++      player.get_passive_player_value( old_all_crit, "spell_crit" );
++  player.invalidate_cache( CACHE_ATTACK_CRIT_CHANCE );
++  player.invalidate_cache( CACHE_SPELL_CRIT_CHANCE );
++}
++
+ skill_damage_amount_t skill_damage_snapshot( action_t& action,
+                                               const std::vector<skill_damage_condition_t>& conditions )
+ {
+@@ -1078,13 +1135,7 @@
+     action.target->resources.current[ RESOURCE_HEALTH ] =
+       action.sim->skill_damage_target_health_percentage;
+   }
+-  // Normalize the actor caches before applying scenario buffs. current.* is
+-  // adjusted by the observed cache delta so class/racial passive crit remains
+-  // represented while the resulting unbuffed cache is exactly 20%.
+-  action.player->current.attack_crit_chance += 0.20 - action.player->cache.attack_crit_chance();
+-  action.player->current.spell_crit_chance += 0.20 - action.player->cache.spell_crit_chance();
+-  action.player->invalidate_cache( CACHE_ATTACK_CRIT_CHANCE );
+-  action.player->invalidate_cache( CACHE_SPELL_CRIT_CHANCE );
++  skill_damage_normalize_crit( *action.player );
+   const double old_mastery_value = action.player->cache.mastery_value();
+   const double old_mastery = action.player->current.mastery;
+   action.player->current.mastery = old_mastery + 1.0;
+@@ -1240,6 +1291,22 @@
+       write_skill_damage_json_number( out, hit );
+     }
+     out << '}';
++    const auto write_targets = [&]( const char* name, const auto& values ) {
++      out << ",\"" << name << "\":{";
++      bool first = true;
++      for ( const auto& [ count, value ] : values )
++      {
++        if ( !first ) out << ',';
++        first = false;
++        out << '\"' << count << "\":";
++        write_skill_damage_json_number( out, value );
++      }
++      out << '}';
++    };
++    write_targets( "target_crit", c.target_crit );
++    write_targets( "target_expected", c.target_expected );
++    write_targets( "target_noncrit_contribution", c.target_noncrit_contribution );
++    write_targets( "target_crit_contribution", c.target_crit_contribution );
+     out << ",\"damage_equivalent_count\":"; write_skill_damage_json_number( out, c.damage_equivalent_count );
+     out << ",\"base_damage_layers\":{\"base_multiplier\":";
+     write_skill_damage_json_number( out, c.base_multiplier );
+@@ -1508,7 +1575,7 @@
+ {
+   std::ofstream out( sim.skill_damage_scope_export_file, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open skill damage scope catalog" );
+-  out << "{\"schema_version\":14,\"simc_revision\":";
++  out << "{\"schema_version\":15,\"simc_revision\":";
+   apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"talents\":[";
+@@ -1556,7 +1623,7 @@
+   const std::string temporary = target + ".tmp." + std::to_string( static_cast<long long>( getpid() ) );
+   std::ofstream out( temporary, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open temporary skill damage export file" );
+-  out << "{\"schema_version\":14,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
++  out << "{\"schema_version\":15,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"normalization_basis\":{\"attack_power\":100,\"spell_power\":100,"
+          "\"crit_percent\":20,\"mastery_percent\":50}";

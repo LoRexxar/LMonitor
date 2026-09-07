@@ -1,0 +1,182 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -17,6 +17,7 @@
+ #include "player/unique_gear.hpp"
+ #include "action/action.hpp"
+ #include "action/action_state.hpp"
++#include "action/parse_effects.hpp"
+ #include "action/dot.hpp"
+ #include "action/residual_action.hpp"
+ #include "buff/buff.hpp"
+@@ -741,6 +742,8 @@
+   action.sim->rng().seed( skill_damage_probe_seed );
+ }
+ 
++std::vector<player_t*> skill_damage_probe_targets;
++
+ struct skill_damage_target_amount_t
+ {
+   double hit = 0.0, crit = 0.0, noncrit_contribution = 0.0, crit_contribution = 0.0;
+@@ -808,22 +811,29 @@
+     throw std::runtime_error( "target scenario action target unavailable" );
+ 
+   const int saved_desired_targets = action.sim->desired_targets;
++  const int saved_active_enemies = action.sim->active_enemies;
+   const auto saved_non_sleeping_targets = action.sim->target_non_sleeping_list.data();
++  std::vector<player_t*> targets = { action.target };
++  for ( player_t* target : skill_damage_probe_targets )
++    if ( target != action.target ) targets.push_back( target );
++  if ( targets.size() < 20 )
++    throw std::runtime_error( "independent target pool unavailable" );
+   try
+   {
+     for ( int scenario_count : scenario_counts )
+     {
+-      // Keep the full target count visible to class/action formulas while using
+-      // action_state_t's native n_targets/chain_target AoE calculation path.
++      // 每个敌人保留独立状态；主目标的减益不能复制到全部副目标。
+       action.sim->desired_targets = scenario_count;
++      action.sim->active_enemies = scenario_count;
+       action.sim->target_non_sleeping_list.assign_without_callbacks(
+-          as<size_t>( scenario_count ), action.target );
++          std::vector<player_t*>( targets.begin(), targets.begin() + scenario_count ) );
++      action.target_cache.is_valid = false;
++      const auto eligible_targets = action.target_list();
++      const int available = static_cast<int>( eligible_targets.size() );
+       const int configured_targets = action.n_targets();
+       const int hit_targets = configured_targets < 0
+-                            ? scenario_count
+-                            : configured_targets > 0
+-                                ? std::min( scenario_count, configured_targets )
+-                                : 1;
++                            ? available
++                            : std::min( available, configured_targets > 0 ? configured_targets : 1 );
+       skill_damage_target_amount_t direct, tick;
+       const auto add = []( auto& total, const auto& value ) {
+         total.hit += value.hit;
+@@ -834,10 +844,10 @@
+       for ( int index = 0; index < hit_targets; ++index )
+       {
+         if ( amount.direct )
+-          add( direct, skill_damage_target_amount( action, action.target,
++          add( direct, skill_damage_target_amount( action, eligible_targets[ index ],
+               as<unsigned>( hit_targets ), as<unsigned>( index ), false ) );
+         if ( amount.periodic )
+-          add( tick, skill_damage_target_amount( action, action.target,
++          add( tick, skill_damage_target_amount( action, eligible_targets[ index ],
+               as<unsigned>( hit_targets ), as<unsigned>( index ), true ) );
+       }
+       if ( amount.direct ) store( amount.direct_amount, scenario_count, direct );
+@@ -847,10 +857,14 @@
+   catch ( ... )
+   {
+     action.sim->desired_targets = saved_desired_targets;
++    action.sim->active_enemies = saved_active_enemies;
++    action.target_cache.is_valid = false;
+     action.sim->target_non_sleeping_list.assign_without_callbacks( saved_non_sleeping_targets );
+     throw;
+   }
+   action.sim->desired_targets = saved_desired_targets;
++    action.sim->active_enemies = saved_active_enemies;
++    action.target_cache.is_valid = false;
+   action.sim->target_non_sleeping_list.assign_without_callbacks( saved_non_sleeping_targets );
+ }
+ 
+@@ -1027,6 +1041,11 @@
+   if ( player.type == WARRIOR &&
+        ( target ? buff->data().id() == 208086
+                 : buff->data().id() == 107574 || buff->data().id() == 184362 ) ) return true;
++  if ( !target )
++    if ( const auto* parsed = dynamic_cast<const parse_player_effects_t*>( &player ) )
++      for ( const auto& effect : parsed->player_multiplier_effects )
++        if ( effect.buff == buff && ( effect.opt_enum & 127U ) == 127U &&
++             ( effect.value > 0.0 || effect.mastery ) ) return true;
+   for ( const auto& effect : buff->data().effects() )
+     if ( skill_damage_global_aura( effect, target ) ) return true;
+   return false;
+@@ -2043,7 +2062,25 @@
+           INIT_ACTOR_CREATE_ACTIONS + 90,
+           &prepare_skill_damage_dbc_actions,
+           "skill_damage_dbc_actions" );
++      // 敌人只初始化一次，随后按 1/2/5/10/20 个真实对象切换探针场景。
++      desired_targets = 20;
+       init();
++      skill_damage_probe_targets.clear();
++      for ( player_t* enemy : target_list )
++        if ( enemy->is_enemy() && !enemy->is_pet() )
++        {
++          skill_damage_probe_targets.push_back( enemy );
++          enemy->resources.base[ RESOURCE_HEALTH ] = 100.0;
++          enemy->resources.max[ RESOURCE_HEALTH ] = 100.0;
++          enemy->resources.current[ RESOURCE_HEALTH ] = skill_damage_target_health_percentage;
++        }
++      if ( skill_damage_probe_targets.size() < 20 )
++        throw std::runtime_error( "unable to initialize independent skill damage targets" );
++      fixed_time = false;
++      desired_targets = 1;
++      active_enemies = 1;
++      target_non_sleeping_list.assign_without_callbacks(
++          std::vector<player_t*>{ skill_damage_probe_targets.front() } );
+       export_skill_damage( *this );
+       return 0;
+     }
+--- a/engine/player/player.cpp
++++ b/engine/player/player.cpp
+@@ -4193,9 +4193,39 @@
+     def.insert( def.begin(), { "use_item,slot=shirt", "" } );
+   }
+ 
++  // 技能伤害目录独立于默认循环；在原生动作初始化阶段创建映射动作。
++  action_priority_list_t* skill_catalog = nullptr;
++  if ( is_player() && !is_enemy() && !is_pet() && !sim->skill_damage_export_file.empty() )
++  {
++    const auto class_id = static_cast<unsigned>( util::class_id( type ) );
++    const auto spec_id = static_cast<unsigned>( specialization() );
++    std::set<unsigned> spell_ids;
++    for ( const auto& entry : active_class_spell_t::data( is_ptr() ) )
++      if ( entry.class_id == class_id && ( entry.spec_id == 0 || entry.spec_id == spec_id ) )
++        spell_ids.insert( entry.spell_id );
++    for ( const auto& entry : specialization_spell_entry_t::data( is_ptr() ) )
++      if ( entry.class_id == class_id && entry.specialization_id == spec_id )
++        spell_ids.insert( entry.spell_id );
++    for ( const auto& selected : player_traits )
++      if ( std::get<2>( selected ) > 0 )
++        if ( const auto* trait = trait_data_t::find( std::get<1>( selected ), is_ptr() ) )
++          if ( trait->id_spell ) spell_ids.insert( trait->id_spell );
++    std::set<std::string> tokens;
++    for ( unsigned spell_id : spell_ids )
++      for ( const auto& token : action_names_from_spell_id( spell_id ) )
++        if ( token != "dismiss_pet" ) tokens.insert( token );
++    skill_catalog = get_action_priority_list( "skill_damage_catalog" );
++    for ( const auto& token : tokens )
++      skill_catalog->add_action( token, "技能伤害 DBC 目录" );
++  }
++
+   int j = 0;
+ 
+   auto apls = sorted_action_priority_lists( this );
++  if ( skill_catalog )
++    std::stable_sort( apls.begin(), apls.end(), [skill_catalog]( const auto* a, const auto* b ) {
++      return a != skill_catalog && b == skill_catalog;
++    } );
+   for ( auto apl : apls )
+   {
+     assert( apl->action_list_str.empty() || apl->action_list.empty() );
+@@ -4219,6 +4249,8 @@
+       if ( cut_pt != std::string::npos )
+         action_options = action_str.substr( cut_pt + 1 );
+ 
++      // 保留原生初始化依赖；目录只补全未被循环创建的动作。
++      if ( apl == skill_catalog && find_action( util::tokenize_fn( action_name ) ) ) continue;
+       action_t* a = nullptr;
+ 
+       cut_pt = action_name.find( ':' );
+@@ -4244,6 +4276,8 @@
+ 
+       if ( !a )
+       {
++        // DBC 有映射但模块未实现时，目录导出会保留未解析原因。
++        if ( skill_catalog ) continue;
+         throw sc_initialization_error( fmt::format( "Unable to create action '{}'.", action_str ) );
+       }
+ 

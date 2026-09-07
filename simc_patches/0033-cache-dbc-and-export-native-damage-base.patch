@@ -1,0 +1,99 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -553,6 +553,7 @@
+     double crit_chance_uncapped = 0.0, expected = 0.0;
+     double base_multiplier = 1.0, base_component_multiplier = 1.0;
+     double damage_equivalent_count = 1.0;
++    double native_base_damage = 0.0;
+     std::map<int, double> target_hit;
+     skill_damage_runtime_layers_t runtime_layers;
+     bool present = false, can_crit = false;
+@@ -575,8 +576,14 @@
+   } direct, tick;
+ };
+ 
++std::map<const spell_data_t*, skill_damage_dbc_scaling_t> skill_damage_scaling_cache;
++std::map<std::pair<const action_t*, bool>,
++         std::vector<skill_damage_runtime_layers_t::specialization_passive_effect_t>> skill_damage_passive_cache;
++
+ skill_damage_dbc_scaling_t skill_damage_dbc_scaling( const action_t& action )
+ {
++  const auto cached = skill_damage_scaling_cache.find( &action.data() );
++  if ( cached != skill_damage_scaling_cache.end() ) return cached->second;
+   skill_damage_dbc_scaling_t scaling;
+   for ( const auto& effect : action.data().effects() )
+   {
+@@ -590,6 +597,7 @@
+     component->spell_power_coefficient += effect.sp_coeff();
+     component->effect_indexes.push_back( effect.index() );
+   }
++  skill_damage_scaling_cache.emplace( &action.data(), scaling );
+   return scaling;
+ }
+ 
+@@ -655,6 +663,9 @@
+ std::vector<skill_damage_runtime_layers_t::specialization_passive_effect_t>
+ skill_damage_specialization_passive_effects( const action_t& action, bool periodic )
+ {
++  const auto key = std::make_pair( &action, periodic );
++  const auto cached = skill_damage_passive_cache.find( key );
++  if ( cached != skill_damage_passive_cache.end() ) return cached->second;
+   std::vector<skill_damage_runtime_layers_t::specialization_passive_effect_t> result;
+   if ( !action.player || !action.data().ok() )
+     return result;
+@@ -683,6 +694,7 @@
+       source->id(), effect->index(), source->name_cstr(), factor
+     } );
+   }
++  skill_damage_passive_cache.emplace( key, result );
+   return result;
+ }
+ 
+@@ -830,6 +842,16 @@
+       state->spell_power = 100.0;
+       skill_damage_reset_probe_rng( action );
+       amount.direct_amount.hit = action.calculate_direct_amount( state );
++      // 独立重建原生基础项；不能从最终伤害除以乘区反推。
++      skill_damage_reset_probe_rng( action );
++      double native_base = action.sim->averaged_range( action.base_da_min( state ), action.base_da_max( state ) );
++      if ( action.round_base_dmg ) native_base = std::floor( native_base + 0.5 );
++      native_base += action.spell_direct_power_coefficient( state ) * state->composite_spell_power();
++      native_base += action.attack_direct_power_coefficient( state ) * state->composite_attack_power();
++      const double hand_factor = action.weapon && action.weapon->slot == SLOT_OFF_HAND ? 0.5 : 1.0;
++      native_base *= hand_factor;
++      native_base += action.bonus_da( state ) * ( action.special ? 1.0 : hand_factor );
++      amount.direct_amount.native_base_damage = native_base;
+       skill_damage_reset_probe_rng( action );
+       amount.direct_amount.crit_chance_uncapped = action.may_crit ? state->composite_crit_chance() : 0.0;
+       amount.direct_amount.crit_chance = std::clamp( amount.direct_amount.crit_chance_uncapped, 0.0, 1.0 );
+@@ -893,6 +915,12 @@
+       state->spell_power = 100.0;
+       skill_damage_reset_probe_rng( action );
+       amount.tick_amount.hit = action.calculate_tick_amount( state, 1.0 );
++      skill_damage_reset_probe_rng( action );
++      amount.tick_amount.native_base_damage =
++          ( std::round( action.base_ta( state ) * 1000.0 ) * 0.001 + action.bonus_ta( state ) +
++            action.spell_tick_power_coefficient( state ) * state->composite_spell_power() +
++            action.attack_tick_power_coefficient( state ) * state->composite_attack_power() ) *
++          state->composite_rolling_ta_multiplier();
+       skill_damage_reset_probe_rng( action );
+       amount.tick_amount.crit_chance_uncapped = action.tick_may_crit ? state->composite_crit_chance() : 0.0;
+       amount.tick_amount.crit_chance = std::clamp( amount.tick_amount.crit_chance_uncapped, 0.0, 1.0 );
+@@ -1123,6 +1151,7 @@
+     out << ",\"component_multiplier\":";
+     write_skill_damage_json_number( out, c.base_component_multiplier );
+     out << '}';
++    out << ",\"native_base_damage\":"; write_skill_damage_json_number( out, c.native_base_damage );
+     out << ",\"runtime_layers\":{";
+     out << ( periodic ? "\"ta_multiplier\":" : "\"da_multiplier\":" );
+     write_skill_damage_json_number( out, c.runtime_layers.action_multiplier );
+@@ -1348,6 +1377,9 @@
+ 
+ void export_skill_damage( sim_t& sim )
+ {
++  // 仅缓存本次导出的静态 DBC 事实，不跨版本或跨运行复用指针。
++  skill_damage_scaling_cache.clear();
++  skill_damage_passive_cache.clear();
+   const bool valid_revision = sim.skill_damage_revision.size() == 40 &&
+     std::all_of( sim.skill_damage_revision.begin(), sim.skill_damage_revision.end(),
+                  []( unsigned char c ) { return std::isxdigit( c ); } );
