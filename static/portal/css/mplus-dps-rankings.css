@@ -70,6 +70,61 @@
 
 .mplus-rank-panel { padding: 18px; }
 
+.mplus-rank-panel [hidden] { display: none; }
+.mplus-rank-source-tabs {
+    display: flex;
+    gap: 24px;
+    border-bottom: 1px solid var(--portal-border);
+    margin: -2px 0 18px;
+}
+.mplus-rank-source-tab {
+    appearance: none;
+    background: none;
+    border: 0;
+    border-bottom: 3px solid transparent;
+    color: var(--portal-text-muted);
+    cursor: pointer;
+    font-size: 18px;
+    font-weight: 750;
+    padding: 12px 2px;
+}
+.mplus-rank-source-tab.active {
+    border-bottom-color: var(--portal-accent-primary);
+    color: var(--portal-text);
+}
+.mplus-rank-source-tab:hover { color: var(--portal-accent-primary); }
+.mplus-rank-filters { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
+.mplus-rank-filter { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--portal-text-muted); font-size: 12px; }
+.mplus-rank-filter select {
+    background: var(--portal-surface-raised);
+    border: 1px solid var(--portal-border);
+    border-radius: 6px;
+    color: var(--portal-text);
+    font: inherit;
+    font-size: 13px;
+    min-width: 0;
+    max-width: 100%;
+    padding: 8px 10px;
+}
+.mplus-rank-method a { color: var(--portal-accent-primary); text-decoration: underline; text-underline-offset: 3px; }
+.mplus-rank-source-note { margin-top: 4px; }
+.mplus-rank-explanation {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 8px 14px;
+    font-size: 13px;
+    line-height: 1.7;
+    margin: 4px 0 10px;
+}
+.mplus-rank-explanation dt { color: var(--portal-text); font-weight: 700; }
+.mplus-rank-explanation dd { margin: 0; }
+.mplus-rank-explanation-bands { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 5px; font-variant-numeric: tabular-nums; }
+.mplus-rank-explanation-bands span { white-space: nowrap; }
+.mplus-rank-retry { color: var(--portal-accent-primary); margin-left: 12px; text-decoration: underline; cursor: pointer; }
+.mplus-rank-source-tab:focus-visible,
+.mplus-rank-filter select:focus-visible,
+.mplus-rank-retry:focus-visible { outline: 2px solid var(--portal-accent-primary); outline-offset: 3px; }
+
 .mplus-rank-tabs {
     display: flex;
     gap: 8px;
@@ -382,6 +437,33 @@
 }
 
 .mplus-rank-row:nth-child(odd) { background: #f1f5f9; }
+@media (min-width: 601px) {
+    .mplus-rank-list-mythicstats .mplus-rank-header,
+    .mplus-rank-list-mythicstats .mplus-rank-row {
+        column-gap: 6px;
+        grid-template-columns: 22px 124px 42px 48px minmax(0, 1fr);
+    }
+    .mplus-rank-list-mythicstats .mplus-rank-metrics-header,
+    .mplus-rank-list-mythicstats .mplus-rank-metrics {
+        grid-template-columns: 28px 40px 44px;
+    }
+}
+.mplus-rank-extra-header { text-align: right; }
+.mplus-rank-change.change-up { --rank-change-color: #15803d; }
+.mplus-rank-change.change-down { --rank-change-color: #b91c1c; }
+.mplus-rank-change.change-same { --rank-change-color: #a16207; }
+.mplus-rank-metric.mplus-rank-extra.mplus-rank-change strong {
+    color: var(--rank-change-color);
+    font-weight: 750;
+}
+html.portal-theme-dark .mplus-rank-change.change-up { --rank-change-color: #4ade80; }
+html.portal-theme-dark .mplus-rank-change.change-down { --rank-change-color: #f87171; }
+html.portal-theme-dark .mplus-rank-change.change-same { --rank-change-color: #facc15; }
+.mplus-rank-metric.mplus-rank-extra strong {
+    color: var(--portal-text);
+    font-size: 13px;
+    font-weight: 650;
+}
 .mplus-rank-row.mplus-rank-tier-break {
     border-top: 1px solid var(--tier-accent, #64748b);
     margin-top: 6px;
@@ -588,6 +670,7 @@ html.portal-theme-dark .mplus-rank-track {
     background: rgba(148, 163, 184, .16);
 }
 html.portal-theme-dark .mplus-rank-metric.primary strong { color: #f8fafc; }
+html.portal-theme-dark .mplus-rank-extra strong { color: var(--portal-text); }
 .mplus-rank-plot:focus-visible,
 .mplus-rank-tab:focus-visible,
 .mplus-rank-tier-card:focus-visible { outline: 2px solid var(--portal-accent-primary); outline-offset: 3px; }
@@ -601,6 +684,12 @@ html.portal-theme-dark .mplus-rank-metric.primary strong { color: #f8fafc; }
 }
 
 @media (max-width: 600px) {
+    .mplus-rank-explanation { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+    .mplus-rank-explanation dd { margin-bottom: 8px; }
+    .mplus-rank-source-tabs { gap: 16px; }
+    .mplus-rank-source-tab { font-size: 15px; }
+    .mplus-rank-filter { flex: 1 1 100%; }
+    .mplus-rank-filter select { flex: 1; }
     .mplus-rank-header { display: none; }
     .mplus-rank-row {
         gap: 6px 8px;
@@ -616,6 +705,15 @@ html.portal-theme-dark .mplus-rank-metric.primary strong { color: #f8fafc; }
     .mplus-rank-metric span { color: var(--portal-text-muted); display: inline; font-size: 10px; margin-right: 4px; }
     .mplus-rank-metric strong { display: inline; }
     .mplus-rank-plot { grid-column: 2; grid-row: 1; min-height: 28px; }
+    .mplus-rank-list-mythicstats .mplus-rank-row {
+        grid-template-columns: 22px minmax(0, 1fr) minmax(0, 1fr);
+    }
+    .mplus-rank-list-mythicstats .mplus-rank-plot,
+    .mplus-rank-list-mythicstats .mplus-rank-metrics { grid-column: 2 / -1; }
+    .mplus-rank-extra { grid-row: 3; padding-block: 4px; }
+    .mplus-rank-runs { grid-column: 2; }
+    .mplus-rank-change { grid-column: 3; }
+    .mplus-rank-extra span { font-size: 13px; }
 }
 
 @media (max-width: 600px) {

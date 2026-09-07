@@ -6,7 +6,27 @@ from django.core.cache import cache
 from django.utils import timezone
 
 from botend.models import PortalMythicstatsDpsRow
+from botend.constants.wow import CLASS_CN, CLASS_COLOR, SPEC_CN, SPEC_ICON
 from utils.log import logger
+
+
+def mythicstats_spec_identity(spec_slug):
+    """将来源专精标识映射到站内中文名、职业色和高清图标。"""
+    slug = str(spec_slug or '').strip().lower()
+    for (class_name, spec_name), icon_url in SPEC_ICON.items():
+        slug_name = '-'.join(
+            re.sub(r'(?<!^)(?=[A-Z])', '-', part).lower()
+            for part in (spec_name, class_name)
+        )
+        if slug == slug_name:
+            return {
+                'class_name': class_name,
+                'class_name_cn': CLASS_CN.get(class_name, class_name),
+                'spec_name_cn': SPEC_CN.get(spec_name, spec_name),
+                'class_color': CLASS_COLOR.get(class_name, '#64748b'),
+                'icon_url': icon_url.replace('/small/', '/large/'),
+            }
+    return {}
 
 
 def _parse_season(value):

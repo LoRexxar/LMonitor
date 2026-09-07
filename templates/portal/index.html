@@ -8,7 +8,7 @@
     {% load static %}
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_unified_navigation"></script>
-    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260903_external_menu_v2">
+    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260907_mythicstats_moved">
     <link rel="stylesheet" href="{% static 'portal/css/simc-benchmarks.css' %}?v=20260903_gear_rank">
 </head>
 <body class="portal-bg font-sans">
@@ -191,15 +191,6 @@
             <div id="peak-spec-rankings" class="mt-3 text-sm"></div>
         </div>
 
-        <div id="section-mythicstats" class="snap-section mt-6 portal-card portal-card-accent portal-accent-violet shadow-sm border border-slate-200/70 p-4">
-            <div class="flex items-center gap-2 font-semibold text-slate-900">
-                <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chart"></use></svg>
-                <span>Mythicstats DPS 榜单</span>
-            </div>
-            <div id="mythicstats-controls" class="mt-3 flex flex-wrap items-center gap-2"></div>
-            <div id="mythicstats-table" class="mt-3 text-sm"></div>
-        </div>
-
         <div id="section-tools" class="snap-section mt-6 portal-card portal-card-accent portal-accent-rose shadow-sm border border-slate-200/70 p-4">
             <div class="portal-tools-heading">
                 <div>
@@ -225,6 +216,6 @@
 
     <nav id="snap-dots" class="snap-dots" aria-label="首页板块导航"></nav>
 
-    <script src="{% static 'portal/js/main.js' %}?v=20260903_today_focus"></script>
+    <script src="{% static 'portal/js/main.js' %}?v=20260907_mythicstats_moved"></script>
 </body>
 </html>

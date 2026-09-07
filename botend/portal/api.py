@@ -20,6 +20,7 @@ from botend.wow_i18n import cn_dungeon_from_slug
 from botend.constants.wow import canonical_class_spec
 from botend.services.mplus_dps_rankings_service import get_current_mplus_dps_rankings_payload
 from botend.portal.mythicstats import (
+    mythicstats_spec_identity,
     fetch_current_season_slug,
     fetch_mythicstats_dps,
     get_mythicstats_source_cache,
@@ -1169,6 +1170,8 @@ class PortalMythicstatsDpsAPIView(View):
                 "spec_slug": r.spec_slug,
                 "spec_url": spec_url,
                 "week": r.week,
+                "updated_at": _fmt_dt(r.updated_at),
+                **mythicstats_spec_identity(r.spec_slug),
             }
 
         roles = {"damage": [], "tank": [], "healer": []}

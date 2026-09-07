@@ -9,7 +9,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_unified_navigation"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260903_external_menu_v2">
-    <link rel="stylesheet" href="{% static 'portal/css/mplus-dps-rankings.css' %}?v=20260907_13">
+    <link rel="stylesheet" href="{% static 'portal/css/mplus-dps-rankings.css' %}?v=20260907_18">
 </head>
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
@@ -17,9 +17,9 @@
     <main class="mplus-rank-shell">
         <section class="portal-card mplus-rank-hero">
             <div>
-                <div class="mplus-rank-eyebrow">MYTHIC+ · WCL 实战数据</div>
+                <div class="mplus-rank-eyebrow">MYTHIC+ · DPS 数据</div>
                 <h1>大秘境 DPS 榜单</h1>
-                <p>按本站收录的全职业大秘境伤害记录统计；支持 8 个副本加权总计与单副本切换。</p>
+                <p>查看本站与 Mythicstats 的大秘境 DPS 统计，按数据来源分别比较。</p>
             </div>
             <div class="mplus-rank-updated">
                 <span>数据更新时间</span>
@@ -28,6 +28,12 @@
         </section>
 
         <section class="portal-card mplus-rank-panel">
+            <div class="mplus-rank-source-tabs" role="tablist" aria-label="数据来源">
+                <button type="button" id="mplus-source-local" class="mplus-rank-source-tab active" role="tab" aria-selected="true" aria-controls="mplus-rank-content" data-source="local">本站统计数据</button>
+                <button type="button" id="mplus-source-mythicstats" class="mplus-rank-source-tab" role="tab" aria-selected="false" aria-controls="mplus-rank-content" data-source="mythicstats" tabindex="-1">Mythicstats统计数据</button>
+            </div>
+            <div id="mplus-rank-content" role="tabpanel" aria-labelledby="mplus-source-local">
+            <div id="mplus-mythicstats-controls" class="mplus-rank-filters" hidden></div>
             <div class="mplus-rank-tabs" id="mplus-rank-tabs" role="tablist" aria-label="统计范围"></div>
             <div class="mplus-rank-method" id="mplus-rank-method">
                 总计要求专精覆盖当前赛季全部 8 个副本；评级按当前范围榜首平均 DPS 每 5% 划分一档。
@@ -44,9 +50,10 @@
             </section>
             <div id="mplus-rank-status" class="mplus-rank-status">正在加载排名…</div>
             <div id="mplus-rank-list" class="mplus-rank-list" hidden></div>
+            </div>
         </section>
     </main>
 
-    <script src="{% static 'portal/js/mplus-dps-rankings.js' %}?v=20260907_13"></script>
+    <script src="{% static 'portal/js/mplus-dps-rankings.js' %}?v=20260907_18"></script>
 </body>
 </html>
