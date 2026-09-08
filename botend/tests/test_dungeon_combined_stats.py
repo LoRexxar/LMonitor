@@ -92,7 +92,10 @@ class DungeonCombinedStatsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         soup = BeautifulSoup(response.content, 'html.parser')
         self.assertIn('全部副本汇总', soup.get_text())
-        self.assertIn('实际样本 1 / 目标 800', soup.get_text())
+        self.assertNotIn('实际样本', soup.get_text())
+        self.assertNotIn('各副本沿用单本筛选规则', soup.get_text())
+        self.assertNotIn('去重后贡献', soup.get_text())
+        self.assertIn('平均 DPS', soup.get_text())
         nav = soup.select_one('nav.spec-overview-links')
         self.assertEqual([a.get_text() for a in nav.select('a')],
                          ['人物榜', '大秘境详细统计', '团本详细统计'])

@@ -23,15 +23,7 @@
     <!-- 单本与汇总复用同一详情表 -->
     <div class="detail-section">
         <h2>{{ dungeon_detail.dungeon_name }}</h2>
-        {% if dungeon_detail.dungeon_id == 'all' %}
-        <p class="text-muted">实际样本 {{ dungeon_detail.sample_size }} / 目标 {{ dungeon_detail.target_sample_size }} 份日志；缺少 {{ dungeon_detail.missing_sample_size }} 份。</p>
-        <p class="text-muted">各副本沿用单本筛选规则，最多 100 份；合并原始日志重算，不平均副本百分比。同一角色在不同日志可重复计入。</p>
-        <ul>
-            {% for item in dungeon_detail.dungeon_samples %}
-            <li>{{ item.dungeon_name }}：{{ item.sample_size }} / {{ item.target_sample_size }}，去重后贡献 {{ item.contributed_sample_size }} 份</li>
-            {% endfor %}
-        </ul>
-        {% else %}
+        {% if dungeon_detail.dungeon_id != 'all' %}
         <p class="text-muted">实际样本 {{ dungeon_detail.sample_size }} / 目标 100 份日志</p>
         {% endif %}
         <details class="text-muted"><summary>字段来源与统计口径</summary>
