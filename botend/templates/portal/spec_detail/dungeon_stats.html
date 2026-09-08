@@ -365,6 +365,7 @@
         </div>
         {% endif %}
 
+        {% if selected_dungeon_id != 'all' %}
         <div class="section-block talent-build-section">
             <h4>天赋字符串使用率</h4>
             <div class="popularity-section-note">按解码后的节点、精确点数和二选一选项归类；语义一致的不同原始字符串会合并，并展示相对基准的完整天赋差异。</div>
@@ -462,6 +463,8 @@
             <div class="aggregation-pending">⏳ 数据等待聚合</div>
             {% endif %}
         </div>
+
+        {% endif %}
 
         <!-- 装备热门度 -->
         <div class="section-block popularity-section">
@@ -2104,6 +2107,7 @@ a.enchant-name:hover { color: #2563eb; }
     });
 
 
+    {% if selected_dungeon_id != 'all' %}
     /* ===== Talent Build Copy ===== */
     function fallbackCopyText(text) {
         var textarea = document.createElement('textarea');
@@ -2151,6 +2155,8 @@ a.enchant-name:hover { color: #2563eb; }
             }
         });
     });
+
+    {% endif %}
 
     function showOptionTooltip(name, desc, anchor) {
         hideOptionTooltip();

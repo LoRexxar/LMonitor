@@ -438,6 +438,7 @@ class SpecStatsService:
                              'target_sample_size': 100})
         stats = SpecStatsService._compute_dungeon_records(
             records, season.id, 'all', '全部副本汇总', class_name, spec_name, full=True,
+            include_talent_build_popularity=False,
         )
         target = len(encounters) * 100
         stats.update(target_sample_size=target, missing_sample_size=max(0, target - len(records)),
@@ -446,7 +447,7 @@ class SpecStatsService:
 
     @staticmethod
     def _compute_dungeon_records(selected_records, season_id, dungeon_id, dungeon_name,
-                                 class_name, spec_name, full=False):
+                                 class_name, spec_name, full=False, *, include_talent_build_popularity=True):
         """Shared single/combined detail statistics over actual selected records."""
         stats = {
             'dungeon_id': dungeon_id,
@@ -456,7 +457,8 @@ class SpecStatsService:
             'field_sources': {
                 'performance': 'Warcraft Logs 原始日志',
                 'talent_usage': 'Warcraft Logs 日志天赋（仅有效天赋样本）',
-                'talent_build_popularity': '天赋构筑：同赛季同专精角色资料导入码优先，缺失时使用 WCL 导入码；不保证为日志时点构筑',
+                **({'talent_build_popularity': '天赋构筑：同赛季同专精角色资料导入码优先，缺失时使用 WCL 导入码；不保证为日志时点构筑'}
+                   if include_talent_build_popularity else {}),
                 'gear': '同赛季同专精 Raider.IO 角色装备优先，缺失时使用 WCL 装备',
                 'secondary_stats': '同赛季同专精 Battle.net 角色属性，非日志时点属性',
                 'race': '同赛季同专精角色资料',
@@ -558,19 +560,20 @@ class SpecStatsService:
             top_n=talent_limit,
             snapshot=usage_snapshot,
         )
-        talent_build_records = _merge_player_profile_fields(
-            records,
-            season_id,
-            class_name,
-            spec_name,
-            fields=('talent_build_code',),
-        )
-        stats['talent_build_popularity'] = _compute_talent_build_popularity(
-            talent_build_records,
-            class_name,
-            spec_name,
-            top_n=20 if full else 5,
-        )
+        if include_talent_build_popularity:
+            talent_build_records = _merge_player_profile_fields(
+                records,
+                season_id,
+                class_name,
+                spec_name,
+                fields=('talent_build_code',),
+            )
+            stats['talent_build_popularity'] = _compute_talent_build_popularity(
+                talent_build_records,
+                class_name,
+                spec_name,
+                top_n=20 if full else 5,
+            )
 
         # 装备/宝石/附魔使用率：按当前详情页 ranking 样本统计（100 人里几个人使用）。
         # gear_detail_records 优先用人物榜 Raider.IO gear 回填，补齐 slot/gems_detail/enchants_detail；长度不变，分母仍是 ranking 样本数。

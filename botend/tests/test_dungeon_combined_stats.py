@@ -1,4 +1,7 @@
+from unittest.mock import patch
+
 from bs4 import BeautifulSoup
+from botend.services import spec_stats_service as stats_module
 from django.test import TestCase, override_settings
 from botend.models import SeasonMeta, SpecDungeonRanking, PlayerSpecTopPlayer
 from botend.services.spec_stats_service import SpecStatsService
@@ -53,9 +56,45 @@ class DungeonCombinedStatsTests(TestCase):
         self.assertEqual(len(result['dungeon_samples']), 8)
         self.assertEqual(result['dungeon_samples'][-1]['sample_size'], 0)
         self.assertEqual(result['source'], 'Warcraft Logs')
-        for key in ('talent_usage', 'talent_popularity_tree', 'talent_build_popularity',
+        self.assertNotIn('talent_build_popularity', result)
+        self.assertNotIn('talent_build_popularity', result['field_sources'])
+        for key in ('talent_usage', 'talent_popularity_tree',
                     'gear_popularity', 'gem_popularity', 'enchant_popularity', 'secondary_stats', 'race_distribution', 'top5'):
             self.assertIn(key, result)
+
+    def test_summary_skips_build_computation_and_enrichment_only(self):
+        self.row(gear_json=[{'id': 123, 'slot': 'head'}])
+        with patch.object(stats_module, '_compute_talent_build_popularity',
+                          wraps=stats_module._compute_talent_build_popularity) as builds, \
+             patch.object(stats_module, '_merge_player_profile_fields',
+                          wraps=stats_module._merge_player_profile_fields) as enrichment:
+            summary = SpecStatsService.get_dungeon_summary('Warrior', 'Arms', self.season.id)
+            builds.assert_not_called()
+            self.assertEqual([call.kwargs['fields'] for call in enrichment.call_args_list],
+                             [('stats_json', 'race')])
+            enrichment.reset_mock()
+            single = SpecStatsService.get_dungeon_detail(1, 'Warrior', 'Arms', self.season.id)
+            builds.assert_called_once()
+            self.assertIn(('talent_build_code',),
+                          [call.kwargs['fields'] for call in enrichment.call_args_list])
+        self.assertIn('talent_build_popularity', single)
+        self.assertIn('talent_build_popularity', single['field_sources'])
+        self.assertNotIn('talent_build_popularity', summary)
+        self.assertNotIn('talent_build_popularity', summary['field_sources'])
+        # Same real cohort: every unrelated statistic and source must be identical.
+        excluded = {'dungeon_id', 'dungeon_name', 'talent_build_popularity', 'field_sources'}
+        for key, value in single.items():
+            if key not in excluded:
+                self.assertEqual(summary[key], value, key)
+        self.assertEqual(summary['field_sources'], {
+            key: value for key, value in single['field_sources'].items()
+            if key != 'talent_build_popularity'
+        })
+
+    def test_empty_summary_omits_build_source(self):
+        result = SpecStatsService.get_dungeon_summary('Warrior', 'Arms', self.season.id)
+        self.assertNotIn('talent_build_popularity', result)
+        self.assertNotIn('talent_build_popularity', result['field_sources'])
 
     def test_each_dungeon_keeps_100_and_same_player_in_different_logs_counts(self):
         for dungeon in range(1, 9):
@@ -96,6 +135,10 @@ class DungeonCombinedStatsTests(TestCase):
         self.assertNotIn('各副本沿用单本筛选规则', soup.get_text())
         self.assertNotIn('去重后贡献', soup.get_text())
         self.assertIn('平均 DPS', soup.get_text())
+        self.assertNotIn('天赋字符串使用率', soup.get_text())
+        self.assertIsNone(soup.select_one('.talent-build-section'))
+        self.assertNotContains(response, "querySelectorAll('.talent-build-copy[data-build-code]')")
+        self.assertContains(response, 'function scaleTalentStage()')
         nav = soup.select_one('nav.spec-overview-links')
         self.assertEqual([a.get_text() for a in nav.select('a')],
                          ['人物榜', '大秘境详细统计', '团本详细统计'])
@@ -107,4 +150,7 @@ class DungeonCombinedStatsTests(TestCase):
             single = self.client.get(f'/portal/spec/Warrior/Arms/dungeons/?dungeon_id={i}')
             self.assertEqual(single.status_code, 200)
             self.assertEqual(single.context['dungeon_detail']['dungeon_id'], i)
+            if i == 1:
+                self.assertContains(single, '天赋字符串使用率')
+                self.assertContains(single, "querySelectorAll('.talent-build-copy[data-build-code]')")
         self.assertEqual(self.client.get('/portal/spec/Warrior/Arms/dungeons/?dungeon_id=bad').status_code, 404)
