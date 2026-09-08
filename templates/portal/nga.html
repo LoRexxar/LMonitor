@@ -15,20 +15,7 @@
     <div><label for="nga-sort">排序</label><select id="nga-sort" name="sort"><option value="newest"{% if sort == 'newest' %} selected{% endif %}>最新记录</option><option value="replies"{% if sort == 'replies' %} selected{% endif %}>回复最多</option></select></div>
     <button type="submit">筛选</button><a href="{% url 'portal_nga' %}">重置</a>
 </form>
-<p id="nga-total" class="nga-meta">共 {{ page.paginator.count }} 篇 · 第 {{ page.number }} / {{ page.paginator.num_pages }} 页</p>
-<section id="nga-post-list" aria-label="NGA 帖子列表">
-    {% for item in page %}
-    <article class="nga-card">
-        <div class="nga-meta"><span class="nga-badge">{{ item.board_label }}</span> · {{ item.author_label }} · 记录于 {{ item.publish_time|date:'Y-m-d H:i'|default:'时间未记录' }} · {% if item.nga_replies_updated_at %}<strong>{{ item.reply_count }} 回复</strong> <span>更新于 {{ item.nga_replies_updated_at|date:'m-d H:i' }}</span>{% else %}回复数未核验{% endif %}</div>
-        <h2><a class="nga-post-link" href="{% url 'portal_nga_detail' item.id %}">{{ item.title|default:'未记录标题' }}</a></h2>
-        <p class="nga-summary">{{ item.summary|default:'暂无已采集摘要，进入详情查看正文采集状态。' }}</p>
-        <a class="nga-read" href="{% url 'portal_nga_detail' item.id %}">站内阅读 →</a>
-    </article>
-    {% empty %}<p id="nga-empty" class="nga-card">没有匹配的帖子。请更换关键词或重置筛选。</p>{% endfor %}
-</section>
-<nav id="nga-pagination" class="nga-pagination" aria-label="帖子分页">
-    {% if previous_url %}<a id="nga-previous" href="{{ previous_url }}">← 上一页</a>{% endif %}
-    <span>第 {{ page.number }} / {{ page.paginator.num_pages }} 页</span>
-    {% if next_url %}<a id="nga-next" href="{{ next_url }}">下一页 →</a>{% endif %}
-</nav>
+{% include 'portal/_nga_batch.html' %}
+<p id="nga-batch-status" class="nga-meta" role="status" aria-live="polite"></p>
+{% load static %}<script defer src="{% static 'portal/js/nga-browse.js' %}?v=20260908_batches"></script>
 {% endblock %}

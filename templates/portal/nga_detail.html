@@ -1,7 +1,7 @@
 {% extends 'portal/nga_base.html' %}
 {% block title %}{{ post.title|default:'NGA 主帖' }}{% endblock %}
 {% block content %}
-<nav class="nga-heading"><a id="nga-back" href="{% url 'portal_nga' %}">← 全部 NGA 帖子</a>{% if source_url %}<a id="nga-source-link" href="{{ source_url }}" target="_blank" rel="nofollow noopener noreferrer">NGA 原帖 ↗</a>{% endif %}</nav>
+<nav class="nga-heading"><a id="nga-back" href="{{ list_url }}">← 返回帖子列表</a>{% if source_url %}<a id="nga-source-link" href="{{ source_url }}" target="_blank" rel="nofollow noopener noreferrer">NGA 原帖 ↗</a>{% endif %}</nav>
 <article class="nga-card nga-detail">
     <p class="nga-kicker">NGA · {{ board_label }}</p>
     <h1>{{ post.title|default:'未记录标题' }}</h1>

@@ -27,7 +27,7 @@ class PortalNgaTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context['page'].paginator.count, 26)
         self.assertEqual(len(response.context['page'].object_list), 20)
-        self.assertContains(response, 'id="nga-next"')
+        self.assertContains(response, 'id="nga-swap"')
         # The SQL may inspect content for search/substring, but never transfers whole bodies.
         row_sql = [q['sql'] for q in queries if 'LIMIT 20' in q['sql']]
         self.assertTrue(row_sql)
@@ -35,9 +35,10 @@ class PortalNgaTests(TestCase):
         self.assertNotIn('"content"', row_sql[0].split('SUBSTR', 1)[0])
         self.assertNotIn('"content_blocks"', row_sql[0])
         response = self.client.get('/portal/nga/', {'q': '历史帖', 'sort': 'replies'})
-        next_url = BeautifulSoup(response.content, 'html.parser').select_one('#nga-next')['href']
-        self.assertIn('sort=replies', next_url)
-        second = self.client.get('/portal/nga/' + next_url)
+        form = BeautifulSoup(response.content, 'html.parser').select_one('#nga-swap-form')
+        params = {node['name']: node.get('value', '') for node in form.select('input[name]')}
+        self.assertEqual(params['sort'], 'replies')
+        second = self.client.get('/portal/nga/', params)
         self.assertEqual(len(second.context['page'].object_list), 3)
         self.assertEqual(second.context['q'], '历史帖')
         response = self.client.get('/portal/nga/', {'q': '正文检索词', 'board': '310'})
@@ -48,6 +49,43 @@ class PortalNgaTests(TestCase):
         self.assertEqual(self.client.get('/portal/nga/', {'page': 'bad'}).status_code, 200)
         self.assertEqual(self.client.get('/portal/nga/', {'page': '999999999999999999999'}).status_code, 200)
         self.assertContains(self.client.get('/portal/nga/', {'q': '不存在'}), '没有匹配的帖子')
+
+    def test_batch_replacement_fragment_filters_wrap_and_reader_return(self):
+        from django.utils import timezone
+        stamp = timezone.now()
+        for i in range(23):
+            self.article(title=f'刷帖 <script>bad()</script> {i}', nga_board_id='7',
+                         nga_board_name='议事厅', publish_time=stamp, reply_count=i,
+                         nga_replies_updated_at=stamp)
+        self.article(title='不匹配', nga_board_id='310')
+        first = self.client.get('/portal/nga/', {'q': '刷帖', 'board': '7', 'sort': 'replies'})
+        soup = BeautifulSoup(first.content, 'html.parser')
+        self.assertIsNone(soup.select_one('#nga-pagination'))
+        self.assertIsNone(soup.select_one('#nga-total'))
+        self.assertEqual(len(soup.select('.nga-post-link')), 20)
+        self.assertIsNone(soup.select_one('.nga-read'))
+        form = soup.select_one('#nga-swap-form')
+        self.assertIsNotNone(form)
+        params = {node['name']: node.get('value', '') for node in form.select('input[name]')}
+        self.assertEqual(params['board'], '7')
+        second = self.client.get('/portal/nga/', params, HTTP_X_NGA_BATCH='1')
+        self.assertEqual(second.status_code, 200)
+        fragment = BeautifulSoup(second.content, 'html.parser')
+        self.assertIsNone(fragment.html)
+        self.assertEqual(len(fragment.select('.nga-post-link')), 3)
+        self.assertFalse({a['href'].split('?')[0] for a in soup.select('.nga-post-link')} &
+                         {a['href'].split('?')[0] for a in fragment.select('.nga-post-link')})
+        self.assertIn('X-NGA-Batch', second.headers['Vary'])
+        self.assertIsNone(fragment.select_one('script'))
+        self.assertIn('已看到末尾', fragment.get_text())
+        detail = self.client.get(fragment.select_one('.nga-post-link')['href'])
+        back = BeautifulSoup(detail.content, 'html.parser').select_one('#nga-back')['href']
+        restored = self.client.get(back)
+        self.assertEqual([x['id'] for x in restored.context['page']],
+                         [x['id'] for x in second.context['page']])
+        wrap = {node['name']: node.get('value', '') for node in fragment.select('#nga-swap-form input[name]')}
+        again = self.client.get('/portal/nga/', wrap)
+        self.assertEqual([x['id'] for x in again.context['page']], [x['id'] for x in first.context['page']])
 
     def test_detail_preserves_structure_and_blocks_xss_and_missing_content(self):
         article = self.article(title='<script>alert(1)</script>', url='javascript:alert(1)', content='''

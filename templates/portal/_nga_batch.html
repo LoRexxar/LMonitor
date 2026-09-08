@@ -1,0 +1,26 @@
+<div id="nga-batch" data-url="{{ batch_url }}" tabindex="-1">
+<section id="nga-post-list" aria-label="NGA 帖子列表">
+    {% for item in page %}
+    <article class="nga-card nga-thread">
+        <div class="nga-thread-main">
+            <h2><a class="nga-post-link" href="{% url 'portal_nga_detail' item.id %}?{{ batch_query }}">{{ item.title|default:'未记录标题' }}</a></h2>
+            <div class="nga-meta"><span class="nga-badge">{{ item.board_label }}</span> · {{ item.author_label }} · 记录于 {{ item.publish_time|date:'Y-m-d H:i'|default:'时间未记录' }}</div>
+            {% if item.summary %}<p class="nga-summary">{{ item.summary }}</p>{% endif %}
+        </div>
+        <div class="nga-replies">{% if item.nga_replies_updated_at %}<strong>{{ item.reply_count }}</strong><span>回复</span><small>采集于 {{ item.nga_replies_updated_at|date:'m-d H:i' }}</small>{% else %}<span>回复数<br>未核验</span>{% endif %}</div>
+    </article>
+    {% empty %}<p id="nga-empty" class="nga-card">没有匹配的帖子。请更换关键词或重置筛选。</p>{% endfor %}
+</section>
+{% if page.object_list %}
+<div class="nga-batch-actions">
+    {% if at_end %}<p class="nga-meta">已看到末尾，再换一批将回到开头。</p>{% endif %}
+    <form id="nga-swap-form" action="{% url 'portal_nga' %}#nga-batch" method="get">
+        <input type="hidden" name="q" value="{{ q }}">
+        <input type="hidden" name="board" value="{{ board }}">
+        <input type="hidden" name="sort" value="{{ sort }}">
+        <input type="hidden" name="page" value="{{ next_batch }}">
+        <button id="nga-swap" type="submit">换 20 个帖子</button>
+    </form>
+</div>
+{% endif %}
+</div>
