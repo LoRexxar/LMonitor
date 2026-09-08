@@ -401,13 +401,67 @@ class SpecStatsService:
             class_name=class_name, spec_name=spec_name
         )
 
+        selected_records = _select_dungeon_sample_records(qs, max_samples=100)
+        return SpecStatsService._compute_dungeon_records(
+            selected_records, season_id, dungeon_id, dungeon_name, class_name, spec_name, full,
+        )
+
+    @staticmethod
+    def get_dungeon_summary(class_name, spec_name, season_id=None):
+        """Union the existing per-dungeon WCL samples, never their percentages.
+
+        SpecDungeonRanking is a WCL-only fact table. Profile enrichment remains
+        field-scoped below and never adds observations to the ranking cohort.
+        """
+        season = (SeasonMeta.objects.filter(id=season_id).first() if season_id
+                  else SpecStatsService.get_active_season())
+        if not season:
+            return None
+        records, coverage, seen = [], [], set()
+        encounters = {int(enc['id']): enc for enc in (season.mplus_encounters or [])}
+        for dungeon_id, enc in encounters.items():
+            qs = SpecDungeonRanking.objects.filter(
+                season_id=season.id, dungeon_id=dungeon_id,
+                class_name=class_name, spec_name=spec_name,
+            )
+            selected = _select_dungeon_sample_records(qs, max_samples=100)
+            contributed = 0
+            for row in selected:
+                identity = _dungeon_log_identity(row)
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                records.append(row)
+                contributed += 1
+            coverage.append({'dungeon_id': dungeon_id, 'dungeon_name': _lookup_dungeon_cn(enc['name']),
+                             'sample_size': len(selected), 'contributed_sample_size': contributed,
+                             'target_sample_size': 100})
+        stats = SpecStatsService._compute_dungeon_records(
+            records, season.id, 'all', '全部副本汇总', class_name, spec_name, full=True,
+        )
+        target = len(encounters) * 100
+        stats.update(target_sample_size=target, missing_sample_size=max(0, target - len(records)),
+                     dungeon_samples=coverage)
+        return stats
+
+    @staticmethod
+    def _compute_dungeon_records(selected_records, season_id, dungeon_id, dungeon_name,
+                                 class_name, spec_name, full=False):
+        """Shared single/combined detail statistics over actual selected records."""
         stats = {
             'dungeon_id': dungeon_id,
             'dungeon_name': dungeon_name,
             'sample_size': 0,
+            'source': 'Warcraft Logs',
+            'field_sources': {
+                'performance': 'Warcraft Logs 原始日志',
+                'talent_usage': 'Warcraft Logs 日志天赋（仅有效天赋样本）',
+                'talent_build_popularity': '天赋构筑：同赛季同专精角色资料导入码优先，缺失时使用 WCL 导入码；不保证为日志时点构筑',
+                'gear': '同赛季同专精 Raider.IO 角色装备优先，缺失时使用 WCL 装备',
+                'secondary_stats': '同赛季同专精 Battle.net 角色属性，非日志时点属性',
+                'race': '同赛季同专精角色资料',
+            },
         }
-
-        selected_records = _select_dungeon_sample_records(qs, max_samples=100)
         if not selected_records:
             return stats
 
@@ -771,6 +825,17 @@ def _stddev(values):
     return variance ** 0.5
 
 
+def _dungeon_log_identity(row):
+    # actorID is not persisted by the collector. Its actor identity is the
+    # region/realm/name tuple; report+fight alone would collapse distinct actors.
+    actor = tuple(str(row.get(key) or '').strip().casefold()
+                  for key in ('region', 'realm', 'character_name'))
+    if row.get('report_code') and row.get('fight_id') is not None and all(actor):
+        return ('wcl', row['report_code'], row['fight_id'], actor)
+    # Incomplete identity cannot prove duplication; do not collapse unknown logs.
+    return ('row', row.get('id') if row.get('id') is not None else id(row))
+
+
 def _select_dungeon_sample_records(qs, max_samples=100):
     """
     为 M+ 聚合选择最终样本。
@@ -779,15 +844,25 @@ def _select_dungeon_sample_records(qs, max_samples=100):
     再从高层到低层累积，按 region+realm+character_name 去重，最终最多 max_samples 个玩家样本。
     """
     fields = (
+        'id', 'report_code', 'fight_id',
         'talents_json', 'talent_build_code', 'gear_json', 'faction', 'guild_name',
         'character_name', 'realm', 'region', 'dps', 'keystone_level', 'clear_time', 'score',
     )
-    rows = list(qs.values(*fields))
+    # Median selection needs the cohort's scalar facts, not every large JSON
+    # payload. Fetch talents/gear only for the final (at most 100) observations.
+    selection_fields = ('id', 'report_code', 'fight_id', 'character_name',
+                        'realm', 'region', 'dps', 'keystone_level')
+    rows = list(qs.values(*selection_fields))
     if not rows:
         return []
 
     by_level = defaultdict(list)
+    seen_logs = set()
     for row in rows:
+        identity = _dungeon_log_identity(row)
+        if identity in seen_logs:
+            continue
+        seen_logs.add(identity)
         level = row.get('keystone_level') or 0
         by_level[level].append(row)
 
@@ -799,7 +874,7 @@ def _select_dungeon_sample_records(qs, max_samples=100):
         median_dps = _percentile(dps_values, 50)
         for row in level_rows:
             if len(selected) >= max_samples:
-                return selected
+                return _hydrate_dungeon_samples(qs, selected, fields)
             if median_dps is not None and (row.get('dps') or 0) < median_dps:
                 continue
             player_key = (
@@ -812,7 +887,16 @@ def _select_dungeon_sample_records(qs, max_samples=100):
             seen_players.add(player_key)
             selected.append(row)
 
-    return selected
+    return _hydrate_dungeon_samples(qs, selected, fields)
+
+
+def _hydrate_dungeon_samples(qs, selected, fields):
+    if not selected:
+        return selected
+    payloads = {row['id']: row for row in qs.filter(
+        id__in=[row['id'] for row in selected],
+    ).values(*fields)}
+    return [payloads[row['id']] for row in selected if row['id'] in payloads]
 
 
 def _ms_to_time(ms):

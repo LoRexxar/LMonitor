@@ -12,12 +12,32 @@
 <div class="spec-detail-page">
     {% include "portal/spec_detail/_overview_identity_and_tabs.html" with active_tab="dungeons" %}
 
+    <h2>大秘境详细统计</h2>
+    <nav class="spec-overview-links" aria-label="副本统计选择">
+        <a href="?dungeon_id=all"{% if selected_dungeon_id == 'all' %} aria-current="page"{% endif %}>全部副本汇总</a>
+        {% for option in dungeon_options %}
+        <a href="?dungeon_id={{ option.dungeon_id }}"{% if selected_dungeon_id == option.dungeon_id %} aria-current="page"{% endif %}>{{ option.dungeon_name }}</a>
+        {% endfor %}
+    </nav>
     {% if dungeon_detail %}
-    <!-- 副本详情 -->
+    <!-- 单本与汇总复用同一详情表 -->
     <div class="detail-section">
-        <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/dungeons/" class="back-link">← 返回大秘境列表</a>
         <h2>{{ dungeon_detail.dungeon_name }}</h2>
-        <p class="text-muted">样本量: {{ dungeon_detail.sample_size }}</p>
+        {% if dungeon_detail.dungeon_id == 'all' %}
+        <p class="text-muted">实际样本 {{ dungeon_detail.sample_size }} / 目标 {{ dungeon_detail.target_sample_size }} 份日志；缺少 {{ dungeon_detail.missing_sample_size }} 份。</p>
+        <p class="text-muted">各副本沿用单本筛选规则，最多 100 份；合并原始日志重算，不平均副本百分比。同一角色在不同日志可重复计入。</p>
+        <ul>
+            {% for item in dungeon_detail.dungeon_samples %}
+            <li>{{ item.dungeon_name }}：{{ item.sample_size }} / {{ item.target_sample_size }}，去重后贡献 {{ item.contributed_sample_size }} 份</li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-muted">实际样本 {{ dungeon_detail.sample_size }} / 目标 100 份日志</p>
+        {% endif %}
+        <details class="text-muted"><summary>字段来源与统计口径</summary>
+            {% for field, source in dungeon_detail.field_sources.items %}<p>{{ source }}</p>{% endfor %}
+            <p>装备、宝石和附魔使用率以实际日志样本为分母；天赋、属性仅使用各自有效样本；缺失种族计入“未知”。目标样本量不作为统计分母。</p>
+        </details>
 
         {% if dungeon_detail.dps %}
         <div class="stat-cards stat-strip">

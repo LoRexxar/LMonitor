@@ -708,8 +708,14 @@ class PtrTalentDescriptionRepairTests(SimpleTestCase):
 
 class FakeRankingQuerySet:
     def __init__(self, records, first_row=None):
-        self._records = list(records)
+        self._records = [dict(record, id=record.get('id', index))
+                         for index, record in enumerate(records, 1)]
         self._first_row = first_row or SimpleNamespace()
+
+    def filter(self, *, id__in):
+        return FakeRankingQuerySet(
+            [row for row in self._records if row['id'] in id__in], self._first_row,
+        )
 
     def exists(self):
         return bool(self._records)

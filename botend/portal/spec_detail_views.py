@@ -16,7 +16,7 @@ from django.shortcuts import render
 from django.http import Http404, JsonResponse
 
 from botend.models import SimcProfile
-from botend.services.spec_stats_service import SpecStatsService
+from botend.services.spec_stats_service import SpecStatsService, _lookup_dungeon_cn
 from botend.services.spec_overview_service import SpecOverviewService
 from botend.services.simc_player_config import build_player_config_detail
 from botend.constants.wow import CLASS_SPEC_MAP, CLASS_CN, SPEC_CN, SPEC_ICON, SPEC_ROLE
@@ -265,33 +265,39 @@ class SpecDetailDungeonView(View):
         _validate_spec(class_name, spec_name)
         ctx = _base_context(class_name, spec_name)
         season_id = ctx['season'].id if ctx['season'] else None
-        dungeon_id = request.GET.get('dungeon_id')
-
+        dungeon_id = request.GET.get('dungeon_id', 'all')
+        ctx['selected_dungeon_id'] = dungeon_id
+        ctx['dungeon_options'] = []
         if season_id:
-            data = _load_json(season_id, class_name, spec_name, 'dungeon.json')
-            if data:
-                dungeons = data.get('dungeons', [])
-                if dungeon_id:
-                    did = int(dungeon_id)
-                    detail = next((d for d in dungeons if d.get('dungeon_id') == did), None)
-                    if detail:
-                        # 兼容旧聚合 JSON：若天赋树缺英雄天赋、新维度缺失或天赋字符串为空，则实时重算该详情对象
-                        if (
-                            (not _talent_tree_has_hero(detail))
-                            or (not _talent_usage_has_point_statistics(detail))
-                            or ('secondary_stats' not in detail)
-                            or (not _talent_build_popularity_has_builds(detail, class_name, spec_name))
-                            or _detail_item_metadata_is_stale(detail)
-                        ):
-                            detail = SpecStatsService.get_dungeon_detail(did, class_name, spec_name) or detail
-                        ctx['dungeon_detail'] = detail
-                    else:
-                        ctx['dungeons'] = dungeons
-                else:
-                    ctx['dungeons'] = dungeons
-                return render(request, 'portal/spec_detail/dungeon_stats.html', ctx)
-
-        # 无 JSON → 空数据
+            ctx['dungeon_options'] = [
+                {'dungeon_id': str(enc['id']), 'dungeon_name': _lookup_dungeon_cn(enc['name'])}
+                for enc in (ctx['season'].mplus_encounters or [])
+            ]
+            if dungeon_id == 'all':
+                ctx['dungeon_detail'] = SpecStatsService.get_dungeon_summary(class_name, spec_name, season_id)
+            else:
+                if dungeon_id not in {enc['dungeon_id'] for enc in ctx['dungeon_options']}:
+                    raise Http404
+                did = int(dungeon_id)
+                name = next(enc['dungeon_name'] for enc in ctx['dungeon_options'] if enc['dungeon_id'] == dungeon_id)
+                data = _load_json(season_id, class_name, spec_name, 'dungeon.json') or {}
+                detail = next((item for item in data.get('dungeons', [])
+                               if item.get('dungeon_id') == did), None)
+                if (
+                    not detail
+                    or not _talent_tree_has_hero(detail)
+                    or not _talent_usage_has_point_statistics(detail)
+                    or 'secondary_stats' not in detail
+                    or not _talent_build_popularity_has_builds(detail, class_name, spec_name)
+                    or _detail_item_metadata_is_stale(detail)
+                    or 'field_sources' not in detail
+                ):
+                    detail = SpecStatsService.get_dungeon_detail(
+                        did, class_name, spec_name, season_id,
+                    )
+                ctx['dungeon_detail'] = detail or {
+                    'dungeon_id': did, 'dungeon_name': name, 'sample_size': 0,
+                }
         return render(request, 'portal/spec_detail/dungeon_stats.html', ctx)
 
 
