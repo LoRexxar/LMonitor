@@ -1,0 +1,8 @@
+/* 攻略作者板块，供 Portal 和阅读预览共用。 */
+.cg-author-card{display:flex;gap:18px;padding:20px;margin:0 0 26px;border:1px solid var(--cg-line);border-left:3px solid var(--class-color);border-radius:6px;background:var(--cg-bg);align-items:flex-start}.cg-author-avatar{width:68px;height:68px;border-radius:50%;background:#252c3d;flex-shrink:0;display:grid;place-items:center;color:white;font-size:27px;overflow:hidden}.cg-author-avatar img{width:100%;height:100%;object-fit:contain;padding:8px}.cg-author-info{min-width:0;overflow-wrap:anywhere}.cg-author-info .cg-author-caption{margin:0;color:var(--cg-muted);font-size:11px}.cg-author-info h2{font-size:19px;font-weight:700;margin:2px 0}.cg-author-title{font-size:12px;color:var(--cg-muted);margin:4px 0}.cg-author-bio{font-size:13px;line-height:1.8;white-space:pre-wrap;margin:12px 0}.cg-author-info nav{display:flex;flex-wrap:wrap;gap:12px;margin-top:10px;font-size:12px;color:var(--cg-accent)}
+
+.reading-page .cg-author-card{--cg-bg:var(--paper);--cg-line:var(--line);--cg-muted:var(--muted);--cg-accent:var(--accent)}
+@media(max-width:600px){.cg-author-card{gap:12px;padding:14px}.cg-author-avatar{width:48px;height:48px}}
+
+.cg-disclaimer{margin:0 0 24px;padding:14px 18px;border:1px solid var(--cg-line,#334155);border-radius:8px;background:var(--cg-paper,rgba(128,128,128,.06));font-size:13px;line-height:1.8;color:var(--cg-muted,#94a3b8)}
+.cg-disclaimer strong{font-weight:600}.cg-disclaimer p{margin:4px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}

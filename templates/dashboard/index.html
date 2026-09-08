@@ -530,7 +530,12 @@
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
-<script src="{% static 'dashboard/js/main.js' %}?v=20260903_external_menu_v2"></script>
+<script src="{% static 'dashboard/js/main.js' %}?v=20260908_class_guides"></script>
+    {% if 'content.class-guides' in dashboard_permissions %}
+    <link rel="stylesheet" href="{% static 'dashboard/css/class_guides.css' %}?v=20260908_guide_disclaimer_v1">
+    <script src="{% static 'dashboard/js/class_guide_reader.js' %}" defer></script>
+    <script src="{% static 'dashboard/js/class_guides.js' %}?v=20260908_guide_disclaimer_v1" defer></script>
+    {% endif %}
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806c" defer></script>
     <script src="{% static 'dashboard/js/gear_builder_management.js' %}?v=20260901a" defer></script>
     <script src="{% static 'dashboard/js/wow_today_management.js' %}?v=20260903a" defer></script>
@@ -675,6 +680,11 @@
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-layer-group mr-3"></i>
                             今日魔兽编排
+                        </a>
+                    </li>
+                    <li class="nav-item" data-section="class-guides" data-sidebar-group-member="content">
+                        <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                            <i class="fas fa-book-open mr-3"></i>职业攻略
                         </a>
                     </li>
                     <li class="nav-item" data-section="portal-navigation" data-sidebar-group-member="content">
@@ -1200,6 +1210,11 @@
                 </div>
             </div>
 
+            <div class="content-section" id="class-guides" style="display: none;">
+                {% if 'content.class-guides' in dashboard_permissions %}
+                {% include 'dashboard/class_guides.html' %}
+                {% endif %}
+            </div>
             <div
                 class="content-section"
                 id="portal-navigation"

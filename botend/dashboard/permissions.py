@@ -10,6 +10,7 @@ DASHBOARD_PAGE_PERMISSIONS = OrderedDict((item['code'], item) for item in (
     {'code': 'dashboard.user-management', 'label': '用户管理', 'section': 'user-management', 'parent': '系统'},
     {'code': 'dashboard.user-groups', 'label': '用户组管理', 'section': 'user-groups', 'parent': '系统'},
     {'code': 'news.index', 'label': '新闻资讯', 'section': 'news', 'parent': '内容'},
+    {'code': 'content.class-guides', 'label': '职业攻略', 'section': 'class-guides', 'parent': '内容'},
     {'code': 'reports.wow-daily', 'label': 'WoW 日报', 'section': 'wow-daily-reports', 'parent': '内容'},
     {'code': 'reports.wow-today-settings', 'label': '今日魔兽板块', 'section': 'wow-today-settings', 'parent': '内容'},
     {'code': 'portal.navigation', 'label': '首页导航', 'section': 'portal-navigation', 'parent': '内容'},

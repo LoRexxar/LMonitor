@@ -1,0 +1,4 @@
+<section class="cg-author-card" aria-label="攻略作者">
+<div class="cg-author-avatar">{% if author_profile.avatar %}<img src="{{ author_profile.avatar }}" alt="{{ author_profile.name }}的头像" loading="lazy">{% else %}<span aria-hidden="true">{{ author_profile.name|slice:':1'|upper }}</span>{% endif %}</div>
+<div class="cg-author-info"><p class="cg-author-caption">攻略作者</p><h2>{{ author_profile.name }}</h2>{% if author_profile.title %}<p class="cg-author-title">{{ author_profile.title }}</p>{% endif %}{% if author_profile.bio %}<p class="cg-author-bio">{{ author_profile.bio }}</p>{% endif %}{% if author_profile.links %}<nav aria-label="作者相关链接">{% for link in author_profile.links %}<a href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.label }} ↗</a>{% endfor %}</nav>{% endif %}</div>
+</section>

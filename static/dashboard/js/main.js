@@ -646,6 +646,9 @@ function initNavigation() {
                 if (sectionId === 'portal-navigation' && window.loadPortalNavigationManagement) {
                     window.loadPortalNavigationManagement();
                 }
+                if (sectionId === 'class-guides' && window.loadClassGuides) {
+                    window.loadClassGuides();
+                }
                 if (isSimcDashboardSection(sectionId)) {
                     const simcPage = Object.keys(SIMC_DASHBOARD_SECTIONS)
                         .find(page => SIMC_DASHBOARD_SECTIONS[page] === sectionId);

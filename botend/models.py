@@ -3548,3 +3548,9 @@ class MythicPlannerConfig(models.Model):
 
     def __str__(self):
         return self.key
+
+
+from botend.guide_models import (  # noqa: E402,F401
+    ClassGuide, ClassGuideRevision, ClassGuideFeed, ClassGuideSyncRun,
+    ClassGuideTranslation, ClassGuideTerm, ClassGuideTag,
+)

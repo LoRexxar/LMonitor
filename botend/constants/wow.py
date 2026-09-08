@@ -104,6 +104,36 @@ SPEC_IDENTITY_MAP = {
     1480: ("DemonHunter", "Devourer"),
 }
 
+
+def resolve_spec_identity(spec_id=None, class_name='', spec_name=''):
+    """校验唯一专精编号和可选名称，返回编号及全站标准身份。"""
+    pair = canonical_class_spec(class_name, spec_name)
+    if spec_id is not None:
+        if isinstance(spec_id, bool) or not str(spec_id).isdigit():
+            raise ValueError('请选择有效的专精')
+        spec_id = int(spec_id)
+        identity = SPEC_IDENTITY_MAP.get(spec_id)
+        if not identity:
+            raise ValueError('专精不在全站分类中')
+        if (class_name or spec_name) and pair != identity:
+            raise ValueError('职业、专精名称与专精编号不匹配')
+        return spec_id, *identity
+    if pair:
+        for key, identity in SPEC_IDENTITY_MAP.items():
+            if identity == pair:
+                return key, *identity
+    raise ValueError('攻略必须绑定一个有效的职业专精')
+
+
+def specialization_catalog():
+    """全站专精选项，统一使用暴雪编号、职业归属及中文名称。"""
+    identities = {pair: key for key, pair in SPEC_IDENTITY_MAP.items()}
+    return [dict(spec_id=identities[(cls, spec)], class_name=cls, spec_name=spec,
+                 class_label=CLASS_CN[cls], spec_label=SPEC_CN[spec],
+                 label=f'{CLASS_CN[cls]} · {SPEC_CN[spec]}',
+                 icon=SPEC_ICON.get((cls, spec), ''), color=CLASS_COLOR[cls])
+            for cls, specs in CLASS_SPEC_MAP.items() for spec in specs]
+
 # Blizzard 描述条件 ``$?cN`` 使用职业内专精序号，而不是 specialization ID。
 # 该顺序与部分 UI 排序不同（例如武僧、唤魔师），因此必须显式维护。
 SPEC_CONDITION_INDEX = {

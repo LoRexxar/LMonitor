@@ -406,7 +406,11 @@ class DashboardView(View):
                 (item['section'] for item in catalog if item['code'] in permissions),
                 '',
             )
-            return render(request, 'dashboard/index.html', context)
+            response = render(request, 'dashboard/index.html', context)
+            if section == 'class-guides':
+                response['Cache-Control'] = 'private, no-store'
+                response['X-Robots-Tag'] = 'noindex, nofollow'
+            return response
         except Exception as e:
             logger.error(f"Dashboard view error: {str(e)}\n{traceback.format_exc()}")
             return JsonResponse({"status": "error", "message": str(e)})

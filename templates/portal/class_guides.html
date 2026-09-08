@@ -1,0 +1,23 @@
+{% extends 'portal/class_guide_base.html' %}
+{% block content %}
+<main id="cg-main" class="cg-container">
+<nav class="cg-breadcrumb" aria-label="面包屑"><a href="/">魔兽世界</a><span>／</span><span>职业攻略</span></nav>
+<header class="cg-catalog-heading"><div><p class="cg-kicker">精进你的专精</p><h1>职业攻略</h1><p>从天赋、配装到实战循环，找到适合你的攻略。</p></div><span class="cg-total">{{ rows|length }} 篇攻略</span></header>
+<section class="cg-class-picker" aria-label="选择职业"><div class="cg-section-label">选择职业</div><div class="cg-class-buttons">
+<button type="button" data-cg-class="" aria-pressed="true" class="is-selected"><span class="cg-class-symbol">全</span><span>全部职业</span></button>
+{% for cls in classes %}<button type="button" data-cg-class="{{ cls.key }}" data-label="{{ cls.label }}" aria-pressed="false" style="--class-color:{{ cls.color }}"><span class="cg-class-symbol"><img src="{{ cls.icon }}" alt="" loading="lazy"></span><span>{{ cls.label }}</span></button>{% endfor %}
+</div></section>
+<form id="cg-filters" class="cg-filters" role="search"><label class="cg-search"><span>搜索攻略</span><input type="search" name="q" placeholder="输入标题、职业或专精" autocomplete="off"></label>
+<label><span>专精</span><select name="spec"><option value="">全部专精</option>{% for spec in specializations %}<option value="{{ spec.spec_id }}" data-class="{{ spec.class_name }}">{{ spec.label }}</option>{% endfor %}</select></label>
+<label><span>职责</span><select name="role"><option value="">全部职责</option>{% for key,label in roles %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></label>
+<label><span>排序</span><select name="sort"><option value="class">职业与专精</option><option value="updated">最近更新</option></select></label></form>
+<div class="cg-tag-filter" aria-label="标签筛选"><span>标签</span>{% for tag in tags %}<button type="button" data-cg-tag="{{ tag }}" aria-pressed="false">{{ tag }}</button>{% endfor %}</div>
+<div class="cg-results-heading"><h2 id="cg-result-title">全部攻略</h2><div><span id="cg-result-count" role="status" aria-live="polite">{{ rows|length }} 篇</span><button type="button" id="cg-clear" hidden>清除筛选</button></div></div>
+<div id="cg-guide-grid" class="cg-guide-grid">
+{% for row in rows %}<article class="cg-guide-card" data-class="{{ row.guide.class_name }}" data-spec="{{ row.guide.spec_id }}" data-role="{{ row.role }}" data-updated="{{ row.updated|date:'c' }}" style="--class-color:{{ row.spec.color }}">
+<a href="{% url 'portal_class_guide_article' row.guide.id %}" class="cg-card-cover" tabindex="-1" aria-hidden="true">{% if row.cover %}<img src="{{ row.cover }}" alt="" loading="lazy">{% endif %}<span class="cg-cover-fallback">{{ row.spec.class_label }}</span><span class="cg-cover-spec"><img src="{{ row.spec.icon }}" alt="" loading="lazy">{{ row.spec.spec_label }}</span></a>
+<div class="cg-card-body"><div class="cg-card-meta"><span>{{ row.spec.label }}</span><span>{% if row.role == 'tank' %}坦克{% elif row.role == 'healer' %}治疗{% else %}输出{% endif %}</span></div>
+<h2><a href="{% url 'portal_class_guide_article' row.guide.id %}">{{ row.title }}</a></h2><div class="cg-card-tags">{% for tag in row.tags %}<span class="cg-tag">{{ tag.name }}</span>{% endfor %}</div>
+<div class="cg-card-footer"><span>{{ row.author_name }}</span>{% if row.updated %}<time datetime="{{ row.updated|date:'c' }}">{{ row.updated|date:'Y.m.d' }} 更新</time>{% endif %}</div></div></article>{% endfor %}
+</div><div id="cg-empty" class="cg-empty" {% if rows %}hidden{% endif %}><h2>暂无符合条件的攻略</h2><p>试试其他专精或减少筛选条件。</p><button type="button" data-cg-reset>查看全部攻略</button></div>
+</main>{% endblock %}

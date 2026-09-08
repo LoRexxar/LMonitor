@@ -1,0 +1,2 @@
+# 职业攻略 Markdown 解析依赖；其他依赖沿用项目环境。
+markdown-it-py>=4.0,<5

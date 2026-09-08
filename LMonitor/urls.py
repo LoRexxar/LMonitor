@@ -14,6 +14,9 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
+from botend.dashboard.class_guides import (GuidePage, GuideCatalogAPI, GuideDetailAPI,
+    GuidePreviewPage, GuideFeedAPI, GuideDisclaimerAPI, GuideTermsAPI)
+from botend.portal.class_guides import PortalClassGuideCatalogView, PortalClassGuideArticleView
 from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import redirect
@@ -133,6 +136,18 @@ from botend.simc_agent_api import (
 from django.http import HttpResponse, JsonResponse
 
 urlpatterns = [
+    # Portal 阅读界面仅供具备攻略权限的账号内部测试。
+    path('portal/class-guides/', PortalClassGuideCatalogView.as_view(), name='portal_class_guides'),
+    path('portal/class-guides/<int:guide_id>/', PortalClassGuideArticleView.as_view(), name='portal_class_guide_article'),
+    # 职业攻略仅提供受权限保护的后台与预览，不注册 Portal 公开接口。
+    path('dashboard/class-guides/', GuidePage.as_view(), name='dashboard_class_guides'),
+    path('dashboard/class-guides/<int:guide_id>/', GuidePage.as_view(), name='dashboard_class_guide_edit'),
+    path('dashboard/class-guides/<int:guide_id>/preview/', GuidePreviewPage.as_view(), name='dashboard_class_guide_preview'),
+    path('api/dashboard/class-guides/', GuideCatalogAPI.as_view(), name='dashboard_class_guide_catalog_api'),
+    path('api/dashboard/class-guides/disclaimer/', GuideDisclaimerAPI.as_view(), name='dashboard_class_guide_disclaimer_api'),
+    path('api/dashboard/class-guides/feed/', GuideFeedAPI.as_view(), name='dashboard_class_guide_feed_api'),
+    path('api/dashboard/class-guides/terms/', GuideTermsAPI.as_view(), name='dashboard_class_guide_terms_api'),
+    path('api/dashboard/class-guides/<int:guide_id>/', GuideDetailAPI.as_view(), name='dashboard_class_guide_detail_api'),
     # path('admin/', admin.site.urls),
     path('favicon.ico', RedirectView.as_view(url='/static/portal/favicons/3accfdf0352f2189a3292605e1ad80f12bd5a15c605069102f42c03c3c4fceda.ico', permanent=True)),
     path('', PortalHomeView.as_view(), name='portal_home'),
