@@ -34,13 +34,35 @@ def safe_url(value, base='https://bbs.nga.cn/'):
         return ''
 
 
+def nga_image_url(value):
+    """Only dated NGA image attachments use the source's attachment-view host."""
+    url = safe_url(value)
+    if not url:
+        return ''
+    parts = urlsplit(url)
+    # BBCode has already resolved ./mon_* against the forum by this point.
+    if parts.netloc == 'bbs.nga.cn' and re.fullmatch(
+            r'/(?:attachments/)?mon_\d{6}/\d{2}/[\w-]+\.(?:jpg|jpeg|png|gif|webp)',
+            parts.path, re.I):
+        path = parts.path.removeprefix('/attachments').lstrip('/')
+        # Source page __ATTACH_BASE_VIEW_SEC = 'img.nga.cn'; verified by GET.
+        return 'https://img.nga.cn/attachments/' + path + (
+            '?' + parts.query if parts.query else '') + ('#' + parts.fragment if parts.fragment else '')
+    return url
+
+
+def readable_smileys(text):
+    # Preserve the source's name, not an invented image URL or raw BBCode.
+    return re.sub(r'\[s:(?:[\w-]+:)?([^\[\]<>:]+)\]', r'（表情：\1）', text, flags=re.I)
+
+
 def render_main_post(content):
     """Legacy text stays escaped; HTML structures survive without active behavior.
 
     URL/attribute allowlists also cover entity-obfuscated schemes. No raw style,
     DOM IDs, custom elements or source-controlled event/data attributes survive.
     """
-    raw = (content or '').strip()
+    raw = readable_smileys((content or '').strip())
     if not raw:
         return ''
     if re.search(r'\[(?:quote|b|i|u|s|del|ins|url|img|list|ul|ol|li|table|tr|td|th|h[1-6]|color|size|collapse|code|pre|center)(?:[=\] ])', raw, re.I):
@@ -80,7 +102,7 @@ def render_main_post(content):
             if url:
                 attrs.update(href=url, rel='nofollow noopener noreferrer', target='_blank')
         if tag.name in ('img', 'source'):
-            url = safe_url(tag.get('src'))
+            url = nga_image_url(tag.get('src'))
             if url:
                 attrs['src'] = url
             # srcset is intentionally rebuilt, never copied verbatim.
@@ -89,7 +111,7 @@ def render_main_post(content):
                 fields = candidate.split()
                 if fields and safe_url(fields[0]) and (len(fields) == 1 or
                         (len(fields) == 2 and re.fullmatch(r'\d+(?:\.\d+)?[wx]', fields[1]))):
-                    candidates.append(' '.join([safe_url(fields[0]), *fields[1:]]))
+                    candidates.append(' '.join([nga_image_url(fields[0]), *fields[1:]]))
             if candidates:
                 attrs['srcset'] = ', '.join(candidates)
             if tag.name == 'img':
@@ -136,7 +158,11 @@ def browse_posts(params):
         soup = BeautifulSoup(row.pop('excerpt') or '', 'html.parser')
         for tag in soup.find_all(['script', 'style']):
             tag.decompose()
-        text = soup.get_text(' ', strip=True)
+        text = readable_smileys(soup.get_text(' ', strip=True))
+        # Excerpts may end inside a BBCode block because SQL bounds them first.
+        text = re.sub(r'\[img(?:=[^\]]*)?\].*?(?:\[/img\]|$)', '（图片）', text, flags=re.I | re.S)
+        text = re.sub(r'\[/?(?:url|img|b|i|u|s|quote|color|size|collapse|list|li|table|tr|td)(?:=[^\]]*)?\]', '', text, flags=re.I)
+        text = re.sub(r'\[(?:url|img)(?:=[^\]]*)?$', '', text, flags=re.I)
         row['summary'] = text[:220] + ('…' if len(text) > 220 else '')
         row['board_label'] = board_label(row['nga_board_name'])
         row['author_label'] = row['author'] if row['author'] and row['author'] not in LEGACY_AUTHORS else '作者未记录'

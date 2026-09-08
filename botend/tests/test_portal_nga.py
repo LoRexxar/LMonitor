@@ -78,6 +78,30 @@ class PortalNgaTests(TestCase):
         plain = self.article(content='第一段\n第二段 < 3')
         self.assertContains(self.client.get(f'/portal/nga/{plain.id}/'), '第二段 &lt; 3')
 
+    def test_nga_attachment_images_and_readable_bbcode_summary(self):
+        path = 'mon_202609/07/7Q76-bf30KoT1kSb3-6i.jpg'
+        cdn = 'https://img.nga.cn/attachments/' + path
+        item = self.article(content=(
+            f'[img]./{path}[/img][url=./{path}]原图链接[/url][s:ac:哭笑]'
+            f'<img src="https://external.test/{path}">'
+            f'<source srcset="./{path} 2x">'
+            '<img src="./mon_202609/07/document.pdf">'),
+            description=f'摘要[img]./{path}[/img][url=https://example.com]链接文字[/url][s:ac:哭笑]')
+        response = self.client.get(f'/portal/nga/{item.id}/')
+        body = BeautifulSoup(response.content, 'html.parser').select_one('#nga-main-post')
+        self.assertEqual(body.find_all('img')[0]['src'], cdn)
+        self.assertEqual(body.find_all('img')[1]['src'], 'https://external.test/' + path)
+        self.assertEqual(body.find_all('img')[2]['src'], 'https://bbs.nga.cn/mon_202609/07/document.pdf')
+        self.assertEqual(body.source['srcset'], cdn + ' 2x')
+        self.assertEqual(body.a['href'], 'https://bbs.nga.cn/' + path)
+        self.assertIn('哭笑', body.get_text())
+        self.assertNotIn('[s:ac:', str(body))
+        summary = self.client.get('/portal/nga/').context['page'].object_list[0]['summary']
+        self.assertIn('链接文字', summary)
+        self.assertIn('哭笑', summary)
+        for raw in ('[img]', '[url', '[s:', path):
+            self.assertNotIn(raw, summary)
+
     def test_image_only_main_post_keeps_srcset_and_fallback_text(self):
         item = self.article(content='<picture><source srcset="/attachments/a.webp 1x">'
                             '<img alt="图片正文" srcset="/attachments/a.png 1x"></picture>')
