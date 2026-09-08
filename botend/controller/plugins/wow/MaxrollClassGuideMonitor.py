@@ -15,7 +15,7 @@ class MaxrollClassGuideMonitor(BaseScan):
 
     def scan(self, url):
         try:
-            run = sync_guides(translate=True, workers=1, request_client=self.req)
+            run = sync_guides(translate=True, workers=1, request_client=self.req, monitor_task=self.task)
             self.task.flag = f'批次 {run.id} · {run.status} · {len(run.results)} 篇'
             if run.status != 'completed':
                 errors = [row.get('error') or row['status'] for row in run.results

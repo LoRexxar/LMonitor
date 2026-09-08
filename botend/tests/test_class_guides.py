@@ -17,15 +17,24 @@ from django.db import IntegrityError, transaction
 from django.core.management.base import CommandError
 from botend.constants.wow import SPEC_IDENTITY_MAP, resolve_spec_identity
 from botend.services.class_guide_authors import extract_author_profile
+from botend.services.class_guide_monitor import get_guide_monitor_task
+from botend.models import MonitorTaskLease, MonitorTaskLeaseLost
+from botend.plugin_sync import claim_monitor_task
 from bs4 import BeautifulSoup
 
-from botend.guide_models import ClassGuide, ClassGuideFeed, ClassGuideTerm, ClassGuideTranslation
+from botend.guide_models import ClassGuide, ClassGuideTranslation
+from botend.services.wow_localization import write_name, effective_names
+from botend.models import WowTalentNodeMetadata, WowSpellSnapshot
 from botend.services.class_guide_codec import decode_component, snappy
 from botend.services.class_guide_content import clean_html, validate_blocks, render_references, resolve_references
 from botend.services.class_guide_maxroll import discover, convert
-from botend.services.class_guide_markdown import compile_markdown, blocks_to_markdown, html_to_markdown
+from botend.services.class_guide_markdown import compile_markdown, blocks_to_markdown, html_to_markdown, normalize_tab_markdown
 from botend.services.wow_news_glossary_service import WowNewsGlossary
-from botend.services.class_guide_service import protect_guide_text, import_post, create_revision, approve_revision, audit_revision, RevisionConflict, sync_guides, translate_blocks
+from botend.services.class_guide_service import protect_guide_text, import_post, save_article, check_article, ArticleConflict, sync_guides, translate_blocks
+
+
+def create_name(**fields):
+    return write_name(fields)
 
 
 def source_post():
@@ -46,10 +55,41 @@ class GuideFlowTests(TestCase):
     def test_import_is_idempotent_and_version_isolated(self):
         _, state = import_post(source_post(), self.url)
         self.assertEqual(state, 'unchanged')
-        self.assertEqual(self.guide.revisions.count(), 1)
         post = source_post(); post['tags'] = [{'name': '12.2'}]
         other, _ = import_post(post, self.url)
         self.assertNotEqual(other.id, self.guide.id)
+
+    def test_management_pages_share_existing_editor_permission(self):
+        from botend.models import DashboardUserGroup
+        editor = get_user_model().objects.create_user(username='术语编辑', is_staff=True)
+        self.client.force_login(editor)
+        urls = ['/dashboard/?section=guide-disclaimers', '/dashboard/?section=wow-localization']
+        for url in urls:
+            self.assertEqual(self.client.get(url).status_code, 403)
+        group = DashboardUserGroup.objects.create(name='攻略编辑权限', permission_codes=['content.class-guides', 'tools.wow-localization'])
+        group.users.add(editor)
+        for url in urls:
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response['Cache-Control'], 'private, no-store')
+            document = BeautifulSoup(response.content, 'html.parser')
+            self.assertIsNotNone(document.select_one('#guide-disclaimers #guide-disclaimer-form'))
+            self.assertIsNotNone(document.select_one('#wow-localization #wow-localization-search'))
+            self.assertIsNone(document.select_one('#class-guide-workspace #disclaimer-dialog'))
+            self.assertIsNone(document.select_one('#class-guide-workspace #terms-browser'))
+
+    def test_term_management_lists_versions_and_preserves_version_filter(self):
+        for version, name in [('12.1', '旧版名称'), ('12.2', '新版名称')]:
+            create_name(game_version=version, kind='spell', object_id=30451,
+                name_en='Arcane Blast', name_zh=name, evidence='版本对照')
+        endpoint = '/api/dashboard/wow-localization/'
+        data = self.client.get(endpoint, {'q': '30451', 'kind': 'spell'}).json()
+        self.assertEqual(data['total'], 2)
+        self.assertTrue({'12.1', '12.2'}.issubset(data['versions']))
+        filtered = self.client.get(endpoint, {'version': '12.2', 'q': '30451'}).json()
+        self.assertEqual(filtered['total'], 1)
+        self.assertEqual(filtered['records'][0]['name_zh'], '新版名称')
+        self.assertEqual(Client().get(endpoint).status_code, 403)
 
     def test_refresh_translations_rebuilds_unchanged_source_as_candidate(self):
         with patch('botend.services.class_guide_service.translate_blocks', return_value=([{'id':'p','type':'html','html':'<p>第一版中文</p>'}], [])):
@@ -61,12 +101,11 @@ class GuideFlowTests(TestCase):
             import_post(source_post(), self.url, translate=True, refresh_translations=True)
             _, status = import_post(source_post(), self.url, translate=True, refresh_translations=True)
             self.assertEqual(status, 'unchanged')
-        self.assertIn('术语修正后中文', self.guide.revisions.first().content_markdown)
-        self.assertEqual(self.guide.revisions.count(), 3)
+        self.assertIn('术语修正后中文', ClassGuide.objects.get(pk=self.guide.pk).content_markdown)
 
     def test_macro_name_override_does_not_replace_boss_reference(self):
-        ClassGuideTerm.objects.create(game_version='12.1', kind='spell', object_id=1300877, name_en='Corruption', name_zh='腐化')
-        response = self.client.post('/api/dashboard/class-guides/terms/', data=json.dumps({'game_version':'12.1', 'kind':'macro', 'name_en':'Corruption', 'name_zh':'腐蚀术', 'evidence':'玩家技能 ID 172'}), content_type='application/json')
+        create_name(game_version='12.1', kind='spell', object_id=1300877, name_en='Corruption', name_zh='腐化')
+        response = self.client.post('/api/dashboard/wow-localization/', data=json.dumps({'game_version':'12.1', 'kind':'macro', 'name_en':'Corruption', 'name_zh':'腐蚀术', 'evidence':'玩家技能 ID 172'}), content_type='application/json')
         self.assertEqual(response.status_code, 200)
         service = Mock(); service.available.return_value = False
         result, failed = translate_blocks([{'id':'macro','type':'code','data':{'code':'/cast Corruption'}}, {'id':'boss','type':'html','html':'<p>[[spell:1300877]]</p>'}], '12.1', service=service)
@@ -74,9 +113,9 @@ class GuideFlowTests(TestCase):
         self.assertEqual(result[0]['data']['code'], '/cast 腐蚀术')
         self.assertEqual(resolve_references(result, '12.1')['[[spell:1300877]]']['name'], '腐化')
 
-    def test_manual_revision_survives_source_update_and_default_editor(self):
+    def test_manual_content_survives_source_update_and_default_editor(self):
         self.guide.refresh_from_db()
-        manual = create_revision(self.guide.id, '人工中文攻略', [{'id': 'intro', 'type': 'html', 'html': '<p>人工内容</p>'}], expected_number=1)
+        manual = save_article(self.guide.id, '人工中文攻略', [{'id': 'intro', 'type': 'html', 'html': '<p>人工内容</p>'}], expected_updated_at=ClassGuide.objects.get(pk=self.guide.pk).updated_at)
         post = source_post(); post['gutenbergBlock'][1]['innerHTML'] += '<p>Updated paragraph.</p>'
         import_post(post, self.url)
         manual.refresh_from_db()
@@ -84,8 +123,7 @@ class GuideFlowTests(TestCase):
         self.guide.refresh_from_db()
         self.assertEqual(self.guide.title, '人工中文攻略')
         data = self.client.get(f'/api/dashboard/class-guides/{self.guide.id}/').json()
-        self.assertEqual(data['revision']['id'], manual.id)
-        self.assertEqual(data['revision_number'], 3)
+        self.assertEqual(data['id'], manual.id)
 
     def test_exported_drafts_can_be_imported_without_retranslation(self):
         folder = Path('tmp/django-tests/class-guides-' + uuid.uuid4().hex)
@@ -101,10 +139,8 @@ class GuideFlowTests(TestCase):
             call_command('import_class_guide_drafts', input_dir=str(folder), verbosity=0)
             engine.assert_not_called()
         imported = ClassGuide.objects.get(slug=slug)
-        self.assertEqual(imported.revision_number, 1)
-        self.assertEqual(imported.revisions.first().content_markdown, self.guide.revisions.first().content_markdown)
-        self.assertIsNone(imported.published_revision_id)
-        manual = create_revision(imported.id, '人工稿', content_markdown='人工保留的正文', expected_number=1)
+        self.assertEqual(ClassGuide.objects.get(pk=imported.pk).content_markdown, ClassGuide.objects.get(pk=self.guide.pk).content_markdown)
+        manual = save_article(imported.id, '人工稿', content_markdown='人工保留的正文', expected_updated_at=imported.updated_at)
         manifest = json.loads((folder / 'manifest.json').read_text(encoding='utf-8'))
         draft_path = folder / (slug + '-12.1.json')
         draft = json.loads(draft_path.read_text(encoding='utf-8'))
@@ -114,13 +150,30 @@ class GuideFlowTests(TestCase):
         (folder / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False), encoding='utf-8')
         call_command('import_class_guide_drafts', input_dir=str(folder), verbosity=0)
         current = self.client.get(f'/api/dashboard/class-guides/{imported.id}/').json()
-        self.assertEqual(current['revision']['id'], manual.id)
-        self.assertEqual(current['revision_number'], 3)
+        self.assertEqual(current['id'], manual.id)
 
     def test_stale_editor_cannot_overwrite(self):
-        with self.assertRaises(RevisionConflict):
-            create_revision(self.guide.id, '过期内容', [], expected_number=0)
-        self.assertEqual(self.guide.revisions.count(), 1)
+        with self.assertRaises(ArticleConflict):
+            save_article(self.guide.id, '过期内容', [], expected_updated_at=timezone.now() - timedelta(days=1))
+
+    def test_manual_empty_content_is_not_restored_by_monitor(self):
+        guide = ClassGuide.objects.get(pk=self.guide.pk)
+        save_article(guide.id, '人工清空正文', content_markdown='', expected_updated_at=guide.updated_at)
+        with patch('botend.services.class_guide_service.translate_blocks') as translate:
+            updated, status = import_post(source_post(), self.url, translate=True)
+        self.assertEqual(status, 'manual_preserved')
+        self.assertEqual(updated.content_markdown, '')
+        translate.assert_not_called()
+
+    def test_source_translation_cannot_overwrite_edit_saved_during_translation(self):
+        def translate(*args, **kwargs):
+            guide = ClassGuide.objects.get(pk=self.guide.pk)
+            save_article(guide.pk, '同时人工编辑', content_markdown='人工正文', expected_updated_at=guide.updated_at)
+            return ([{'id': 'p', 'type': 'html', 'html': '<p>自动译文</p>'}], [])
+        with patch('botend.services.class_guide_service.translate_blocks', side_effect=translate):
+            with self.assertRaises(ArticleConflict):
+                import_post(source_post(), self.url, translate=True)
+        self.assertEqual(ClassGuide.objects.get(pk=self.guide.pk).content_markdown, '人工正文')
 
     def test_historical_terms_require_matching_identity_and_preserve_manual_edits(self):
         folder = Path('tmp/django-tests/guide-terms-' + uuid.uuid4().hex)
@@ -131,65 +184,66 @@ class GuideFlowTests(TestCase):
             (old / ('SpellName_' + locale + '.csv')).write_text('ID,Name_lang\n30451,' + name + '\n', encoding='utf-8')
         options = {'game_version':'12.1', 'snapshot_build':'12.1.0.1', 'spell_names_dir':str(current),
             'historical_snapshot':['11.2.7.1=' + str(old)], 'verbosity':0}
-        revision = self.guide.revisions.first()
-        revision.audit['source_refs']['[[spell:30451]]']['source_name'] = 'Fireball'
-        revision.save(update_fields=['audit'])
+        revision = ClassGuide.objects.get(pk=self.guide.pk)
+        revision.check_data['source_refs']['[[spell:30451]]']['source_name'] = 'Fireball'
+        revision.save(update_fields=['check_data'])
         call_command('hydrate_class_guide_terms', **options)
-        self.assertFalse(ClassGuideTerm.objects.exists())
-        revision.audit['source_refs']['[[spell:30451]]']['source_name'] = 'Arcane Blast'
-        revision.save(update_fields=['audit'])
+        self.assertFalse(effective_names('12.1'))
+        revision.check_data['source_refs']['[[spell:30451]]']['source_name'] = 'Arcane Blast'
+        revision.save(update_fields=['check_data'])
         call_command('hydrate_class_guide_terms', **options)
-        term = ClassGuideTerm.objects.get(object_id=30451)
+        term = WowTalentNodeMetadata.all_objects.get(name_kind='spell', reference_id=30451)
         self.assertEqual(term.name_zh, '奥术冲击')
-        self.assertIn('11.2.7.1', term.evidence)
-        self.assertEqual(audit_revision(revision)['historical_references'], ['[[spell:30451]]'])
-        term.name_zh = '人工核对的名称'; term.evidence = '人工核对'; term.save()
+        self.assertIn('11.2.7.1', term.localization_evidence)
+        self.assertEqual(check_article(revision)['historical_references'], ['[[spell:30451]]'])
+        term.name_zh = '人工核对的名称'; term.localization_evidence = '人工核对'; term.save()
         call_command('hydrate_class_guide_terms', **options)
         term.refresh_from_db()
         self.assertEqual(term.name_zh, '人工核对的名称')
 
     def test_reference_label_conflicts_are_visible_for_review(self):
-        ClassGuideTerm.objects.create(game_version='12.1', kind='spell', object_id=30451,
+        create_name(game_version='12.1', kind='spell', object_id=30451,
             name_en='Fireball', name_zh='火球术', evidence='测试名称冲突')
-        audit = audit_revision(self.guide.revisions.first())
+        audit = check_article(ClassGuide.objects.get(pk=self.guide.pk))
         self.assertEqual(audit['source_name_mismatches'], ['[[spell:30451]]'])
         self.assertEqual(audit['references']['[[spell:30451]]']['name_en'], 'Fireball')
 
     def test_phrase_terms_are_editable_and_protected_during_translation(self):
         data = {'game_version':'12.1','kind':'phrase','name_en':"Blood of Ula'tek", 'name_zh':'乌拉特克之血','evidence':'冒险指南中英对照'}
-        response = self.client.post('/api/dashboard/class-guides/terms/', json.dumps(data), content_type='application/json')
+        response = self.client.post('/api/dashboard/wow-localization/', json.dumps(data), content_type='application/json')
         self.assertEqual(response.status_code, 200)
-        repeated = self.client.post('/api/dashboard/class-guides/terms/', json.dumps(data), content_type='application/json')
+        repeated = self.client.post('/api/dashboard/wow-localization/', json.dumps(data), content_type='application/json')
         self.assertEqual(repeated.json()['id'], response.json()['id'])
-        record = ClassGuideTerm.objects.get(pk=response.json()['id'])
-        self.assertLess(record.object_id, 2**53)
+        record = WowTalentNodeMetadata.all_objects.get(pk=response.json()['id'].split(':')[1])
+        self.assertLess(record.reference_id, 2**53)
         service = Mock(); service.available.return_value = False
         translated, failed = translate_blocks([{'id':'boss','type':'html','html':"<p>Blood of Ula'tek</p>"}], '12.1', service=service)
         self.assertFalse(failed)
         self.assertIn('乌拉特克之血', translated[0]['html'])
         service.engine.send_message.assert_not_called()
-        ClassGuideTerm.objects.bulk_create([ClassGuideTerm(game_version='12.1',kind='item',object_id=10000+i,
-            name_en='Item '+str(i),name_zh='测试装备 '+str(i),evidence='分页测试') for i in range(105)])
-        second = self.client.get('/api/dashboard/class-guides/terms/?version=12.1&page=2').json()
+        for i in range(105):
+            create_name(game_version='12.1',kind='item',object_id=10000+i,
+                name_en='Item '+str(i),name_zh='测试装备 '+str(i),evidence='分页测试')
+        second = self.client.get('/api/dashboard/wow-localization/?version=12.1&page=2').json()
         self.assertEqual(second['total'], 106)
         self.assertEqual(len(second['records']), 6)
-        search = self.client.get('/api/dashboard/class-guides/terms/', {'version':'12.1','q':'乌拉特克','kind':'phrase'}).json()
+        search = self.client.get('/api/dashboard/wow-localization/', {'version':'12.1','q':'乌拉特克','kind':'phrase'}).json()
         self.assertEqual(search['total'], 1)
 
     def test_source_failure_is_recorded_and_releases_lease(self):
-        feed = ClassGuideFeed.objects.create(authorization_note='测试授权')
+        task = get_guide_monitor_task(); task.notes = '测试授权'; task.save(update_fields=['notes'])
         with patch('botend.services.class_guide_service.MaxrollClient') as cls:
             cls.return_value.discover.return_value = [self.url]
             cls.return_value.article.side_effect = ValueError('模拟断网')
             run = sync_guides()
         self.assertEqual(run.status, 'partial')
         self.assertEqual(run.results[0]['status'], 'failed')
-        feed.refresh_from_db(); self.assertIsNone(feed.lease_until)
-        self.assertEqual(self.guide.revisions.count(), 1)
+        self.assertFalse(MonitorTaskLease.objects.filter(task=task).exists())
 
     def test_active_lease_prevents_second_worker(self):
-        ClassGuideFeed.objects.create(authorization_note='测试授权', lease_until=timezone.now() + timedelta(minutes=10))
-        with self.assertRaises(RevisionConflict):
+        task = get_guide_monitor_task(); task.notes = '测试授权'; task.save(update_fields=['notes'])
+        claim_monitor_task(task.pk)
+        with self.assertRaises(MonitorTaskLeaseLost):
             sync_guides()
 
     def test_authorization_is_required_before_fetch(self):
@@ -200,7 +254,7 @@ class GuideFlowTests(TestCase):
 
     def test_permissions_and_no_public_route(self):
         anonymous = Client()
-        for url in ['/dashboard/class-guides/', '/api/dashboard/class-guides/', '/api/dashboard/class-guides/feed/',
+        for url in ['/dashboard/class-guides/', '/api/dashboard/class-guides/',
                     f'/dashboard/class-guides/{self.guide.id}/preview/']:
             self.assertEqual(anonymous.get(url).status_code, 403, url)
         self.assertEqual(anonymous.get('/portal/class-guides/').status_code, 403)
@@ -257,14 +311,85 @@ class GuideFlowTests(TestCase):
         with self.assertRaises(IntegrityError), transaction.atomic():
             ClassGuide.objects.bulk_create([ClassGuide(title='无效', slug='invalid', game_version='current', spec_id=62, class_name='Priest', spec_name='Holy')])
 
-    def test_edit_and_source_cannot_silently_rebind_specialization(self):
+    def test_source_preserves_manually_selected_specialization(self):
         response = self.client.patch(f'/api/dashboard/class-guides/{self.guide.pk}/',
-            data=json.dumps({'expected_number': 1, 'spec_id': 257}), content_type='application/json')
+            data=json.dumps({'expected_updated_at':ClassGuide.objects.get(pk=self.guide.pk).updated_at.isoformat(), 'spec_id': 257}), content_type='application/json')
         self.assertEqual(response.status_code, 400)
         ClassGuide.objects.filter(pk=self.guide.pk).update(spec_id=257, class_name='Priest', spec_name='Holy')
-        with self.assertRaisesMessage(ValueError, '来源专精与现有攻略绑定不一致'):
-            import_post(source_post(), self.url)
-        self.assertEqual(self.guide.revisions.count(), 1)
+        guide, status = import_post(source_post(), self.url)
+        self.assertEqual(status, 'specialization_preserved')
+        self.assertEqual(guide.spec_id, 257)
+
+    def test_visibility_and_specialization_save_with_content(self):
+        endpoint = f'/api/dashboard/class-guides/{self.guide.pk}/'
+        current = self.client.get(endpoint).json()
+        self.assertEqual({s['spec_id'] for s in current['specializations']}, set(SPEC_IDENTITY_MAP))
+        body = {'expected_updated_at': current['updated_at'], 'title': '调整专精后的文章',
+            'content_markdown': '## 正文\n同时保存的内容', 'spec_id': 257, 'is_visible': False}
+        response = self.client.patch(endpoint, json.dumps(body), content_type='application/json')
+        self.assertEqual(response.status_code, 200, response.content)
+        guide = ClassGuide.objects.get(pk=self.guide.pk)
+        self.assertEqual((guide.spec_id, guide.class_name, guide.spec_name), (257, 'Priest', 'Holy'))
+        self.assertTrue(guide.archived)
+        self.assertIn('同时保存的内容', guide.content_markdown)
+        self.assertEqual(self.client.get(f'/portal/class-guides/{guide.pk}/').status_code, 404)
+        self.assertNotContains(self.client.get('/portal/class-guides/'), guide.title)
+        self.assertEqual(self.client.get('/api/dashboard/class-guides/').json()['total'], 1)
+        self.assertEqual(self.client.get('/api/dashboard/class-guides/?visible=0').json()['total'], 1)
+        self.assertEqual(self.client.get('/api/dashboard/class-guides/?visible=1').json()['total'], 0)
+        self.assertEqual(self.client.patch(endpoint, json.dumps(body), content_type='application/json').status_code, 409)
+        body.update(expected_updated_at=self.client.get(endpoint).json()['updated_at'], is_visible=True)
+        self.assertEqual(self.client.patch(endpoint, json.dumps(body), content_type='application/json').status_code, 200)
+        self.assertContains(self.client.get(f'/portal/class-guides/{guide.pk}/'), '同时保存的内容')
+
+    def test_invalid_visibility_and_specialization_do_not_partially_save(self):
+        endpoint = f'/api/dashboard/class-guides/{self.guide.pk}/'
+        original = self.client.get(endpoint).json()
+        for extra in ({'is_visible': 'false'}, {'is_visible': 0}, {'spec_id': ''}, {'spec_id': True},
+                      {'spec_id': 999}, {'spec_id': 65, 'class_name': 'Priest', 'spec_name': 'Holy'}):
+            body = {'expected_updated_at': original['updated_at'], 'title': '不应写入',
+                'content_markdown': '不应写入', **extra}
+            self.assertEqual(self.client.patch(endpoint, json.dumps(body), content_type='application/json').status_code, 400)
+        self.assertEqual(self.client.get(endpoint).json()['updated_at'], original['updated_at'])
+        self.assertEqual(ClassGuide.objects.get(pk=self.guide.pk).spec_id, 62)
+
+    def test_hidden_article_still_syncs_without_becoming_visible(self):
+        ClassGuide.objects.filter(pk=self.guide.pk).update(archived=True)
+        post = source_post(); post['gutenbergBlock'][1]['innerHTML'] += '<p>新来源正文。</p>'
+        guide, status = import_post(post, self.url)
+        self.assertEqual(status, 'imported')
+        self.assertIn('新来源正文', guide.content_markdown)
+        self.assertTrue(guide.archived)
+
+    def test_new_article_can_start_hidden(self):
+        response = self.client.post('/api/dashboard/class-guides/', json.dumps({'title': '隐藏新文章',
+            'slug': 'hidden-new', 'spec_id': 65, 'is_visible': False}), content_type='application/json')
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertTrue(ClassGuide.objects.get(pk=response.json()['id']).archived)
+
+    def test_preview_uses_selected_specialization_without_saving(self):
+        endpoint = f'/api/dashboard/class-guides/{self.guide.pk}/'
+        with patch('botend.dashboard.class_guides.render_blocks', return_value=[]) as render:
+            response = self.client.post(endpoint, json.dumps({'content_markdown': '预览内容', 'spec_id': 257}), content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(render.call_args.args[2].spec_id, 257)
+        self.assertEqual(ClassGuide.objects.get(pk=self.guide.pk).spec_id, 62)
+
+    def test_bundle_preserves_hidden_articles_and_manual_specialization(self):
+        folder = Path('tmp/django-tests/guide-visibility-' + uuid.uuid4().hex)
+        ClassGuide.objects.filter(pk=self.guide.pk).update(archived=True)
+        call_command('audit_class_guides', output_dir=str(folder), verbosity=0)
+        ClassGuide.objects.filter(pk=self.guide.pk).update(spec_id=257, class_name='Priest', spec_name='Holy')
+        call_command('import_class_guide_drafts', input_dir=str(folder), verbosity=0)
+        current = ClassGuide.objects.get(pk=self.guide.pk)
+        self.assertEqual(current.spec_id, 257)
+        self.assertTrue(current.archived)
+        slug = current.slug
+        current.slug = 'original-' + slug; current.save(update_fields=['slug'])
+        call_command('import_class_guide_drafts', input_dir=str(folder), verbosity=0)
+        imported = ClassGuide.objects.get(slug=slug)
+        self.assertEqual(imported.spec_id, 62)
+        self.assertTrue(imported.archived)
 
     def test_draft_import_validates_specialization_against_manifest(self):
         folder = Path('tmp/class_guides/tests') / str(uuid.uuid4())
@@ -277,8 +402,8 @@ class GuideFlowTests(TestCase):
             call_command('import_class_guide_drafts', input_dir=str(folder), dry_run=True, verbosity=0)
 
     def test_tag_edit_conflict_and_source_update_preserve_editor_labels(self):
-        base=self.guide.revisions.first()
-        data={'expected_number':base.number,'base_revision_id':base.id,'title':base.title,
+        base=ClassGuide.objects.get(pk=self.guide.pk)
+        data={'expected_updated_at':base.updated_at.isoformat(),'title':base.title,
             'content_markdown':'## 中文攻略\n\n测试正文。','tags':['自选标签']}
         url=f'/api/dashboard/class-guides/{self.guide.id}/'
         self.assertEqual(self.client.patch(url,data=json.dumps(data),content_type='application/json').status_code,200)
@@ -323,7 +448,7 @@ class GuideFlowTests(TestCase):
         self.assertEqual(self.client.get(article).status_code, 404)
 
     def test_portal_article_uses_whole_markdown_and_shared_renderer(self):
-        revision = create_revision(self.guide.id, '中文整篇攻略', content_markdown='## 中文章节\n\n中文正文。\n\n:::details 补充说明\n隐藏说明\n:::\n', expected_number=1)
+        revision = save_article(self.guide.id, '中文整篇攻略', content_markdown='## 中文章节\n\n中文正文。\n\n:::details 补充说明\n隐藏说明\n:::\n', expected_updated_at=ClassGuide.objects.get(pk=self.guide.pk).updated_at)
         endpoint = f'/portal/class-guides/{self.guide.id}/'
         page = self.client.get(endpoint)
         self.assertEqual(page.status_code, 200)
@@ -333,21 +458,21 @@ class GuideFlowTests(TestCase):
         self.assertContains(page, '法师 · 奥术')
         self.assertContains(page, f'/dashboard/?section=class-guides&amp;guide={self.guide.id}')
         self.assertContains(page, 'class=Mage&amp;spec=Arcane')
-        self.assertEqual(page.context['revision'].id, revision.id)
+        self.assertEqual(page.context['guide'].id, revision.id)
         self.assertEqual(page.context['toc'][0]['title'], '中文章节')
-        self.assertEqual(self.client.get(endpoint, {'revision':'bad'}).status_code, 404)
+        self.assertContains(self.client.get(endpoint, {'revision':'bad'}), '中文正文')
         other = ClassGuide.objects.create(title='其他专精', slug='other', spec_id=257, game_version='current')
-        other_revision = create_revision(other.id, other.title, content_markdown='其他正文', expected_number=0)
-        self.assertEqual(self.client.get(endpoint, {'revision':other_revision.id}).status_code, 404)
+        other_revision = save_article(other.id, other.title, content_markdown='其他正文', expected_updated_at=other.updated_at)
+        self.assertContains(self.client.get(endpoint, {'revision':other_revision.id}), '中文正文')
 
-    def test_portal_catalog_and_reader_preserve_manual_conflict_selection(self):
-        manual = create_revision(self.guide.id, '人工保留标题', content_markdown='## 人工章节\n中文内容', expected_number=1)
+    def test_portal_catalog_and_reader_preserve_manual_content(self):
+        manual = save_article(self.guide.id, '人工保留标题', content_markdown='## 人工章节\n中文内容', expected_updated_at=ClassGuide.objects.get(pk=self.guide.pk).updated_at)
         post = source_post();post['gutenbergBlock'][1]['innerHTML'] = '<p>Changed source.</p>'
         import_post(post, self.url)
         page = self.client.get('/portal/class-guides/')
         self.assertEqual(page.context['rows'][0]['title'], '人工保留标题')
         page = self.client.get(f'/portal/class-guides/{self.guide.id}/')
-        self.assertEqual(page.context['revision'].id, manual.id)
+        self.assertEqual(page.context['guide'].id, manual.id)
 
     def test_author_card_is_extracted_outside_article_body(self):
         soup = BeautifulSoup('<div class="_Widget_x _Author_abc"><div class="_Author__image_xyz" style="background-image:url(https://example.com/avatar.svg)"></div><span class="_Author__nickname_xyz">作者名</span><span class="_Author__title_xyz">团队成员</span><a href="https://example.com/channel" title="频道"></a></div>', 'html.parser')
@@ -359,7 +484,7 @@ class GuideFlowTests(TestCase):
 
     def test_disclaimer_is_shared_by_tag_without_changing_articles(self):
         endpoint = '/api/dashboard/class-guides/disclaimer/'
-        original = list(self.guide.revisions.values_list('content_markdown', flat=True))
+        original = ClassGuide.objects.get(pk=self.guide.pk).content_markdown
         text = '中文免责声明\n<script>示例仅作为文本</script>'
         response = self.client.patch(endpoint, data=json.dumps({'text': text}), content_type='application/json')
         self.assertEqual(response.status_code, 200)
@@ -378,7 +503,7 @@ class GuideFlowTests(TestCase):
         self.assertContains(self.client.get(url), '中文免责声明')
         self.client.patch(endpoint, data=json.dumps({'text': ''}), content_type='application/json')
         self.assertNotContains(self.client.get(url), 'cg-disclaimer')
-        self.assertEqual(list(self.guide.revisions.values_list('content_markdown', flat=True)), original)
+        self.assertEqual(ClassGuide.objects.get(pk=self.guide.pk).content_markdown, original)
 
     def test_disclaimer_requires_permission_and_valid_text(self):
         endpoint = '/api/dashboard/class-guides/disclaimer/'
@@ -390,11 +515,11 @@ class GuideFlowTests(TestCase):
     def test_author_customization_survives_sync_and_can_restore_source(self):
         source = source_post();source['author_profile'] = {'name':'来源作者','avatar':'https://example.com/source.svg'}
         import_post(source, self.url)
-        base = self.guide.revisions.first()
+        base = ClassGuide.objects.get(pk=self.guide.pk)
         profile = {'name':'中文编辑','title':'攻略维护者','bio':'第一段简介\n第二段简介','avatar':'https://example.com/custom.png',
                    'links':[{'label':'个人主页','url':'https://example.com/me'}]}
         endpoint = f'/api/dashboard/class-guides/{self.guide.id}/'
-        body = {'expected_number':base.number, 'base_revision_id':base.id, 'title':base.title,
+        body = {'expected_updated_at':base.updated_at.isoformat(), 'title':base.title,
                 'content_markdown':base.content_markdown, 'author_profile':profile}
         response = self.client.patch(endpoint, data=json.dumps(body), content_type='application/json')
         self.assertEqual(response.status_code, 200, response.content)
@@ -409,40 +534,33 @@ class GuideFlowTests(TestCase):
         self.assertEqual(self.client.patch(endpoint, data=json.dumps(body), content_type='application/json').status_code,409)
         self.guide.refresh_from_db()
         self.assertEqual(self.guide.author_profile['name'], '中文编辑')
-        body.update(expected_number=self.guide.revision_number, base_revision_id=self.guide.revisions.first().id, author_profile=None)
+        body.update(expected_updated_at=self.guide.updated_at.isoformat(), author_profile=None)
         self.assertEqual(self.client.patch(endpoint, data=json.dumps(body), content_type='application/json').status_code,200)
         self.assertEqual(self.client.get(endpoint).json()['display_author_profile']['name'], '来源更新')
 
     def test_author_customization_rejects_unsafe_links(self):
-        base = self.guide.revisions.first()
-        body = {'expected_number':base.number, 'base_revision_id':base.id, 'title':base.title,
+        base = ClassGuide.objects.get(pk=self.guide.pk)
+        body = {'expected_updated_at':base.updated_at.isoformat(), 'title':base.title,
                 'content_markdown':base.content_markdown, 'author_profile':{'name':'作者','avatar':'javascript:alert(1)'}}
         self.assertEqual(self.client.patch(f'/api/dashboard/class-guides/{self.guide.id}/', data=json.dumps(body), content_type='application/json').status_code,400)
-        self.assertEqual(self.guide.revisions.count(), 1)
 
-    def test_edit_approve_preview_restore_flow(self):
-        revision = self.guide.revisions.first()
-        ClassGuideTerm.objects.create(game_version='12.1', kind='spell', object_id=30451,
-            name_en='Arcane Blast', name_zh='奥术冲击', evidence='测试元数据')
-        blocks = copy.deepcopy(revision.blocks)
-        blocks[0]['title'] = '概览'; blocks[1]['html'] = '<p>施放 [[spell:30451]]。</p>'
-        body = {'expected_number': 1, 'base_revision_id': revision.id, 'title': '奥术法师团本攻略', 'content_markdown': blocks_to_markdown(blocks)}
+    def test_save_displays_immediately_without_review_or_history(self):
         endpoint = f'/api/dashboard/class-guides/{self.guide.id}/'
-        response = self.client.patch(endpoint, data=json.dumps(body), content_type='application/json')
+        before = self.client.get(endpoint).json()
+        body = {'expected_updated_at': before['updated_at'], 'title': '直接保存的攻略',
+                'content_markdown': '## 当前正文\n\n保存后即可阅读 [[spell:30451]]。'}
+        create_name(game_version='12.1', kind='spell', object_id=30451,
+            name_en='Arcane Blast', name_zh='奥术冲击', evidence='测试元数据')
+        response = self.client.patch(endpoint, json.dumps(body), content_type='application/json')
         self.assertEqual(response.status_code, 200, response.content)
-        new_id = response.json()['revision_id']
-        response = self.client.patch(endpoint, data=json.dumps({'action': 'approve', 'revision_id': new_id, 'expected_number': 2}), content_type='application/json')
-        self.assertEqual(response.status_code, 200, response.content)
-        preview = self.client.get(f'/dashboard/class-guides/{self.guide.id}/preview/?revision={new_id}')
-        self.assertContains(preview, '奥术冲击')
-        self.assertNotContains(preview, '[[spell:30451]]')
-        self.assertEqual(preview['Cache-Control'], 'private, no-store')
-        self.assertEqual(preview['X-Robots-Tag'], 'noindex, nofollow')
-        response = self.client.patch(endpoint, data=json.dumps({'action':'restore','base_revision_id':revision.id,'expected_number':2}), content_type='application/json')
-        self.assertEqual(response.status_code, 200)
-        self.guide.refresh_from_db()
-        self.assertEqual(self.guide.published_revision_id, new_id)
-        self.assertEqual(self.guide.revisions.count(), 3)
+        self.assertContains(self.client.get(f'/portal/class-guides/{self.guide.id}/'), '保存后即可阅读')
+        self.assertContains(self.client.get(f'/dashboard/class-guides/{self.guide.id}/preview/'), '奥术冲击')
+        after = self.client.get(endpoint).json()
+        self.assertFalse({'revision', 'revisions', 'revision_number', 'published_revision_id'} & after.keys())
+        self.assertEqual(self.client.patch(endpoint, json.dumps(body), content_type='application/json').status_code, 409)
+        for action in ['approve', 'restore']:
+            self.assertEqual(self.client.patch(endpoint, json.dumps({'action': action,
+                'expected_updated_at': after['updated_at']}), content_type='application/json').status_code, 400)
 
     def test_unsaved_markdown_preview_is_readonly_and_directory_is_derived(self):
         endpoint = f'/api/dashboard/class-guides/{self.guide.id}/'
@@ -450,21 +568,21 @@ class GuideFlowTests(TestCase):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()['toc'][0]['title'], '新章节')
         self.assertIn('独立正文', response.json()['html'])
-        self.assertEqual(self.guide.revisions.count(), 1)
-        base = self.guide.revisions.first()
-        response = self.client.patch(endpoint, data=json.dumps({'expected_number': 1, 'base_revision_id': base.id,
+        base = ClassGuide.objects.get(pk=self.guide.pk)
+        response = self.client.patch(endpoint, data=json.dumps({'expected_updated_at':ClassGuide.objects.get(pk=self.guide.pk).updated_at.isoformat(),
             'title': base.title, 'content_markdown': '## 新增中文标题\n\n' + base.content_markdown}), content_type='application/json')
         self.assertEqual(response.status_code, 200, response.content)
         data = self.client.get(endpoint).json()
-        self.assertTrue(data['revision']['audit']['untranslated'])
-        self.assertNotIn('blocks', data['revision'])
-        self.assertTrue(data['revision']['content_markdown'].startswith('## 新增中文标题'))
+        self.assertTrue(data['checks']['untranslated'])
+        self.assertNotIn('blocks', data)
+        self.assertTrue(data['content_markdown'].startswith('## 新增中文标题'))
 
-    def test_untranslated_and_unknown_reference_blocks_approval(self):
-        revision = self.guide.revisions.first()
-        self.assertFalse(audit_revision(revision)['publishable'])
-        with self.assertRaises(ValueError):
-            approve_revision(self.guide.id, revision.id, 1)
+    def test_content_checks_warn_without_blocking_save(self):
+        current = ClassGuide.objects.get(pk=self.guide.pk)
+        self.assertFalse(check_article(current)['complete'])
+        saved = save_article(current.pk, '仍可保存', content_markdown='中文正文 [[spell:9999999999]]', expected_updated_at=current.updated_at)
+        self.assertTrue(check_article(saved)['unresolved_references'])
+        self.assertContains(self.client.get(f'/portal/class-guides/{current.pk}/'), '中文正文')
 
     def test_translation_is_cached_and_preserves_reference(self):
         blocks = [{'id':'x','type':'html','html':'<p>Cast [[spell:30451]].</p>'}]
@@ -558,11 +676,51 @@ class GuideMarkdownTests(SimpleTestCase):
         blocks = compile_markdown(source)
         self.assertEqual(blocks[0]['data']['source_line'], 0)
         self.assertIn('<strong>重点</strong>', blocks[1]['html'])
-        self.assertEqual(blocks[2]['children'][0]['children'][0]['title'], '单体')
-        self.assertEqual(blocks[2]['children'][0]['children'][0]['data']['source_line'], 6)
+        self.assertEqual(blocks[2]['title'], '团本')
+        self.assertEqual(blocks[3]['title'], '单体')
+        self.assertEqual(blocks[3]['data']['source_line'], 6)
+        self.assertEqual(blocks[3]['data']['level'], 4)
         result = compile_markdown(blocks_to_markdown(blocks))
         self.assertIn('右栏', str(result))
-        self.assertEqual(result[2]['type'], 'tabs')
+        self.assertEqual(result[2]['type'], 'heading')
+        self.assertNotIn(':::tab', blocks_to_markdown(blocks))
+
+    def test_vertical_conversion_preserves_nested_components_and_code(self):
+        source = ('## 配装\n\n:::tabs\n:::tab 单体\n### 优先级\n'
+                  '[[spell:30451]]\n:::tabs 备选\n:::tab 爆发\n'
+                  ':::talents\n```json\n{"code":"ABCDEFGHIJKLMNOPQRSTUVWXYZ"}\n```\n:::\n:::\n:::\n:::\n'
+                  ':::tab 多目标\n| 技能 |\n| --- |\n| [[item:123]] |\n:::\n:::\n'
+                  '## 宏\n```wow-macro\n:::tab 这是宏内文本\n/cast 奥术冲击\n```\n')
+        converted = normalize_tab_markdown(source)
+        self.assertIn('### 单体', converted)
+        self.assertIn('#### 优先级', converted)
+        self.assertIn('### 多目标', converted)
+        self.assertIn('## 宏\n```wow-macro\n:::tab 这是宏内文本\n/cast 奥术冲击\n```', converted)
+        self.assertIn('"code":"ABCDEFGHIJKLMNOPQRSTUVWXYZ"', converted)
+        self.assertIn('| [[item:123]] |', converted)
+        self.assertEqual(normalize_tab_markdown(converted), converted)
+        self.assertNotIn("'type': 'tab'", str(compile_markdown(converted)))
+
+    def test_source_converter_expands_all_tabs_in_order(self):
+        post = source_post()
+        post['gutenbergBlock'] = [
+            {'blockName': 'core/heading', 'attributes': {'title': '配置', 'level': 2}},
+            {'blockName': 'advgb/adv-tabs', 'innerBlocks': [
+                {'blockName': 'advgb/tab', 'attributes': {'title': title}, 'innerBlocks': [
+                    {'blockName': 'core/paragraph', 'innerHTML': '<p>' + content + '</p>'}
+                ]} for title, content in [('单体', '[[spell:30451]]'), ('多目标', '[[item:123]]')]]
+            }]
+        blocks, audit = convert(post)
+        markdown = blocks_to_markdown(blocks)
+        self.assertNotIn(':::tab', markdown)
+        self.assertLess(markdown.index('### 单体'), markdown.index('### 多目标'))
+        self.assertIn('[[spell:30451]]', markdown)
+        self.assertIn('[[item:123]]', markdown)
+        self.assertEqual(audit['source_block_counts']['advgb/tab'], 2)
+
+    def test_documents_without_tabs_are_not_reformatted(self):
+        source = '## 标题\r\n\r\n正文  \r\n| 表格 |\r\n| --- |\r\n'
+        self.assertEqual(normalize_tab_markdown(source), source)
 
     def test_fences_preserve_literal_directives_and_reference_examples(self):
         blocks = compile_markdown('```text\n:::tabs\n[[spell:30451]]\n```\n\n```wow-macro\n/cast 奥术冲击\n```')

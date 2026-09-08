@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 from collections import Counter
-from urllib.parse import urlparse, unquote
+from urllib.parse import urlparse, unquote, urljoin, urlencode
 
 import requests
 from bs4 import BeautifulSoup
@@ -15,6 +15,7 @@ from botend.constants.wow import CLASS_SPEC_MAP, CLASS_CN, SPEC_CN, canonical_cl
 from botend.services.class_guide_content import clean_html, validate_blocks
 from botend.services.class_guide_codec import decode_component, component_html
 from botend.services.class_guide_authors import extract_author_profile
+from botend.services.class_guide_sections import expand_tab_sections
 
 CATALOG_URL = 'https://maxroll.gg/wow/class-guides'
 CONTAINERS = {'advgb/adv-tabs': 'tabs', 'advgb/tab': 'tab', 'advgb/columns': 'columns',
@@ -67,7 +68,64 @@ class MaxrollClient:
         return b''.join(chunks).decode('utf-8')
 
     def discover(self):
-        return discover(self.fetch(CATALOG_URL))
+        markup = self.fetch(CATALOG_URL)
+        urls = set(discover(markup))
+        loaders = remix_context(markup).get('state', {}).get('loaderData', {})
+        catalog = next((row['searchData'] for row in loaders.values()
+                        if isinstance(row, dict) and 'searchData' in row), None)
+        if catalog is None:
+            raise ValueError('目录缺少分页信息，无法确认已发现全部攻略')
+        response = catalog.get('initialSearchResponse') or {}
+        if not isinstance(response.get('hits'), list) or not isinstance(response.get('estimatedTotalHits'), int) or response.get('offset', 0) != 0:
+            raise ValueError('目录缺少有效的文章总数或首页数据，无法确认完整性')
+        hits = response.get('hits') or []
+        seen = {str(row['id']) for row in hits}
+        total = int(response.get('estimatedTotalHits', len(hits)))
+        offset = len(hits)
+        while offset < total:
+            config = loaders.get('root', {}).get('appContext', {}).get('search', {})
+            response = self._catalog_search(config, offset)
+            page = response.get('hits') or []
+            new_ids = {str(row['id']) for row in page} - seen
+            if not page or not new_ids:
+                raise ValueError('目录分页提前结束或重复，拒绝将不完整目录标记为成功')
+            seen.update(new_ids)
+            hits.extend(page)
+            offset += len(page)
+            total = max(total, int(response.get('estimatedTotalHits', total)))
+            if offset > 10000:
+                raise ValueError('目录超过预期规模，请检查来源分页结构')
+        if len(seen) < total:
+            raise ValueError('目录结果存在重复或缺失，请重新同步完整目录')
+        for row in hits:
+            url = guide_url(row.get('permalink', ''), article=True)
+            if url and not is_leveling(row):
+                urls.add(url)
+        # 目录分类也可标记练级，不能只依赖文章网址后缀。
+        urls.difference_update(guide_url(row.get('permalink', ''), article=True) for row in hits if is_leveling(row))
+        self.catalog_version = latest_source_version(hits)
+        return sorted(urls)
+
+    def _catalog_search(self, config, offset):
+        if config.get('url', '').rstrip('/') != 'https://meilisearch-proxy.maxroll.gg' or config.get('index') != 'wp_posts_15' or not config.get('api_key'):
+            raise ValueError('Maxroll 职业攻略目录搜索配置已变化')
+        url = 'https://meilisearch-proxy.maxroll.gg/indexes/wp_posts_15/search'
+        url += '?' + urlencode({'q': '', 'limit': 100, 'offset': offset,
+                                'filter': 'taxonomies.category = "class-guides"',
+                                'sort': 'post_modified_unix:desc'})
+        options = {'headers': {'Authorization': 'Bearer ' + config['api_key']}}
+        if self.request_client is not None:
+            response = self.request_client.get(url, 'Response', 0, '', **options)
+        else:
+            response = self.session.get(url, timeout=(10, 45), allow_redirects=False, **options)
+        if response is None or response is False or response.status_code != 200:
+            raise ValueError('Maxroll 目录分页请求失败')
+        if urlparse(response.url)._replace(query='') != urlparse(url)._replace(query='') or len(response.content) > 8000000:
+            raise ValueError('Maxroll 目录分页地址或响应大小无效')
+        data = response.json()
+        if not isinstance(data, dict) or not isinstance(data.get('hits'), list):
+            raise ValueError('Maxroll 目录分页缺少文章列表')
+        return data
 
     def article(self, url):
         soup = BeautifulSoup(self.fetch(url), 'html.parser')
@@ -83,31 +141,70 @@ class MaxrollClient:
         return post
 
 
+def remix_context(markup):
+    soup = BeautifulSoup(markup, 'html.parser')
+    script = next((s.get_text() for s in soup.find_all('script')
+                   if s.get_text().lstrip().startswith('window.__remixContext =')), '')
+    return json.JSONDecoder().raw_decode(script.split('=', 1)[1].lstrip())[0] if script else {}
+
+
+def is_leveling(post):
+    slug = post.get('slug') or urlparse(post.get('permalink', '')).path.rsplit('/', 1)[-1]
+    metas = (post.get('taxonomies') or {}).get('metas') or []
+    return bool(re.search(r'(?:^|-)level(?:l)?ing(?:-|$)', slug)) or 'leveling' in metas
+
+
+def latest_source_version(posts):
+    versions = {match[0] for post in posts for tag in post.get('tags') or []
+                for match in re.finditer(r'\d+\.\d+(?:\.\d+)?', tag.get('name', ''))}
+    return max(versions, key=lambda value: tuple(map(int, value.split('.'))), default='')
+
+
+def guide_url(value, *, article=False):
+    parsed = urlparse(urljoin(CATALOG_URL + '/', value))
+    if parsed.scheme != 'https' or parsed.netloc != 'maxroll.gg' or not re.fullmatch(r'/wow/class-guides/[a-z0-9-]+/?', parsed.path):
+        return None
+    slug = parsed.path.rstrip('/').rsplit('/', 1)[-1]
+    if is_leveling({'slug': slug}):
+        return None
+    if not article and not slug.endswith('-guide'):
+        try:
+            identity(slug)
+        except ValueError:
+            return None
+    return 'https://maxroll.gg' + parsed.path.rstrip('/')
+
+
 def discover(markup):
     soup = BeautifulSoup(markup, 'html.parser')
     urls = set()
     for a in soup.select('a[href]'):
-        href = a['href']
-        if href.startswith('/wow/class-guides/'):
-            href = 'https://maxroll.gg' + href
-        parsed = urlparse(href)
-        if parsed.netloc == 'maxroll.gg' and parsed.path.startswith('/wow/class-guides/'):
-            slug = parsed.path.rstrip('/').rsplit('/', 1)[-1]
-            if slug.endswith('-raid-guide') or re.search(r'-mythic(?:-plus)?-guide$', slug):
-                urls.add('https://maxroll.gg' + parsed.path.rstrip('/'))
+        url = guide_url(a['href'])
+        if url:
+            urls.add(url)
+    for loader in remix_context(markup).get('state', {}).get('loaderData', {}).values():
+        if not isinstance(loader, dict):
+            continue
+        for row in loader.get('searchData', {}).get('initialSearchResponse', {}).get('hits', []):
+            url = guide_url(row.get('permalink', ''), article=True)
+            if url and not is_leveling(row):
+                urls.add(url)
     if not urls:
-        raise ValueError('目录没有发现团本或大秘境攻略，可能需要更新解析器')
+        raise ValueError('目录没有发现非练级攻略，可能需要更新解析器')
     return sorted(urls)
 
 
 def identity(slug):
-    guide_type = 'raid' if slug.endswith('-raid-guide') else 'mythic-plus'
-    base = re.sub(r'-(raid|mythic-plus|mythic)-guide$', '', slug)
+    if is_leveling({'slug': slug}):
+        raise ValueError('练级攻略不在同步范围内')
+    guide_type = ('raid' if slug.endswith('-raid-guide') else 'mythic-plus' if re.search(r'-mythic(?:-plus)?-guide$', slug)
+                  else 'pvp' if slug.endswith('-pvp-guide') else 'general')
     for class_name, specs in CLASS_SPEC_MAP.items():
         source_class = {'DeathKnight': 'death-knight', 'DemonHunter': 'demon-hunter'}.get(class_name, class_name.lower())
         for spec in specs:
             source_spec = 'beast-mastery' if spec == 'BeastMastery' else spec.lower()
-            if base == source_spec + '-' + source_class:
+            base = source_spec + '-' + source_class
+            if slug == base or slug.startswith(base + '-'):
                 return class_name, spec, guide_type
     raise ValueError('无法识别职业专精：' + slug)
 
@@ -115,7 +212,7 @@ def identity(slug):
 def chinese_title(class_name, spec_name, guide_type):
     class_name, spec_name = canonical_class_spec(class_name, spec_name)
     return '{}{} · {}攻略'.format(SPEC_CN[spec_name], CLASS_CN[class_name],
-                                 '团本' if guide_type == 'raid' else '大秘境')
+                                 {'raid': '团本', 'mythic-plus': '大秘境', 'pvp': '玩家对战', 'general': '通用'}[guide_type])
 
 
 def convert(post):
@@ -184,5 +281,5 @@ def convert(post):
             block['children'] = visit(raw.get('innerBlocks') or [], block['id'])
             result.append(block)
         return result
-    blocks = validate_blocks(visit(post['gutenbergBlock']))
+    blocks = validate_blocks(expand_tab_sections(visit(post['gutenbergBlock'])))
     return blocks, {'source_block_counts': dict(counts), 'unsupported': unsupported, 'source_refs': refs}

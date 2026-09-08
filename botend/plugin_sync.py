@@ -174,6 +174,29 @@ def claim_next_monitor_task(now=None, *, lease_owner=None, lease_seconds=None):
     return None
 
 
+def claim_monitor_task(task_id, now=None, *, lease_owner=None, lease_seconds=None):
+    """手动执行指定任务，绕过到期时间和开关，但复用统一执行锁。"""
+    claim_time = now or timezone.now()
+    owner = str(lease_owner or uuid4().hex)
+    ttl_seconds = _monitor_task_lease_ttl(lease_seconds)
+    with transaction.atomic():
+        task = MonitorTask.objects.select_for_update().filter(pk=task_id).first()
+        if task is None:
+            return None
+        if MonitorTaskLease.objects.select_for_update().filter(
+            task_id=task_id, expires_at__gt=claim_time,
+        ).exists():
+            return None
+        MonitorTaskLease.objects.update_or_create(task_id=task_id, defaults={
+            'owner': owner, 'claimed_at': claim_time,
+            'expires_at': claim_time + timedelta(seconds=ttl_seconds),
+        })
+        task.last_scan_time = claim_time
+        task.save(update_fields=['last_scan_time'])
+        task._monitor_task_lease_owner = owner
+        return task
+
+
 def renew_monitor_task_lease(task_id, lease_owner, now=None, *, lease_seconds=None):
     """Extend a lease while holding the same parent-row mutex used by claimers."""
     renewed_at = now or timezone.now()

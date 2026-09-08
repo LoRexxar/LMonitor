@@ -12,10 +12,15 @@ import requests
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
-from botend.guide_models import ClassGuide, ClassGuideTerm
+from botend.guide_models import ClassGuide
+from botend.services.wow_localization import write_name, effective_names, phrase_identifier
 from botend.services.class_guide_content import REF_RE, walk_blocks
 from botend.constants.hero_talents import HERO_SUBTREE_NAME_ZH
 from botend.services.class_guide_macros import localize_macro, macro_name_map
+
+
+def store_name(*, game_version, kind, object_id, defaults):
+    return write_name(dict(game_version=game_version, kind=kind, object_id=object_id, **defaults))
 
 
 def canonical(value):
@@ -107,14 +112,11 @@ class Command(BaseCommand):
         class_ids = {'warrior':1, 'paladin':2, 'hunter':3, 'rogue':4, 'priest':5, 'deathknight':6,
             'shaman':7, 'mage':8, 'warlock':9, 'monk':10, 'druid':11, 'demonhunter':12, 'evoker':13}
         refs, source_documents, source_macros = {}, [], []
-        for guide in ClassGuide.objects.filter(game_version=version, archived=False):
-            revision = guide.revisions.first()
-            if not revision:
-                continue
-            source_documents.append(revision.source_markdown)
-            source_refs = revision.audit.get('source_refs', {})
-            source_macros.extend(block.get('data', {}).get('code', '') for block in walk_blocks(revision.source_blocks) if block['type'] == 'code')
-            for block in walk_blocks(revision.blocks):
+        for guide in ClassGuide.objects.filter(game_version=version):
+            source_documents.append(guide.source_markdown)
+            source_refs = guide.check_data.get('source_refs', {})
+            source_macros.extend(block.get('data', {}).get('code', '') for block in walk_blocks(guide.source_blocks) if block['type'] == 'code')
+            for block in walk_blocks(guide.blocks):
                 for match in REF_RE.finditer(block.get('html', '') + block.get('title', '')):
                     key = (match[1], int(match[2]))
                     row = refs.setdefault(key, {'kind': key[0], 'id': key[1], 'source_names': set(), 'classes':set()})
@@ -139,12 +141,11 @@ class Command(BaseCommand):
                         continue  # 攻略中是资料片名称，不能自动当成同名首领“午夜”。
                     if not english_name or english_name not in source_text or not re.search(r'[\u3400-\u9fff]', chinese_name) or not re.search(r'(?<![A-Za-z])' + re.escape(english_name) + r'(?![A-Za-z])', source_text):
                         continue
-                    _, added = ClassGuideTerm.objects.get_or_create(game_version=version, kind='phrase',
-                        object_id=ClassGuideTerm.phrase_identifier(english_name), defaults={'name_en':english_name, 'name_zh':chinese_name,
+                    _, added = store_name(game_version=version, kind='phrase',
+                        object_id=phrase_identifier(english_name), defaults={'name_en':english_name, 'name_zh':chinese_name,
                             'evidence':'攻略冒险指南 {}；{} ID {}；zhCN SHA256 {}'.format(build, table, record_id, hashlib.sha256(paths['zhCN'].read_bytes()).hexdigest())})
                     created += added
-        known_macro_names = macro_name_map(ClassGuideTerm.objects.filter(game_version=version,
-            kind__in=['spell', 'item', 'phrase', 'macro']).values_list('kind', 'name_en', 'name_zh'))
+        known_macro_names = macro_name_map((r['kind'], r['name_en'], r['name_zh']) for r in effective_names(version))
         macro_names = {name for code in source_macros for name in localize_macro(code, known_macro_names)[1]}
         macro_keys = {canonical(name) for name in macro_names}
         for old in historical:
@@ -167,8 +168,8 @@ class Command(BaseCommand):
                         break
             if len(choices) != 1:
                 macro_unresolved.append(english_name); continue
-            _, added = ClassGuideTerm.objects.get_or_create(game_version=version, kind='phrase',
-                object_id=ClassGuideTerm.phrase_identifier(english_name), defaults={'name_en':english_name,'name_zh':next(iter(choices)),
+            _, added = store_name(game_version=version, kind='phrase',
+                object_id=phrase_identifier(english_name), defaults={'name_en':english_name,'name_zh':next(iter(choices)),
                     'evidence':'攻略宏完整技能名称匹配；客户端 {}；zhCN SHA256 {}'.format(matched_build, matched_digest)})
             created += added
         if macro_unresolved:
@@ -243,13 +244,13 @@ class Command(BaseCommand):
                 if historical_match:
                     record_evidence = '攻略历史快照 {}；技能 ID {} 及英文名称一致；zhCN SHA256 {}；仅核对原文旧名称，不表示该技能在当前版本仍可用'.format(
                         historical_match['build'], spell_ids[0], historical_match['digests']['zhCN'])
-                record, added = ClassGuideTerm.objects.get_or_create(game_version=version, kind=key[0], object_id=key[1],
+                record, added = store_name(game_version=version, kind=key[0], object_id=key[1],
                     defaults={'name_en': english, 'name_zh': chinese, 'icon': icon,
                         'evidence': record_evidence})
-                if not added and icon and not record.icon and record.name_zh == chinese and record.evidence.startswith('攻略客户端快照'):
-                    record.icon = icon; record.save(update_fields=['icon'])
-                if not added and record.name_zh == chinese and record.name_en != english and record.evidence.startswith('攻略客户端快照'):
-                    record.name_en = english; record.save(update_fields=['name_en'])
+                if not added and icon and not record['icon'] and record['name_zh'] == chinese and record['evidence'].startswith('攻略客户端快照'):
+                    record['icon'] = icon; write_name({**record, 'game_version':version, 'kind':key[0], 'object_id':key[1]}, overwrite=True)
+                if not added and record['name_zh'] == chinese and record['name_en'] != english and record['evidence'].startswith('攻略客户端快照'):
+                    record['name_en'] = english; write_name({**record, 'game_version':version, 'kind':key[0], 'object_id':key[1]}, overwrite=True)
                 created += added
         self.stdout.write('客户端名称新增 {} 条，攻略引用 {} 项'.format(created, len(refs)))
         if not options['fetch_tooltips']:
@@ -304,9 +305,9 @@ class Command(BaseCommand):
                 counts['identity_or_locale_missing'] += 1
                 continue
             source = '攻略中文 Tooltip {}；环境 {}；{}；英文名称匹配'.format(lookup, options['tooltip_env'], payload.get('fetched_at', ''))
-            record, added = ClassGuideTerm.objects.get_or_create(game_version=version, kind=key[0], object_id=key[1],
+            record, added = store_name(game_version=version, kind=key[0], object_id=key[1],
                 defaults={'name_en': english, 'name_zh': chinese, 'icon': icon, 'evidence': source})
-            if not added and not record.icon and record.evidence.startswith('攻略客户端快照') and record.name_zh == chinese:
-                record.icon = icon; record.save(update_fields=['icon'])
+            if not added and not record['icon'] and record['evidence'].startswith('攻略客户端快照') and record['name_zh'] == chinese:
+                record['icon'] = icon; write_name({**record, 'game_version':version, 'kind':key[0], 'object_id':key[1]}, overwrite=True)
             counts['added' if added else 'existing'] += 1
         self.stdout.write(json.dumps(dict(counts), ensure_ascii=False))

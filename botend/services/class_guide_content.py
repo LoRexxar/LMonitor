@@ -6,11 +6,9 @@ import re
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup, NavigableString
-from django.db.models import Q
 
-from botend.guide_models import ClassGuideTerm
+from botend.services.wow_localization import names_for, version_for
 from botend.constants.wow import canonical_class_spec
-from botend.models import WowItemSnapshot, WowSpellSnapshot, WowTalentNodeMetadata, WowTalentVersion
 
 
 REF_RE = re.compile(r'\[\[(spell|item|talent):(\d+)(?:@([A-Za-z0-9_-]+))?\]\]')
@@ -148,37 +146,26 @@ def resolve_references(blocks, game_version, class_name='', spec_name='', source
             for m in REF_RE.finditer(content.get_text())}
     if not refs:
         return {}
-    overrides = {(r.kind, r.object_id): r for r in ClassGuideTerm.objects.filter(game_version=game_version)}
-    version = talent_version_for(game_version)
     class_name, spec_name = canonical_class_spec(class_name, spec_name) or (class_name, spec_name)
-    talents = WowTalentNodeMetadata.objects.none()
-    if version:
-        talents = WowTalentNodeMetadata.objects.filter(talent_version=version, class_name=class_name, spec_name=spec_name)
-    talent_rows = list(talents.exclude(name_zh=''))
-    spell_ids = {r['id'] for r in refs.values() if r['kind'] == 'spell'}
-    branch = 'wowxptr' if version and version.branch == 'ptr' else 'wow'
-    spells = {}
-    for row in WowSpellSnapshot.objects.filter(spell_id__in=spell_ids, branch=branch).order_by('locale'):
-        if row.name_zh or row.locale == 'zhCN':
-            spells[row.spell_id] = row
-    items = {r.item_id: r for r in WowItemSnapshot.objects.filter(item_id__in=[v['id'] for v in refs.values() if v['kind'] == 'item'])}
+    records = names_for(game_version, class_name, spec_name, reference_ids={kind: {r['id'] for r in refs.values() if r['kind'] == kind} for kind in ('spell', 'item', 'talent')})
     source_refs = source_refs or {}
     for token, ref in refs.items():
-        row = overrides.get((ref['kind'], ref['id']))
+        source_name = (source_refs.get(token) or {}).get('source_name', '')
+        candidates = [r for r in records if r['kind'] == ref['kind'] and
+            (r['object_id'] == ref['id'] or ref['id'] in r['aliases'] or
+             (ref['kind'] == 'talent' and r.get('node_id') == ref['id']))]
+        if not candidates and ref['kind'] == 'talent' and source_name:
+            candidates = [r for r in records if r['kind'] == 'talent' and r['name_en'].casefold() == source_name.casefold()]
+            if len({r['name_zh'] for r in candidates}) > 1:
+                candidates = []
+        if not candidates and ref['kind'] == 'spell':
+            candidates = [r for r in records if r['kind'] == 'talent' and ref['id'] in (r.get('spell_id'), r.get('display_spell_id'))]
+        # 相同 ID 在历史版本改名时，只在来源名精确匹配的候选中选择。
+        matched = [r for r in candidates if source_name and reference_names_match(source_name, r['name_en'])]
+        selected = next(iter(matched or candidates), None)
+        from types import SimpleNamespace
+        row = SimpleNamespace(**selected) if selected else None
         evidence = row.evidence if row else ''
-        if not row and ref['kind'] == 'talent':
-            candidates = [r for r in talent_rows if ref['id'] in (r.talent_id, r.node_id)]
-            if not candidates:
-                source_name = (source_refs.get(token) or {}).get('source_name', '').casefold()
-                candidates = [r for r in talent_rows if source_name and r.name.casefold() == source_name]
-            if candidates and len({r.name_zh for r in candidates}) == 1:
-                row = candidates[0]
-        elif not row and ref['kind'] == 'spell':
-            row = spells.get(ref['id'])
-            if not row:
-                row = next((r for r in talent_rows if ref['id'] in (r.spell_id, r.display_spell_id)), None)
-        elif not row and ref['kind'] == 'item':
-            row = items.get(ref['id'])
         name = (getattr(row, 'name_zh', '') or (getattr(row, 'name', '') if getattr(row, 'locale', '') == 'zhCN' else '')) if row else ''
         if not re.search(r'[\u3400-\u9fff]', name):
             name = ''
@@ -204,11 +191,7 @@ def reference_names_match(source, official):
 
 
 def talent_version_for(game_version):
-    version = WowTalentVersion.objects.filter(key=game_version).first()
-    if version:
-        return version
-    return WowTalentVersion.objects.filter(Q(major_version=game_version) | Q(major_version=game_version + '.0') |
-        Q(key__endswith='-' + game_version) | Q(key__endswith='-' + game_version + '.0')).order_by('-is_active', '-id').first()
+    return version_for(game_version)
 
 
 def render_references(value, references):

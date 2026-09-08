@@ -1,3 +1,4 @@
+from botend.dashboard.wow_localization import WowLocalizationAPI
 """LMonitor URL Configuration
 
 The `urlpatterns` list routes URLs to views. For more information please see:
@@ -15,7 +16,7 @@ Including another URLconf
 """
 from django.contrib import admin
 from botend.dashboard.class_guides import (GuidePage, GuideCatalogAPI, GuideDetailAPI,
-    GuidePreviewPage, GuideFeedAPI, GuideDisclaimerAPI, GuideTermsAPI)
+    GuidePreviewPage, GuideDisclaimerAPI)
 from botend.portal.class_guides import PortalClassGuideCatalogView, PortalClassGuideArticleView
 from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
@@ -145,8 +146,7 @@ urlpatterns = [
     path('dashboard/class-guides/<int:guide_id>/preview/', GuidePreviewPage.as_view(), name='dashboard_class_guide_preview'),
     path('api/dashboard/class-guides/', GuideCatalogAPI.as_view(), name='dashboard_class_guide_catalog_api'),
     path('api/dashboard/class-guides/disclaimer/', GuideDisclaimerAPI.as_view(), name='dashboard_class_guide_disclaimer_api'),
-    path('api/dashboard/class-guides/feed/', GuideFeedAPI.as_view(), name='dashboard_class_guide_feed_api'),
-    path('api/dashboard/class-guides/terms/', GuideTermsAPI.as_view(), name='dashboard_class_guide_terms_api'),
+    path('api/dashboard/wow-localization/', WowLocalizationAPI.as_view(), name='dashboard_wow_localization_api'),
     path('api/dashboard/class-guides/<int:guide_id>/', GuideDetailAPI.as_view(), name='dashboard_class_guide_detail_api'),
     # path('admin/', admin.site.urls),
     path('favicon.ico', RedirectView.as_view(url='/static/portal/favicons/3accfdf0352f2189a3292605e1ad80f12bd5a15c605069102f42c03c3c4fceda.ico', permanent=True)),

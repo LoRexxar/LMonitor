@@ -9,9 +9,10 @@ from bs4 import BeautifulSoup
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from botend.guide_models import ClassGuide, ClassGuideTerm
+from botend.guide_models import ClassGuide
+from botend.services.wow_localization import export_names
 from botend.services.class_guide_content import REF_RE, walk_blocks
-from botend.services.class_guide_service import audit_revision
+from botend.services.class_guide_service import check_article
 
 
 def inventory(blocks):
@@ -37,29 +38,25 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         folder = Path(options['output_dir']); folder.mkdir(parents=True, exist_ok=True)
-        guides = ClassGuide.objects.filter(archived=False).order_by('slug', 'game_version')
+        guides = ClassGuide.objects.order_by('slug', 'game_version')
         if options['game_version']:
             guides = guides.filter(game_version=options['game_version'])
         records = []
         for guide in guides:
-            revision = guide.revisions.first()
-            if not revision:
-                continue
-            audit = audit_revision(revision)
-            source = inventory(revision.source_blocks)
-            translated = inventory(revision.blocks)
+            audit = check_article(guide)
+            source = inventory(guide.source_blocks)
+            translated = inventory(guide.blocks)
             differences = {name: {'missing': dict(before - after), 'extra': dict(after - before)}
                 for name, before, after in zip(['references', 'assets', 'components'], source, translated) if before != after}
-            status = 'ready' if audit['publishable'] and not differences else 'review'
+            status = 'complete' if audit['complete'] and not differences else 'issues'
             record = {'slug': guide.slug, 'game_version': guide.game_version, 'guide_id': guide.id,
-                'spec_id': guide.spec_id,
+                'spec_id': guide.spec_id, 'is_visible': not guide.archived,
                 'tags': list(guide.tags.values_list('name', flat=True)),
-                'revision_id': revision.id, 'revision_number': revision.number, 'origin': revision.origin,
                 'status': status, 'untranslated_count': len(audit['untranslated']),
                 'unresolved_references': audit['unresolved_references'], 'unsupported_components': audit['unsupported_blocks'],
                 'source_name_mismatches': audit['source_name_mismatches'], 'historical_references': audit['historical_references'],
                 'source_macro_repairs': audit['source_macro_repairs'],
-                'structural_differences': differences, 'markdown_sha256': hashlib.sha256(revision.content_markdown.encode()).hexdigest()}
+                'structural_differences': differences, 'markdown_sha256': hashlib.sha256(guide.content_markdown.encode()).hexdigest()}
             records.append(record)
             record['tags_sha256'] = hashlib.sha256(json.dumps(record['tags'], ensure_ascii=False).encode()).hexdigest()
             record['source_author_profile'] = guide.source_author_profile
@@ -67,20 +64,19 @@ class Command(BaseCommand):
             record['author_profiles_sha256'] = hashlib.sha256(json.dumps(
                 [guide.source_author_profile, guide.author_profile], ensure_ascii=False, sort_keys=True).encode()).hexdigest()
             stem = guide.slug + '-' + guide.game_version
-            (folder / (stem + '.md')).write_text(revision.content_markdown, encoding='utf-8')
-            (folder / (stem + '.source.md')).write_text(revision.source_markdown, encoding='utf-8')
-            (folder / (stem + '.json')).write_text(json.dumps({**record, 'title': revision.title,
+            (folder / (stem + '.md')).write_text(guide.content_markdown, encoding='utf-8')
+            (folder / (stem + '.source.md')).write_text(guide.source_markdown, encoding='utf-8')
+            (folder / (stem + '.json')).write_text(json.dumps({**record, 'title': guide.title,
                 'class_name': guide.class_name, 'spec_name': guide.spec_name, 'guide_type': guide.guide_type,
-                'author': guide.author, 'source_url': guide.source_url, 'source_hash': revision.source_hash,
-                'source_modified': revision.source_modified, 'content_markdown': revision.content_markdown,
-                'source_markdown': revision.source_markdown, 'source_payload': revision.source_payload,
-                'audit': audit}, ensure_ascii=False), encoding='utf-8')
+                'author': guide.author, 'source_url': guide.source_url, 'source_hash': guide.source_hash,
+                'source_modified': guide.source_modified, 'content_markdown': guide.content_markdown,
+                'source_markdown': guide.source_markdown, 'source_payload': guide.source_payload,
+                'check_data': audit}, ensure_ascii=False), encoding='utf-8')
         summary = {'created_at': timezone.now().isoformat(), 'total': len(records),
             'status_counts': dict(Counter(row['status'] for row in records)),
-            'translation_complete': sum(row['origin'] in ('translation', 'manual') and not row['untranslated_count'] for row in records),
+            'translation_complete': sum(not row['untranslated_count'] for row in records),
             'structural_failures': sum(bool(row['structural_differences']) for row in records), 'records': records}
-        terms = list(ClassGuideTerm.objects.filter(game_version__in={row['game_version'] for row in records}).values(
-            'game_version', 'kind', 'object_id', 'name_en', 'name_zh', 'icon', 'evidence'))
+        terms = export_names({row['game_version'] for row in records})
         term_text = json.dumps(terms, ensure_ascii=False)
         (folder / 'terms.json').write_text(term_text, encoding='utf-8')
         summary['terms_sha256'] = hashlib.sha256(term_text.encode()).hexdigest()

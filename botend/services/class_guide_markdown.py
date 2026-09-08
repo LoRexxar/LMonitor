@@ -9,6 +9,7 @@ from markdown_it import MarkdownIt
 
 from botend.services.class_guide_codec import decode_component, component_html
 from botend.services.class_guide_content import clean_html, validate_blocks
+from botend.services.class_guide_sections import expand_tab_sections
 
 EXTENSIONS = {'tabs', 'tab', 'columns', 'column', 'details', 'callout', 'rating', 'changelog',
               'group', 'accordion', 'talents', 'gear', 'rotation', 'priority', 'timeline', 'simulation', 'unsupported'}
@@ -73,6 +74,10 @@ def html_to_markdown(value):
 
 
 def blocks_to_markdown(blocks):
+    return _blocks_to_markdown(expand_tab_sections(blocks))
+
+
+def _blocks_to_markdown(blocks):
     parts = []
     for block in blocks:
         kind = block['type']; title = html_to_markdown(block.get('title', '')).replace('\n', ' ')
@@ -91,19 +96,46 @@ def blocks_to_markdown(blocks):
             if not config and data.get('decoded'):
                 config['decoded'] = data['decoded']
             # 组件数据收在正文内的一段扩展围栏；不依赖侧栏记录或数据库块编号。
-            content = '\n\n'.join(p for p in [body, blocks_to_markdown(block.get('children', [])).strip()] if p)
+            content = '\n\n'.join(p for p in [body, _blocks_to_markdown(block.get('children', [])).strip()] if p)
             parts.append(':::' + kind + (' ' + title if title else '') + '\n```json\n' + json.dumps(config, ensure_ascii=False, indent=2) + '\n```\n' + (content + '\n' if content else '') + ':::')
         elif kind in EXTENSIONS:
-            children = blocks_to_markdown(block.get('children', []))
+            children = _blocks_to_markdown(block.get('children', []))
             parts.append(':::' + kind + (' ' + title if title else '') + '\n' + '\n\n'.join(p for p in [body, children] if p) + '\n:::')
         else:
             parts.append(body)
             if block.get('children'):
-                parts.append(blocks_to_markdown(block['children']))
+                parts.append(_blocks_to_markdown(block['children']))
     return '\n\n'.join(p for p in parts if p).strip() + '\n'
 
 
-def compile_markdown(source):
+def normalize_tab_markdown(source):
+    """只改选项卡围栏及相关标题；代码、链接和组件参数不重新序列化。"""
+    if not isinstance(source, str):
+        raise ValueError('Markdown 正文必须是文本')
+    if not re.search(r'^:::tabs?(?:\s|$)', source, re.MULTILINE):
+        return source
+    blocks = compile_markdown(source, _expand_tabs=False)
+    lines = source.splitlines(keepends=True)
+
+    def replace(block, level):
+        data = block.get('data', {})
+        start = data['source_line']
+        if block['type'] in {'tabs', 'tab'}:
+            title = DIRECTIVE.fullmatch(lines[start].rstrip('\r\n'))[2] or ''
+            if level and not title:
+                title = '方案 {}'.format(data['tab_index'])
+            lines[start] = '\n' + '#' * level + ' ' + title + '\n\n' if level else '\n'
+            lines[data['source_end_line'] - 1] = '\n'
+        else:
+            lines[start] = '#' * level + ' ' + data['source_heading'] + '\n'
+            for index in range(start + 1, data['source_end_line']):
+                lines[index] = ''
+
+    expand_tab_sections(blocks, replace)
+    return ''.join(lines)
+
+
+def compile_markdown(source, *, _expand_tabs=True):
     if not isinstance(source, str) or len(source.encode('utf-8')) > 4000000:
         raise ValueError('Markdown 正文必须是文本，且不超过 4 MB')
     md = MarkdownIt('commonmark', {'html': True}).enable('table')
@@ -126,7 +158,8 @@ def compile_markdown(source):
             if token.type == 'heading_open' and token.level == 0:
                 flush()
                 result.append({'id': key(), 'type': 'heading', 'title': clean_html(md.renderInline(tokens[index + 1].content)),
-                    'data': {'level': int(token.tag[1]), 'source_line': start_line + token.map[0]}, 'children': []})
+                    'data': {'level': int(token.tag[1]), 'source_line': start_line + token.map[0],
+                             'source_end_line': start_line + token.map[1], 'source_heading': tokens[index + 1].content}, 'children': []})
                 index += 3
                 continue
             if token.type == 'fence' and token.level == 0 and token.info.strip() == 'wow-macro':
@@ -166,6 +199,8 @@ def compile_markdown(source):
                 if kind not in EXTENSIONS:
                     raise ValueError('第 {} 行包含未知扩展：{}'.format(index + 1, kind))
                 block = {'id': key(), 'type': kind, 'title': clean_html(md.renderInline(title)), 'data': {}}
+                if kind in {'tabs', 'tab'}:
+                    block['data'] = {'source_line': index, 'tab_index': 1 + sum(b['type'] == 'tab' for b in result)}
                 index += 1
                 if kind in COMPONENTS and index < len(lines) and lines[index].strip() == '```json':
                     config_lines = []; index += 1
@@ -179,6 +214,8 @@ def compile_markdown(source):
                     block['data'] = config; index += 1
                 children, index = parse(index, depth + 1, True)
                 block['children'] = children
+                if kind in {'tabs', 'tab'}:
+                    block['data']['source_end_line'] = index
                 if kind in COMPONENTS:
                     data = block['data']; data['converted'] = False
                     if kind == 'talents':
@@ -200,4 +237,4 @@ def compile_markdown(source):
             raise ValueError('扩展语法缺少结束符 :::')
         flush(); return result, index
     blocks, _ = parse()
-    return validate_blocks(blocks)
+    return validate_blocks(expand_tab_sections(blocks) if _expand_tabs else blocks)

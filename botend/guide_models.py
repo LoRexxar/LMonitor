@@ -1,6 +1,5 @@
-"""职业攻略的文章、修订和同步记录。"""
+"""职业攻略的文章和同步记录。"""
 
-from django.conf import settings
 from django.db import models
 from django.core.exceptions import ValidationError
 from functools import reduce
@@ -32,9 +31,13 @@ class ClassGuide(models.Model):
     source_author_profile = models.JSONField('来源作者资料', default=dict, blank=True)
     author_profile = models.JSONField('自定义作者资料', null=True, blank=True, default=None)
     archived = models.BooleanField('已归档', default=False)
-    revision_number = models.PositiveIntegerField('修订序号', default=0)
-    published_revision = models.ForeignKey('ClassGuideRevision', null=True, blank=True,
-        on_delete=models.PROTECT, related_name='+', verbose_name='已审核版本')
+    content_markdown = models.TextField('Markdown 正文', blank=True)
+    source_markdown = models.TextField('原文 Markdown', blank=True)
+    source_payload = models.JSONField('来源快照', default=dict, blank=True)
+    source_hash = models.CharField('来源指纹', max_length=64, blank=True, db_index=True)
+    source_modified = models.CharField('原文更新时间', max_length=80, blank=True)
+    check_data = models.JSONField('内容检查数据', default=dict, blank=True)
+    imported_content_hash = models.CharField('最近导入正文指纹', max_length=64, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -63,48 +66,18 @@ class ClassGuide(models.Model):
         return super().save(*args, **kwargs)
 
     @property
+    def blocks(self):
+        from botend.services.class_guide_markdown import compile_markdown
+        return compile_markdown(self.content_markdown)
+
+    @property
+    def source_blocks(self):
+        from botend.services.class_guide_markdown import compile_markdown
+        return compile_markdown(self.source_markdown)
+
+    @property
     def specialization_label(self):
         return f'{CLASS_CN[self.class_name]} · {SPEC_CN[self.spec_name]}'
-
-
-class ClassGuideRevision(models.Model):
-    guide = models.ForeignKey(ClassGuide, on_delete=models.PROTECT, related_name='revisions')
-    number = models.PositiveIntegerField('序号')
-    origin = models.CharField('来源类型', max_length=20, default='manual')
-    title = models.CharField('修订标题', max_length=255)
-    content_markdown = models.TextField('Markdown 正文', blank=True)
-    source_markdown = models.TextField('原文 Markdown', blank=True)
-    blocks = models.JSONField('中文内容块', default=list)
-    source_blocks = models.JSONField('原文内容块', default=list)
-    source_payload = models.JSONField('原始来源快照', default=dict)
-    source_hash = models.CharField('来源指纹', max_length=64, blank=True, db_index=True)
-    source_modified = models.CharField('来源更新时间', max_length=80, blank=True)
-    audit = models.JSONField('完整性审核', default=dict)
-    note = models.CharField('修订说明', max_length=500, blank=True)
-    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        verbose_name = '攻略修订'
-        verbose_name_plural = '攻略修订'
-        ordering = ['-number']
-        constraints = [models.UniqueConstraint(fields=['guide', 'number'], name='guide_revision_number_unique')]
-
-
-class ClassGuideFeed(models.Model):
-    key = models.CharField(max_length=64, unique=True, default='maxroll')
-    # 旧调度字段仅保留历史数据；0216 已迁移到 MonitorTask，运行时不再读写。
-    enabled = models.BooleanField('启用监控', default=False)
-    interval_minutes = models.PositiveIntegerField('检查间隔（分钟）', default=360)
-    authorization_note = models.TextField('授权说明', blank=True)
-    last_checked_at = models.DateTimeField(null=True, blank=True)
-    next_check_at = models.DateTimeField(null=True, blank=True)
-    lease_until = models.DateTimeField(null=True, blank=True)
-    lease_token = models.CharField(max_length=64, blank=True)
-
-    class Meta:
-        verbose_name = '攻略同步设置'
-        verbose_name_plural = '攻略同步设置'
 
 
 class ClassGuideSyncRun(models.Model):
@@ -131,24 +104,3 @@ class ClassGuideTranslation(models.Model):
     class Meta:
         verbose_name = '攻略翻译缓存'
         verbose_name_plural = '攻略翻译缓存'
-
-
-class ClassGuideTerm(models.Model):
-    game_version = models.CharField('版本', max_length=64)
-    kind = models.CharField('引用类型', max_length=16)
-    object_id = models.PositiveBigIntegerField('对象编号')
-    name_en = models.CharField('英文', max_length=255, blank=True)
-    name_zh = models.CharField('官方中文', max_length=255)
-    icon = models.CharField('图标', max_length=255, blank=True)
-    evidence = models.CharField('核对依据', max_length=1000)
-
-    @staticmethod
-    def phrase_identifier(name):
-        """为普通专有名词生成可安全传给浏览器的稳定编号。"""
-        import hashlib
-        return int(hashlib.sha256(str(name).strip().casefold().encode()).hexdigest()[:13], 16)
-
-    class Meta:
-        verbose_name = '攻略术语校订'
-        verbose_name_plural = '攻略术语校订'
-        constraints = [models.UniqueConstraint(fields=['game_version', 'kind', 'object_id'], name='guide_term_identity_unique')]

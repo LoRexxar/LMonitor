@@ -10,7 +10,7 @@ DASHBOARD_PAGE_PERMISSIONS = OrderedDict((item['code'], item) for item in (
     {'code': 'dashboard.user-management', 'label': '用户管理', 'section': 'user-management', 'parent': '系统'},
     {'code': 'dashboard.user-groups', 'label': '用户组管理', 'section': 'user-groups', 'parent': '系统'},
     {'code': 'news.index', 'label': '新闻资讯', 'section': 'news', 'parent': '内容'},
-    {'code': 'content.class-guides', 'label': '职业攻略', 'section': 'class-guides', 'parent': '内容'},
+    {'code': 'content.class-guides', 'label': '职业攻略', 'section': 'class-guides', 'sections': ['guide-disclaimers'], 'parent': '内容'},
     {'code': 'reports.wow-daily', 'label': 'WoW 日报', 'section': 'wow-daily-reports', 'parent': '内容'},
     {'code': 'reports.wow-today-settings', 'label': '今日魔兽板块', 'section': 'wow-today-settings', 'parent': '内容'},
     {'code': 'portal.navigation', 'label': '首页导航', 'section': 'portal-navigation', 'parent': '内容'},
@@ -26,13 +26,15 @@ DASHBOARD_PAGE_PERMISSIONS = OrderedDict((item['code'], item) for item in (
     {'code': 'simc.advanced', 'label': '高级设置', 'section': 'simc-advanced', 'parent': 'SimC'},
     {'code': 'simc.skill-damage', 'label': '技能伤害快照', 'section': 'simc-skill-damage', 'parent': 'SimC'},
     {'code': 'simc.benchmarks', 'label': '基准测试', 'section': 'simc-benchmarks', 'parent': 'SimC'},
+    {'code': 'tools.wow-localization', 'label': '游戏名称管理', 'section': 'wow-localization', 'parent': '工具箱'},
     {'code': 'tools.wcl-analysis', 'label': 'WCL 分析', 'section': 'wcl-analysis-entry', 'parent': '工具箱'},
     {'code': 'tools.wago-rerun', 'label': 'Wago 指定版本重跑', 'section': 'wago-skill-diff-rerun', 'parent': '工具箱'},
     {'code': 'database.tables', 'label': '数据库', 'section': 'database-tables', 'parent': '系统'},
 ))
 
 SECTION_PERMISSION_CODES = {
-    item['section']: code for code, item in DASHBOARD_PAGE_PERMISSIONS.items()
+    section: code for code, item in DASHBOARD_PAGE_PERMISSIONS.items()
+    for section in [item['section'], *item.get('sections', [])]
 }
 
 

@@ -1,3 +1,4 @@
+from botend.localization_managers import TalentStructureManager
 import hashlib
 import secrets
 import uuid
@@ -58,6 +59,7 @@ class MonitorTaskLeaseLost(RuntimeError):
 
 class MonitorTask(models.Model):
     name = models.CharField(max_length=100)
+    notes = models.TextField('任务备注', blank=True, default='')
     target = models.CharField(max_length=2000)
     type = models.IntegerField(default=0)
     env_limit = models.IntegerField(default=0)
@@ -2655,6 +2657,14 @@ class WowTalentVersion(models.Model):
 
 class WowTalentNodeMetadata(models.Model):
     """WoW 天赋节点元数据缓存，用于树形展示和名称/图标补全。"""
+    localization_only = models.BooleanField('仅名称资料', default=False)
+    name_kind = models.CharField('名称类型', max_length=16, default='talent', choices=[('talent', '天赋'), ('spell', '技能'), ('item', '物品'), ('phrase', '专有名词'), ('macro', '宏名称')])
+    reference_id = models.PositiveBigIntegerField('名称引用编号', null=True, blank=True)
+    reference_aliases = models.JSONField('来源编号别名', default=list, blank=True)
+    localization_evidence = models.CharField('名称核对依据', max_length=1000, default='', blank=True)
+    objects = TalentStructureManager()
+    all_objects = models.Manager()
+
     talent_version = models.ForeignKey(
         WowTalentVersion,
         on_delete=models.CASCADE,
@@ -2686,10 +2696,11 @@ class WowTalentNodeMetadata(models.Model):
     flags = models.IntegerField(default=0, help_text='DB2 TraitNode.Flags；Flags=8 表示赠送天赋（默认授予，无法取消）')
 
     class Meta:
+        constraints = [models.UniqueConstraint(fields=['talent_version', 'name_kind', 'reference_id'], name='wow_name_reference_unique')]
         db_table = 'wow_talent_node_metadata'
         app_label = 'botend'
-        verbose_name = 'WoW天赋节点元数据'
-        verbose_name_plural = 'WoW天赋节点元数据'
+        verbose_name = 'WoW天赋与名称元数据'
+        verbose_name_plural = 'WoW天赋与名称元数据'
         unique_together = (('talent_version', 'class_name', 'spec_name', 'tree_type', 'node_id', 'spell_id'),)
         indexes = [
             models.Index(fields=['talent_version', 'class_name', 'spec_name', 'tree_type'], name='idx_talent_meta_ver_spec'),
@@ -3551,6 +3562,6 @@ class MythicPlannerConfig(models.Model):
 
 
 from botend.guide_models import (  # noqa: E402,F401
-    ClassGuide, ClassGuideRevision, ClassGuideFeed, ClassGuideSyncRun,
-    ClassGuideTranslation, ClassGuideTerm, ClassGuideTag,
+    ClassGuide, ClassGuideSyncRun,
+    ClassGuideTranslation, ClassGuideTag,
 )

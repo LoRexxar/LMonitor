@@ -1,17 +1,10 @@
-"""Dashboard 与 Portal 共用的攻略修订选择和组件渲染。"""
+"""Dashboard 与 Portal 共用的攻略组件渲染。"""
 import copy
 from urllib.parse import urlencode
 
 from botend.constants.wow import canonical_class_spec
 from botend.services.class_guide_content import render_references, safe_url, walk_blocks, talent_version_for
 from botend.services.class_guide_tools import gear_tool_url
-
-
-def selected_revision(guide):
-    newest = guide.revisions.first()
-    if newest and newest.audit.get('manual_conflict'):
-        return guide.revisions.filter(origin='manual').first() or newest
-    return newest
 
 
 def render_blocks(blocks, refs, guide):

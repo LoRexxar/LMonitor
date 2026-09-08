@@ -482,6 +482,7 @@ class ArticleTranslationService:
         ])
         return WowNewsGlossary.prioritized(
             self.glossary,
+            WowNewsGlossary.from_shared_localization(source_text),
             WowNewsGlossary.from_active_mythic_dungeon_metadata(source_text=source_text),
             WowNewsGlossary.from_current_spell_metadata(source_text),
             WowNewsGlossary.from_current_item_metadata(source_text),

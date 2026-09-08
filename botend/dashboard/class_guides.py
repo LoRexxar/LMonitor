@@ -1,9 +1,8 @@
-"""仅后台权限可访问的攻略管理、审阅与阅读预览。"""
+"""仅后台权限可访问的攻略管理与阅读预览。"""
 
 import copy
 import json
 import re
-from datetime import timedelta
 
 from django.core.exceptions import ValidationError
 from django.db import transaction, IntegrityError
@@ -12,20 +11,20 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.views import View
+from django.utils.dateparse import parse_datetime
 from django.views.decorators.cache import never_cache
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
 
 from botend.dashboard.permissions import DashboardPermissionRequiredMixin
-from botend.guide_models import ClassGuide, ClassGuideRevision, ClassGuideFeed, ClassGuideSyncRun, ClassGuideTerm, ClassGuideTag
+from botend.guide_models import ClassGuide, ClassGuideSyncRun, ClassGuideTag
 from botend.services.class_guide_tags import guide_disclaimers, normalize_tags, set_guide_tags
 from botend.services.class_guide_authors import normalize_author_profile, author_profile_for
 from botend.services.class_guide_content import walk_blocks
 from botend.constants.wow import resolve_spec_identity, specialization_catalog, CLASS_CN
-from botend.services.class_guide_render import render_blocks, selected_revision
-from botend.services.class_guide_service import create_revision, approve_revision, audit_revision, RevisionConflict
+from botend.services.class_guide_render import render_blocks
+from botend.services.class_guide_service import save_article, check_article, ArticleConflict
 from botend.services.class_guide_markdown import compile_markdown
-from botend.services.class_guide_monitor import get_guide_monitor_task
 
 
 class GuideAccess(DashboardPermissionRequiredMixin):
@@ -34,7 +33,7 @@ class GuideAccess(DashboardPermissionRequiredMixin):
     def dispatch(self, request, *args, **kwargs):
         try:
             response = super().dispatch(request, *args, **kwargs)
-        except RevisionConflict as exc:
+        except ArticleConflict as exc:
             response = JsonResponse({'error': str(exc)}, status=409)
         except (ValueError, TypeError, KeyError, ValidationError) as exc:
             response = JsonResponse({'error': str(exc)}, status=400)
@@ -55,8 +54,8 @@ def payload(request):
 
 
 def summary(guide):
-    return {'author_display_name': author_profile_for(guide)['name'], 'specialization_label': guide.specialization_label, 'tags': [tag.name for tag in guide.tags.all()], **{key: getattr(guide, key) for key in ['id', 'title', 'slug', 'spec_id', 'class_name', 'spec_name',
-        'game_version', 'guide_type', 'source_url', 'author', 'archived', 'revision_number', 'published_revision_id']}}
+    return {'is_visible': not guide.archived, 'updated_at': guide.updated_at.isoformat(), 'author_display_name': author_profile_for(guide)['name'], 'specialization_label': guide.specialization_label, 'tags': [tag.name for tag in guide.tags.all()], **{key: getattr(guide, key) for key in ['id', 'title', 'slug', 'spec_id', 'class_name', 'spec_name',
+        'game_version', 'guide_type', 'source_url', 'author']}}
 
 
 @method_decorator(ensure_csrf_cookie, name='dispatch')
@@ -72,8 +71,11 @@ class GuidePage(GuideAccess, View):
 class GuideCatalogAPI(GuideAccess, View):
     def get(self, request):
         query = ClassGuide.objects.prefetch_related('tags').order_by('class_name', 'spec_name', 'title', 'id')
-        if request.GET.get('archived') != '1':
-            query = query.filter(archived=False)
+        visibility = request.GET.get('visible', '')
+        if visibility not in ('', '0', '1'):
+            raise ValueError('显示筛选值无效')
+        if visibility:
+            query = query.filter(archived=visibility == '0')
         if request.GET.get('spec_id'):
             spec_id, _, _ = resolve_spec_identity(request.GET['spec_id'])
             query = query.filter(spec_id=spec_id)
@@ -108,37 +110,37 @@ class GuideCatalogAPI(GuideAccess, View):
         fields['game_version'] = fields['game_version'] or (active.major_version if active else 'current')
         fields['guide_type'] = fields['guide_type'] or 'general'
         tags = normalize_tags(data.get('tags', []))
+        visible = data.get('is_visible', True)
+        if not isinstance(visible, bool):
+            raise ValueError('是否显示必须为布尔值')
         with transaction.atomic():
-            guide = ClassGuide(spec_id=spec_id, class_name=class_name, spec_name=spec_name, **fields)
+            guide = ClassGuide(spec_id=spec_id, class_name=class_name, spec_name=spec_name, archived=not visible, **fields)
             guide.full_clean(); guide.save()
             set_guide_tags(guide, tags)
-            create_revision(guide.id, guide.title, content_markdown=data.get('content_markdown', ''), expected_number=0, user=request.user, note='新建攻略')
+            save_article(guide.id, guide.title, content_markdown=data.get('content_markdown', ''), expected_updated_at=guide.updated_at)
         return JsonResponse({'id': guide.id}, status=201)
 
 
 class GuideDetailAPI(GuideAccess, View):
     def get(self, request, guide_id):
         guide = get_object_or_404(ClassGuide, pk=guide_id)
-        revision_id = request.GET.get('revision')
-        revision = get_object_or_404(guide.revisions, pk=revision_id) if revision_id else selected_revision(guide)
         data = summary(guide)
         data.update(author_profile=guide.author_profile, source_author_profile=guide.source_author_profile,
-                    display_author_profile=author_profile_for(guide))
+                    display_author_profile=author_profile_for(guide),
+                    content_markdown=guide.content_markdown, source_markdown=guide.source_markdown,
+                    checks=check_article(guide), classes=CLASS_CN, specializations=specialization_catalog())
         data['available_tags'] = list(ClassGuideTag.objects.values_list('name', flat=True))
-        data['revisions'] = list(guide.revisions.values('id', 'number', 'title', 'origin', 'note', 'created_at', 'source_modified'))
-        if revision:
-            data['revision'] = {'id': revision.id, 'number': revision.number, 'title': revision.title,
-                'content_markdown': revision.content_markdown, 'source_markdown': revision.source_markdown, 'audit': audit_revision(revision)}
         return JsonResponse(data)
 
     def post(self, request, guide_id):
-        """用相同的阅读渲染器预览未保存正文，不创建修订。"""
+        """预览未保存正文，目录与引用均从 Markdown 实时解析。"""
         guide = get_object_or_404(ClassGuide, pk=guide_id)
         data = payload(request)
+        if 'spec_id' in data:
+            guide.spec_id, guide.class_name, guide.spec_name = resolve_spec_identity(data['spec_id'])
         blocks = compile_markdown(data['content_markdown'])
-        revision = ClassGuideRevision(guide=guide, blocks=blocks)
-        audit = audit_revision(revision)
-        rendered = render_blocks(blocks, audit['references'], guide)
+        checks = check_article(guide, blocks)
+        rendered = render_blocks(blocks, checks['references'], guide)
         return JsonResponse({'html': render_to_string('dashboard/class_guide_blocks.html', {'blocks': rendered}),
             'toc': [{'id': b['id'], 'title': b.get('title', ''), 'level': b['data']['level'], 'line': b['data']['source_line']}
                     for b in walk_blocks(rendered) if b['type'] == 'heading']})
@@ -146,67 +148,45 @@ class GuideDetailAPI(GuideAccess, View):
     def patch(self, request, guide_id):
         guide = get_object_or_404(ClassGuide, pk=guide_id)
         data = payload(request)
-        expected = data.get('expected_number')
+        expected = parse_datetime(str(data.get('expected_updated_at', '')))
+        if expected is None:
+            raise ValueError('保存必须携带读取时的文章更新时间')
+        extra = {}
         if any(key in data for key in ('spec_id', 'class_name', 'spec_name')):
-            spec_id, _, _ = resolve_spec_identity(data.get('spec_id'), data.get('class_name', ''), data.get('spec_name', ''))
-            if spec_id != guide.spec_id:
-                raise ValueError('文章已绑定专精；其他专精请新建对应攻略')
-        if isinstance(expected, bool) or not isinstance(expected, int):
-            raise ValueError('保存必须携带读取时的文章修订序号')
+            spec_id, class_name, spec_name = resolve_spec_identity(data.get('spec_id'), data.get('class_name', ''), data.get('spec_name', ''))
+            extra.update(spec_id=spec_id, class_name=class_name, spec_name=spec_name)
+        if 'is_visible' in data:
+            if not isinstance(data['is_visible'], bool):
+                raise ValueError('是否显示必须为布尔值')
+            extra['archived'] = not data['is_visible']
         action = data.get('action', 'save')
-        if action == 'approve':
-            revision = approve_revision(guide.id, data['revision_id'], expected)
-            return JsonResponse({'approved_revision_id': revision.id})
-        if action == 'archive':
-            if not ClassGuide.objects.filter(pk=guide.id, revision_number=expected).update(archived=bool(data.get('archived', True))):
-                raise RevisionConflict('文章已变化，请刷新后重试')
-            return JsonResponse({'success': True})
-        base = get_object_or_404(guide.revisions, pk=data.get('base_revision_id'))
-        if action == 'restore':
-            markdown, title = base.content_markdown, base.title
-            audit = copy.deepcopy(base.audit)
-        elif action == 'save':
-            markdown = data['content_markdown']
-            compile_markdown(markdown)
-            title = str(data.get('title', '')).strip()
-            if not title or len(title) > 255:
-                raise ValueError('标题必须为 1 至 255 字符')
-            audit = copy.deepcopy(base.audit)
-            # 翻译检查跟随原文片段，标题增删引起的目录编号变化不会清除检查项。
-            normalized = re.sub(r'\s+', ' ', markdown)
-            audit['untranslated'] = [r for r in audit.get('untranslated', [])
-                if not r.get('source_text') or re.sub(r'\s+', ' ', r['source_text']) in normalized
-                or not re.search(r'[\u3400-\u9fff]', markdown)]
-            audit['manual_conflict'] = False
-        else:
+        if action != 'save':
             raise ValueError('不支持的操作')
-        tags = normalize_tags(data['tags']) if action == 'save' and 'tags' in data else None
-        author_change = action == 'save' and 'author_profile' in data
-        author_profile = normalize_author_profile(data['author_profile']) if author_change and data['author_profile'] is not None else None
+        markdown = data['content_markdown']
+        checks = copy.deepcopy(guide.check_data)
+        normalized = re.sub(r'\s+', ' ', markdown)
+        checks['untranslated'] = [r for r in checks.get('untranslated', [])
+            if not r.get('source_text') or re.sub(r'\s+', ' ', r['source_text']) in normalized
+            or not re.search(r'[\u3400-\u9fff]', markdown)]
+        if 'author_profile' in data:
+            extra['author_profile'] = normalize_author_profile(data['author_profile']) if data['author_profile'] is not None else None
+        tags = normalize_tags(data['tags']) if 'tags' in data else None
         with transaction.atomic():
-            revision = create_revision(guide.id, title, content_markdown=markdown, expected_number=expected, user=request.user,
-                source_markdown=base.source_markdown,
-                source_blocks=base.source_blocks, source_payload=base.source_payload, source_hash=base.source_hash,
-                source_modified=base.source_modified, audit=audit, note=str(data.get('note', '人工编辑'))[:500])
+            saved = save_article(guide.id, data.get('title', ''), content_markdown=markdown,
+                expected_updated_at=expected, check_data=checks, **extra)
             if tags is not None:
-                set_guide_tags(guide, tags)
-            if author_change:
-                ClassGuide.objects.filter(pk=guide.pk).update(author_profile=author_profile)
-        return JsonResponse({'revision_id': revision.id, 'revision_number': revision.number})
+                set_guide_tags(saved, tags)
+        return JsonResponse({'id': saved.id, 'updated_at': saved.updated_at.isoformat()})
 
 
 class GuidePreviewPage(GuideAccess, View):
     def get(self, request, guide_id):
         guide = get_object_or_404(ClassGuide, pk=guide_id)
-        revision = get_object_or_404(guide.revisions, pk=request.GET['revision']) if request.GET.get('revision') else selected_revision(guide)
-        if not revision:
-            raise ValueError('文章尚无内容')
-        audit = audit_revision(revision)
-        blocks = render_blocks(revision.blocks, audit['references'], guide)
-        return render(request, 'dashboard/class_guide_preview.html', {'guide': guide, 'revision': revision,
-            'author_profile': author_profile_for(guide),
-            'disclaimers': guide_disclaimers(guide),
-            'blocks': blocks, 'audit': audit,
+        checks = check_article(guide)
+        blocks = render_blocks(guide.blocks, checks['references'], guide)
+        return render(request, 'dashboard/class_guide_preview.html', {'guide': guide,
+            'author_profile': author_profile_for(guide), 'disclaimers': guide_disclaimers(guide),
+            'blocks': blocks, 'checks': checks,
             'toc': [b for b in walk_blocks(blocks) if b['type'] == 'heading']})
 
 
@@ -225,60 +205,3 @@ class GuideDisclaimerAPI(GuideAccess, View):
         tag.disclaimer = text.strip()
         tag.save(update_fields=['disclaimer'])
         return JsonResponse({'success': True, 'text': tag.disclaimer})
-
-
-class GuideFeedAPI(GuideAccess, View):
-    def get(self, request):
-        feed, _ = ClassGuideFeed.objects.get_or_create(key='maxroll')
-        task = get_guide_monitor_task()
-        return JsonResponse({'enabled': task.is_active, 'interval_minutes': task.wait_time // 60,
-            'monitor_task_id': task.id, 'monitor_task_name': task.name,
-            'authorization_note': feed.authorization_note, 'last_checked_at': feed.last_checked_at,
-            'next_check_at': task.last_scan_time + timedelta(seconds=task.wait_time) if task.is_active else None,
-            'lease_until': feed.lease_until,
-            'runs': list(ClassGuideSyncRun.objects.values('id', 'status', 'started_at', 'finished_at', 'coverage', 'results', 'error')[:10])})
-
-    def patch(self, request):
-        data = payload(request)
-        if not isinstance(data.get('enabled'), bool) or type(data.get('interval_minutes')) is not int or not 15 <= data['interval_minutes'] <= 10080:
-            raise ValueError('请填写监控开关及 15 至 10080 分钟的检查间隔')
-        note = str(data.get('authorization_note', '')).strip()
-        if data['enabled'] and not note:
-            raise ValueError('启用来源监控前必须登记授权说明')
-        with transaction.atomic():
-            feed, _ = ClassGuideFeed.objects.get_or_create(key='maxroll')
-            feed.authorization_note = note[:10000]
-            feed.save(update_fields=['authorization_note'])
-            task = get_guide_monitor_task()
-            type(task).objects.filter(pk=task.pk).update(is_active=data['enabled'], wait_time=data['interval_minutes'] * 60)
-        return JsonResponse({'success': True})
-
-
-class GuideTermsAPI(GuideAccess, View):
-    def get(self, request):
-        records = ClassGuideTerm.objects.filter(game_version=request.GET.get('version', '')).order_by('kind', 'object_id')
-        query = request.GET.get('q', '').strip()
-        if query:
-            condition = Q(name_en__icontains=query) | Q(name_zh__icontains=query)
-            if query.isdecimal():
-                condition |= Q(object_id=int(query))
-            records = records.filter(condition)
-        if request.GET.get('kind'):
-            records = records.filter(kind=request.GET['kind'])
-        page = max(1, min(int(request.GET.get('page', 1)), 10000))
-        return JsonResponse({'records': list(records.values()[(page-1)*100:page*100]), 'total':records.count(), 'page':page})
-
-    def post(self, request):
-        data = payload(request)
-        fields = {k: data.get(k, '') for k in ['game_version', 'kind', 'object_id', 'name_en', 'name_zh', 'icon', 'evidence']}
-        if fields['kind'] not in {'spell', 'item', 'talent', 'phrase', 'macro'} or not re.search(r'[\u3400-\u9fff]', str(fields['name_zh'])):
-            raise ValueError('引用类型或中文名无效')
-        if fields['kind'] in {'phrase', 'macro'}:
-            if not str(fields['name_en']).strip():
-                raise ValueError('专有名词必须填写英文原名')
-            fields['object_id'] = ClassGuideTerm.phrase_identifier(fields['name_en'])
-        term = ClassGuideTerm(**fields)
-        term.full_clean(validate_unique=False, validate_constraints=False)
-        record, _ = ClassGuideTerm.objects.update_or_create(game_version=fields.pop('game_version'),
-            kind=fields.pop('kind'), object_id=fields.pop('object_id'), defaults=fields)
-        return JsonResponse({'id': record.id})

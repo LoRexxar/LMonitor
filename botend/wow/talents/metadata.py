@@ -109,6 +109,7 @@ class TalentMetadataProvider:
     _text_context_cache: dict = field(default_factory=dict)
     _spell_text_resolvers: dict = field(default_factory=dict)
     _choice_entry_order_cache: dict = field(default_factory=dict)
+    _name_supplement_cache: dict = field(default_factory=dict)
 
     @property
     def resolved_version(self):
@@ -514,6 +515,24 @@ class TalentMetadataProvider:
             return ' '.join(text.split()).strip()
         return resolver.resolve(text, spell_id, **(context or {}))
 
+    def _localized_node_name(self, row):
+        """结构已存在但缺少中文时，复用同表的名称资料，不生成额外节点。"""
+        if row.name_zh or not isinstance(row, WowTalentNodeMetadata) or not row.pk:
+            return row.name_zh or row.name, row.icon
+        key = row.talent_version_id
+        if key not in self._name_supplement_cache:
+            self._name_supplement_cache[key] = list(WowTalentNodeMetadata.all_objects.filter(
+                talent_version_id=key, localization_only=True, name_kind__in=['talent', 'spell'],
+            ).values('reference_id', 'name_kind', 'name', 'name_zh', 'icon'))
+        rows = self._name_supplement_cache[key]
+        matches = [r for r in rows if r['reference_id'] in ((row.spell_id, row.display_spell_id) if r['name_kind'] == 'spell' else (row.talent_id, row.node_id))
+                   and (not row.name or r['name'].casefold() == row.name.casefold())]
+        if not matches and row.name:
+            matches = [r for r in rows if r['name'].casefold() == row.name.casefold()]
+        if matches and len({r['name_zh'] for r in matches}) == 1:
+            return matches[0]['name_zh'], row.icon or matches[0]['icon']
+        return row.name, row.icon
+
     def _as_dict(self, row):
         spell_id = row.display_spell_id or row.spell_id
         desc = getattr(row, 'description', '') or ''
@@ -521,6 +540,7 @@ class TalentMetadataProvider:
         resolver_en = self._spell_resolver('enUS')
         resolver_zh = self._spell_resolver('zhCN')
         context = self._text_context(row)
+        localized_name, localized_icon = self._localized_node_name(row)
         return {
             'talent_version_id': getattr(row, 'talent_version_id', None),
             'talent_version_key': self.version_cache_key,
@@ -528,8 +548,8 @@ class TalentMetadataProvider:
             'spell_id': row.spell_id,
             'display_spell_id': row.display_spell_id,
             'talent_id': row.talent_id,
-            'name': row.name_zh or row.name,
-            'icon': row.icon,
+            'name': localized_name,
+            'icon': localized_icon,
             'tree_type': row.tree_type,
             'row': row.row,
             'column': row.column,

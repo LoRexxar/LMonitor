@@ -1,12 +1,12 @@
 """手动执行一次来源同步；持续更新由 botend 统一调度。"""
 
 from django.core.management.base import BaseCommand, CommandError
-from botend.guide_models import ClassGuideFeed
+from botend.services.class_guide_monitor import get_guide_monitor_task
 from botend.services.class_guide_service import sync_guides
 
 
 class Command(BaseCommand):
-    help = '导入已授权的职业攻略；默认仅保存待翻译修订，不公开发布'
+    help = '同步已授权的全部非练级职业攻略；使用 --translate 生成中文正文'
 
     def add_arguments(self, parser):
         parser.add_argument('--translate', action='store_true', help='调用站内翻译引擎，成功段落断点缓存')
@@ -19,11 +19,11 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         if options['watch']:
-            raise CommandError('--watch 已停用。请在 Dashboard 的“来源与更新”开启监控，由现有 botend 后端统一调度，无需额外常驻进程。')
-        feed, _ = ClassGuideFeed.objects.get_or_create(key='maxroll')
+            raise CommandError('--watch 已停用。请在 Dashboard 的“监控任务”开启 MaxrollClassGuideMonitor，由现有 botend 后端统一调度，无需额外常驻进程。')
+        task = get_guide_monitor_task()
         if options['authorization_note']:
-            feed.authorization_note = options['authorization_note']
-            feed.save(update_fields=['authorization_note'])
+            task.notes = options['authorization_note']
+            task.save(update_fields=['notes'])
         if options['limit'] is not None and options['limit'] <= 0:
             raise CommandError('篇数必须大于零')
         if options['refresh_translations'] and not options['translate']:

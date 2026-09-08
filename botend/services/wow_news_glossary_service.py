@@ -155,8 +155,8 @@ class WowNewsGlossary:
             )
             if not version:
                 return cls.empty()
-            pairs = WowTalentNodeMetadata.objects.filter(
-                talent_version=version,
+            pairs = WowTalentNodeMetadata.all_objects.filter(
+                talent_version=version, name_kind="talent",
             ).exclude(
                 tree_type="hero_anchor",
             ).exclude(
@@ -300,6 +300,22 @@ class WowNewsGlossary:
         except Exception as exc:  # 物品快照缺失不应阻断文章翻译。
             logger.warning("[WowNewsGlossary] cannot load current item metadata: %s", str(exc)[:300])
             return cls.empty()
+
+    @classmethod
+    def from_shared_localization(cls, source_text):
+        """读取同版本共享名称；不复制名称、不发起额外抓取。"""
+        from botend.models import WowTalentVersion
+        from botend.services.wow_localization import effective_names
+        branch = 'ptr' if re.search(r'\bptr\b|public test realm', source_text, re.I) else 'retail'
+        version = WowTalentVersion.objects.filter(branch=branch, is_active=True).order_by('-is_default_player_tree', '-id').first()
+        if not version:
+            return cls.empty()
+        label = version.major_version or version.key
+        if re.fullmatch(r'\d+\.\d+\.0', label):
+            label = label[:-2]
+        pairs = [(r['name_en'], r['name_zh']) for r in effective_names(label, source_text=source_text)
+                 if r['kind'] != 'macro' and _contains_english_term(source_text, r['name_en'])]
+        return cls.from_pairs(pairs)
 
     @classmethod
     def merged(cls, *glossaries: "WowNewsGlossary") -> "WowNewsGlossary":

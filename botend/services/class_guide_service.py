@@ -1,31 +1,30 @@
-"""攻略修订、逐段翻译和可恢复的增量同步。"""
+"""攻略正文、逐段翻译和可恢复的增量同步。"""
 
 import copy
 import json
 import re
-import uuid
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import timedelta
 
 from django.db import transaction, close_old_connections
-from django.db.models import Q, F
 from django.utils import timezone
 
 from botend.constants.wow import CLASS_SPEC_MAP, canonical_class_spec
-from botend.guide_models import ClassGuide, ClassGuideRevision, ClassGuideFeed, ClassGuideSyncRun, ClassGuideTranslation, ClassGuideTerm
-from botend.models import WowTalentNodeMetadata
+from botend.guide_models import ClassGuide, ClassGuideSyncRun, ClassGuideTranslation
+from botend.models import MonitorTaskLeaseLost, WowTalentVersion
+from botend.services.class_guide_monitor import guide_sync_task
 from botend.services.article_translation_service import build_translation_service
-from botend.services.class_guide_content import REF_RE, resolve_references, validate_blocks, walk_blocks, talent_version_for, reference_names_match
-from botend.services.class_guide_maxroll import MaxrollClient, chinese_title, convert, fingerprint, identity
-from botend.services.class_guide_markdown import blocks_to_markdown, compile_markdown, html_to_markdown
+from botend.services.class_guide_content import REF_RE, resolve_references, validate_blocks, walk_blocks, reference_names_match
+from botend.services.class_guide_maxroll import MaxrollClient, chinese_title, convert, fingerprint, identity, latest_source_version, is_leveling
+from botend.services.class_guide_markdown import blocks_to_markdown, compile_markdown, html_to_markdown, normalize_tab_markdown
 from botend.services.wow_news_glossary_service import WowNewsGlossary, ProtectedText
 from botend.services.class_guide_translation import translate_fragment_nodes
 from botend.services.class_guide_glossary import GuideGlossary
+from botend.services.wow_localization import effective_names
 from botend.services.class_guide_macros import localize_macro, macro_source_repairs, macro_name_map
 
 
-class RevisionConflict(ValueError):
+class ArticleConflict(ValueError):
     pass
 
 
@@ -54,32 +53,40 @@ def markdown_audit(audit, blocks):
     return audit
 
 
-def create_revision(guide_id, title, blocks=None, *, content_markdown=None, expected_number, origin='manual', user=None, **extra):
+def save_article(guide_id, title, blocks=None, *, content_markdown=None, expected_updated_at, imported=False, **extra):
+    title = str(title).strip()
+    if not title or len(title) > 255:
+        raise ValueError('标题必须为 1 至 255 字符')
     if content_markdown is None:
         blocks = validate_blocks(blocks or [])
-        extra['audit'] = markdown_audit(extra.get('audit', {}), blocks)
+        extra['check_data'] = markdown_audit(extra.get('check_data', {}), blocks)
         content_markdown = blocks_to_markdown(blocks)
-    blocks = compile_markdown(content_markdown)
-    extra.setdefault('source_markdown', blocks_to_markdown(extra.get('source_blocks', [])))
+    content_markdown = normalize_tab_markdown(content_markdown)
+    if 'source_markdown' in extra:
+        extra['source_markdown'] = normalize_tab_markdown(extra['source_markdown'])
+    compile_markdown(content_markdown)
+    checks = copy.deepcopy(extra.get('check_data', {}))
+    checks = {key: checks[key] for key in ('source_refs', 'untranslated', 'source_block_counts', 'unsupported') if key in checks}
+    fields = {**extra, 'title': title, 'content_markdown': content_markdown,
+              'check_data': checks, 'updated_at': timezone.now()}
+    if imported:
+        fields['imported_content_hash'] = fingerprint([title, content_markdown])
     with transaction.atomic():
-        # 先用条件写入获得写锁，避免 SQLite 在读事务升级写事务时立即报锁冲突。
-        fields = {'revision_number': F('revision_number') + 1, 'updated_at': timezone.now()}
-        if origin == 'manual' or not extra.get('audit', {}).get('manual_conflict'):
-            fields['title'] = title
-        changed = ClassGuide.objects.filter(pk=guide_id, revision_number=expected_number).update(**fields)
+        changed = ClassGuide.objects.filter(pk=guide_id, updated_at=expected_updated_at).update(**fields)
         if changed != 1:
-            raise RevisionConflict('文章已有新修订，请刷新并比较后再保存')
-        guide = ClassGuide.objects.get(pk=guide_id)
-        revision = ClassGuideRevision.objects.create(guide=guide, number=guide.revision_number,
-            origin=origin, title=title, blocks=blocks, content_markdown=content_markdown, created_by=user, **extra)
-        return revision
+            raise ArticleConflict('文章已被其他编辑或同步更新，请刷新后再保存')
+        return ClassGuide.objects.get(pk=guide_id)
 
 
-def audit_revision(revision):
-    guide = revision.guide
-    previous = revision.audit or {}
-    refs = resolve_references(revision.blocks, guide.game_version, guide.class_name, guide.spec_name, previous.get('source_refs'))
-    unsupported = [b['id'] for b in walk_blocks(revision.blocks)
+def has_manual_content(guide):
+    return bool(guide.content_markdown or guide.source_hash or guide.imported_content_hash) and fingerprint([guide.title, guide.content_markdown]) != guide.imported_content_hash
+
+
+def check_article(guide, blocks=None):
+    blocks = guide.blocks if blocks is None else blocks
+    previous = guide.check_data or {}
+    refs = resolve_references(blocks, guide.game_version, guide.class_name, guide.spec_name, previous.get('source_refs'))
+    unsupported = [b['id'] for b in walk_blocks(blocks)
                    if b['type'] == 'unsupported' or (b['type'] in {'gear', 'rotation', 'priority', 'timeline', 'simulation'} and not b.get('data', {}).get('converted'))]
     untranslated = previous.get('untranslated', [])
     mismatches = [token for token, ref in refs.items() if ref['resolved'] and ref.get('source_name') and ref.get('name_en')
@@ -87,41 +94,25 @@ def audit_revision(revision):
     return {**previous, 'references': refs, 'unresolved_references': [k for k, v in refs.items() if not v['resolved']],
             'source_name_mismatches': mismatches,
             'source_macro_repairs': [{'source': b.get('data', {}).get('code', ''), 'notes': macro_source_repairs(b.get('data', {}).get('code', ''))}
-                for b in walk_blocks(revision.source_blocks) if b['type'] == 'code' and macro_source_repairs(b.get('data', {}).get('code', ''))],
+                for b in walk_blocks(guide.source_blocks) if b['type'] == 'code' and macro_source_repairs(b.get('data', {}).get('code', ''))],
             'historical_references': [token for token, ref in refs.items() if ref.get('evidence', '').startswith('攻略历史快照')],
             'unsupported_blocks': unsupported, 'untranslated': untranslated,
-            'publishable': bool(revision.blocks) and not unsupported and not untranslated and all(r['resolved'] for r in refs.values())}
-
-
-def approve_revision(guide_id, revision_id, expected_number):
-    with transaction.atomic():
-        guide = ClassGuide.objects.select_for_update().get(pk=guide_id)
-        if guide.revision_number != expected_number:
-            raise RevisionConflict('文章版本已变化，请刷新后审核')
-        revision = guide.revisions.get(pk=revision_id)
-        audit = audit_revision(revision)
-        if not audit['publishable']:
-            raise ValueError('仍存在未翻译段落、未解析组件或未校订术语，不能标记为审核通过')
-        guide.published_revision = revision
-        guide.save(update_fields=['published_revision', 'updated_at'])
-        return revision
+            'complete': bool(blocks) and not unsupported and not untranslated and all(r['resolved'] for r in refs.values())}
 
 
 def build_guide_glossary(blocks, game_version):
     source_text = '\n'.join(str(b.get('html', '')) + str(b.get('title', '')) + str(b.get('data', {}).get('code', '')) for b in walk_blocks(blocks))
-    version = talent_version_for(game_version)
-    talents = WowTalentNodeMetadata.objects.filter(talent_version=version).exclude(name='').exclude(name_zh='') if version else WowTalentNodeMetadata.objects.none()
     references = REF_RE.findall(source_text)
-    scope = Q(kind='phrase')
-    for kind in ('spell', 'talent', 'item'):
-        scope |= Q(kind=kind, object_id__in={int(object_id) for ref_kind, object_id, _ in references if ref_kind == kind})
+    identities = {(kind, int(object_id)) for kind, object_id, _ in references}
+    rows = effective_names(game_version, source_text=source_text)
+    scoped = [r for r in rows if r['kind'] == 'phrase' or (r['kind'], r['object_id']) in identities]
     return GuideGlossary.prioritized(
         # 攻略正文中的资料片名不能被冒险指南里的同名首领覆盖。
         WowNewsGlossary.from_trusted_pairs([('Midnight', '至暗之夜')]),
-        WowNewsGlossary.from_trusted_pairs(ClassGuideTerm.objects.filter(scope, game_version=game_version).exclude(name_en='').values_list('name_en', 'name_zh')),
+        WowNewsGlossary.from_trusted_pairs((r['name_en'], r['name_zh']) for r in scoped),
         WowNewsGlossary.from_trusted_pairs([('Raid', '团队副本'), ('Mythic+', '大秘境'), ('AoE', '范围伤害'), ('BiS', '最佳配装')]),
         WowNewsGlossary.from_builtin_terms(),
-        WowNewsGlossary.from_pairs(talents.values_list('name', 'name_zh')),
+        WowNewsGlossary.from_pairs((r['name_en'], r['name_zh']) for r in rows if r['kind'] == 'talent'),
         WowNewsGlossary.from_current_spell_metadata(source_text),
         WowNewsGlossary.from_current_item_metadata(source_text),
         WowNewsGlossary.from_active_mythic_dungeon_metadata(source_text=source_text),
@@ -134,8 +125,7 @@ def translate_blocks(blocks, game_version, *, service=None, progress=None):
     result = copy.deepcopy(blocks)
     glossary = build_guide_glossary(blocks, game_version)
     pending, failed = [], []
-    macro_names = macro_name_map(ClassGuideTerm.objects.filter(game_version=game_version,
-        kind__in=['spell', 'item', 'phrase', 'macro']).values_list('kind', 'name_en', 'name_zh'))
+    macro_names = macro_name_map((r['kind'], r['name_en'], r['name_zh']) for r in effective_names(game_version, source_text='\n'.join(str(b) for b in walk_blocks(blocks))))
     # 保护协议或术语范围调整后，复用结构和官方术语仍然吻合的旧译文。
     source_values = {b.get(field, '') for b in walk_blocks(result) for field in ('title', 'html')} - {''}
     prior_by_source = defaultdict(list)
@@ -249,19 +239,41 @@ def translate_blocks(blocks, game_version, *, service=None, progress=None):
     return validate_blocks(result), failed
 
 
-def import_post(post, url, *, translate=False, progress=None, refresh_translations=False):
+def source_version(post, catalog_version=''):
+    """版本标签用于术语选取；缺少标签不再阻止当前目录的攻略导入。"""
+    explicit = latest_source_version([post])
+    if explicit:
+        return explicit
+    if isinstance(catalog_version, str) and re.fullmatch(r'\d+\.\d+(?:\.\d+)?', catalog_version):
+        return catalog_version
+    existing = ClassGuide.objects.filter(slug=post['slug'], source_url__startswith='https://maxroll.gg/wow/class-guides/').values_list('game_version', flat=True)
+    versions = [value for value in existing if re.fullmatch(r'\d+\.\d+(?:\.\d+)?', value)]
+    if not versions:
+        versions = [value for value in ClassGuide.objects.filter(source_url__startswith='https://maxroll.gg/wow/class-guides/').values_list('game_version', flat=True).distinct()
+                    if re.fullmatch(r'\d+\.\d+(?:\.\d+)?', value)]
+    if not versions:
+        versions = [value.removesuffix('.0') if re.fullmatch(r'\d+\.\d+\.0', value) else value
+                    for value in WowTalentVersion.objects.filter(is_active=True).values_list('major_version', flat=True)
+                    if re.fullmatch(r'\d+\.\d+(?:\.\d+)?', value)]
+    if not versions:
+        raise ValueError('站内尚无可用的游戏版本，请先配置全站游戏版本或从完整目录同步')
+    return max(versions, key=lambda value: tuple(map(int, value.split('.'))))
+
+
+def import_post(post, url, *, translate=False, progress=None, refresh_translations=False, catalog_version=''):
+    if progress:
+        progress(0, 0)
     class_name, spec, kind = identity(post['slug'])
+    if is_leveling(post):
+        raise ValueError('练级攻略不在同步范围内')
     tags = post.get('tags') or []
-    match = re.search(r'\d+\.\d+(?:\.\d+)?', ' '.join(t.get('name', '') for t in tags))
-    if not match:
-        raise ValueError('来源未标明游戏版本，拒绝自动归入当前版本')
-    game_version = match[0]
+    game_version = source_version(post, catalog_version)
     title = chinese_title(class_name, spec, kind)
     guide, created = ClassGuide.objects.get_or_create(slug=post['slug'], game_version=game_version,
         defaults={'title': title, 'class_name': class_name, 'spec_name': spec, 'guide_type': kind,
                   'source_url': url, 'author': (post.get('author') or {}).get('name', '')})
     if (guide.class_name, guide.spec_name) != canonical_class_spec(class_name, spec):
-        raise ValueError('来源专精与现有攻略绑定不一致，拒绝写入')
+        return guide, 'specialization_preserved'
     if post.get('author_profile'):
         from botend.services.class_guide_authors import normalize_author_profile
         profile = normalize_author_profile(post['author_profile'])
@@ -271,77 +283,82 @@ def import_post(post, url, *, translate=False, progress=None, refresh_translatio
     if created:
         set_guide_tags(guide, source_labels(game_version, kind))
         ensure_source_tag(guide)
-    if guide.archived:
-        return guide, 'archived'
     source_hash = fingerprint({'converter': 5, 'title': post.get('title'), 'blocks': post['gutenbergBlock'], 'tags': tags})
-    prior = guide.revisions.filter(source_hash=source_hash, origin__in=['import', 'translation']).first()
-    if prior and (not translate or (not refresh_translations and not prior.audit.get('untranslated'))):
+    if has_manual_content(guide):
+        return guide, 'manual_preserved'
+    if guide.source_hash == source_hash and (not translate or (not refresh_translations and not guide.check_data.get('untranslated'))):
         return guide, 'unchanged'
-    expected = guide.revision_number
+    expected = guide.updated_at
     source_blocks, audit = convert(post)
     blocks = source_blocks
     audit['untranslated'] = [{'id': b['id'], 'field': f, 'reason': '等待翻译'} for b in walk_blocks(blocks)
                              for f in ('html', 'title') if re.search(r'[A-Za-z]{2}', re.sub(r'<[^>]*>|\[\[.*?\]\]', '', b.get(f, '')))]
     if translate:
         blocks, audit['untranslated'] = translate_blocks(blocks, game_version, progress=progress)
-        if prior and prior.content_markdown == blocks_to_markdown(blocks) and prior.audit.get('untranslated', []) == audit['untranslated']:
+        if guide.source_hash == source_hash and guide.content_markdown == blocks_to_markdown(blocks) and guide.check_data.get('untranslated', []) == audit['untranslated']:
             return guide, 'unchanged'
-    latest = guide.revisions.first()
-    audit['manual_conflict'] = bool(latest and (latest.origin == 'manual' or latest.audit.get('manual_conflict')))
-    create_revision(guide.id, title, blocks, expected_number=expected, origin='translation' if translate else 'import',
-        source_blocks=source_blocks, source_payload=post, source_hash=source_hash,
-        source_modified=post.get('modifiedIso', ''), audit=audit,
-        note='来源更新已保存为候选修订；人工编辑与审核版本保留')
-    return guide, ('translation_partial' if audit['untranslated'] else 'review') if translate else 'imported'
+    if progress:
+        progress(0, 0)
+    guide = save_article(guide.id, title, blocks, expected_updated_at=expected, imported=True,
+        source_markdown=blocks_to_markdown(source_blocks), source_payload=post, source_hash=source_hash,
+        source_modified=post.get('modifiedIso', ''), check_data=audit)
+    return guide, 'translation_partial' if translate and audit['untranslated'] else 'imported'
+
 
 
 def coverage(urls):
-    discovered = {identity(url.rsplit('/', 1)[-1]) for url in urls}
+    discovered, unrecognized = set(), []
+    for url in urls:
+        try:
+            discovered.add(identity(url.rsplit('/', 1)[-1]))
+        except ValueError:
+            unrecognized.append(url)
     expected = {(c, s, t) for c, specs in CLASS_SPEC_MAP.items() for s in specs for t in ['raid', 'mythic-plus']}
-    return {'expected': len(expected), 'discovered': len(discovered),
+    return {'expected': len(expected), 'discovered': len(urls), 'unrecognized': unrecognized,
             'missing_from_catalog': [{'class': c, 'spec': s, 'type': t} for c, s, t in sorted(expected - discovered)]}
 
 
-def sync_guides(*, translate=False, cache_dir=None, limit=None, log=None, workers=1, refresh_translations=False, request_client=None):
+def sync_guides(*, translate=False, cache_dir=None, limit=None, log=None, workers=1, refresh_translations=False, request_client=None, monitor_task=None):
     if not 1 <= workers <= 8:
         raise ValueError('同步并发数必须为 1 至 8')
     if request_client is not None and workers != 1:
         raise ValueError('后端请求客户端使用单线程增量同步')
-    feed, _ = ClassGuideFeed.objects.get_or_create(key='maxroll')
-    if not feed.authorization_note.strip():
-        raise ValueError('请先在攻略后台登记来源授权说明')
-    now, token = timezone.now(), uuid.uuid4().hex
-    claimed = ClassGuideFeed.objects.filter(pk=feed.pk).filter(Q(lease_until__isnull=True) | Q(lease_until__lt=now)).update(
-        lease_until=now + timedelta(minutes=10), lease_token=token)
-    if not claimed:
-        raise RevisionConflict('已有攻略同步任务执行中')
+    with guide_sync_task(monitor_task) as (task, heartbeat):
+        return _sync_guides(task=task, heartbeat=heartbeat, translate=translate, cache_dir=cache_dir,
+            limit=limit, log=log, workers=workers, refresh_translations=refresh_translations,
+            request_client=request_client)
+
+
+def _sync_guides(*, task, heartbeat, translate, cache_dir, limit, log, workers, refresh_translations, request_client):
     run = ClassGuideSyncRun.objects.create()
-    client = MaxrollClient(request_client=request_client)
     try:
+        client = MaxrollClient(request_client=request_client)
         if cache_dir:
             from pathlib import Path
             cache_dir = Path(cache_dir)
             urls = json.loads((cache_dir / 'urls.json').read_text(encoding='utf-8'))
+            urls = [url for url in urls if not is_leveling({'permalink': url})]
         else:
             urls = client.discover()
+        heartbeat()
         run.discovered, run.coverage = urls, coverage(urls)
         run.save()
         def process(url):
             if workers > 1:
                 close_old_connections()
-            def heartbeat(*_):
-                if not ClassGuideFeed.objects.filter(pk=feed.pk, lease_token=token).update(lease_until=timezone.now() + timedelta(minutes=10)):
-                    raise RevisionConflict('同步租约已经失效')
-            heartbeat()
             try:
+                heartbeat()
                 article_client = MaxrollClient() if workers > 1 else client
                 if cache_dir:
                     path = cache_dir / (url.rsplit('/', 1)[-1] + '.json')
                     post = json.loads(path.read_text(encoding='utf-8')) if path.exists() else article_client.article(url)
                 else:
                     post = article_client.article(url)
-                guide, status = import_post(post, url, translate=translate, progress=heartbeat, refresh_translations=refresh_translations)
+                guide, status = import_post(post, url, translate=translate, progress=heartbeat, refresh_translations=refresh_translations,
+                                            catalog_version=getattr(client, 'catalog_version', ''))
                 result = {'url': url, 'guide_id': guide.id, 'status': status}
+            except MonitorTaskLeaseLost:
+                raise
             except Exception as exc:
                 result = {'url': url, 'status': 'failed', 'error': str(exc)[:1000]}
             finally:
@@ -349,6 +366,7 @@ def sync_guides(*, translate=False, cache_dir=None, limit=None, log=None, worker
                     close_old_connections()
             return result
         def record(result):
+            heartbeat()
             run.results.append(result)
             run.save(update_fields=['results'])
             if log:
@@ -361,6 +379,7 @@ def sync_guides(*, translate=False, cache_dir=None, limit=None, log=None, worker
             with ThreadPoolExecutor(max_workers=workers) as pool:
                 for future in as_completed([pool.submit(process, url) for url in selected]):
                     record(future.result())
+        heartbeat()
         run.status = 'partial' if any(r['status'] in {'failed', 'translation_partial'} for r in run.results) else ('limited' if limit and len(urls) > limit else 'completed')
     except Exception as exc:
         run.status, run.error = 'failed', str(exc)[:2000]
@@ -368,6 +387,13 @@ def sync_guides(*, translate=False, cache_dir=None, limit=None, log=None, worker
     finally:
         run.finished_at = timezone.now()
         run.save()
-        ClassGuideFeed.objects.filter(pk=feed.pk, lease_token=token).update(lease_until=None, lease_token='',
-            last_checked_at=timezone.now())
+        try:
+            heartbeat()
+            task.flag = f'批次 {run.id} · {run.status} · {len(run.results)} 篇'
+            task.save(update_fields=['flag'])
+        except MonitorTaskLeaseLost as exc:
+            if run.status != 'failed':
+                run.status, run.error = 'failed', str(exc)
+                run.save(update_fields=['status', 'error'])
+                raise
     return run

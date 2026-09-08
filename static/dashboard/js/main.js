@@ -25,7 +25,7 @@ function initDashboardTheme() {
 function applyDashboardPagePermissions() {
     const permissionCodes = new Set(JSON.parse(document.getElementById('dashboard-permissions-data')?.textContent || '[]'));
     const catalog = JSON.parse(document.getElementById('dashboard-permission-catalog-data')?.textContent || '[]');
-    const bySection = new Map(catalog.map(item => [item.section, item.code]));
+    const bySection = new Map(catalog.flatMap(item => [item.section, ...(item.sections || [])].map(section => [section, item.code])));
     document.querySelectorAll('[data-section], [data-dashboard-section]').forEach(item => {
         const section = item.getAttribute('data-section') || item.getAttribute('data-dashboard-section');
         const code = bySection.get(section);
@@ -553,6 +553,9 @@ function initNavigation() {
                 }
                 if (sectionId === 'class-guides' && window.loadClassGuides) {
                     window.loadClassGuides();
+                }
+                if (['guide-disclaimers', 'wow-localization'].includes(sectionId)) {
+                    window.loadGuideManagementPage?.(sectionId);
                 }
                 if (isSimcDashboardSection(sectionId)) {
                     const simcPage = Object.keys(SIMC_DASHBOARD_SECTIONS)

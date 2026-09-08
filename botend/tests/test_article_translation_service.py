@@ -100,6 +100,7 @@ class ArticleTranslationServiceTests(SimpleTestCase):
             for method in (
                 "from_builtin_terms",
                 "from_active_talent_metadata",
+                "from_shared_localization",
                 "from_active_mythic_dungeon_metadata",
                 "from_current_spell_metadata",
                 "from_current_item_metadata",

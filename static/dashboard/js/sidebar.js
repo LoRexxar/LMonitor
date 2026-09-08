@@ -65,10 +65,11 @@
         const groups = [
             {key: 'content', label: '内容运营', entries: [
                 section('class-guides'),
+                section('guide-disclaimers'),
                 folder('news', '资讯与报告', 'fa-newspaper', [section('news'), section('wow-daily-reports'), section('wago-hotfix-reports')]),
                 folder('site', '站点编排', 'fa-compass', [section('wow-today-settings'), section('portal-navigation')]),
             ]},
-            {key: 'tools', label: '游戏工具', entries: [section('simc'), section('mythic-planner'), section('gear-builder-management'), section('tools')]},
+            {key: 'tools', label: '游戏工具', entries: [section('wow-localization'), section('simc'), section('mythic-planner'), section('gear-builder-management'), section('tools')]},
             {key: 'system', label: '系统管理', entries: [
                 root.querySelector('[data-dashboard-table="MonitorTask"]'),
                 folder('logs', '日志与告警', 'fa-bell', [section('error-logs'), section('log-files')]),
