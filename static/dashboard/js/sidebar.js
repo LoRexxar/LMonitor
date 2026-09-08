@@ -38,12 +38,12 @@
             const members = entries.filter(Boolean);
             if (!members.length) return null;
             const item = document.createElement('li');
-            item.className = 'nav-item has-submenu';
+            item.className = 'nav-item has-submenu open';
             item.dataset.sidebarFolder = key;
             const link = document.createElement('a');
             link.href = '#';
             link.setAttribute('role', 'button');
-            link.setAttribute('aria-expanded', 'false');
+            link.setAttribute('aria-expanded', 'true');
             link.setAttribute('aria-controls', `sidebar-${key}`);
             const symbol = document.createElement('i');
             symbol.className = `fas ${icon}`;
@@ -107,7 +107,7 @@
             if (!link || link.dataset.submenuBound === '1') return;
             link.dataset.submenuBound = '1';
             link.setAttribute('role', 'button');
-            setOpen(item, false);
+            setOpen(item, true);
             link.addEventListener('click', event => {
                 event.preventDefault();
                 setOpen(item, !item.classList.contains('open'));

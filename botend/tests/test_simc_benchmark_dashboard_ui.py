@@ -55,9 +55,9 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
 
         parent_link = cast(Tag, cast(Tag, group).select_one(':scope > a'))
         submenu = cast(Tag, cast(Tag, group).select_one(':scope > .submenu'))
-        self.assertNotIn('open', cast(Tag, group).get_attribute_list('class'))
-        self.assertEqual(parent_link.get('aria-expanded'), 'false')
-        self.assertTrue(submenu.has_attr('hidden'))
+        self.assertIn('open', cast(Tag, group).get_attribute_list('class'))
+        self.assertEqual(parent_link.get('aria-expanded'), 'true')
+        self.assertFalse(submenu.has_attr('hidden'))
 
         self.assertIn("dashboard-section-changed", (ROOT / "static/dashboard/js/main.js").read_text(encoding="utf-8"))
         self.assertIn("dashboard-section-changed", JS)

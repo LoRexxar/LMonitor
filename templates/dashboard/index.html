@@ -541,7 +541,7 @@
         html[data-dashboard-theme="dark"] #simc-skill-damage select { background-color: #fff !important; border-color: #d6d0c7 !important; color: #292b2f !important; }
 
     </style>
-    <script src="{% static 'dashboard/js/sidebar.js' %}?v=20260908_compact"></script>
+    <script src="{% static 'dashboard/js/sidebar.js' %}?v=20260908_expanded"></script>
     {% block dashboard_extra_head %}{% endblock %}
     {% if page_name == 'dashboard' %}
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -741,13 +741,13 @@
                     </li>
                     {% endif %}
                     {% if user.is_staff or user.is_superuser %}
-                    <li class="nav-item has-submenu" data-section="mythic-planner">
-                        <a href="#" aria-expanded="false" aria-controls="mythic-planner-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                    <li class="nav-item has-submenu open" data-section="mythic-planner">
+                        <a href="#" aria-expanded="true" aria-controls="mythic-planner-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-route mr-3"></i>
                             大秘境规划器
                             <i class="fas fa-chevron-down ml-auto text-xs"></i>
                         </a>
-                        <ul id="mythic-planner-sidebar-submenu" hidden class="sidebar-submenu submenu mt-2 ml-6 max-h-0 space-y-1 overflow-hidden transition-all duration-300">
+                        <ul id="mythic-planner-sidebar-submenu" class="sidebar-submenu submenu mt-2 ml-6 max-h-0 space-y-1 overflow-hidden transition-all duration-300">
                             <li class="submenu-item" data-dashboard-section="mythic-planner-config">
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-database mr-2 text-xs"></i>
@@ -781,13 +781,13 @@
                             职业配装管理
                         </a>
                     </li>
-                    <li class="nav-item has-submenu" data-section="simc">
-                        <a href="#" aria-expanded="false" aria-controls="simc-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                    <li class="nav-item has-submenu open" data-section="simc">
+                        <a href="#" aria-expanded="true" aria-controls="simc-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-microchip mr-3"></i>
                             SimC
                             <i class="fas fa-chevron-down ml-auto text-xs"></i>
                         </a>
-                        <ul id="simc-sidebar-submenu" hidden class="sidebar-submenu submenu mt-2 ml-6 max-h-0 space-y-1 overflow-hidden transition-all duration-300">
+                        <ul id="simc-sidebar-submenu" class="sidebar-submenu submenu mt-2 ml-6 max-h-0 space-y-1 overflow-hidden transition-all duration-300">
                             <li class="submenu-item" data-dashboard-section="simc-workflow">
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-project-diagram mr-2 text-xs"></i>
@@ -822,13 +822,13 @@
                             {% endif %}
                         </ul>
                     </li>
-                    <li class="nav-item has-submenu" data-section="tools">
-                        <a href="#" aria-expanded="false" aria-controls="tools-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                    <li class="nav-item has-submenu open" data-section="tools">
+                        <a href="#" aria-expanded="true" aria-controls="tools-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-tools mr-3"></i>
                             工具箱
                             <i class="fas fa-chevron-down ml-auto text-xs"></i>
                         </a>
-                        <ul id="tools-sidebar-submenu" hidden class="sidebar-submenu submenu mt-2 ml-6 space-y-1 max-h-0 overflow-hidden transition-all duration-300">
+                        <ul id="tools-sidebar-submenu" class="sidebar-submenu submenu mt-2 ml-6 space-y-1 max-h-0 overflow-hidden transition-all duration-300">
                             <li class="submenu-item" data-tool="wcl-analysis-entry">
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-chart-bar mr-2 text-xs"></i>
@@ -843,13 +843,13 @@
                             </li>
                         </ul>
                     </li>
-                    <li class="nav-item has-submenu" data-section="database-tables">
-                        <a href="#" aria-expanded="false" aria-controls="database-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                    <li class="nav-item has-submenu open" data-section="database-tables">
+                        <a href="#" aria-expanded="true" aria-controls="database-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-database mr-3"></i>
                             数据库
                             <i class="fas fa-chevron-down ml-auto text-xs"></i>
                         </a>
-                        <ul id="database-sidebar-submenu" hidden class="sidebar-submenu submenu mt-2 ml-6 space-y-1 max-h-0 overflow-hidden transition-all duration-300">
+                        <ul id="database-sidebar-submenu" class="sidebar-submenu submenu mt-2 ml-6 space-y-1 max-h-0 overflow-hidden transition-all duration-300">
                             <li class="px-1 pb-2">
                                 <div class="relative">
                                     <i class="fas fa-search absolute left-3 top-2.5 text-xs text-gray-400"></i>
