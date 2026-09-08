@@ -10,6 +10,12 @@ from botend.services.wowhead_bbcode_renderer import extract_wowhead_print_html_c
 
 
 class WowheadBBCodeRendererTests(SimpleTestCase):
+    def test_malformed_url_does_not_break_other_source_rendering(self):
+        rendered = render_wowhead_bbcode('[url=/news/1]visible[/url][img]https://[invalid[/img][url=/news/2]safe[/url]', base_url='https://www.wowhead.com/')
+        self.assertIn('visible', rendered)
+        self.assertIn('href="https://www.wowhead.com/news/2"', rendered)
+        self.assertNotIn('src="https://[invalid', rendered)
+
     def test_extracts_javascript_string_without_executing_script(self):
         script = r'''WH.markup.printHtml("Hello \"quoted\" text\r\n[item=42 tooltip]", "target-id", {"uid":1});'''
 

@@ -624,7 +624,8 @@ class PortalExwindLatestAPIView(View):
         since = timezone.now() - timedelta(days=7)
         if source == 'nga_preview':
             rows = (
-                WowArticle.objects.filter(source='nga', category='nga', author='nga前瞻区', is_active=True)
+                WowArticle.objects.filter(source='nga', is_active=True).filter(
+                    Q(nga_board_id='310') | Q(nga_board_id='', category='nga', author='nga前瞻区'))
                 .order_by('-publish_time', '-id')[:60]
             )
         else:

@@ -12,10 +12,10 @@ from django.utils.html import escape
 from django.utils.safestring import mark_safe
 
 from botend.models import WowArticle
+from botend.services.nga_facts_service import LEGACY_AUTHORS
+from botend.services.wowhead_bbcode_renderer import render_wowhead_bbcode
 
 
-# author is a collector classification here, NOT a forum username.
-BOARDS = {'nga前瞻区': '前瞻区', 'nga水区': '水区'}
 BODY_TAGS = set('p br div span strong b em i u s del ins blockquote pre code ul ol li dl dt dd '
                 'table thead tbody tfoot tr th td caption colgroup col h1 h2 h3 h4 h5 h6 '
                 'hr a img picture source figure figcaption details summary sup sub center font'.split())
@@ -43,6 +43,20 @@ def render_main_post(content):
     raw = (content or '').strip()
     if not raw:
         return ''
+    if re.search(r'\[(?:quote|b|i|u|s|del|ins|url|img|list|ul|ol|li|table|tr|td|th|h[1-6]|color|size|collapse|code|pre|center)(?:[=\] ])', raw, re.I):
+        # Keep HTML intact across nested BBCode, then sanitize the combined result.
+        html_tags = []
+        def shield(match):
+            html_tags.append(match.group(0))
+            return '\ue000NGAHTML' + str(len(html_tags) - 1) + '\ue001'
+        raw = raw.replace('\ue000', '').replace('\ue001', '')
+        raw = re.sub(r'(?is)<[^>]+>', shield, raw)
+        raw = re.sub(r'\[\*\]', '[li]', raw)
+        raw = re.sub(r'\[collapse(?:=[^\]]*)?\]', '[quote]', raw, flags=re.I)
+        raw = re.sub(r'\[/collapse\]', '[/quote]', raw, flags=re.I)
+        raw = render_wowhead_bbcode(raw, base_url='https://bbs.nga.cn/')
+        for index, tag in enumerate(html_tags):
+            raw = raw.replace('\ue000NGAHTML' + str(index) + '\ue001', tag)
     if not re.search(r'</?[a-zA-Z][^>]*>', raw):
         return mark_safe('<div class="nga-plain-text">' + str(escape(raw)) + '</div>')
     soup = BeautifulSoup(raw, 'html.parser')
@@ -94,8 +108,8 @@ def public_posts():
     return WowArticle.objects.filter(source='nga', is_active=True)
 
 
-def board_label(author):
-    return BOARDS.get(author, '板块未记录')
+def board_label(name):
+    return name or '板块未记录'
 
 
 def browse_posts(params):
@@ -103,20 +117,20 @@ def browse_posts(params):
     board = (params.get('board') or '').strip()[:255]
     sort = params.get('sort') if params.get('sort') in ('newest', 'replies') else 'newest'
     base = public_posts()
-    # Only actual collector classifications are presented as forum boards.
-    available = list(base.filter(author__in=BOARDS).order_by('author').values_list('author', flat=True).distinct()[:len(BOARDS)])
+    # Only observed forum IDs/names are presented as boards.
+    available = list(base.exclude(nga_board_id='').exclude(nga_board_name='').order_by('nga_board_id').values_list('nga_board_id', 'nga_board_name').distinct()[:100])
     qs = base
     if board == 'unknown':
-        qs = qs.exclude(author__in=BOARDS)
+        qs = qs.filter(nga_board_id='')
     elif board:
-        qs = qs.filter(author=board) if board in BOARDS else qs.none()
+        qs = qs.filter(nga_board_id=board)
     if q:
         qs = qs.filter(Q(title__icontains=q) | Q(description__icontains=q) | Q(content__icontains=q))
     ordering = ('-reply_count', '-publish_time', '-id') if sort == 'replies' else ('-publish_time', '-id')
     # Substr happens in SQL: at most 20 short excerpts, never deferred-field N+1s.
     rows = qs.order_by(*ordering).annotate(excerpt=Substr(
         Coalesce(NullIf('description', Value('')), 'content', Value('')), 1, 600
-    )).values('id', 'title', 'author', 'publish_time', 'reply_count', 'excerpt')
+    )).values('id', 'title', 'author', 'publish_time', 'reply_count', 'excerpt', 'nga_board_name', 'nga_replies_updated_at')
     page = Paginator(rows, 20).get_page((params.get('page') or '1')[:12])
     for row in page.object_list:
         soup = BeautifulSoup(row.pop('excerpt') or '', 'html.parser')
@@ -124,12 +138,14 @@ def browse_posts(params):
             tag.decompose()
         text = soup.get_text(' ', strip=True)
         row['summary'] = text[:220] + ('…' if len(text) > 220 else '')
-        row['board_label'] = board_label(row['author'])
+        row['board_label'] = board_label(row['nga_board_name'])
+        row['author_label'] = row['author'] if row['author'] and row['author'] not in LEGACY_AUTHORS else '作者未记录'
     return {'page': page, 'q': q, 'board': board, 'sort': sort,
-            'boards': [{'key': key, 'label': BOARDS[key]} for key in available]}
+            'boards': [{'key': key, 'label': label} for key, label in available]}
 
 
 def post_detail(pk):
-    post = get_object_or_404(public_posts().only('id', 'title', 'url', 'author', 'reply_count', 'publish_time', 'content'), pk=pk)
+    post = get_object_or_404(public_posts().only('id', 'title', 'url', 'author', 'reply_count', 'publish_time', 'content', 'nga_board_name', 'nga_replies_updated_at'), pk=pk)
     return {'post': post, 'body_html': render_main_post(post.content),
-            'board_label': board_label(post.author), 'source_url': safe_url(post.url)}
+            'board_label': board_label(post.nga_board_name), 'source_url': safe_url(post.url),
+            'author_label': post.author if post.author and post.author not in LEGACY_AUTHORS else '作者未记录'}

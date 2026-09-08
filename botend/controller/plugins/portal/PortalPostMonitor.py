@@ -583,6 +583,50 @@ class PortalPostMonitor(BaseScan):
             return None
 
     def update_nga_hot(self):
+        from botend.services.nga_facts_service import parse_listing, apply_facts, fetch_page, parse_main_post
+        auth = TargetAuth.objects.filter(domain='bbs.nga.cn').first()
+        try:
+            if self.req and getattr(self.req, 'is_chrome', False):
+                driver = self.req.get('https://bbs.nga.cn/thread.php?fid=7', 'RespByChrome', 0, '', is_origin=1)
+                if not driver:
+                    return
+                page = driver.html
+            else:
+                page = fetch_page('https://bbs.nga.cn/thread.php?fid=7', auth.cookie if auth else '')
+            rows = parse_listing(page)
+            if not rows:
+                raise ValueError('NGA listing contained no topic rows')
+            added = 0
+            failed_main = False
+            seen = set()
+            for row in rows:
+                if added >= 30:
+                    break
+                if row['url'] in seen or any(word in row['title'] for word in ['公益', '代工', '支持跨服']):
+                    continue
+                seen.add(row['url'])
+                obj = WowArticle.objects.filter(url=row['url']).first()
+                if obj is not None and obj.source != 'nga':
+                    continue
+                if obj is None:
+                    obj = WowArticle.objects.create(url=row['url'], title=row['title'], source='nga', category='hot')
+                apply_facts(obj, row['facts'])
+                if not (obj.content or '').strip():
+                    try:
+                        facts = parse_main_post(fetch_page(row['url'], auth.cookie if auth else ''))
+                        if not facts:
+                            raise ValueError('Main post unavailable')
+                        apply_facts(obj, facts)
+                    except ValueError:
+                        failed_main = True
+                added += 1
+            if failed_main:
+                raise ValueError('Some main posts unavailable')
+        except ValueError:
+            upsert_system_alert(category='NGA_UPSTREAM_ERROR', subject='bbs.nga.cn', level=3,
+                                title='NGA 抓取失败', content='页面不可用或结构变化；保留最近成功事实，请检查认证及上游。')
+
+    def _legacy_update_nga_hot(self):
         try:
             if self.req and getattr(self.req, 'is_chrome', False):
                 driver = self.req.get('https://bbs.nga.cn/thread.php?fid=7', 'RespByChrome', 0, '', is_origin=1)

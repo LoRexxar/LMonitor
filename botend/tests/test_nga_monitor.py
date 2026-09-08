@@ -8,8 +8,9 @@ from botend.models import TargetAuth, WowArticle
 
 NGA_GB18030_HTML = """
 <html><head><meta charset="GB18030"></head><body>
+<a class="nav_link" href="/thread.php?fid=310">精英议会</a>
 <div id="topicrows"><tbody><tr>
-<td>21</td><td><a class="topic" href="/read.php?tid=123">前瞻测试标题</a></td>
+<td><a class="replies">21</a></td><td><a class="topic" href="/read.php?tid=123">前瞻测试标题</a><a class="author">真实用户</a></td>
 <td><span class="silver postdate">2026-07-14</span></td>
 </tr></tbody></div>
 </body></html>
@@ -104,9 +105,9 @@ class NgaMonitorTests(TestCase):
 
         article = WowArticle.objects.get(url="https://bbs.nga.cn/read.php?tid=123")
         self.assertEqual(article.title, "前瞻测试标题")
-        self.assertEqual(article.author, "nga前瞻区")
+        self.assertEqual(article.author, "真实用户")
 
-    def test_resolve_data_marks_existing_hot_article_as_nga_preview(self):
+    def test_resolve_data_refreshes_real_facts_without_changing_hot_category(self):
         article = WowArticle.objects.create(
             title="旧标题",
             url="https://bbs.nga.cn/read.php?tid=123",
@@ -121,11 +122,11 @@ class NgaMonitorTests(TestCase):
         monitor.resolve_data(NGA_GB18030_HTML, "前瞻区", 10)
 
         article.refresh_from_db()
-        self.assertEqual(article.author, "nga前瞻区")
-        self.assertEqual(article.category, "nga")
+        self.assertEqual(article.author, "真实用户")
+        self.assertEqual(article.category, "hot")  # facts refresh preserves collector category
         self.assertEqual(article.reply_count, 21)
 
-    def test_water_scan_does_not_overwrite_preview_classification(self):
+    def test_collector_title_does_not_override_observed_author(self):
         article = WowArticle.objects.create(
             title="前瞻测试标题",
             url="https://bbs.nga.cn/read.php?tid=123",
@@ -139,5 +140,5 @@ class NgaMonitorTests(TestCase):
         monitor.resolve_data(NGA_GB18030_HTML, "水区", 200)
 
         article.refresh_from_db()
-        self.assertEqual(article.author, "nga前瞻区")
+        self.assertEqual(article.author, "真实用户")
         self.assertEqual(article.reply_count, 21)

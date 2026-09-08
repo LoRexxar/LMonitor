@@ -19,7 +19,7 @@
 <section id="nga-post-list" aria-label="NGA 帖子列表">
     {% for item in page %}
     <article class="nga-card">
-        <div class="nga-meta">{{ item.board_label }} · {{ item.publish_time|date:'Y-m-d H:i'|default:'时间未记录' }} · {{ item.reply_count }} 回复</div>
+        <div class="nga-meta"><span class="nga-badge">{{ item.board_label }}</span> · {{ item.author_label }} · 记录于 {{ item.publish_time|date:'Y-m-d H:i'|default:'时间未记录' }} · {% if item.nga_replies_updated_at %}<strong>{{ item.reply_count }} 回复</strong> <span>更新于 {{ item.nga_replies_updated_at|date:'m-d H:i' }}</span>{% else %}回复数未核验{% endif %}</div>
         <h2><a class="nga-post-link" href="{% url 'portal_nga_detail' item.id %}">{{ item.title|default:'未记录标题' }}</a></h2>
         <p class="nga-summary">{{ item.summary|default:'暂无已采集摘要，进入详情查看正文采集状态。' }}</p>
         <a class="nga-read" href="{% url 'portal_nga_detail' item.id %}">站内阅读 →</a>

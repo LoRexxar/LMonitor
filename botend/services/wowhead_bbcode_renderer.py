@@ -409,6 +409,9 @@ def _safe_url(value: str, base_url: str) -> str:
     normalized = html.unescape((value or "").strip())
     if not normalized:
         return ""
-    absolute = urljoin(base_url, normalized)
-    scheme = urlparse(absolute).scheme.lower()
+    try:
+        absolute = urljoin(base_url, normalized)
+        scheme = urlparse(absolute).scheme.lower()
+    except ValueError:
+        return ''
     return absolute if scheme in {"http", "https"} else ""

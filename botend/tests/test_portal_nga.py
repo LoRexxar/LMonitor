@@ -14,10 +14,10 @@ class PortalNgaTests(TestCase):
         return WowArticle.objects.create(**{'source': 'nga', 'category': 'nga', 'title': '普通帖子', **kwargs})
 
     def test_public_archive_search_filters_and_bounded_pages(self):
-        wanted = self.article(title='前瞻冷帖', author='nga前瞻区', reply_count=0,
+        wanted = self.article(title='前瞻冷帖', author='论坛用户', nga_board_id='310', nga_board_name='精英议会', reply_count=0,
                               content='正文检索词' + '长正文' * 10000)
         self.article(title='热门', category='hot', author=None)
-        self.article(title='水区', author='nga水区')
+        self.article(title='水区', author='论坛用户乙', nga_board_id='7', nga_board_name='艾泽拉斯议事厅')
         self.article(title='隐藏', is_active=False)
         self.article(title='其他来源', source='wowhead')
         for i in range(23):
@@ -40,11 +40,11 @@ class PortalNgaTests(TestCase):
         second = self.client.get('/portal/nga/' + next_url)
         self.assertEqual(len(second.context['page'].object_list), 3)
         self.assertEqual(second.context['q'], '历史帖')
-        response = self.client.get('/portal/nga/', {'q': '正文检索词', 'board': 'nga前瞻区'})
+        response = self.client.get('/portal/nga/', {'q': '正文检索词', 'board': '310'})
         self.assertContains(response, f'/portal/nga/{wanted.id}/')
         self.assertEqual(response.context['page'].paginator.count, 1)
         self.assertNotContains(response, '长正文' * 1000)
-        self.assertContains(response, '前瞻区')
+        self.assertContains(response, '精英议会')
         self.assertEqual(self.client.get('/portal/nga/', {'page': 'bad'}).status_code, 200)
         self.assertEqual(self.client.get('/portal/nga/', {'page': '999999999999999999999'}).status_code, 200)
         self.assertContains(self.client.get('/portal/nga/', {'q': '不存在'}), '没有匹配的帖子')
@@ -150,9 +150,9 @@ class PortalNgaTests(TestCase):
     def test_board_unknown_sort_order_and_old_records(self):
         from datetime import timedelta
         from django.utils import timezone
-        old = self.article(title='历史低回复', author='nga前瞻区', reply_count=0,
+        old = self.article(title='历史低回复', author='论坛用户', nga_board_id='310', nga_board_name='精英议会', reply_count=0,
                            publish_time=timezone.now() - timedelta(days=1200))
-        popular = self.article(title='高回复', author='nga水区', reply_count=500)
+        popular = self.article(title='高回复', author='论坛用户乙', nga_board_id='7', nga_board_name='艾泽拉斯议事厅', reply_count=500)
         null_board = self.article(author=None)
         named_author = self.article(author='论坛用户并非板块')
         response = self.client.get('/portal/nga/', {'sort': 'replies'})
@@ -161,5 +161,5 @@ class PortalNgaTests(TestCase):
         self.assertIn(old.id, ids)
         unknown = self.client.get('/portal/nga/', {'board': 'unknown'})
         self.assertEqual({row['id'] for row in unknown.context['page']}, {null_board.id, named_author.id})
-        known = self.client.get('/portal/nga/', {'board': 'nga前瞻区'})
+        known = self.client.get('/portal/nga/', {'board': '310'})
         self.assertEqual([row['id'] for row in known.context['page']], [old.id])

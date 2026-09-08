@@ -66,7 +66,7 @@ class ngaMonitor(BaseScan):
             for candidate_url in urls:
                 domain = "bbs.nga.cn"
                 auth = TargetAuth.objects.filter(domain=domain, is_login=True).first()
-                cookies = auth.cookie if auth and auth.cookie else ""
+                cookies = re.sub(r'[\r\n]', '', auth.cookie).strip() if auth and auth.cookie else ""
                 response = self.req.get(candidate_url, 'Response', 0, cookies)
                 last_status = getattr(response, 'status_code', None)
                 content = getattr(response, 'content', b'') if response else b''
@@ -100,6 +100,22 @@ class ngaMonitor(BaseScan):
         return all_success
 
     def resolve_data(self, html, title="", limit=10):
+        from botend.services.nga_facts_service import parse_listing, apply_facts
+        for row in parse_listing(html):
+            wa = WowArticle.objects.filter(url=row['url']).first()
+            if wa:
+                if wa.source == 'nga':
+                    apply_facts(wa, row['facts'])
+                continue
+            if row['facts'].get('reply_count', 0) <= 20 or any(b in row['title'] for b in self.black_list):
+                continue
+            wa = WowArticle.objects.create(title=row['title'], url=row['url'], source='nga', category='nga', **row['facts'])
+            self.task.flag = row['url']
+            self.task.save()
+            self.post_desp = f"NGA带逛<{row['facts'].get('nga_board_name', '板块未记录')}>，回帖数{wa.reply_count}\n《{wa.title}》\n{wa.url}"
+            self.trigger_webhook()
+
+    def _legacy_resolve_data(self, html, title="", limit=10):
 
         try:
             if not html:
