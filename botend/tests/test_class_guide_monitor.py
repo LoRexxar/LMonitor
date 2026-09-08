@@ -51,6 +51,40 @@ class GuideMonitorTests(TestCase):
         self.assertEqual(data['monitor_task_id'], self.task.pk)
         self.assertIsNone(data['next_check_at'])
 
+    def test_monitor_table_can_enable_new_task_with_blank_flag(self):
+        self.assertIsNone(self.task.flag)
+        for flag in (None, ''):
+            with self.subTest(flag=flag):
+                response = self.client.post('/dashboard/', json.dumps({
+                    'action': 'update_table_row', 'table_name': 'MonitorTask',
+                    'row_id': self.task.pk,
+                    'update_data': {'is_active': True, 'flag': flag},
+                }), content_type='application/json')
+                self.assertEqual(response.status_code, 200, response.content)
+                self.assertEqual(response.json()['status'], 'success')
+                self.task.refresh_from_db()
+                self.assertTrue(self.task.is_active)
+                self.assertIsNone(self.task.flag)
+
+    def test_monitor_table_preserves_flag_and_rejects_oversized_value(self):
+        flag = '批次 1 · completed · 70 篇'
+        MonitorTask.objects.filter(pk=self.task.pk).update(flag=flag)
+        response = self.client.post('/dashboard/', json.dumps({
+            'action': 'update_table_row', 'table_name': 'MonitorTask',
+            'row_id': self.task.pk, 'update_data': {'is_active': True, 'flag': flag},
+        }), content_type='application/json')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.flag, flag)
+        response = self.client.post('/dashboard/', json.dumps({
+            'action': 'update_table_row', 'table_name': 'MonitorTask',
+            'row_id': self.task.pk, 'update_data': {'is_active': False, 'flag': 'x' * 2001},
+        }), content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        self.task.refresh_from_db()
+        self.assertTrue(self.task.is_active)
+        self.assertEqual(self.task.flag, flag)
+
     def test_one_backend_scan_updates_candidates_and_unchanged_source_skips_translation(self):
         ClassGuideFeed.objects.create(authorization_note='测试授权')
         now = timezone.now()
