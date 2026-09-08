@@ -3,11 +3,13 @@
     {% for item in page %}
     <article class="nga-card nga-thread">
         <div class="nga-thread-main">
-            <h2><a class="nga-post-link" href="{% url 'portal_nga_detail' item.id %}?{{ batch_query }}">{{ item.title|default:'未记录标题' }}</a></h2>
+            <h2>{% if item.source_url %}<a class="nga-post-link" href="{{ item.source_url }}" target="_blank" rel="nofollow noopener noreferrer">{{ item.title|default:'未记录标题' }}</a>{% else %}{{ item.title|default:'未记录标题' }}{% endif %}</h2>
             <div class="nga-meta"><span class="nga-badge">{{ item.board_label }}</span> · {{ item.author_label }} · 记录于 {{ item.publish_time|date:'Y-m-d H:i'|default:'时间未记录' }}</div>
-            {% if item.summary %}<p class="nga-summary">{{ item.summary }}</p>{% endif %}
+
         </div>
         <div class="nga-replies">{% if item.nga_replies_updated_at %}<strong>{{ item.reply_count }}</strong><span>回复</span><small>采集于 {{ item.nga_replies_updated_at|date:'m-d H:i' }}</small>{% else %}<span>回复数<br>未核验</span>{% endif %}</div>
+        {% if item.body_html %}<div class="nga-body">{{ item.body_html }}</div>{% else %}<p class="nga-body-empty nga-meta">尚未采集到主帖正文。</p>{% endif %}
+        <footer class="nga-thread-footer">{% if item.source_url %}<a class="nga-source-link" href="{{ item.source_url }}" target="_blank" rel="nofollow noopener noreferrer">查看 NGA 原帖</a>{% else %}<span class="nga-meta">原帖链接未记录或不可用</span>{% endif %}</footer>
     </article>
     {% empty %}<p id="nga-empty" class="nga-card">没有匹配的帖子。请更换关键词或重置筛选。</p>{% endfor %}
 </section>

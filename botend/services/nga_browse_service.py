@@ -1,12 +1,11 @@
 """Public read model for collected NGA facts, independent of news/hot projections."""
 import re
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 from bs4 import BeautifulSoup, Comment
 from django.core.paginator import Paginator
 from django.db.models import Q
-from django.db.models.functions import Coalesce, NullIf, Substr
-from django.db.models import Value
+
 from django.shortcuts import get_object_or_404
 from django.utils.html import escape
 from django.utils.safestring import mark_safe
@@ -30,6 +29,26 @@ def safe_url(value, base='https://bbs.nga.cn/'):
         resolved = urljoin(base, raw)
         parts = urlsplit(resolved)
         return resolved if parts.scheme in ('http', 'https') and parts.hostname else ''
+    except ValueError:
+        return ''
+
+
+def nga_source_url(value):
+    """Accept only HTTPS NGA thread facts; never invent a tid from the local ID."""
+    raw = str(value or '')
+    if re.search(r'[\x00-\x20\x7f\\]', raw):
+        return ''
+    try:
+        parts = urlsplit(raw)
+        if (parts.scheme != 'https' or parts.hostname not in
+                {'bbs.nga.cn', 'nga.178.com', 'ngabbs.com'} or
+                parts.username is not None or parts.password is not None or
+                parts.port not in (None, 443) or parts.path != '/read.php'):
+            return ''
+        tids = parse_qs(parts.query).get('tid', [])
+        if len(tids) != 1 or not re.fullmatch(r'[1-9][0-9]*', tids[0]):
+            return ''
+        return f'https://{parts.hostname}/read.php?tid={tids[0]}'
     except ValueError:
         return ''
 
@@ -90,6 +109,9 @@ def render_main_post(content):
         if tag.name in DROP_TAGS:
             tag.decompose()
             continue
+        # Stored collapsible HTML is presented in full, just like BBCode collapse.
+        if tag.name in ('details', 'summary'):
+            tag.name = 'div'
         if tag.name not in BODY_TAGS:
             tag.unwrap()
             continue
@@ -149,21 +171,18 @@ def browse_posts(params):
     if q:
         qs = qs.filter(Q(title__icontains=q) | Q(description__icontains=q) | Q(content__icontains=q))
     ordering = ('-reply_count', '-publish_time', '-id') if sort == 'replies' else ('-publish_time', '-id')
-    # Substr happens in SQL: at most 20 short excerpts, never deferred-field N+1s.
-    rows = qs.order_by(*ordering).annotate(excerpt=Substr(
-        Coalesce(NullIf('description', Value('')), 'content', Value('')), 1, 600
-    )).values('id', 'title', 'author', 'publish_time', 'reply_count', 'excerpt', 'nga_board_name', 'nga_replies_updated_at')
+    rows = qs.order_by(*ordering).values('id', 'title', 'author', 'publish_time',
+                                        'reply_count', 'nga_board_name', 'nga_replies_updated_at')
     page = Paginator(rows, 20).get_page((params.get('page') or '1')[:12])
+    page.object_list = list(page.object_list)
+    # Fetch full bodies only after pagination, in one query bounded to this batch.
+    bodies = {row['id']: row for row in base.filter(
+        id__in=[row['id'] for row in page.object_list]
+    ).values('id', 'content', 'url')}
     for row in page.object_list:
-        soup = BeautifulSoup(row.pop('excerpt') or '', 'html.parser')
-        for tag in soup.find_all(['script', 'style']):
-            tag.decompose()
-        text = readable_smileys(soup.get_text(' ', strip=True))
-        # Excerpts may end inside a BBCode block because SQL bounds them first.
-        text = re.sub(r'\[img(?:=[^\]]*)?\].*?(?:\[/img\]|$)', '（图片）', text, flags=re.I | re.S)
-        text = re.sub(r'\[/?(?:url|img|b|i|u|s|quote|color|size|collapse|list|li|table|tr|td)(?:=[^\]]*)?\]', '', text, flags=re.I)
-        text = re.sub(r'\[(?:url|img)(?:=[^\]]*)?$', '', text, flags=re.I)
-        row['summary'] = text[:220] + ('…' if len(text) > 220 else '')
+        body = bodies.get(row['id'], {})
+        row['body_html'] = render_main_post(body.get('content'))
+        row['source_url'] = nga_source_url(body.get('url'))
         row['board_label'] = board_label(row['nga_board_name'])
         row['author_label'] = row['author'] if row['author'] and row['author'] not in LEGACY_AUTHORS else '作者未记录'
     return {'page': page, 'q': q, 'board': board, 'sort': sort,
@@ -173,5 +192,5 @@ def browse_posts(params):
 def post_detail(pk):
     post = get_object_or_404(public_posts().only('id', 'title', 'url', 'author', 'reply_count', 'publish_time', 'content', 'nga_board_name', 'nga_replies_updated_at'), pk=pk)
     return {'post': post, 'body_html': render_main_post(post.content),
-            'board_label': board_label(post.nga_board_name), 'source_url': safe_url(post.url),
+            'board_label': board_label(post.nga_board_name), 'source_url': nga_source_url(post.url),
             'author_label': post.author if post.author and post.author not in LEGACY_AUTHORS else '作者未记录'}

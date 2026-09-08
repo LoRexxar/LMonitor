@@ -15,7 +15,8 @@ class PortalNgaTests(TestCase):
 
     def test_public_archive_search_filters_and_bounded_pages(self):
         wanted = self.article(title='前瞻冷帖', author='论坛用户', nga_board_id='310', nga_board_name='精英议会', reply_count=0,
-                              content='正文检索词' + '长正文' * 10000)
+                              url='https://bbs.nga.cn/read.php?tid=12345',
+                              content='正文检索词' + '长正文' * 10000 + '正文最后一句')
         self.article(title='热门', category='hot', author=None)
         self.article(title='水区', author='论坛用户乙', nga_board_id='7', nga_board_name='艾泽拉斯议事厅')
         self.article(title='隐藏', is_active=False)
@@ -28,12 +29,16 @@ class PortalNgaTests(TestCase):
         self.assertEqual(response.context['page'].paginator.count, 26)
         self.assertEqual(len(response.context['page'].object_list), 20)
         self.assertContains(response, 'id="nga-swap"')
-        # The SQL may inspect content for search/substring, but never transfers whole bodies.
+        # Metadata is paginated before one bounded body fetch, never N+1/full archive.
         row_sql = [q['sql'] for q in queries if 'LIMIT 20' in q['sql']]
         self.assertTrue(row_sql)
         self.assertLessEqual(len(queries), 4)
         self.assertNotIn('"content"', row_sql[0].split('SUBSTR', 1)[0])
         self.assertNotIn('"content_blocks"', row_sql[0])
+        body_sql = [q['sql'] for q in queries if 'SELECT' in q['sql'] and '"content"' in q['sql']]
+        self.assertEqual(len(body_sql), 1)
+        self.assertIn(' IN (', body_sql[0])
+        self.assertEqual(body_sql[0].split(' IN (')[1].split(')')[0].count(',') + 1, 20)
         response = self.client.get('/portal/nga/', {'q': '历史帖', 'sort': 'replies'})
         form = BeautifulSoup(response.content, 'html.parser').select_one('#nga-swap-form')
         params = {node['name']: node.get('value', '') for node in form.select('input[name]')}
@@ -42,9 +47,10 @@ class PortalNgaTests(TestCase):
         self.assertEqual(len(second.context['page'].object_list), 3)
         self.assertEqual(second.context['q'], '历史帖')
         response = self.client.get('/portal/nga/', {'q': '正文检索词', 'board': '310'})
-        self.assertContains(response, f'/portal/nga/{wanted.id}/')
+        self.assertNotContains(response, f'/portal/nga/{wanted.id}/')
+        self.assertContains(response, 'https://bbs.nga.cn/read.php?tid=12345')
         self.assertEqual(response.context['page'].paginator.count, 1)
-        self.assertNotContains(response, '长正文' * 1000)
+        self.assertContains(response, '长正文' * 10000 + '正文最后一句')
         self.assertContains(response, '精英议会')
         self.assertEqual(self.client.get('/portal/nga/', {'page': 'bad'}).status_code, 200)
         self.assertEqual(self.client.get('/portal/nga/', {'page': '999999999999999999999'}).status_code, 200)
@@ -55,6 +61,7 @@ class PortalNgaTests(TestCase):
         stamp = timezone.now()
         for i in range(23):
             self.article(title=f'刷帖 <script>bad()</script> {i}', nga_board_id='7',
+                         url=f'https://bbs.nga.cn/read.php?tid={i + 1}', content=f'本批正文 {i}',
                          nga_board_name='议事厅', publish_time=stamp, reply_count=i,
                          nga_replies_updated_at=stamp)
         self.article(title='不匹配', nga_board_id='310')
@@ -73,12 +80,14 @@ class PortalNgaTests(TestCase):
         fragment = BeautifulSoup(second.content, 'html.parser')
         self.assertIsNone(fragment.html)
         self.assertEqual(len(fragment.select('.nga-post-link')), 3)
-        self.assertFalse({a['href'].split('?')[0] for a in soup.select('.nga-post-link')} &
-                         {a['href'].split('?')[0] for a in fragment.select('.nga-post-link')})
+        self.assertFalse({a['href'] for a in soup.select('.nga-post-link')} &
+                         {a['href'] for a in fragment.select('.nga-post-link')})
+        self.assertEqual(len(fragment.select('.nga-body')), 3)
+        self.assertIn('本批正文', fragment.get_text())
         self.assertIn('X-NGA-Batch', second.headers['Vary'])
         self.assertIsNone(fragment.select_one('script'))
         self.assertIn('已看到末尾', fragment.get_text())
-        detail = self.client.get(fragment.select_one('.nga-post-link')['href'])
+        detail = self.client.get(f"/portal/nga/{second.context['page'][0]['id']}/", params)
         back = BeautifulSoup(detail.content, 'html.parser').select_one('#nga-back')['href']
         restored = self.client.get(back)
         self.assertEqual([x['id'] for x in restored.context['page']],
@@ -134,11 +143,49 @@ class PortalNgaTests(TestCase):
         self.assertEqual(body.a['href'], 'https://bbs.nga.cn/' + path)
         self.assertIn('哭笑', body.get_text())
         self.assertNotIn('[s:ac:', str(body))
-        summary = self.client.get('/portal/nga/').context['page'].object_list[0]['summary']
-        self.assertIn('链接文字', summary)
-        self.assertIn('哭笑', summary)
-        for raw in ('[img]', '[url', '[s:', path):
-            self.assertNotIn(raw, summary)
+        listing = BeautifulSoup(self.client.get('/portal/nga/').content, 'html.parser').select_one('.nga-body')
+        self.assertEqual(listing.img['src'], cdn)
+        self.assertIn('哭笑', listing.get_text())
+        self.assertNotIn('摘要', listing.get_text())
+
+    def test_list_full_body_safety_empty_images_and_source_identity(self):
+        self.article(title='安全主帖', url='https://bbs.nga.cn/read.php?tid=5678&page=2',
+                     content='<details><summary>原折叠</summary><p onclick="evil()">尾部正文</p></details>'
+                     '[quote]引用[/quote]<table width="9999"><tr><td>表格</td></tr></table>'
+                     '<script>evil()</script><img src="/a.png" onerror="evil()">'
+                     '<a href="javascript:evil()">危险</a>')
+        self.article(title='纯图片', content='[img]/picture.png[/img]')
+        self.article(title='空正文', description='不要冒充主帖')
+        for url in ('https://evil.test/read.php?tid=5678', 'https://bbs.nga.cn.evil.test/read.php?tid=5678',
+                    'http://bbs.nga.cn/read.php?tid=5678', 'https://evil@bbs.nga.cn/read.php?tid=5678',
+                    'https://bbs.nga.cn/read.php?tid=1&tid=2', 'https://[invalid'):
+            self.article(title='坏来源', url=url)
+        response = self.client.get('/portal/nga/')
+        soup = BeautifulSoup(response.content, 'html.parser')
+        cards = soup.select('.nga-thread')
+        good = next(card for card in cards if '安全主帖' in card.get_text())
+        self.assertIn('尾部正文', good.get_text())
+        self.assertIsNotNone(good.select_one('blockquote'))
+        self.assertIsNotNone(good.select_one('td'))
+        self.assertIsNone(good.select_one('script, details, [onclick], [onerror]'))
+        self.assertNotIn('javascript:', str(good))
+        links = good.select('a.nga-post-link, a.nga-source-link')
+        self.assertEqual(len(links), 2)
+        for link in links:
+            self.assertEqual(link['href'], 'https://bbs.nga.cn/read.php?tid=5678')
+            self.assertEqual(link['target'], '_blank')
+            self.assertIn('noopener', link['rel'])
+            self.assertIn('noreferrer', link['rel'])
+        for card in cards:
+            if '坏来源' in card.get_text():
+                self.assertFalse(card.select('a.nga-post-link, a.nga-source-link'))
+        self.assertFalse(soup.select('a[href^="/portal/nga/"]:not([href="/portal/nga/"])'))
+        image_card = next(card for card in cards if '纯图片' in card.get_text())
+        self.assertEqual(image_card.select_one('.nga-body img')['loading'], 'lazy')
+        self.assertNotIn('尚未采集', image_card.get_text())
+        self.assertContains(response, '尚未采集到主帖正文')
+        self.assertNotContains(response, '不要冒充主帖')
+        self.assertContains(response, '历史正文可能不完整')
 
     def test_image_only_main_post_keeps_srcset_and_fallback_text(self):
         item = self.article(content='<picture><source srcset="/attachments/a.webp 1x">'
