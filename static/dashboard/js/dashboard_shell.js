@@ -4,7 +4,7 @@
     function dashboardTarget(item) {
         const section = item.dataset.section || item.dataset.dashboardSection;
         const tool = item.dataset.tool;
-        const table = item.dataset.table;
+        const table = item.dataset.table || item.dataset.dashboardTable;
         const params = new URLSearchParams();
         if (table) params.set('table', table);
         else if (tool) params.set('tool', tool);
@@ -14,7 +14,7 @@
     }
 
     function bindDashboardLinks() {
-        document.querySelectorAll('.nav-item:not(.has-submenu)[data-section]').forEach(item => {
+        document.querySelectorAll('.nav-item:not(.has-submenu)[data-section], .nav-item[data-dashboard-table]').forEach(item => {
             const link = item.querySelector(':scope > a');
             if (link) link.href = dashboardTarget(item);
         });
@@ -25,20 +25,7 @@
     }
 
     function bindSubmenus() {
-        document.querySelectorAll('.nav-item.has-submenu').forEach(item => {
-            const link = item.querySelector(':scope > a');
-            const submenu = item.querySelector(':scope > .submenu');
-            const chevron = link?.querySelector('.fa-chevron-down');
-            if (!link || !submenu) return;
-            link.addEventListener('click', event => {
-                event.preventDefault();
-                const willOpen = !item.classList.contains('open');
-                item.classList.toggle('open', willOpen);
-                link.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
-                submenu.style.maxHeight = willOpen ? `${submenu.scrollHeight}px` : '0';
-                if (chevron) chevron.classList.toggle('rotate-180', willOpen);
-            });
-        });
+        window.DashboardSidebar.bindSubmenus();
     }
 
     function bindMobileSidebar() {
@@ -121,6 +108,7 @@
     }
 
     function init() {
+        window.DashboardSidebar.initGroups();
         bindDashboardLinks();
         bindSubmenus();
         bindMobileSidebar();

@@ -58,71 +58,89 @@
 
         /* 确保侧边栏固定宽度 */
         .sidebar-fixed {
-            width: 16rem !important;
-            min-width: 16rem !important;
-            max-width: 16rem !important;
+            --sidebar-width: 13.5rem;
+            width: var(--sidebar-width) !important;
+            min-width: var(--sidebar-width) !important;
+            max-width: var(--sidebar-width) !important;
             flex-shrink: 0 !important;
             height: 100%;
             overflow-y: auto;
             overscroll-behavior: contain;
             -webkit-overflow-scrolling: touch;
             box-sizing: border-box;
-            padding-bottom: 6rem;
+            padding: 1rem 0 1.5rem;
+            border-right: 1px solid var(--dashboard-border, #e5e7eb);
+            scrollbar-width: thin;
+            scrollbar-color: var(--dashboard-border, #e5e7eb) transparent;
         }
 
-        /* Keep labels aligned independently of each Font Awesome glyph's natural width. */
-        #sidebar nav > ul > li > a > i:first-child {
-            width: 1.25rem;
-            flex: 0 0 1.25rem;
-            margin-right: 0.75rem;
+        /* 主入口紧凑排列，子项使用缩进表达层级。 */
+        #sidebar li > a {
+            display: flex;
+            align-items: center;
+            gap: 0.625rem;
+            min-height: 2.25rem;
+            padding: 0.5rem 0.625rem;
+            border-radius: 0.375rem;
+            color: var(--dashboard-text, #374151);
+            font-size: 0.8125rem;
+            line-height: 1.25rem;
+            text-decoration: none;
+            transition: background-color 120ms ease, color 120ms ease;
+        }
+
+        #sidebar li > a > i:first-child {
+            width: 1rem;
+            flex: 0 0 1rem;
+            margin: 0;
+            color: var(--dashboard-muted, #4b5563);
             text-align: center;
         }
 
+        #sidebar li > a:hover { background: var(--dashboard-surface-muted, #f3f4f6); }
+        #sidebar li > a:focus-visible { outline: 2px solid #2563eb; outline-offset: -2px; }
+        #sidebar li:not(.has-submenu).active > a,
+        #sidebar li > a[aria-current="page"] {
+            background: var(--sidebar-selected, #eaf1fc) !important;
+            color: var(--sidebar-accent, #1d4ed8) !important;
+            font-weight: 600;
+        }
+        #sidebar [aria-current="page"] > i:first-child { color: inherit; }
+        html[data-dashboard-theme="dark"] #sidebar { --sidebar-selected: #263b58; --sidebar-accent: #a8cdff; }
+
         #sidebar .sidebar-submenu {
-            margin-left: 1.5rem;
-            padding-left: 0.75rem;
-            border-left: 1px solid #e5e7eb;
+            margin: 0.125rem 0 0.5rem 1.125rem;
+            padding-left: 0.5rem;
+            border-left: 1px solid var(--dashboard-border, #e5e7eb);
         }
 
         #sidebar .sidebar-submenu > li > a {
-            display: flex;
-            align-items: center;
-            padding-left: 0.75rem;
-            padding-right: 0.75rem;
+            min-height: 2rem;
+            padding: 0.375rem 0.5rem;
+            color: var(--dashboard-muted, #4b5563);
         }
 
-        #sidebar .sidebar-submenu > li > a > i:first-child {
-            width: 1rem;
-            flex: 0 0 1rem;
-            margin-right: 0.5rem;
-            text-align: center;
-        }
+        #sidebar .sidebar-submenu > li > a > i:first-child { display: none; }
+        #sidebar .submenu[hidden] { display: none !important; }
+        #sidebar .submenu:not([hidden]) { max-height: none !important; overflow: visible; }
+        #sidebar .sidebar-submenu .truncate { min-width: 0; }
 
         #sidebar nav > ul {
-            padding-left: 0.75rem;
-            padding-right: 0.75rem;
+            padding: 0 0.625rem;
         }
 
         #sidebar .sidebar-group {
-            margin-top: 0.75rem;
+            margin-top: 1.125rem;
         }
 
         #sidebar .sidebar-group-label {
             display: flex;
             width: 100%;
             align-items: center;
-            gap: 0.625rem;
-            padding: 0.25rem 0.75rem 0.375rem;
+            padding: 0 0.625rem 0.375rem;
             color: var(--dashboard-muted, #4b5563);
-            font-size: 0.8125rem;
+            font-size: 0.6875rem;
             font-weight: 600;
-        }
-
-        #sidebar .sidebar-group-label::after {
-            content: '';
-            height: 1px;
-            flex: 1;
-            background: var(--dashboard-border, #e5e7eb);
         }
 
         #sidebar .sidebar-group-menu {
@@ -130,12 +148,12 @@
         }
 
         #sidebar .sidebar-group-menu > .nav-item > a {
-            min-height: 2.5rem;
+            min-height: 2.25rem;
         }
 
         #sidebar .sidebar-group-menu > .nav-item > a > i:first-child {
-            width: 1.25rem;
-            flex: 0 0 1.25rem;
+            width: 1rem;
+            flex: 0 0 1rem;
             text-align: center;
         }
 
@@ -157,8 +175,8 @@
             .sidebar-fixed {
                 position: fixed;
                 top: 0;
-                left: -16rem;
-                height: 100vh;
+                left: calc(-1 * var(--sidebar-width));
+                height: 100dvh;
                 z-index: 40;
                 transition: left 0.3s ease;
             }
@@ -166,6 +184,8 @@
             .sidebar-fixed.open {
                 left: 0;
             }
+
+            #sidebar li > a { min-height: 2.75rem; }
             
             .main-content {
                 margin-left: 0;
@@ -521,6 +541,7 @@
         html[data-dashboard-theme="dark"] #simc-skill-damage select { background-color: #fff !important; border-color: #d6d0c7 !important; color: #292b2f !important; }
 
     </style>
+    <script src="{% static 'dashboard/js/sidebar.js' %}?v=20260908_compact"></script>
     {% block dashboard_extra_head %}{% endblock %}
     {% if page_name == 'dashboard' %}
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -530,7 +551,7 @@
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
-<script src="{% static 'dashboard/js/main.js' %}?v=20260908_class_guides"></script>
+<script src="{% static 'dashboard/js/main.js' %}?v=20260908_compact_sidebar"></script>
     {% if 'content.class-guides' in dashboard_permissions %}
     <link rel="stylesheet" href="{% static 'dashboard/css/class_guides.css' %}?v=20260908_guide_disclaimer_v1">
     <script src="{% static 'dashboard/js/class_guide_reader.js' %}" defer></script>
@@ -550,7 +571,7 @@
     <script src="{% static 'dashboard/js/mythic_planner_routes.js' %}?v=20260806a" defer></script>
     {% endif %}
     {% else %}
-    <script src="{% static 'dashboard/js/dashboard_shell.js' %}?v=20260728b" defer></script>
+    <script src="{% static 'dashboard/js/dashboard_shell.js' %}?v=20260908_compact_sidebar" defer></script>
     {% endif %}
 </head>
 <body class="bg-gray-50 font-sans dashboard-page" data-dashboard-page="{{ page_name }}">
@@ -641,9 +662,9 @@
         <div id="sidebar-overlay" class="sidebar-overlay"></div>
         
         <!-- 左侧导航菜单 -->
-        <div id="sidebar" class="sidebar-fixed bg-white shadow-xl sidebar-transition">
+        <div id="sidebar" class="sidebar-fixed bg-white sidebar-transition">
 
-            <nav class="mt-6">
+            <nav aria-label="后台功能导航">
                 <ul id="dashboard-primary-nav" class="space-y-1">
                     <li class="nav-item" data-section="dashboard-home">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
@@ -651,68 +672,68 @@
                             首页
                         </a>
                     </li>
-                    <li class="nav-item" data-section="user-management" data-sidebar-group-member="access">
+                    <li class="nav-item" data-section="user-management">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-users-cog mr-3"></i>
                             用户管理
                         </a>
                     </li>
-                    <li class="nav-item" data-section="user-groups" data-sidebar-group-member="access">
+                    <li class="nav-item" data-section="user-groups">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-user-group mr-3"></i>
                             用户组管理
                         </a>
                     </li>
                     <!-- 新增 News 顶级栏目 -->
-                    <li class="nav-item" data-section="news" data-sidebar-group-member="content">
+                    <li class="nav-item" data-section="news">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-newspaper mr-3"></i>
                             新闻资讯
                         </a>
                     </li>
-                    <li class="nav-item" data-section="wow-daily-reports" data-sidebar-group-member="content">
+                    <li class="nav-item" data-section="wow-daily-reports">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-book mr-3"></i>
                             WoW 日报
                         </a>
                     </li>
-                    <li class="nav-item" data-section="wow-today-settings" data-sidebar-group-member="content">
+                    <li class="nav-item" data-section="wow-today-settings">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-layer-group mr-3"></i>
                             今日魔兽编排
                         </a>
                     </li>
-                    <li class="nav-item" data-section="class-guides" data-sidebar-group-member="content">
+                    <li class="nav-item" data-section="class-guides">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-book-open mr-3"></i>职业攻略
                         </a>
                     </li>
-                    <li class="nav-item" data-section="portal-navigation" data-sidebar-group-member="content">
+                    <li class="nav-item" data-section="portal-navigation">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-compass mr-3"></i>
                             首页导航管理
                         </a>
                     </li>
-                    <li class="nav-item" data-section="wago-hotfix-reports" data-sidebar-group-member="content">
+                    <li class="nav-item" data-section="wago-hotfix-reports">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-fire mr-3"></i>
                             Hotfix 报告
                         </a>
                     </li>
-                    <li class="nav-item" data-section="error-logs" data-sidebar-group-member="operations">
+                    <li class="nav-item" data-section="error-logs">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-bell mr-3"></i>
                             系统报警
                         </a>
                     </li>
-                    <li class="nav-item" data-section="log-files" data-sidebar-group-member="operations">
+                    <li class="nav-item" data-section="log-files">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-file-lines mr-3"></i>
                             日志文件
                         </a>
                     </li>
                     {% if user.is_superuser %}
-                    <li class="nav-item" data-dashboard-table="MonitorTask" data-sidebar-group-member="operations">
+                    <li class="nav-item" data-dashboard-table="MonitorTask">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-tasks mr-3"></i>
                             监控任务
@@ -720,13 +741,13 @@
                     </li>
                     {% endif %}
                     {% if user.is_staff or user.is_superuser %}
-                    <li class="nav-item has-submenu open" data-section="mythic-planner" data-sidebar-group-member="tools">
-                        <a href="#" aria-expanded="true" aria-controls="mythic-planner-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                    <li class="nav-item has-submenu" data-section="mythic-planner">
+                        <a href="#" aria-expanded="false" aria-controls="mythic-planner-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-route mr-3"></i>
                             大秘境规划器
                             <i class="fas fa-chevron-down ml-auto text-xs"></i>
                         </a>
-                        <ul id="mythic-planner-sidebar-submenu" class="sidebar-submenu submenu mt-2 ml-6 max-h-0 space-y-1 overflow-hidden transition-all duration-300">
+                        <ul id="mythic-planner-sidebar-submenu" hidden class="sidebar-submenu submenu mt-2 ml-6 max-h-0 space-y-1 overflow-hidden transition-all duration-300">
                             <li class="submenu-item" data-dashboard-section="mythic-planner-config">
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-database mr-2 text-xs"></i>
@@ -754,19 +775,19 @@
                         </ul>
                     </li>
                     {% endif %}
-                    <li class="nav-item" data-section="gear-builder-management" data-sidebar-group-member="tools">
+                    <li class="nav-item" data-section="gear-builder-management">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-shield-alt mr-3"></i>
                             职业配装管理
                         </a>
                     </li>
-                    <li class="nav-item has-submenu open" data-section="simc" data-sidebar-group-member="tools">
-                        <a href="#" aria-expanded="true" aria-controls="simc-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                    <li class="nav-item has-submenu" data-section="simc">
+                        <a href="#" aria-expanded="false" aria-controls="simc-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-microchip mr-3"></i>
                             SimC
-                            <i class="fas fa-chevron-down ml-auto text-xs rotate-180"></i>
+                            <i class="fas fa-chevron-down ml-auto text-xs"></i>
                         </a>
-                        <ul id="simc-sidebar-submenu" class="sidebar-submenu submenu mt-2 ml-6 max-h-0 space-y-1 overflow-hidden transition-all duration-300">
+                        <ul id="simc-sidebar-submenu" hidden class="sidebar-submenu submenu mt-2 ml-6 max-h-0 space-y-1 overflow-hidden transition-all duration-300">
                             <li class="submenu-item" data-dashboard-section="simc-workflow">
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-project-diagram mr-2 text-xs"></i>
@@ -801,13 +822,13 @@
                             {% endif %}
                         </ul>
                     </li>
-                    <li class="nav-item has-submenu open" data-section="tools" data-sidebar-group-member="tools">
-                        <a href="#" aria-expanded="true" aria-controls="tools-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                    <li class="nav-item has-submenu" data-section="tools">
+                        <a href="#" aria-expanded="false" aria-controls="tools-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-tools mr-3"></i>
                             工具箱
-                            <i class="fas fa-chevron-down ml-auto text-xs rotate-180"></i>
+                            <i class="fas fa-chevron-down ml-auto text-xs"></i>
                         </a>
-                        <ul id="tools-sidebar-submenu" class="sidebar-submenu submenu mt-2 ml-6 space-y-1 max-h-0 overflow-hidden transition-all duration-300">
+                        <ul id="tools-sidebar-submenu" hidden class="sidebar-submenu submenu mt-2 ml-6 space-y-1 max-h-0 overflow-hidden transition-all duration-300">
                             <li class="submenu-item" data-tool="wcl-analysis-entry">
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-chart-bar mr-2 text-xs"></i>
@@ -822,13 +843,13 @@
                             </li>
                         </ul>
                     </li>
-                    <li class="nav-item has-submenu open" data-section="database-tables" data-sidebar-group-member="data">
-                        <a href="#" aria-expanded="true" aria-controls="database-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
+                    <li class="nav-item has-submenu" data-section="database-tables">
+                        <a href="#" aria-expanded="false" aria-controls="database-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-database mr-3"></i>
                             数据库
-                            <i class="fas fa-chevron-down ml-auto text-xs rotate-180"></i>
+                            <i class="fas fa-chevron-down ml-auto text-xs"></i>
                         </a>
-                        <ul id="database-sidebar-submenu" class="sidebar-submenu submenu mt-2 ml-6 space-y-1 max-h-0 overflow-hidden transition-all duration-300">
+                        <ul id="database-sidebar-submenu" hidden class="sidebar-submenu submenu mt-2 ml-6 space-y-1 max-h-0 overflow-hidden transition-all duration-300">
                             <li class="px-1 pb-2">
                                 <div class="relative">
                                     <i class="fas fa-search absolute left-3 top-2.5 text-xs text-gray-400"></i>
@@ -840,7 +861,7 @@
                             <li class="submenu-item database-table-item" data-table="{{ table.name }}" data-table-search="{{ table.display_name|lower }} {{ table.name|lower }}">
                                 <a href="#" title="{{ table.display_name }}" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-table mr-2 text-xs"></i>
-                                    <span class="block truncate">{{ table.display_name }}</span>
+                                    <span class="block truncate">{{ table.description }}</span>
                                 </a>
                             </li>
                             {% endfor %}

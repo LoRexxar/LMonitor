@@ -127,38 +127,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // 默认展开数据库表菜单（但不激活）
-    const databaseTablesMenu = document.querySelector('.nav-item.has-submenu[data-section="database-tables"]');
-    if (databaseTablesMenu) {
-        // 展开子菜单
-        databaseTablesMenu.classList.add('open');
-        const submenu = databaseTablesMenu.querySelector('.submenu');
-        if (submenu) {
-            submenu.style.maxHeight = submenu.scrollHeight + 'px';
-            submenu.classList.remove('max-h-0');
-        }
-        const chevron = databaseTablesMenu.querySelector('.fa-chevron-down');
-        if (chevron) {
-            chevron.classList.add('rotate-180');
-        }
-    }
-
-    // 默认展开Tools菜单
-    const toolsMenu = document.querySelector('.nav-item.has-submenu[data-section="tools"]');
-    if (toolsMenu) {
-        // 展开子菜单
-        toolsMenu.classList.add('open');
-        const submenu = toolsMenu.querySelector('.submenu');
-        if (submenu) {
-            submenu.style.maxHeight = submenu.scrollHeight + 'px';
-            submenu.classList.remove('max-h-0');
-        }
-        const chevron = toolsMenu.querySelector('.fa-chevron-down');
-        if (chevron) {
-            chevron.classList.add('rotate-180');
-        }
-    }
-
     activateDashboardLocation();
     window.addEventListener('popstate', activateDashboardLocation);
 });
@@ -285,76 +253,13 @@ function initDashboard() {
     updateStatistics();
 }
 
-/**
- * 将侧边栏入口按工作域重新编排。分类只负责视觉组织，不折叠或隐藏任何入口。
- */
+/** 侧栏分组与折叠逻辑供后台首页和独立页面共用。 */
 function initSidebarGroups() {
-    const root = document.getElementById('dashboard-primary-nav');
-    if (!root || root.dataset.grouped === '1') return;
-
-    const groups = [
-        { key: 'content', label: '内容管理' },
-        { key: 'tools', label: '游戏工具' },
-        { key: 'operations', label: '运行监控' },
-        { key: 'access', label: '用户权限' },
-        { key: 'data', label: '数据管理' },
-    ];
-
-    groups.forEach(group => {
-        const members = Array.from(
-            root.querySelectorAll(`:scope > [data-sidebar-group-member="${group.key}"]`),
-        );
-        if (!members.length) return;
-
-        const wrapper = document.createElement('li');
-        wrapper.className = 'sidebar-group';
-        wrapper.dataset.sidebarGroup = group.key;
-
-        const label = document.createElement('div');
-        label.className = 'sidebar-group-label';
-        label.textContent = group.label;
-        label.setAttribute('role', 'heading');
-        label.setAttribute('aria-level', '2');
-
-        const menu = document.createElement('ul');
-        menu.className = 'sidebar-group-menu space-y-1';
-        menu.setAttribute('aria-label', group.label);
-        members.forEach(member => menu.appendChild(member));
-
-        wrapper.append(label, menu);
-        root.appendChild(wrapper);
-    });
-
-    root.dataset.grouped = '1';
+    window.DashboardSidebar.initGroups();
 }
 
-/**
- * 初始化侧栏中的可折叠菜单。
- *
- * 这是整个 Dashboard 的通用初始化函数，不能随 SimC 工作流代码一起删除；
- * 否则 DOMContentLoaded 会在绑定数据库表和其他页面入口前中断。
- */
 function initSubmenuToggle() {
-    document.querySelectorAll('.has-submenu').forEach(item => {
-        const mainLink = item.querySelector(':scope > a');
-        const submenu = item.querySelector(':scope > .submenu');
-        const chevron = mainLink?.querySelector('.fa-chevron-down');
-        if (!mainLink || !submenu || mainLink.dataset.submenuBound === '1') return;
-
-        mainLink.dataset.submenuBound = '1';
-        const startsOpen = item.classList.contains('open');
-        mainLink.setAttribute('aria-expanded', startsOpen ? 'true' : 'false');
-        submenu.style.maxHeight = startsOpen ? `${submenu.scrollHeight}px` : '0';
-        if (chevron) chevron.classList.toggle('rotate-180', startsOpen);
-        mainLink.addEventListener('click', event => {
-            event.preventDefault();
-            const willOpen = !item.classList.contains('open');
-            item.classList.toggle('open', willOpen);
-            mainLink.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
-            submenu.style.maxHeight = willOpen ? `${submenu.scrollHeight}px` : '0';
-            if (chevron) chevron.classList.toggle('rotate-180', willOpen);
-        });
-    });
+    window.DashboardSidebar.bindSubmenus();
 }
 
 /**
@@ -681,6 +586,7 @@ function initNavigation() {
             const parentNavItem = this.closest('.nav-item');
             navItems.forEach(i => i.classList.remove('active'));
             parentNavItem.classList.add('active', 'open');
+            window.DashboardSidebar.setOpen(parentNavItem, true);
             const parentLink = parentNavItem.querySelector(':scope > a');
             const parentSubmenu = parentNavItem.querySelector(':scope > .submenu');
             const parentChevron = parentLink?.querySelector('.fa-chevron-down');
