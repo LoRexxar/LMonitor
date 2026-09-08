@@ -61,7 +61,7 @@ def nga_image_url(value):
     parts = urlsplit(url)
     # BBCode has already resolved ./mon_* against the forum by this point.
     if parts.netloc == 'bbs.nga.cn' and re.fullmatch(
-            r'/(?:attachments/)?mon_\d{6}/\d{2}/[\w-]+\.(?:jpg|jpeg|png|gif|webp)(?:\.(?:medium|thumb)\.(?:jpg|jpeg|png|gif|webp))?',
+            r'/(?:attachments/)?mon_\d{6}/\d{2}/[\w-]+\.(?:jpg|jpeg|png|gif|webp)(?:\.(?:medium|thumb(?:_[a-z]+)?)\.(?:jpg|jpeg|png|gif|webp))?',
             parts.path, re.I):
         path = parts.path.removeprefix('/attachments').lstrip('/')
         # Source page __ATTACH_BASE_VIEW_SEC = 'img.nga.cn'; verified by GET.
