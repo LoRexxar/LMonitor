@@ -368,7 +368,7 @@ class MplusDpsRankingRouteTests(TestCase):
 class MplusDpsRankingMonitorContractTests(SimpleTestCase):
     def test_monitor_is_registered_as_hourly_without_reindexing_existing_plugins(self):
         self.assertEqual(monitor_default_wait_time('SpecDungeonDpsRankingMonitor'), 3600)
-        self.assertEqual(config.Monitor_Type_BaseObject_List[-1].__name__, 'SpecDungeonDpsRankingMonitor')
+        self.assertEqual(config.Monitor_Type_BaseObject_List[33].__name__, 'SpecDungeonDpsRankingMonitor')
 
     def test_monitor_publishes_snapshot_and_updates_flag(self):
         from botend.controller.plugins.portal.SpecDungeonDpsRankingMonitor import SpecDungeonDpsRankingMonitor

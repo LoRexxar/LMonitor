@@ -10,15 +10,14 @@
 git pull --ff-only origin master
 python -m pip install -r requirements-class-guides.txt
 python manage.py migrate --noinput
-python -m zipfile -e botend/data/class_guides/initial-drafts-20260908.zip .cache/class-guides-initial-20260908
-python manage.py import_class_guide_drafts --input-dir .cache/class-guides-initial-20260908 --dry-run
-python manage.py import_class_guide_drafts --input-dir .cache/class-guides-initial-20260908
+python manage.py import_class_guide_drafts --dry-run
+python manage.py import_class_guide_drafts
 python manage.py collectstatic --noinput
 ```
 
-完成后按现有部署方式重启 Web 服务。若使用项目 `deploy.sh`，应先安装上面的 Markdown 依赖；该脚本负责已有的迁移、静态文件收集和服务重启，中文草稿包仍需执行上述导入命令。
+完成后按现有部署方式重启 Web 服务及 botend 后端，使现有后端加载新增监控插件。若使用项目 `deploy.sh`，应先安装上面的 Markdown 依赖；该脚本负责已有的迁移、静态文件收集和服务重启，中文草稿包仍需执行上述导入命令。
 
-压缩包解压后根目录包含 `manifest.json`、`terms.json` 和逐篇中文草稿、原文快照。校验预期为 **70 篇草稿、4116 条术语**。第一次导入预期新增 70 篇；重复执行跳过相同内容。目标环境已有人工修改时，新内容保存为候选修订，保留人工稿、已审核版本、作者自定义资料和现有标签；新增 Maxroll 来源攻略自动补充 `maxroll` 标签。人工移除的标签不会在后续同步中被重新添加。
+初始化命令默认直接读取仓库内置 ZIP，无需手动解压；可用 `--input-zip 路径` 导入其他压缩包，或用 `--input-dir 目录` 兼容已解压的包。包内根目录包含 `manifest.json`、`terms.json` 和逐篇中文草稿、原文快照。校验预期为 **70 篇草稿、4116 条术语**。第一次导入预期新增 70 篇；重复执行跳过相同内容。目标环境已有人工修改时，新内容保存为候选修订，保留人工稿、已审核版本、作者自定义资料和现有标签；新增 Maxroll 来源攻略自动补充 `maxroll` 标签。人工移除的标签不会在后续同步中被重新添加。
 
 数据库迁移自动创建攻略表、专精约束、Portal“全职业攻略”导航和默认免责声明。免责声明采用已确认的站点文案，后续在 Dashboard 统一修改，不写入文章正文。显示取决于文章标签，移除 `maxroll` 标签即隐藏。更新日期采用对应正文修订抓取的原文日期。
 
@@ -33,13 +32,11 @@ python manage.py collectstatic --noinput
 
 ## 后续更新
 
-在 Dashboard 的“来源与更新”填写已有授权依据，设置检查间隔并开启监控。配置好站内翻译服务后，由进程管理工具常驻运行：
+在 Dashboard 的“来源与更新”填写已有授权依据，设置检查间隔并开启监控。`MaxrollClassGuideMonitor` 已注册到 botend 现有监控插件列表，使用统一的 `MonitorTask` 调度、执行租约、请求客户端和失败处理；无需增加独立服务或攻略常驻进程。首次安装默认关闭、间隔 6 小时；升级会保留旧监控开关和间隔。
 
-```bash
-python manage.py sync_class_guides --watch --translate --workers 2
-```
+攻略后台和通用监控后台控制同一个任务，任一处修改开关或间隔都会生效，后端重启也保留自定义间隔。现有 botend 后端需要正常运行。每次到期执行一轮检查后返回，只翻译新增、原文变化或之前翻译未完成的文章，保存为待审候选修订，保留人工稿和已审核版本。同步批次仍在攻略后台查看。
 
-仅在后台开启开关不会自动启动进程。命令按数据库时间和租约运行，结果在后台查看；原文变化保存新候选修订，不自动公开或覆盖人工稿。日常监控不要加固定快照的 `--cache-dir`。首次草稿包导入不需要翻译 API，后续翻译需要站内翻译引擎可用。
+旧 `sync_class_guides --watch` 已停用；若此前创建过该命令的常驻服务，请停用它。首次中文包导入不需要翻译 API，后续更新翻译使用站内已有翻译引擎。日常监控不使用固定快照的 `--cache-dir`。
 
 手动同步一次：
 

@@ -49,6 +49,8 @@ PORTAL_MONITOR_TASK_PRIORITY = {
 
 
 def monitor_default_wait_time(name):
+    if name == 'MaxrollClassGuideMonitor':
+        return 21600  # 6 小时，后续间隔由后台维护。
     if name == "PortalPeakSpecRankMonitor":
         return 600  # 10m，仅轻量刷新榜单；新入榜人物按需初始化
     if name == "PortalMplusCutoffMonitor":
@@ -260,7 +262,7 @@ def sync_monitortasks_from_plugin_list(
             if cur != int(desired):
                 to_fix.append((int(t.id), int(desired)))
             desired_wait_time = monitor_default_wait_time(t.name)
-            if t.wait_time != desired_wait_time:
+            if t.wait_time != desired_wait_time and t.name != 'MaxrollClassGuideMonitor':
                 MonitorTask.objects.filter(id=t.id).update(wait_time=desired_wait_time)
 
         for tid, _desired in to_fix:

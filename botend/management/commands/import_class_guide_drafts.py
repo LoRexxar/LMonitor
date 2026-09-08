@@ -5,6 +5,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
+from zipfile import ZipFile, BadZipFile
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
@@ -21,13 +22,25 @@ class Command(BaseCommand):
     help = '导入 audit_class_guides 导出的 Markdown 草稿及术语包，保留目标环境人工修订'
 
     def add_arguments(self, parser):
-        parser.add_argument('--input-dir', required=True)
+        inputs = parser.add_mutually_exclusive_group()
+        inputs.add_argument('--input-dir', help='已解压的草稿包目录')
+        inputs.add_argument('--input-zip', help='草稿 ZIP 包；不指定时使用仓库内置中文包')
         parser.add_argument('--dry-run', action='store_true', help='校验完整包，不写入数据库')
 
     def handle(self, *args, **options):
-        folder = Path(options['input_dir']).resolve()
-        manifest = json.loads((folder / 'manifest.json').read_text(encoding='utf-8'))
-        term_text = (folder / 'terms.json').read_text(encoding='utf-8')
+        try:
+            if options['input_dir']:
+                folder = Path(options['input_dir']).resolve()
+                return self.import_bundle(lambda name: (folder / name).read_text(encoding='utf-8'), options['dry_run'])
+            archive = options['input_zip'] or Path(__file__).resolve().parents[2] / 'data/class_guides/initial-drafts-20260908.zip'
+            with ZipFile(archive) as bundle:
+                return self.import_bundle(lambda name: bundle.read(name).decode('utf-8'), options['dry_run'])
+        except (OSError, BadZipFile, KeyError, ValueError) as exc:
+            raise CommandError(f'读取草稿包失败：{exc}') from exc
+
+    def import_bundle(self, read_text, dry_run):
+        manifest = json.loads(read_text('manifest.json'))
+        term_text = read_text('terms.json')
         if hashlib.sha256(term_text.encode()).hexdigest() != manifest.get('terms_sha256'):
             raise CommandError('术语文件校验失败')
         terms, drafts, identities = json.loads(term_text), [], set()
@@ -38,7 +51,7 @@ class Command(BaseCommand):
             if (slug, version) in identities:
                 raise CommandError('包内存在重复文章')
             identities.add((slug, version))
-            draft = json.loads((folder / (slug + '-' + version + '.json')).read_text(encoding='utf-8'))
+            draft = json.loads(read_text(slug + '-' + version + '.json'))
             if draft['slug'] != slug or draft['game_version'] != version:
                 raise CommandError('文章身份与清单不一致')
             digest = hashlib.sha256(draft['content_markdown'].encode()).hexdigest()
@@ -73,7 +86,7 @@ class Command(BaseCommand):
             if row['kind'] not in ('spell', 'talent', 'item', 'phrase', 'macro') or not re.search(r'[\u3400-\u9fff]', row['name_zh']):
                 raise CommandError('术语内容无效')
             ClassGuideTerm(**row).full_clean(validate_unique=False, validate_constraints=False)
-        if options['dry_run']:
+        if dry_run:
             self.stdout.write('校验通过：{} 篇草稿，{} 条术语'.format(len(drafts), len(terms)))
             return
         term_conflicts, imported, skipped = 0, 0, 0

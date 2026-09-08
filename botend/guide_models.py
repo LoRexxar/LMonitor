@@ -93,6 +93,7 @@ class ClassGuideRevision(models.Model):
 
 class ClassGuideFeed(models.Model):
     key = models.CharField(max_length=64, unique=True, default='maxroll')
+    # 旧调度字段仅保留历史数据；0216 已迁移到 MonitorTask，运行时不再读写。
     enabled = models.BooleanField('启用监控', default=False)
     interval_minutes = models.PositiveIntegerField('检查间隔（分钟）', default=360)
     authorization_note = models.TextField('授权说明', blank=True)

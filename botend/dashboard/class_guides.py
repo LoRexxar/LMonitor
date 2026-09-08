@@ -3,6 +3,7 @@
 import copy
 import json
 import re
+from datetime import timedelta
 
 from django.core.exceptions import ValidationError
 from django.db import transaction, IntegrityError
@@ -24,6 +25,7 @@ from botend.constants.wow import resolve_spec_identity, specialization_catalog, 
 from botend.services.class_guide_render import render_blocks, selected_revision
 from botend.services.class_guide_service import create_revision, approve_revision, audit_revision, RevisionConflict
 from botend.services.class_guide_markdown import compile_markdown
+from botend.services.class_guide_monitor import get_guide_monitor_task
 
 
 class GuideAccess(DashboardPermissionRequiredMixin):
@@ -228,9 +230,12 @@ class GuideDisclaimerAPI(GuideAccess, View):
 class GuideFeedAPI(GuideAccess, View):
     def get(self, request):
         feed, _ = ClassGuideFeed.objects.get_or_create(key='maxroll')
-        return JsonResponse({'enabled': feed.enabled, 'interval_minutes': feed.interval_minutes,
+        task = get_guide_monitor_task()
+        return JsonResponse({'enabled': task.is_active, 'interval_minutes': task.wait_time // 60,
+            'monitor_task_id': task.id, 'monitor_task_name': task.name,
             'authorization_note': feed.authorization_note, 'last_checked_at': feed.last_checked_at,
-            'next_check_at': feed.next_check_at, 'lease_until': feed.lease_until,
+            'next_check_at': task.last_scan_time + timedelta(seconds=task.wait_time) if task.is_active else None,
+            'lease_until': feed.lease_until,
             'runs': list(ClassGuideSyncRun.objects.values('id', 'status', 'started_at', 'finished_at', 'coverage', 'results', 'error')[:10])})
 
     def patch(self, request):
@@ -240,9 +245,12 @@ class GuideFeedAPI(GuideAccess, View):
         note = str(data.get('authorization_note', '')).strip()
         if data['enabled'] and not note:
             raise ValueError('启用来源监控前必须登记授权说明')
-        feed, _ = ClassGuideFeed.objects.get_or_create(key='maxroll')
-        feed.enabled, feed.interval_minutes, feed.authorization_note = data['enabled'], data['interval_minutes'], note[:10000]
-        feed.save(update_fields=['enabled', 'interval_minutes', 'authorization_note'])
+        with transaction.atomic():
+            feed, _ = ClassGuideFeed.objects.get_or_create(key='maxroll')
+            feed.authorization_note = note[:10000]
+            feed.save(update_fields=['authorization_note'])
+            task = get_guide_monitor_task()
+            type(task).objects.filter(pk=task.pk).update(is_active=data['enabled'], wait_time=data['interval_minutes'] * 60)
         return JsonResponse({'success': True})
 
 

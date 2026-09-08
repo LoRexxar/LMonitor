@@ -29,7 +29,10 @@ def fingerprint(value):
 
 
 class MaxrollClient:
-    def __init__(self):
+    def __init__(self, request_client=None):
+        self.request_client = request_client
+        if request_client is not None:
+            return
         self.session = requests.Session()
         self.session.headers['User-Agent'] = 'LMonitor-AuthorizedGuideSync/1.0'
         retry = Retry(total=2, backoff_factor=1, status_forcelist=[429, 502, 503, 504], allowed_methods=['GET'])
@@ -39,6 +42,17 @@ class MaxrollClient:
         parsed = urlparse(url)
         if parsed.scheme != 'https' or parsed.netloc != 'maxroll.gg' or not parsed.path.startswith('/wow/class-guides'):
             raise ValueError('来源必须是 Maxroll 魔兽攻略目录或正文')
+        if self.request_client is not None:
+            response = self.request_client.get(url, 'Response', 0, '',
+                                               headers={'User-Agent': 'LMonitor-AuthorizedGuideSync/1.0'})
+            if response is None or response is False or response.status_code != 200:
+                raise ValueError('Maxroll 来源请求失败')
+            final_url = urlparse(response.url)
+            if final_url.scheme != 'https' or final_url.netloc != 'maxroll.gg' or not final_url.path.startswith('/wow/class-guides'):
+                raise ValueError('来源重定向到攻略范围之外')
+            if len(response.content) > 8000000:
+                raise ValueError('来源页面超过 8 MB')
+            return response.content.decode('utf-8')
         response = self.session.get(url, timeout=(10, 45), allow_redirects=False, stream=True)
         response.raise_for_status()
         if response.status_code != 200:

@@ -302,9 +302,11 @@ def coverage(urls):
             'missing_from_catalog': [{'class': c, 'spec': s, 'type': t} for c, s, t in sorted(expected - discovered)]}
 
 
-def sync_guides(*, translate=False, cache_dir=None, limit=None, log=None, workers=1, refresh_translations=False):
+def sync_guides(*, translate=False, cache_dir=None, limit=None, log=None, workers=1, refresh_translations=False, request_client=None):
     if not 1 <= workers <= 8:
         raise ValueError('同步并发数必须为 1 至 8')
+    if request_client is not None and workers != 1:
+        raise ValueError('后端请求客户端使用单线程增量同步')
     feed, _ = ClassGuideFeed.objects.get_or_create(key='maxroll')
     if not feed.authorization_note.strip():
         raise ValueError('请先在攻略后台登记来源授权说明')
@@ -314,7 +316,7 @@ def sync_guides(*, translate=False, cache_dir=None, limit=None, log=None, worker
     if not claimed:
         raise RevisionConflict('已有攻略同步任务执行中')
     run = ClassGuideSyncRun.objects.create()
-    client = MaxrollClient()
+    client = MaxrollClient(request_client=request_client)
     try:
         if cache_dir:
             from pathlib import Path
@@ -367,5 +369,5 @@ def sync_guides(*, translate=False, cache_dir=None, limit=None, log=None, worker
         run.finished_at = timezone.now()
         run.save()
         ClassGuideFeed.objects.filter(pk=feed.pk, lease_token=token).update(lease_until=None, lease_token='',
-            last_checked_at=timezone.now(), next_check_at=timezone.now() + timedelta(minutes=feed.interval_minutes))
+            last_checked_at=timezone.now())
     return run
