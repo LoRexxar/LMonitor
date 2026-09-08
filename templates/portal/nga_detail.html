@@ -1,0 +1,13 @@
+{% extends 'portal/nga_base.html' %}
+{% block title %}{{ post.title|default:'NGA 主帖' }}{% endblock %}
+{% block content %}
+<nav class="nga-heading"><a id="nga-back" href="{% url 'portal_nga' %}">← 全部 NGA 帖子</a>{% if source_url %}<a id="nga-source-link" href="{{ source_url }}" target="_blank" rel="nofollow noopener noreferrer">NGA 原帖 ↗</a>{% endif %}</nav>
+<article class="nga-card nga-detail">
+    <p class="nga-kicker">NGA · {{ board_label }}</p>
+    <h1>{{ post.title|default:'未记录标题' }}</h1>
+    <p class="nga-meta">本站记录时间：{{ post.publish_time|date:'Y-m-d H:i'|default:'未记录' }} · 采集时 {{ post.reply_count }} 回复</p>
+    <p class="nga-scope">以下为本站已保存的主帖内容，不包含回复。历史采集可能仅保存纯文本或截断预览，不能保证原帖完整；以 NGA 原帖为准。</p>
+    {% if body_html %}<div id="nga-main-post" class="nga-body">{{ body_html }}</div>
+    {% else %}<div id="nga-main-post-empty" class="nga-scope">尚未采集到主帖正文。本站目前仅保存帖子信息，不以摘要代替主帖。{% if source_url %}可通过上方链接查看 NGA 原帖。{% endif %}</div>{% endif %}
+</article>
+{% endblock %}

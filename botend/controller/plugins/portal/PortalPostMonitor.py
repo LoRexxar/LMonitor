@@ -76,8 +76,8 @@ class PortalPostMonitor(BaseScan):
 
     def _fetch_nga_main_post(self, url):
         """
-        抓取 NGA 主楼内容（用于 Portal 悬浮预览）。
-        仅返回纯文本，做适度截断与清洗。
+        抓取可确认的 NGA 主楼，保存完整 HTML 结构供站内阅读。
+        不将回复作为主楼，不再将原始事实截成 1800 字预览。
         """
         url = (url or '').strip()
         if not url:
@@ -106,19 +106,13 @@ class PortalPostMonitor(BaseScan):
             return ""
         try:
             soup = BeautifulSoup(html_text, 'html.parser')
-            # NGA 主楼一般是 postcontent0 / postcontent1
-            el = soup.find(id=re.compile(r'^postcontent0$')) or soup.find(id=re.compile(r'^postcontent1$'))
-            if not el:
-                el = soup.find(id=re.compile(r'^postcontent\d+$'))
+            # Only floor zero is a confirmed main post. A reply is not a fallback.
+            el = soup.find(id='postcontent0')
             if not el:
                 return ""
             for tag in el(['script', 'style']):
                 tag.decompose()
-            txt = el.get_text(separator='\n', strip=True)
-            txt = re.sub(r'\n{3,}', '\n\n', txt).strip()
-            if len(txt) > 1800:
-                txt = txt[:1800].rstrip() + '...'
-            return txt
+            return el.decode_contents().strip()
         except Exception:
             return ""
 

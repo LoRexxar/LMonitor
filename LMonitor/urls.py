@@ -54,6 +54,7 @@ from botend.portal.views import PortalHomeView, PortalSimcBenchmarkResultsView
 from botend.portal.views import PortalArticleView, PortalMplusDpsRankingsView, PortalNewsView, PortalSpecsView
 from botend.portal.views import PortalReportFileView, PortalWowHotfixReportView, PortalWowSkillDiffReportView, PortalWowSkillDiffMetadataAPIView
 from botend.portal.views import PortalWowUpdatesView
+from botend.portal.nga_views import PortalNgaView, PortalNgaDetailView
 from botend.portal.spec_detail_views import SpecDetailPlayerView, SpecDetailPlayerDetailView, SpecDetailDungeonView, SpecDetailRaidView, SpecOverviewAPIView, SimcProfileDetailView
 from botend.portal.talent_simulator import PortalTalentSimulatorAPIView, PortalTalentSimulatorEncodeAPIView, PortalTalentSimulatorView
 from botend.portal.gear_builder import (
@@ -179,6 +180,8 @@ urlpatterns = [
 
     # Portal API
     path('portal/api/blueposts/', csrf_exempt(PortalBluepostsAPIView.as_view()), name="portal_blueposts"),
+    path('portal/nga/', PortalNgaView.as_view(), name='portal_nga'),
+    path('portal/nga/<int:article_id>/', PortalNgaDetailView.as_view(), name='portal_nga_detail'),
     path('portal/api/nga-hot/', csrf_exempt(PortalNgaHotAPIView.as_view()), name="portal_nga_hot"),
     path('portal/api/exwind/latest/', csrf_exempt(PortalExwindLatestAPIView.as_view()), name="portal_exwind_latest"),
     path('portal/api/wowhead/latest/', csrf_exempt(PortalWowheadLatestAPIView.as_view()), name="portal_wowhead_latest"),

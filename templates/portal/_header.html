@@ -58,7 +58,7 @@
                     </summary>
                     <div class="portal-nav-panel">
                         <a href="/portal/news/" class="portal-quick-nav-link{% if request.path == '/portal/news/' %} is-active{% endif %}">新闻聚合</a>
-                        <a href="/#section-nga" class="portal-quick-nav-link">NGA 热议</a>
+                        <a href="/portal/nga/" class="portal-quick-nav-link{% if '/portal/nga/' in request.path %} is-active{% endif %}">NGA 帖子</a>
                         <a href="/#section-videos" class="portal-quick-nav-link">视频攻略</a>
                     </div>
                 </details>

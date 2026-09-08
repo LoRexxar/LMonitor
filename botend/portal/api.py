@@ -158,9 +158,8 @@ def _article_to_dict(a):
 
 
 def _nga_article_to_dict(a):
-    content_preview = ''
-    if a.content:
-        content_preview = a.content[:200] + ('...' if len(a.content) > 200 else '')
+    from bs4 import BeautifulSoup
+    content_preview = BeautifulSoup(a.nga_preview or '', 'html.parser').get_text(' ', strip=True)[:200]
     return {
         'id': a.id,
         'title': a.title or '',
@@ -173,8 +172,8 @@ def _nga_article_to_dict(a):
         'publish_time': _fmt_dt(a.publish_time),
         'reply_count': int(getattr(a, 'reply_count', 0) or 0),
         'content_preview': content_preview,
-        'has_content': bool(a.content),
-        'has_translation': bool(a.content_cn),
+        'has_content': bool(a.nga_preview),
+        'has_translation': bool(a.nga_translation_preview),
     }
 
 
@@ -612,7 +611,10 @@ class PortalNgaHotAPIView(View):
         qs = WowArticle.objects.filter(source='nga', category='hot', is_active=True, reply_count__gt=20)
         if not qs.exists():
             qs = WowArticle.objects.filter(source='nga', is_active=True, reply_count__gt=20)
-        rows = list(qs.order_by('-publish_time', '-id')[:40])
+        from django.db.models.functions import Substr
+        rows = list(qs.defer('content', 'content_cn', 'content_blocks', 'content_blocks_cn', 'description')
+                    .annotate(nga_preview=Substr('content', 1, 600), nga_translation_preview=Substr('content_cn', 1, 1))
+                    .order_by('-publish_time', '-id')[:40])
         return JsonResponse({'status': 'success', 'data': [_nga_article_to_dict(x) for x in rows]})
 
 
@@ -725,6 +727,13 @@ class PortalArticleDetailAPIView(View):
                 content_cn = None
         content_blocks = loads_blocks(article.content_blocks)
         content_blocks_cn = loads_blocks(article.content_blocks_cn)
+        content = article.content or ''
+        if article.source == 'nga':
+            # Keep the legacy hover/generic-article contract plain text while the
+            # dedicated NGA reader uses the preserved HTML fact directly.
+            from bs4 import BeautifulSoup
+            from botend.services.nga_browse_service import render_main_post
+            content = BeautifulSoup(str(render_main_post(content)), 'html.parser').get_text('\n', strip=True)
 
         return JsonResponse({
             'status': 'success',
@@ -737,7 +746,7 @@ class PortalArticleDetailAPIView(View):
                 'source': article.source or '',
                 'category': article.category or '',
                 'publish_time': _fmt_dt(article.publish_time),
-                'content': article.content or '',
+                'content': content,
                 'content_cn': content_cn,
                 'content_blocks': content_blocks,
                 'content_blocks_cn': content_blocks_cn,

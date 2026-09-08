@@ -1,0 +1,34 @@
+{% extends 'portal/nga_base.html' %}
+{% block content %}
+<header class="nga-heading">
+    <div><p class="nga-kicker">社区 · NGA</p><h1>NGA 帖子</h1></div>
+    <a href="/">返回首页</a>
+</header>
+<p class="nga-scope">浏览本站已采集并公开的 NGA 帖子，不限首页热门。仅覆盖现有采集范围，并非 NGA 全论坛；回复数为采集时记录，时间为本站记录时间。</p>
+<form id="nga-filters" class="nga-filters" method="get">
+    <div class="nga-search"><label for="nga-search">搜索标题、摘要与已采集正文</label><input id="nga-search" name="q" type="search" maxlength="120" value="{{ q }}" placeholder="输入关键词"></div>
+    <div><label for="nga-board">板块</label><select id="nga-board" name="board">
+        <option value="">全部板块</option>
+        {% for item in boards %}<option value="{{ item.key }}"{% if board == item.key %} selected{% endif %}>{{ item.label }}</option>{% endfor %}
+        <option value="unknown"{% if board == 'unknown' %} selected{% endif %}>板块未记录</option>
+    </select></div>
+    <div><label for="nga-sort">排序</label><select id="nga-sort" name="sort"><option value="newest"{% if sort == 'newest' %} selected{% endif %}>最新记录</option><option value="replies"{% if sort == 'replies' %} selected{% endif %}>回复最多</option></select></div>
+    <button type="submit">筛选</button><a href="{% url 'portal_nga' %}">重置</a>
+</form>
+<p id="nga-total" class="nga-meta">共 {{ page.paginator.count }} 篇 · 第 {{ page.number }} / {{ page.paginator.num_pages }} 页</p>
+<section id="nga-post-list" aria-label="NGA 帖子列表">
+    {% for item in page %}
+    <article class="nga-card">
+        <div class="nga-meta">{{ item.board_label }} · {{ item.publish_time|date:'Y-m-d H:i'|default:'时间未记录' }} · {{ item.reply_count }} 回复</div>
+        <h2><a class="nga-post-link" href="{% url 'portal_nga_detail' item.id %}">{{ item.title|default:'未记录标题' }}</a></h2>
+        <p class="nga-summary">{{ item.summary|default:'暂无已采集摘要，进入详情查看正文采集状态。' }}</p>
+        <a class="nga-read" href="{% url 'portal_nga_detail' item.id %}">站内阅读 →</a>
+    </article>
+    {% empty %}<p id="nga-empty" class="nga-card">没有匹配的帖子。请更换关键词或重置筛选。</p>{% endfor %}
+</section>
+<nav id="nga-pagination" class="nga-pagination" aria-label="帖子分页">
+    {% if previous_url %}<a id="nga-previous" href="{{ previous_url }}">← 上一页</a>{% endif %}
+    <span>第 {{ page.number }} / {{ page.paginator.num_pages }} 页</span>
+    {% if next_url %}<a id="nga-next" href="{{ next_url }}">下一页 →</a>{% endif %}
+</nav>
+{% endblock %}
