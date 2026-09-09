@@ -23,39 +23,66 @@
   };
   let loadDisclaimerPage = null;
   if (disclaimer) {
-    let disclaimerLoaded = false, disclaimerLoading = false, savedText = '';
+    let disclaimerLoaded = false, disclaimerLoading = false, savedText = '', selectedTag = '';
     const disclaimerForm = disclaimer.querySelector('form');
-  async function loadDisclaimer() {
-    if (disclaimerLoaded || disclaimerLoading) return;
-    disclaimerLoading = true;
-    try {
-      const data = await request('disclaimer/');
-      savedText = data.text;
-      disclaimerForm.elements.text.value = savedText;
-      disclaimerForm.elements.text.disabled = false;
-      disclaimerForm.querySelector('button').disabled = false;
-      disclaimerLoaded = true;
-      message(disclaimer, '');
-    } finally { disclaimerLoading = false; }
-  }
+    const tagSelect = disclaimerForm.elements.tag;
+    const textField = disclaimerForm.elements.text;
+    const saveButton = disclaimerForm.querySelector('button');
+    const saveState = disclaimer.querySelector('[data-save-state]');
+    const tagSummary = disclaimer.querySelector('[data-tag-summary]');
+    const isDirty = () => disclaimerLoaded && textField.value !== savedText;
+    async function loadDisclaimer(tag = '') {
+      if (disclaimerLoading) return;
+      disclaimerLoading = true;
+      tagSelect.disabled = true;
+      textField.disabled = true;
+      saveButton.disabled = true;
+      try {
+        const data = await request('disclaimer/' + (tag ? `?tag=${encodeURIComponent(tag)}` : ''));
+        tagSelect.innerHTML = data.tags.length
+          ? data.tags.map(row => `<option value="${escape(row.name)}">${escape(row.name)}（${row.guide_count} 篇攻略）</option>`).join('')
+          : '<option value="">暂无攻略标签</option>';
+        selectedTag = data.tag;
+        savedText = data.text;
+        tagSelect.value = selectedTag;
+        textField.value = savedText;
+        disclaimerLoaded = Boolean(selectedTag);
+        tagSelect.disabled = !data.tags.length;
+        textField.disabled = !selectedTag;
+        saveButton.disabled = !selectedTag;
+        saveState.textContent = '';
+        const current = data.tags.find(row => row.name === selectedTag);
+        tagSummary.textContent = current ? `“${selectedTag}”当前绑定 ${current.guide_count} 篇攻略。` : '目前没有可维护的攻略标签。';
+        message(disclaimer, '');
+      } finally { disclaimerLoading = false; }
+    }
     disclaimerForm.addEventListener('input', () => {
-      disclaimer.querySelector('[data-save-state]').textContent = disclaimerForm.elements.text.value === savedText ? '' : '有未保存修改';
+      saveState.textContent = isDirty() ? '有未保存修改' : '';
     });
+    tagSelect.addEventListener('change', guard(disclaimer, async () => {
+      const nextTag = tagSelect.value;
+      if (isDirty() && !window.confirm('当前标签的免责声明尚未保存，确定切换标签吗？')) {
+        tagSelect.value = selectedTag;
+        return;
+      }
+      await loadDisclaimer(nextTag);
+    }));
     disclaimerForm.addEventListener('submit', guard(disclaimer, async event => {
       event.preventDefault();
-      const button = disclaimerForm.querySelector('button'), text = disclaimerForm.elements.text.value;
-      button.disabled = true;
+      const text = textField.value;
+      saveButton.disabled = true;
       try {
-        await request('disclaimer/', {method:'PATCH', body:JSON.stringify({text})});
-        savedText = text;
-        disclaimer.querySelector('[data-save-state]').textContent = disclaimerForm.elements.text.value === savedText ? '已保存' : '有未保存修改';
-        message(disclaimer, '免责声明已保存，所有带 maxroll 标签的攻略统一生效。');
-      } finally { button.disabled = false; }
+        const data = await request('disclaimer/', {method:'PATCH', body:JSON.stringify({tag:selectedTag, text})});
+        savedText = data.text;
+        textField.value = data.text;
+        saveState.textContent = '已保存';
+        message(disclaimer, `免责声明已保存，所有带“${selectedTag}”标签的攻略统一生效。`);
+      } finally { saveButton.disabled = false; }
     }));
     window.addEventListener('beforeunload', event => {
-      if (disclaimerLoaded && disclaimerForm.elements.text.value !== savedText) { event.preventDefault(); event.returnValue = ''; }
+      if (isDirty()) { event.preventDefault(); event.returnValue = ''; }
     });
-    loadDisclaimerPage = () => guard(disclaimer, loadDisclaimer)();
+    loadDisclaimerPage = () => guard(disclaimer, () => loadDisclaimer())();
   }
 
   let loadTermsPage = null;

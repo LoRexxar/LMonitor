@@ -22,7 +22,7 @@ from botend.models import MonitorTaskLease, MonitorTaskLeaseLost
 from botend.plugin_sync import claim_monitor_task
 from bs4 import BeautifulSoup
 
-from botend.guide_models import ClassGuide, ClassGuideTranslation
+from botend.guide_models import ClassGuide, ClassGuideTag, ClassGuideTranslation
 from botend.services.wow_localization import write_name, effective_names
 from botend.models import WowTalentNodeMetadata, WowSpellSnapshot
 from botend.services.class_guide_codec import decode_component, snappy
@@ -511,26 +511,44 @@ class GuideFlowTests(TestCase):
         self.assertEqual(profile['title'], '团队成员')
         self.assertEqual(profile['links'], [{'label':'频道','url':'https://example.com/channel'}])
 
-    def test_disclaimer_is_shared_by_tag_without_changing_articles(self):
+    def test_disclaimer_is_shared_by_selected_tag_without_changing_articles(self):
         endpoint = '/api/dashboard/class-guides/disclaimer/'
         original = ClassGuide.objects.get(pk=self.guide.pk).content_markdown
+        maxroll = self.guide.tags.get(name='maxroll')
+        reviewed = ClassGuideTag.objects.create(name='团队审核')
+        self.guide.tags.add(reviewed)
+
+        catalog = self.client.get(endpoint).json()
+        self.assertEqual(catalog['tag'], 'maxroll')
+        self.assertTrue({'maxroll', '团队审核'}.issubset({row['name'] for row in catalog['tags']}))
+        self.assertEqual(next(row for row in catalog['tags'] if row['name'] == '团队审核')['guide_count'], 1)
+        self.assertEqual(self.client.get(endpoint, {'tag': '团队审核'}).json()['text'], '')
+
         text = '中文免责声明\n<script>示例仅作为文本</script>'
-        response = self.client.patch(endpoint, data=json.dumps({'text': text}), content_type='application/json')
+        response = self.client.patch(endpoint, data=json.dumps({'tag': 'maxroll', 'text': text}), content_type='application/json')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.client.get(endpoint).json()['text'], text)
+        self.assertEqual(self.client.get(endpoint, {'tag': 'maxroll'}).json()['text'], text)
         url = f'/portal/class-guides/{self.guide.id}/'
         page = self.client.get(url)
         self.assertContains(page, '中文免责声明')
         self.assertContains(page, '&lt;script&gt;')
         self.assertNotContains(page, '<script>示例')
-        tag = self.guide.tags.get(name='maxroll')
-        self.guide.tags.remove(tag)
+
+        self.guide.tags.remove(maxroll)
         self.assertNotContains(self.client.get(url), 'cg-disclaimer')
+        reviewed_text = '仅对团队审核标签生效'
+        response = self.client.patch(endpoint, data=json.dumps({'tag': '团队审核', 'text': reviewed_text}), content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        maxroll.refresh_from_db()
+        reviewed.refresh_from_db()
+        self.assertEqual(maxroll.disclaimer, text)
+        self.assertEqual(reviewed.disclaimer, reviewed_text)
+        self.assertContains(self.client.get(url), reviewed_text)
+
         self.guide.source_url = ''
         self.guide.save(update_fields=['source_url'])
-        self.guide.tags.add(tag)
-        self.assertContains(self.client.get(url), '中文免责声明')
-        self.client.patch(endpoint, data=json.dumps({'text': ''}), content_type='application/json')
+        self.assertContains(self.client.get(url), reviewed_text)
+        self.client.patch(endpoint, data=json.dumps({'tag': '团队审核', 'text': ''}), content_type='application/json')
         self.assertNotContains(self.client.get(url), 'cg-disclaimer')
         self.assertEqual(ClassGuide.objects.get(pk=self.guide.pk).content_markdown, original)
 
@@ -539,7 +557,9 @@ class GuideFlowTests(TestCase):
         self.assertEqual(Client().get(endpoint).status_code, 403)
         self.assertEqual(Client().patch(endpoint, data=json.dumps({'text': '修改'}), content_type='application/json').status_code, 403)
         for text in (None, [], '字' * 3001):
-            self.assertEqual(self.client.patch(endpoint, data=json.dumps({'text': text}), content_type='application/json').status_code, 400)
+            self.assertEqual(self.client.patch(endpoint, data=json.dumps({'tag': 'maxroll', 'text': text}), content_type='application/json').status_code, 400)
+        self.assertEqual(self.client.patch(endpoint, data=json.dumps({'text': '缺少标签'}), content_type='application/json').status_code, 400)
+        self.assertEqual(self.client.patch(endpoint, data=json.dumps({'tag': '不存在', 'text': '修改'}), content_type='application/json').status_code, 400)
 
     def test_author_customization_survives_sync_and_can_restore_source(self):
         source = source_post();source['author_profile'] = {'name':'来源作者','avatar':'https://example.com/source.svg'}
