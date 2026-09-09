@@ -53,7 +53,7 @@
   const search = terms.querySelector('#wow-localization-search');
   const editor = terms.querySelector('#guide-term-form');
   const dialog = terms.querySelector('dialog');
-  let page = 1, rows = [], versions = [], sequence = 0, termsLoaded = false, editing = false;
+  let page = 1, rows = [], versions = [], sequence = 0, termsLoaded = false, editing = false, editingRow = null;
   async function loadTerms() {
     const currentSequence = ++sequence;
     const params = new URLSearchParams(new FormData(search));
@@ -67,7 +67,7 @@
     search.elements.version.innerHTML = '<option value="">全部版本</option>' + [...new Set([...versions, selectedVersion].filter(Boolean))].map(v => `<option value="${escape(v)}">${escape(v)}</option>`).join('');
     search.elements.version.value = selectedVersion;
     terms.querySelector('#guide-term-versions').innerHTML = versions.map(v => `<option value="${escape(v)}"></option>`).join('');
-    terms.querySelector('#wow-localization-results').innerHTML = rows.map((row, index) => `<tr><td>${escape(row.name_zh)}</td><td>${escape(row.name_en)}</td><td>${escape(names[row.kind])}<br><small>${escape(row.object_id)}</small></td><td>${escape(row.game_version)}<br><small>${row.supplemental ? '名称资料' : '天赋节点'}</small></td><td class="term-evidence">${escape(row.evidence)}</td><td><button type="button" class="small secondary" data-edit-term="${index}">编辑</button></td></tr>`).join('') || '<tr><td colspan="6" class="guide-list-empty">没有匹配的术语</td></tr>';
+    terms.querySelector('#wow-localization-results').innerHTML = rows.map((row, index) => `<tr><td>${escape(row.name_zh)}</td><td>${escape(row.name_en)}</td><td>${escape(names[row.kind])}<br><small>${escape(row.object_id)}</small></td><td>${escape(row.game_version)}<br><small>${row.supplemental ? '名称资料' : `天赋节点${row.duplicate_count > 1 ? ` × ${row.duplicate_count}` : ''}`}</small></td><td class="term-evidence">${escape(row.evidence)}</td><td><button type="button" class="small secondary" data-edit-term="${index}">编辑</button></td></tr>`).join('') || '<tr><td colspan="6" class="guide-list-empty">没有匹配的术语</td></tr>';
     terms.querySelector('#wow-localization-page').textContent = `第 ${page} 页 · 共 ${data.total} 条`;
     terms.querySelector('#wow-localization-prev').disabled = page === 1;
     terms.querySelector('#wow-localization-next').disabled = page * 100 >= data.total;
@@ -82,11 +82,13 @@
   }
   function editTerm(row = {}) {
     editing = Boolean(row.id);
+    editingRow = editing ? row : null;
     editor.reset();
     for (const key of ['kind','object_id','game_version','name_en','name_zh','icon','evidence']) editor.elements[key].value = row[key] ?? (key === 'kind' ? 'spell' : '');
     editor.elements.game_version.readOnly = editing;
     editor.elements.object_id.readOnly = editing;
     editor.elements.kind.disabled = editing;
+    editor.elements.evidence.required = !editing || Boolean(row.evidence);
     editor.querySelector('h2').textContent = editing ? '编辑术语' : '新增术语';
     editor.querySelector('[data-editor-message]').hidden = true;
     updateKind();
@@ -105,6 +107,11 @@
     const data = Object.fromEntries(new FormData(editor));
     data.kind = editor.elements.kind.value;
     data.object_id = Number(data.object_id);
+    if (editingRow) {
+      data.record_pk = editingRow.pk;
+      data.edit_state = {name_en:editingRow.name_en, name_zh:editingRow.name_zh,
+        icon:editingRow.icon, evidence:editingRow.evidence, duplicate_count:editingRow.duplicate_count || 1};
+    } else data.create = true;
     button.disabled = true;
     try {
       await request('terms/', {method:'POST', body:JSON.stringify(data)});
@@ -135,8 +142,9 @@
       }
       await loadTerms();
       if (params.get('edit') && names[params.get('kind')]) {
-        const row = rows.find(row => (String(row.object_id) === params.get('edit') || (row.aliases || []).map(String).includes(params.get('edit'))) && row.kind === params.get('kind') && row.game_version === params.get('version'));
-        editTerm(row || {kind:params.get('kind'), object_id:params.get('edit'), game_version:params.get('version'), name_en:params.get('name_en')});
+        const requestedName = params.get('name_en');
+        const row = rows.find(row => (row.identifiers || [row.object_id, ...(row.aliases || [])]).map(String).includes(params.get('edit')) && row.kind === params.get('kind') && row.game_version === params.get('version') && (!requestedName || row.name_en === requestedName));
+        editTerm(row || {kind:params.get('kind'), object_id:params.get('edit'), game_version:params.get('version'), name_en:requestedName});
       }
     })();
   };

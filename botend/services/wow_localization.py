@@ -7,6 +7,11 @@ from django.db import transaction
 from django.db.models import Q
 
 FIELDS = ('game_version', 'kind', 'object_id', 'name_en', 'name_zh', 'icon', 'evidence')
+EDIT_STATE_FIELDS = ('name_en', 'name_zh', 'icon', 'evidence')
+
+
+class NameEditConflict(Exception):
+    """The editable source rows changed after the management list was loaded."""
 
 
 def phrase_identifier(name):
@@ -123,7 +128,7 @@ def _source_values(row, version, registry, using):
     return row
 
 
-def write_name(data, *, overwrite=False, registry=apps, using='default'):
+def write_name(data, *, overwrite=False, registry=apps, using='default', target_pk=None, target_state=None):
     """在既有天赋名称表按类型写入；导入只补缺，手工编辑更新同一记录。"""
     row = validate_name(data)
     with transaction.atomic(using=using):
@@ -133,6 +138,53 @@ def write_name(data, *, overwrite=False, registry=apps, using='default'):
         kind, identity = row['kind'], row['object_id']
         model = registry.get_model('botend', 'WowTalentNodeMetadata')
         query = model._base_manager.using(using).filter(talent_version=version, name_kind=kind)
+        if target_pk is not None:
+            if isinstance(target_pk, bool) or not isinstance(target_pk, int) or target_pk < 1:
+                raise ValidationError('名称记录编号无效')
+            if not isinstance(target_state, dict) or any(
+                    not isinstance(target_state.get(field), str) for field in EDIT_STATE_FIELDS):
+                raise ValidationError('名称编辑状态无效，请刷新后重试')
+            expected_count = target_state.get('duplicate_count')
+            if isinstance(expected_count, bool) or not isinstance(expected_count, int) or expected_count < 1:
+                raise ValidationError('名称编辑状态无效，请刷新后重试')
+            # Read once to determine the small identity scope, then lock that scope in PK order.
+            # Exact text matching stays in Python so MySQL collations cannot merge labels.
+            preliminary = query.filter(pk=target_pk).first()
+            if preliminary is None:
+                raise NameEditConflict('名称记录已变化，请刷新后重试')
+            if preliminary.localization_only:
+                candidates = query.filter(pk=target_pk)
+            elif preliminary.talent_id:
+                candidates = query.filter(localization_only=False, talent_id=preliminary.talent_id)
+            elif preliminary.node_id:
+                candidates = query.filter(localization_only=False, talent_id__isnull=True, node_id=preliminary.node_id)
+            else:
+                candidates = query.filter(localization_only=False, talent_id__isnull=True,
+                                          node_id__isnull=True, spell_id=preliminary.spell_id)
+            candidates = list(candidates.select_for_update().order_by('pk'))
+            target = next((obj for obj in candidates if obj.pk == target_pk), None)
+            target_identity = target and (
+                target.reference_id if target.localization_only else target.talent_id or target.node_id or target.spell_id)
+            current_state = target and dict(name_en=target.name, name_zh=target.name_zh,
+                                            icon=target.icon, evidence=target.localization_evidence)
+            expected_state = {field: target_state[field] for field in EDIT_STATE_FIELDS}
+            if target is None or target_identity != identity or current_state != expected_state:
+                raise NameEditConflict('名称记录已变化，请刷新后重试')
+            if target.localization_evidence and not row['evidence']:
+                raise ValidationError('请保留或更新名称核对依据')
+            targets = [obj for obj in candidates if dict(
+                name_en=obj.name, name_zh=obj.name_zh, icon=obj.icon,
+                evidence=obj.localization_evidence) == expected_state]
+            if len(targets) != expected_count:
+                raise NameEditConflict('名称记录已变化，请刷新后重试')
+            for obj in targets:
+                changed = []
+                for field, value in [('name', row['name_en']), ('name_zh', row['name_zh']), ('icon', row['icon']), ('localization_evidence', row['evidence'])]:
+                    if getattr(obj, field) != value:
+                        setattr(obj, field, value); changed.append(field)
+                if changed:
+                    obj.save(using=using, update_fields=changed)
+            return _record(targets[0], kind, row['game_version'], identity), False
         native = []
         if kind == 'talent':
             native = list(query.filter(localization_only=False).filter(Q(talent_id=identity) | Q(node_id=identity)))

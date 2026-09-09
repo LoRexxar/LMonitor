@@ -105,7 +105,7 @@ class GuideFlowTests(TestCase):
 
     def test_macro_name_override_does_not_replace_boss_reference(self):
         create_name(game_version='12.1', kind='spell', object_id=1300877, name_en='Corruption', name_zh='腐化')
-        response = self.client.post('/api/dashboard/wow-localization/', data=json.dumps({'game_version':'12.1', 'kind':'macro', 'name_en':'Corruption', 'name_zh':'腐蚀术', 'evidence':'玩家技能 ID 172'}), content_type='application/json')
+        response = self.client.post('/api/dashboard/wow-localization/', data=json.dumps({'game_version':'12.1', 'kind':'macro', 'name_en':'Corruption', 'name_zh':'腐蚀术', 'evidence':'玩家技能 ID 172', 'create':True}), content_type='application/json')
         self.assertEqual(response.status_code, 200)
         service = Mock(); service.available.return_value = False
         result, failed = translate_blocks([{'id':'macro','type':'code','data':{'code':'/cast Corruption'}}, {'id':'boss','type':'html','html':'<p>[[spell:1300877]]</p>'}], '12.1', service=service)
@@ -209,7 +209,7 @@ class GuideFlowTests(TestCase):
         self.assertEqual(audit['references']['[[spell:30451]]']['name_en'], 'Fireball')
 
     def test_phrase_terms_are_editable_and_protected_during_translation(self):
-        data = {'game_version':'12.1','kind':'phrase','name_en':"Blood of Ula'tek", 'name_zh':'乌拉特克之血','evidence':'冒险指南中英对照'}
+        data = {'game_version':'12.1','kind':'phrase','name_en':"Blood of Ula'tek", 'name_zh':'乌拉特克之血','evidence':'冒险指南中英对照','create':True}
         response = self.client.post('/api/dashboard/wow-localization/', json.dumps(data), content_type='application/json')
         self.assertEqual(response.status_code, 200)
         repeated = self.client.post('/api/dashboard/wow-localization/', json.dumps(data), content_type='application/json')

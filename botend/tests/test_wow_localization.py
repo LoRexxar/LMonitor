@@ -96,13 +96,135 @@ class SharedNameTests(TestCase):
         self.client.force_login(user)
         native = WowTalentNodeMetadata.objects.create(talent_version=self.version, talent_id=900, node_id=800,
             name='Arcane Blast', name_zh='奥术冲击')
-        response = self.client.post('/api/dashboard/wow-localization/', self.term(name_zh='统一中文'), content_type='application/json')
+        response = self.client.post('/api/dashboard/wow-localization/',
+            {**self.term(name_zh='统一中文'), 'create': True}, content_type='application/json')
         self.assertEqual(response.status_code, 200)
         native.refresh_from_db(); self.assertEqual(native.name_zh, '统一中文')
         self.assertEqual(WowTalentNodeMetadata.all_objects.count(), 1)
         self.assertEqual(self.client.get('/api/dashboard/class-guides/terms/').status_code, 404)
         user.is_superuser = False; user.save(update_fields=['is_superuser'])
         self.assertEqual(self.client.get('/api/dashboard/wow-localization/').status_code, 403)
+
+    def test_stale_client_without_explicit_create_or_edit_state_is_rejected(self):
+        user = get_user_model().objects.create_superuser('旧页面管理员', password='测试密码')
+        self.client.force_login(user)
+        response = self.client.post('/api/dashboard/wow-localization/', self.term(), content_type='application/json')
+        self.assertEqual(response.status_code, 409)
+        self.assertFalse(WowTalentNodeMetadata.all_objects.exists())
+
+    def test_management_list_collapses_identical_cross_context_nodes(self):
+        user = get_user_model().objects.create_superuser('名称列表管理员', password='测试密码')
+        self.client.force_login(user)
+        first = WowTalentNodeMetadata.all_objects.create(
+            talent_version=self.version, class_name='Mage', spec_name='Arcane', tree_type='class',
+            talent_id=99852, node_id=123389, spell_id=111, name='Slayer', name_zh='斩杀者', source='db2_backfill')
+        WowTalentNodeMetadata.all_objects.create(
+            talent_version=self.version, class_name='Mage', spec_name='Fire', tree_type='class',
+            talent_id=99852, node_id=123390, spell_id=222, name='Slayer', name_zh='斩杀者', source='db2_backfill')
+        WowTalentNodeMetadata.all_objects.create(
+            talent_version=self.version, class_name='Mage', spec_name='Frost', tree_type='class',
+            talent_id=99852, node_id=123391, spell_id=333, name='Mountain Thane', name_zh='山丘领主', source='db2_backfill')
+
+        data = self.client.get('/api/dashboard/wow-localization/', {'version': '12.1', 'q': '99852'}).json()
+
+        self.assertEqual(data['total'], 2)
+        self.assertEqual(len(data['records']), 2)
+        slayer = next(row for row in data['records'] if row['name_en'] == 'Slayer')
+        self.assertEqual(slayer['pk'], first.pk)
+        self.assertEqual(slayer['duplicate_count'], 2)
+
+    def test_management_list_keeps_byte_distinct_labels_separate(self):
+        user = get_user_model().objects.create_superuser('精确名称管理员', password='测试密码')
+        self.client.force_login(user)
+        for name, node_id in [('Slayer', 123389), ('slayer', 123390)]:
+            WowTalentNodeMetadata.all_objects.create(
+                talent_version=self.version, class_name='Mage', spec_name='Arcane', tree_type='class',
+                talent_id=99852, node_id=node_id, spell_id=node_id, name=name, name_zh='斩杀者')
+
+        data = self.client.get('/api/dashboard/wow-localization/', {'version': '12.1', 'q': '99852'}).json()
+
+        self.assertEqual(data['total'], 2)
+        self.assertEqual({row['name_en'] for row in data['records']}, {'Slayer', 'slayer'})
+
+    def test_targeted_edit_updates_only_clicked_label_and_accepts_legacy_blank_evidence(self):
+        user = get_user_model().objects.create_superuser('名称编辑管理员', password='测试密码')
+        self.client.force_login(user)
+        first = WowTalentNodeMetadata.all_objects.create(
+            talent_version=self.version, class_name='Mage', spec_name='Arcane', tree_type='class',
+            talent_id=99852, node_id=123389, spell_id=111, name='Slayer', name_zh='斩杀者', source='db2_backfill')
+        same_label = WowTalentNodeMetadata.all_objects.create(
+            talent_version=self.version, class_name='Mage', spec_name='Fire', tree_type='class',
+            talent_id=99852, node_id=123390, spell_id=222, name='Slayer', name_zh='斩杀者', source='db2_backfill')
+        other_label = WowTalentNodeMetadata.all_objects.create(
+            talent_version=self.version, class_name='Mage', spec_name='Frost', tree_type='class',
+            talent_id=99852, node_id=123391, spell_id=333, name='Mountain Thane', name_zh='山丘领主', source='db2_backfill')
+        payload = {**self.term(identity=99852, name_zh='屠戮者'), 'name_en': 'Slayer',
+                   'evidence': '', 'record_pk': first.pk,
+                   'edit_state': {'name_en': 'Slayer', 'name_zh': '斩杀者', 'icon': '',
+                                  'evidence': '', 'duplicate_count': 2}}
+
+        response = self.client.post('/api/dashboard/wow-localization/', payload, content_type='application/json')
+
+        self.assertEqual(response.status_code, 200, response.content)
+        first.refresh_from_db(); same_label.refresh_from_db(); other_label.refresh_from_db()
+        self.assertEqual(first.name_zh, '屠戮者')
+        self.assertEqual(same_label.name_zh, '屠戮者')
+        self.assertEqual(other_label.name_zh, '山丘领主')
+        self.assertFalse(WowTalentNodeMetadata.all_objects.filter(localization_only=True).exists())
+
+    def test_secondary_identifier_search_keeps_complete_edit_group(self):
+        user = get_user_model().objects.create_superuser('别名名称管理员', password='测试密码')
+        self.client.force_login(user)
+        first = WowTalentNodeMetadata.all_objects.create(
+            talent_version=self.version, class_name='Mage', spec_name='Arcane', tree_type='class',
+            talent_id=99852, node_id=123389, spell_id=111, name='Slayer', name_zh='斩杀者')
+        second = WowTalentNodeMetadata.all_objects.create(
+            talent_version=self.version, class_name='Mage', spec_name='Fire', tree_type='class',
+            talent_id=99852, node_id=123390, spell_id=222, name='Slayer', name_zh='斩杀者',
+            reference_aliases=[445566])
+
+        data = self.client.get('/api/dashboard/wow-localization/', {
+            'version': '12.1', 'kind': 'talent', 'q': '445566'}).json()
+
+        self.assertEqual(data['total'], 1)
+        row = data['records'][0]
+        self.assertEqual(row['pk'], second.pk)
+        self.assertEqual(row['duplicate_count'], 2)
+        self.assertIn(445566, row['identifiers'])
+        payload = {**self.term(identity=99852, name_zh='屠戮者'), 'name_en': 'Slayer',
+                   'record_pk': row['pk'], 'edit_state': {
+                       'name_en': row['name_en'], 'name_zh': row['name_zh'], 'icon': row['icon'],
+                       'evidence': row['evidence'], 'duplicate_count': row['duplicate_count']}}
+        response = self.client.post('/api/dashboard/wow-localization/', payload, content_type='application/json')
+        self.assertEqual(response.status_code, 200, response.content)
+        first.refresh_from_db(); second.refresh_from_db()
+        self.assertEqual(first.name_zh, '屠戮者')
+        self.assertEqual(second.name_zh, '屠戮者')
+
+    def test_targeted_edit_rejects_stale_representative_or_group(self):
+        user = get_user_model().objects.create_superuser('并发名称管理员', password='测试密码')
+        self.client.force_login(user)
+        first = WowTalentNodeMetadata.all_objects.create(
+            talent_version=self.version, class_name='Mage', spec_name='Arcane', tree_type='class',
+            talent_id=99852, node_id=123389, spell_id=111, name='Slayer', name_zh='斩杀者')
+        second = WowTalentNodeMetadata.all_objects.create(
+            talent_version=self.version, class_name='Mage', spec_name='Fire', tree_type='class',
+            talent_id=99852, node_id=123390, spell_id=222, name='Slayer', name_zh='斩杀者')
+        state = {'name_en': 'Slayer', 'name_zh': '斩杀者', 'icon': '',
+                 'evidence': '', 'duplicate_count': 2}
+        payload = {**self.term(identity=99852, name_zh='屠戮者'), 'name_en': 'Slayer',
+                   'record_pk': first.pk, 'edit_state': state}
+
+        second.name_zh = '另一译名'; second.save(update_fields=['name_zh'])
+        response = self.client.post('/api/dashboard/wow-localization/', payload, content_type='application/json')
+        self.assertEqual(response.status_code, 409, response.content)
+        first.refresh_from_db(); self.assertEqual(first.name_zh, '斩杀者')
+
+        second.name_zh = '斩杀者'; second.save(update_fields=['name_zh'])
+        first.name_zh = '较新译名'; first.save(update_fields=['name_zh'])
+        response = self.client.post('/api/dashboard/wow-localization/', payload, content_type='application/json')
+        self.assertEqual(response.status_code, 409, response.content)
+        first.refresh_from_db(); self.assertEqual(first.name_zh, '较新译名')
 
     def test_macro_names_do_not_pollute_ordinary_translation(self):
         write_name({**self.term('macro'), 'name_en':'Corruption', 'name_zh':'腐蚀术'})
