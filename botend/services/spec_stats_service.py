@@ -773,6 +773,7 @@ class SpecStatsService:
             class_name,
             spec_name,
             fields=('talent_build_code',),
+            profile_cache=profile_cache,
         )
         stats['talent_build_popularity'] = _compute_talent_build_popularity(
             talent_build_records,
@@ -802,9 +803,16 @@ class SpecStatsService:
         stats['race_distribution'] = _compute_race_distribution(player_detail_records)
 
         if full:
-            full_records = list(qs.values('talents_json', 'gear_json', 'faction', 'guild_name',
-                                      'character_name', 'realm', 'region', 'dps', 'kill_time'))
-            stats['top5'] = sorted(full_records, key=lambda r: r['dps'] or 0, reverse=True)[:5]
+            # Keep stable Python DPS ordering, including ties and zero. Only
+            # the selected identities need a second large-JSON hydration.
+            selected = sorted(qs.values('id', 'dps'),
+                              key=lambda r: r['dps'] or 0, reverse=True)[:5]
+            payloads = {r['id']: r for r in qs.filter(
+                id__in=[r['id'] for r in selected],
+            ).values('id', 'talents_json', 'gear_json', 'faction', 'guild_name',
+                     'character_name', 'realm', 'region', 'dps', 'kill_time')}
+            stats['top5'] = [{k: v for k, v in payloads[r['id']].items() if k != 'id'}
+                             for r in selected if r['id'] in payloads]
             # 格式化 top5 击杀时间
             for r in stats['top5']:
                 if r.get('kill_time'):
@@ -1355,12 +1363,26 @@ def _compute_talent_usage(records, class_name, spec_name, top_n=20, snapshot=Non
     return [dict(item) for item in snapshot['usage_list'][:top_n]]
 
 
-def _talent_build_record_state(record, provider, class_name, spec_name):
+def _request_normalized_talent_node(raw, provider, class_name, spec_name, context):
+    # Full observation, including source overrides, choice, points and parents.
+    # Consumers only read the model; per-record dictionaries are built afresh.
+    if context is None:
+        return _normalize_stats_talent_node(raw, provider, class_name, spec_name)
+    try:
+        key = ('normalized', json.dumps(raw, ensure_ascii=False, allow_nan=False))
+    except (TypeError, ValueError):
+        return _normalize_stats_talent_node(raw, provider, class_name, spec_name)
+    if key not in context:
+        context[key] = _normalize_stats_talent_node(raw, provider, class_name, spec_name)
+    return context[key]
+
+
+def _talent_build_record_state(record, provider, class_name, spec_name, context=None):
     """返回一条排行记录的完整天赋状态，保留点数和二选一信息。"""
     nodes_by_key = {}
     hero_nodes_by_subtree = defaultdict(list)
     for raw in record.get('talents_json') or []:
-        node = _normalize_stats_talent_node(raw, provider, class_name, spec_name)
+        node = _request_normalized_talent_node(raw, provider, class_name, spec_name, context)
         if not node or node.tree_type == 'build_code':
             continue
         node_key = _build_talent_node_key(node)
@@ -1372,7 +1394,7 @@ def _talent_build_record_state(record, provider, class_name, spec_name):
         if existing is None or _score_talent_node(node) >= _score_talent_node(existing):
             nodes_by_key[node_key] = node
 
-    hero_summary = _build_hero_talent_summary(hero_nodes_by_subtree, class_name, spec_name)
+    hero_summary = _build_hero_talent_summary(hero_nodes_by_subtree, class_name, spec_name, context=context)
     return {
         'keys': set(nodes_by_key.keys()),
         'nodes': {
@@ -1426,22 +1448,34 @@ def _talent_build_choice_payload(node, choice_selection):
     }
 
 
-def _talent_build_semantic_state(record, provider, class_name, spec_name, decoder_nodes, decoder_nodes_by_key):
+def _talent_build_semantic_state(record, provider, class_name, spec_name, decoder_nodes, decoder_nodes_by_key, context=None):
     """将原始字符串和结构化节点合并为可比较、可归类的规范状态。"""
-    structured_state = _talent_build_record_state(record, provider, class_name, spec_name)
+    structured_state = _talent_build_record_state(record, provider, class_name, spec_name, context=context)
     structured_nodes = structured_state.get('nodes') or {}
     structured_nodes_by_alias = {}
     for structured_key, structured_node in structured_nodes.items():
         structured_nodes_by_alias.setdefault(structured_key, structured_node)
         for alias in TalentBuildCodeService._node_alias_keys_for_matching(structured_node):
             structured_nodes_by_alias.setdefault(alias, structured_node)
-    decoder_keys_by_alias = {}
-    for decoder_key, decoder_node in decoder_nodes_by_key.items():
-        decoder_keys_by_alias.setdefault(decoder_key, decoder_key)
-        for alias in TalentBuildCodeService._node_alias_keys_for_matching(decoder_node):
-            decoder_keys_by_alias.setdefault(alias, decoder_key)
+    decoder_keys_by_alias = context.get('decoder_aliases') if context is not None else None
+    if decoder_keys_by_alias is None:
+        decoder_keys_by_alias = {}
+        for decoder_key, decoder_node in decoder_nodes_by_key.items():
+            decoder_keys_by_alias.setdefault(decoder_key, decoder_key)
+            for alias in TalentBuildCodeService._node_alias_keys_for_matching(decoder_node):
+                decoder_keys_by_alias.setdefault(alias, decoder_key)
+        if context is not None:
+            context['decoder_aliases'] = decoder_keys_by_alias
     build_code = str(record.get('talent_build_code') or '').strip()
-    decoded_states = TalentBuildCodeDecoder.decode_node_states(build_code, decoder_nodes) if decoder_nodes else {}
+    decode_key = ('decoded', build_code)
+    if context is not None and decode_key in context:
+        decoded_states = context[decode_key]
+    else:
+        decoded_states = TalentBuildCodeDecoder.decode_node_states(build_code, decoder_nodes) if decoder_nodes else {}
+        if context is not None:
+            context[decode_key] = decoded_states
+    # Cache only raw decoding. Stale-code fallback must still run for every
+    # record's structured nodes; it returns fresh mappings, not mutations.
     if decoded_states:
         decoded_states = TalentBuildCodeService._prefer_structured_nodes_when_build_code_looks_stale(
             decoded_states,
@@ -1525,12 +1559,18 @@ def _talent_build_semantic_state(record, provider, class_name, spec_name, decode
     }
 
 
-def _build_hero_talent_summary(hero_nodes_by_subtree, class_name, spec_name):
+def _build_hero_talent_summary(hero_nodes_by_subtree, class_name, spec_name, context=None):
     """Summarize selected hero subtree names for a build row."""
     if not hero_nodes_by_subtree:
         return []
 
     subtree_ids = [subtree_id for subtree_id in hero_nodes_by_subtree.keys() if subtree_id]
+    # The exact subtree set determines names, never the player's node count.
+    cache_key = ('hero_names', frozenset(hero_nodes_by_subtree))
+    if context is not None and cache_key in context:
+        names = context[cache_key]
+        return [dict(subtree_id=subtree_id, name=names[subtree_id], selected_count=len(nodes))
+                for subtree_id, nodes in sorted(hero_nodes_by_subtree.items(), key=lambda item: item[0] or 0)]
     anchor_names = {}
     if subtree_ids:
         anchors = WowTalentNodeMetadata.objects.filter(
@@ -1551,6 +1591,8 @@ def _build_hero_talent_summary(hero_nodes_by_subtree, class_name, spec_name):
             'name': _hero_subtree_name_from_table(subtree_id) or anchor_names.get(subtree_id) or fallback_name,
             'selected_count': len(nodes),
         })
+    if context is not None:
+        context[cache_key] = {item['subtree_id']: item['name'] for item in summary}
     return summary
 
 
@@ -1591,6 +1633,7 @@ def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
     raw_code_first_seen = {}
     total = 0
     first_seen_order = {}
+    context = {}
 
     def _hero_group(state):
         heroes = state.get('hero_talent_summary') or []
@@ -1605,6 +1648,7 @@ def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
         total += 1
         signature, state = _talent_build_semantic_state(
             record, provider, class_name, spec_name, decoder_nodes, decoder_nodes_by_key,
+            context=context,
         )
         group_key, hero_talent_name = _hero_group(state)
         # 无法得到任何节点状态时保留原始字符串边界，避免把未知数据错误合并。
