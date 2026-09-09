@@ -61,6 +61,7 @@ class GuideFlowTests(TestCase):
 
     def test_management_pages_share_existing_editor_permission(self):
         from botend.models import DashboardUserGroup
+        from botend.dashboard.permissions import DASHBOARD_PAGE_PERMISSIONS
         editor = get_user_model().objects.create_user(username='术语编辑', is_staff=True)
         self.client.force_login(editor)
         urls = ['/dashboard/?section=guide-disclaimers', '/dashboard/?section=wow-localization']
@@ -77,6 +78,34 @@ class GuideFlowTests(TestCase):
             self.assertIsNotNone(document.select_one('#wow-localization #wow-localization-search'))
             self.assertIsNone(document.select_one('#class-guide-workspace #disclaimer-dialog'))
             self.assertIsNone(document.select_one('#class-guide-workspace #terms-browser'))
+            module = document.select_one('.nav-item[data-section="class-guide-module"]')
+            self.assertIsNotNone(module)
+            children = module.select('.submenu-item')
+            self.assertEqual(
+                [item.get('data-dashboard-section') for item in children],
+                ['class-guides', 'wow-localization', 'guide-disclaimers'],
+            )
+            self.assertEqual(
+                [item.select_one('a').get('href') for item in children],
+                ['?section=class-guides', '?section=wow-localization', '?section=guide-disclaimers'],
+            )
+        self.assertEqual(DASHBOARD_PAGE_PERMISSIONS['content.class-guides']['parent'], '职业攻略')
+        self.assertEqual(DASHBOARD_PAGE_PERMISSIONS['tools.wow-localization']['parent'], '职业攻略')
+
+    def test_localization_only_editor_gets_workspace_and_management_assets(self):
+        from botend.models import DashboardUserGroup
+        editor = get_user_model().objects.create_user(username='名称编辑', is_staff=True)
+        group = DashboardUserGroup.objects.create(name='名称编辑权限', permission_codes=['tools.wow-localization'])
+        group.users.add(editor)
+        self.client.force_login(editor)
+
+        response = self.client.get('/dashboard/?section=wow-localization')
+
+        self.assertEqual(response.status_code, 200)
+        document = BeautifulSoup(response.content, 'html.parser')
+        self.assertIsNotNone(document.select_one('#wow-localization #wow-localization-search'))
+        self.assertIsNone(document.select_one('#class-guides #class-guide-workspace'))
+        self.assertTrue(any('guide_management.js' in script.get('src', '') for script in document.select('script[src]')))
 
     def test_term_management_lists_versions_and_preserves_version_filter(self):
         for version, name in [('12.1', '旧版名称'), ('12.2', '新版名称')]:

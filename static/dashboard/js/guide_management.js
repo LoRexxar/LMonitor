@@ -2,7 +2,7 @@
   'use strict';
   const disclaimer = document.getElementById('guide-disclaimer-workspace');
   const terms = document.getElementById('wow-localization-workspace');
-  if (!disclaimer || !terms) return;
+  if (!disclaimer && !terms) return;
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const names = {spell:'技能', talent:'天赋', item:'物品', phrase:'专有名词', macro:'宏名称'};
   async function request(path, options = {}) {
@@ -21,8 +21,10 @@
   const guard = (root, fn) => async (...args) => {
     try { await fn(...args); } catch (error) { message(root, error.message, true); }
   };
-  let disclaimerLoaded = false, disclaimerLoading = false, savedText = '';
-  const disclaimerForm = disclaimer.querySelector('form');
+  let loadDisclaimerPage = null;
+  if (disclaimer) {
+    let disclaimerLoaded = false, disclaimerLoading = false, savedText = '';
+    const disclaimerForm = disclaimer.querySelector('form');
   async function loadDisclaimer() {
     if (disclaimerLoaded || disclaimerLoading) return;
     disclaimerLoading = true;
@@ -36,21 +38,29 @@
       message(disclaimer, '');
     } finally { disclaimerLoading = false; }
   }
-  disclaimerForm.addEventListener('input', () => {
-    disclaimer.querySelector('[data-save-state]').textContent = disclaimerForm.elements.text.value === savedText ? '' : '有未保存修改';
-  });
-  disclaimerForm.addEventListener('submit', guard(disclaimer, async event => {
-    event.preventDefault();
-    const button = disclaimerForm.querySelector('button'), text = disclaimerForm.elements.text.value;
-    button.disabled = true;
-    try {
-      await request('disclaimer/', {method:'PATCH', body:JSON.stringify({text})});
-      savedText = text;
-      disclaimer.querySelector('[data-save-state]').textContent = disclaimerForm.elements.text.value === savedText ? '已保存' : '有未保存修改';
-      message(disclaimer, '免责声明已保存，所有带 maxroll 标签的攻略统一生效。');
-    } finally { button.disabled = false; }
-  }));
-  const search = terms.querySelector('#wow-localization-search');
+    disclaimerForm.addEventListener('input', () => {
+      disclaimer.querySelector('[data-save-state]').textContent = disclaimerForm.elements.text.value === savedText ? '' : '有未保存修改';
+    });
+    disclaimerForm.addEventListener('submit', guard(disclaimer, async event => {
+      event.preventDefault();
+      const button = disclaimerForm.querySelector('button'), text = disclaimerForm.elements.text.value;
+      button.disabled = true;
+      try {
+        await request('disclaimer/', {method:'PATCH', body:JSON.stringify({text})});
+        savedText = text;
+        disclaimer.querySelector('[data-save-state]').textContent = disclaimerForm.elements.text.value === savedText ? '已保存' : '有未保存修改';
+        message(disclaimer, '免责声明已保存，所有带 maxroll 标签的攻略统一生效。');
+      } finally { button.disabled = false; }
+    }));
+    window.addEventListener('beforeunload', event => {
+      if (disclaimerLoaded && disclaimerForm.elements.text.value !== savedText) { event.preventDefault(); event.returnValue = ''; }
+    });
+    loadDisclaimerPage = () => guard(disclaimer, loadDisclaimer)();
+  }
+
+  let loadTermsPage = null;
+  if (terms) {
+    const search = terms.querySelector('#wow-localization-search');
   const editor = terms.querySelector('#guide-term-form');
   const dialog = terms.querySelector('dialog');
   let page = 1, rows = [], versions = [], sequence = 0, termsLoaded = false, editing = false, editingRow = null;
@@ -127,25 +137,25 @@
   for (const [id, delta] of [['wow-localization-prev', -1], ['wow-localization-next', 1]]) {
     terms.querySelector('#' + id).addEventListener('click', guard(terms, async () => { page += delta; await loadTerms(); }));
   }
-  window.addEventListener('beforeunload', event => {
-    if (disclaimerLoaded && disclaimerForm.elements.text.value !== savedText) { event.preventDefault(); event.returnValue = ''; }
-  });
+  loadTermsPage = () => guard(terms, async () => {
+    if (termsLoaded) return;
+    const params = new URLSearchParams(location.search);
+    for (const key of ['q', 'kind']) search.elements[key].value = params.get(key) || '';
+    if (params.get('version')) {
+      search.elements.version.add(new Option(params.get('version'), params.get('version')));
+      search.elements.version.value = params.get('version');
+    }
+    await loadTerms();
+    if (params.get('edit') && names[params.get('kind')]) {
+      const requestedName = params.get('name_en');
+      const row = rows.find(row => (row.identifiers || [row.object_id, ...(row.aliases || [])]).map(String).includes(params.get('edit')) && row.kind === params.get('kind') && row.game_version === params.get('version') && (!requestedName || row.name_en === requestedName));
+      editTerm(row || {kind:params.get('kind'), object_id:params.get('edit'), game_version:params.get('version'), name_en:requestedName});
+    }
+  })();
+  }
+
   window.loadGuideManagementPage = section => {
-    if (section === 'guide-disclaimers') return guard(disclaimer, loadDisclaimer)();
-    if (section === 'wow-localization') return guard(terms, async () => {
-      if (termsLoaded) return;
-      const params = new URLSearchParams(location.search);
-      for (const key of ['q', 'kind']) search.elements[key].value = params.get(key) || '';
-      if (params.get('version')) {
-        search.elements.version.add(new Option(params.get('version'), params.get('version')));
-        search.elements.version.value = params.get('version');
-      }
-      await loadTerms();
-      if (params.get('edit') && names[params.get('kind')]) {
-        const requestedName = params.get('name_en');
-        const row = rows.find(row => (row.identifiers || [row.object_id, ...(row.aliases || [])]).map(String).includes(params.get('edit')) && row.kind === params.get('kind') && row.game_version === params.get('version') && (!requestedName || row.name_en === requestedName));
-        editTerm(row || {kind:params.get('kind'), object_id:params.get('edit'), game_version:params.get('version'), name_en:requestedName});
-      }
-    })();
+    if (section === 'guide-disclaimers') return loadDisclaimerPage?.();
+    if (section === 'wow-localization') return loadTermsPage?.();
   };
 })();

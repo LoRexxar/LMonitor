@@ -610,6 +610,12 @@ function initNavigation() {
                 if (targetSection) {
                     targetSection.style.display = 'block';
                     targetSection.classList.add('active');
+                    if (dashboardSection === 'class-guides' && window.loadClassGuides) {
+                        window.loadClassGuides();
+                    }
+                    if (['guide-disclaimers', 'wow-localization'].includes(dashboardSection)) {
+                        window.loadGuideManagementPage?.(dashboardSection);
+                    }
                     if (isSimcDashboardSection(dashboardSection)) {
                         const simcPage = Object.keys(SIMC_DASHBOARD_SECTIONS)
                             .find(page => SIMC_DASHBOARD_SECTIONS[page] === dashboardSection);
