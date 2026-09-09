@@ -121,7 +121,7 @@
     editing = Boolean(row.id);
     editingRow = editing ? row : null;
     editor.reset();
-    for (const key of ['kind','object_id','game_version','name_en','name_zh','icon','evidence']) editor.elements[key].value = row[key] ?? (key === 'kind' ? 'spell' : '');
+    for (const key of ['kind','object_id','game_version','name_en','name_zh','icon','evidence']) editor.elements[key].value = row[key] ?? (key === 'kind' ? 'auto' : '');
     editor.elements.game_version.readOnly = editing;
     editor.elements.object_id.readOnly = editing;
     editor.elements.kind.disabled = editing;
@@ -151,9 +151,10 @@
     } else data.create = true;
     button.disabled = true;
     try {
-      await request('terms/', {method:'POST', body:JSON.stringify(data)});
+      const result = await request('terms/', {method:'POST', body:JSON.stringify(data)});
       dialog.close();
-      message(terms, '术语已保存。技能、天赋和物品引用会自动更新；专有名词和宏名称用于后续翻译。');
+      const detected = !editingRow && data.kind !== result.kind ? `已按攻略引用识别为${names[result.kind]}。` : '';
+      message(terms, `${detected}术语已保存，相关攻略引用会自动更新。`);
       await loadTerms();
     } catch (error) {
       const node = dialog.open ? editor.querySelector('[data-editor-message]') : terms.querySelector('[data-message]');

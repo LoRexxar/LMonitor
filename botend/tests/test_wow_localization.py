@@ -6,6 +6,7 @@ from botend.services.wow_localization import write_name, effective_names, export
 from botend.services.class_guide_content import resolve_references
 from botend.services.class_guide_service import build_guide_glossary
 from botend.services.wow_news_glossary_service import WowNewsGlossary
+from botend.guide_models import ClassGuide
 
 
 class SharedNameTests(TestCase):
@@ -104,6 +105,48 @@ class SharedNameTests(TestCase):
         self.assertEqual(self.client.get('/api/dashboard/class-guides/terms/').status_code, 404)
         user.is_superuser = False; user.save(update_fields=['is_superuser'])
         self.assertEqual(self.client.get('/api/dashboard/wow-localization/').status_code, 403)
+
+    def test_create_uses_the_reference_kind_from_the_live_guide(self):
+        user = get_user_model().objects.create_superuser('引用名称管理员', password='测试密码')
+        self.client.force_login(user)
+        native = WowTalentNodeMetadata.objects.create(
+            talent_version=self.version, class_name='Warrior', spec_name='Arms', talent_id=99852,
+            node_id=112123, spell_id=7384, name='Overpower', name_zh='', icon='ability_meleedamage')
+        ClassGuide.objects.create(
+            title='狂暴战攻略', slug='fury-warrior-raid-guide', class_name='warrior', spec_name='fury',
+            spec_id=72, game_version='12.1', content_markdown='使用 [[talent:112123|Overpower]]。')
+
+        response = self.client.post('/api/dashboard/wow-localization/', {
+            **self.term('spell', 112123, name_zh='压制'), 'name_en': 'Overpower', 'icon': '', 'create': True,
+        }, content_type='application/json')
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['kind'], 'talent')
+        native.refresh_from_db()
+        self.assertEqual(native.name_zh, '压制')
+        self.assertEqual(native.reference_aliases, [112123])
+        self.assertFalse(WowTalentNodeMetadata.all_objects.filter(
+            localization_only=True, name_kind='spell', reference_id=112123).exists())
+        resolved = resolve_references(
+            [{'id': 'p', 'type': 'html', 'html': '[[talent:112123]]'}], '12.1', 'warrior', 'fury')
+        self.assertEqual(resolved['[[talent:112123]]']['name'], '压制')
+        self.assertTrue(resolved['[[talent:112123]]']['icon'].endswith('/ability_meleedamage.jpg'))
+
+    def test_create_can_omit_the_reference_type_and_auto_detect_it(self):
+        user = get_user_model().objects.create_superuser('自动识别管理员', password='测试密码')
+        self.client.force_login(user)
+        ClassGuide.objects.create(
+            title='奥法攻略', slug='arcane-mage-mythic-guide', class_name='mage', spec_name='arcane',
+            spec_id=62, game_version='12.1', content_markdown='使用 [[spell:30451|Arcane Blast]]。')
+
+        response = self.client.post('/api/dashboard/wow-localization/', {
+            **self.term('spell', 30451), 'kind': 'auto', 'create': True,
+        }, content_type='application/json')
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['kind'], 'spell')
+        self.assertTrue(WowTalentNodeMetadata.all_objects.filter(
+            localization_only=True, name_kind='spell', reference_id=30451, name_zh='奥术冲击').exists())
 
     def test_stale_client_without_explicit_create_or_edit_state_is_rejected(self):
         user = get_user_model().objects.create_superuser('旧页面管理员', password='测试密码')

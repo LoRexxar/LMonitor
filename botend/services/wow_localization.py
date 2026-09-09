@@ -3,7 +3,7 @@ import hashlib
 import re
 from django.apps import apps
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import connections, transaction
 from django.db.models import Q
 
 FIELDS = ('game_version', 'kind', 'object_id', 'name_en', 'name_zh', 'icon', 'evidence')
@@ -59,6 +59,36 @@ def validate_name(data):
     return row
 
 
+def normalize_guide_reference(data, *, registry=apps, using='default'):
+    """创建引用名称时，以线上攻略的实际 token 类型为准，避免手选错类型后写入无效记录。"""
+    row = dict(data)
+    if row.get('kind') in ('phrase', 'macro'):
+        return validate_name(row)
+    try:
+        identity = int(row.get('object_id'))
+        if isinstance(row.get('object_id'), bool) or identity < 1 or identity >= 2**53:
+            raise ValueError
+    except (ValueError, TypeError):
+        raise ValidationError('名称引用编号无效')
+    version = row.get('game_version')
+    if not isinstance(version, str) or not re.fullmatch(r'[A-Za-z0-9_.-]+', version):
+        raise ValidationError('必须填写有效的游戏版本')
+    from botend.guide_models import ClassGuide
+    token = re.compile(rf'\[\[(spell|talent|item):{identity}(?=[|\]])')
+    guides = ClassGuide._base_manager.using(using).filter(
+        archived=False, game_version=version, content_markdown__contains=f':{identity}'
+    ).values_list('content_markdown', flat=True)
+    kinds = {match.group(1) for content in guides for match in token.finditer(content)}
+    if len(kinds) == 1:
+        row['kind'] = kinds.pop()
+    elif row.get('kind') == 'auto':
+        message = '该编号未出现在当前版本的线上攻略中' if not kinds else '该编号在攻略中对应多种引用类型'
+        raise ValidationError(message + '，请选择具体类型')
+    elif kinds and row.get('kind') not in kinds:
+        raise ValidationError('该编号在攻略中的引用类型不一致，请从攻略检查页进入校订')
+    return validate_name(row)
+
+
 def _record(obj, kind, version, object_id):
     return dict(id=f'{obj._meta.model_name}:{obj.pk}', game_version=version, kind=kind, object_id=object_id,
         name_en=obj.name, name_zh=obj.name_zh, icon=obj.icon, evidence=obj.localization_evidence,
@@ -74,19 +104,46 @@ def names_for(game_version, class_name='', spec_name='', registry=apps, using='d
         return []
     game_version = version_label(version, game_version)
     query = registry.get_model('botend', 'WowTalentNodeMetadata')._base_manager.using(using).filter(talent_version=version).exclude(name_zh='')
+    has_reference_filter = reference_ids is not None
+    if reference_ids is None and source_text is not None:
+        refs = re.findall(r'\[\[(spell|talent|item):(\d+)', source_text)
+        reference_ids = {kind: {int(identity) for typ, identity in refs if typ == kind} for kind in ('spell', 'talent', 'item')}
+    reference_ids = reference_ids or {}
+    talent_reference_ids = {int(value) for value in reference_ids.get('talent', set())}
     if class_name:
-        query = query.filter(Q(localization_only=True) | Q(class_name__iexact=class_name, spec_name__iexact=spec_name))
+        context = Q(localization_only=True) | Q(class_name__iexact=class_name, spec_name__iexact=spec_name)
+        if talent_reference_ids:
+            # 攻略正文可以明确引用其他专精/职业的天赋；显式 ID 必须按身份解析，不能被当前攻略专精过滤掉。
+            direct_rows = query.filter(name_kind='talent').filter(
+                Q(talent_id__in=talent_reference_ids) | Q(node_id__in=talent_reference_ids)
+            ).values_list('talent_id', 'node_id')
+            direct_ids = {int(value) for pair in direct_rows for value in pair if value}
+            unmatched_ids = talent_reference_ids - direct_ids
+            alias_pks = []
+            if unmatched_ids:
+                if connections[using].features.supports_json_field_contains:
+                    alias_selection = Q()
+                    for value in unmatched_ids:
+                        alias_selection |= Q(reference_aliases__contains=[value])
+                    alias_pks = query.filter(name_kind='talent').filter(alias_selection).values('pk')
+                else:
+                    # SQLite 测试后端不支持 JSON contains；仅测试/开发环境做 Python 匹配。
+                    alias_pks = [
+                        pk for pk, aliases in query.filter(name_kind='talent').values_list('pk', 'reference_aliases')
+                        if unmatched_ids.intersection(int(value) for value in (aliases or []))
+                    ]
+            context |= Q(name_kind='talent') & (
+                Q(talent_id__in=talent_reference_ids) | Q(node_id__in=talent_reference_ids) | Q(pk__in=alias_pks)
+            )
+        query = query.filter(context)
     if source_text is not None:
         from botend.services.wow_news_glossary_service import _extract_name_candidates
         candidates = _extract_name_candidates(source_text)
-        if reference_ids is None:
-            refs = re.findall(r'\[\[(spell|talent|item):(\d+)', source_text)
-            reference_ids = {kind: {int(identity) for typ, identity in refs if typ == kind} for kind in ('spell', 'talent', 'item')}
         selection = Q(name_kind__in=['talent', 'phrase', 'macro']) | Q(name__in=candidates)
         for kind in ('spell', 'item'):
             selection |= Q(name_kind=kind, reference_id__in=reference_ids.get(kind, set()))
         query = query.filter(selection)
-    elif reference_ids is not None:
+    elif has_reference_filter:
         selection = Q(name_kind='talent')
         for kind in ('spell', 'item'):
             selection |= Q(name_kind=kind, reference_id__in=reference_ids.get(kind, set()))
@@ -128,7 +185,7 @@ def _source_values(row, version, registry, using):
     return row
 
 
-def write_name(data, *, overwrite=False, registry=apps, using='default', target_pk=None, target_state=None):
+def write_name(data, *, overwrite=False, preserve_blank=False, registry=apps, using='default', target_pk=None, target_state=None):
     """在既有天赋名称表按类型写入；导入只补缺，手工编辑更新同一记录。"""
     row = validate_name(data)
     with transaction.atomic(using=using):
@@ -204,7 +261,8 @@ def write_name(data, *, overwrite=False, registry=apps, using='default', target_
         for obj in targets:
             changed = []
             for field, value in [('name', row['name_en']), ('name_zh', row['name_zh']), ('icon', row['icon']), ('localization_evidence', row['evidence'])]:
-                if (overwrite or not getattr(obj, field)) and getattr(obj, field) != value:
+                current = getattr(obj, field)
+                if (overwrite or not current) and current != value and (value or not preserve_blank):
                     setattr(obj, field, value); changed.append(field)
             if kind == 'talent' and not obj.localization_only and identity not in obj.reference_aliases:
                 obj.reference_aliases = [*obj.reference_aliases, identity]; changed.append('reference_aliases')

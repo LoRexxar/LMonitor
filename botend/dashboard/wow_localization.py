@@ -8,7 +8,8 @@ from botend.dashboard.permissions import DashboardPermissionRequiredMixin
 from botend.models import WowTalentVersion, WowTalentNodeMetadata
 from django.db.models import BigIntegerField, BinaryField, Case, Count, F, Func, Min, Q, When
 from django.db.models.functions import Coalesce
-from botend.services.wow_localization import NameEditConflict, write_name, version_label, version_for, _record
+from botend.services.wow_localization import (NameEditConflict, normalize_guide_reference, write_name,
+                                               version_label, version_for, _record)
 
 
 class _Binary(Func):
@@ -104,5 +105,8 @@ class WowLocalizationAPI(DashboardPermissionRequiredMixin, View):
             raise NameEditConflict('页面版本已过期，请刷新后重试')
         if not data.get('evidence') and not record_pk:
             raise ValueError('请填写名称核对依据')
-        record, _ = write_name(data, overwrite=True, target_pk=record_pk, target_state=data.get('edit_state'))
-        return JsonResponse({'id': record['id']})
+        if data.get('create') is True:
+            data = normalize_guide_reference(data)
+        record, _ = write_name(data, overwrite=True, preserve_blank=record_pk is None,
+                               target_pk=record_pk, target_state=data.get('edit_state'))
+        return JsonResponse({'id': record['id'], 'kind': record['kind'], 'object_id': record['object_id']})
