@@ -22,7 +22,7 @@ from botend.models import MonitorTaskLease, MonitorTaskLeaseLost
 from botend.plugin_sync import claim_monitor_task
 from bs4 import BeautifulSoup
 
-from botend.guide_models import ClassGuide, ClassGuideTranslation
+from botend.guide_models import ClassGuide, ClassGuideTag, ClassGuideTranslation
 from botend.services.wow_localization import write_name, effective_names
 from botend.models import WowTalentNodeMetadata, WowSpellSnapshot
 from botend.services.class_guide_codec import decode_component, snappy
@@ -61,6 +61,7 @@ class GuideFlowTests(TestCase):
 
     def test_management_pages_share_existing_editor_permission(self):
         from botend.models import DashboardUserGroup
+        from botend.dashboard.permissions import DASHBOARD_PAGE_PERMISSIONS
         editor = get_user_model().objects.create_user(username='术语编辑', is_staff=True)
         self.client.force_login(editor)
         urls = ['/dashboard/?section=guide-disclaimers', '/dashboard/?section=wow-localization']
@@ -77,6 +78,34 @@ class GuideFlowTests(TestCase):
             self.assertIsNotNone(document.select_one('#wow-localization #wow-localization-search'))
             self.assertIsNone(document.select_one('#class-guide-workspace #disclaimer-dialog'))
             self.assertIsNone(document.select_one('#class-guide-workspace #terms-browser'))
+            module = document.select_one('.nav-item[data-section="class-guide-module"]')
+            self.assertIsNotNone(module)
+            children = module.select('.submenu-item')
+            self.assertEqual(
+                [item.get('data-dashboard-section') for item in children],
+                ['class-guides', 'wow-localization', 'guide-disclaimers'],
+            )
+            self.assertEqual(
+                [item.select_one('a').get('href') for item in children],
+                ['?section=class-guides', '?section=wow-localization', '?section=guide-disclaimers'],
+            )
+        self.assertEqual(DASHBOARD_PAGE_PERMISSIONS['content.class-guides']['parent'], '职业攻略')
+        self.assertEqual(DASHBOARD_PAGE_PERMISSIONS['tools.wow-localization']['parent'], '职业攻略')
+
+    def test_localization_only_editor_gets_workspace_and_management_assets(self):
+        from botend.models import DashboardUserGroup
+        editor = get_user_model().objects.create_user(username='名称编辑', is_staff=True)
+        group = DashboardUserGroup.objects.create(name='名称编辑权限', permission_codes=['tools.wow-localization'])
+        group.users.add(editor)
+        self.client.force_login(editor)
+
+        response = self.client.get('/dashboard/?section=wow-localization')
+
+        self.assertEqual(response.status_code, 200)
+        document = BeautifulSoup(response.content, 'html.parser')
+        self.assertIsNotNone(document.select_one('#wow-localization #wow-localization-search'))
+        self.assertIsNone(document.select_one('#class-guides #class-guide-workspace'))
+        self.assertTrue(any('guide_management.js' in script.get('src', '') for script in document.select('script[src]')))
 
     def test_term_management_lists_versions_and_preserves_version_filter(self):
         for version, name in [('12.1', '旧版名称'), ('12.2', '新版名称')]:
@@ -105,7 +134,7 @@ class GuideFlowTests(TestCase):
 
     def test_macro_name_override_does_not_replace_boss_reference(self):
         create_name(game_version='12.1', kind='spell', object_id=1300877, name_en='Corruption', name_zh='腐化')
-        response = self.client.post('/api/dashboard/wow-localization/', data=json.dumps({'game_version':'12.1', 'kind':'macro', 'name_en':'Corruption', 'name_zh':'腐蚀术', 'evidence':'玩家技能 ID 172'}), content_type='application/json')
+        response = self.client.post('/api/dashboard/wow-localization/', data=json.dumps({'game_version':'12.1', 'kind':'macro', 'name_en':'Corruption', 'name_zh':'腐蚀术', 'evidence':'玩家技能 ID 172', 'create':True}), content_type='application/json')
         self.assertEqual(response.status_code, 200)
         service = Mock(); service.available.return_value = False
         result, failed = translate_blocks([{'id':'macro','type':'code','data':{'code':'/cast Corruption'}}, {'id':'boss','type':'html','html':'<p>[[spell:1300877]]</p>'}], '12.1', service=service)
@@ -209,7 +238,7 @@ class GuideFlowTests(TestCase):
         self.assertEqual(audit['references']['[[spell:30451]]']['name_en'], 'Fireball')
 
     def test_phrase_terms_are_editable_and_protected_during_translation(self):
-        data = {'game_version':'12.1','kind':'phrase','name_en':"Blood of Ula'tek", 'name_zh':'乌拉特克之血','evidence':'冒险指南中英对照'}
+        data = {'game_version':'12.1','kind':'phrase','name_en':"Blood of Ula'tek", 'name_zh':'乌拉特克之血','evidence':'冒险指南中英对照','create':True}
         response = self.client.post('/api/dashboard/wow-localization/', json.dumps(data), content_type='application/json')
         self.assertEqual(response.status_code, 200)
         repeated = self.client.post('/api/dashboard/wow-localization/', json.dumps(data), content_type='application/json')
@@ -482,26 +511,44 @@ class GuideFlowTests(TestCase):
         self.assertEqual(profile['title'], '团队成员')
         self.assertEqual(profile['links'], [{'label':'频道','url':'https://example.com/channel'}])
 
-    def test_disclaimer_is_shared_by_tag_without_changing_articles(self):
+    def test_disclaimer_is_shared_by_selected_tag_without_changing_articles(self):
         endpoint = '/api/dashboard/class-guides/disclaimer/'
         original = ClassGuide.objects.get(pk=self.guide.pk).content_markdown
+        maxroll = self.guide.tags.get(name='maxroll')
+        reviewed = ClassGuideTag.objects.create(name='团队审核')
+        self.guide.tags.add(reviewed)
+
+        catalog = self.client.get(endpoint).json()
+        self.assertEqual(catalog['tag'], 'maxroll')
+        self.assertTrue({'maxroll', '团队审核'}.issubset({row['name'] for row in catalog['tags']}))
+        self.assertEqual(next(row for row in catalog['tags'] if row['name'] == '团队审核')['guide_count'], 1)
+        self.assertEqual(self.client.get(endpoint, {'tag': '团队审核'}).json()['text'], '')
+
         text = '中文免责声明\n<script>示例仅作为文本</script>'
-        response = self.client.patch(endpoint, data=json.dumps({'text': text}), content_type='application/json')
+        response = self.client.patch(endpoint, data=json.dumps({'tag': 'maxroll', 'text': text}), content_type='application/json')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.client.get(endpoint).json()['text'], text)
+        self.assertEqual(self.client.get(endpoint, {'tag': 'maxroll'}).json()['text'], text)
         url = f'/portal/class-guides/{self.guide.id}/'
         page = self.client.get(url)
         self.assertContains(page, '中文免责声明')
         self.assertContains(page, '&lt;script&gt;')
         self.assertNotContains(page, '<script>示例')
-        tag = self.guide.tags.get(name='maxroll')
-        self.guide.tags.remove(tag)
+
+        self.guide.tags.remove(maxroll)
         self.assertNotContains(self.client.get(url), 'cg-disclaimer')
+        reviewed_text = '仅对团队审核标签生效'
+        response = self.client.patch(endpoint, data=json.dumps({'tag': '团队审核', 'text': reviewed_text}), content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        maxroll.refresh_from_db()
+        reviewed.refresh_from_db()
+        self.assertEqual(maxroll.disclaimer, text)
+        self.assertEqual(reviewed.disclaimer, reviewed_text)
+        self.assertContains(self.client.get(url), reviewed_text)
+
         self.guide.source_url = ''
         self.guide.save(update_fields=['source_url'])
-        self.guide.tags.add(tag)
-        self.assertContains(self.client.get(url), '中文免责声明')
-        self.client.patch(endpoint, data=json.dumps({'text': ''}), content_type='application/json')
+        self.assertContains(self.client.get(url), reviewed_text)
+        self.client.patch(endpoint, data=json.dumps({'tag': '团队审核', 'text': ''}), content_type='application/json')
         self.assertNotContains(self.client.get(url), 'cg-disclaimer')
         self.assertEqual(ClassGuide.objects.get(pk=self.guide.pk).content_markdown, original)
 
@@ -510,7 +557,9 @@ class GuideFlowTests(TestCase):
         self.assertEqual(Client().get(endpoint).status_code, 403)
         self.assertEqual(Client().patch(endpoint, data=json.dumps({'text': '修改'}), content_type='application/json').status_code, 403)
         for text in (None, [], '字' * 3001):
-            self.assertEqual(self.client.patch(endpoint, data=json.dumps({'text': text}), content_type='application/json').status_code, 400)
+            self.assertEqual(self.client.patch(endpoint, data=json.dumps({'tag': 'maxroll', 'text': text}), content_type='application/json').status_code, 400)
+        self.assertEqual(self.client.patch(endpoint, data=json.dumps({'text': '缺少标签'}), content_type='application/json').status_code, 400)
+        self.assertEqual(self.client.patch(endpoint, data=json.dumps({'tag': '不存在', 'text': '修改'}), content_type='application/json').status_code, 400)
 
     def test_author_customization_survives_sync_and_can_restore_source(self):
         source = source_post();source['author_profile'] = {'name':'来源作者','avatar':'https://example.com/source.svg'}
@@ -584,6 +633,17 @@ class GuideFlowTests(TestCase):
         self.assertTrue(check_article(saved)['unresolved_references'])
         self.assertContains(self.client.get(f'/portal/class-guides/{current.pk}/'), '中文正文')
 
+    def test_article_and_standalone_preview_load_wowhead_tooltip_runtime(self):
+        for path in (
+            f'/portal/class-guides/{self.guide.pk}/',
+            f'/dashboard/class-guides/{self.guide.pk}/preview/',
+        ):
+            response = self.client.get(path)
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, 'https://wow.zamimg.com/widgets/power.js')
+            self.assertContains(response, 'renameLinks: false')
+            self.assertContains(response, 'iconizeLinks: false')
+
     def test_translation_is_cached_and_preserves_reference(self):
         blocks = [{'id':'x','type':'html','html':'<p>Cast [[spell:30451]].</p>'}]
         service = Mock(); service.available.return_value = True
@@ -627,6 +687,56 @@ class GuideFlowTests(TestCase):
 
 
 class GuideContentTests(SimpleTestCase):
+    def test_references_render_exact_wowhead_tooltip_links_for_all_supported_kinds(self):
+        references = {
+            '[[talent:900]]': {'kind': 'talent', 'id': 900, 'name': '天赋名称', 'resolved': True,
+                               'icon': 'https://example.com/talent.jpg', 'tooltip_kind': 'spell', 'tooltip_id': 30451},
+            '[[spell:133]]': {'kind': 'spell', 'id': 133, 'name': '火球术', 'resolved': True,
+                              'icon': '', 'tooltip_kind': 'spell', 'tooltip_id': 133},
+            '[[item:19019]]': {'kind': 'item', 'id': 19019, 'name': '雷霆之怒', 'resolved': True,
+                                'icon': '', 'tooltip_kind': 'item', 'tooltip_id': 19019},
+        }
+
+        rendered = render_references(
+            '<p>[[talent:900]] [[spell:133]] [[item:19019]]</p>', references,
+        )
+        document = BeautifulSoup(rendered, 'html.parser')
+        links = document.select('a.guide-ref[data-wowhead]')
+
+        self.assertEqual(len(links), 3)
+        self.assertEqual(
+            [(link['data-reference-kind'], link['data-reference-id'], link['href']) for link in links],
+            [
+                ('talent', '900', 'https://www.wowhead.com/cn/spell=30451'),
+                ('spell', '133', 'https://www.wowhead.com/cn/spell=133'),
+                ('item', '19019', 'https://www.wowhead.com/cn/item=19019'),
+            ],
+        )
+        self.assertTrue(all(link['target'] == '_blank' for link in links))
+        self.assertTrue(all('noopener' in link['rel'] for link in links))
+
+    def test_talent_tooltip_uses_native_display_spell_without_specialization_scope_in_identity(self):
+        record = {
+            'kind': 'talent', 'object_id': 900, 'aliases': [901], 'node_id': 800,
+            'spell_id': 30450, 'display_spell_id': 30451, 'name_zh': '奥术天赋',
+            'name_en': 'Arcane Talent', 'name': 'Arcane Talent', 'locale': '',
+            'icon': '', 'evidence': '测试元数据',
+        }
+        with patch('botend.services.class_guide_content.names_for', return_value=[record]) as names:
+            refs = resolve_references(
+                [{'id': 'p', 'type': 'html', 'html': '<p>[[talent:901]]</p>'}],
+                '12.1', 'warrior', 'fury',
+            )
+
+        self.assertEqual(refs['[[talent:901]]']['tooltip_kind'], 'spell')
+        self.assertEqual(refs['[[talent:901]]']['tooltip_id'], 30451)
+        self.assertEqual(names.call_args.kwargs['reference_ids']['talent'], {901})
+
+    def test_dynamic_dashboard_preview_forces_wowhead_to_scan_new_links(self):
+        from django.contrib.staticfiles import finders
+        script = Path(finders.find('dashboard/js/class_guides.js')).read_text(encoding='utf-8')
+        self.assertIn('window.$WowheadPower?.refreshLinks?.(true)', script)
+
     def test_inline_styles_cannot_split_a_word_for_translation(self):
         value = '<p>your <strong><mark>Vengea</mark><mark>nce Demon Hunter</mark></strong> and you<mark>r </mark>role.</p>'
         self.assertEqual(clean_html(value), '<p>your <strong>Vengeance Demon Hunter</strong> and your role.</p>')

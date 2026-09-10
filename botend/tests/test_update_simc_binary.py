@@ -165,7 +165,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
         deploy_script = (Path(settings.BASE_DIR) / 'deploy.sh').read_text(encoding='utf-8')
         recover_index = deploy_script.index('manage.py recover_interrupted_simc_update')
         simc_restart_index = deploy_script.index('manage.py simc_worker')
-        health_check_index = deploy_script.index('=== 8. 检查服务状态 ===')
+        health_check_index = deploy_script.index('检查服务状态 ===')
         self.assertGreater(recover_index, simc_restart_index)
         self.assertLess(recover_index, health_check_index)
 

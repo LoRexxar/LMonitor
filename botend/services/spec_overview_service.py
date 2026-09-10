@@ -83,7 +83,7 @@ class SpecOverviewService:
         except OSError:
             projection_version = 0
         key = (
-            f'spec-overview:{module}:{season.id}:{tuple(sorted(expected_ids))}:'
+            f'spec-overview:summary-v2:{module}:{season.id}:{tuple(sorted(expected_ids))}:'
             f'{class_name}:{spec_name}:{projection_version}'
         )
         cached = cache.get(key)
@@ -99,7 +99,15 @@ class SpecOverviewService:
                 mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
         except (OSError, ValueError, TypeError):
             payload, mtime = {}, None
-        result = (payload if isinstance(payload, dict) else {}, mtime)
+        payload = payload if isinstance(payload, dict) else {}
+        # Cache only what the overview consumes, not multi-megabyte talent/gear
+        # details. Resolve the legacy nested timestamp before discarding details
+        # so warm reads avoid both full-payload deserialization and rescanning.
+        if module == 'mythic-plus':
+            payload = cls._mythic_plus_payload(payload, mtime)
+        elif module == 'raid':
+            payload = cls._raid_payload(payload, mtime)
+        result = (payload, mtime)
         cache.set(key, result, cls.CACHE_SECONDS[module])
         return result
 
@@ -168,7 +176,10 @@ class SpecOverviewService:
 
     @classmethod
     def mythic_plus(cls, class_name, spec_name):
-        data, mtime = cls._aggregate('mythic-plus', class_name, spec_name)
+        return cls._mythic_plus_payload(*cls._aggregate('mythic-plus', class_name, spec_name))
+
+    @classmethod
+    def _mythic_plus_payload(cls, data, mtime):
         dungeons = data.get('dungeons') or []
         dungeons = dungeons if isinstance(dungeons, list) else []
         return {'source': cls.SOURCES['mythic-plus'],
@@ -177,7 +188,10 @@ class SpecOverviewService:
 
     @classmethod
     def raid(cls, class_name, spec_name):
-        data, mtime = cls._aggregate('raid', class_name, spec_name)
+        return cls._raid_payload(*cls._aggregate('raid', class_name, spec_name))
+
+    @classmethod
+    def _raid_payload(cls, data, mtime):
         zone_groups = data.get('zone_groups') or []
         zone_groups = zone_groups if isinstance(zone_groups, list) else []
         difficulties = data.get('difficulties') or []

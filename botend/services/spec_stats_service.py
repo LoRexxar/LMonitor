@@ -23,6 +23,7 @@ from botend.wow.talents.render import build_talent_render_model
 from botend.wow.talents.view_model import build_talent_view_model
 from botend.wow.talents.service import TalentBuildCodeService
 
+import json
 import re
 
 
@@ -539,6 +540,7 @@ class SpecStatsService:
 
         # 天赋/装备热门度（概览也展示）
         records = selected_records
+        profile_cache = {}
         talent_limit = 20 if full else 10
         gear_limit = 5 if full else 3
         usage_snapshot = _build_talent_usage_snapshot(records, class_name, spec_name)
@@ -567,6 +569,7 @@ class SpecStatsService:
                 class_name,
                 spec_name,
                 fields=('talent_build_code',),
+                profile_cache=profile_cache,
             )
             stats['talent_build_popularity'] = _compute_talent_build_popularity(
                 talent_build_records,
@@ -577,7 +580,8 @@ class SpecStatsService:
 
         # 装备/宝石/附魔使用率：按当前详情页 ranking 样本统计（100 人里几个人使用）。
         # gear_detail_records 优先用人物榜 Raider.IO gear 回填，补齐 slot/gems_detail/enchants_detail；长度不变，分母仍是 ranking 样本数。
-        gear_detail_records = _merge_player_profile_gear(records, season_id, class_name, spec_name)
+        gear_detail_records = _merge_player_profile_gear(
+            records, season_id, class_name, spec_name, profile_cache=profile_cache)
         stats['gear_popularity'] = _compute_gear_popularity(gear_detail_records, top_n=gear_limit)
         stats['gem_popularity'] = _compute_gem_popularity(gear_detail_records, top_n=20)
         stats['enchant_popularity'] = _compute_enchant_popularity(gear_detail_records, top_n=20)
@@ -589,6 +593,7 @@ class SpecStatsService:
             class_name,
             spec_name,
             fields=('stats_json', 'race'),
+            profile_cache=profile_cache,
         )
         stats['secondary_stats'] = _compute_secondary_stats_distribution(player_detail_records)
         stats['race_distribution'] = _compute_race_distribution(player_detail_records)
@@ -740,6 +745,7 @@ class SpecStatsService:
 
         # 天赋/装备热门度（概览也展示）
         records = list(qs.values('talents_json', 'talent_build_code', 'gear_json', 'faction', 'character_name', 'realm', 'region', 'dps'))
+        profile_cache = {}
         talent_limit = 20 if full else 10
         gear_limit = 5 if full else 3
         usage_snapshot = _build_talent_usage_snapshot(records, class_name, spec_name)
@@ -767,6 +773,7 @@ class SpecStatsService:
             class_name,
             spec_name,
             fields=('talent_build_code',),
+            profile_cache=profile_cache,
         )
         stats['talent_build_popularity'] = _compute_talent_build_popularity(
             talent_build_records,
@@ -777,7 +784,8 @@ class SpecStatsService:
 
         # 装备/宝石/附魔使用率：按当前详情页 ranking 样本统计（100 人里几个人使用）。
         # gear_detail_records 优先用人物榜 Raider.IO gear 回填，补齐 slot/gems_detail/enchants_detail；长度不变，分母仍是 ranking 样本数。
-        gear_detail_records = _merge_player_profile_gear(records, season_id, class_name, spec_name)
+        gear_detail_records = _merge_player_profile_gear(
+            records, season_id, class_name, spec_name, profile_cache=profile_cache)
         stats['gear_popularity'] = _compute_gear_popularity(gear_detail_records, top_n=gear_limit)
         stats['gem_popularity'] = _compute_gem_popularity(gear_detail_records, top_n=20)
         stats['enchant_popularity'] = _compute_enchant_popularity(gear_detail_records, top_n=20)
@@ -789,14 +797,22 @@ class SpecStatsService:
             class_name,
             spec_name,
             fields=('stats_json', 'race'),
+            profile_cache=profile_cache,
         )
         stats['secondary_stats'] = _compute_secondary_stats_distribution(player_detail_records)
         stats['race_distribution'] = _compute_race_distribution(player_detail_records)
 
         if full:
-            full_records = list(qs.values('talents_json', 'gear_json', 'faction', 'guild_name',
-                                      'character_name', 'realm', 'region', 'dps', 'kill_time'))
-            stats['top5'] = sorted(full_records, key=lambda r: r['dps'] or 0, reverse=True)[:5]
+            # Keep stable Python DPS ordering, including ties and zero. Only
+            # the selected identities need a second large-JSON hydration.
+            selected = sorted(qs.values('id', 'dps'),
+                              key=lambda r: r['dps'] or 0, reverse=True)[:5]
+            payloads = {r['id']: r for r in qs.filter(
+                id__in=[r['id'] for r in selected],
+            ).values('id', 'talents_json', 'gear_json', 'faction', 'guild_name',
+                     'character_name', 'realm', 'region', 'dps', 'kill_time')}
+            stats['top5'] = [{k: v for k, v in payloads[r['id']].items() if k != 'id'}
+                             for r in selected if r['id'] in payloads]
             # 格式化 top5 击杀时间
             for r in stats['top5']:
                 if r.get('kill_time'):
@@ -1103,12 +1119,25 @@ def _build_talent_usage_snapshot(records, class_name, spec_name):
     parent_edges = defaultdict(Counter)
 
     hero_subtree_counts = Counter()
+    # Snapshot-local only: the entire raw observation (including points, choice,
+    # source and metadata overrides) is the key, never just the node identity.
+    # Nodes are read-only during this loop; rendering happens after it completes.
+    normalized_nodes = {}
 
     for record_index, record in enumerate(records):
         record_nodes = {}
         identity_lookup = {}
         for raw in record.get('talents_json') or []:
-            node = _normalize_stats_talent_node(raw, provider, class_name, spec_name)
+            try:
+                raw_key = json.dumps(raw, ensure_ascii=False, allow_nan=False)
+            except (TypeError, ValueError):
+                raw_key = None
+            if raw_key is not None and raw_key in normalized_nodes:
+                node = normalized_nodes[raw_key]
+            else:
+                node = _normalize_stats_talent_node(raw, provider, class_name, spec_name)
+                if raw_key is not None:
+                    normalized_nodes[raw_key] = node
             if not node or node.tree_type == 'build_code':
                 continue
             node_key = _build_talent_node_key(node)
@@ -1133,30 +1162,32 @@ def _build_talent_usage_snapshot(records, class_name, spec_name):
         for subtree_id in selected_hero_subtrees:
             hero_subtree_counts[subtree_id] += 1
 
+        player_payload = _talent_usage_player_payload(record, record_index) if record_nodes else None
         for node_key, node in record_nodes.items():
-            usage_item = usage.setdefault(node_key, {
-                'node_key': node_key,
-                'tree_type': node.tree_type or 'spec',
-                'tree_label': _talent_tree_label(node.tree_type),
-                'spell_id': node.spell_id,
-                'talent_id': node.talent_id,
-                'node_id': node.node_id,
-                'name': node.name or (f"技能ID {node.spell_id or node.talent_id or node.node_id}"),
-                'icon': node.icon or '',
-                'points': 0,
-                'max_points': node.max_points or 1,
-                '_point_counts': Counter(),
-                'count': 0,
-                'top_players': [],
-                '_player_keys': set(),
-            })
+            usage_item = usage.get(node_key)
+            if usage_item is None:
+                usage_item = usage[node_key] = {
+                    'node_key': node_key,
+                    'tree_type': node.tree_type or 'spec',
+                    'tree_label': _talent_tree_label(node.tree_type),
+                    'spell_id': node.spell_id,
+                    'talent_id': node.talent_id,
+                    'node_id': node.node_id,
+                    'name': node.name or (f"技能ID {node.spell_id or node.talent_id or node.node_id}"),
+                    'icon': node.icon or '',
+                    'points': 0,
+                    'max_points': node.max_points or 1,
+                    '_point_counts': Counter(),
+                    'count': 0,
+                    'top_players': [],
+                    '_player_keys': set(),
+                }
             max_points = max(1, int(node.max_points or 1))
             selected_points = min(max(1, int(node.points or 1)), max_points)
             usage_item['count'] += 1
             usage_item['points'] = max(usage_item.get('points') or 0, selected_points)
             usage_item['max_points'] = max(usage_item.get('max_points') or 1, max_points)
             usage_item['_point_counts'][selected_points] += 1
-            player_payload = _talent_usage_player_payload(record, record_index)
             player_key = player_payload.get('player_key')
             if player_key and player_key not in usage_item['_player_keys']:
                 usage_item['_player_keys'].add(player_key)
@@ -1332,12 +1363,26 @@ def _compute_talent_usage(records, class_name, spec_name, top_n=20, snapshot=Non
     return [dict(item) for item in snapshot['usage_list'][:top_n]]
 
 
-def _talent_build_record_state(record, provider, class_name, spec_name):
+def _request_normalized_talent_node(raw, provider, class_name, spec_name, context):
+    # Full observation, including source overrides, choice, points and parents.
+    # Consumers only read the model; per-record dictionaries are built afresh.
+    if context is None:
+        return _normalize_stats_talent_node(raw, provider, class_name, spec_name)
+    try:
+        key = ('normalized', json.dumps(raw, ensure_ascii=False, allow_nan=False))
+    except (TypeError, ValueError):
+        return _normalize_stats_talent_node(raw, provider, class_name, spec_name)
+    if key not in context:
+        context[key] = _normalize_stats_talent_node(raw, provider, class_name, spec_name)
+    return context[key]
+
+
+def _talent_build_record_state(record, provider, class_name, spec_name, context=None):
     """返回一条排行记录的完整天赋状态，保留点数和二选一信息。"""
     nodes_by_key = {}
     hero_nodes_by_subtree = defaultdict(list)
     for raw in record.get('talents_json') or []:
-        node = _normalize_stats_talent_node(raw, provider, class_name, spec_name)
+        node = _request_normalized_talent_node(raw, provider, class_name, spec_name, context)
         if not node or node.tree_type == 'build_code':
             continue
         node_key = _build_talent_node_key(node)
@@ -1349,7 +1394,7 @@ def _talent_build_record_state(record, provider, class_name, spec_name):
         if existing is None or _score_talent_node(node) >= _score_talent_node(existing):
             nodes_by_key[node_key] = node
 
-    hero_summary = _build_hero_talent_summary(hero_nodes_by_subtree, class_name, spec_name)
+    hero_summary = _build_hero_talent_summary(hero_nodes_by_subtree, class_name, spec_name, context=context)
     return {
         'keys': set(nodes_by_key.keys()),
         'nodes': {
@@ -1403,22 +1448,34 @@ def _talent_build_choice_payload(node, choice_selection):
     }
 
 
-def _talent_build_semantic_state(record, provider, class_name, spec_name, decoder_nodes, decoder_nodes_by_key):
+def _talent_build_semantic_state(record, provider, class_name, spec_name, decoder_nodes, decoder_nodes_by_key, context=None):
     """将原始字符串和结构化节点合并为可比较、可归类的规范状态。"""
-    structured_state = _talent_build_record_state(record, provider, class_name, spec_name)
+    structured_state = _talent_build_record_state(record, provider, class_name, spec_name, context=context)
     structured_nodes = structured_state.get('nodes') or {}
     structured_nodes_by_alias = {}
     for structured_key, structured_node in structured_nodes.items():
         structured_nodes_by_alias.setdefault(structured_key, structured_node)
         for alias in TalentBuildCodeService._node_alias_keys_for_matching(structured_node):
             structured_nodes_by_alias.setdefault(alias, structured_node)
-    decoder_keys_by_alias = {}
-    for decoder_key, decoder_node in decoder_nodes_by_key.items():
-        decoder_keys_by_alias.setdefault(decoder_key, decoder_key)
-        for alias in TalentBuildCodeService._node_alias_keys_for_matching(decoder_node):
-            decoder_keys_by_alias.setdefault(alias, decoder_key)
+    decoder_keys_by_alias = context.get('decoder_aliases') if context is not None else None
+    if decoder_keys_by_alias is None:
+        decoder_keys_by_alias = {}
+        for decoder_key, decoder_node in decoder_nodes_by_key.items():
+            decoder_keys_by_alias.setdefault(decoder_key, decoder_key)
+            for alias in TalentBuildCodeService._node_alias_keys_for_matching(decoder_node):
+                decoder_keys_by_alias.setdefault(alias, decoder_key)
+        if context is not None:
+            context['decoder_aliases'] = decoder_keys_by_alias
     build_code = str(record.get('talent_build_code') or '').strip()
-    decoded_states = TalentBuildCodeDecoder.decode_node_states(build_code, decoder_nodes) if decoder_nodes else {}
+    decode_key = ('decoded', build_code)
+    if context is not None and decode_key in context:
+        decoded_states = context[decode_key]
+    else:
+        decoded_states = TalentBuildCodeDecoder.decode_node_states(build_code, decoder_nodes) if decoder_nodes else {}
+        if context is not None:
+            context[decode_key] = decoded_states
+    # Cache only raw decoding. Stale-code fallback must still run for every
+    # record's structured nodes; it returns fresh mappings, not mutations.
     if decoded_states:
         decoded_states = TalentBuildCodeService._prefer_structured_nodes_when_build_code_looks_stale(
             decoded_states,
@@ -1502,12 +1559,18 @@ def _talent_build_semantic_state(record, provider, class_name, spec_name, decode
     }
 
 
-def _build_hero_talent_summary(hero_nodes_by_subtree, class_name, spec_name):
+def _build_hero_talent_summary(hero_nodes_by_subtree, class_name, spec_name, context=None):
     """Summarize selected hero subtree names for a build row."""
     if not hero_nodes_by_subtree:
         return []
 
     subtree_ids = [subtree_id for subtree_id in hero_nodes_by_subtree.keys() if subtree_id]
+    # The exact subtree set determines names, never the player's node count.
+    cache_key = ('hero_names', frozenset(hero_nodes_by_subtree))
+    if context is not None and cache_key in context:
+        names = context[cache_key]
+        return [dict(subtree_id=subtree_id, name=names[subtree_id], selected_count=len(nodes))
+                for subtree_id, nodes in sorted(hero_nodes_by_subtree.items(), key=lambda item: item[0] or 0)]
     anchor_names = {}
     if subtree_ids:
         anchors = WowTalentNodeMetadata.objects.filter(
@@ -1528,6 +1591,8 @@ def _build_hero_talent_summary(hero_nodes_by_subtree, class_name, spec_name):
             'name': _hero_subtree_name_from_table(subtree_id) or anchor_names.get(subtree_id) or fallback_name,
             'selected_count': len(nodes),
         })
+    if context is not None:
+        context[cache_key] = {item['subtree_id']: item['name'] for item in summary}
     return summary
 
 
@@ -1568,6 +1633,7 @@ def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
     raw_code_first_seen = {}
     total = 0
     first_seen_order = {}
+    context = {}
 
     def _hero_group(state):
         heroes = state.get('hero_talent_summary') or []
@@ -1582,6 +1648,7 @@ def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
         total += 1
         signature, state = _talent_build_semantic_state(
             record, provider, class_name, spec_name, decoder_nodes, decoder_nodes_by_key,
+            context=context,
         )
         group_key, hero_talent_name = _hero_group(state)
         # 无法得到任何节点状态时保留原始字符串边界，避免把未知数据错误合并。
@@ -2613,10 +2680,36 @@ def _describe_player_stats_source(player):
     return '暂无稳定属性来源'
 
 
-def _merge_player_profile_fields(records, season_id, class_name, spec_name, fields=('race', 'stats_json')):
+def _selected_player_profiles(keys, season_id, class_name, spec_name, fields, profile_cache=None):
+    """Select identities before hydrating JSON; keep last-row-wins ordering.
+
+    The optional cache belongs to one aggregation, never the process. Projecting
+    only requested fields also preserves talent-code rejection's original scope.
+    """
+    from botend.models import PlayerSpecTopPlayer
+    cache = profile_cache if profile_cache is not None else {}
+    scope = (season_id, class_name, spec_name, frozenset(keys))
+    queryset = PlayerSpecTopPlayer.objects.filter(
+        season_id=season_id, class_name=class_name, spec_name=spec_name)
+    if scope not in cache:
+        selected = {}
+        for profile in queryset.values('id', 'region', 'realm', 'character_name'):
+            key = tuple((profile.get(field) or '').lower()
+                        for field in ('region', 'realm', 'character_name'))
+            if key in keys:
+                selected[key] = profile['id']
+        cache[scope] = selected
+    selected = cache[scope]
+    payload_key = (scope, tuple(fields))
+    if payload_key not in cache:
+        rows = {row['id']: row for row in queryset.filter(id__in=selected.values()).values('id', *fields)}
+        cache[payload_key] = {key: rows[pk] for key, pk in selected.items() if pk in rows}
+    return cache[payload_key]
+
+
+def _merge_player_profile_fields(records, season_id, class_name, spec_name, fields=('race', 'stats_json'), *, profile_cache=None):
     """按角色身份把人物榜字段回填到当前 ranking 样本，保持 records 长度不变。"""
     try:
-        from botend.models import PlayerSpecTopPlayer
         keys = set()
         for r in records or []:
             key = (
@@ -2629,18 +2722,8 @@ def _merge_player_profile_fields(records, season_id, class_name, spec_name, fiel
         if not keys:
             return [dict(r) for r in records or []]
 
-        value_fields = ('region', 'realm', 'character_name', *fields)
-        profiles = {}
-        for p in PlayerSpecTopPlayer.objects.filter(
-            season_id=season_id, class_name=class_name, spec_name=spec_name
-        ).values(*value_fields):
-            key = (
-                (p.get('region') or '').lower(),
-                (p.get('realm') or '').lower(),
-                (p.get('character_name') or '').lower(),
-            )
-            if key in keys:
-                profiles[key] = p
+        profiles = _selected_player_profiles(
+            keys, season_id, class_name, spec_name, fields, profile_cache)
 
         merged = []
         for r in records or []:
@@ -2666,14 +2749,13 @@ def _merge_player_profile_fields(records, season_id, class_name, spec_name, fiel
     except Exception:
         return [dict(r) for r in records or []]
 
-def _merge_player_profile_gear(records, season_id, class_name, spec_name):
+def _merge_player_profile_gear(records, season_id, class_name, spec_name, *, profile_cache=None):
     """把人物榜 gear_json 的 gems_detail/enchants_detail 按角色匹配回填到 ranking 样本。
 
     ranking 表通常只有装备和 gems id，没有 enchants_detail；人物榜有完整 gear_json。
     返回长度不变的 records，分母仍是当前详情页的 100 个 ranking 样本。
     """
     try:
-        from botend.models import PlayerSpecTopPlayer
         keys = set()
         for r in records or []:
             key = (
@@ -2685,17 +2767,11 @@ def _merge_player_profile_gear(records, season_id, class_name, spec_name):
                 keys.add(key)
         if not keys:
             return records
-        profiles = {}
-        for p in PlayerSpecTopPlayer.objects.filter(
-            season_id=season_id, class_name=class_name, spec_name=spec_name
-        ).values('region', 'realm', 'character_name', 'gear_json'):
-            key = (
-                (p.get('region') or '').lower(),
-                (p.get('realm') or '').lower(),
-                (p.get('character_name') or '').lower(),
-            )
-            if key in keys:
-                profiles[key] = p.get('gear_json') or []
+        profiles = {
+            key: profile.get('gear_json') or []
+            for key, profile in _selected_player_profiles(
+                keys, season_id, class_name, spec_name, ('gear_json',), profile_cache).items()
+        }
         if not profiles:
             return records
         merged = []

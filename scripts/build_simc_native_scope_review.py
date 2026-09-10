@@ -53,7 +53,7 @@ def main():
         raise ValueError('原生证据与本地补丁不一致')
     successes=[r for r in manifest['结果'] if not r['退出码']]
     covered=len({Path(r['输入']).stem for r in successes})
-    coverage=f'当前覆盖 {covered} 个专精、{len(successes)} 份配置；另有 {len(manifest["结果"])-len(successes)} 份配置导出失败。' 
+    coverage=f'当前覆盖 {covered} 个专精、{len(successes)} 份配置；另有 {len(manifest["结果"])-len(successes)} 份配置导出失败。'
     names=json.loads(args.names.read_text(encoding='utf-8'))
     localized={r[2].casefold():r[3] for r in names if r[2] and r[3]} if isinstance(names,list) else {}
     names_by_id={int(k):v for k,v in names.items() if v} if isinstance(names,dict) else {}

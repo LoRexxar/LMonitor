@@ -6,7 +6,7 @@ import re
 
 from django.core.exceptions import ValidationError
 from django.db import transaction, IntegrityError
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
@@ -192,16 +192,30 @@ class GuidePreviewPage(GuideAccess, View):
 
 class GuideDisclaimerAPI(GuideAccess, View):
     def get(self, request):
-        tag = ClassGuideTag.objects.filter(name__iexact='maxroll').first()
-        return JsonResponse({'tag': 'maxroll', 'text': tag.disclaimer if tag else ''})
+        tags = list(ClassGuideTag.objects.annotate(guide_count=Count('guides')).order_by('name'))
+        requested = request.GET.get('tag', '').strip()
+        tag = next((row for row in tags if row.name.casefold() == requested.casefold()), None) if requested else None
+        if requested and tag is None:
+            raise ValueError('攻略标签不存在')
+        if tag is None:
+            tag = next((row for row in tags if row.name.casefold() == 'maxroll'), tags[0] if tags else None)
+        return JsonResponse({
+            'tag': tag.name if tag else '',
+            'text': tag.disclaimer if tag else '',
+            'tags': [{'name': row.name, 'guide_count': row.guide_count} for row in tags],
+        })
 
     def patch(self, request):
-        text = payload(request).get('text')
+        data = payload(request)
+        tag_name = data.get('tag')
+        text = data.get('text')
+        if not isinstance(tag_name, str) or not tag_name.strip() or len(tag_name.strip()) > 60:
+            raise ValueError('请选择有效的攻略标签')
         if not isinstance(text, str) or len(text) > 3000:
             raise ValueError('免责声明必须为文本，最多 3000 字符')
-        tag = ClassGuideTag.objects.filter(name__iexact='maxroll').first()
+        tag = ClassGuideTag.objects.filter(name__iexact=tag_name.strip()).first()
         if tag is None:
-            tag, _ = ClassGuideTag.objects.get_or_create(name='maxroll')
+            raise ValueError('攻略标签不存在')
         tag.disclaimer = text.strip()
         tag.save(update_fields=['disclaimer'])
-        return JsonResponse({'success': True, 'text': tag.disclaimer})
+        return JsonResponse({'success': True, 'tag': tag.name, 'text': tag.disclaimer})

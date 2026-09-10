@@ -172,10 +172,16 @@ def resolve_references(blocks, game_version, class_name='', spec_name='', source
         icon = getattr(row, 'icon', '') if row else ''
         if icon and re.fullmatch(r'[A-Za-z0-9_-]+', icon):
             icon = 'https://wow.zamimg.com/images/wow/icons/large/' + icon.lower() + '.jpg'
+        tooltip_kind = ref['kind']
+        tooltip_id = ref['id']
+        if ref['kind'] == 'talent':
+            tooltip_kind = 'spell'
+            tooltip_id = (getattr(row, 'display_spell_id', None) or getattr(row, 'spell_id', None)) if row else None
         ref.update(name=name or '待校订的{} {}'.format({'spell': '技能', 'item': '物品', 'talent': '天赋'}[ref['kind']], ref['id']),
                    resolved=bool(name), icon=safe_url(icon, image=True), evidence=evidence or ('站内元数据' if name else ''),
                    name_en=(getattr(row, 'name_en', '') or getattr(row, 'name', '')) if row else '',
-                   source_name=(source_refs.get(token) or {}).get('source_name', ''))
+                   source_name=(source_refs.get(token) or {}).get('source_name', ''),
+                   tooltip_kind=tooltip_kind, tooltip_id=tooltip_id)
     return refs
 
 
@@ -204,7 +210,20 @@ def render_references(value, references):
             name = html.escape(ref.get('name', '待校订引用 ' + match[2]))
             icon = ref.get('icon', '')
             img = '<img src="{}" alt="" loading="lazy">'.format(html.escape(icon, quote=True)) if icon else ''
-            return '<span class="guide-ref{}" title="{}">{}{}</span>'.format(' is-unresolved' if not ref.get('resolved') else '', html.escape(ref.get('source_name', ''), quote=True), img, name)
+            classes = 'guide-ref{}'.format(' is-unresolved' if not ref.get('resolved') else '')
+            attrs = 'class="{}" data-reference-kind="{}" data-reference-id="{}" aria-label="{}"'.format(
+                classes,
+                html.escape(str(ref.get('kind', '')), quote=True),
+                html.escape(str(ref.get('id', '')), quote=True),
+                html.escape(ref.get('source_name') or ref.get('name', ''), quote=True),
+            )
+            tooltip_kind = ref.get('tooltip_kind')
+            tooltip_id = ref.get('tooltip_id')
+            if tooltip_kind in {'spell', 'item'} and tooltip_id:
+                href = 'https://www.wowhead.com/cn/{}={}'.format(tooltip_kind, int(tooltip_id))
+                return '<a {} href="{}" data-wowhead="" target="_blank" rel="noopener noreferrer">{}{}</a>'.format(
+                    attrs, href, img, name)
+            return '<span {}>{}{}</span>'.format(attrs, img, name)
         fragment = BeautifulSoup(REF_RE.sub(replace, html.escape(str(node))), 'html.parser')
         node.replace_with(fragment)
     return str(soup)

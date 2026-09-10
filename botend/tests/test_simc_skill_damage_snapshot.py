@@ -1809,12 +1809,16 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 'base_source': 'attack_power',
                 'base_multiplier': 1.0,
                 'runtime_factors': [1.02, 1.30],
+                'dbc_source_spell_id': 1,
+                'dbc_effect_indexes': [],
             },
             {
                 'base_damage': 100.0,
                 'base_source': 'attack_power',
                 'base_multiplier': 1.0,
                 'runtime_factors': [1.53],
+                'dbc_source_spell_id': 2,
+                'dbc_effect_indexes': [],
                 'status': 'incomplete',
                 'unresolved_reason': 'dbc_runtime_formula_mismatch',
                 'explained_damage': 153.0,
@@ -1879,6 +1883,8 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             'base_source': 'attack_power',
             'base_multiplier': 1.0,
             'runtime_factors': [1.281],
+            'dbc_source_spell_id': 9001,
+            'dbc_effect_indexes': [],
             'final_damage': 153.72,
             'noncrit_damage': 128.1, 'crit_damage': 256.2, 'crit_chance': 0.2,
             'noncrit_contribution': 128.1 * 0.8, 'crit_contribution': 256.2 * 0.2,
@@ -2583,11 +2589,15 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         filterable_rows = flatten_single_talent_damage_variants(
             {'actions': []}, {'actions': []}, [global_with_non_player_change],
         )
-        self.assertEqual(len(filterable_rows), 2)
+        # 已存在的派生攻击若在精确天赋对照中改变执行次数，也必须保留；
+        # player_skill=False 不能替代全局分量排除目录。
+        self.assertEqual(len(filterable_rows), 3)
         self.assertEqual(
             {row['token'] for row in filterable_rows},
-            {'a', 'b'},
+            {'a', 'b', 'racial'},
         )
+        derived_row = next(row for row in filterable_rows if row['token'] == 'racial')
+        self.assertEqual(derived_row['baseline']['direct']['damage_equivalent_count'], 2.0)
         self.assertEqual(
             {row['variant']['talent_id'] for row in filterable_rows},
             {talent['id']},
@@ -5400,12 +5410,13 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn('group.baseDamage += baseDamage', renderer)
         self.assertIn('formatSimcSkillDamageFactor(group.baseDamage)', renderer)
         self.assertIn(
-            'const renderSimcTalentProbeCondition = (runtimeCondition, scenarioTokens, talentName)',
+            'const renderSimcTalentProbeCondition = (runtimeCondition, scenarioTokens, talentName, runtimeConditions = [])',
             renderer,
         )
         self.assertIn('`点出${talentLabel}`', renderer)
         self.assertIn("scope === 'debuff' ? '目标' : '自身'", renderer)
-        self.assertIn('`${owner}存在 ${stateToken} 效果时`', renderer)
+        self.assertIn('`${owner}存在 ${stateLabel} 效果时`', renderer)
+        self.assertIn('const stateLabel = `${stateName}${stackLabel}`', renderer)
         self.assertIn("'血量低于35%'", renderer)
         self.assertNotIn('目标生命值低于 35%', renderer)
         self.assertNotIn('「${name}」', renderer)
@@ -5488,7 +5499,7 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn("`${name}（${stackLabels.join('，')}）`", renderer)
         self.assertNotIn(".filter(effect => effect.source_type === 'specialization_passive')", renderer)
         self.assertIn('? actor.global_skill_effects', renderer)
-        self.assertIn('按作用域归类的全技能效果', renderer)
+        self.assertIn('已剔除的全局分量', renderer)
         self.assertIn('grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3', renderer)
         self.assertNotIn('flex items-center justify-between gap-4 border-t', renderer)
 

@@ -2,7 +2,7 @@
   'use strict';
   const disclaimer = document.getElementById('guide-disclaimer-workspace');
   const terms = document.getElementById('wow-localization-workspace');
-  if (!disclaimer || !terms) return;
+  if (!disclaimer && !terms) return;
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const names = {spell:'技能', talent:'天赋', item:'物品', phrase:'专有名词', macro:'宏名称'};
   async function request(path, options = {}) {
@@ -21,39 +21,76 @@
   const guard = (root, fn) => async (...args) => {
     try { await fn(...args); } catch (error) { message(root, error.message, true); }
   };
-  let disclaimerLoaded = false, disclaimerLoading = false, savedText = '';
-  const disclaimerForm = disclaimer.querySelector('form');
-  async function loadDisclaimer() {
-    if (disclaimerLoaded || disclaimerLoading) return;
-    disclaimerLoading = true;
-    try {
-      const data = await request('disclaimer/');
-      savedText = data.text;
-      disclaimerForm.elements.text.value = savedText;
-      disclaimerForm.elements.text.disabled = false;
-      disclaimerForm.querySelector('button').disabled = false;
-      disclaimerLoaded = true;
-      message(disclaimer, '');
-    } finally { disclaimerLoading = false; }
+  let loadDisclaimerPage = null;
+  if (disclaimer) {
+    let disclaimerLoaded = false, disclaimerLoading = false, savedText = '', selectedTag = '';
+    const disclaimerForm = disclaimer.querySelector('form');
+    const tagSelect = disclaimerForm.elements.tag;
+    const textField = disclaimerForm.elements.text;
+    const saveButton = disclaimerForm.querySelector('button');
+    const saveState = disclaimer.querySelector('[data-save-state]');
+    const tagSummary = disclaimer.querySelector('[data-tag-summary]');
+    const isDirty = () => disclaimerLoaded && textField.value !== savedText;
+    async function loadDisclaimer(tag = '') {
+      if (disclaimerLoading) return;
+      disclaimerLoading = true;
+      tagSelect.disabled = true;
+      textField.disabled = true;
+      saveButton.disabled = true;
+      try {
+        const data = await request('disclaimer/' + (tag ? `?tag=${encodeURIComponent(tag)}` : ''));
+        tagSelect.innerHTML = data.tags.length
+          ? data.tags.map(row => `<option value="${escape(row.name)}">${escape(row.name)}（${row.guide_count} 篇攻略）</option>`).join('')
+          : '<option value="">暂无攻略标签</option>';
+        selectedTag = data.tag;
+        savedText = data.text;
+        tagSelect.value = selectedTag;
+        textField.value = savedText;
+        disclaimerLoaded = Boolean(selectedTag);
+        tagSelect.disabled = !data.tags.length;
+        textField.disabled = !selectedTag;
+        saveButton.disabled = !selectedTag;
+        saveState.textContent = '';
+        const current = data.tags.find(row => row.name === selectedTag);
+        tagSummary.textContent = current ? `“${selectedTag}”当前绑定 ${current.guide_count} 篇攻略。` : '目前没有可维护的攻略标签。';
+        message(disclaimer, '');
+      } finally { disclaimerLoading = false; }
+    }
+    disclaimerForm.addEventListener('input', () => {
+      saveState.textContent = isDirty() ? '有未保存修改' : '';
+    });
+    tagSelect.addEventListener('change', guard(disclaimer, async () => {
+      const nextTag = tagSelect.value;
+      if (isDirty() && !window.confirm('当前标签的免责声明尚未保存，确定切换标签吗？')) {
+        tagSelect.value = selectedTag;
+        return;
+      }
+      await loadDisclaimer(nextTag);
+    }));
+    disclaimerForm.addEventListener('submit', guard(disclaimer, async event => {
+      event.preventDefault();
+      const text = textField.value;
+      saveButton.disabled = true;
+      try {
+        const data = await request('disclaimer/', {method:'PATCH', body:JSON.stringify({tag:selectedTag, text})});
+        savedText = data.text;
+        textField.value = data.text;
+        saveState.textContent = '已保存';
+        message(disclaimer, `免责声明已保存，所有带“${selectedTag}”标签的攻略统一生效。`);
+      } finally { saveButton.disabled = false; }
+    }));
+    window.addEventListener('beforeunload', event => {
+      if (isDirty()) { event.preventDefault(); event.returnValue = ''; }
+    });
+    loadDisclaimerPage = () => guard(disclaimer, () => loadDisclaimer())();
   }
-  disclaimerForm.addEventListener('input', () => {
-    disclaimer.querySelector('[data-save-state]').textContent = disclaimerForm.elements.text.value === savedText ? '' : '有未保存修改';
-  });
-  disclaimerForm.addEventListener('submit', guard(disclaimer, async event => {
-    event.preventDefault();
-    const button = disclaimerForm.querySelector('button'), text = disclaimerForm.elements.text.value;
-    button.disabled = true;
-    try {
-      await request('disclaimer/', {method:'PATCH', body:JSON.stringify({text})});
-      savedText = text;
-      disclaimer.querySelector('[data-save-state]').textContent = disclaimerForm.elements.text.value === savedText ? '已保存' : '有未保存修改';
-      message(disclaimer, '免责声明已保存，所有带 maxroll 标签的攻略统一生效。');
-    } finally { button.disabled = false; }
-  }));
-  const search = terms.querySelector('#wow-localization-search');
+
+  let loadTermsPage = null;
+  if (terms) {
+    const search = terms.querySelector('#wow-localization-search');
   const editor = terms.querySelector('#guide-term-form');
   const dialog = terms.querySelector('dialog');
-  let page = 1, rows = [], versions = [], sequence = 0, termsLoaded = false, editing = false;
+  let page = 1, rows = [], versions = [], sequence = 0, termsLoaded = false, editing = false, editingRow = null;
   async function loadTerms() {
     const currentSequence = ++sequence;
     const params = new URLSearchParams(new FormData(search));
@@ -66,34 +103,38 @@
     const selectedVersion = search.elements.version.value;
     search.elements.version.innerHTML = '<option value="">全部版本</option>' + [...new Set([...versions, selectedVersion].filter(Boolean))].map(v => `<option value="${escape(v)}">${escape(v)}</option>`).join('');
     search.elements.version.value = selectedVersion;
-    terms.querySelector('#guide-term-versions').innerHTML = versions.map(v => `<option value="${escape(v)}"></option>`).join('');
-    terms.querySelector('#wow-localization-results').innerHTML = rows.map((row, index) => `<tr><td>${escape(row.name_zh)}</td><td>${escape(row.name_en)}</td><td>${escape(names[row.kind])}<br><small>${escape(row.object_id)}</small></td><td>${escape(row.game_version)}<br><small>${row.supplemental ? '名称资料' : '天赋节点'}</small></td><td class="term-evidence">${escape(row.evidence)}</td><td><button type="button" class="small secondary" data-edit-term="${index}">编辑</button></td></tr>`).join('') || '<tr><td colspan="6" class="guide-list-empty">没有匹配的术语</td></tr>';
+    terms.querySelector('#wow-localization-results').innerHTML = rows.map((row, index) => `<tr><td>${escape(row.name_zh)}</td><td>${escape(row.name_en)}</td><td>${escape(names[row.kind])}<br><small>${escape(row.object_id)}</small></td><td>${escape(row.game_version)}<br><small>${row.supplemental ? '名称资料' : `天赋节点${row.duplicate_count > 1 ? ` × ${row.duplicate_count}` : ''}`}</small></td><td class="term-evidence">${escape(row.evidence)}</td><td><button type="button" class="small secondary" data-edit-term="${index}">编辑</button></td></tr>`).join('') || '<tr><td colspan="6" class="guide-list-empty">没有匹配的术语</td></tr>';
     terms.querySelector('#wow-localization-page').textContent = `第 ${page} 页 · 共 ${data.total} 条`;
     terms.querySelector('#wow-localization-prev').disabled = page === 1;
     terms.querySelector('#wow-localization-next').disabled = page * 100 >= data.total;
     termsLoaded = true;
   }
-  function updateKind() {
-    const phrase = ['phrase', 'macro'].includes(editor.elements.kind.value);
-    editor.querySelector('[data-object-field]').hidden = phrase;
-    editor.elements.object_id.required = !phrase;
-    editor.elements.name_en.required = phrase;
-    editor.elements.name_en.readOnly = editing && phrase;
-  }
   function editTerm(row = {}) {
     editing = Boolean(row.id);
+    editingRow = editing ? row : null;
     editor.reset();
-    for (const key of ['kind','object_id','game_version','name_en','name_zh','icon','evidence']) editor.elements[key].value = row[key] ?? (key === 'kind' ? 'spell' : '');
-    editor.elements.game_version.readOnly = editing;
+    editor.elements.object_id.value = row.object_id ?? '';
+    editor.elements.name_zh.value = row.name_zh ?? '';
     editor.elements.object_id.readOnly = editing;
-    editor.elements.kind.disabled = editing;
-    editor.querySelector('h2').textContent = editing ? '编辑术语' : '新增术语';
+    editor.querySelector('h2').textContent = editing ? '编辑中文名称' : '新增游戏名称';
     editor.querySelector('[data-editor-message]').hidden = true;
-    updateKind();
+    editor.querySelector('[data-create-hint]').hidden = editing;
+    const generated = editor.querySelector('[data-generated-fields]');
+    generated.hidden = false;
+    if (editing) {
+      generated.querySelector('[data-generated-identity]').textContent = `${names[row.kind] || row.kind} / ${row.game_version}`;
+      generated.querySelector('[data-generated-name]').textContent = row.name_en || '权威数据暂缺';
+      generated.querySelector('[data-generated-icon]').textContent = row.icon || '权威数据暂缺';
+      generated.querySelector('[data-generated-evidence]').textContent = row.evidence || '历史记录未保留依据';
+    } else {
+      generated.querySelector('[data-generated-identity]').textContent = '保存后自动识别';
+      generated.querySelector('[data-generated-name]').textContent = '保存后从权威数据生成';
+      generated.querySelector('[data-generated-icon]').textContent = '保存后从权威数据生成';
+      generated.querySelector('[data-generated-evidence]').textContent = '保存后由系统记录来源';
+    }
     dialog.showModal();
   }
-  editor.elements.kind.addEventListener('change', updateKind);
-  terms.querySelector('#guide-term-new').addEventListener('click', () => editTerm({game_version:search.elements.version.value || versions.at(-1) || ''}));
+  terms.querySelector('#guide-term-new').addEventListener('click', () => editTerm());
   terms.querySelector('#guide-term-cancel').addEventListener('click', () => dialog.close());
   terms.querySelector('#wow-localization-results').addEventListener('click', event => {
     const button = event.target.closest('[data-edit-term]');
@@ -103,13 +144,20 @@
     event.preventDefault();
     const button = editor.querySelector('[type="submit"]');
     const data = Object.fromEntries(new FormData(editor));
-    data.kind = editor.elements.kind.value;
     data.object_id = Number(data.object_id);
+    if (editingRow) {
+      data.record_pk = editingRow.pk;
+      data.edit_state = {name_en:editingRow.name_en, name_zh:editingRow.name_zh,
+        icon:editingRow.icon, evidence:editingRow.evidence, duplicate_count:editingRow.duplicate_count || 1};
+    } else data.create = true;
     button.disabled = true;
     try {
-      await request('terms/', {method:'POST', body:JSON.stringify(data)});
+      const result = await request('terms/', {method:'POST', body:JSON.stringify(data)});
       dialog.close();
-      message(terms, '术语已保存。技能、天赋和物品引用会自动更新；专有名词和宏名称用于后续翻译。');
+      const detected = !editingRow
+        ? `已自动识别为${names[result.kind] || result.kind}（${result.game_version}）${result.name_en ? `，英文名 ${result.name_en}` : ''}。`
+        : '';
+      message(terms, `${detected}中文名称已保存，相关攻略引用会自动更新。`);
       await loadTerms();
     } catch (error) {
       const node = dialog.open ? editor.querySelector('[data-editor-message]') : terms.querySelector('[data-message]');
@@ -120,24 +168,25 @@
   for (const [id, delta] of [['wow-localization-prev', -1], ['wow-localization-next', 1]]) {
     terms.querySelector('#' + id).addEventListener('click', guard(terms, async () => { page += delta; await loadTerms(); }));
   }
-  window.addEventListener('beforeunload', event => {
-    if (disclaimerLoaded && disclaimerForm.elements.text.value !== savedText) { event.preventDefault(); event.returnValue = ''; }
-  });
+  loadTermsPage = () => guard(terms, async () => {
+    if (termsLoaded) return;
+    const params = new URLSearchParams(location.search);
+    for (const key of ['q', 'kind']) search.elements[key].value = params.get(key) || '';
+    if (params.get('version')) {
+      search.elements.version.add(new Option(params.get('version'), params.get('version')));
+      search.elements.version.value = params.get('version');
+    }
+    await loadTerms();
+    if (params.get('edit') && names[params.get('kind')]) {
+      const requestedName = params.get('name_en');
+      const row = rows.find(row => (row.identifiers || [row.object_id, ...(row.aliases || [])]).map(String).includes(params.get('edit')) && row.kind === params.get('kind') && row.game_version === params.get('version') && (!requestedName || row.name_en === requestedName));
+      editTerm(row || {kind:params.get('kind'), object_id:params.get('edit'), game_version:params.get('version'), name_en:requestedName});
+    }
+  })();
+  }
+
   window.loadGuideManagementPage = section => {
-    if (section === 'guide-disclaimers') return guard(disclaimer, loadDisclaimer)();
-    if (section === 'wow-localization') return guard(terms, async () => {
-      if (termsLoaded) return;
-      const params = new URLSearchParams(location.search);
-      for (const key of ['q', 'kind']) search.elements[key].value = params.get(key) || '';
-      if (params.get('version')) {
-        search.elements.version.add(new Option(params.get('version'), params.get('version')));
-        search.elements.version.value = params.get('version');
-      }
-      await loadTerms();
-      if (params.get('edit') && names[params.get('kind')]) {
-        const row = rows.find(row => (String(row.object_id) === params.get('edit') || (row.aliases || []).map(String).includes(params.get('edit'))) && row.kind === params.get('kind') && row.game_version === params.get('version'));
-        editTerm(row || {kind:params.get('kind'), object_id:params.get('edit'), game_version:params.get('version'), name_en:params.get('name_en')});
-      }
-    })();
+    if (section === 'guide-disclaimers') return loadDisclaimerPage?.();
+    if (section === 'wow-localization') return loadTermsPage?.();
   };
 })();
