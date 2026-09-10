@@ -1,6 +1,6 @@
 <div id="wow-localization-workspace" class="class-guide-workspace guide-management-page">
   <div class="page-heading"><h1>游戏名称管理</h1><button id="guide-term-new" type="button">新增术语</button></div>
-  <p class="hint">维护全站共用的天赋、技能、物品及专有名词。修改直接保存到原有元数据，供攻略引用和文章翻译共同使用。</p>
+  <p class="hint">新增时只填写对象 ID 和中文名称；版本、类型、英文名、图标及核对依据由后端根据攻略引用和权威快照自动生成。</p>
   <p data-message role="status" aria-live="polite" hidden></p>
   <form id="wow-localization-search" class="filters">
     <label>搜索<input name="q" placeholder="中文、英文或编号"></label>
@@ -13,19 +13,18 @@
     <tbody id="wow-localization-results"></tbody>
   </table></div>
   <div class="pagination"><button id="wow-localization-prev" type="button" class="secondary">上一页</button><span id="wow-localization-page"></span><button id="wow-localization-next" type="button" class="secondary">下一页</button></div>
-  <datalist id="guide-term-versions"></datalist>
   <dialog id="guide-term-dialog" aria-labelledby="guide-term-heading">
     <form id="guide-term-form">
       <h2 id="guide-term-heading">新增术语</h2>
-      <div class="form-row">
-        <label>版本<input name="game_version" required list="guide-term-versions" maxlength="64"></label>
-        <label>类型<select name="kind"><option value="auto">按攻略引用自动识别</option><option value="spell">技能</option><option value="talent">天赋</option><option value="item">物品</option><option value="phrase">专有名词</option><option value="macro">宏名称</option></select></label>
-      </div>
-      <label data-object-field>引用编号<input name="object_id" type="number" min="1" step="1"></label>
-      <label>英文名称<input name="name_en" maxlength="255"></label>
+      <label>对象 ID<input name="object_id" type="number" min="1" step="1" required></label>
       <label>中文名称<input name="name_zh" required maxlength="255"></label>
-      <label>图标名或 HTTPS 地址<input name="icon" maxlength="255"></label>
-      <label>核对依据<input name="evidence" required maxlength="1000" placeholder="旧导入记录可留空；新记录请填写来源"></label>
+      <p class="hint" data-create-hint>保存时将自动识别类型与版本，并从现有权威元数据补齐英文名、图标和核对依据。</p>
+      <dl data-generated-fields>
+        <div><dt>类型 / 版本</dt><dd data-generated-identity></dd></div>
+        <div><dt>英文名称</dt><dd data-generated-name></dd></div>
+        <div><dt>图标</dt><dd data-generated-icon></dd></div>
+        <div><dt>核对依据</dt><dd data-generated-evidence></dd></div>
+      </dl>
       <p data-editor-message role="status" hidden></p>
       <div class="actions"><button type="button" id="guide-term-cancel" class="secondary">取消</button><button type="submit">保存术语</button></div>
     </form>

@@ -8,8 +8,9 @@ from botend.dashboard.permissions import DashboardPermissionRequiredMixin
 from botend.models import WowTalentVersion, WowTalentNodeMetadata
 from django.db.models import BigIntegerField, BinaryField, Case, Count, F, Func, Min, Q, When
 from django.db.models.functions import Coalesce
-from botend.services.wow_localization import (NameEditConflict, normalize_guide_reference, write_name,
-                                               version_label, version_for, _record)
+from botend.services.wow_localization import (NameEditConflict, _record, _reference_identity,
+                                               normalize_guide_reference, version_for, version_label,
+                                               write_name)
 
 
 class _Binary(Func):
@@ -103,10 +104,31 @@ class WowLocalizationAPI(DashboardPermissionRequiredMixin, View):
         record_pk = data.get('record_pk')
         if record_pk is None and data.get('create') is not True:
             raise NameEditConflict('页面版本已过期，请刷新后重试')
-        if not data.get('evidence') and not record_pk:
-            raise ValueError('请填写名称核对依据')
         if data.get('create') is True:
-            data = normalize_guide_reference(data)
+            is_natural_term = data.get('object_id') in (None, '') and data.get('kind') in ('phrase', 'macro')
+            if not is_natural_term:
+                data = normalize_guide_reference(data)
+        else:
+            if isinstance(record_pk, bool) or not isinstance(record_pk, int) or record_pk < 1:
+                raise ValidationError('名称记录编号无效')
+            target = WowTalentNodeMetadata.all_objects.select_related('talent_version').filter(pk=record_pk).first()
+            if target is None:
+                raise NameEditConflict('名称记录已变化，请刷新后重试')
+            identity = (target.reference_id if target.localization_only else
+                        target.talent_id or target.node_id or target.spell_id)
+            submitted_identity = _reference_identity(data.get('object_id'))
+            if submitted_identity != identity:
+                raise NameEditConflict('名称记录已变化，请刷新后重试')
+            data = {
+                **data,
+                'game_version': target.talent_version.key,
+                'kind': target.name_kind,
+                'object_id': identity,
+                'name_en': target.name,
+                'icon': target.icon,
+                'evidence': target.localization_evidence,
+            }
         record, _ = write_name(data, overwrite=True, preserve_blank=record_pk is None,
                                target_pk=record_pk, target_state=data.get('edit_state'))
-        return JsonResponse({'id': record['id'], 'kind': record['kind'], 'object_id': record['object_id']})
+        return JsonResponse({key: record[key] for key in (
+            'id', 'kind', 'object_id', 'game_version', 'name_en', 'icon')})

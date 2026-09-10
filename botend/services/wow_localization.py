@@ -59,34 +59,196 @@ def validate_name(data):
     return row
 
 
-def normalize_guide_reference(data, *, registry=apps, using='default'):
-    """创建引用名称时，以线上攻略的实际 token 类型为准，避免手选错类型后写入无效记录。"""
-    row = dict(data)
-    if row.get('kind') in ('phrase', 'macro'):
-        return validate_name(row)
-    try:
-        identity = int(row.get('object_id'))
-        if isinstance(row.get('object_id'), bool) or identity < 1 or identity >= 2**53:
-            raise ValueError
-    except (ValueError, TypeError):
+def _reference_identity(value):
+    if isinstance(value, bool):
         raise ValidationError('名称引用编号无效')
-    version = row.get('game_version')
-    if not isinstance(version, str) or not re.fullmatch(r'[A-Za-z0-9_.-]+', version):
-        raise ValidationError('必须填写有效的游戏版本')
+    if isinstance(value, int):
+        identity = value
+    elif isinstance(value, str) and re.fullmatch(r'[1-9]\d*', value):
+        identity = int(value)
+    else:
+        raise ValidationError('名称引用编号无效')
+    if identity < 1 or identity >= 2**53:
+        raise ValidationError('名称引用编号无效')
+    return identity
+
+
+def _version_matches_label(version, label):
+    if not isinstance(label, str) or not label:
+        return False
+    normalized = label[:-2] if re.fullmatch(r'\d+\.\d+\.0', label) else label
+    major = (version.major_version or '').removesuffix('.0')
+    return version.key == label or version.key.endswith('-' + label) or major == normalized
+
+
+def _preferred_version(labels, concrete_versions, *, registry, using):
+    """选择具体版本对象；不接受请求提示，也不把已知分支压缩后再反查。"""
+    version_model = registry.get_model('botend', 'WowTalentVersion')
+    all_versions = list(version_model._base_manager.using(using).all())
+    candidates = {version.pk: version for version in concrete_versions if version}
+    for label in dict.fromkeys(labels):
+        for version in all_versions:
+            if _version_matches_label(version, label):
+                candidates.setdefault(version.pk, version)
+    pool = list(candidates.values()) or all_versions
+    if not pool:
+        raise ValidationError('没有可用于名称资料的游戏版本')
+    return max(pool, key=lambda value: (
+        bool(value.is_default_player_tree), bool(value.is_active), value.pk,
+    ))
+
+
+def _spell_snapshot_branches(version):
+    return ['wowxptr', 'wowt'] if version.branch == 'ptr' else ['wow']
+
+
+def _inferred_reference(identity, *, registry, using):
+    """无攻略引用时仅根据现有权威表推断；多类型命中必须拒绝猜测。"""
+    metadata_model = registry.get_model('botend', 'WowTalentNodeMetadata')
+    metadata = metadata_model._base_manager.using(using).select_related('talent_version')
+    existing = list(metadata.filter(localization_only=True, reference_id=identity))
+    talent_rows = list(metadata.filter(localization_only=False).filter(
+        Q(talent_id=identity) | Q(node_id=identity)))
+    if not talent_rows:
+        aliases = metadata.filter(localization_only=False)
+        if connections[using].features.supports_json_field_contains:
+            talent_rows = list(aliases.filter(reference_aliases__contains=[identity]))
+        else:
+            talent_rows = [obj for obj in aliases if identity in obj.reference_aliases]
+    spell_rows = list(metadata.filter(localization_only=False).filter(
+        Q(spell_id=identity) | Q(display_spell_id=identity)))
+    raw_spell_snapshots = list(
+        registry.get_model('botend', 'WowSpellSnapshot')._base_manager.using(using).filter(spell_id=identity))
+    version_model = registry.get_model('botend', 'WowTalentVersion')
+    snapshot_versions = []
+    valid_spell_snapshots = []
+    for version in version_model._base_manager.using(using).exclude(current_build=''):
+        matches = [snapshot for snapshot in raw_spell_snapshots
+                   if snapshot.locale == 'enUS'
+                   and snapshot.snapshot_build == version.current_build
+                   and snapshot.branch in _spell_snapshot_branches(version)]
+        if matches:
+            snapshot_versions.append(version)
+            valid_spell_snapshots.extend(matches)
+    kinds = {obj.name_kind for obj in existing}
+    if talent_rows:
+        kinds.add('talent')
+    if spell_rows or valid_spell_snapshots:
+        kinds.add('spell')
+    if registry.get_model('botend', 'WowItemSnapshot')._base_manager.using(using).filter(
+            item_id=identity).exists():
+        kinds.add('item')
+    if len(kinds) != 1:
+        if not kinds:
+            raise ValidationError('该编号未出现在攻略或权威快照中，无法自动识别类型')
+        raise ValidationError('该编号匹配多个对象类型，无法安全自动识别')
+    versions = [
+        obj.talent_version for obj in [*existing, *talent_rows, *spell_rows]
+        if obj.talent_version
+    ]
+    versions.extend(snapshot_versions)
+    return kinds.pop(), versions
+
+
+def _generated_reference_metadata(kind, identity, version, guide_label, *, registry, using):
+    name_en = icon = ''
+    sources = []
+    metadata_model = registry.get_model('botend', 'WowTalentNodeMetadata')
+    native = metadata_model._base_manager.using(using).filter(localization_only=False)
+    if version:
+        native = native.filter(talent_version=version)
+    if kind == 'talent':
+        native = list(native.filter(Q(talent_id=identity) | Q(node_id=identity)))
+        if not native:
+            aliases = metadata_model._base_manager.using(using).filter(
+                localization_only=False, talent_version=version)
+            if connections[using].features.supports_json_field_contains:
+                native = list(aliases.filter(reference_aliases__contains=[identity]))
+            else:
+                native = [obj for obj in aliases if identity in obj.reference_aliases]
+    elif kind == 'spell':
+        native = list(native.filter(Q(spell_id=identity) | Q(display_spell_id=identity)))
+    else:
+        native = []
+    native_names = {obj.name for obj in native if obj.name}
+    native_icons = {obj.icon for obj in native if obj.icon}
+    if len(native_names) > 1 or len(native_icons) > 1:
+        raise ValidationError('该编号对应多条不同的原生名称资料，无法安全自动补全')
+    native_source = next((obj for obj in native if obj.name or obj.icon), None)
+    if native_source:
+        name_en, icon = native_source.name, native_source.icon
+        sources.append('WowTalentNodeMetadata')
+
+    if kind == 'spell' and version.current_build:
+        branches = _spell_snapshot_branches(version)
+        source = registry.get_model('botend', 'WowSpellSnapshot')._base_manager.using(using).filter(
+            spell_id=identity,
+            branch__in=branches,
+            locale='enUS',
+            snapshot_build=version.current_build,
+        ).order_by('branch').first()
+        if source and (source.name or source.icon):
+            name_en = source.name or name_en
+            icon = source.icon or icon
+            sources.append('WowSpellSnapshot')
+    elif kind == 'item':
+        source = registry.get_model('botend', 'WowItemSnapshot')._base_manager.using(using).filter(
+            item_id=identity).first()
+        if source:
+            name_en = source.name or name_en
+            icon = source.icon or icon
+            sources.append('WowItemSnapshot')
+    name_en = name_en or guide_label
+    return name_en, icon, list(dict.fromkeys(sources))
+
+
+def normalize_guide_reference(data, *, registry=apps, using='default'):
+    """新增时只接收 ID 和中文名；身份及展示元数据均由后端权威事实生成。"""
+    row = dict(data)
+    identity = _reference_identity(row.get('object_id'))
+    name_zh = row.get('name_zh', '')
+    if not isinstance(name_zh, str) or len(name_zh) > 255 or not re.search(r'[\u3400-\u9fff]', name_zh):
+        raise ValidationError('中文名称无效')
+
     from botend.guide_models import ClassGuide
-    token = re.compile(rf'\[\[(spell|talent|item):{identity}(?=[|\]])')
+    token = re.compile(rf'\[\[(spell|talent|item):{identity}(?:\|([^\]]+))?\]\]')
+    references = []
     guides = ClassGuide._base_manager.using(using).filter(
-        archived=False, game_version=version, content_markdown__contains=f':{identity}'
-    ).values_list('content_markdown', flat=True)
-    kinds = {match.group(1) for content in guides for match in token.finditer(content)}
-    if len(kinds) == 1:
-        row['kind'] = kinds.pop()
-    elif row.get('kind') == 'auto':
-        message = '该编号未出现在当前版本的线上攻略中' if not kinds else '该编号在攻略中对应多种引用类型'
-        raise ValidationError(message + '，请选择具体类型')
-    elif kinds and row.get('kind') not in kinds:
-        raise ValidationError('该编号在攻略中的引用类型不一致，请从攻略检查页进入校订')
-    return validate_name(row)
+        archived=False, content_markdown__contains=f':{identity}'
+    ).values_list('game_version', 'content_markdown')
+    for guide_version, content in guides:
+        references.extend((guide_version, match.group(1), (match.group(2) or '').strip())
+                          for match in token.finditer(content))
+    kinds = {kind for _, kind, _ in references}
+    if len(kinds) > 1:
+        raise ValidationError('该编号在攻略中对应多种引用类型，无法安全自动识别')
+    if references:
+        kind = kinds.pop()
+        version_labels = [guide_version for guide_version, _, _ in references]
+        concrete_versions = []
+    else:
+        kind, concrete_versions = _inferred_reference(identity, registry=registry, using=using)
+        version_labels = []
+    version = _preferred_version(
+        version_labels, concrete_versions, registry=registry, using=using)
+    guide_label = next((label for guide_version, reference_kind, label in references
+                        if _version_matches_label(version, guide_version)
+                        and reference_kind == kind and label), '')
+    name_en, icon, sources = _generated_reference_metadata(
+        kind, identity, version, guide_label, registry=registry, using=using)
+    evidence = f'系统自动识别：攻略显式引用 [[{kind}:{identity}]]' if references else (
+        f'系统自动识别：权威快照中的 {kind}:{identity}')
+    if sources:
+        evidence += '；英文名/图标来源 ' + '、'.join(sources)
+    return validate_name(dict(
+        game_version=version.key,
+        kind=kind,
+        object_id=identity,
+        name_en=name_en,
+        name_zh=name_zh,
+        icon=icon,
+        evidence=evidence,
+    ))
 
 
 def _record(obj, kind, version, object_id):
@@ -249,7 +411,9 @@ def write_name(data, *, overwrite=False, preserve_blank=False, registry=apps, us
                 native = [obj for obj in query.filter(localization_only=False) if identity in obj.reference_aliases]
             if not native and row['name_en']:
                 native = list(query.filter(localization_only=False, name__iexact=row['name_en']))
-            if len({obj.name_zh for obj in native if obj.name_zh}) > 1:
+            if (len({obj.name for obj in native if obj.name}) > 1
+                    or len({obj.icon for obj in native if obj.icon}) > 1
+                    or len({obj.name_zh for obj in native if obj.name_zh}) > 1):
                 native = []
         targets = native or list(query.filter(localization_only=True, reference_id=identity))
         if not targets:

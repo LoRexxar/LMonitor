@@ -103,36 +103,38 @@
     const selectedVersion = search.elements.version.value;
     search.elements.version.innerHTML = '<option value="">全部版本</option>' + [...new Set([...versions, selectedVersion].filter(Boolean))].map(v => `<option value="${escape(v)}">${escape(v)}</option>`).join('');
     search.elements.version.value = selectedVersion;
-    terms.querySelector('#guide-term-versions').innerHTML = versions.map(v => `<option value="${escape(v)}"></option>`).join('');
     terms.querySelector('#wow-localization-results').innerHTML = rows.map((row, index) => `<tr><td>${escape(row.name_zh)}</td><td>${escape(row.name_en)}</td><td>${escape(names[row.kind])}<br><small>${escape(row.object_id)}</small></td><td>${escape(row.game_version)}<br><small>${row.supplemental ? '名称资料' : `天赋节点${row.duplicate_count > 1 ? ` × ${row.duplicate_count}` : ''}`}</small></td><td class="term-evidence">${escape(row.evidence)}</td><td><button type="button" class="small secondary" data-edit-term="${index}">编辑</button></td></tr>`).join('') || '<tr><td colspan="6" class="guide-list-empty">没有匹配的术语</td></tr>';
     terms.querySelector('#wow-localization-page').textContent = `第 ${page} 页 · 共 ${data.total} 条`;
     terms.querySelector('#wow-localization-prev').disabled = page === 1;
     terms.querySelector('#wow-localization-next').disabled = page * 100 >= data.total;
     termsLoaded = true;
   }
-  function updateKind() {
-    const phrase = ['phrase', 'macro'].includes(editor.elements.kind.value);
-    editor.querySelector('[data-object-field]').hidden = phrase;
-    editor.elements.object_id.required = !phrase;
-    editor.elements.name_en.required = phrase;
-    editor.elements.name_en.readOnly = editing && phrase;
-  }
   function editTerm(row = {}) {
     editing = Boolean(row.id);
     editingRow = editing ? row : null;
     editor.reset();
-    for (const key of ['kind','object_id','game_version','name_en','name_zh','icon','evidence']) editor.elements[key].value = row[key] ?? (key === 'kind' ? 'auto' : '');
-    editor.elements.game_version.readOnly = editing;
+    editor.elements.object_id.value = row.object_id ?? '';
+    editor.elements.name_zh.value = row.name_zh ?? '';
     editor.elements.object_id.readOnly = editing;
-    editor.elements.kind.disabled = editing;
-    editor.elements.evidence.required = !editing || Boolean(row.evidence);
-    editor.querySelector('h2').textContent = editing ? '编辑术语' : '新增术语';
+    editor.querySelector('h2').textContent = editing ? '编辑中文名称' : '新增游戏名称';
     editor.querySelector('[data-editor-message]').hidden = true;
-    updateKind();
+    editor.querySelector('[data-create-hint]').hidden = editing;
+    const generated = editor.querySelector('[data-generated-fields]');
+    generated.hidden = false;
+    if (editing) {
+      generated.querySelector('[data-generated-identity]').textContent = `${names[row.kind] || row.kind} / ${row.game_version}`;
+      generated.querySelector('[data-generated-name]').textContent = row.name_en || '权威数据暂缺';
+      generated.querySelector('[data-generated-icon]').textContent = row.icon || '权威数据暂缺';
+      generated.querySelector('[data-generated-evidence]').textContent = row.evidence || '历史记录未保留依据';
+    } else {
+      generated.querySelector('[data-generated-identity]').textContent = '保存后自动识别';
+      generated.querySelector('[data-generated-name]').textContent = '保存后从权威数据生成';
+      generated.querySelector('[data-generated-icon]').textContent = '保存后从权威数据生成';
+      generated.querySelector('[data-generated-evidence]').textContent = '保存后由系统记录来源';
+    }
     dialog.showModal();
   }
-  editor.elements.kind.addEventListener('change', updateKind);
-  terms.querySelector('#guide-term-new').addEventListener('click', () => editTerm({game_version:search.elements.version.value || versions.at(-1) || ''}));
+  terms.querySelector('#guide-term-new').addEventListener('click', () => editTerm());
   terms.querySelector('#guide-term-cancel').addEventListener('click', () => dialog.close());
   terms.querySelector('#wow-localization-results').addEventListener('click', event => {
     const button = event.target.closest('[data-edit-term]');
@@ -142,7 +144,6 @@
     event.preventDefault();
     const button = editor.querySelector('[type="submit"]');
     const data = Object.fromEntries(new FormData(editor));
-    data.kind = editor.elements.kind.value;
     data.object_id = Number(data.object_id);
     if (editingRow) {
       data.record_pk = editingRow.pk;
@@ -153,8 +154,10 @@
     try {
       const result = await request('terms/', {method:'POST', body:JSON.stringify(data)});
       dialog.close();
-      const detected = !editingRow && data.kind !== result.kind ? `已按攻略引用识别为${names[result.kind]}。` : '';
-      message(terms, `${detected}术语已保存，相关攻略引用会自动更新。`);
+      const detected = !editingRow
+        ? `已自动识别为${names[result.kind] || result.kind}（${result.game_version}）${result.name_en ? `，英文名 ${result.name_en}` : ''}。`
+        : '';
+      message(terms, `${detected}中文名称已保存，相关攻略引用会自动更新。`);
       await loadTerms();
     } catch (error) {
       const node = dialog.open ? editor.querySelector('[data-editor-message]') : terms.querySelector('[data-message]');
